@@ -1,7 +1,10 @@
 "use client";
+import { appHaptic } from "@/lib/capacitor/app-haptics";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { nativeShellOverlayBlocked, useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
+import { renderedDrawerOffset } from "./drawer-motion";
 
 const EDGE_BACK_LANE = 28;
 const AXIS_LOCK = 8;
@@ -12,13 +15,13 @@ type Gesture = {
   identifier: number; x: number; y: number; time: number;
   axis: "undecided" | "horizontal";
   initialOpen: boolean; surface: HTMLElement;
-  width: number; panel: HTMLElement; scrim: HTMLElement;
+  width: number; distance: number; moved: boolean; panel: HTMLElement; semantic: HTMLElement; scrim: HTMLElement;
 };
 
 function excludedTarget(target: EventTarget | null, surface: HTMLElement, closing = false) {
   const element = target instanceof Element ? target : null;
   if (!element || !surface.contains(element) || element.closest(
-    'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [inert], [hidden], [data-no-route-swipe], [data-no-profile-swipe], [data-swipe-views-horizontal-scroll], [data-slot="carousel"], [data-slot="carousel-content"], [data-slot="carousel-item"], [data-slot="slider"], [role="slider"]',
+    'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [inert], [hidden], [data-no-route-swipe], [data-no-profile-swipe], [data-stationary-panel-chrome], [data-swipe-views-horizontal-scroll], [data-slot="carousel"], [data-slot="carousel-content"], [data-slot="carousel-item"], [data-slot="slider"], [role="slider"]',
   ) || (!closing && element.closest('button, a'))) return true;
   // Tables, code blocks and charts retain their own horizontal pan.
   for (let node: Element | null = element; node; node = node.parentElement) {
@@ -38,11 +41,13 @@ function domBlocked() {
 /** Presentation-only pull. The drawer owner supplies geometry and its authored
  * open action. No global listener, inferred button or route dispatch. React
  * changes only at gesture boundaries, never for a movement frame. */
-export function AppChatHistoryEdgeGesture({ enabled, open = false, surfaceRef, drawerRef, scrimRef, onOpen, onClose }: {
+export function AppChatHistoryEdgeGesture({ enabled, open = false, presentationKey, surfaceRef, drawerRef, motionRef = drawerRef, scrimRef, onOpen, onClose }: {
   enabled: boolean;
   open?: boolean;
+  presentationKey?: string;
   surfaceRef: RefObject<HTMLElement | null>;
   drawerRef: RefObject<HTMLElement | null>;
+  motionRef?: RefObject<HTMLElement | null>;
   scrimRef: RefObject<HTMLElement | null>;
   onOpen: () => void;
   onClose: () => void;
@@ -52,7 +57,7 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, surfaceRef, d
   const [dragging, setDragging] = useState(false);
   const reconcile = useRef<((open: boolean) => void) | null>(null);
   const wasOpen = useRef(open);
-  useNativeNavigationBlocked(dragging);
+  useNativeNavigationBlocked(dragging, "history-drag");
   useLayoutEffect(() => {
     if (wasOpen.current !== open) reconcile.current?.(open);
     wasOpen.current = open;
@@ -60,43 +65,63 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, surfaceRef, d
 
   useEffect(() => {
     const surface = surfaceRef.current;
-    const panel = drawerRef.current;
+    const semantic = drawerRef.current;
+    const panel = motionRef.current;
     const scrim = scrimRef.current;
-    if (!enabled || !surface || !panel || !scrim) return;
+    if (!enabled || customNativePresentationEnabled() || !surface || !semantic || !panel || !scrim) return;
     let gesture: Gesture | null = null;
     let settling: Gesture | null = null;
     let settlingOpen = false;
     let timer = 0;
+    let generation = 0;
     let suppressClickUntil = 0;
-    // The closed panel already includes its authored shadow clearance.
-    const shadowClearance = Math.max(0, -panel.getBoundingClientRect().left - panel.offsetWidth);
+    // Read the drawer's authored pixel clearance even if access freshness
+    // re-enables this listener while it is open. Measuring an open frame
+    // would lose that clearance and leave an inset-wide sliver during close.
+    const shadowClearance = Math.max(0, Number.parseFloat(
+      getComputedStyle(panel).getPropertyValue("--agent-history-shadow-clearance"),
+    ) || 0);
 
     const clear = (current: Gesture) => {
-      for (const property of ["transition", "transform", "translate", "will-change"]) current.panel.style.removeProperty(property);
+      for (const property of ["transition", "transform", "translate", "visibility", "will-change"]) current.panel.style.removeProperty(property);
       for (const property of ["transition", "opacity", "visibility", "will-change"]) current.scrim.style.removeProperty(property);
+      if (current.semantic !== current.panel) {
+        for (const property of ["transition", "opacity", "visibility"]) current.semantic.style.removeProperty(property);
+      }
     };
     const place = (current: Gesture, distance: number, phase: "drag" | "open" | "close") => {
       const offset = Math.min(0, Math.max(-current.width, distance - current.width));
       const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       const motion = phase === "open" ? "enter" : "exit";
       current.panel.style.transition = phase === "drag" || reduced ? "none"
-        : `transform var(--motion-sheet-${motion}-duration) var(--motion-sheet-${motion}-ease)`;
+        : `transform var(--motion-drawer-settle-duration) var(--motion-sheet-${motion}-ease)`;
       // Tailwind v4's resting translate is independent of transform. Disable
       // it for the pull, otherwise both offsets add and the panel stays hidden.
       current.panel.style.translate = "none";
+      // The real closed drawer is invisible. Moving it does not override that
+      // visibility; reveal this owned preview without admitting its actions.
+      current.panel.style.visibility = "visible";
       current.scrim.style.transition = phase === "drag" || reduced ? "none"
-        : `opacity var(--motion-sheet-${motion}-duration) var(--motion-sheet-${motion}-ease)`;
+        : `opacity var(--motion-drawer-settle-duration) var(--motion-sheet-${motion}-ease)`;
       current.panel.style.transform = `translate3d(${offset}px, 0, 0)`;
       current.scrim.style.opacity = String(1 - Math.abs(offset) / current.width);
       current.scrim.style.visibility = "visible";
+      if (current.semantic !== current.panel) {
+        current.semantic.style.transition = phase === "drag" || reduced ? "none"
+          : `opacity var(--motion-drawer-settle-duration) var(--motion-sheet-${motion}-ease)`;
+        current.semantic.style.visibility = "visible";
+        current.semantic.style.opacity = String(1 - Math.abs(offset) / current.width);
+      }
     };
     const settle = (current: Gesture, open: boolean, notify = false) => {
       window.clearTimeout(timer);
+      const currentGeneration = ++generation;
       gesture = null;
       settling = current;
       settlingOpen = open;
       place(current, open ? current.width : 0, open ? "open" : "close");
       if (notify && open !== current.initialOpen) {
+        appHaptic("selection");
         // Existing state, focus, loading and isolation owner, once per release.
         if (open) action.current.onOpen(); else action.current.onClose();
       }
@@ -105,6 +130,7 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, surfaceRef, d
         return Number.isFinite(ms) ? Math.max(max, ms) : max;
       }, 0);
       timer = window.setTimeout(() => {
+        if (currentGeneration !== generation) return;
         clear(current); settling = null; setDragging(false);
       }, duration + 30);
     };
@@ -126,23 +152,33 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, surfaceRef, d
       if (!touch) return;
       const initialOpen = wasOpen.current;
       const origin = event.currentTarget as HTMLElement;
-      if (settling || (initialOpen ? origin === surface : origin !== surface) ||
-          panel.getAttribute("aria-hidden") !== String(!initialOpen) || touch.clientX <= EDGE_BACK_LANE ||
-          (!initialOpen && nativeShellOverlayBlocked()) || domBlocked() || excludedTarget(event.target, origin, initialOpen)) return;
+      if ((initialOpen ? origin === surface : origin !== surface) ||
+          semantic.getAttribute("aria-hidden") !== String(!initialOpen) || touch.clientX <= EDGE_BACK_LANE ||
+          (!initialOpen && nativeShellOverlayBlocked(settling ? "history-drag" : undefined)) || domBlocked() || excludedTarget(event.target, origin, initialOpen)) return;
       // Include the authored closed shadow clearance, not just panel width.
-      const width = initialOpen ? panel.offsetWidth + shadowClearance : Math.max(panel.offsetWidth, -panel.getBoundingClientRect().left);
+      const width = initialOpen ? panel.offsetWidth + shadowClearance + panel.offsetLeft : Math.max(panel.offsetWidth, panel.offsetLeft - panel.getBoundingClientRect().left);
       if (width <= 0) return;
+      const offset = renderedDrawerOffset(panel);
+      // A tab/button-driven entry is also re-grabbable. Do not jump to its
+      // endpoint just because the active CSS transition was not our own pull.
+      const distance = Math.max(0, Math.min(width, initialOpen || offset < 0 ? width + offset : 0));
+      const interrupted = settling !== null || (initialOpen ? offset < -1 : offset < 0 && offset > -width + 1);
+      window.clearTimeout(timer);
+      generation += 1;
+      settling = null;
       gesture = { identifier: touch.identifier, x: touch.clientX, y: touch.clientY,
-        time: event.timeStamp, axis: "undecided", initialOpen, surface: origin, width, panel, scrim };
+        time: event.timeStamp, axis: interrupted ? "horizontal" : "undecided", initialOpen, surface: origin, width, distance, moved: false, panel, semantic, scrim };
+      if (interrupted) { setDragging(true); place(gesture, distance, "drag"); }
     };
     const move = (event: TouchEvent) => {
       if (!gesture) return;
       if (event.touches.length !== 1) { cancel(); return; }
       const touch = Array.from(event.touches).find(point => point.identifier === gesture?.identifier);
-      if (!touch || panel.getAttribute("aria-hidden") !== String(!gesture.initialOpen) || gesture.surface.closest("[inert], [hidden]") ||
+      if (!touch || semantic.getAttribute("aria-hidden") !== String(!gesture.initialOpen) || gesture.surface.closest("[inert], [hidden]") ||
           domBlocked()) { cancel(); return; }
       const dx = touch.clientX - gesture.x;
       const dy = touch.clientY - gesture.y;
+      if (Math.abs(dx) >= AXIS_LOCK) gesture.moved = true;
       if (gesture.axis === "undecided") {
         if (Math.max(Math.abs(dx), Math.abs(dy)) < AXIS_LOCK) return;
         const directed = gesture.initialOpen ? -dx : dx;
@@ -154,20 +190,21 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, surfaceRef, d
       }
       suppressClickUntil = performance.now() + 500;
       event.stopPropagation(); // Keep owned moves local; Profile already yields to the open drawer.
-      place(gesture, (gesture.initialOpen ? gesture.width : 0) + dx, "drag");
+      place(gesture, gesture.distance + dx, "drag");
     };
     const end = (event: TouchEvent) => {
       if (!gesture) return;
       const touch = Array.from(event.changedTouches).find(point => point.identifier === gesture?.identifier);
       if (!touch) { cancel(); return; }
       if (gesture.axis !== "horizontal") { gesture = null; return; }
+      if (!gesture.moved) { settle(gesture, wasOpen.current); return; }
       const dx = touch.clientX - gesture.x;
       const dy = touch.clientY - gesture.y;
       event.stopPropagation();
       suppressClickUntil = performance.now() + 500;
       const directed = gesture.initialOpen ? -dx : dx;
       const velocity = directed / Math.max(1, event.timeStamp - gesture.time);
-      const committed = !domBlocked() && panel.getAttribute("aria-hidden") === String(!gesture.initialOpen) &&
+      const committed = !domBlocked() && semantic.getAttribute("aria-hidden") === String(!gesture.initialOpen) &&
         directed > Math.abs(dy) * DIRECTION_RATIO &&
         (directed >= COMMIT_DISTANCE || (directed >= AXIS_LOCK * 2 && velocity >= COMMIT_VELOCITY));
       settle(gesture, committed ? !gesture.initialOpen : gesture.initialOpen, true);
@@ -179,8 +216,19 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, surfaceRef, d
       event.stopPropagation();
     };
     const visibility = () => { if (document.visibilityState === "hidden") cancel(); };
+    let panelWidth = panel.offsetWidth;
+    const resized = () => {
+      if (panel.offsetWidth === panelWidth) return;
+      panelWidth = panel.offsetWidth;
+      // Old horizontal geometry cannot commit a navigation after rotation.
+      window.clearTimeout(timer);
+      generation += 1;
+      if (gesture) clear(gesture);
+      if (settling) clear(settling);
+      gesture = null; settling = null; setDragging(false);
+    };
     const options = { passive: true } as const;
-    const surfaces = [surface, panel, scrim];
+    const surfaces = [surface, semantic, scrim];
     for (const node of surfaces) {
       node.addEventListener("touchstart", start, options);
       node.addEventListener("touchmove", move, options);
@@ -189,8 +237,11 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, surfaceRef, d
       node.addEventListener("click", click, true);
     }
     document.addEventListener("visibilitychange", visibility);
+    window.addEventListener("resize", resized);
+    window.addEventListener("blur", cancel);
     return () => {
       window.clearTimeout(timer);
+      generation += 1;
       if (gesture) clear(gesture);
       if (settling) clear(settling);
       reconcile.current = null;
@@ -203,7 +254,9 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, surfaceRef, d
         node.removeEventListener("click", click, true);
       }
       document.removeEventListener("visibilitychange", visibility);
+      window.removeEventListener("resize", resized);
+      window.removeEventListener("blur", cancel);
     };
-  }, [enabled, surfaceRef, drawerRef, scrimRef]);
+  }, [enabled, presentationKey, surfaceRef, drawerRef, motionRef, scrimRef]);
   return null;
 }

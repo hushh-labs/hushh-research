@@ -447,22 +447,33 @@ export const morphyToast = {
     promise: Promise<T> | (() => Promise<T>),
     data: {
       loading: React.ReactNode;
+      description?: React.ReactNode;
+      variant?: ColorVariant;
+      finally?: () => void | Promise<void>;
+    } & ({
+      // Owner-bound operations use already-authored labels. Sonner reads
+      // these getters at settlement, not just when the loading toast starts.
+      // Fulfill with parsed records or reject. Resolved Error/Response/JSX
+      // uses Sonner's earlier special branches, not this label fence. The
+      // caller also retires its loading handle when ownership changes.
+      isCurrent: () => boolean;
+      success: string;
+      error: string;
+    } | {
+      isCurrent?: never;
       success:
         | React.ReactNode
         | ((value: T) => React.ReactNode | Promise<React.ReactNode>);
       error:
         | React.ReactNode
         | ((error: unknown) => React.ReactNode | Promise<React.ReactNode>);
-      description?: React.ReactNode;
-      variant?: ColorVariant;
-      finally?: () => void | Promise<void>;
-    }
+    })
   ): ReturnType<typeof toast.promise> => {
     const accent = getToastVariantAccentClassName(data.variant);
     return toast.promise<T>(promise, {
       loading: data.loading,
-      success: data.success,
-      error: data.error,
+      get success() { return !data.isCurrent || data.isCurrent() ? data.success : undefined; },
+      get error() { return !data.isCurrent || data.isCurrent() ? data.error : undefined; },
       description: data.description,
       finally: data.finally,
       classNames: {

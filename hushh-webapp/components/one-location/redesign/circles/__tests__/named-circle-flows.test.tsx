@@ -3,6 +3,7 @@ import {
   act,
   fireEvent,
   render,
+  renderHook,
   screen,
   waitFor,
   within,
@@ -15,15 +16,19 @@ import {
   CircleDetailFlow,
   CirclesSection,
   CreateCircleFlow,
+  useCreateCircleFlow,
   JoinCircleFlow,
 } from "@/components/one-location/redesign/circles/named-circle-flows";
 import { CIRCLE_MEMBER_MENU_CLASSNAME } from "@/components/one-location/redesign/circles/circle-member-row-layout";
+import { useCreateCirclePeopleModel } from "@/components/one-location/redesign/circles/create-circle-people-step";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import type {
   OneLocationCircleDetail,
   OneLocationCircleInvitePreview,
   OneLocationCircleMemberInvite,
+  OneLocationCircleMemberPage,
 } from "@/lib/one-location/types";
 
 vi.mock("sonner", () => ({
@@ -60,6 +65,19 @@ function circle(id: string, name: string): OneLocationCircleDetail {
   };
 }
 
+function createProps() {
+  return {
+    busy: false,
+    onSubmit: vi.fn(async () => circle("new-circle", "Roommates")),
+    onLoadPeople: vi.fn(async () => ({
+      eligibleConnections: [{ connectionId: "c-asha", userId: "asha", displayName: "Asha Meena", isRia: false }],
+      pendingInvites: [], remainingCapacity: 99, page: 1, hasMore: false, totalCount: 1,
+    })),
+    onAddPeople: vi.fn(async () => undefined),
+    onComplete: vi.fn(),
+  };
+}
+
 function detailProps(
   onLoad: (circleId: string) => Promise<OneLocationCircleDetail>,
 ) {
@@ -90,11 +108,392 @@ function detailProps(
 }
 
 describe("named Circle flows", () => {
+  it.each([false, true])("uses the SMS text-style Add people entry for named circles (living=%s)", async (livingCircleExperience) => {
+    render(<CircleDetailFlow circleId="family" livingCircleExperience={livingCircleExperience} {...detailProps(async () => circle("family", "Family"))} />);
+    const add = await screen.findByRole("button", { name: "Add people", exact: true });
+    expect(add).toHaveClass("bg-transparent");
+    expect(add.querySelector("svg.profile-pane-icon .profile-pane-icon-accent")).toBeTruthy();
+    expect(add.querySelector('[data-slot="settings-row-chevron"]')).toBeNull();
+    fireEvent.click(add);
+    expect(await screen.findByRole("dialog", { name: "Add people" })).toBeVisible();
+  });
+
+  it("retains the created ID if the server drops a custom type, then updates it on retry", async () => {
+    const props = createProps();
+    const saved = { ...circle("new-circle", "Investments"), kind: "other" as const };
+    const onSubmit = vi.fn().mockResolvedValueOnce(saved).mockResolvedValueOnce({ ...saved, customTypeLabel: "Finance" });
+    const { result } = renderHook(() => useCreateCircleFlow({ ...props, onSubmit, customTypesSupported: true }));
+    act(() => { result.current.changeDraft({ name: "Investments", kind: "other", customTypeLabel: "Finance" }); });
+    await act(async () => { expect(await result.current.prepare()).toBe(false); });
+    expect(result.current.savedCircle?.id).toBe("new-circle");
+    await act(async () => { expect(await result.current.prepare()).toBe(true); });
+    expect(onSubmit).toHaveBeenLastCalledWith("Investments", "other", "new-circle", "Finance");
+  });
+
+  it("allows changing a saved Circle's type after the refreshed list reaches the cap", async () => {
+    const props = createProps();
+    const onSubmit = vi.fn().mockImplementation(async (name: string, _kind: string, _id?: string, label?: string) => ({ ...circle("new-circle", name), kind: "other", customTypeLabel: label }));
+    const { result, rerender } = renderHook(({ types }) => useCreateCircleFlow({ ...props, onSubmit, customTypesSupported: true, customTypes: types }), { initialProps: { types: ["Finance", "Sports"] } });
+    act(() => { result.current.changeDraft({ name: "Trips", kind: "other", customTypeLabel: "Travel" }); });
+    await act(async () => { expect(await result.current.prepare()).toBe(true); });
+    act(() => result.current.backToDetails());
+    rerender({ types: ["Finance", "Sports", "Travel"] });
+    act(() => { result.current.setCustomTypeLabel("Work"); });
+    expect(result.current.canSubmit).toBe(true);
+    await act(async () => { expect(await result.current.prepare()).toBe(true); });
+    expect(onSubmit).toHaveBeenLastCalledWith("Trips", "other", "new-circle", "Work");
+  });
+  it("offers saved custom types and saves a different Circle name under that type", async () => {
+    const props = createProps();
+    props.onSubmit.mockResolvedValue({ ...circle("new-circle", "Investments"), kind: "other", customTypeLabel: "Finance" });
+    render(<CreateCircleFlow {...props} customTypesSupported customTypes={["Finance"]} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Circle name" }), { target: { value: "Investments" } });
+    fireEvent.click(screen.getByRole("radio", { name: "Finance", exact: true }));
+    expect(screen.getByRole("textbox", { name: "Type name (optional)" })).toHaveValue("Finance");
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(props.onSubmit).toHaveBeenCalledWith("Investments", "other", undefined, "Finance"));
+    await screen.findByRole("button", { name: "Add people later" });
+  });
+
+  it("bounds new custom types while allowing an existing type to be reused", () => {
+    render(<CreateCircleFlow {...createProps()} customTypesSupported customTypes={["Finance", "Sports", "Travel"]} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Circle name" }), { target: { value: "Project team" } });
+    fireEvent.click(screen.getByRole("radio", { name: "Other", exact: true }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Type name (optional)" }), { target: { value: "Work" } });
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+    expect(screen.getByText(/Delete a type before adding another/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "Finance", exact: true }));
+    expect(screen.getByRole("button", { name: "Next" })).toBeEnabled();
+    expect(screen.getAllByRole("radio")).toHaveLength(6);
+  });
+
+  it("does not expose custom-type controls without backend support", () => {
+    render(<CreateCircleFlow {...createProps()} customTypes={["Finance"]} />);
+    fireEvent.click(screen.getByRole("radio", { name: "Other", exact: true }));
+    expect(screen.queryByRole("radio", { name: "Finance" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Type name (optional)" })).not.toBeInTheDocument();
+  });
   afterEach(() => {
     vi.clearAllMocks();
   });
 
-  it.each(["tap", "drop"] as const)(
+  it("retains the 20-person batch cap and allows deselection at capacity", async () => {
+    const props = createProps();
+    const people = Array.from({ length: 21 }, (_, index) => ({
+      connectionId: `connection-${index}`, userId: `person-${index}`, displayName: `Person ${index}`, isRia: false,
+    }));
+    const onLoad = vi.fn(async () => ({ eligibleConnections: people, pendingInvites: [], remainingCapacity: 99, page: 1, hasMore: false, totalCount: people.length }));
+    const { result } = renderHook(() => useCreateCirclePeopleModel({
+      circleId: "new-circle", circleName: "Roommates", active: true,
+      onLoad, onAdd: props.onAddPeople, onComplete: props.onComplete, onBack: vi.fn(), onSavingChange: vi.fn(),
+    }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => { people.forEach(person => result.current.add(person.userId)); });
+    expect(result.current.limit).toBe(20);
+    expect(result.current.selected).toHaveLength(20);
+    act(() => result.current.remove("person-0"));
+    act(() => result.current.add("person-20"));
+    await act(async () => result.current.finish(true));
+    expect(props.onAddPeople).toHaveBeenCalledWith("new-circle", people.slice(1).map(person => person.userId));
+  });
+
+  it.each([true, false])("settles the retained people model before creating another Circle (add selected: %s)", async (addSelected) => {
+    const props = createProps();
+    const { result, rerender } = renderHook(({ circleId }) => useCreateCirclePeopleModel({
+      circleId, circleName: "Roommates", active: true,
+      onLoad: props.onLoadPeople, onAdd: props.onAddPeople,
+      onComplete: props.onComplete, onBack: vi.fn(), onSavingChange: vi.fn(),
+    }), { initialProps: { circleId: "first-circle" } });
+
+    for (const circleId of ["first-circle", "second-circle"]) {
+      if (circleId === "second-circle") rerender({ circleId });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      if (addSelected) act(() => result.current.add("asha"));
+      await act(async () => result.current.finish(addSelected));
+      expect(props.onComplete).toHaveBeenLastCalledWith(circleId);
+      expect(result.current.saving).toBe(false);
+      expect(result.current.mutationPending()).toBe(false);
+    }
+    expect(props.onComplete).toHaveBeenCalledTimes(2);
+    expect(props.onAddPeople).toHaveBeenCalledTimes(addSelected ? 2 : 0);
+    if (addSelected) expect(props.onAddPeople).toHaveBeenLastCalledWith("second-circle", ["asha"]);
+  });
+
+  it("adds selected contacts in step 2 without creating another Circle on retry", async () => {
+    const props = createProps();
+    props.onAddPeople.mockRejectedValueOnce(new Error("Temporarily unavailable"));
+    render(<CreateCircleFlow {...props} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Circle name" }), { target: { value: "Roommates" } });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    const choice = await screen.findByRole("button", { name: "Add Asha Meena" });
+    expect(choice).toHaveAccessibleDescription("Connection details unavailable");
+    fireEvent.click(choice);
+    expect(props.onAddPeople).not.toHaveBeenCalled();
+    expect(props.onComplete).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Add 1 person", exact: true }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Could not add those people. Try again or add people later."));
+    expect(screen.getByRole("button", { name: "Remove Asha Meena" })).toBeEnabled();
+    expect(props.onComplete).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Add 1 person", exact: true }));
+    await waitFor(() => expect(props.onComplete).toHaveBeenCalledWith("new-circle"));
+    expect(props.onAddPeople).toHaveBeenNthCalledWith(2, "new-circle", ["asha"]);
+    expect(props.onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("can defer people while contacts are loading or unavailable", async () => {
+    const props = createProps();
+    props.onLoadPeople.mockRejectedValue(new Error("Unavailable"));
+    render(<CreateCircleFlow {...props} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Circle name" }), { target: { value: "Roommates" } });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByText("Could not load your contacts.");
+    fireEvent.click(screen.getByRole("button", { name: "Add people later" }));
+    expect(props.onComplete).toHaveBeenCalledWith("new-circle");
+    expect(props.onAddPeople).not.toHaveBeenCalled();
+  });
+
+  it("Back retains the saved Circle and selection, then updates changed details", async () => {
+    const props = createProps();
+    render(<CreateCircleFlow {...props} pathname={ROUTES.CONNECT} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Circle name" }), { target: { value: "Roommates" } });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Add Asha Meena" }));
+    act(() => { expect(unwindBackLayer(ROUTES.CONNECT, new URLSearchParams("action=create-circle"))).toBe(true); });
+    expect(screen.getByRole("textbox", { name: "Circle name" })).toHaveValue("Roommates");
+    fireEvent.change(screen.getByRole("textbox", { name: "Circle name" }), { target: { value: "Close friends" } });
+    fireEvent.click(screen.getByRole("radio", { name: "Friends" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(props.onSubmit).toHaveBeenLastCalledWith("Close friends", "friends", "new-circle"));
+    expect(screen.getByRole("button", { name: "Remove Asha Meena" })).toBeInTheDocument();
+  });
+
+  it("consumes Back and repeated add taps until membership is saved", async () => {
+    const props = createProps();
+    let resolveAdd!: () => void;
+    props.onAddPeople.mockImplementation(() => new Promise<void>((resolve) => { resolveAdd = resolve; }));
+    render(<CreateCircleFlow {...props} pathname={ROUTES.CONNECT} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Circle name" }), { target: { value: "Roommates" } });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Add Asha Meena" }));
+    const add = screen.getByRole("button", { name: "Add 1 person", exact: true });
+    fireEvent.click(add);
+    fireEvent.click(add);
+    act(() => { expect(unwindBackLayer(ROUTES.CONNECT, new URLSearchParams("action=create-circle"))).toBe(true); });
+    expect(screen.getByRole("heading", { name: "Add people" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add people later" })).toBeDisabled();
+    expect(props.onAddPeople).toHaveBeenCalledTimes(1);
+    await act(async () => resolveAdd());
+    expect(props.onComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])("retains the selected identity and an early rename through roster loading (saved: %s)", async (saveRename) => {
+    let overview!: (value: OneLocationCircleDetail) => void;
+    let roster!: (value: OneLocationCircleMemberPage) => void;
+    const props = detailProps(vi.fn());
+    const onLoadOverview = vi.fn(() => new Promise<OneLocationCircleDetail>((resolve) => { overview = resolve; }));
+    const pendingRoster = new Promise<OneLocationCircleMemberPage>((resolve) => { roster = resolve; });
+    const onLoadMembersPage = vi.fn(() => pendingRoster);
+    render(<CircleDetailFlow circleId="emergency" initialCircleSummary={{ id: "emergency", name: "Emergency contacts", memberCount: 3 }}
+      {...props} onLoadOverview={onLoadOverview} onLoadMembersPage={onLoadMembersPage} />);
+    expect(screen.getByRole("heading", { name: "Emergency contacts" })).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Loading circle members" })).toBeInTheDocument();
+    expect(screen.queryByText("Loading Circle…")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    await act(async () => overview(circle("emergency", "Updated circle")));
+    expect(screen.getByRole("heading", { name: "Updated circle" })).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Loading circle members" })).toBeInTheDocument();
+    expect(screen.queryByText("No members found")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit", exact: true }));
+    fireEvent.change(await screen.findByLabelText("Circle name"), { target: { value: "My renamed circle" } });
+    if (saveRename) {
+      fireEvent.click(screen.getByRole("button", { name: "Save", exact: true }));
+      await waitFor(() => expect(screen.queryByLabelText("Circle name")).not.toBeInTheDocument());
+    }
+    await act(async () => roster({ items: circle("emergency", "Updated circle").members, page: 1, hasMore: false, totalCount: 1 }));
+    if (saveRename) {
+      expect(screen.getByRole("heading", { name: "My renamed circle" })).toBeInTheDocument();
+    } else {
+      expect(screen.getByLabelText("Circle name")).toHaveValue("My renamed circle");
+      expect(screen.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+      fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
+    }
+    expect(screen.getByText("Owner")).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "Loading circle members" })).not.toBeInTheDocument();
+  });
+
+  it("keeps a newer member search when the initial roster finishes late", async () => {
+    const current = { ...circle("family", "Family"), memberCount: 8 };
+    const asha = { ...current.members[0]!, userId: "asha", displayName: "Asha Rao", role: "member" as const };
+    let initialRoster!: (page: OneLocationCircleMemberPage) => void;
+    const pending = new Promise<OneLocationCircleMemberPage>((resolve) => { initialRoster = resolve; });
+    const onLoadMembersPage = vi.fn((_id: string, options: { query?: string }) => options.query
+      ? Promise.resolve({ items: [asha], page: 1, hasMore: false, totalCount: 1 })
+      : pending);
+    render(<CircleDetailFlow circleId="family" {...detailProps(vi.fn())}
+      onLoadOverview={async () => current} onLoadMembersPage={onLoadMembersPage} />);
+    fireEvent.change(await screen.findByRole("textbox", { name: "Search members" }), { target: { value: "Asha" } });
+    await screen.findByText("Asha Rao");
+    await act(async () => initialRoster({ items: [...current.members, asha], page: 1, hasMore: false, totalCount: 8 }));
+    expect(screen.getByRole("textbox", { name: "Search members" })).toHaveValue("Asha");
+    expect(screen.getByText("Asha Rao")).toBeInTheDocument();
+    expect(screen.queryByText("Owner")).not.toBeInTheDocument();
+    expect(screen.getByText("1 match")).toBeInTheDocument();
+  });
+
+  it("keeps a failed first roster distinct from an empty circle and recovers on retry", async () => {
+    const current = circle("emergency", "Emergency contacts");
+    const props = detailProps(vi.fn());
+    const onLoadOverview = vi.fn(async () => current);
+    const onLoadMembersPage = vi.fn().mockRejectedValue(new Error("Members unavailable"));
+    render(<CircleDetailFlow circleId="emergency" {...props} onLoadOverview={onLoadOverview} onLoadMembersPage={onLoadMembersPage} />);
+    await screen.findByText("Members unavailable");
+    expect(screen.getByRole("heading", { name: "Emergency contacts" })).toBeInTheDocument();
+    expect(screen.queryByText("No members found")).not.toBeInTheDocument();
+    expect(screen.queryByText("Try a different name.")).not.toBeInTheDocument();
+    onLoadMembersPage.mockResolvedValue({ items: current.members, page: 1, hasMore: false, totalCount: 1 });
+    fireEvent.click(screen.getByRole("button", { name: "Retry", exact: true }));
+    await screen.findByText("Owner");
+    expect(screen.queryByText("Members unavailable")).not.toBeInTheDocument();
+  });
+
+  it("closes an open invitation sheet as soon as fresh overview revokes permission while the roster is pending", async () => {
+    const current = circle("family", "Family");
+    const props = detailProps(vi.fn());
+    props.onLoadEligibleConnections = vi.fn(async () => ({
+      eligibleConnections: [{ connectionId: "connection-asha", userId: "asha", displayName: "Asha Rao" }],
+      pendingInvites: [], remainingCapacity: 19,
+    }));
+    const onLoadOverview = vi.fn().mockResolvedValue(current);
+    const onLoadMembersPage = vi.fn().mockResolvedValue({ items: current.members, page: 1, hasMore: false, totalCount: 1 });
+    const view = render(<CircleDetailFlow circleId="family" {...props} onLoadOverview={onLoadOverview} onLoadMembersPage={onLoadMembersPage} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Asha Rao/i }));
+    expect(screen.getByRole("button", { name: "Add 1 person" })).toBeEnabled();
+    onLoadOverview.mockResolvedValue({ ...current, viewerCapabilities: { ...current.viewerCapabilities, canInviteMembers: false } });
+    let rejectRoster!: (error: Error) => void;
+    const pendingRoster = new Promise((_, reject) => { rejectRoster = reject; });
+    onLoadMembersPage.mockReturnValue(pendingRoster);
+    view.rerender(<CircleDetailFlow circleId="family" reloadSignal={1} {...props} onLoadOverview={onLoadOverview} onLoadMembersPage={onLoadMembersPage} />);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add people" })).not.toBeInTheDocument());
+    expect(props.onInviteConnections).not.toHaveBeenCalled();
+    await act(async () => rejectRoster(new Error("Members unavailable")));
+    expect(screen.queryByRole("button", { name: "Add 1 person" })).not.toBeInTheDocument();
+  });
+
+  it("withholds old detail and ignores late responses after an unlock scope changes", async () => {
+    const first = circle("same-circle", "Old private circle");
+    let stale!: (value: OneLocationCircleDetail) => void;
+    const load = vi.fn().mockResolvedValueOnce(first).mockImplementationOnce(() => new Promise((resolve) => { stale = resolve; }))
+      .mockRejectedValueOnce(new Error("New session unavailable"));
+    const props = detailProps(load);
+    const view = render(<CircleDetailFlow circleId="same-circle" sessionScope="first-unlock" {...props} />);
+    await screen.findByRole("heading", { name: "Old private circle" });
+    view.rerender(<CircleDetailFlow circleId="same-circle" sessionScope="first-unlock" reloadSignal={1} {...props} />);
+    await waitFor(() => expect(stale).toBeDefined());
+    view.rerender(<CircleDetailFlow circleId="same-circle" sessionScope="next-unlock" reloadSignal={1}
+      initialCircleSummary={{ id: "another-circle", name: "Wrong seed", memberCount: 3 }} {...props} />);
+    expect(screen.queryByRole("heading", { name: "Old private circle" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Wrong seed")).not.toBeInTheDocument();
+    await screen.findByText("New session unavailable");
+    await act(async () => stale(first));
+    expect(screen.queryByRole("heading", { name: "Old private circle" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+  });
+
+  it("guides a new circle through a failed add, retry, confirmed membership, and opening chat", async () => {
+    let current = circle("family", "Family");
+    const props = detailProps(vi.fn(async () => current));
+    props.onLoadEligibleConnections = vi.fn(async () => ({
+      eligibleConnections: current.memberCount === 1 ? [{
+        connectionId: "connection-asha", userId: "asha", displayName: "Asha Rao",
+      }] : [],
+      pendingInvites: [],
+      remainingCapacity: 20 - current.memberCount,
+    }));
+    props.onInviteConnections = vi.fn()
+      .mockRejectedValueOnce(new Error("Try again"))
+      .mockImplementation(async () => {
+        current = { ...current, memberCount: 2, members: [...current.members, {
+          userId: "asha", displayName: "Asha Rao", role: "member",
+          phoneVerified: true, secureLocationReady: true,
+        }] };
+      });
+    const onComplete = vi.fn();
+    render(<CircleDetailFlow circleId="family" livingCircleExperience memberSetup
+      onMemberSetupComplete={onComplete} renderChat={() => <p>Circle conversation</p>} {...props} />);
+    await openCirclePeoplePicker();
+    expect(screen.getByRole("dialog", { name: "Add people" })).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Add your first member" })).toBeNull();
+    expect(screen.queryByText(/Choose at least one connection below/)).toBeNull();
+    expect(screen.getByText("Circle conversation")).not.toBeVisible();
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Add Asha Rao to Family" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add people", exact: true }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Try again"));
+    const retry = screen.getByRole("button", { name: "Add people", exact: true });
+    await waitFor(() => expect(retry).toBeEnabled());
+    expect(screen.queryByRole("button", { name: "Open chat" })).toBeNull();
+    fireEvent.click(retry);
+    fireEvent.click(retry);
+    await screen.findByRole("heading", { name: "Your Circle is ready" });
+    expect(props.onInviteConnections).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByRole("button", { name: "Open chat" }));
+    expect(screen.getByText("Circle conversation")).toBeVisible();
+    expect(onComplete).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { count: 1, chatIntent: false, view: "Members" },
+    { count: 2, chatIntent: false, view: "Chat" },
+    { count: 1, chatIntent: true, view: "Chat" },
+  ])("opens $view for count=$count and chatIntent=$chatIntent without a creation flag", async ({ count, chatIntent, view }) => {
+    const props = detailProps(async () => ({ ...circle("family", "Family"), memberCount: count }));
+    render(<CircleDetailFlow circleId="family" livingCircleExperience chatIntent={chatIntent}
+      renderChat={() => <p>Circle conversation</p>} {...props} />);
+    await screen.findByRole("heading", { name: "Family" });
+    await waitFor(() => expect(screen.getByRole("tab", { name: view })).toHaveAttribute("aria-selected", "true"));
+    if (count === 1 && !chatIntent) {
+      // Established solo circles can still contain history after members leave.
+      expect(screen.getByRole("tab", { name: "Chat" })).toBeEnabled();
+    }
+  });
+
+  it("retains an explicit chat entry after consuming its URL intent and refreshing the roster", async () => {
+    const props = detailProps(vi.fn(async () => circle("family", "Family")));
+    const renderChat = () => <p>Circle conversation</p>;
+    const { rerender } = render(<CircleDetailFlow circleId="family" livingCircleExperience chatIntent
+      renderChat={renderChat} {...props} />);
+    await screen.findByRole("heading", { name: "Family" });
+    rerender(<CircleDetailFlow circleId="family" livingCircleExperience chatIntent={false}
+      reloadSignal={1} renderChat={renderChat} {...props} />);
+    await waitFor(() => expect(props.onLoad).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("tab", { name: "Chat" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Circle conversation")).toBeVisible();
+  });
+
+  it("offers recovery without eligible connections and waits for membership after sharing a code", async () => {
+    const current = { ...circle("family", "Family"), activeInviteCode: {
+      id: "code-1", circleId: "family", code: "2345-6789-ABCD", expiresAt: null,
+    } };
+    const props = detailProps(vi.fn(async () => current));
+    props.onLoadEligibleConnections = vi.fn(async () => ({
+      eligibleConnections: [], pendingInvites: [], remainingCapacity: 19,
+    }));
+    render(<CircleDetailFlow circleId="family" livingCircleExperience memberSetup
+      renderChat={() => <p>Circle conversation</p>} {...props} />);
+    await openCirclePeoplePicker();
+    await screen.findByText("No connections available to add.");
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    fireEvent.click(screen.getByRole("button", { name: /Invite code/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Share invite" }));
+    await waitFor(() => expect(props.onShareCode).toHaveBeenCalledWith(current, current.activeInviteCode.code));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.getByRole("tab", { name: "Members" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Chat" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Open chat" })).toBeNull();
+    expect(props.onInviteConnections).not.toHaveBeenCalled();
+  });
+
+  it.each(["tap"] as const)(
     "adds a Connect circle candidate by %s and refreshes the orbit, roster, and eligible list",
     async (method) => {
       let current = circle("family", "Family");
@@ -104,7 +503,7 @@ describe("named Circle flows", () => {
         eligibleConnections: current.memberCount === 1 ? [{
           connectionId: "connection-asha",
           userId: "asha",
-          displayName: "Asha Rao",
+          displayName: "member@example.test",
           photoUrl: null,
           isRia: false,
         }] : [],
@@ -117,7 +516,7 @@ describe("named Circle flows", () => {
           memberCount: 2,
           members: [...current.members, {
             userId: "asha",
-            displayName: "Asha Rao",
+            displayName: "member@example.test",
             role: "member",
             phoneVerified: true,
             secureLocationReady: true,
@@ -125,35 +524,250 @@ describe("named Circle flows", () => {
         };
       });
       render(<CircleDetailFlow circleId="family" livingCircleExperience {...props} />);
-      const addButton = await screen.findByRole("button", { name: "Add Asha Rao to Family" });
-      expect(screen.getByTestId("people-orbit").querySelectorAll("[data-circle-empty-spot]")).toHaveLength(6);
-      expect(screen.queryByTestId("one-location-circle-add-people-row")).toBeNull();
-      expect(screen.queryByRole("dialog", { name: "Add people" })).toBeNull();
-      expect(screen.getByTestId("one-location-circle-invite-code-row")).toBeTruthy();
-      if (method === "tap") {
-        fireEvent.click(addButton);
-      } else {
-        const data = new Map<string, string>();
-        const dataTransfer = {
-          types: ["application/x-hushh-circle-person"],
-          effectAllowed: "none",
-          dropEffect: "none",
-          setData: (type: string, value: string) => data.set(type, value),
-          getData: (type: string) => data.get(type) ?? "",
-        };
-        fireEvent.dragStart(addButton.closest("[draggable]")!, { dataTransfer });
-        fireEvent.dragOver(screen.getByTestId("connect-circle-drop-zone"), { dataTransfer });
-        fireEvent.drop(screen.getByTestId("connect-circle-drop-zone"), { dataTransfer });
-      }
+    await openCirclePeoplePicker();
+      const addButton = await screen.findByRole("checkbox", { name: "Add Hussh member to Family" });
+
+      expect(method).toBe("tap");
+      fireEvent.click(addButton);
+      expect(props.onInviteConnections).not.toHaveBeenCalled();
+      expect(addButton).toHaveAttribute("aria-checked", "true");
+      fireEvent.click(screen.getByRole("button", { name: "Add people", exact: true }));
       await waitFor(() => expect(props.onInviteConnections).toHaveBeenCalledWith("family", ["asha"]));
-      await waitFor(() => expect(within(screen.getByTestId("one-location-circle-members")).getByText("Asha Rao")).toBeTruthy());
-      await waitFor(() => expect(screen.getByText("2 people in this circle")).toBeTruthy());
-      expect(within(screen.getByTestId("people-orbit")).getAllByTitle("Asha Rao")).toHaveLength(2);
-      expect(screen.getByTestId("people-orbit").querySelectorAll("[data-circle-empty-spot]")).toHaveLength(4);
-      await waitFor(() => expect(screen.queryByRole("button", { name: "Add Asha Rao to Family" })).toBeNull());
+      await waitFor(() => expect(within(screen.getByTestId("one-location-circle-members")).getByText("Hussh member")).toBeTruthy());
+      expect(screen.queryByText("member@example.test")).not.toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByRole("checkbox", { name: "Add Hussh member to Family" })).toBeNull());
       expect(props.onInviteConnections).toHaveBeenCalledTimes(1);
     },
   );
+
+  it("distinguishes sanitized names with relationship context and submits the selected identity", async () => {
+    const props = detailProps(vi.fn(async () => circle("family", "Family")));
+    props.onLoadEligibleConnections = vi.fn(async () => ({
+      eligibleConnections: [
+        { connectionId: "connection-one", userId: "one", displayName: "one@example.test", photoUrl: null, isRia: false, connectedAt: "2026-10-18T10:00:00Z" },
+        { connectionId: "connection-two", userId: "two", displayName: "two@example.test", photoUrl: null, isRia: false, connectedAt: "2026-10-19T11:30:00Z" },
+        { connectionId: "connection-three", userId: "three", displayName: "***1234", photoUrl: null, isRia: false, connectedAt: "invalid" },
+      ], pendingInvites: [], remainingCapacity: 19,
+    }));
+    render(<CircleDetailFlow circleId="family" livingCircleExperience {...props} />);
+    await openCirclePeoplePicker();
+    const choices = await screen.findAllByRole("checkbox", { name: "Add Hussh member to Family" });
+    expect(choices).toHaveLength(3);
+    expect(choices[0]).toHaveAccessibleDescription(/^Connected /);
+    expect(choices[1]).toHaveAccessibleDescription(/^Connected /);
+    const description = (choice: HTMLElement) => document.getElementById(choice.getAttribute("aria-describedby")!)!.textContent!;
+    const selectedDescription = description(choices[1]);
+    expect(description(choices[0])).not.toBe(selectedDescription);
+    expect(choices[2]).toHaveAccessibleDescription("Connection details unavailable");
+    expect(choices[0].getAttribute("aria-describedby")).not.toBe(choices[1].getAttribute("aria-describedby"));
+    expect(screen.queryByText(/one@example|two@example|\*\*\*1234/)).toBeNull();
+    fireEvent.click(choices[1]);
+    fireEvent.click(screen.getByRole("tab", { name: "Selected (1)" }));
+    expect(screen.getByRole("checkbox", { name: "Add Hussh member to Family" })).toHaveAccessibleDescription(selectedDescription);
+    fireEvent.click(screen.getByRole("button", { name: "Add people", exact: true }));
+    await waitFor(() => expect(props.onInviteConnections).toHaveBeenCalledWith("family", ["two"]));
+  });
+
+  it("selects multiple people instantly, batches one save, and keeps choices available during slow reconciliation", async () => {
+    const people = ["Asha", "Jordan", "Alex"].map((name) => ({
+      connectionId: `c-${name}`, userId: name, displayName: name,
+    }));
+    let finishSave!: () => void;
+    let finishRead!: () => void;
+    const slowRead = new Promise<void>((resolve) => { finishRead = resolve; });
+    const current = circle("family", "Family");
+    const onLoad = vi.fn().mockResolvedValueOnce(current).mockImplementation(async () => {
+      await slowRead;
+      throw new Error("Roster temporarily unavailable");
+    });
+    const props = detailProps(onLoad);
+    props.onLoadEligibleConnections = vi.fn().mockResolvedValueOnce({
+      eligibleConnections: people, pendingInvites: [], remainingCapacity: 3,
+    }).mockImplementation(async () => {
+      await slowRead;
+      return { eligibleConnections: [people[2]], pendingInvites: [], remainingCapacity: 1 };
+    });
+    props.onInviteConnections = vi.fn(() => new Promise<void>((resolve) => { finishSave = resolve; }));
+    render(<CircleDetailFlow circleId="family" livingCircleExperience {...props} />);
+    await openCirclePeoplePicker();
+    const asha = await screen.findByRole("checkbox", { name: "Add Asha to Family" });
+    fireEvent.click(asha);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Add Jordan to Family" }));
+    expect(asha).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("checkbox", { name: "Add Jordan to Family" })).toHaveAttribute("aria-checked", "true");
+    expect(props.onInviteConnections).not.toHaveBeenCalled();
+    const commit = screen.getByRole("button", { name: "Add people", exact: true });
+    fireEvent.click(commit);
+    fireEvent.click(commit);
+    expect(props.onInviteConnections).toHaveBeenCalledExactlyOnceWith("family", ["Asha", "Jordan"]);
+    expect(screen.getByRole("button", { name: "Adding people…" })).toBeDisabled();
+    expect(screen.getByRole("dialog", { name: "Add people" })).toBeVisible();
+    await act(async () => finishSave());
+    await openCirclePeoplePicker();
+    const alex = screen.getByRole("checkbox", { name: "Add Alex to Family" });
+    expect(alex).toBeEnabled();
+    expect(screen.queryByText("Loading connections…")).toBeNull();
+    fireEvent.click(alex);
+    expect(alex).toHaveAttribute("aria-checked", "true");
+    await act(async () => finishRead());
+    expect(alex).toHaveAttribute("aria-checked", "true");
+    expect(toast.success).toHaveBeenCalledWith("Circle members updated.");
+    expect(toast.error).not.toHaveBeenCalledWith("Could not add them.");
+    expect(screen.getByText("Roster temporarily unavailable")).toBeVisible();
+  });
+
+  it("reserves selection capacity and reconciles removed selections on a live refresh", async () => {
+    const people = ["Asha", "Jordan"].map((name) => ({
+      connectionId: `c-${name}`, userId: name, displayName: name,
+    }));
+    const props = detailProps(async () => circle("family", "Family"));
+    props.onLoadEligibleConnections = vi.fn().mockResolvedValueOnce({
+      eligibleConnections: people, pendingInvites: [], remainingCapacity: 1,
+    }).mockResolvedValue({ eligibleConnections: [people[1]], pendingInvites: [], remainingCapacity: 1 });
+    const view = render(<CircleDetailFlow circleId="family" livingCircleExperience {...props} />);
+    await openCirclePeoplePicker();
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Add Asha to Family" }));
+    const jordan = screen.getByRole("checkbox", { name: "Add Jordan to Family" });
+    expect(jordan).toBeDisabled();
+    fireEvent.click(jordan);
+    expect(screen.getByRole("button", { name: "Add people", exact: true })).toBeEnabled();
+    view.rerender(<CircleDetailFlow circleId="family" livingCircleExperience reloadSignal={1} {...props} />);
+    await waitFor(() => expect(screen.queryByRole("checkbox", { name: "Add Asha to Family" })).toBeNull());
+    expect(screen.getByRole("button", { name: "Add people", exact: true })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "Add Jordan to Family" })).toBeEnabled();
+    expect(props.onInviteConnections).not.toHaveBeenCalled();
+  });
+
+  it.each(["circle", "owner", "unlock"])("ignores a late member save after the %s scope changes", async (scope) => {
+    let finishSave!: () => void;
+    const props = detailProps(async (id) => circle(id, id === "family" ? "Family" : "Friends"));
+    props.onLoadEligibleConnections = vi.fn(async () => ({
+      eligibleConnections: [{ connectionId: "c-asha", userId: "asha", displayName: "Asha" }],
+      pendingInvites: [], remainingCapacity: 19,
+    }));
+    props.onInviteConnections = vi.fn(() => new Promise<void>((resolve) => { finishSave = resolve; }));
+    const initial = { circleId: "family", currentUserId: "owner-user", sessionScope: "unlock-1" };
+    const view = render(<CircleDetailFlow {...props} {...initial} livingCircleExperience />);
+    await openCirclePeoplePicker();
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Add Asha to Family" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add people", exact: true }));
+    const next = { ...initial, ...(scope === "circle" ? { circleId: "friends" } : scope === "owner" ? { currentUserId: "new-owner" } : { sessionScope: "unlock-2" }) };
+    view.rerender(<CircleDetailFlow {...props} {...next} livingCircleExperience />);
+    await openCirclePeoplePicker();
+    const candidate = await screen.findByRole("checkbox", { name: `Add Asha to ${scope === "circle" ? "Friends" : "Family"}` });
+    fireEvent.click(candidate);
+    const reads = props.onLoadEligibleConnections.mock.calls.length;
+    const successes = vi.mocked(toast.success).mock.calls.length;
+    await act(async () => finishSave());
+    expect(candidate).toHaveAttribute("aria-checked", "true");
+    expect(props.onLoadEligibleConnections).toHaveBeenCalledTimes(reads);
+    expect(toast.success).toHaveBeenCalledTimes(successes);
+    expect(screen.getByRole("button", { name: "Add people", exact: true })).toBeEnabled();
+  });
+
+  it("keeps a valid later selection when a live update removes an earlier selection and reduces capacity", async () => {
+    const people = ["Asha", "Jordan"].map((name) => ({
+      connectionId: `c-${name}`, userId: name, displayName: name,
+    }));
+    const props = detailProps(async () => circle("family", "Family"));
+    props.onLoadEligibleConnections = vi.fn().mockResolvedValueOnce({
+      eligibleConnections: people, pendingInvites: [], remainingCapacity: 2,
+    }).mockResolvedValue({ eligibleConnections: [people[1]], pendingInvites: [], remainingCapacity: 1 });
+    const view = render(<CircleDetailFlow circleId="family" livingCircleExperience {...props} />);
+    await openCirclePeoplePicker();
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Add Asha to Family" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Add Jordan to Family" }));
+    view.rerender(<CircleDetailFlow circleId="family" livingCircleExperience reloadSignal={1} {...props} />);
+    await waitFor(() => expect(screen.queryByRole("checkbox", { name: "Add Asha to Family" })).toBeNull());
+    expect(screen.getByRole("checkbox", { name: "Add Jordan to Family" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("button", { name: "Add people", exact: true })).toBeEnabled();
+  });
+
+  it.each(["circle", "owner", "unlock"])("keeps a new legacy submission locked when an old save settles after the %s changes", async (scope) => {
+    let firstSave!: () => void;
+    let secondSave!: () => void;
+    const props = detailProps(async (id) => circle(id, "Family"));
+    props.onLoadEligibleConnections = vi.fn(async () => ({
+      eligibleConnections: [{ connectionId: "c-asha", userId: "asha", displayName: "Asha" }],
+      pendingInvites: [], remainingCapacity: 19,
+    }));
+    props.onInviteConnections = vi.fn()
+      .mockImplementationOnce(() => new Promise<void>((resolve) => { firstSave = resolve; }))
+      .mockImplementationOnce(() => new Promise<void>((resolve) => { secondSave = resolve; }));
+    const initial = { circleId: "family", currentUserId: "owner-user", sessionScope: "unlock-1" };
+    const view = render(<CircleDetailFlow {...props} {...initial} />);
+    const submit = async () => {
+      fireEvent.click(await screen.findByRole("button", { name: "Add people", exact: true }));
+      const sheet = await screen.findByRole("dialog", { name: "Add people" });
+      fireEvent.click(await within(sheet).findByRole("button", { name: /Asha/ }));
+      fireEvent.click(within(sheet).getByRole("button", { name: "Add 1 person", exact: true }));
+    };
+    await submit();
+    const next = { ...initial, ...(scope === "circle" ? { circleId: "friends" } : scope === "owner" ? { currentUserId: "new-owner" } : { sessionScope: "unlock-2" }) };
+    view.rerender(<CircleDetailFlow {...props} {...next} />);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add people" })).toBeNull());
+    await submit();
+    await act(async () => firstSave());
+    expect(screen.getByRole("dialog", { name: "Add people" })).toBeVisible();
+    const pending = within(screen.getByRole("dialog", { name: "Add people" })).getByRole("button", { name: "Add 1 person", exact: true });
+    expect(pending).toBeDisabled();
+    expect(pending).toHaveAttribute("aria-busy", "true");
+    expect(props.onInviteConnections).toHaveBeenCalledTimes(2);
+    await act(async () => secondSave());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add people" })).toBeNull());
+  });
+
+  it("bounds an inline batch when a paged search reports less capacity without losing valid off-page choices", async () => {
+    const people = ["Asha", "Jordan", "Alex"].map((name) => ({
+      connectionId: `c-${name}`, userId: name, displayName: name,
+    }));
+    const props = detailProps(async () => circle("family", "Family"));
+    const onLoadEligibleConnectionsPage = vi.fn(async (_id: string, options: { query?: string }) => ({
+      eligibleConnections: options.query ? [people[2]!] : people,
+      pendingInvites: [], remainingCapacity: options.query ? 1 : 3,
+      page: 1, hasMore: false, totalCount: options.query ? 1 : 8,
+    }));
+    props.onLoadEligibleConnections = vi.fn(async () => ({
+      eligibleConnections: people, pendingInvites: [], remainingCapacity: 1,
+    }));
+    render(<CircleDetailFlow circleId="family" livingCircleExperience {...props}
+      onLoadEligibleConnectionsPage={onLoadEligibleConnectionsPage} />);
+    await openCirclePeoplePicker();
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Add Asha to Family" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Add Jordan to Family" }));
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search connections to add" }), { target: { value: "Alex" } });
+    await waitFor(() => expect(screen.queryByRole("checkbox", { name: "Add Asha to Family" })).toBeNull());
+    expect(screen.getByRole("checkbox", { name: "Add Alex to Family" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add people", exact: true })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Add people", exact: true }));
+    expect(props.onInviteConnections).toHaveBeenCalledExactlyOnceWith("family", ["Asha"]);
+  });
+
+  it("can search and remove an off-page selection from the Selected view without inviting", async () => {
+    const asha = { connectionId: "c-asha", userId: "asha", displayName: "Asha" };
+    const jordan = { connectionId: "c-jordan", userId: "jordan", displayName: "Jordan" };
+    const props = detailProps(async () => circle("family", "Family"));
+    props.onLoadEligibleConnections = vi.fn(async () => ({ eligibleConnections: [asha], pendingInvites: [], remainingCapacity: 3 }));
+    const loadPage = vi.fn(async (_id: string, options: { query?: string }) => ({
+      eligibleConnections: options.query ? [jordan] : [asha], pendingInvites: [],
+      remainingCapacity: 3, page: 1, hasMore: false, totalCount: 1,
+    }));
+    render(<CircleDetailFlow circleId="family" livingCircleExperience {...props} onLoadEligibleConnectionsPage={loadPage} />);
+    await openCirclePeoplePicker();
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Add Asha to Family" }));
+    const search = screen.getByRole("searchbox", { name: "Search connections to add" });
+    fireEvent.change(search, { target: { value: "Jordan" } });
+    await screen.findByRole("checkbox", { name: "Add Jordan to Family" });
+    fireEvent.click(screen.getByRole("tab", { name: "Selected (1)" }));
+    expect(screen.queryByRole("checkbox", { name: "Add Asha to Family" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    expect(search).toHaveFocus();
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Add Asha to Family" }));
+    expect(screen.getByRole("tab", { name: "Selected (0)" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "Add people", exact: true })).toBeDisabled();
+    expect(props.onInviteConnections).not.toHaveBeenCalled();
+  });
 
   it("reaches later eligible connections through inline expansion, pagination, and search", async () => {
     const firstPage = Array.from({ length: 7 }, (_, index) => ({
@@ -190,15 +804,14 @@ describe("named Circle flows", () => {
         onLoadEligibleConnectionsPage={onLoadEligibleConnectionsPage}
       />,
     );
-    expect(await screen.findByRole("button", { name: "See all (8)" })).toBeTruthy();
-    expect(screen.queryByTestId("one-location-circle-add-people-row")).toBeNull();
-    expect(screen.queryByRole("dialog", { name: "Add people" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Add Person 7 to Family" })).toBeNull();
+    await openCirclePeoplePicker();
+    expect(screen.getByRole("dialog", { name: "Add people" })).toBeVisible();
+    expect(screen.getByRole("checkbox", { name: "Add Person 7 to Family" })).toBeVisible();
 
-    fireEvent.click(screen.getByRole("button", { name: "See all (8)" }));
-    expect(screen.getByRole("button", { name: "Add Person 7 to Family" })).toBeTruthy();
+
+    expect(screen.getByRole("checkbox", { name: "Add Person 7 to Family" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Load more connections" }));
-    expect(await screen.findByRole("button", { name: "Add Person 8 to Family" })).toBeTruthy();
+    expect(await screen.findByRole("checkbox", { name: "Add Person 8 to Family" })).toBeTruthy();
     expect(onLoadEligibleConnectionsPage).toHaveBeenCalledWith("family", {
       page: 2,
       limit: 50,
@@ -213,8 +826,9 @@ describe("named Circle flows", () => {
       limit: 50,
       query: "Person 8",
     }));
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Add Person 1 to Family" })).toBeNull());
-    fireEvent.click(screen.getByRole("button", { name: "Add Person 8 to Family" }));
+    await waitFor(() => expect(screen.queryByRole("checkbox", { name: "Add Person 1 to Family" })).toBeNull());
+    fireEvent.click(screen.getByRole("checkbox", { name: "Add Person 8 to Family" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add people", exact: true }));
     await waitFor(() => expect(props.onInviteConnections).toHaveBeenCalledWith("family", ["person-8"]));
   });
 
@@ -265,11 +879,10 @@ describe("named Circle flows", () => {
       members.compareDocumentPosition(proceed) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(proceed).toHaveClass("max-w-[320px]", "min-h-12");
-    expect(proceed).not.toHaveClass("mx-auto");
+    expect(proceed).toHaveClass("max-w-[244px]", "min-h-12", "rounded-full");
     expect(screen.getByTestId("one-location-proceed-to-sms-row")).toHaveClass(
       "flex",
-      "justify-end",
+      "justify-center",
     );
     fireEvent.click(proceed);
     expect(onProceedToSms).toHaveBeenCalledTimes(1);
@@ -305,9 +918,11 @@ describe("named Circle flows", () => {
       ),
     ).toBeTruthy();
     expect(within(roster).getByLabelText("Verified advisor")).toBeTruthy();
-    expect(
-      within(roster).getByLabelText("Connected from your contacts"),
-    ).toBeTruthy();
+    const badge = within(roster).getByLabelText("Connected from your contacts");
+    expect(badge).toBeTruthy();
+    expect(badge.closest('[data-slot="avatar"]')).toBeTruthy();
+    expect(badge.querySelector("svg")).toBeTruthy();
+    expect(screen.getByText("Asha Contact")).toHaveAttribute("title", "Asha Contact");
   });
 
   it("uses bounded member pages and keeps duplicate names addressable by user id", async () => {
@@ -386,13 +1001,16 @@ describe("named Circle flows", () => {
     expect(screen.getByLabelText("Search members")).toHaveValue("");
   }, 15000);
 
-  it("creates a typed Circle and keeps a failed submission recoverable", async () => {
+  it("creates a Circle without a type selector and keeps a failed submission recoverable", async () => {
     const onSubmit = vi
       .fn()
       .mockRejectedValueOnce(new Error("Circle limit reached."))
-      .mockResolvedValueOnce(undefined);
+      .mockResolvedValueOnce(circle("new-circle", "Meena Family"));
 
-    render(<CreateCircleFlow busy={false} onSubmit={onSubmit} />);
+    render(<CreateCircleFlow {...createProps()} onSubmit={onSubmit} showCircleType={false} />);
+
+    expect(screen.queryByText("Circle type")).toBeNull();
+    expect(screen.queryByRole("radiogroup")).toBeNull();
 
     fireEvent.change(
       screen.getByPlaceholderText("Family, close friends, project team"),
@@ -400,22 +1018,22 @@ describe("named Circle flows", () => {
       target: { value: "Meena Family" },
       },
     );
-    fireEvent.click(screen.getByRole("button", { name: "Create Circle" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith("Circle limit reached."),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Create Circle" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
-    expect(onSubmit).toHaveBeenLastCalledWith("Meena Family", "family");
+    expect(onSubmit).toHaveBeenLastCalledWith("Meena Family", "family", undefined);
   });
 
   it("blocks Create only while the name is empty, and says so visibly", async () => {
-    const onSubmit = vi.fn().mockResolvedValue(undefined);
-    render(<CreateCircleFlow busy={false} onSubmit={onSubmit} />);
+    const onSubmit = vi.fn().mockResolvedValue(circle("new-circle", "A"));
+    render(<CreateCircleFlow {...createProps()} onSubmit={onSubmit} />);
 
-    const create = screen.getByRole("button", { name: "Create Circle" });
+    const create = screen.getByRole("button", { name: "Next" });
     const input = screen.getByPlaceholderText(
       "Family, close friends, project team",
     );
@@ -430,6 +1048,11 @@ describe("named Circle flows", () => {
     // Whitespace is not a name.
     fireEvent.change(input, { target: { value: "   " } });
     expect(create).toBeDisabled();
+
+    // Leaving the field alone must not validate when a host closes the form.
+    fireEvent.blur(input);
+    expect(screen.queryByText("Enter a Circle name.")).toBeNull();
+    expect(input).not.toHaveAttribute("aria-invalid", "true");
 
     // Choosing a Type is not the Circle name; the form explains the blocked CTA.
     fireEvent.click(screen.getByRole("radio", { name: "Friends" }));
@@ -448,7 +1071,7 @@ describe("named Circle flows", () => {
     expect(input).not.toHaveAttribute("aria-describedby");
 
     fireEvent.click(create);
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith("A", "friends"));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith("A", "friends", undefined));
   });
 
   it("finds a connection from the first letter of any of their names", async () => {
@@ -533,6 +1156,7 @@ describe("named Circle flows", () => {
     fireEvent.click(screen.getByRole("button", { name: "Review Circle" }));
 
     expect(await screen.findByText("Meena Family")).toBeTruthy();
+    expect(screen.queryByText("You're already in this Circle.")).toBeNull();
     expect(screen.queryByText(/current and future Circle members/i)).toBeNull();
     expect(screen.getByText(/Location and SMS stay private/i)).toBeTruthy();
     expect(onResolve).toHaveBeenCalledWith("2345-6789-ABCD");
@@ -551,9 +1175,8 @@ describe("named Circle flows", () => {
       />,
     );
 
-    expect(screen.getByLabelText("Circle invite code")).toHaveValue(
-      "2345-6789-ABCD",
-    );
+    expect(screen.getAllByRole("textbox").map((input) => (input as HTMLInputElement).value))
+      .toEqual(["2345", "6789", "ABCD"]);
   });
 
   it("opens an already-joined Circle after review and lets the code be changed", async () => {
@@ -579,6 +1202,7 @@ describe("named Circle flows", () => {
 
     expect(await screen.findByRole("button", { name: "Open Circle" })).toBeTruthy();
     expect(screen.getByText("Meena · 1 member")).toBeTruthy();
+    expect(screen.getByText("You're already in this Circle.")).toBeTruthy();
 
     // "Use Another Code" asks first so an accidental tap cannot wipe the
     // reviewed preview. Answering Yes runs the same clear-and-refocus flow.
@@ -632,9 +1256,8 @@ describe("named Circle flows", () => {
       ).toBeNull(),
     );
     expect(screen.getByRole("button", { name: "Open Circle" })).toBeTruthy();
-    expect(screen.getByLabelText("Circle invite code")).toHaveValue(
-      "2345-6789-ABCD",
-    );
+    expect(screen.getAllByRole("textbox").map((input) => (input as HTMLInputElement).value))
+      .toEqual(["2345", "6789", "ABCD"]);
   });
 
   it("ignores a stale preview and joins the exact code that was reviewed", async () => {
@@ -1040,7 +1663,7 @@ describe("named Circle flows", () => {
     expect(leaveCircle).toHaveClass("w-full", "max-w-[320px]");
     expect(screen.getByTestId("one-location-leave-circle-row")).toHaveClass(
       "flex",
-      "justify-end",
+      "justify-center",
     );
     expect(
       screen
@@ -1274,6 +1897,43 @@ describe("named Circle flows", () => {
     expect(screen.getByRole("button", { name: "Add 1 person" })).toBeEnabled();
   });
 
+  it("shows SMS Circle capacity below Add people and keeps selection within that limit", async () => {
+    const smsCircle = {
+      ...circle("sms-circle", "Emergency Circle"),
+      memberCount: 10,
+      memberLimit: 11,
+      isSystem: true,
+      systemKind: "sms" as const,
+    };
+    render(
+      <CircleDetailFlow
+        circleId="sms-circle"
+        {...detailProps(async () => smsCircle)}
+        onLoadEligibleConnections={vi.fn(async () => ({
+          eligibleConnections: [
+            { connectionId: "connection-1", userId: "asha", displayName: "Asha Meena" },
+            { connectionId: "connection-2", userId: "neel", displayName: "Neel Shah" },
+          ],
+          pendingInvites: [],
+          remainingCapacity: 1,
+        }))}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
+    const sheet = await screen.findByRole("dialog", { name: "Add people" });
+    expect(
+      await within(sheet).findByText("You can add 1 more person."),
+    ).toBeInTheDocument();
+    expect(within(sheet).queryByText("Choose connections.")).toBeNull();
+
+    const asha = within(sheet).getByRole("button", { name: /Asha Meena/i });
+    const neel = within(sheet).getByRole("button", { name: /Neel Shah/i });
+    fireEvent.click(asha);
+    expect(neel).toBeDisabled();
+    expect(within(sheet).getByRole("button", { name: "Add 1 person" })).toBeEnabled();
+  });
+
   it("renders Circle full even if a stale eligible row is returned", async () => {
     render(
       <CircleDetailFlow
@@ -1374,6 +2034,7 @@ describe("named Circle flows", () => {
     );
 
     expect(await screen.findByText("Meena Family")).toBeTruthy();
+    expect(screen.queryByText("You're already in this Circle.")).toBeNull();
     expect(screen.queryByLabelText("Circle name")).toBeNull();
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
 
@@ -1381,6 +2042,16 @@ describe("named Circle flows", () => {
     const input = (await screen.findByLabelText(
       "Circle name",
     )) as HTMLInputElement;
+    expect(input).toHaveClass("rounded-[14px]");
+    expect(input).toHaveClass(
+      "focus-visible:border-border",
+      "focus-visible:ring-0",
+    );
+    expect(input.className).not.toContain(
+      "focus-visible:border-[color:var(--app-accent)]",
+    );
+    expect(input.className).not.toContain("focus-visible:ring-[3px]");
+
 
     // Only an empty name blocks the write; one character is a name.
     fireEvent.change(input, { target: { value: "   " } });
@@ -1414,6 +2085,7 @@ describe("named Circle flows", () => {
     render(<CircleDetailFlow circleId="circle-1" {...detailProps(onLoad)} />);
 
     expect(await screen.findByText("Meena Family")).toBeTruthy();
+    expect(screen.queryByText("You're already in this Circle.")).toBeNull();
     expect(screen.queryByLabelText("Circle name")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     const save = await screen.findByRole("button", { name: "Save" });
@@ -1841,54 +2513,7 @@ describe("named Circle flows", () => {
     ).toBeTruthy();
   });
 
-  // Reported on the Add people sheet: "extra space between the section is
-  // bad", "search bahut jyada neeche aa raha", "divs truncated bhi dikh rahe
-  // hain". None of that gap was written here -- it was SheetContent's `gap-4`,
-  // SheetHeader's `p-4`, the body's `mt-4` and SettingsGroup's `mt-7`, four
-  // sensible defaults stacking. Asserted on the rendered classes rather than
-  // measured, because jsdom has no layout: what regressed was which owner's
-  // default is in force, and that is exactly what these read back.
-  it("does not stack four owners' default spacing above the Add people list", async () => {
-    render(
-      <CircleDetailFlow
-        circleId="circle-1"
-        {...detailProps(async () => circle("circle-1", "Family"))}
-        onLoadEligibleConnections={vi.fn(async () => ({
-          eligibleConnections: [
-            { userId: "conn-1", displayName: "Asha Meena" },
-            { userId: "conn-2", displayName: "Neel Shah" },
-          ],
-          pendingInvites: [],
-          remainingCapacity: 5,
-        }))}
-      />,
-    );
-
-    fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
-    const sheet = await screen.findByRole("dialog", { name: "Add people" });
-
-    // The header stops adding a second inset on top of the sheet's own, so
-    // the title lines up with the search field instead of sitting inboard of
-    // it, and stops adding 16px under a description the gap already spaced.
-    const header = sheet.querySelector('[data-slot="sheet-header"]');
-    expect(header?.className).toContain("p-0");
-    expect(header?.className).not.toContain("p-4");
-
-    const group = await screen.findByTestId(
-      "one-location-circle-eligible-connections",
-    );
-    const headingBlock = group
-      .querySelector('[data-slot="settings-group-heading"]')
-      ?.closest("section > div");
-    expect(headingBlock?.className).toContain("mt-0");
-    expect(headingBlock?.className).not.toContain("mt-7");
-
-    // And the list is still the thing that scrolls, so the "Add N people"
-    // button cannot be pushed off the bottom by a long roster.
-    const scroller = sheet.querySelector(".overflow-y-auto.overscroll-contain");
-    expect(scroller).not.toBeNull();
-    expect(scroller?.contains(group)).toBe(true);
-  });
+  // Sheet spacing and reachability are measured by circle-invite-picker.layout.spec.ts.
 
   it("scopes quick actions to the row's own member and hides actions that don't apply", async () => {
     const onShareWithMember = vi.fn();
@@ -1905,13 +2530,20 @@ describe("named Circle flows", () => {
           secureLocationReady: true,
         },
         {
-          // Not phone-verified yet: Share is invalid and must not appear,
-          // even though Remove still does.
+          // A missing Location key still excludes sharing.
           userId: "pending-user",
           displayName: "Pending Priya",
           role: "member" as const,
           phoneVerified: false,
           secureLocationReady: false,
+        },
+        {
+          // A verified phone is only needed for SMS. Location setup is ready.
+          userId: "no-phone-user",
+          displayName: "No Phone Nina",
+          role: "member" as const,
+          phoneVerified: false,
+          secureLocationReady: true,
         },
       ],
     };
@@ -1949,6 +2581,21 @@ describe("named Circle flows", () => {
       expect(
         screen.queryByRole("menuitem", { name: /Remove from Circle/i }),
       ).toBeNull(),
+    );
+
+    const ninaTrigger = screen.getByRole("button", {
+      name: "Actions for No Phone Nina",
+    });
+    fireEvent.keyDown(ninaTrigger, { key: "Enter" });
+    expect(
+      await screen.findByRole("menuitem", { name: /Remove from Circle/i }),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: /Share location/i }),
+    );
+    expect(onShareWithMember).toHaveBeenCalledWith("circle-1", "no-phone-user");
+    await waitFor(() =>
+      expect(screen.queryByRole("menuitem", { name: /Share location/i })).toBeNull(),
     );
 
     // Ready Ronnie's row offers both, and triggering Share calls back with
@@ -2183,6 +2830,52 @@ describe("named Circle flows", () => {
       ),
     );
   }, 15000);
+
+  it("lets an SMS Circle owner select ten contacts and shows only the remaining count", async () => {
+    const contacts = Array.from({ length: 11 }, (_, index) => ({
+      connectionId: `sms-connection-${index + 1}`,
+      userId: `sms-person-${index + 1}`,
+      displayName: `SMS Person ${index + 1}`,
+    }));
+    const onInviteConnections = vi.fn(async () => undefined);
+    render(<CircleDetailFlow
+      circleId="sms-circle"
+      {...detailProps(async () => ({
+        ...circle("sms-circle", "SMS Circle"), systemKind: "sms", isSystem: true, memberLimit: 11,
+        viewerCapabilities: {
+          canInviteMembers: true,
+          canViewInviteCode: false,
+          canRotateInviteCode: false,
+          canManageCircle: true,
+          canModerateInvites: true,
+        },
+      }))}
+      onLoadEligibleConnections={vi.fn(async () => ({
+        eligibleConnections: contacts, pendingInvites: [], remainingCapacity: 10,
+      }))}
+      onInviteConnections={onInviteConnections}
+    />);
+
+    const addPeople = await screen.findByRole("button", { name: "Add people" });
+    expect(screen.queryByRole("heading", { name: "Invite" })).toBeNull();
+    expect(screen.queryByTestId("one-location-circle-invite-card")).toBeNull();
+    expect(addPeople).toHaveClass("bg-transparent", "hover:text-[color:var(--app-accent)]", "active:text-[color:var(--app-accent)]");
+    expect(addPeople.querySelector("svg.profile-pane-icon .profile-pane-icon-accent")).toBeTruthy();
+    expect(addPeople.querySelector('[data-slot="settings-row-chevron"]')).toBeNull();
+    fireEvent.click(addPeople);
+    const sheet = await screen.findByRole("dialog", { name: "Add people" });
+    expect(await within(sheet).findByText("You can add 10 more people.")).toBeInTheDocument();
+    expect(within(sheet).queryByText("Choose connections.")).toBeNull();
+    expect(within(sheet).queryByText(/SMS Circle limit|available;|right now/i)).toBeNull();
+    for (const contact of contacts.slice(0, 10)) {
+      fireEvent.click(within(screen.getByTestId(`one-location-circle-eligible-${contact.userId}`)).getByRole("button"));
+    }
+    expect(within(screen.getByTestId("one-location-circle-eligible-sms-person-11")).getByRole("button")).toBeDisabled();
+    fireEvent.click(within(sheet).getByRole("button", { name: "Add 10 people" }));
+    await waitFor(() => expect(onInviteConnections).toHaveBeenCalledWith(
+      "sms-circle", contacts.slice(0, 10).map((contact) => contact.userId),
+    ));
+  });
 
   it("keeps the sheet open when sending fails so the selection can be retried", async () => {
     const onLoadEligibleConnections = vi.fn(async () => ({
@@ -2522,6 +3215,120 @@ describe("a caller-requested re-read keeps the screen where it was", () => {
     vi.clearAllMocks();
   });
 
+  it.each([false, true])("preserves an active rename through a refresh started before editing (paged: %s)", async (paged) => {
+    const saved = circle("circle-1", "K Family");
+    let finishRefresh!: (value: OneLocationCircleDetail) => void;
+    const loader = vi.fn().mockResolvedValueOnce(saved)
+      .mockImplementationOnce(() => new Promise<OneLocationCircleDetail>((resolve) => { finishRefresh = resolve; }));
+    const props = detailProps(paged ? vi.fn() : loader);
+    const paging = paged ? {
+      onLoadOverview: loader,
+      onLoadMembersPage: vi.fn(async () => ({ items: saved.members, page: 1, hasMore: false, totalCount: 1 })),
+    } : {};
+    const view = render(<CircleDetailFlow circleId="circle-1" {...props} {...paging} reloadSignal={0} />);
+    await screen.findByRole("heading", { name: "K Family" });
+    view.rerender(<CircleDetailFlow circleId="circle-1" {...props} {...paging} reloadSignal={1} />);
+    expect(loader).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByRole("button", { name: "Edit", exact: true }));
+    const input = await screen.findByLabelText("Circle name");
+    fireEvent.change(input, { target: { value: "  Our   Family  " } });
+    await act(async () => finishRefresh(saved));
+    expect(input).toHaveValue("  Our   Family  ");
+    expect(screen.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Save", exact: true }));
+    await screen.findByRole("heading", { name: "Our Family" });
+    expect(props.onRename).toHaveBeenCalledWith("circle-1", "Our Family");
+  });
+
+  it("syncs an untouched rename to the refreshed name and disables normalized unchanged or blank names", async () => {
+    const onLoad = vi.fn().mockResolvedValueOnce(circle("circle-1", "K Family"))
+      .mockResolvedValueOnce(circle("circle-1", "Our Family"));
+    const props = detailProps(onLoad);
+    const view = render(<CircleDetailFlow circleId="circle-1" {...props} reloadSignal={0} />);
+    await screen.findByRole("heading", { name: "K Family" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit", exact: true }));
+    const input = await screen.findByLabelText("Circle name");
+    view.rerender(<CircleDetailFlow circleId="circle-1" {...props} reloadSignal={1} />);
+    await waitFor(() => expect(input).toHaveValue("Our Family"));
+    const save = screen.getByRole("button", { name: "Save", exact: true });
+    expect(save).toBeDisabled();
+    fireEvent.change(input, { target: { value: " Our   Family " } });
+    expect(save).toBeDisabled();
+    for (const whitespace of ["\u0085", "\u001c", "\u001d", "\u001e", "\u001f"]) {
+      fireEvent.change(input, { target: { value: `${whitespace}Our${whitespace}Family${whitespace}` } });
+      expect(save).toBeDisabled();
+      fireEvent.change(input, { target: { value: whitespace } });
+      expect(save).toBeDisabled();
+    }
+    fireEvent.change(input, { target: { value: "   " } });
+    expect(save).toBeDisabled();
+    expect(props.onRename).not.toHaveBeenCalled();
+  });
+
+  it("keeps a failed rename draft for retry and submits only once while saving", async () => {
+    let rejectSave!: (reason: Error) => void;
+    const props = detailProps(async () => circle("circle-1", "K Family"));
+    props.onRename = vi.fn().mockImplementationOnce(() => new Promise<OneLocationCircleDetail>((_resolve, reject) => { rejectSave = reject; }))
+      .mockImplementationOnce(async (id: string, name: string) => circle(id, name));
+    render(<CircleDetailFlow circleId="circle-1" {...props} />);
+    await screen.findByRole("heading", { name: "K Family" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit", exact: true }));
+    const input = await screen.findByLabelText("Circle name");
+    fireEvent.change(input, { target: { value: "Our Family" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(props.onRename).toHaveBeenCalledTimes(1);
+    expect(input).toBeDisabled();
+    await act(async () => rejectSave(new Error("Try again")));
+    expect(input).toHaveValue("Our Family");
+    expect(screen.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(screen.queryByLabelText("Circle name")).toBeNull());
+    expect(props.onRename).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("heading", { name: "Our Family" })).toBeInTheDocument();
+  });
+
+  it.each([false, true])("does not let a stale overview undo a successful rename (read failed: %s)", async (readFailed) => {
+    let finishRefresh!: (value: OneLocationCircleDetail) => void;
+    let rejectRefresh!: (reason: Error) => void;
+    const saved = circle("circle-1", "K Family");
+    const onLoad = vi.fn().mockResolvedValueOnce(saved)
+      .mockImplementationOnce(() => new Promise<OneLocationCircleDetail>((resolve, reject) => { finishRefresh = resolve; rejectRefresh = reject; }));
+    const props = detailProps(onLoad);
+    const view = render(<CircleDetailFlow circleId="circle-1" {...props} reloadSignal={0} />);
+    await screen.findByRole("heading", { name: "K Family" });
+    view.rerender(<CircleDetailFlow circleId="circle-1" {...props} reloadSignal={1} />);
+    fireEvent.click(screen.getByRole("button", { name: "Edit", exact: true }));
+    fireEvent.change(await screen.findByLabelText("Circle name"), { target: { value: "Our Family" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save", exact: true }));
+    await screen.findByRole("heading", { name: "Our Family" });
+    await act(async () => readFailed ? rejectRefresh(new Error("Outdated refresh failed")) : finishRefresh(saved));
+    expect(screen.getByRole("heading", { name: "Our Family" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Circle name")).toBeNull();
+    expect(screen.queryByText("Outdated refresh failed")).toBeNull();
+  });
+
+  it.each(["circle", "owner", "unlock"])("ignores a pending rename after changing the %s scope", async (scope) => {
+    let finishSave!: (value: OneLocationCircleDetail) => void;
+    const props = detailProps(async (id) => circle(id, id === "circle-1" ? "K Family" : "Other Circle"));
+    props.onRename = vi.fn(() => new Promise<OneLocationCircleDetail>((resolve) => { finishSave = resolve; }));
+    const initial = { circleId: "circle-1", currentUserId: "owner-user", sessionScope: "unlock-1" };
+    const view = render(<CircleDetailFlow {...props} {...initial} />);
+    await screen.findByRole("heading", { name: "K Family" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit", exact: true }));
+    fireEvent.change(await screen.findByLabelText("Circle name"), { target: { value: "Our Family" } });
+    fireEvent.keyDown(screen.getByLabelText("Circle name"), { key: "Enter" });
+    const next = { ...initial, ...(scope === "circle" ? { circleId: "circle-2" } : scope === "owner" ? { currentUserId: "other-owner" } : { sessionScope: "unlock-2" }) };
+    view.rerender(<CircleDetailFlow {...props} {...next} />);
+    await waitFor(() => expect(screen.queryByLabelText("Circle name")).toBeNull());
+    await screen.findByRole("heading", { name: scope === "circle" ? "Other Circle" : "K Family" });
+    await act(async () => finishSave(circle("circle-1", "Our Family")));
+    expect(screen.queryByRole("heading", { name: "Our Family" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Edit", exact: true }));
+    expect(await screen.findByLabelText("Circle name")).toHaveValue(scope === "circle" ? "Other Circle" : "K Family");
+    expect(screen.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  });
+
   it("re-reads on a bumped signal", async () => {
     const onLoad = vi.fn(async () => circle("circle-1", "K Family"));
     const props = detailProps(onLoad);
@@ -2667,18 +3474,18 @@ describe("an impatient second tap never makes a second Circle", () => {
     let release: (() => void) | undefined;
     const onSubmit = vi.fn(
       () =>
-        new Promise<void>((resolve) => {
-          release = () => resolve();
+        new Promise<OneLocationCircleDetail>((resolve) => {
+          release = () => resolve(circle("new-circle", "Roommates"));
         }),
     );
 
-    render(<CreateCircleFlow busy={false} onSubmit={onSubmit} />);
+    render(<CreateCircleFlow {...createProps()} onSubmit={onSubmit} />);
 
     fireEvent.change(
       screen.getByPlaceholderText("Family, close friends, project team"),
       { target: { value: "Roommates" } },
     );
-    const create = screen.getByRole("button", { name: /create/i });
+    const create = screen.getByRole("button", { name: "Next" });
     fireEvent.click(create);
     fireEvent.click(create);
     fireEvent.click(create);
@@ -2694,14 +3501,14 @@ describe("an impatient second tap never makes a second Circle", () => {
     const onSubmit = vi
       .fn()
       .mockRejectedValueOnce(new Error("nope"))
-      .mockResolvedValueOnce(undefined);
+      .mockResolvedValueOnce(circle("new-circle", "Meena Family"));
 
-    render(<CreateCircleFlow busy={false} onSubmit={onSubmit} />);
+    render(<CreateCircleFlow {...createProps()} onSubmit={onSubmit} />);
     fireEvent.change(
       screen.getByPlaceholderText("Family, close friends, project team"),
       { target: { value: "Roommates" } },
     );
-    const create = screen.getByRole("button", { name: /create/i });
+    const create = screen.getByRole("button", { name: "Next" });
 
     fireEvent.click(create);
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
@@ -2761,8 +3568,8 @@ describe("a Circle with only the current user stays compact", () => {
     expect(screen.queryByText("Try a different name.")).toBeNull();
   });
 
-  it("offers the Invite row without a second identical empty-state button", async () => {
-    // A Circle you can add to already has an "Add people" card on this screen.
+  it("offers one Add people action without a second empty-state button", async () => {
+    // A Circle you can add to already has an "Add people" action on this screen.
     // A second identical button is not a second option, it is the same one
     // twice -- and it made "Add people" ambiguous to anything looking for it.
     const onLoad = vi.fn(async () => emptyCircle("sms"));
@@ -2786,3 +3593,10 @@ describe("a Circle with only the current user stays compact", () => {
   });
 
 });
+
+async function openCirclePeoplePicker() {
+  const tab = screen.queryByRole("tab", { name: "Members" });
+  if (tab && tab.getAttribute("aria-selected") !== "true") fireEvent.click(tab);
+  fireEvent.click(await screen.findByTestId("one-location-circle-add-people-row"));
+  await screen.findByRole("dialog", { name: "Add people" });
+}

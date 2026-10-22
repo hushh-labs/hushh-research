@@ -24,9 +24,8 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import text
 
 from db.db_client import get_db_connection
+from hushh_mcp.operons.referral.joined import JOINED_REFERRAL_PREDICATE
 from hushh_mcp.operons.referral_scoring.points import (
-    STREAK_BONUS,
-    compute_streak_awards,
     points_for_qualification,
 )
 from hushh_mcp.services.one_referral_circle_service import (
@@ -36,6 +35,7 @@ from hushh_mcp.services.one_referral_circle_service import (
 from hushh_mcp.services.one_referral_program_settings_service import (
     ProgramSettings,
     get_active_program_settings,
+    get_program_settings_at,
 )
 from hushh_mcp.services.one_referral_rewards_service import evaluate_and_issue_milestones
 
@@ -108,8 +108,8 @@ def claim_due_scoring_jobs(limit: int = _DEFAULT_CLAIM_LIMIT) -> list[dict]:
                 WITH claimable AS (
                     SELECT job_id
                       FROM one_referral_scoring_jobs
-                     WHERE status = 'queued'
-                        OR (status = 'running' AND lease_expires_at < :now)
+                     WHERE (status = 'queued' AND next_at <= NOW())
+                        OR (status = 'running' AND lease_expires_at < NOW())
                      ORDER BY next_at
                      LIMIT :limit
                        FOR UPDATE SKIP LOCKED
@@ -169,6 +169,16 @@ def process_one_job(job: dict) -> dict:
     job_id = job["job_id"]
     try:
         with get_db_connection() as connection:
+            lease = connection.execute(
+                text("""
+                SELECT lease_id FROM one_referral_scoring_jobs
+                 WHERE job_id=CAST(:jid AS UUID) AND status='running'
+                   AND lease_id=CAST(:lease AS UUID) AND lease_expires_at>NOW() FOR UPDATE
+            """),
+                {"jid": job_id, "lease": job.get("lease_id")},
+            ).fetchone()
+            if lease is None:
+                return {"status": "skipped", "reason": "stale_lease"}
             relationship = connection.execute(
                 text(
                     """
@@ -200,7 +210,7 @@ def process_one_job(job: dict) -> dict:
                 )
                 return {"status": "skipped", "reason": "relationship_not_qualified"}
 
-            settings: ProgramSettings = get_active_program_settings()
+            settings: ProgramSettings = get_program_settings_at(relationship.qualified_at)
             award = points_for_qualification(
                 relationship.qualified_at, settings.points, settings.flash_windows
             )
@@ -208,9 +218,9 @@ def process_one_job(job: dict) -> dict:
                 text(
                     """
                     INSERT INTO one_referral_score_events
-                      (user_id, relationship_id, event_type, points, settings_version, idempotency_key)
+                      (user_id, relationship_id, event_type, points, coins, settings_version, idempotency_key,created_at)
                     VALUES
-                      (:uid, CAST(:rid AS UUID), :event_type, :points, :version, :idempotency_key)
+                      (:uid, CAST(:rid AS UUID), :event_type, :points, :points, :version, :idempotency_key,:occurred_at)
                     ON CONFLICT (idempotency_key) DO NOTHING
                     """
                 ),
@@ -221,11 +231,15 @@ def process_one_job(job: dict) -> dict:
                     "points": award.points,
                     "version": settings.version,
                     "idempotency_key": f"score:{relationship_id}",
+                    "occurred_at": relationship.qualified_at,
                 },
             )
 
             contributing_circle_id = resolve_contributing_circle(
-                connection, user_id=relationship.referrer_user_id, as_of=relationship.qualified_at
+                connection,
+                user_id=relationship.referrer_user_id,
+                as_of=relationship.qualified_at,
+                relationship_id=relationship_id,
             )
             if contributing_circle_id is not None:
                 record_circle_contribution(
@@ -243,74 +257,8 @@ def process_one_job(job: dict) -> dict:
                 settings_version=settings.version,
             )
 
-            program_timezone = (
-                str(settings.weekly_schedule.get("timezone") or "").strip() or _FALLBACK_TIMEZONE
-            )
-            streak_row = connection.execute(
-                text(
-                    """
-                    SELECT last_awarded_through_date
-                      FROM one_referral_streak_state
-                     WHERE user_id = :uid
-                       FOR UPDATE
-                    """
-                ),
-                {"uid": relationship.referrer_user_id},
-            ).fetchone()
-            already_awarded_through = streak_row.last_awarded_through_date if streak_row else None
-
-            qualifying_dates = _distinct_qualifying_dates(
-                connection, relationship.referrer_user_id, program_timezone
-            )
-            new_awards = compute_streak_awards(qualifying_dates, already_awarded_through)
-            streak_points = int(settings.streak_rules.get("bonus_points", 0))
-            for awarded_day in new_awards:
-                connection.execute(
-                    text(
-                        """
-                        INSERT INTO one_referral_score_events
-                          (user_id, relationship_id, event_type, points, settings_version, idempotency_key)
-                        VALUES
-                          (:uid, NULL, :event_type, :points, :version, :idempotency_key)
-                        ON CONFLICT (idempotency_key) DO NOTHING
-                        """
-                    ),
-                    {
-                        "uid": relationship.referrer_user_id,
-                        "event_type": STREAK_BONUS,
-                        "points": streak_points,
-                        "version": settings.version,
-                        "idempotency_key": f"streak:{relationship.referrer_user_id}:{awarded_day.isoformat()}",
-                    },
-                )
-            if new_awards:
-                newest = max(new_awards)
-                if streak_row is None:
-                    connection.execute(
-                        text(
-                            """
-                            INSERT INTO one_referral_streak_state (user_id, last_awarded_through_date)
-                            VALUES (:uid, :through)
-                            """
-                        ),
-                        {"uid": relationship.referrer_user_id, "through": newest},
-                    )
-                else:
-                    connection.execute(
-                        text(
-                            """
-                            UPDATE one_referral_streak_state
-                               SET last_awarded_through_date = :through, updated_at = :now
-                             WHERE user_id = :uid
-                            """
-                        ),
-                        {"through": newest, "now": _now(), "uid": relationship.referrer_user_id},
-                    )
-            elif streak_row is None:
-                connection.execute(
-                    text("INSERT INTO one_referral_streak_state (user_id) VALUES (:uid)"),
-                    {"uid": relationship.referrer_user_id},
-                )
+            # Daily activity owns streak awards; referral jobs never increment a day.
+            new_awards = []
 
             connection.execute(
                 text(
@@ -324,7 +272,7 @@ def process_one_job(job: dict) -> dict:
             )
     except Exception:
         logger.exception("[referral_scoring] job_failed job_id=%s", job_id)
-        _record_job_failure(job_id, job.get("retry_count", 0))
+        _record_job_failure(job_id, job.get("retry_count", 0), lease_id=job.get("lease_id"))
         return {"status": "failed"}
 
     return {
@@ -336,13 +284,13 @@ def process_one_job(job: dict) -> dict:
     }
 
 
-def _record_job_failure(job_id: str, retry_count: int) -> None:
+def _record_job_failure(job_id: str, retry_count: int, *, lease_id: str | None = None) -> None:
     """Best-effort: requeue with backoff, or give up after too many retries.
 
     Runs in its OWN connection because the job's own transaction already
     rolled back when the exception that got us here was raised.
     """
-    next_retry = retry_count + 1
+    next_retry = min(5, retry_count + 1)
     backoff_seconds = min(60 * (2**retry_count), 3600)
     try:
         with get_db_connection() as connection:
@@ -350,14 +298,14 @@ def _record_job_failure(job_id: str, retry_count: int) -> None:
                 text(
                     """
                     UPDATE one_referral_scoring_jobs
-                       SET status = CASE WHEN retry_count >= 5 THEN 'failed' ELSE 'queued' END,
+                       SET status = CASE WHEN :next_retry >= 5 THEN 'failed' ELSE 'queued' END,
                            retry_count = :next_retry,
                            error_code = 'processing_error',
                            next_at = :next_at,
                            lease_id = NULL,
                            lease_expires_at = NULL,
                            updated_at = :now
-                     WHERE job_id = CAST(:jid AS UUID)
+                     WHERE job_id = CAST(:jid AS UUID) AND lease_id=CAST(:lease AS UUID) AND status='running'
                     """
                 ),
                 {
@@ -365,6 +313,7 @@ def _record_job_failure(job_id: str, retry_count: int) -> None:
                     "next_at": _now() + timedelta(seconds=backoff_seconds),
                     "now": _now(),
                     "jid": job_id,
+                    "lease": lease_id,
                 },
             )
     except Exception:
@@ -386,10 +335,10 @@ def reverse_relationship_scoring(relationship_id: str, *, reason: str) -> dict:
         originals = connection.execute(
             text(
                 """
-                SELECT e.id, e.points
+                SELECT e.id, e.points,e.coins
                   FROM one_referral_score_events e
                  WHERE e.relationship_id = CAST(:rid AS UUID)
-                   AND e.event_type IN ('base_qualification', 'flash_qualification')
+                   AND e.event_type IN ('base_qualification', 'flash_qualification','in_progress_activity','qualified_activity')
                    AND NOT EXISTS (
                          SELECT 1 FROM one_referral_score_events r
                           WHERE r.reverses_event_id = e.id
@@ -403,10 +352,10 @@ def reverse_relationship_scoring(relationship_id: str, *, reason: str) -> dict:
                 text(
                     """
                     INSERT INTO one_referral_score_events
-                      (user_id, relationship_id, event_type, points, settings_version,
+                      (user_id, relationship_id, event_type, points, coins, settings_version,
                        idempotency_key, reverses_event_id)
                     SELECT user_id, relationship_id, 'reversal', :reversal_points,
-                           settings_version, :idempotency_key, :original_id
+                           :reversal_coins, settings_version, :idempotency_key, :original_id
                       FROM one_referral_score_events
                      WHERE id = :original_id
                     ON CONFLICT (idempotency_key) DO NOTHING
@@ -414,6 +363,7 @@ def reverse_relationship_scoring(relationship_id: str, *, reason: str) -> dict:
                 ),
                 {
                     "reversal_points": -original.points,
+                    "reversal_coins": -original.coins,
                     "idempotency_key": f"reversal:{original.id}",
                     "original_id": original.id,
                 },
@@ -446,59 +396,77 @@ class LeaderboardPublishResult:
     generated_at: datetime
 
 
-def publish_leaderboard_snapshot(limit: int = 500) -> LeaderboardPublishResult:
-    """Compute and publish one consistent cumulative-ranking snapshot.
+_LEADERBOARD_COHORT_SQL = f"""
+            SELECT p.user_id,COALESCE(s.total,0) AS total,s.earliest
+            FROM actor_profiles p
+            LEFT JOIN (
+              SELECT user_id,SUM(points) AS total,MIN(created_at) FILTER(WHERE points>0) AS earliest
+              FROM one_referral_score_events WHERE id<=:watermark GROUP BY user_id
+            ) s ON s.user_id=p.user_id
+            WHERE s.total>0 OR EXISTS(SELECT 1 FROM one_referral_relationships r
+              WHERE r.referrer_user_id=p.user_id AND {JOINED_REFERRAL_PREDICATE})
+"""  # nosec B608 # Authored constant predicate; watermark is bound.
 
-    Ties break on the earliest point-earning event: deterministic and
-    reproducible from the ledger alone, never on worker timing. The dashboard
-    reads the LATEST snapshot rather than this aggregate query directly.
-    """
+
+def publish_leaderboard_snapshot(limit: int | None = None) -> LeaderboardPublishResult:
+    """Publish all coin ranks in one SQL write, retaining pinned pages for a day."""
+    settings = get_active_program_settings()
     with get_db_connection() as connection:
-        settings = get_active_program_settings()
-        ranked = connection.execute(
-            text(
-                """
-                SELECT user_id, SUM(points) AS total, MIN(created_at) AS earliest
-                  FROM one_referral_score_events
-                 GROUP BY user_id
-                HAVING SUM(points) > 0
-                 ORDER BY total DESC, earliest ASC
-                 LIMIT :limit
-                """
-            ),
-            {"limit": limit},
-        ).fetchall()
-
-        snapshot = connection.execute(
-            text(
-                """
-                INSERT INTO one_referral_leaderboard_snapshots (settings_version, entry_count)
-                VALUES (:version, :count)
-                RETURNING snapshot_id, generated_at
-                """
-            ),
-            {"version": settings.version, "count": len(ranked)},
+        connection.execute(text("SET LOCAL statement_timeout='10s'"))
+        connection.execute(text("SELECT pg_advisory_xact_lock(332,2)"))
+        watermark = connection.execute(
+            text("SELECT COALESCE(MAX(id),0) FROM one_referral_score_events")
+        ).scalar()
+        latest = connection.execute(
+            text("""
+          SELECT snapshot_id,generated_at,entry_count,source_event_id,settings_version
+            FROM one_referral_leaderboard_snapshots ORDER BY generated_at DESC LIMIT 1
+        """)
         ).fetchone()
-
-        for rank, row in enumerate(ranked, start=1):
-            connection.execute(
-                text(
-                    """
-                    INSERT INTO one_referral_leaderboard_snapshot_entries
-                      (snapshot_id, user_id, cumulative_points, rank)
-                    VALUES (:snapshot_id, :uid, :points, :rank)
-                    """
-                ),
-                {
-                    "snapshot_id": snapshot.snapshot_id,
-                    "uid": row.user_id,
-                    "points": int(row.total),
-                    "rank": rank,
-                },
+        if (
+            latest
+            and latest.source_event_id == watermark
+            and (_now() - latest.generated_at).total_seconds() < 60
+            and latest.settings_version == settings.version
+            and not connection.execute(
+                text(f"""WITH cohort AS ({_LEADERBOARD_COHORT_SQL}), ranked AS (
+                  SELECT user_id,total,ROW_NUMBER() OVER(ORDER BY total DESC,earliest,user_id) AS rank FROM cohort
+                ), saved AS (
+                  SELECT user_id,cumulative_points AS total,rank FROM one_referral_leaderboard_snapshot_entries WHERE snapshot_id=:sid
+                ) SELECT EXISTS(SELECT * FROM ranked EXCEPT SELECT * FROM saved)
+                      OR EXISTS(SELECT * FROM saved EXCEPT SELECT * FROM ranked)"""),  # nosec B608 # Fixed cohort SQL; snapshot ID and watermark are bound.
+                {"sid": latest.snapshot_id, "watermark": watermark},
+            ).scalar()
+        ):
+            return LeaderboardPublishResult(
+                str(latest.snapshot_id), latest.entry_count, latest.generated_at
             )
-
-    return LeaderboardPublishResult(
-        snapshot_id=str(snapshot.snapshot_id),
-        entry_count=len(ranked),
-        generated_at=snapshot.generated_at,
-    )
+        snapshot = connection.execute(
+            text("""
+          INSERT INTO one_referral_leaderboard_snapshots(settings_version,entry_count,source_event_id)
+          VALUES(:version,0,:watermark) RETURNING snapshot_id,generated_at
+        """),
+            {"version": settings.version, "watermark": watermark},
+        ).fetchone()
+        inserted = connection.execute(
+            text(f"""
+          INSERT INTO one_referral_leaderboard_snapshot_entries(snapshot_id,user_id,cumulative_points,rank)
+          SELECT :sid,user_id,total,ROW_NUMBER() OVER(ORDER BY total DESC,earliest,user_id)
+          FROM ({_LEADERBOARD_COHORT_SQL}) ranked
+        """),  # nosec B608 # Fixed cohort SQL; snapshot ID and watermark are bound.
+            {"sid": snapshot.snapshot_id, "watermark": watermark},
+        )
+        entry_count = inserted.rowcount
+        connection.execute(
+            text(
+                "UPDATE one_referral_leaderboard_snapshots SET entry_count=:count WHERE snapshot_id=:sid"
+            ),
+            {"count": entry_count, "sid": snapshot.snapshot_id},
+        )
+        connection.execute(
+            text(
+                "DELETE FROM one_referral_leaderboard_snapshots WHERE generated_at<NOW()-INTERVAL '1 day' AND snapshot_id<>:sid"
+            ),
+            {"sid": snapshot.snapshot_id},
+        )
+    return LeaderboardPublishResult(str(snapshot.snapshot_id), entry_count, snapshot.generated_at)

@@ -8,7 +8,11 @@
     "authorizeUrl": "https://app.attio.com/oidc/authorize",
     "tokenUrl": "https://app.attio.com/oidc/token",
     "registrationUrl": "https://app.attio.com/oauth/register",
-    "scopes": ["mcp", "offline_access", "openid"],
+    "scopes": [
+      "mcp",
+      "offline_access",
+      "openid"
+    ],
     "tokenEndpointAuth": "none",
     "clientIdEnv": "ATTIO_OAUTH_CLIENT_ID"
   },
@@ -76,7 +80,20 @@
   "environments": {
     "uat": {
       "registeredRedirectUris": [
-        "https://uat.one.hushh.ai/one/profile/connectors/oauth/return"
+        "https://uat.one.hushh.ai/one/profile/connectors/oauth/return",
+        "https://dev.one.hushh.ai/one/profile/connectors/oauth/return",
+        "https://one.hushh.ai/one/profile/connectors/oauth/return",
+        "https://uat.one.hussh.ai/one/profile/connectors/oauth/return",
+        "https://dev.one.hussh.ai/one/profile/connectors/oauth/return",
+        "https://one.hussh.ai/one/profile/connectors/oauth/return",
+        "https://uat.one.hussh.si/one/profile/connectors/oauth/return",
+        "https://dev.one.hussh.si/one/profile/connectors/oauth/return",
+        "https://one.hussh.si/one/profile/connectors/oauth/return"
+      ]
+    },
+    "production": {
+      "registeredRedirectUris": [
+        "https://one.hushh.ai/one/profile/connectors/oauth/return"
       ]
     }
   }

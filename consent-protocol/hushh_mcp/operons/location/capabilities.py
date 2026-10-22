@@ -14,13 +14,23 @@ def compile_location_capabilities(
     catalog = {}
     for action in actions:
         command = action.get("command") or {}
+        # One non-mutating Calendar adapter enters the existing conversation.
+        # Its authored contract confers no RSVP or Mail execution capability.
+        calendar_handoff = (
+            action.get("action_id") == "calendar.invitation.review"
+            and action.get("execution_policy") == "allow_direct"
+            and (action.get("execution_target") or {}).get("target") == "continue_calendar_in_chat"
+        )
         if not (
-            str(action.get("action_id", "")).startswith("location.")
+            calendar_handoff
+            or str(action.get("action_id", "")).startswith("location.")
             or command.get("domain") == "location"
         ):
             continue
         # Conversation adapters are not executable command capabilities.
-        if (action.get("execution_target") or {}).get("path") == "voice_tool":
+        if (action.get("execution_target") or {}).get(
+            "path"
+        ) == "voice_tool" and not calendar_handoff:
             continue
         catalog[action["action_id"]] = action
     for workflow in workflows or []:
@@ -34,7 +44,44 @@ def compile_location_capabilities(
 
 
 def semantic_catalog(catalog: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
-    """Complete compact package, with no prompt-ranking cap hiding capabilities."""
+    """Complete model-facing catalog; execution authority stays in ``catalog``.
+
+    The model chooses an action and its inputs. A Location action's single
+    execution step and target repeat its ID and review route; sending all of
+    that for every action makes the managed semantics request miss its deadline.
+    Keep exceptional workflows and boundaries, and never drop an action.
+    """
+
+    def action_semantics(entry: dict[str, Any]) -> dict[str, Any]:
+        action_id = entry["action_id"]
+        command = entry.get("command") or {}
+        result = {
+            "action_id": action_id,
+            "meaning": entry.get("meaning") or entry.get("label"),
+            "inputs": (entry.get("goal") or {}).get("required_inputs", []),
+            "command": command,
+            "policy": entry.get("execution_policy"),
+        }
+        boundaries = entry.get("semantic_boundaries")
+        if boundaries is not None:
+            result["boundaries"] = boundaries
+        steps = (entry.get("goal") or {}).get("workflow_steps", [])
+        # Most authored workflows are a single execution of this same action.
+        # The host retains the full workflow for validation and execution.
+        if not (
+            isinstance(steps, list)
+            and len(steps) == 1
+            and isinstance(steps[0], dict)
+            and steps[0].get("type") == "action"
+            and steps[0].get("action_id") == action_id
+        ):
+            result["workflow"] = steps
+        # The Calendar conversation handoff has no Location review route and
+        # its target is semantic information the model must retain.
+        if not command and entry.get("execution_target"):
+            result["execution_target"] = entry["execution_target"]
+        return result
+
     return [
         {
             "workflow_id": entry["workflow_id"],
@@ -50,15 +97,6 @@ def semantic_catalog(catalog: dict[str, dict[str, Any]]) -> list[dict[str, Any]]
             },
         }
         if "workflow_id" in entry
-        else {
-            "action_id": entry["action_id"],
-            "meaning": entry.get("meaning") or entry.get("label"),
-            "boundaries": entry.get("semantic_boundaries"),
-            "inputs": (entry.get("goal") or {}).get("required_inputs", []),
-            "workflow": (entry.get("goal") or {}).get("workflow_steps", []),
-            "command": entry.get("command", {}),
-            "execution_target": entry.get("execution_target"),
-            "policy": entry.get("execution_policy"),
-        }
+        else action_semantics(entry)
         for entry in catalog.values()
     ]

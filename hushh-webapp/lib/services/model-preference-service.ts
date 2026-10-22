@@ -18,7 +18,7 @@ export type ModelPreference = {
   user_id: string;
   selected_model: string | null;
   effective_model: string;
-  source: "user" | "deployment" | "fallback";
+  source: "user" | "deployment" | "fallback" | "administrator_policy";
   choices: ModelChoice[];
 };
 

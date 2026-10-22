@@ -84,9 +84,9 @@ export function LivingConnections({
     },
     [token],
   );
-  const openCircle = (id: string) =>
+  const openCircle = (id: string, memberSetup = false) =>
     router.push(
-      `${CONNECT_CIRCLES_LIST_HREF}&${CONNECT_CIRCLE_ACTION_PARAM}=circle-detail&${CONNECT_CIRCLE_ID_PARAM}=${encodeURIComponent(id)}`,
+      `${CONNECT_CIRCLES_LIST_HREF}&${CONNECT_CIRCLE_ACTION_PARAM}=circle-detail&${CONNECT_CIRCLE_ID_PARAM}=${encodeURIComponent(id)}${memberSetup ? "&circleSetup=1" : ""}`,
       { scroll: false },
     );
 
@@ -162,7 +162,7 @@ export function LivingConnections({
     } catch {
       /* Telemetry cannot undo a saved circle. */
     }
-    openCircle(circle.id);
+    openCircle(circle.id, starter.id !== "sms");
   };
 
   return (

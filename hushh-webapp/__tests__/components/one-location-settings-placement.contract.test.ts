@@ -10,6 +10,10 @@ const HUB_SOURCE = fs.readFileSync(
   ),
   "utf8",
 );
+const SUMMARY_SOURCE = fs.readFileSync(
+  path.resolve(__dirname, "../../components/one-location/redesign/location-hub-summary.tsx"),
+  "utf8",
+);
 const PROFILE_SOURCE = fs.readFileSync(
   path.resolve(
     __dirname,
@@ -73,7 +77,8 @@ describe("One Location settings placement", () => {
     expect(requestIndex).toBeGreaterThan(-1);
     expect(requestItem).toContain('<LocationMenuGlyph name="ask"');
     expect(nowSource).toContain("<LocationPrimaryShareCard");
-    expect(HUB_SOURCE).toContain('data-voice-action-id="location.open_share"');
+    expect(HUB_SOURCE).toContain('from "./location-hub-summary"');
+    expect(SUMMARY_SOURCE).toContain('data-voice-action-id="location.open_share"');
   });
 
   it("owns Saved Locations and does not duplicate it in Profile preferences", () => {

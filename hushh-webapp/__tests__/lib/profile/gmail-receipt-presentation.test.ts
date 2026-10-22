@@ -9,6 +9,7 @@ import {
   summarizeRecentReceiptRows,
 } from "@/lib/profile/gmail-receipt-presentation";
 import type { ReceiptListItem } from "@/lib/services/gmail-receipts-service";
+import { getVerifiedReceiptMerchant, resolveVerifiedReceiptMerchant } from "@/lib/mail/receipt-merchant-registry";
 
 function receipt(
   id: number,
@@ -151,7 +152,7 @@ describe("Gmail receipt presentation", () => {
     expect(missing.secondaryText).not.toContain("Paid");
   });
 
-  it("uses the backend merchant label and resolves branding only from its reviewed merchant domain", () => {
+  it("uses the backend merchant label and keeps reviewed branding separate from grouping identity", () => {
     expect(
       resolveReceiptMerchant({
         from_email: "ship-confirm@updates.myntra.com",
@@ -160,8 +161,10 @@ describe("Gmail receipt presentation", () => {
       }),
     ).toEqual({
       merchantId: "myntra.com:myntra",
+      brandKey: "myntra",
       displayName: "Myntra",
       logoDomain: "myntra.com",
+      homepageUrl: "https://www.myntra.com",
       category: "Other",
       displayKind: "merchant",
     });
@@ -174,13 +177,40 @@ describe("Gmail receipt presentation", () => {
       }),
     ).toEqual({
       merchantId: null,
+      brandKey: null,
       displayName: "Receipt",
       logoDomain: null,
+      homepageUrl: null,
       category: "Other",
       displayKind: "generic",
     });
   });
 
+  it.each([
+    ["Internshala Trainings", "internshala.com", "internshala-trainings", "trainings.internshala.com"],
+    ["Udemy", "udemy.com", "udemy", "udemy.com"],
+    ["Udemy", "email.udemy.com", "udemy", "udemy.com"],
+    ["Udemy", "e.udemymail.com", "udemy", "udemy.com"],
+  ])("resolves the reviewed training merchant %s from official domain %s", (merchant_name, senderDomain, brandKey, logoDomain) => {
+    const brand = resolveReceiptMerchant({ merchant_name, from_email: `receipt@${senderDomain}` });
+    expect(brand).toMatchObject({ displayName: merchant_name, brandKey, logoDomain, category: "Other" });
+    expect(getVerifiedReceiptMerchant(brandKey)).toMatchObject({ merchantId: brandKey, logoDomain, categoryFallback: "Software & Subscriptions" });
+  });
+  it.each([
+    ["Udemy", "udemy.com.evil.example"], ["Udemy", "eviludemy.com"],
+    ["Udemy", "other.udemy.com"], ["Udemy", "udemymail.com"],
+    ["Udemy", "other.udemymail.com"], ["Udemy", "e.udemymail.com.evil.example"],
+    ["Internshala Trainings", "internshala.com.evil.example"],
+    ["Internshala Trainings", "notinternshala.com"], ["Internshala Trainings", "other.internshala.com"],
+    ["Internshala Trainings", "trainings.internshala.com"],
+  ])("rejects the unreviewed sender domain %s / %s", (merchant_name, domain) => {
+    expect(resolveReceiptMerchant({ merchant_name, from_email: `receipt@${domain}` })).toMatchObject({ brandKey: null, logoDomain: null, category: "Other" });
+  });
+  it("accepts the exact reviewed Internshala site as merchant evidence without treating it as a sender", () => {
+    expect(resolveReceiptMerchant({ merchant_name: "Internshala Trainings", merchant_domain: "trainings.internshala.com" }))
+      .toMatchObject({ brandKey: "internshala-trainings", logoDomain: "trainings.internshala.com", category: "Other" });
+    expect(resolveVerifiedReceiptMerchant("trainings.internshala.com")).toBeNull();
+  });
   it("keeps an evidence-backed backend label even when no logo mapping exists", () => {
     expect(
       resolveReceiptMerchant({
@@ -191,8 +221,10 @@ describe("Gmail receipt presentation", () => {
       }),
     ).toEqual({
       merchantId: "local-shop.example:local shop",
+      brandKey: null,
       displayName: "Local Shop",
       logoDomain: null,
+      homepageUrl: null,
       category: "Other",
       displayKind: "merchant",
     });
@@ -205,6 +237,76 @@ describe("Gmail receipt presentation", () => {
       }).displayName,
     ).toBe("Receipt");
   });
+
+  it.each([
+    ["Plaid", "plaid.com", "plaid", "plaid.com", "https://plaid.com"],
+    ["Supabase", "supabase.com", "supabase", "supabase.com", "https://supabase.com"],
+    ["Supabase", "supabase.io", "supabase", "supabase.com", "https://supabase.com"],
+    ["Amazon", "amazon.in", "amazon", "amazon.com", "https://www.amazon.com"],
+    ["Kyari.co", "kyari.co", "kyari", "kyari.co", "https://kyari.co"],
+    ["Anthropic", "anthropic.com", "anthropic", "anthropic.com", "https://www.anthropic.com"],
+    ["Google Play", "google.com", "google-play", "play.google.com", "https://play.google.com"],
+    ["IndiGo", "goindigo.in", "indigo", "goindigo.in", "https://www.goindigo.in"],
+  ] as const)("resolves %s to the reviewed logo and exact HTTPS homepage", (name, domain, key, logoDomain, homepageUrl) => {
+    const merchant = resolveReceiptMerchant(receipt(1, { merchant_name: name, merchant_domain: domain }));
+    expect(merchant).toMatchObject({ displayName: name, brandKey: key, logoDomain, homepageUrl });
+    expect(merchant.merchantId).toBe(`${domain}:${name.toLowerCase()}`);
+    expect(buildReceiptLogoUrl("https://logos.example.test/{domain}", merchant.logoDomain))
+      .toBe(`https://logos.example.test/${logoDomain}`);
+  });
+
+  it.each([
+    ["Kyari.co", "amazon.in", "ship-confirm@shipping.amazon.in"],
+    ["KYARI PUNE", null, "no-reply@shipping.amazon.in"],
+    ["Kyari", "paypal.com", "service@paypal.com"],
+  ] as const)("brands extracted seller %s over a reviewed delivery/payment platform", (name, domain, sender) => {
+    expect(resolveReceiptMerchant(receipt(1, { merchant_name: name, merchant_domain: domain, from_email: sender })))
+      .toMatchObject({ displayName: name, brandKey: "kyari", logoDomain: "kyari.co", homepageUrl: "https://kyari.co" });
+  });
+
+  it("never selects a platform brand for an unknown seller or shipping label", () => {
+    for (const name of ["Local Shop", "Amazon Shipping", "ship-confirm", "noreply"]) {
+      expect(resolveReceiptMerchant(receipt(1, {
+        merchant_name: name, merchant_domain: "amazon.in", from_email: "ship-confirm@shipping.amazon.in",
+        category: "Shopping", category_confidence: 0.95,
+      }))).toMatchObject({ displayName: name, category: "Shopping", brandKey: null, logoDomain: null, homepageUrl: null });
+    }
+  });
+
+  it.each(["plaid.com.evil.example", "plald.com", "plaid-payments.com", "evilplaid.com", "plaid.com/receipt", "unreviewed.example"])(
+    "rejects the explicit unreviewed merchant domain %s even with a reviewed label",
+    (domain) => {
+      expect(resolveVerifiedReceiptMerchant(domain)).toBeNull();
+      expect(resolveReceiptMerchant(receipt(1, { merchant_name: "Plaid", merchant_domain: domain, from_email: "billing@plaid.com" })))
+        .toMatchObject({ displayName: "Plaid", brandKey: null, logoDomain: null, homepageUrl: null });
+    },
+  );
+
+  it("requires exact reviewed aliases and rejects conflicting seller/domain evidence", () => {
+    expect(resolveReceiptMerchant(receipt(1, { merchant_name: "Plaid", merchant_domain: null, from_email: "billing@plaid.com.evil.example" })))
+      .toMatchObject({ brandKey: null, homepageUrl: null, logoDomain: null });
+    expect(resolveReceiptMerchant(receipt(1, { merchant_name: "Plaid", merchant_domain: "supabase.com" })))
+      .toMatchObject({ brandKey: null, homepageUrl: null, logoDomain: null });
+    for (const name of ["Plaid offers", "https://plaid.com", "www.plaid.com.evil.example"]) {
+      expect(resolveReceiptMerchant(receipt(1, { merchant_name: name, merchant_domain: "plaid.com" })))
+        .toMatchObject({ brandKey: null, homepageUrl: null, logoDomain: null });
+    }
+    expect(resolveReceiptMerchant(receipt(1, { merchant_name: "Plaid", merchant_domain: null, from_email: null })))
+      .toMatchObject({ merchantId: "unknown:plaid", brandKey: "plaid", logoDomain: "plaid.com", homepageUrl: "https://plaid.com" });
+    expect(getVerifiedReceiptMerchant("plaid")?.homepageUrl).toBe("https://plaid.com");
+    expect(getVerifiedReceiptMerchant("https://plaid.com")).toBeNull();
+    expect(getVerifiedReceiptMerchant("plaid.com.evil.example")).toBeNull();
+  });
+
+  it.each(["Plaid billing", "plaid.com", "https://plaid.com", "billing@@plaid.com", "billing@plaid.com extra", "Plaid <billing@plaid.com> extra", "Plaid <billing@plaid.com> <evil@evil.example>"])(
+    "rejects supplied malformed sender %s instead of treating it as missing evidence",
+    (from_email) => {
+      for (const merchant_domain of [null, "plaid.com"]) {
+        expect(resolveReceiptMerchant(receipt(1, { merchant_name: "Plaid", merchant_domain, from_email })))
+          .toMatchObject({ displayName: "Plaid", brandKey: null, homepageUrl: null, logoDomain: null });
+      }
+    },
+  );
 
   it.each([
     "Shopping",

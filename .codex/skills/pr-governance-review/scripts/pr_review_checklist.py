@@ -171,7 +171,7 @@ SALVAGEABLE_MEDIUM_FINDINGS = {
 CANONICAL_VOICE_RUNTIME_PATHS = (
     "hushh-webapp/components/agent/agent-bar.tsx",
     "hushh-webapp/components/kai/kai-command-bar-global.tsx",
-    "hushh-webapp/lib/voice/kai-action-gateway.ts",
+    "hushh-webapp/lib/kai/actions/kai-action-gateway.ts",
     "contracts/kai/kai-action-gateway.vnext.json",
     "contracts/kai/one-route-orchestration-index.v1.json",
     "consent-protocol/hushh_mcp/services/action_gateway.py",
@@ -308,7 +308,7 @@ CANONICAL_CAPABILITY_BASELINES: tuple[dict[str, Any], ...] = (
         "canonical_paths": (
             "hushh-webapp/components/agent/agent-bar.tsx",
             "hushh-webapp/components/kai/kai-command-bar-global.tsx",
-            "hushh-webapp/lib/voice/kai-action-gateway.ts",
+            "hushh-webapp/lib/kai/actions/kai-action-gateway.ts",
             "contracts/kai/kai-action-gateway.vnext.json",
             "contracts/kai/one-route-orchestration-index.v1.json",
             "consent-protocol/hushh_mcp/services/action_gateway.py",
@@ -745,7 +745,7 @@ RELATED_SURFACE_RULES: tuple[dict[str, Any], ...] = (
         ),
         "files": (
             "hushh-webapp/lib/voice/one-voice-transport.ts",
-            "hushh-webapp/lib/voice/kai-action-gateway.ts",
+            "hushh-webapp/lib/kai/actions/kai-action-gateway.ts",
             "hushh-webapp/lib/agent/agent-action-runtime.ts",
             "hushh-webapp/components/agent/agent-bar.tsx",
             "hushh-webapp/components/kai/kai-command-bar-global.tsx",
@@ -813,7 +813,7 @@ PATH_SUMMARIES: dict[str, str] = {
     "docs/reference/kai/kai-change-impact-matrix.md": "Kai change-governance matrix describing decision-card and stream-contract impacts.",
     "docs/reference/architecture/one-email-kyc.md": "Current One-led KYC mailbox, consent, draft, send, and PKM writeback contract.",
     "hushh-webapp/lib/voice/one-voice-transport.ts": "Connection-local One Voice transport that carries governed directives and correlated browser settlements.",
-    "hushh-webapp/lib/voice/kai-action-gateway.ts": "Generated frontend action gateway used as the semantic authority for One Voice/Kai compatibility actions.",
+    "hushh-webapp/lib/kai/actions/kai-action-gateway.ts": "Generated frontend action gateway used as the semantic authority for One Voice/Kai compatibility actions.",
     "hushh-webapp/lib/agent/agent-action-runtime.ts": "Shared browser action runner for Agent Bar, Voice, and Search directives.",
     "hushh-webapp/components/agent/agent-bar.tsx": "One Voice presentation surface and the client-side directive settlement owner.",
     "hushh-webapp/components/kai/kai-command-bar-global.tsx": "Search adapter that delegates selected actions to the shared browser runner.",
@@ -3082,7 +3082,7 @@ def _adds_parallel_voice_input_surface(files: list[str], patch_text: str) -> boo
         for path in (
             "hushh-webapp/components/agent/agent-bar.tsx",
             "hushh-webapp/lib/voice/one-voice-transport.ts",
-            "hushh-webapp/lib/voice/kai-action-gateway.ts",
+            "hushh-webapp/lib/kai/actions/kai-action-gateway.ts",
         )
     )
     return adds_browser_speech and touches_voice_like_ui and canonical_voice_exists

@@ -49,6 +49,7 @@ def unlock(app):
         ("post", "", BODY),
         ("get", "", None),
         ("get", f"/{JOB}", None),
+        ("get", f"/{JOB}/stream", None),
         ("get", f"/{JOB}/results", None),
         ("post", f"/{JOB}/stop", {}),
     ],
@@ -168,3 +169,110 @@ def test_invalid_timezone_still_rejected_before_job_lookup_or_planning(setup, ca
     assert BODY["query"] not in caplog.text
     service.existing.assert_not_awaited()
     planner.assert_not_awaited()
+
+
+def test_stream_returns_committed_terminal_status_without_starting_work(setup):
+    import json
+
+    app, client, service, current, planner = setup
+    unlock(app)
+    service.status.return_value = {
+        "jobId": JOB,
+        "status": "completed",
+        "revision": 4,
+        "pagesScanned": 3,
+        "matched": 1007,
+        "incompleteSearch": False,
+    }
+    response = client.get(BASE + f"/{JOB}/stream")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert "no-store" in response.headers["cache-control"]
+    assert response.headers["x-accel-buffering"] == "no"
+    frame = json.loads(response.text.split("data: ", 1)[1])
+    assert frame == {"event": "status", **service.status.return_value}
+    assert current.await_count >= 3
+    service.create.assert_not_awaited()
+    planner.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_stream_revocation_ends_without_reading_more_results():
+    owner = SimpleNamespace(require_current=AsyncMock(side_effect=HTTPException(403, "private")))
+    service = SimpleNamespace(status=AsyncMock())
+    request = SimpleNamespace(is_disconnected=AsyncMock(return_value=False))
+    frames = [
+        frame
+        async for frame in routes._status_stream(
+            request=request,
+            owner=owner,
+            service=service,
+            job_id=JOB,
+            initial={"status": "running", "private": "MUST_NOT_BE_SENT"},
+        )
+    ]
+    assert frames == ['event: error\ndata: {"code":"search_unavailable"}\n\n']
+    service.status.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_stream_disconnect_does_not_stop_durable_search():
+    owner = SimpleNamespace(require_current=AsyncMock())
+    service = SimpleNamespace(status=AsyncMock(), stop=AsyncMock())
+    request = SimpleNamespace(is_disconnected=AsyncMock(return_value=True))
+    assert [
+        frame
+        async for frame in routes._status_stream(
+            request=request,
+            owner=owner,
+            service=service,
+            job_id=JOB,
+            initial={"status": "running"},
+        )
+    ] == []
+    service.stop.assert_not_awaited()
+    service.status.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_stream_continues_after_metadata_until_content_evaluation_completes(monkeypatch):
+    owner = SimpleNamespace(user_id="owner", require_current=AsyncMock())
+    done = {
+        "jobId": JOB,
+        "status": "completed",
+        "revision": 6,
+        "evaluation": {
+            "status": "ready",
+            "evaluatedCount": 6,
+            "pendingCount": 0,
+            "verifiedCount": 2,
+        },
+    }
+    service = SimpleNamespace(status=AsyncMock(return_value=done))
+    request = SimpleNamespace(is_disconnected=AsyncMock(return_value=False))
+    monkeypatch.setattr(routes.asyncio, "sleep", AsyncMock())
+    frames = [
+        frame
+        async for frame in routes._status_stream(
+            request=request,
+            owner=owner,
+            service=service,
+            job_id=JOB,
+            initial={
+                "jobId": JOB,
+                "status": "completed",
+                "revision": 5,
+                "evaluation": {
+                    "status": "running",
+                    "evaluatedCount": 3,
+                    "pendingCount": 3,
+                    "verifiedCount": 1,
+                },
+            },
+        )
+    ]
+    assert len(frames) == 2
+    assert '"status":"running"' in frames[0]
+    assert '"status":"ready"' in frames[1]
+    service.status.assert_awaited_once()
+    assert owner.require_current.await_count >= 4

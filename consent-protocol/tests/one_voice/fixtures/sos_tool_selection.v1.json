@@ -4864,6 +4864,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -4872,6 +4873,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -4890,6 +4892,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -4903,7 +4906,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "capability question about SMS (the feature), not a request"
     },
@@ -4926,6 +4930,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -4934,6 +4939,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -4952,6 +4958,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -4965,7 +4972,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "how-to question"
     },
@@ -4988,6 +4996,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -4996,6 +5005,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -5014,6 +5024,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -5027,7 +5038,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "plain negation; no tool, and never the opposite"
     },
@@ -5050,6 +5062,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -5058,6 +5071,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -5076,6 +5090,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -5089,7 +5104,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "prohibition covering the alert"
     },
@@ -5112,6 +5128,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -5120,6 +5137,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -5138,6 +5156,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -5151,7 +5170,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "quotation of a phrase, not a request"
     },
@@ -5174,6 +5194,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -5182,6 +5203,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -5200,6 +5222,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -5213,7 +5236,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "example inside a question"
     },
@@ -5236,6 +5260,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -5244,6 +5269,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -5262,6 +5288,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -5274,7 +5301,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "bare word: bare word with no request (a tap card may be proposed; the tap tier is the guard)"
     },
@@ -5297,6 +5325,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -5305,6 +5334,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -5323,6 +5353,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -5335,7 +5366,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "bare word: bare feature name (a tap card may be proposed; the tap tier is the guard)"
     },
@@ -5358,6 +5390,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -5366,6 +5399,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -5384,6 +5418,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -5396,7 +5431,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "bare word: bare word (a tap card may be proposed; the tap tier is the guard)"
     },
@@ -5419,6 +5455,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -5427,6 +5464,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -5445,6 +5483,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -5458,7 +5497,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "the voice session, not the alert"
     },
@@ -5481,6 +5521,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -5489,6 +5530,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -5507,6 +5549,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -5520,7 +5563,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "a statement; stopping tells nobody, so ask before stopping"
     },
@@ -5543,6 +5587,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -5551,6 +5596,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -5569,6 +5615,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -5582,7 +5629,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "no tool tells anyone; explain, do not stop or send"
     },
@@ -5605,6 +5653,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -5613,6 +5662,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -5631,6 +5681,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -5644,7 +5695,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "a phone text message is not a feature here"
     },
@@ -5669,6 +5721,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -5677,6 +5730,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -5695,6 +5749,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -5708,7 +5763,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "one person only is not the alert; say what it can do instead"
     },
@@ -5733,6 +5789,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -5741,6 +5798,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -5759,6 +5817,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -5772,7 +5831,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "a different duration is not the alert"
     },
@@ -5795,6 +5855,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -5803,6 +5864,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -5821,6 +5883,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -5834,7 +5897,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "a different duration is not the alert"
     },
@@ -5857,6 +5921,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -5865,6 +5930,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -5883,6 +5949,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -5896,7 +5963,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "approximate is not the alert; the alert is precise"
     },
@@ -5919,6 +5987,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -5927,6 +5996,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -5945,6 +6015,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -5958,7 +6029,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "explanation question"
     },
@@ -5981,6 +6053,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -5989,6 +6062,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -6007,6 +6081,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -6020,7 +6095,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "capability question"
     },
@@ -6043,6 +6119,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -6051,6 +6128,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -6069,6 +6147,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -6082,7 +6161,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "duration question"
     },
@@ -6105,6 +6185,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -6113,6 +6194,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -6131,6 +6213,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -6144,7 +6227,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "concept question"
     },
@@ -6167,6 +6251,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -6175,6 +6260,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -6193,6 +6279,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -6206,7 +6293,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "'never send' is a prohibition"
     },
@@ -6229,6 +6317,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -6237,6 +6326,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -6255,6 +6345,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -6268,7 +6359,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "a report about the past"
     },
@@ -6291,6 +6383,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -6299,6 +6392,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -6317,6 +6411,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -6330,7 +6425,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "another person's device"
     },
@@ -6353,6 +6449,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -6361,6 +6458,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -6379,6 +6477,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -6392,7 +6491,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "hypothetical quoting the trigger phrase"
     },
@@ -6415,6 +6515,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -6423,6 +6524,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -6441,6 +6543,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -6454,7 +6557,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "negation of stop"
     },
@@ -6477,6 +6581,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -6485,6 +6590,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -6503,6 +6609,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -6516,7 +6623,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "negation of add"
     },
@@ -6539,6 +6647,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -6547,6 +6656,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -6565,6 +6675,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -6578,7 +6689,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "negation of remove"
     },
@@ -6601,6 +6713,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -6609,6 +6722,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -6627,6 +6741,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -6640,7 +6755,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "a subset is not the alert"
     },
@@ -6663,6 +6779,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -6671,6 +6788,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -6689,6 +6807,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -6702,7 +6821,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "a circle is not the emergency roster"
     },
@@ -6725,6 +6845,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -6733,6 +6854,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -6751,6 +6873,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -6764,7 +6887,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "another place is not the alert"
     },
@@ -6787,6 +6911,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -6795,6 +6920,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -6813,6 +6939,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -6826,7 +6953,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Hinglish capability question"
     },
@@ -6849,6 +6977,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -6857,6 +6986,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -6875,6 +7005,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -6888,7 +7019,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Hinglish negation"
     },
@@ -6911,6 +7043,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -6919,6 +7052,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -6937,6 +7071,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -6950,7 +7085,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Hinglish what-does-it-do"
     },
@@ -6973,6 +7109,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -6981,6 +7118,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -6999,6 +7137,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -7012,7 +7151,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Hinglish stop listening"
     },
@@ -7035,6 +7175,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -7043,6 +7184,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -7061,6 +7203,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -7074,7 +7217,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Hinglish I'm safe now"
     },
@@ -7097,6 +7241,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -7105,6 +7250,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -7123,6 +7269,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -7136,7 +7283,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Hinglish tell them I'm fine"
     },
@@ -7159,6 +7307,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -7167,6 +7316,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -7185,6 +7335,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -7197,7 +7348,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "bare word: Hinglish bare 'help' (a tap card may be proposed; the tap tier is the guard)"
     },
@@ -7220,6 +7372,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -7228,6 +7381,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -7246,6 +7400,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -7259,7 +7414,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Hinglish only-to-Priya"
     },
@@ -7282,6 +7438,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -7290,6 +7447,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -7308,6 +7466,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -7321,7 +7480,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Hinglish approximate location"
     },
@@ -7348,6 +7508,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -7356,6 +7517,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -7374,6 +7536,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -7387,7 +7550,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "cancel the trigger card; not stop_save_my_soul"
     },
@@ -7414,6 +7578,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -7422,6 +7587,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -7440,6 +7606,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -7453,7 +7620,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "change of mind cancels the card"
     },
@@ -7480,6 +7648,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -7488,6 +7657,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -7506,6 +7676,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -7519,7 +7690,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "'scrap that' cancels"
     },
@@ -7546,6 +7718,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -7554,6 +7727,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -7572,6 +7746,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -7585,7 +7760,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "bare never mind after a card"
     },
@@ -7612,6 +7788,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -7620,6 +7797,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -7638,6 +7816,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -7651,7 +7830,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "'cancel it' is the unconfirmed card, never stop_save_my_soul"
     },
@@ -7678,6 +7858,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -7686,6 +7867,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -7704,6 +7886,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -7717,7 +7900,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Hinglish: no, stop, don't send"
     },
@@ -7744,6 +7928,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -7752,6 +7937,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -7770,6 +7956,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -7783,7 +7970,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Hinglish: leave it, cancel"
     },
@@ -7808,6 +7996,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "create_check_in",
         "create_circle",
         "create_circle_invite_link",
@@ -7815,6 +8004,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -7833,6 +8023,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -7846,7 +8037,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "a spoken yes cannot confirm a tap card; the tap-tier refusal (tap_required) is the guard; no other mutation"
     },
@@ -7871,6 +8063,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "create_check_in",
         "create_circle",
         "create_circle_invite_link",
@@ -7878,6 +8071,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -7896,6 +8090,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -7909,7 +8104,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "Hinglish spoken yes on a tap card; the tap-tier refusal (tap_required) is the guard; no other mutation"
     },
@@ -7934,6 +8130,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -7942,6 +8139,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -7960,6 +8158,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -7973,7 +8172,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "hesitation: nothing or cancel, never confirm"
     },
@@ -7999,6 +8199,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -8007,6 +8208,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -8025,6 +8227,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -8038,7 +8241,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "correction re-resolves the new name; no card yet"
     },
@@ -8063,6 +8267,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -8071,6 +8276,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -8089,6 +8295,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -8102,7 +8309,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "drop the add; nothing to change"
     },
@@ -8127,6 +8335,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -8135,6 +8344,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -8153,6 +8363,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -8166,7 +8377,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "drop the add"
     },
@@ -8191,6 +8403,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -8199,6 +8412,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -8216,6 +8430,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -8229,7 +8444,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "correction of the removal target; confirm from the roster, then ask"
     },
@@ -8256,6 +8472,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -8264,6 +8481,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -8282,6 +8500,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -8295,7 +8514,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "cancel the stop card, leave the alert live"
     },
@@ -8322,6 +8542,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -8330,6 +8551,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -8348,6 +8570,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -8361,7 +8584,8 @@
         "turn_sharing_off",
         "turn_sharing_on",
         "update_display_name",
-        "withdraw_request"
+        "withdraw_request",
+        "continue_calendar_in_chat"
       ],
       "note": "cancel the stop card"
     }

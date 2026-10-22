@@ -2,14 +2,18 @@ import {
   act,
   fireEvent,
   render,
+  renderHook,
   screen,
   waitFor,
 } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Capacitor } from "@capacitor/core";
 
-import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
+beforeEach(() => { vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(false); });
+
+import { PhoneVerificationFlow, usePhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
 import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
-import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { getVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/register-phone",
@@ -21,10 +25,15 @@ function renderPhoneVerificationFlow(options?: {
   phonePresentation?: "compact";
   confirmVerification?: ReturnType<typeof vi.fn>;
   currentPhoneNumber?: string | null;
+  mode?: "link" | "replace";
+  startVerification?: ReturnType<typeof vi.fn>;
+  onContinueExisting?: ReturnType<typeof vi.fn>;
+  onBackStepChange?: (handler: (() => boolean) | null) => void;
+  isCurrent?: () => boolean;
 }) {
-  const startVerification = options?.startRejects
+  const startVerification = options?.startVerification ?? (options?.startRejects
     ? vi.fn().mockRejectedValue(new Error("provider unavailable"))
-    : vi.fn().mockResolvedValue({ autoVerified: false });
+    : vi.fn().mockResolvedValue({ autoVerified: false }));
   const confirmVerification =
     options?.confirmVerification ??
     vi.fn().mockResolvedValue({ uid: "user_1" });
@@ -32,13 +41,16 @@ function renderPhoneVerificationFlow(options?: {
 
   const flow = (currentPhoneNumber?: string | null) => (
     <PhoneVerificationFlow
-      mode="link"
+      mode={options?.mode ?? "link"}
       codePresentation={options?.codePresentation}
       phonePresentation={options?.phonePresentation}
       currentPhoneNumber={currentPhoneNumber}
       startVerification={startVerification}
       confirmVerification={confirmVerification}
       onCompleted={onCompleted}
+      onContinueExisting={options?.onContinueExisting}
+      onBackStepChange={options?.onBackStepChange}
+      isCurrent={options?.isCurrent}
     />
   );
 
@@ -48,6 +60,7 @@ function renderPhoneVerificationFlow(options?: {
     startVerification,
     confirmVerification,
     onCompleted,
+    unmount: view.unmount,
     // Republishes the flow with a new auth-context phone value, the way
     // register-phone/page.tsx does when useAuth().phoneNumber settles.
     rerenderWithPhone: (next?: string | null) => view.rerender(flow(next)),
@@ -88,6 +101,157 @@ async function selectIndiaOnce() {
 }
 
 describe("PhoneVerificationFlow country selector", () => {
+  it.each(["send", "confirm"])("does not navigate from a %s completion after its phone destination retires", async path => {
+    let finish!: (value: unknown) => void;
+    const pending = new Promise(resolve => { finish = resolve; });
+    const start = vi.fn().mockReturnValue(path === "send" ? pending : Promise.resolve({ autoVerified: false }));
+    const confirm = vi.fn().mockReturnValue(pending);
+    const flow = renderPhoneVerificationFlow({ startVerification: start, confirmVerification: confirm });
+    const input = screen.getByRole("textbox", { name: "Phone number" });
+    fireEvent.change(input, { target: { value: "6505550101" } });
+    fireEvent.submit(input.closest("form")!);
+    if (path === "confirm") {
+      const code = await screen.findByRole("textbox", { name: "One-time code" });
+      fireEvent.change(code, { target: { value: "123456" } });
+      fireEvent.submit(code.closest("form")!);
+      expect(confirm).toHaveBeenCalledOnce();
+    }
+    flow.unmount();
+    await act(async () => { finish(path === "send" ? { autoVerified: true, user: { uid: "user_1" } } : { uid: "user_1" }); });
+    expect(flow.onCompleted).not.toHaveBeenCalled();
+    expect(start).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a retained verification callback after OTP Back and a retired owner before provider dispatch", async () => {
+    let ownerCurrent = true;
+    const start = vi.fn().mockResolvedValue({ autoVerified: false });
+    const confirm = vi.fn();
+    const { result } = renderHook(() => usePhoneVerificationFlow({ mode: "replace", currentPhoneNumber: "+16505550101",
+      startVerification: start, confirmVerification: confirm, onCompleted: vi.fn(), isCurrent: () => ownerCurrent }));
+    await act(async () => { await result.current.handleStartVerification(false, "+16505550102"); });
+    const retainedConfirm = result.current.submitVerificationCode;
+    act(() => { result.current.returnToPhoneNumber(); });
+    await act(async () => { await retainedConfirm("123456", { notify: false }); });
+    expect(confirm).not.toHaveBeenCalled();
+    ownerCurrent = false;
+    await act(async () => { await result.current.handleStartVerification(); });
+    expect(start).toHaveBeenCalledOnce();
+  });
+
+  it("does not repeat committed verification when Account refresh fails", async () => {
+    const confirm = vi.fn().mockResolvedValue({ uid: "user_1" });
+    let failCompletion!: (error: Error) => void;
+    const pendingCompletion = new Promise<void>((_resolve, reject) => { failCompletion = reject; });
+    const completed = vi.fn().mockReturnValueOnce(pendingCompletion).mockResolvedValue(undefined);
+    const start = vi.fn().mockResolvedValue({ autoVerified: false });
+    const { result, rerender } = renderHook(({ phone }) => usePhoneVerificationFlow({ mode: "replace", currentPhoneNumber: phone,
+      startVerification: start, confirmVerification: confirm, onCompleted: completed }), { initialProps: { phone: "+16505550101" } });
+    await act(async () => { await result.current.handleStartVerification(false, "+16505550102"); });
+    let verification!: Promise<unknown>;
+    act(() => { verification = result.current.submitVerificationCode("123456", { notify: false }); });
+    await waitFor(() => expect(completed).toHaveBeenCalledOnce());
+    rerender({ phone: "+16505550102" });
+    await act(async () => { failCompletion(new Error("private provider response must not appear")); expect(await verification).toBe("verified"); });
+    expect(result.current.step).toBe("linked");
+    expect(result.current.verificationCode).toBe("");
+    expect(result.current.operationError).toContain("Phone verified. Couldn’t refresh Account.");
+    expect(result.current.operationError).not.toContain("provider response");
+    await act(async () => { await result.current.submitVerificationCode("123456", { notify: false }); });
+    expect(confirm).toHaveBeenCalledOnce();
+    await act(async () => { await result.current.handleContinueExisting(); });
+    expect(completed).toHaveBeenCalledTimes(2);
+    expect(start).toHaveBeenCalledOnce();
+    expect(confirm).toHaveBeenCalledOnce();
+  });
+
+  it("lets an international native paste outrank the picker without changing its recipient", async () => {
+    const start = vi.fn().mockResolvedValue({ autoVerified: false });
+    const { result } = renderHook(() => usePhoneVerificationFlow({ mode: "replace", currentPhoneNumber: "+16505550101",
+      startVerification: start, confirmVerification: vi.fn(), onCompleted: vi.fn() }));
+    act(() => { result.current.handlePhoneNumberChange("+916505550101", "US"); });
+    expect(result.current.selectedCountry).toBe("IN");
+    await act(async () => { await result.current.handleStartVerification(); });
+    expect(start).toHaveBeenCalledWith("+916505550101", { resendCode: false });
+    act(() => { result.current.returnToPhoneNumber(); });
+    const staleSend = result.current.handleStartVerification;
+    act(() => { expect(result.current.handlePhoneNumberChange("650555010199", "US")).toBe(false); });
+    await act(async () => { await staleSend(); });
+    expect(start).toHaveBeenCalledOnce();
+    act(() => { result.current.handlePhoneNumberChange("6505550102", "US"); });
+    await act(async () => { await result.current.handleStartVerification(); });
+    expect(start).toHaveBeenLastCalledWith("+16505550102", { resendCode: false });
+  });
+
+  it("keeps the pending attempt when its same owner publishes the newly verified phone", async () => {
+    let finish!: (value: { uid: string }) => void;
+    const pending = new Promise<{ uid: string }>(resolve => { finish = resolve; });
+    const completed = vi.fn(), confirm = vi.fn().mockReturnValue(pending), start = vi.fn().mockResolvedValue({ autoVerified: false });
+    const { result, rerender } = renderHook(({ phone }: { phone: string | null }) => usePhoneVerificationFlow({ ownerKey: "same-visit",
+      mode: phone ? "replace" : "link", currentPhoneNumber: phone, startVerification: start, confirmVerification: confirm, onCompleted: completed }),
+    { initialProps: { phone: null } });
+    await act(async () => { await result.current.handleStartVerification(false, "+16505550102"); });
+    let verification!: Promise<unknown>;
+    act(() => { verification = result.current.submitVerificationCode("123456", { notify: false }); });
+    rerender({ phone: "+16505550102" });
+    await act(async () => { finish({ uid: "user_1" }); await verification; });
+    expect(completed).toHaveBeenCalledOnce();
+    expect(result.current.busy).toBe(false);
+    expect(result.current.step).toBe("linked");
+    expect(confirm).toHaveBeenCalledOnce();
+  });
+
+  it("does not let a retired request unlock a new owner's pending phone operation", async () => {
+    let resolveOld!: (value: { autoVerified: boolean }) => void;
+    const old = new Promise<{ autoVerified: boolean }>(resolve => { resolveOld = resolve; });
+    const start = vi.fn().mockReturnValueOnce(old).mockReturnValue(new Promise(() => undefined));
+    const completed = vi.fn();
+    const { result, rerender } = renderHook(({ owner }) => usePhoneVerificationFlow({ ownerKey: owner, mode: "replace",
+      currentPhoneNumber: "+16505550101", startVerification: start, confirmVerification: vi.fn(), onCompleted: completed }),
+    { initialProps: { owner: "first-visit" } });
+    let first!: Promise<unknown>;
+    act(() => { first = result.current.handleStartVerification(false, "+16505550102"); });
+    rerender({ owner: "second-visit" });
+    act(() => { void result.current.handleStartVerification(false, "+16505550103"); });
+    expect(start).toHaveBeenCalledTimes(2);
+    await act(async () => { resolveOld({ autoVerified: true }); await first; });
+    expect(result.current.busy).toBe(true);
+    await act(async () => { await result.current.handleStartVerification(false, "+16505550104"); });
+    expect(start).toHaveBeenCalledTimes(2);
+    expect(completed).not.toHaveBeenCalled();
+  });
+
+  it.each(["linked", "same-number"])("requires retryable native synchronization before %s completion", async (path) => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    let reject!: (error: Error) => void;
+    const pending = new Promise<{ autoVerified: boolean }>((_resolve, rejectPromise) => { reject = rejectPromise; });
+    const start = vi.fn().mockReturnValueOnce(pending).mockResolvedValue({ autoVerified: true });
+    const continueExisting = vi.fn();
+    const handle = renderPhoneVerificationFlow({ mode: path === "linked" ? "link" : "replace", currentPhoneNumber: "+16505550101", startVerification: start, onContinueExisting: continueExisting });
+    const action = screen.getByRole("button", { name: path === "linked" ? "Continue" : "Send verification code" });
+    fireEvent.click(action);
+    fireEvent.click(action);
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(continueExisting).not.toHaveBeenCalled();
+    expect(handle.onCompleted).not.toHaveBeenCalled();
+    await act(async () => { reject(new Error("persistence unavailable")); });
+    await waitFor(() => expect(action).toBeEnabled());
+    expect(continueExisting).not.toHaveBeenCalled();
+    expect(handle.onCompleted).not.toHaveBeenCalled();
+    fireEvent.click(action);
+    await waitFor(() => expect(path === "linked" ? continueExisting : handle.onCompleted).toHaveBeenCalledOnce());
+    expect(start).toHaveBeenCalledTimes(2);
+    expect(handle.confirmVerification).not.toHaveBeenCalled();
+  });
+
+  it.each(["linked", "same-number"])("retains the existing web %s completion without another OTP", async (path) => {
+    const continueExisting = vi.fn();
+    const handle = renderPhoneVerificationFlow({ mode: path === "linked" ? "link" : "replace", currentPhoneNumber: "+16505550101", onContinueExisting: continueExisting });
+    fireEvent.click(screen.getByRole("button", { name: path === "linked" ? "Continue" : "Send verification code" }));
+    await waitFor(() => expect(path === "linked" ? continueExisting : handle.onCompleted).toHaveBeenCalledOnce());
+    expect(handle.startVerification).not.toHaveBeenCalled();
+    expect(handle.confirmVerification).not.toHaveBeenCalled();
+  });
+
   it("validates compact entry only after Continue, retains errors until corrected, and never sends invalid input", async () => {
     const { startVerification } = renderPhoneVerificationFlow({ phonePresentation: "compact" });
     const input = screen.getByRole("textbox", { name: "Phone number" });
@@ -109,7 +273,7 @@ describe("PhoneVerificationFlow country selector", () => {
     expect(startVerification).toHaveBeenCalledWith("+16505550101", { resendCode: false });
   });
 
-  it("does not send the previous valid recipient after rejecting an oversized compact paste", () => {
+  it("does not send the previous valid recipient after rejecting an oversized compact paste", async () => {
     const { startVerification } = renderPhoneVerificationFlow({ phonePresentation: "compact" });
     const input = screen.getByRole("textbox", { name: "Phone number" }) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "6505550101" } });
@@ -119,6 +283,10 @@ describe("PhoneVerificationFlow country selector", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send verification code" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Enter a valid phone number.");
     expect(startVerification).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: "+16505550101" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send verification code" }));
+    await waitFor(() => expect(startVerification).toHaveBeenCalledWith("+16505550101", { resendCode: false }));
+    expect(startVerification).toHaveBeenCalledOnce();
   });
 
   it("can resend after a valid voice replacement of rejected compact input", async () => {
@@ -190,22 +358,22 @@ describe("PhoneVerificationFlow country selector", () => {
   });
 
   it.each([
-    ["United States", "US", "+1", "🇺🇸"],
-    ["United Kingdom", "GB", "+44", "🇬🇧"],
-    ["India", "IN", "+91", "🇮🇳"],
-    ["Angola", "AO", "+244", "🇦🇴"],
-    ["Brazil", "BR", "+55", "🇧🇷"],
-  ])("keeps compact country selection synchronized for %s", async (name, iso, code, flag) => {
+    ["United States", "US", "+1"],
+    ["United Kingdom", "GB", "+44"],
+    ["India", "IN", "+91"],
+    ["Angola", "AO", "+244"],
+    ["Brazil", "BR", "+55"],
+  ])("keeps compact country selection synchronized for %s", async (name, iso, code) => {
     renderPhoneVerificationFlow({ phonePresentation: "compact" });
     const phone = screen.getByRole("textbox", { name: "Phone number" });
     fireEvent.change(phone, { target: { value: "12345" } });
     fireEvent.click(screen.getByRole("button", { name: /^Country code:/ }));
     const search = await screen.findByRole("searchbox", { name: "Search countries" });
     fireEvent.change(search, { target: { value: name } });
-    fireEvent.click(screen.getByRole("button", { name: `${name} (${code})`, exact: true }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    fireEvent.click(screen.getByRole("option", { name: `${name} (${code})`, exact: true }));
+    await waitFor(() => expect(screen.queryByRole("listbox", { name: "Country codes" })).toBeNull());
     expect(screen.getByRole("button", { name: `Country code: ${name} (${code})` })).toBeTruthy();
-    expect(document.querySelector(`[data-country-code="${iso}"]`)?.textContent).toBe(flag);
+    expect(screen.getByRole("button", { name: `Country code: ${name} (${code})` }).textContent).toContain(`${iso} ${code}`);
     expect((phone as HTMLInputElement).value).toBe("12345");
   });
 
@@ -215,8 +383,8 @@ describe("PhoneVerificationFlow country selector", () => {
     const before = trigger.getAttribute("aria-label");
     fireEvent.click(trigger);
     fireEvent.change(await screen.findByRole("searchbox"), { target: { value: "Brazil" } });
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    fireEvent.keyDown(screen.getByRole("searchbox"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("listbox", { name: "Country codes" })).toBeNull());
     expect(trigger.getAttribute("aria-label")).toBe(before);
   });
 
@@ -696,14 +864,23 @@ describe("the country picker starts on the person's own country", () => {
 
 describe("onboarding code presentation", () => {
   it("keeps resend and change-number actions connected to the existing flow", async () => {
-    const { startVerification } = renderPhoneVerificationFlow({ codePresentation: "onboarding" });
+    let stepBack: (() => boolean) | null = null;
+    const { startVerification } = renderPhoneVerificationFlow({ codePresentation: "onboarding",
+      onBackStepChange: handler => { stepBack = handler; } });
     await reachCodeStep(startVerification);
     const resend = screen.getByRole("button", { name: "Resend code" });
-    expect(resend.closest("p")?.textContent).toContain("To confirm your account");
+    expect(resend.closest("p")?.textContent).toContain("Enter the code sent to");
     fireEvent.click(resend);
     await waitFor(() => expect(startVerification).toHaveBeenCalledTimes(2));
     fireEvent.click(screen.getByRole("button", { name: "Use a Different number" }));
     expect(await screen.findByRole("textbox", { name: "Phone number" })).toBeTruthy();
+    expect(stepBack).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Send verification code" }));
+    await screen.findByRole("textbox", { name: "One-time code" });
+    expect(stepBack).not.toBeNull();
+    act(() => { expect(stepBack?.()).toBe(true); });
+    expect(await screen.findByRole("textbox", { name: "Phone number" })).toBeTruthy();
+    expect(stepBack).toBeNull();
   });
   it("marks a rejected code and clears its error when corrected", async () => {
     const confirmVerification = vi.fn().mockRejectedValue(Object.assign(new Error("Wrong code"), { code: "auth/invalid-verification-code" }));

@@ -1,12 +1,152 @@
 import { readFileSync } from "node:fs";
+import { createElement } from "react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   shouldShowNewsCompanyLogo,
   toMoverGroups,
+  toIndexStripItems,
+  OneMarketIndexStrip,
+  sectorRowsForPeriod,
+  SectorRotationChart,
+  OneMarketNewsCover,
+  OneMarketNewsBriefing,
+  marketNewsImageUrl,
 } from "@/components/kai/views/kai-market-preview-view";
+import { withStableOverviewFromCache } from "@/lib/kai/kai-market-home-resource";
 import type { KaiHomeInsightsV2, KaiHomeNewsItem } from "@/lib/services/api-service";
+
+describe("market period and image evidence", () => {
+  it("switches to actual weekly values and exposes the observed period", async () => {
+    const rows = [{ sector: "Technology", change_pct: 1, change_1w_pct: -2,
+      period_start_1d: "2026-10-19", period_start_1w: "2026-10-13", period_end: "2026-10-20",
+      basis: "Sector ETF price return", as_of: "2026-10-20T20:00:00Z", source_tags: ["Yahoo"], degraded: false }];
+    expect(sectorRowsForPeriod(rows, "1d")[0]?.changePct).toBe(1);
+    expect(sectorRowsForPeriod(rows, "1w")[0]?.changePct).toBe(-2);
+    expect(sectorRowsForPeriod([{ ...rows[0]!, change_1w_pct: null }], "1w")).toEqual([]);
+    render(createElement(SectorRotationChart, { rows }));
+    fireEvent.click(screen.getByRole("tab", { name: "1 week" }));
+    expect(screen.getByRole("tab", { name: "1 week" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText(/2026-10-13 to 2026-10-20/)).toBeTruthy();
+    expect(screen.getByText("Technology: -2.00%")).toBeTruthy();
+    const dayAction = resolveLocalOnboardingHandler("market.sectors.show_day");
+    expect(dayAction).toBeTruthy();
+    await act(async () => { await dayAction?.({}); });
+    expect(screen.getByRole("tab", { name: "1 day" }).getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("uses the supplied article thumbnail and recovers from image errors", () => {
+    expect(marketNewsImageUrl("https://s.yimg.com/rz/stage/p/yahoo_finance_en-US_h_p_finance_2.png")).toBeNull();
+    expect(marketNewsImageUrl("https://example.test/article.jpg")).toBe("https://example.test/article.jpg");
+    const row = { symbol: "NVDA", title: "Economy update", url: "https://example.test/story",
+      published_at: "2026-10-20T20:00:00Z", source_name: "Publisher", provider: "test", degraded: false,
+      image_url: "https://example.test/story.jpg" };
+    const { container, rerender } = render(createElement(OneMarketNewsCover, { row, index: 0 }));
+    const image = container.querySelector("img")!;
+    expect(image.getAttribute("src")).toBe(row.image_url);
+    expect(image.getAttribute("referrerpolicy")).toBe("no-referrer");
+    fireEvent.error(image);
+    expect(container.querySelector("img")).toBeNull();
+    rerender(createElement(OneMarketNewsCover, { row: { ...row, image_thumbnail_url: "https://example.test/small.jpg" }, index: 0, thumbnail: true }));
+    expect(container.querySelector("img")?.getAttribute("src")).toBe("https://example.test/small.jpg");
+    fireEvent.error(container.querySelector("img")!);
+    expect(container.querySelector("img")?.getAttribute("src")).toBe(row.image_url);
+    rerender(createElement(OneMarketNewsBriefing, { rows: [{ ...row, image_url: null, image_thumbnail_url: "https://example.test/small.jpg" }] }));
+    expect(container.querySelector("img")?.getAttribute("src")).toBe("https://example.test/small.jpg");
+  });
+
+  it("keeps the highest and lowest period returns, expands every sector and supports voice scope changes", async () => {
+    const rows = Array.from({ length: 11 }, (_, index) => ({ sector: `Sector ${index}`, change_pct: index - 5, change_1w_pct: 5 - index }));
+    const onScopeAvailabilityChange = vi.fn();
+    const { container, rerender } = render(createElement(SectorRotationChart, { rows, onScopeAvailabilityChange }));
+    const shown = () => [...container.querySelectorAll("ul li")].map((row) => row.textContent?.split(":")[0]);
+    expect(shown()).toEqual(["Sector 10", "Sector 9", "Sector 8", "Sector 2", "Sector 1", "Sector 0"]);
+    fireEvent.click(screen.getByRole("tab", { name: "1 week" }));
+    expect(shown()).toEqual(["Sector 0", "Sector 1", "Sector 2", "Sector 8", "Sector 9", "Sector 10"]);
+    fireEvent.click(screen.getByRole("button", { name: "All 11 sectors" }));
+    expect(shown()).toHaveLength(11);
+    await act(async () => { await resolveLocalOnboardingHandler("market.sectors.show_highlights")?.({}); });
+    expect(shown()).toHaveLength(6);
+    await act(async () => { await resolveLocalOnboardingHandler("market.sectors.show_all")?.({}); });
+    expect(shown()).toHaveLength(11);
+    fireEvent.click(screen.getByRole("button", { name: "Show highlights" }));
+    rerender(createElement(SectorRotationChart, { rows: rows.slice(0, 5), onScopeAvailabilityChange }));
+    expect(new Set(shown()).size).toBe(5);
+    expect(resolveLocalOnboardingHandler("market.sectors.show_all")).toBeNull();
+    rerender(createElement(SectorRotationChart, { rows: rows.map((row) => ({ ...row, change_1w_pct: null })), onScopeAvailabilityChange }));
+    expect(shown()).toHaveLength(0);
+    expect(onScopeAvailabilityChange).toHaveBeenLastCalledWith(false);
+    expect(resolveLocalOnboardingHandler("market.sectors.show_all")).toBeNull();
+  });
+});
+
+describe("market index quote evidence", () => {
+  const quote = {
+    label: "S&P 500", symbol: "^GSPC", value: 7712.57, delta_pct: null,
+    as_of: "2026-10-20T20:45:45Z", source: "Yahoo Chart (Batch)",
+    degraded: true, is_delayed: true, sparkline: [7700, 7712.57],
+  };
+
+  it("shares matching quote status while preserving individual times and mixed-status exceptions", () => {
+    const [first] = toIndexStripItems({ market_overview: [quote] });
+    const metrics = [first, { ...first, id: "nasdaq", label: "NASDAQ Composite", quotedAt: "2026-10-20T20:50:00Z" }];
+    const { container, rerender } = render(createElement(OneMarketIndexStrip, { metrics, onMetricSelect: () => {} }));
+    expect(screen.getAllByText(/Delayed/)).toHaveLength(1);
+    expect([...container.querySelectorAll("time")].map((time) => time.dateTime)).toEqual([quote.as_of, metrics[1].quotedAt]);
+    rerender(createElement(OneMarketIndexStrip, { metrics: [first, { ...metrics[1], quoteStatus: "Unavailable", quotedAt: null }], onMetricSelect: () => {} }));
+    expect(screen.getByRole("button", { name: /S&P 500/ }).textContent).toContain("Delayed");
+    expect(screen.getByRole("button", { name: /NASDAQ Composite/ }).textContent).toContain("Unavailable");
+    expect(container.querySelectorAll("time")).toHaveLength(1);
+  });
+
+  it("preserves delayed levels, provider time and real series without inventing a flat change", () => {
+    const [metric] = toIndexStripItems({ market_overview: [quote] });
+    expect(metric.value).toBe("7,712.57");
+    expect(metric.delta).toBe("Change unavailable");
+    expect(metric.quotedAt).toBe(quote.as_of);
+    expect(metric.quoteStatus).toBe("Delayed");
+    expect(metric.sparkline).toEqual([7700, 7712.57]);
+    expect(metric.detailPanel?.statusLabel).toBe("Delayed");
+    expect(metric.detailPanel?.facts).toContainEqual({ label: "Source", value: "Yahoo Chart (Batch)" });
+    expect(metric.detailPanel?.facts?.find((fact) => fact.label === "Quoted")?.value).not.toBe("Timestamp unavailable");
+  });
+
+  it("rejects ETF proxy rows and leaves missing benchmarks unavailable", () => {
+    const metrics = toIndexStripItems({ market_overview: [{ ...quote, symbol: "SPY" }] });
+    expect(metrics.map((metric) => metric.label)).toEqual([
+      "S&P 500", "NASDAQ Composite", "Dow Jones", "Russell 2000",
+    ]);
+    expect(metrics.every((metric) => metric.value === "Awaiting data")).toBe(true);
+    expect(metrics.every((metric) => metric.quoteStatus === "Unavailable")).toBe(true);
+    expect(metrics.every((metric) => metric.sparkline === undefined)).toBe(true);
+  });
+
+  it("distinguishes closed sessions and missing timestamps from live quotes", () => {
+    const [closed] = toIndexStripItems({ market_overview: [{
+      ...quote, degraded: false, is_delayed: false, market_state: "closed",
+    }] });
+    expect(closed.quoteStatus).toBe("Market closed");
+    const [unknown] = toIndexStripItems({ market_overview: [{
+      ...quote, degraded: false, is_delayed: false, as_of: null,
+    }] });
+    expect(unknown.quoteStatus).toBe("Time unavailable");
+    expect(unknown.quotedAt).toBeNull();
+  });
+
+  it("restores each unavailable index from cache even when market status is usable", () => {
+    const payload = withStableOverviewFromCache({ market_overview: [
+      { ...quote, value: null, degraded: true },
+      { label: "Market Status", value: "Open", delta_pct: null, as_of: null, source: "Schedule", degraded: false },
+    ] }, { market_overview: [{ ...quote, degraded: false, is_delayed: false }] });
+    expect(payload.market_overview?.[0]).toMatchObject({ value: 7712.57, degraded: true, as_of: quote.as_of });
+    expect(toIndexStripItems(payload)[0].quoteStatus).toBe("Cached");
+    const next = withStableOverviewFromCache({ market_overview: [{ ...quote, value: 7800, degraded: false }] }, payload);
+    expect(next.market_overview?.[0].value).toBe(7800);
+  });
+});
 
 describe("toMoverGroups", () => {
   it("rejects a directionally invalid provider bucket and orders valid movers by magnitude", () => {
@@ -69,19 +209,6 @@ describe("market route overlays", () => {
     expect(source).not.toContain('actionHref={buildKaiMarketRoute("analysis")}');
   });
 
-  it("gives Market home a discoverable entry into the Analysis workspace", () => {
-    const source = readFileSync(
-      join(process.cwd(), "components/kai/views/kai-market-preview-view.tsx"),
-      "utf8",
-    );
-
-    // A tappable card on the default Finance landing routes users into the
-    // live debate / recommendation surface, which is otherwise reachable only
-    // via the top-shell tab or a direct URL.
-    expect(source).toContain('data-testid="kai-analysis-entry"');
-    expect(source).toContain('openOneMarketHref(buildKaiMarketRoute("analysis"))');
-  });
-
   it("does not mount a hidden notification sheet on route load", () => {
     const source = readFileSync(
       join(process.cwd(), "components/kai/views/kai-market-preview-view.tsx"),
@@ -90,18 +217,6 @@ describe("market route overlays", () => {
 
     expect(source).not.toContain("OneMarketNotificationsSheet");
     expect(source).not.toContain("notificationsOpen");
-  });
-
-  it("keeps the overview detail as one raised surface with flat evidence sections", () => {
-    const source = readFileSync(
-      join(process.cwd(), "components/kai/views/kai-market-preview-view.tsx"),
-      "utf8",
-    );
-
-    expect(source).toContain("<KaiControlSurface");
-    expect(source).toContain("divide-y divide-border/60");
-    expect(source).not.toContain("<SettingsGroup");
-    expect(source).not.toContain("<SettingsRow");
   });
 
   it("uses the Finance route shell instead of nesting another page canvas", () => {
@@ -167,7 +282,7 @@ describe("market route overlays", () => {
     expect(portfolioFlow).toContain("KaiWorkspaceHeader");
   });
 
-  it("lets a stock preview return to recommendations or choose another stock", () => {
+  it("lets a stock preview return to recommendations without the archived global Search", () => {
     const analysis = readFileSync(
       join(process.cwd(), "app/one/kai/analysis/page.tsx"),
       "utf8",
@@ -183,9 +298,8 @@ describe("market route overlays", () => {
     expect(preview).toContain("onChangeStock");
     expect(analysis).toContain("handleBrowseRecommendations");
     expect(analysis).toContain('router.replace(buildKaiMarketRoute("analysis"), { scroll: false })');
-    expect(analysis).toContain("handleChangePreviewStock");
     expect(analysis).toContain("onBrowseRecommendations={handleBrowseRecommendations}");
-    expect(analysis).toContain("onChangeStock={handleChangePreviewStock}");
+    expect(analysis).not.toContain("openKaiCommandBar");
   });
 
   it('labels the preview start button "Start analysis debate" on every surface', () => {

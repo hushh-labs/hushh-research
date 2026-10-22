@@ -21,6 +21,8 @@
 -- Prod note:
 --   stream_id `13702689760` is the current HushhVoice iOS stream on the
 --   production property. Exclude it from Kai growth reporting.
+--   Legacy/test Android stream `13694989021` and explicit Firebase debug-mode
+--   events are also excluded; export presence is not customer activity proof.
 
 -- 1. Investor funnel progression.
 WITH base_events AS (
@@ -43,7 +45,13 @@ WITH base_events AS (
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'app_version') AS app_version
   FROM `{{PROJECT_ID}}.{{DATASET}}.events_*`
   WHERE event_name IN ('growth_funnel_step_completed', 'investor_activation_completed')
-    AND (stream_id IS NULL OR stream_id != '13702689760')
+    AND (stream_id IS NULL OR stream_id NOT IN ('13702689760', '13694989021'))
+    AND NOT EXISTS (
+      SELECT 1 FROM UNNEST(event_params) debug_param
+      WHERE debug_param.key = 'debug_mode'
+        AND (COALESCE(debug_param.value.int_value, 0) = 1
+          OR LOWER(COALESCE(debug_param.value.string_value, '')) IN ('1', 'true'))
+    )
 )
 SELECT
   event_date,
@@ -69,7 +77,13 @@ WITH base_events AS (
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'workspace_source') AS workspace_source
   FROM `{{PROJECT_ID}}.{{DATASET}}.events_*`
   WHERE event_name IN ('growth_funnel_step_completed', 'ria_activation_completed')
-    AND (stream_id IS NULL OR stream_id != '13702689760')
+    AND (stream_id IS NULL OR stream_id NOT IN ('13702689760', '13694989021'))
+    AND NOT EXISTS (
+      SELECT 1 FROM UNNEST(event_params) debug_param
+      WHERE debug_param.key = 'debug_mode'
+        AND (COALESCE(debug_param.value.int_value, 0) = 1
+          OR LOWER(COALESCE(debug_param.value.string_value, '')) IN ('1', 'true'))
+    )
 )
 SELECT
   event_date,
@@ -98,7 +112,13 @@ WITH base_events AS (
     'investor_activation_completed',
     'ria_activation_completed'
   )
-    AND (stream_id IS NULL OR stream_id != '13702689760')
+    AND (stream_id IS NULL OR stream_id NOT IN ('13702689760', '13694989021'))
+    AND NOT EXISTS (
+      SELECT 1 FROM UNNEST(event_params) debug_param
+      WHERE debug_param.key = 'debug_mode'
+        AND (COALESCE(debug_param.value.int_value, 0) = 1
+          OR LOWER(COALESCE(debug_param.value.string_value, '')) IN ('1', 'true'))
+    )
 )
 SELECT
   event_date,
@@ -147,7 +167,13 @@ WHERE event_name IN (
   'investor_activation_completed',
   'ria_activation_completed'
 )
-  AND (stream_id IS NULL OR stream_id != '13702689760')
+  AND (stream_id IS NULL OR stream_id NOT IN ('13702689760', '13694989021'))
+    AND NOT EXISTS (
+      SELECT 1 FROM UNNEST(event_params) debug_param
+      WHERE debug_param.key = 'debug_mode'
+        AND (COALESCE(debug_param.value.int_value, 0) = 1
+          OR LOWER(COALESCE(debug_param.value.string_value, '')) IN ('1', 'true'))
+    )
 GROUP BY event_date, source, medium, campaign
 ORDER BY event_date DESC, users DESC;
 
@@ -182,7 +208,13 @@ WHERE event_name IN (
   'one_calendar_action',
   'one_kyc_action'
 )
-  AND (stream_id IS NULL OR stream_id != '13702689760')
+  AND (stream_id IS NULL OR stream_id NOT IN ('13702689760', '13694989021'))
+    AND NOT EXISTS (
+      SELECT 1 FROM UNNEST(event_params) debug_param
+      WHERE debug_param.key = 'debug_mode'
+        AND (COALESCE(debug_param.value.int_value, 0) = 1
+          OR LOWER(COALESCE(debug_param.value.string_value, '')) IN ('1', 'true'))
+    )
 GROUP BY event_date, platform
 ORDER BY event_date DESC, users DESC;
 
@@ -218,7 +250,13 @@ WHERE event_name IN (
   'one_calendar_action',
   'one_kyc_action'
 )
-  AND (stream_id IS NULL OR stream_id != '13702689760')
+  AND (stream_id IS NULL OR stream_id NOT IN ('13702689760', '13694989021'))
+    AND NOT EXISTS (
+      SELECT 1 FROM UNNEST(event_params) debug_param
+      WHERE debug_param.key = 'debug_mode'
+        AND (COALESCE(debug_param.value.int_value, 0) = 1
+          OR LOWER(COALESCE(debug_param.value.string_value, '')) IN ('1', 'true'))
+    )
 GROUP BY event_date, event_name, action, result, portfolio_source
 ORDER BY event_date DESC, event_count DESC;
 
@@ -261,7 +299,13 @@ WITH observed AS (
     'one_calendar_action',
     'one_kyc_action'
   )
-    AND (stream_id IS NULL OR stream_id != '13702689760')
+    AND (stream_id IS NULL OR stream_id NOT IN ('13702689760', '13694989021'))
+    AND NOT EXISTS (
+      SELECT 1 FROM UNNEST(event_params) debug_param
+      WHERE debug_param.key = 'debug_mode'
+        AND (COALESCE(debug_param.value.int_value, 0) = 1
+          OR LOWER(COALESCE(debug_param.value.string_value, '')) IN ('1', 'true'))
+    )
 )
 SELECT
   event_date,
@@ -306,4 +350,10 @@ WHERE event_name IN (
   'one_calendar_action',
   'one_kyc_action'
 )
-  AND (stream_id IS NULL OR stream_id != '13702689760');
+  AND (stream_id IS NULL OR stream_id NOT IN ('13702689760', '13694989021'))
+    AND NOT EXISTS (
+      SELECT 1 FROM UNNEST(event_params) debug_param
+      WHERE debug_param.key = 'debug_mode'
+        AND (COALESCE(debug_param.value.int_value, 0) = 1
+          OR LOWER(COALESCE(debug_param.value.string_value, '')) IN ('1', 'true'))
+    );

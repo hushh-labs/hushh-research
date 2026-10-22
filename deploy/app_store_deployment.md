@@ -12,16 +12,16 @@
 >   opt-in — submits for public Apple review. Submission is not publication; automatic release
 >   after Apple approval additionally requires `--release-after-approval` — runbook:
 >   [docs/guides/mobile/release-ios-appstore.md](../docs/guides/mobile/release-ios-appstore.md).
-> - **Google Play production:** `npm run android:release:playstore -- --dry-run` verifies the
->   production backend, exact green `main` SHA, Play version floor, Firebase identity, signing, and
->   AAB without uploading. `npm run android:release:playstore` performs the separately confirmed
->   live production upload — runbook:
+> - **Google Play:** `npm run android:release:playstore -- --dry-run` verifies the
+>   UAT backend (which must already serve the exact green `main` SHA), Play version floor, Firebase
+>   identity, signing, and AAB without uploading. `npm run android:release:playstore` performs the separately confirmed
+>   live production upload; add `--track internal` to release to internal testers — runbook:
 >   [docs/guides/mobile/ship-android-playstore.md](../docs/guides/mobile/ship-android-playstore.md).
 >
 > The manual iOS steps below remain a reference. The human App Store Connect steps that no pipeline
 > can automate (metadata, screenshots, privacy nutrition labels, age rating, pricing, final review)
 > are documented in the production runbook. The manual Android build/upload steps below are also
-> historical reference; the governed workflow targets Google Play production only. Publish-safety
+> historical reference; the governed workflow supports Google Play production and internal testing. Publish-safety
 > preconditions: `KT/hushh-one-publish-safety-audit.md`.
 
 **Status**: Reference for public store submission (iOS and Android build/upload paths are automated — see banner above)
@@ -299,9 +299,9 @@ cd <repo-root>/hushh-webapp
 npm run android:release:playstore -- --dry-run
 ```
 
-The dry run queries the real Play version floor, builds against the production backend, verifies
-the exact production backend revision and generated native routes, signs the AAB, verifies its
-signature, and stores it privately. It does not upload to Play.
+The dry run queries the real Play version floor, builds against the UAT backend, verifies the
+exact UAT backend revision and generated native routes, signs the AAB, verifies its signature, and
+stores it privately. It does not upload to Play.
 
 #### Step 3: Confirm and dispatch the live production release
 

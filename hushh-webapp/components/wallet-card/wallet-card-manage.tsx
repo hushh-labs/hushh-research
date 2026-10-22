@@ -1,20 +1,27 @@
 "use client";
 
-import { Copy, Link2, Share2, Wallet } from "@/components/icons";
+import { AppleWalletIcon } from "@/components/wallet/apple-wallet-icon";
+import type { ReactNode } from "react";
 import {
-  DeleteRowIcon,
-  EditRowIcon,
-  PauseRowIcon,
-  PreviewRowIcon,
-  ResumeRowIcon,
-  RotateRowIcon,
-  WalletAgentIcon,
-} from "@/components/icons/agents";
+  ProfilePaneCopyIcon,
+  ProfilePaneShareIcon,
+  ProfilePaneDeleteIcon,
+  ProfilePaneEditIcon,
+  ProfilePanePauseIcon,
+  ProfilePanePreviewIcon,
+  ProfilePaneResumeIcon,
+  ProfilePaneWalletIcon,
+  ProfilePaneScanIcon,
+  ProfilePaneHistoryIcon,
+} from "@/components/profile/profile-pane-icons";
 
-import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
+import { SettingsGroup, SettingsPresentationProvider, SettingsRow } from "@/components/profile/settings-ui";
+import { RowDescription } from "@/components/app-ui/typography";
+import profileStyles from "@/components/profile/profile-your-account.module.css";
 import { Button } from "@/lib/morphy-ux/morphy";
 import { formatLocalDateTime } from "@/lib/utils/local-date-time";
 import { WALLET_CARD_OWNER_COPY } from "@/components/wallet-card/wallet-card-copy";
+import { WalletCardQrActions } from "./wallet-card-qr-actions";
 import { WalletCardQr } from "@/components/wallet-card/wallet-card-qr";
 import type {
   WalletCardRecord,
@@ -43,25 +50,27 @@ export type WalletCardManageAction =
 export function WalletCardManage({
   card,
   shareLink,
-  applePassSupported,
   busyAction,
   onAction,
+  shareAction,
 }: {
   card: WalletCardRecord;
   shareLink: WalletCardShareLink | null;
   applePassSupported: boolean;
   busyAction: WalletCardManageAction | null;
   onAction: (action: WalletCardManageAction) => void;
+  shareAction?: ReactNode;
 }) {
   const paused = card.status === "paused";
   const lastUpdated = formatLocalDateTime(card.updatedAt);
   const lastScanned = formatLocalDateTime(card.lastScannedAt);
 
   return (
-    <div className="space-y-4">
+    <SettingsPresentationProvider separatorInset density="compact">
+    <div className={`${profileStyles.walletContent} space-y-4`}>
       <SettingsGroup>
         <SettingsRow
-          icon={paused ? PauseRowIcon : WalletAgentIcon}
+          icon={paused ? ProfilePanePauseIcon : ProfilePaneWalletIcon}
           iconTone="capability"
           title={
             paused
@@ -76,112 +85,105 @@ export function WalletCardManage({
         />
         {lastUpdated ? (
           <SettingsRow
+            icon={ProfilePaneEditIcon}
+            iconTone="capability"
             density="compact"
             title={WALLET_CARD_OWNER_COPY.lastUpdatedLabel}
-            trailing={
-              <span className="text-[13px] text-muted-foreground">{lastUpdated}</span>
-            }
+            trailing={<span>{lastUpdated}</span>}
+            stackTrailingOnMobile
           />
         ) : null}
         <SettingsRow
+          icon={ProfilePaneScanIcon}
+          iconTone="capability"
           density="compact"
           title={WALLET_CARD_OWNER_COPY.scanCountLabel}
-          trailing={
-            <span className="text-[13px] text-muted-foreground">
-              {card.scanCount.toLocaleString()}
-            </span>
-          }
+          trailing={<span data-testid="wallet-profile-scans">{card.scanCount.toLocaleString()}</span>}
         />
         {lastScanned ? (
           <SettingsRow
+            icon={ProfilePaneHistoryIcon}
+            iconTone="capability"
             density="compact"
             title={WALLET_CARD_OWNER_COPY.lastScannedLabel}
-            trailing={
-              <span className="text-[13px] text-muted-foreground">{lastScanned}</span>
-            }
+            trailing={<span>{lastScanned}</span>}
+            stackTrailingOnMobile
           />
         ) : null}
       </SettingsGroup>
 
       <SettingsGroup title="Your QR">
-        {shareLink ? (
-          <div className="space-y-4 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-            <div className="mx-auto w-full max-w-[220px]">
-              <WalletCardQr
-                value={shareLink.shareUrl}
-                label="Your Wallet Profile QR code"
-              />
-            </div>
-            <div className="flex items-center gap-2 rounded-xl bg-muted/40 px-3 py-2">
-              <Link2 className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-              <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">
-                {shareLink.shareUrl}
-              </span>
-            </div>
-            {applePassSupported ? null : (
-              <p className="text-[12px] text-muted-foreground">
-                {WALLET_CARD_OWNER_COPY.addOnIphoneHint}
-              </p>
-            )}
-            <div className="flex flex-wrap gap-2">
+        <WalletCardQrActions qr={shareLink ? (
+          <WalletCardQr value={shareLink.shareUrl} label="Your Wallet Profile QR code" />
+        ) : <RowDescription compact>{WALLET_CARD_OWNER_COPY.noLinkOnThisDevice}</RowDescription>}>
               <Button
                 type="button"
                 size="sm"
+                className="min-h-11 text-[13px]"
+                disabled={!shareLink}
                 loading={busyAction === "add-to-wallet"}
                 onClick={() => onAction("add-to-wallet")}
               >
-                <Wallet className="mr-2 h-4 w-4" aria-hidden />
+                <AppleWalletIcon />
                 {WALLET_CARD_OWNER_COPY.addToWallet}
               </Button>
-              <Button
+              {shareAction ?? <Button
                 type="button"
                 size="sm"
+                className="min-h-11 text-[13px]"
                 variant="none"
                 effect="fade"
+                disabled={!shareLink}
                 loading={busyAction === "share"}
                 onClick={() => onAction("share")}
               >
-                <Share2 className="mr-2 h-4 w-4" aria-hidden />
+                <ProfilePaneShareIcon className="mr-2 h-4 w-4" aria-hidden />
                 {WALLET_CARD_OWNER_COPY.shareLink}
+              </Button>}
+              <Button
+                type="button"
+                size="sm"
+                className="min-h-11 text-[13px]"
+                variant="none"
+                effect="fade"
+                disabled={!shareLink}
+                onClick={() => onAction("copy")}
+              >
+                <ProfilePaneCopyIcon className="mr-2 h-4 w-4" aria-hidden />
+                {WALLET_CARD_OWNER_COPY.copyLink}
               </Button>
               <Button
                 type="button"
                 size="sm"
+                className="min-h-11 text-[13px]"
                 variant="none"
                 effect="fade"
-                onClick={() => onAction("copy")}
+                disabled={busyAction !== null}
+                onClick={() => onAction("rotate")}
               >
-                <Copy className="mr-2 h-4 w-4" aria-hidden />
-                {WALLET_CARD_OWNER_COPY.copyLink}
+                {WALLET_CARD_OWNER_COPY.revokeAccess}
               </Button>
-            </div>
-          </div>
-        ) : (
-          <div className="px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-[12.5px] leading-[1.5] text-muted-foreground">
-            {WALLET_CARD_OWNER_COPY.noLinkOnThisDevice}
-          </div>
-        )}
+        </WalletCardQrActions>
       </SettingsGroup>
 
-      <SettingsGroup title="Sharing controls">
+      <SettingsGroup title="Sharing controls" rowSizing="uniform">
         <SettingsRow
-          icon={PreviewRowIcon}
+          icon={ProfilePanePreviewIcon}
           iconTone="capability"
           title={WALLET_CARD_OWNER_COPY.previewAsVisitor}
-          description="See exactly what a scan shows right now."
           chevron
           onClick={() => onAction("preview")}
         />
         <SettingsRow
-          icon={EditRowIcon}
+          icon={ProfilePaneEditIcon}
           iconTone="capability"
           title={WALLET_CARD_OWNER_COPY.editInformation}
-          description="Change what is included. Your QR stays the same."
+          description="Your QR stays the same."
           chevron
           onClick={() => onAction("edit")}
         />
         <SettingsRow
-          icon={paused ? ResumeRowIcon : PauseRowIcon}
+          icon={paused ? ProfilePaneResumeIcon : ProfilePanePauseIcon}
           iconTone="capability"
           title={
             paused
@@ -190,33 +192,26 @@ export function WalletCardManage({
           }
           description={
             paused
-              ? "Make your selected information visible again."
-              : "A scan will show nothing until you resume."
+              ? "Show your selected information."
+              : "Hide until you resume."
           }
           chevron
           disabled={busyAction === "pause" || busyAction === "resume"}
           onClick={() => onAction(paused ? "resume" : "pause")}
         />
         <SettingsRow
-          icon={RotateRowIcon}
-          iconTone="capability"
-          title={WALLET_CARD_OWNER_COPY.rotateAccess}
-          description="Invalidate the current QR and create a new one."
-          chevron
-          disabled={busyAction === "rotate"}
-          onClick={() => onAction("rotate")}
-        />
-        <SettingsRow
-          icon={DeleteRowIcon}
+          icon={ProfilePaneDeleteIcon}
           iconTone="capability"
           tone="destructive"
+          className="profile-account-delete-row"
           title={WALLET_CARD_OWNER_COPY.removeProfile}
-          description="Stop sharing and take the profile down for good."
+          description="Stops sharing. Can't be undone."
           chevron
           disabled={busyAction === "remove"}
           onClick={() => onAction("remove")}
         />
       </SettingsGroup>
     </div>
+    </SettingsPresentationProvider>
   );
 }

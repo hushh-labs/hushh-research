@@ -1,7 +1,6 @@
 {
-  "schemaVersion": "one_location_onboarding.v2",
+  "schemaVersion": "one_location_onboarding.v4",
   "screens": [
-    { "key": "welcome", "testId": "one-location-onboarding-welcome" },
     { "key": "features", "testId": "one-location-onboarding-features" },
     { "key": "place", "testId": "one-location-onboarding-place" },
     { "key": "ready", "testId": "one-location-onboarding-ready" }

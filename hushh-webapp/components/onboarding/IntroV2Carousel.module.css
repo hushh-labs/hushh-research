@@ -1,0 +1,23 @@
+.intro-shell {
+  width: 100%;
+  max-width: none !important;
+  height: calc(100dvh - var(--app-scroll-bottom-pad, 0px));
+  min-height: 0;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden;
+  background: #fff;
+  color-scheme: light;
+}
+
+.invite-retry {
+  min-height: 44px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: #0071e3;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}

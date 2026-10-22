@@ -12,24 +12,29 @@ from __future__ import annotations
 
 import json
 import re
+import time
+from contextlib import asynccontextmanager, nullcontext
 from datetime import UTC, datetime
 from typing import Any
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
-from hushh_mcp.services.drive_document_parser import ParseError
-
-# The live lane parses what the selected lane does, plus CSV (a Google Sheets
-# export or an uploaded .csv). Bound to this name so the read path is unchanged.
-from hushh_mcp.services.drive_document_parser import parse_live_document as parse_document
+from hushh_mcp.services.drive_document_processor import IsolatedDocumentParser
+from hushh_mcp.services.drive_search_paging_config import (
+    FILE_LIST_PAGE_SIZE_MAX,
+    OWNER_SEARCH_PAGE_SIZE_MAX,
+)
+from hushh_mcp.services.drive_telemetry import drive_logger, drive_stage
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
 from hushh_mcp.services.google_drive_adapter import (
     FILE_ID,
+    LIVE_COLLECTION_CONTENT_LIMIT,
     LIVE_POLICY_HASH,
     RESOURCE_KEY,
     DriveReadError,
     GoogleDriveAdapter,
+    query_has_full_text_term,
 )
 from hushh_mcp.services.google_drive_mcp_service import _search_metadata
 from hushh_mcp.services.google_drive_write_adapter import (
@@ -56,8 +61,9 @@ _SEARCH_ORDERS = frozenset({"modifiedTime desc", "createdTime desc"})
 _TITLE = re.compile(r"\btitle (contains|=|!=) ")
 # Drive refuses any orderBy on a query with a fullText term ("Sorting is not
 # supported for queries with fullText terms. Results are always in descending
-# relevance order."), so such a search sends no orderBy at all.
-_FULL_TEXT = re.compile(r"\bfullText\b")
+# relevance order."), so such a search sends no orderBy at all. The adapter's
+# fence owns the detection and refuses a request that still carries both.
+logger = drive_logger(__name__)
 
 
 # Quoted values are opaque: compatibility field translation and operator
@@ -66,7 +72,7 @@ _QUERY_PARTS = re.compile(r"('(?:\\.|[^'\\])*')")
 
 
 def has_full_text_term(query: str) -> bool:
-    return any(_FULL_TEXT.search(part) for part in _QUERY_PARTS.split(query)[::2])
+    return query_has_full_text_term(query)
 
 
 # Friendly type names the model can use instead of exact MIME types.
@@ -179,6 +185,45 @@ def rest_query(query: str) -> str:
     return f"({translated}) and trashed = false"
 
 
+def _provider_search_evidence(item: dict[str, Any]) -> dict[str, Any]:
+    """Bounded provider facts needed to bind request-local content observations."""
+    result = {}
+    version = item.get("version")
+    if version is not None:
+        if not isinstance(version, str) or not re.fullmatch(r"[0-9]{1,32}", version):
+            raise DriveReadError("provider_response_invalid")
+        result["version"] = version
+
+    def person(value):
+        if not isinstance(value, dict):
+            raise DriveReadError("provider_response_invalid")
+        projected = {}
+        for key, limit in (("displayName", 256), ("emailAddress", 254)):
+            field = value.get(key)
+            if field is None:
+                continue
+            if (
+                not isinstance(field, str)
+                or len(field) > limit
+                or any(ord(char) < 32 or ord(char) == 127 for char in field)
+            ):
+                raise DriveReadError("provider_response_invalid")
+            if field:
+                projected[key] = field
+        return projected
+
+    owners = item.get("owners")
+    if owners is not None:
+        if not isinstance(owners, list) or len(owners) > 20:
+            raise DriveReadError("provider_response_invalid")
+        result["owners"] = [person(owner) for owner in owners]
+    if item.get("sharingUser") is not None:
+        sharing_user = person(item["sharingUser"])
+        if sharing_user:
+            result["sharingUser"] = sharing_user
+    return result
+
+
 def _as_mcp_file(item: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": item.get("id"),
@@ -189,6 +234,7 @@ def _as_mcp_file(item: dict[str, Any]) -> dict[str, Any]:
         **{key: item[key] for key in ("driveId", "resourceKey") if item.get(key) is not None},
         "viewUrl": item.get("webViewLink"),
         "shortcutDetails": item.get("shortcutDetails"),
+        **_provider_search_evidence(item),
     }
 
 
@@ -230,6 +276,13 @@ class GoogleDriveRestTransport:
         return await self._fenced(
             user_id, tool_name, arguments, _OWNER_SEARCH_OPERATIONS, _MAX_ARGUMENT_BYTES
         )
+
+    @asynccontextmanager
+    async def owner_search_session(self):
+        """Share connections within one bounded search, never credentials or authority."""
+        session = getattr(self.adapter, "read_session", nullcontext)
+        async with session():
+            yield
 
     async def write_tool(
         self,
@@ -293,9 +346,10 @@ class GoogleDriveRestTransport:
             raise DriveOAuthError("invalid_argument", status_code=400) from None
         if not connector_feature_enabled("google_drive_live", user_id):
             raise DriveOAuthError("connector_unavailable", status_code=403)
-        row, credential = await self._oauth.current_credential(
-            user_id=user_id, required_profile="live"
-        )
+        with drive_stage(logger, "credential"):
+            row, credential = await self._oauth.current_credential(
+                user_id=user_id, required_profile="live"
+            )
         if (
             row["status"] != "connected"
             or row["validation_state"] != "verified"
@@ -309,8 +363,10 @@ class GoogleDriveRestTransport:
         # plus its method; these owner, grant and generation checks wrap every
         # entry without change.
         operation = getattr(self, operations[tool_name])
-        payload: dict = await operation(arguments, credential["accessToken"])
-        current = await self._oauth.lifecycle.read(user_id=user_id, connector_id="google_drive")
+        with drive_stage(logger, "provider"):
+            payload: dict = await operation(arguments, credential["accessToken"])
+        with drive_stage(logger, "connection_recheck"):
+            current = await self._oauth.lifecycle.read(user_id=user_id, connector_id="google_drive")
         if (
             not current
             or current["connection_generation"] != row["connection_generation"]
@@ -346,16 +402,44 @@ class GoogleDriveRestTransport:
                 "file": await self.adapter.get_file_facts(file_id=file_id, access_token=token),
             }
         mime_type, content = await self.adapter.read_live_bytes(
-            file_id=file_id, mime_type=metadata.mime_type, access_token=token
+            file_id=file_id,
+            mime_type=metadata.mime_type,
+            access_token=token,
+            **(
+                {"max_bytes": LIVE_COLLECTION_CONTENT_LIMIT}
+                if metadata.mime_type
+                in {
+                    "application/vnd.google-apps.spreadsheet",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                }
+                else {}
+            ),
         )
+        parse_started = time.perf_counter()
         try:
-            parsed = parse_document(content, mime_type)
+            parsed = await IsolatedDocumentParser().parse(
+                content=content, mime_type=mime_type, live=True
+            )
             text = "\n\n".join(parsed.pages)
-        except ParseError as error:
+        except DriveReadError as error:
             code = str(error)
+            logger.info(
+                "drive_live_content_read source_bytes=%d parse_ms=%d status=%s",
+                len(content),
+                round((time.perf_counter() - parse_started) * 1000),
+                code if code in PARSE_REASONS else "unavailable",
+            )
             if code in PARSE_REASONS:
                 return {"textFormattingNotSupported": True, "reason": code}
             return {"textFormattingNotSupported": True}
+        logger.info(
+            "drive_live_content_read source_bytes=%d extracted_text_bytes=%d "
+            "parse_ms=%d truncated=%d status=extracted",
+            len(content),
+            len(text.encode("utf-8")),
+            round((time.perf_counter() - parse_started) * 1000),
+            int(parsed.truncated),
+        )
         return {
             "fileContent": text,
             **({"contentTruncated": True} if parsed.truncated else {}),
@@ -429,13 +513,87 @@ class GoogleDriveRestTransport:
             page_size=page_size,
             page_token=page_token,
             order_by=None if full_text else order,
+            **({"owner_search_page": True} if page_size > FILE_LIST_PAGE_SIZE_MAX else {}),
             **({"drive_id": drive_id} if drive_id is not None else {}),
             **({"resource_keys": {folder: key}} if key is not None else {}),
         )
         return _project_page(page, _page_files(page, max_files=page_size))
 
     async def _owner_search_files(self, arguments: dict[str, Any], token: str) -> dict:
-        return await self._search_files(arguments, token, page_size_limit=100)
+        return await self._search_files(
+            arguments, token, page_size_limit=OWNER_SEARCH_PAGE_SIZE_MAX
+        )
+
+    async def _owner_changes_start_token(self, arguments: dict[str, Any], token: str) -> dict:
+        """The change cursor an owner name index captures before it lists.
+
+        Edits made while the listing walks Drive replay from this cursor. Only
+        the owner-search table admits it; agent reads cannot reach it.
+        """
+        if arguments:
+            raise DriveOAuthError("invalid_argument", status_code=400)
+        return {"startPageToken": await self.adapter.collection_start_token(access_token=token)}
+
+    async def _owner_list_changes(self, arguments: dict[str, Any], token: str) -> dict:
+        """One changes page whose files have exactly the owner-search row shape."""
+        page_token = arguments.get("pageToken")
+        page_size = arguments.get("pageSize", 200)
+        if (
+            not {"pageToken"} <= set(arguments) <= {"pageToken", "pageSize"}
+            or not isinstance(page_token, str)
+            or not 1 <= len(page_token) <= 2048
+            or type(page_size) is not int
+            or page_size not in (200, 25)
+        ):
+            raise DriveOAuthError("invalid_argument", status_code=400)
+        page = await self.adapter.index_changes(
+            access_token=token, page_token=page_token, page_size=page_size
+        )
+        changes = page.get("changes", [])
+        next_token, start_token = page.get("nextPageToken"), page.get("newStartPageToken")
+        if (
+            not isinstance(changes, list)
+            or len(changes) > page_size
+            or any(not isinstance(change, dict) for change in changes)
+            or any(
+                value is not None and (not isinstance(value, str) or not 1 <= len(value) <= 2048)
+                for value in (next_token, start_token)
+            )
+            # Exactly one cursor: more pages, or the next start after the last.
+            or (next_token is None) == (start_token is None)
+        ):
+            raise DriveReadError("provider_response_invalid")
+        files = []
+        for change in changes:
+            kind, current = change.get("changeType", "file"), change.get("file")
+            identity = change.get("fileId")
+            if (
+                kind not in {"file", "drive"}
+                or type(change.get("removed", False)) is not bool
+                or kind == "file"
+                and (not isinstance(identity, str) or not FILE_ID.fullmatch(identity))
+                or current is not None
+                and (not isinstance(current, dict) or current.get("id") != identity)
+            ):
+                raise DriveReadError("provider_response_invalid")
+            if current is not None:
+                files.append(current)
+        projected = iter(_project_page({"files": files}, files)["files"] if files else [])
+        return {
+            "changes": [
+                {
+                    "changeType": change.get("changeType", "file"),
+                    **({"fileId": change["fileId"]} if "fileId" in change else {}),
+                    "removed": change.get("removed", False),
+                    "trashed": isinstance(change.get("file"), dict)
+                    and change["file"].get("trashed") is True,
+                    **({"file": next(projected)} if change.get("file") is not None else {}),
+                }
+                for change in changes
+            ],
+            "nextPageToken": next_token,
+            "newStartPageToken": start_token,
+        }
 
     async def _list_shared_drives(self, arguments: dict[str, Any], token: str) -> dict:
         _only(arguments, {"pageSize", "pageToken"})
@@ -585,6 +743,9 @@ _OPERATIONS = {
 _OWNER_SEARCH_OPERATIONS = {
     "search_files": "_owner_search_files",
     "list_shared_drives": "_list_shared_drives",
+    # Owner name index (drive_owner_metadata_index): metadata deltas only.
+    "changes_start_token": "_owner_changes_start_token",
+    "list_changes": "_owner_list_changes",
 }
 REST_TOOLS = frozenset(_OPERATIONS)
 # Owner writes. Create, copy, move/rename and comment run when the owner's agent
@@ -663,6 +824,7 @@ def _project_page(page: dict[str, Any], files: list[Any]) -> dict:
     # scalar fields. This REST-only sharing search also needs the owner-specific
     # canShare fact; validate and reattach exactly that fact after filtering.
     for item, destination in zip(files, projected["files"], strict=True):
+        destination.update(_provider_search_evidence(item))
         capabilities = item.get("capabilities")
         if capabilities is not None:
             if not isinstance(capabilities, dict) or (

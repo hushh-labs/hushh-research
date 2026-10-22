@@ -34,7 +34,7 @@ import path from "node:path";
 const WEBAPP_ROOT = process.cwd();
 
 function read(relativePath: string): string {
-  return fs.readFileSync(path.join(WEBAPP_ROOT, relativePath), "utf8");
+  return fs.readFileSync(path.join(WEBAPP_ROOT, relativePath), "utf8").replace(/\r\n?/g, "\n");
 }
 
 function fail(what: string, where: string): never {
@@ -51,7 +51,9 @@ function one(
   what: string,
   where: string,
 ): RegExpMatchArray {
-  const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+  const flags = pattern.flags.includes("g")
+    ? pattern.flags
+    : `${pattern.flags}g`;
   const matches = [...source.matchAll(new RegExp(pattern.source, flags))];
   if (matches.length !== 1) {
     throw new Error(
@@ -108,7 +110,7 @@ const workspace = read(WORKSPACE_PATH);
  * lines of composer and transcript underneath and match the wrong control.
  */
 const headerStart = workspace.indexOf('"agent-chat-header ');
-const headerEnd = workspace.indexOf("Both transcripts are HIDDEN");
+const headerEnd = workspace.indexOf("<OneAgentProfileSheet", headerStart);
 if (headerStart < 0 || headerEnd < headerStart) {
   fail("the header region", WORKSPACE_PATH);
 }
@@ -120,6 +122,10 @@ const headerContainerClass = one(
   "header container class",
   WORKSPACE_PATH,
 )[1];
+const chromeSource = read("components/app-ui/native-chat-chrome.tsx");
+const historySource = chromeSource.slice(chromeSource.indexOf("export function NativeHistoryOpener"), chromeSource.indexOf("export function NativeHistoryClose"));
+const historyClass = one(historySource, /className="(relative z-\[540\] flex h-11 w-11[^\"]+)"/,
+  "authored History hit region", "components/app-ui/native-chat-chrome.tsx")[1];
 
 /**
  * The header is three flex regions and only the middle one may give way:
@@ -143,7 +149,7 @@ const brandTileClass = one(
 
 const nameMatch = one(
   header,
-  /<div className="(truncate text-base[^"]+)">\s*\{([^}]+)\}/,
+  /<div data-profile-role=\{!isPuppySurface \? "label" : undefined\} className="(truncate text-base[^"]+)">\s*\{([^}]+)\}/,
   "agent name",
   WORKSPACE_PATH,
 );
@@ -188,7 +194,7 @@ const subtitleExpression = `isPuppySurface ? ${puppySubtitle} : ${idleSubtitle}`
 
 const clusterClass = one(
   header,
-  /<div className="(flex shrink-0 items-center gap-2)">/,
+  /<div(?: data-agent-chat-header-region="actions")? className="(flex shrink-0 items-center gap-2)">/,
   "right-hand cluster class",
   WORKSPACE_PATH,
 )[1];
@@ -297,8 +303,9 @@ const actionAnchors = {
 if (Object.values(actionAnchors).some((at) => at < 0)) {
   fail("the header actions (picker, toggle, profile)", WORKSPACE_PATH);
 }
-const actionOrder = (Object.keys(actionAnchors) as Array<keyof typeof actionAnchors>)
-  .sort((a, b) => actionAnchors[a] - actionAnchors[b]);
+const actionOrder = (
+  Object.keys(actionAnchors) as Array<keyof typeof actionAnchors>
+).sort((a, b) => actionAnchors[a] - actionAnchors[b]);
 
 /**
  * The two `hidden` guards below the header, read from the whole file because
@@ -318,7 +325,10 @@ const oneHiddenMatches = [
   ...workspace.matchAll(/^\s*(isPuppySurface && "([^"]*)"),$/gm),
 ];
 if (oneHiddenMatches.length !== 2) {
-  fail("both of One's off-screen guards (transcript and composer)", WORKSPACE_PATH);
+  fail(
+    "both of One's off-screen guards (transcript and composer)",
+    WORKSPACE_PATH,
+  );
 }
 if (oneHiddenMatches[0][2] !== oneHiddenMatches[1][2]) {
   fail(
@@ -335,7 +345,7 @@ const oneHiddenExpression = oneHiddenMatches[0][1];
  */
 const oneComposerMatch = one(
   workspace,
-  /<textarea\s+ref=\{composerTextareaRef\}\s+data-testid=\{\s*composerExpanded\s*\?\s*"agent-chat-composer-expanded-textarea"\s*:\s*"(agent-chat-composer-textarea)"\s*\}\s*aria-label=\{composerExpanded\s*\?\s*"Expanded message One"\s*:\s*"([^"]+)"\}/,
+  /<textarea\s+data-profile-composer="true"\s+ref=\{composerTextareaRef\}\s+data-testid=\{\s*composerExpanded\s*\?\s*"agent-chat-composer-expanded-textarea"\s*:\s*"(agent-chat-composer-textarea)"\s*\}\s*aria-label=\{composerExpanded\s*\?\s*"Expanded message One"\s*:\s*"([^"]+)"\}/,
   "One's composer textarea",
   WORKSPACE_PATH,
 );
@@ -403,28 +413,120 @@ const segmentedSm = new Function(
   `"use strict"; return (${segmentedSmLiteral});`,
 )() as { container: string; segment: string; icon: string };
 
-const segmentedGroupClasses = [
-  ...one(
-    segmented,
-    /role="radiogroup"[\s\S]*?className=\{cn\(([\s\S]*?)config\.container/,
-    "the segmented-control group classes",
-    SEGMENTED_PATH,
-  )[1].matchAll(/"([^"]+)"/g),
-].map((match) => match[1]);
+const toggleVariant = one(header, /<SegmentedControl[\s\S]*?variant="([^"]+)"/, "the authored toggle variant", WORKSPACE_PATH)[1];
+if (toggleVariant !== "sliding") fail("the current sliding toggle projection", WORKSPACE_PATH);
+const toggleFrameClass = one(header, /<NativeChatChrome kind="agent-surface"[\s\S]*?className="([^"]+)"/, "the authored toggle frame", WORKSPACE_PATH)[1];
+const toggleClass = one(header, /<SegmentedControl[\s\S]*?\sclassName="([^"]+)"/, "the authored toggle classes", WORKSPACE_PATH)[1];
+// Follow the selected family, not every string in its conditional. Including
+// both compact and sliding sizing made this fixture measure a different tab.
+const segmentedGroupBase = one(segmented, /role="radiogroup"[\s\S]*?className=\{cn\(\s*"([^"]+)"/, "the segmented group base", SEGMENTED_PATH)[1];
+const segmentedSlidingGroup = one(segmented, /isSliding\s*\?\s*"([^"]+)"\s*:\s*"bg-black/, "the sliding group sizing", SEGMENTED_PATH)[1];
 
 const segmentedSegmentBase = one(
   segmented,
-  /"(relative flex items-center justify-center gap-1\.5 rounded-full[^"]+)"/,
+  /\/\/ Base styles\s*"([^"]+)"/,
   "the segmented-control segment base classes",
   SEGMENTED_PATH,
 )[1];
+const segmentedSlidingGap = one(segmented, /isSliding \? "(gap-[^"]+)" :/, "the sliding segment gap", SEGMENTED_PATH)[1];
+const segmentedSlidingSize = one(segmented, /isSliding \? "([^"]+)" : config\.segment/, "the sliding segment sizing", SEGMENTED_PATH)[1];
+const segmentedMinimum = one(segmented, /minWidth: options\.length \* (\d+) \+ (\d+)/, "the sliding minimum hit measure", SEGMENTED_PATH);
+
+// Keep the empty-chat geometry tied to the shipped welcome and scroll column.
+const welcome = workspace.slice(workspace.indexOf("function AgentWelcomePanel("), workspace.indexOf("function useAnimatedAssistantText("));
+const transcriptViewport = workspace.slice(workspace.indexOf("One's transcript region"), workspace.indexOf("ref={transcriptRef}"));
+const transcript = workspace.slice(workspace.indexOf("ref={transcriptRef}"), workspace.indexOf("{visibleMessages.map"));
+const transcriptClasses = one(transcript, /className=\{cn\(\s*"([^"]+)",\s*"([^"]+)"/, "transcript scroll classes", WORKSPACE_PATH);
+const welcomeDescriptionLayout = one(
+  welcome,
+  /<p data-profile-role="header-description" className=\{cn\("([^"]+)",\s*CHAT_WELCOME_COPY_CLASSNAME\)\}/,
+  "welcome description using shared chat typography",
+  WORKSPACE_PATH,
+)[1];
+const chatStylesPath = "components/agent/chat-message-styles.tsx";
+const welcomeDescriptionTypography = one(
+  read(chatStylesPath),
+  /export const CHAT_WELCOME_COPY_CLASSNAME\s*=\s*"([^"]+)";/,
+  "shared welcome typography",
+  chatStylesPath,
+)[1];
 
 export const AGENT_SURFACE_SOURCE = {
+  welcome: {
+    viewportClass: one(transcriptViewport, /"(relative min-h-0 flex-1 overflow-hidden)"/, "transcript viewport", WORKSPACE_PATH)[1],
+    sectionClass: one(welcome, /<section className="([^"]+)"/, "welcome section", WORKSPACE_PATH)[1],
+    columnClass: one(welcome, /<div className="([^"]+)"/, "welcome reading column", WORKSPACE_PATH)[1],
+    headingClass: one(welcome, /<h2 data-profile-role="identity-name" className="([^"]+)"/, "welcome heading", WORKSPACE_PATH)[1],
+    descriptionClass: `${welcomeDescriptionLayout} ${welcomeDescriptionTypography}`,
+    scrollClass: `${transcriptClasses[1]} ${transcriptClasses[2]}`,
+    transcriptColumnClass: one(transcript, /<div className="(mx-auto flex min-h-full [^"]+)"/, "transcript reading column", WORKSPACE_PATH)[1],
+  },
   header: {
+    historyClass,
     containerClass: headerContainerClass,
+    centeredMarkerExpression: flatten(
+      one(
+        workspace,
+        /data-one-centered-header=\{([^}]+)\}/,
+        "One-only centered header marker",
+        WORKSPACE_PATH,
+      )[1],
+    ),
     identityClass,
     brandTileClass,
     clusterClass,
+    centered: {
+      artwork: header.includes("<OnePresenceAvatar")
+        ? {
+            // Caller sizing owns the compact shell, not the Profile hero default.
+            kind: "image",
+            containerClass: one(
+              read("components/agent/one-presence-avatar.tsx"),
+              /data-one-presence-state=\{state\} className=\{`([^$]+)\$\{className/,
+              "One presence surface classes",
+              "components/agent/one-presence-avatar.tsx",
+            )[1] + one(
+              header,
+              /<OnePresenceAvatar state=\{onePresenceState\} className="([^"]+)"/,
+              "One presence sizing override",
+              WORKSPACE_PATH,
+            )[1],
+            className: one(
+              read("components/agent/one-presence-avatar.tsx"),
+              /unoptimized loading="eager" decoding="async" className="([^"]+)"/,
+              "One presence image sizing",
+              "components/agent/one-presence-avatar.tsx",
+            )[1],
+          }
+        : {
+            kind: "image",
+            containerClass: one(
+              header,
+              /<HushhMark[\s\S]*?className="([^"]+)"/,
+              "One mark wrapper",
+              WORKSPACE_PATH,
+            )[1],
+            className: one(
+              header,
+              /<HushhMark[\s\S]*?imageClassName="([^"]+)"/,
+              "One mark image",
+              WORKSPACE_PATH,
+            )[1],
+          },
+      historyClass,
+      surfaceClass: one(
+        header,
+        /<NativeChatChrome kind="agent-surface"[\s\S]*?className="([^"]+)"/,
+        "native surface slot",
+        WORKSPACE_PATH,
+      )[1],
+      profileTriggerClass: one(
+        header,
+        /data-agent-chat-one-profile-trigger[\s\S]*?className="([^"]+)"/,
+        "One profile target",
+        WORKSPACE_PATH,
+      )[1],
+    },
     /** Source order of the actions, e.g. ["picker", "toggle", "profile"]. */
     actionOrder,
     profileClass,
@@ -438,8 +540,10 @@ export const AGENT_SURFACE_SOURCE = {
   toggle: {
     ariaLabel: toggleAriaLabel,
     options: toggleOptions,
-    containerClass: [...segmentedGroupClasses, segmentedSm.container].join(" "),
-    segmentClass: `${segmentedSegmentBase} ${segmentedSm.segment} flex-1`,
+    frameClass: toggleFrameClass,
+    minimumWidth: toggleOptions.length * Number(segmentedMinimum[1]) + Number(segmentedMinimum[2]),
+    containerClass: [segmentedGroupBase, segmentedSlidingGroup, toggleClass].join(" "),
+    segmentClass: `${segmentedSegmentBase} ${segmentedSlidingGap} ${segmentedSlidingSize} flex-1`,
     iconClass: `${segmentedSm.icon} ${toggleIconClass}`,
     labelClass: `whitespace-nowrap ${toggleLabelClass}`,
   },
@@ -451,6 +555,12 @@ export const AGENT_SURFACE_SOURCE = {
     /** `Running ${modelPreference.effective_model}`, binding left in. */
     titleTemplate: triggerMatch[3],
     triggerClass: triggerMatch[4],
+    iconClass: one(
+      header,
+      /<Cpu aria-hidden="true" className="([^"]+)"/,
+      "phone model icon",
+      WORKSPACE_PATH,
+    )[1],
     labelStrip: {
       pattern: stripMatch[1],
       flags: stripMatch[2],

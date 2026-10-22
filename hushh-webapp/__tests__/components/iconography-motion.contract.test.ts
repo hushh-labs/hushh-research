@@ -25,7 +25,7 @@ function collectSourceFiles(directory: string): string[] {
 }
 
 function isCanonicalIconImplementation(path: string): boolean {
-  return path.includes("/components/icons/");
+  return path.replaceAll("\\", "/").includes("/components/icons/");
 }
 
 function findDirectIconLibraryImports(webappRoot: string): string[] {
@@ -39,7 +39,7 @@ function findDirectIconLibraryImports(webappRoot: string): string[] {
     return files.flatMap((path) => {
       if (isCanonicalIconImplementation(path)) return [];
       return ICON_LIBRARY_IMPORT.test(readFileSync(path, "utf8"))
-        ? [relative(webappRoot, path)]
+        ? [relative(webappRoot, path).replaceAll("\\", "/")]
         : [];
     });
   });
@@ -90,7 +90,7 @@ function findSparkleReferences(webappRoot: string): string[] {
     }
     return files.flatMap((path) =>
       SPARKLE_GLYPH.test(readFileSync(path, "utf8"))
-        ? [relative(webappRoot, path)]
+        ? [relative(webappRoot, path).replaceAll("\\", "/")]
         : [],
     );
   });
@@ -196,12 +196,13 @@ describe("application icon and motion contracts", () => {
     );
     expect(offenders).toEqual([]);
 
+
     // The scan is not vacuous: the headers it guards are on the transparent
     // well, and the consent headers carry /one's Consent glyph.
     const withHeaderWell = files.filter((path) =>
       readFileSync(path, "utf8").includes('data-slot="card-header-icon"'),
     );
-    expect(withHeaderWell.map((path) => relative(process.cwd(), path)).sort()).toEqual([
+    expect(withHeaderWell.map((path) => relative(process.cwd(), path).replaceAll("\\", "/")).sort()).toEqual([
       "components/agent/agent-structured-experience.tsx",
       "components/agent/consent/ask-proposal-card.tsx",
       "components/agent/specialist-directive-card.tsx",
@@ -272,6 +273,15 @@ describe("application icon and motion contracts", () => {
     );
     expect(offenders).toEqual([]);
 
+    // Profile artwork is selected once by the shared registry, not separately
+    // by pane/native callers. The registry retains the approved glyph sources.
+    const legacyPaneIcons = /from\s+["'][^"']*profile-(?:inner|secondary|pane|your-account)-icons["']/;
+    for (const surface of ["profile-workspace-page", "profile-legal-section", "referrals-panel", "trusted-devices-page", "pkm-data-manager"]) {
+      const source = readFileSync(join(process.cwd(), `components/profile/${surface}.tsx`), "utf8");
+      expect(legacyPaneIcons.test(source), surface).toBe(false);
+    }
+    expect(legacyPaneIcons.test('import { ProfileInnerLinkIcon } from "@/components/profile/profile-inner-icons";')).toBe(true);
+
     // Negative control: a tiled row, and a row with no tone at all (which
     // falls back to the gray tile), must both be reported.
     expect(
@@ -304,7 +314,7 @@ describe("application icon and motion contracts", () => {
     );
 
     expect(source).toContain('import * as Phosphor from "@phosphor-icons/react"');
-    expect(source).toContain('defaultWeight: IconWeight = "duotone"');
+    expect(source).toContain('defaultWeight: IconWeight = "regular"');
     expect(source).toContain('Phosphor.CircleNotch, "regular"');
     expect(source).toContain(
       'export const MoreHorizontal = createCanonicalIcon(Phosphor.DotsThree, "regular");',
@@ -315,7 +325,7 @@ describe("application icon and motion contracts", () => {
     const uiIcons = readFileSync(
       join(process.cwd(), "components/icons/ui/ui-icons.tsx"),
       "utf8",
-    );
+    ).replaceAll("\r\n", "\n");
     const detailIcons = readFileSync(
       join(process.cwd(), "components/icons/ui/detail-icons.tsx"),
       "utf8",

@@ -102,16 +102,18 @@ for (const width of [320, 393, 768, 1440]) {
     await page.addScriptTag({ content: script });
     await awaitProductFont(page);
     const hero = page.getByTestId("connect-living-connections");
+    await expect(hero.getByRole("button", { name: /^Setup .* circle$/ })).toHaveCount(0);
+    await hero.getByRole("button", { name: /Circle ideas/ }).click();
     await expect(hero.getByRole("button", { name: /^Setup .* circle$/ })).toHaveCount(6);
     await hero.getByRole("button", { name: "Setup Finance circle" }).click();
-    await expect(hero.getByRole("button", { name: "Open Finance circle" })).toBeVisible();
-    await hero.getByRole("button", { name: "Open Finance circle" }).click();
+    await expect(hero.getByTestId("circle-starter-finance")).toHaveCount(0);
+    await page.getByTestId("saved-circle-finance").click();
     await expect(page.getByRole("status")).toHaveText("Open finance");
-    await hero.getByRole("button", { name: "Create your own circle" }).click();
+    await page.getByTestId("connect-circle-create").click();
     await expect(page.getByRole("status")).toHaveText("Custom circle");
     await page.getByLabel("Fixture state").selectOption("populated");
-    await expect(hero.getByTestId("circle-starter-location")).toContainText("3 members");
-    await expect(hero.getByRole("button", { name: "Open Location circle" })).toBeVisible();
+    await expect(hero.getByTestId("circle-starter-location")).toHaveCount(0);
+    await expect(page.getByTestId("saved-circle-location-with-members")).toContainText("3 members");
     const targets = await hero.getByRole("button").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height));
     expect(targets.every((height) => height >= 44)).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
@@ -180,6 +182,17 @@ for (const width of [320, 390, 768, 1440]) {
     await panel
       .getByRole("button", { name: "Add Asha Rao to Investor Circle" })
       .click();
+    await expect(panel.getByRole("button", { name: "Add Asha Rao to Investor Circle" })).toHaveAttribute("aria-pressed", "true");
+    const alex = panel.getByRole("button", { name: "Add Alex Chen to Investor Circle" });
+    await alex.click();
+    await expect(alex).toHaveAttribute("aria-pressed", "true");
+    await expect(panel.getByRole("button", { name: "Add 2 people", exact: true })).toBeEnabled();
+    await panel.screenshot({ path: testInfo.outputPath("circle-selection.png"), animations: "disabled" });
+    await alex.click();
+    await expect(alex).toHaveAttribute("aria-pressed", "false");
+    await expect(spots).toHaveCount(3);
+    await panel.getByRole("button", { name: "Add 1 person", exact: true }).click();
+    await expect(panel.getByRole("button", { name: "Adding people…" })).toBeDisabled();
     await expect(spots).toHaveCount(2);
     await expect(panel.getByText("2 people in this circle")).toBeVisible();
     await expect(orbit.locator('[title="Asha Rao"]:visible')).toBeVisible();

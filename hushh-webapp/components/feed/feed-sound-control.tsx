@@ -6,16 +6,13 @@ import { useEffect, useRef, useState } from "react";
 
 import { isFeedIdAtOrBefore, latestFeedId } from "@/lib/feed/feed-pagination";
 import { playFeedChime, prepareFeedChime } from "@/lib/feed/feed-chime";
+import { feedSoundStorageKey as preferenceKey } from "@/lib/feed/feed-clear-watermark";
 import { FCM_MESSAGE_EVENT } from "@/lib/notifications/fcm-service";
 import { Button } from "@/lib/morphy-ux/button";
 import type { FeedItem } from "@/lib/services/feed-service";
 
 const PUSH_CONFIRM_WINDOW_MS = 15_000;
 const SOUND_BURST_WINDOW_MS = 10_000;
-
-function preferenceKey(userId: string): string {
-  return `hushh:feed-sound-enabled:${userId}`;
-}
 
 function savedPreference(userId: string): boolean {
   try {
@@ -148,6 +145,7 @@ export function FeedSoundControl({
       <div className="flex flex-wrap items-center justify-end gap-2">
         {enabled && !ready ? (
           <Button
+          data-profile-role="action"
             type="button"
             variant="none"
             effect="fade"
@@ -159,6 +157,7 @@ export function FeedSoundControl({
           </Button>
         ) : null}
         <Button
+          data-profile-role="action"
           type="button"
           variant="none"
           effect="fade"
@@ -173,7 +172,7 @@ export function FeedSoundControl({
         </Button>
       </div>
       {enabled ? (
-        <p className="px-2 text-right text-[11px] text-[color:var(--app-secondary-label)]">
+        <p data-profile-role="description" className="px-2 text-right text-[11px] text-[color:var(--app-secondary-label)]">
           Plays while Feed is open. Mac alerts may sound too.
         </p>
       ) : null}

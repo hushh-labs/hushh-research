@@ -28,9 +28,38 @@ import hushh_mcp.services.one_location_circle_service as circle_service_module
 from hushh_mcp.services.people_search_sql import (
     PEOPLE_MATCH_RANK_SQL,
     PEOPLE_SINGLE_CHAR_NARROW_SQL,
+    directory_contact_match_params,
     directory_name_rank,
+    directory_search_rank,
+    mask_directory_phone,
     people_query_match_params,
 )
+
+
+@pytest.mark.parametrize(
+    "phone,expected",
+    [
+        ("+91 98765-43210", "98******10"),
+        ("0091 98765 43210", "98******10"),
+        ("+1 (415) 555-0123", "41******23"),
+        ("+44 7700 900123", "77******23"),
+        ("+358 40 1234567", "40*****67"),
+        ("+39 06 6982", "06**82"),
+        ("98******10", "98******10"),
+        ("06**82", "06**82"),
+        ("********3210", None),
+        ("98****3210", None),
+        ("9876543210", None),
+        ("919876543210", None),
+        ("+9999876543210", None),
+        ("+123", None),
+        ("call +919876543210", None),
+        ("+919876543210 ext 1", None),
+        (None, None),
+    ],
+)
+def test_directory_phone_mask_uses_national_digits_without_guessing_a_region(phone, expected):
+    assert mask_directory_phone(phone) == expected
 
 
 @pytest.mark.parametrize(
@@ -48,6 +77,50 @@ from hushh_mcp.services.people_search_sql import (
 )
 def test_directory_matching_requires_every_name_token(name, query, rank):
     assert directory_name_rank(name, query) == rank
+
+
+@pytest.mark.parametrize(
+    "query,phone,expected",
+    [
+        ("09876543210", "+919876543210", "9876543210"),
+        ("00919876543210", "+919876543210", "919876543210"),
+        ("+91 (0) 98765", "+919876543210", "9198765"),
+        ("0091 (0) 98765", "+919876543210", "9198765"),
+        ("0044 (0) 207", "+442079460018", "44207"),
+        ("+९१ ९८७६५ ४३२१०", "+919876543210", "919876543210"),
+        ("＋９１ ９８７６５ ４３２１０", "+919876543210", "919876543210"),
+        ("+91\u200e 98765\u201143210", "+919876543210", "919876543210"),
+        ("+39 06 6982", "+39066982", "39066982"),
+        ("06 6982", "+39066982", "066982"),
+    ],
+)
+def test_directory_phone_formats_agree_in_sql_and_rank(query, phone, expected):
+    params = directory_contact_match_params(query)
+    assert f"%{expected}%" in [params["phone_contains"], *params["phone_alternates"]]
+    assert directory_search_rank("Synthetic", query, phone_number=phone, phone_verified=True) == 4
+    assert (
+        directory_search_rank("Synthetic", query, phone_number=phone, phone_verified=False) is None
+    )
+    assert (
+        directory_search_rank(
+            "Synthetic", query, phone_number=phone, phone_verified=True, name_only=True
+        )
+        is None
+    )
+    assert directory_contact_match_params(query, name_only=True)["phone_alternates"] == []
+
+
+@pytest.mark.parametrize("typed,start", [("09876543210", 2), ("00919876543210", 3)])
+def test_directory_trunk_and_international_prefix_typeahead_never_drops_the_target(typed, start):
+    phone = "919876543210"
+    for length in range(start, len(typed) + 1):
+        query = typed[:length]
+        params = directory_contact_match_params(query)
+        patterns = [params["phone_contains"], *params["phone_alternates"]]
+        assert any(pattern and str(pattern)[1:-1] in phone for pattern in patterns), query
+        assert (
+            directory_search_rank("Synthetic", query, phone_number=phone, phone_verified=True) == 4
+        )
 
 
 def _rank_patterns(query: str) -> tuple[re.Pattern[str], re.Pattern[str]]:

@@ -3,7 +3,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ChevronDown } from "@/components/icons";
 
-import { SegmentedTabs as SettingsSegmentedTabs } from "@/components/profile/settings-ui";import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { SegmentedControl } from "@/lib/morphy-ux/ui/segmented-control";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -26,14 +26,6 @@ import {
 } from "@/components/wallet-card/wallet-card-fields";
 import type { WalletCardPreferredContact } from "@/lib/services/wallet-card-service";
 
-function initialsFrom(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "1";
-  const first = parts[0]?.[0] ?? "";
-  const last = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? "") : "";
-  return (first + last).toUpperCase() || "1";
-}
-
 function DraftField({
   definition,
   value,
@@ -49,13 +41,13 @@ function DraftField({
   const describedBy = `${inputId}-help`;
   const help = error || definition.description;
   const isUrlField =
-    definition.inputMode === "url" || definition.type === "url";
+    definition.inputMode === "url" || definition.type === "url" || definition.key === "username";
 
   return (
     <div className="space-y-1.5" data-wallet-field={definition.key}>
       <Label
         htmlFor={inputId}
-        className="text-[14px] font-semibold leading-[18px] text-[color:var(--app-primary-label)]"
+        className="text-[13px] font-medium leading-[1.22] text-[color:var(--app-primary-label)]"
       >
         {definition.label}
       </Label>
@@ -67,7 +59,7 @@ function DraftField({
           rows={3}
           maxLength={WALLET_CARD_FIELD_LIMITS[definition.key]}
           placeholder={definition.placeholder}
-          className="min-h-24 rounded-[12px] border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] text-[16px] leading-[22px] shadow-none"
+          className="min-h-24 rounded-[12px] border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] text-[13px] leading-[1.3] shadow-none"
           aria-invalid={error ? true : undefined}
           aria-describedby={help ? describedBy : undefined}
           onChange={(event) => onChange(event.target.value)}
@@ -95,7 +87,7 @@ function DraftField({
           id={describedBy}
           role={error ? "alert" : undefined}
           className={cn(
-            "text-[13px] leading-[18px]",
+            "text-[12px] leading-[1.3]",
             error
               ? "text-destructive"
               : "text-[color:var(--app-secondary-label)]",
@@ -119,7 +111,6 @@ function DraftField({
 export function WalletCardSetup({
   draft,
   errors,
-  avatarUrl,
   saving,
   isEditingExisting,
   onChange,
@@ -159,7 +150,7 @@ export function WalletCardSetup({
   useEffect(() => {
     const firstInvalidKey = preferredFieldError
       ? preferredField
-      : ((["fullName", "headline"] as const).find((key) => errors[key]) ??
+      : ((["fullName", "username", "headline"] as const).find((key) => errors[key]) ??
         moreDetailsFields.find((definition) => errors[definition.key])?.key);
     if (!firstInvalidKey) return;
 
@@ -184,7 +175,7 @@ export function WalletCardSetup({
   return (
     <form
       ref={formRef}
-      className="w-full space-y-6"
+      className="w-full space-y-6 font-[family-name:var(--font-app-body)] [--type-input-value-size:13px] [--type-button-label-size:13px]"
       data-testid="wallet-card-setup-form"
       onSubmit={(event) => {
         event.preventDefault();
@@ -193,38 +184,8 @@ export function WalletCardSetup({
     >
       <section
         className="space-y-4"
-        aria-labelledby="wallet-card-shared-information-heading"
+        aria-label="Profile details"
       >
-        <h2
-          id="wallet-card-shared-information-heading"
-          data-wallet-grid-item="shared-information-heading"
-          className="text-[20px] font-semibold leading-[25px] text-[color:var(--app-primary-label)]"
-        >
-          Shared information
-        </h2>
-
-        <div
-          data-wallet-grid-item="photo-row"
-          className="flex min-h-[62px] items-center gap-3 rounded-2xl border border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] px-4 py-2.5"
-        >
-          <div className="shrink-0">
-            <Avatar size="lg" className="size-11">
-              {avatarUrl ? <AvatarImage src={avatarUrl} alt="" /> : null}
-              <AvatarFallback className="text-[13px] font-medium">
-                {initialsFrom(draft.fullName)}
-              </AvatarFallback>
-            </Avatar>
-          </div>
-          <div className="min-w-0">
-            <p className="text-[15px] font-semibold leading-[20px] text-[color:var(--app-primary-label)]">
-              Photo
-            </p>
-            <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
-              {WALLET_CARD_OWNER_COPY.fromYourProfile}
-            </p>
-          </div>
-        </div>
-
         {WALLET_CARD_RECOMMENDED_FIELDS.map((definition) => (
           <div
             key={definition.key}
@@ -241,14 +202,15 @@ export function WalletCardSetup({
 
         <div className="space-y-3" data-wallet-grid-item="primary-contact">
           <div className="space-y-1">
-            <Label className="text-[14px] font-semibold leading-[18px] text-[color:var(--app-primary-label)]">
+            <Label className="text-[13px] font-medium leading-[1.22] text-[color:var(--app-primary-label)]">
               Primary contact
             </Label>
-            <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+            <p className="text-[12px] leading-[1.3] text-[color:var(--app-secondary-label)]">
               Shown first after a scan.
             </p>
           </div>
-          <SettingsSegmentedTabs
+          <SegmentedControl
+            ariaLabel="Primary contact"
             value={draft.preferredContact}
             onValueChange={(value) =>
               onChange("preferredContact", value as WalletCardPreferredContact)
@@ -257,8 +219,8 @@ export function WalletCardSetup({
               value: option.value,
               label: option.label,
             }))}
+            className="min-h-11 w-full"
             mobileColumns={2}
-            className="min-h-11"
           />
           <div data-wallet-grid-item="selected-contact-input">
             <DraftField
@@ -283,11 +245,11 @@ export function WalletCardSetup({
           onClick={() => setOptionalOpen((open) => !open)}
         >
           <span className="min-w-0">
-            <span className="block text-[15px] font-semibold leading-[20px] text-[color:var(--app-primary-label)]">
+            <span className="block text-[13px] font-normal leading-[1.22] text-[color:var(--app-primary-label)]">
               {WALLET_CARD_OWNER_COPY.optionalDisclosure}
             </span>
           </span>
-          <span className="flex shrink-0 items-center gap-2 text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+          <span className="flex shrink-0 items-center gap-2 text-[12px] leading-[1.3] text-[color:var(--app-secondary-label)]">
             {moreDetailsCount} added
             <ChevronDown
               className={cn(
@@ -323,11 +285,11 @@ export function WalletCardSetup({
       >
         <h2
           id="wallet-card-privacy-heading"
-          className="text-[16px] font-semibold leading-[22px] text-[color:var(--app-primary-label)]"
+          className="text-[13px] font-medium leading-[1.22] text-[color:var(--app-primary-label)]"
         >
           {WALLET_CARD_COPY.privacyAssurance.title}
         </h2>
-        <p className="text-[14px] leading-[20px] text-[color:var(--app-secondary-label)]">
+        <p className="text-[12px] leading-[1.3] text-[color:var(--app-secondary-label)]">
           {WALLET_CARD_COPY.privacyAssurance.description}
         </p>
       </section>
@@ -335,7 +297,7 @@ export function WalletCardSetup({
       <div className="space-y-2 pt-1" data-wallet-grid-item="actions">
         <Button
           type="submit"
-          className="min-h-[52px] w-full rounded-2xl text-[17px] font-semibold leading-[22px]"
+          className="min-h-[52px] w-full rounded-2xl text-[13px] font-semibold leading-[1.2]"
           loading={saving}
           disabled={saving}
         >
@@ -347,7 +309,7 @@ export function WalletCardSetup({
           type="button"
           variant="none"
           effect="fade"
-          className="min-h-11 w-full text-[16px] font-semibold leading-5 text-[color:var(--app-accent)]"
+          className="min-h-11 w-full text-[13px] font-semibold leading-[1.2] text-[color:var(--app-accent)]"
           disabled={saving}
           onClick={onCancel}
         >

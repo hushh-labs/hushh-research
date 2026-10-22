@@ -84,12 +84,21 @@ export type MailDeliveryResultFrame = {
   delivery_ref: string;
   action_id: string;
 };
+export type MailDraftChange = {
+  draft_ref: string;
+  revision: number;
+  operation_id: string;
+  draft?: { to: string; cc?: string; bcc?: string; subject: string; body: string };
+  closed?: boolean;
+};
+export type MailDraftChangedFrame = MailDraftChange & { type: "mail_draft.changed" };
 export type UiSettledFrame = {
   type: "ui.settled";
   directive_id: string;
   status?: "opened" | "failed" | "ignored";
 };
 export type InterruptFrame = { type: "interrupt" };
+export type PlaybackFrame = { type: "audio.playback"; turn_id: string; item_id: string; played_ms: number };
 /** Optional, content-free device timing. The relay validates the same bounds. */
 export type PerfFrame = {
   type: "perf";
@@ -125,8 +134,10 @@ export type ClientFrame =
   | CandidateChooseFrame
   | ClientStepResultFrame
   | MailDeliveryResultFrame
+  | MailDraftChangedFrame
   | UiSettledFrame
   | InterruptFrame
+  | PlaybackFrame
   | PerfFrame
   | PingFrame
   | EndFrame
@@ -229,6 +240,8 @@ export type AudioOutFrame = {
   turn_id: string;
   /** The user turn that owns this audio; narration has its own playback ID. */
   origin_turn_id?: string;
+  /** Opaque provider item, correlated by the relay; absent on narration. */
+  item_id?: string;
   /**
    * Audio this server synthesized, not audio the Live model produced.
    *
@@ -458,6 +471,11 @@ export const NOT_SUCCESS_STATUSES = new Set<string>([
   "draft_open_dispatched",
   // Gmail may or may not have sent the draft; never shown as "Sent".
   "draft_send_unconfirmed",
+  "review_requested",
+  "review_pending",
+  "needs_input",
+  "outcome_unknown",
+  "sending",
   // A scheduled-mail cancel that cancelled nothing, and a scheduled send whose
   // confirmation could not be recorded (mirrors the relay's NOT_OK_STATUSES).
   "send_unconfirmed",

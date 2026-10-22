@@ -6,6 +6,7 @@ import {
   PeopleHub,
   type LocationHubViewModel,
 } from "@/components/one-location/redesign/location-redesign-hub";
+import { isShareReadyRecipient } from "@/lib/one-location/share-recipient-selection";
 import type {
   OneLocationAccessRequest,
   OneLocationGrant,
@@ -105,6 +106,7 @@ describe("PeopleHub requests sent manage surface", () => {
     onOpenSharedWithMe = vi.fn(),
     onOpenActiveShares = vi.fn(),
     onAddConnections = vi.fn(),
+    onInvite = vi.fn(),
   }: {
     viewModel?: LocationHubViewModel;
     onStartShare?: ReturnType<typeof vi.fn>;
@@ -112,12 +114,13 @@ describe("PeopleHub requests sent manage surface", () => {
     onOpenSharedWithMe?: ReturnType<typeof vi.fn>;
     onOpenActiveShares?: ReturnType<typeof vi.fn>;
     onAddConnections?: ReturnType<typeof vi.fn>;
+    onInvite?: ReturnType<typeof vi.fn>;
   } = {}) {
     render(
       <PeopleHub
         vm={viewModel}
         onAddConnections={onAddConnections}
-        onInvite={vi.fn()}
+        onInvite={onInvite}
         onOpenCircleManager={vi.fn()}
         focusedInviteId={null}
         onDismissFocusedInvite={vi.fn()}
@@ -133,6 +136,7 @@ describe("PeopleHub requests sent manage surface", () => {
       onOpenSharedWithMe,
       onOpenActiveShares,
       onAddConnections,
+      onInvite,
     };
   }
 
@@ -220,8 +224,21 @@ describe("PeopleHub requests sent manage surface", () => {
   it("keeps inline Ask and Share as independent, accessible actions", () => {
     const onStartShare = vi.fn();
     const onStartAsk = vi.fn();
+    const readyRecipient = {
+      ...recipient,
+      canReceiveLocation: true,
+      keyId: "recipient-key",
+      publicKeyJwk: { kty: "EC" },
+    };
     renderPeopleHub({
-      viewModel: vm({ requestedByMe: [], receivedGrants: [], editingGrantId: null }),
+      viewModel: vm({
+        requestedByMe: [],
+        receivedGrants: [],
+        editingGrantId: null,
+        recipients: [readyRecipient],
+        visibleRecipients: [readyRecipient],
+        isRecipientShareReady: isShareReadyRecipient,
+      }),
       onStartShare,
       onStartAsk,
     });
@@ -230,6 +247,8 @@ describe("PeopleHub requests sent manage surface", () => {
     const group = within(peopleList).getByRole("group", {
       name: "Actions for Roopmann V",
     });
+    expect(within(group).getAllByRole("button").map((button) => button.textContent?.trim()))
+      .toEqual(["Share", "Ask"]);
     fireEvent.click(within(group).getByRole("button", {
       name: "Ask Roopmann V for their location",
     }));
@@ -237,15 +256,47 @@ describe("PeopleHub requests sent manage surface", () => {
       name: "Share your location with Roopmann V",
     }));
 
-    const askIcon = group.querySelector('[data-location-menu-icon="ask"]');
-    const shareIcon = group.querySelector('[data-location-menu-icon="share"]');
-    expect(askIcon?.parentElement).toHaveClass("inline-flex", "shrink-0");
-    expect(shareIcon?.parentElement).toHaveClass("inline-flex", "shrink-0");
-    expect(askIcon?.parentElement).not.toHaveClass("hidden");
-    expect(shareIcon?.parentElement).not.toHaveClass("hidden");
+    expect(group.querySelector("svg")).toBeNull();
     expect(onStartAsk).toHaveBeenCalledExactlyOnceWith("owner_roopmann");
     expect(onStartShare).toHaveBeenCalledExactlyOnceWith("owner_roopmann");
     expect(peopleList.querySelector("button button")).toBeNull();
+  });
+
+  it.each([
+    { canReceiveLocation: false, keyId: "recipient-key", publicKeyJwk: { kty: "EC" } },
+    { canReceiveLocation: true, keyId: null, publicKeyJwk: { kty: "EC" } },
+    { canReceiveLocation: true, keyId: "recipient-key", publicKeyJwk: null },
+  ])("explains blocked sharing and offers recovery without opening Share: %j", (readiness) => {
+    const blockedRecipient = { ...recipient, ...readiness };
+    const { onStartShare, onStartAsk, onInvite } = renderPeopleHub({
+      viewModel: vm({
+        requestedByMe: [],
+        receivedGrants: [],
+        editingGrantId: null,
+        recipients: [blockedRecipient],
+        visibleRecipients: [blockedRecipient],
+        isRecipientShareReady: isShareReadyRecipient,
+      }),
+    });
+
+    const share = within(screen.getByTestId("one-location-people-list"))
+      .getByRole("button", { name: "Share your location with Roopmann V" });
+    expect(share).toBeEnabled();
+    expect(share).toHaveAttribute("aria-haspopup", "dialog");
+    fireEvent.click(share);
+
+    const dialog = screen.getByRole("dialog", { name: "Roopmann V" });
+    expect(within(dialog).getByText(
+      "Roopmann V is connected on One. Location receiving is unavailable.",
+    )).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Share my location" })).toBeNull();
+    expect(onStartShare).not.toHaveBeenCalled();
+    expect(within(dialog).queryByRole("button", { name: "Invite to One" })).toBeNull();
+    expect(within(dialog).getByRole("button", { name: "Manage connection" })).toBeEnabled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Ask for location" }));
+    expect(onStartAsk).toHaveBeenCalledExactlyOnceWith("owner_roopmann");
+    expect(onInvite).not.toHaveBeenCalled();
+    expect(onStartShare).not.toHaveBeenCalled();
   });
 
   it("keeps the Circles summary free of stacked system identity icons", () => {

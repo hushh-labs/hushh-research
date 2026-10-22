@@ -286,7 +286,7 @@ function UnlockedDriveCircleShareCard({
       : phase === "sharing"
         ? `Sharing with ${Math.min(shareProgress.completed + 1, shareProgress.total)} of ${shareProgress.total} people…`
         : view?.status === "no_match"
-          ? "No matching files found."
+          ? "No file candidates in this search."
           : view?.status === "no_recipients"
             ? "No eligible people yet."
             : requestedCount > 0 && open.length === 0

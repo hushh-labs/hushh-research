@@ -14,7 +14,7 @@
 
 import { useState } from "react";
 
-import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
+import { SegmentedControl } from "@/lib/morphy-ux/ui/segmented-control";
 import { MUTED_TEXT } from "@/lib/morphy-ux/tokens/surfaces";
 import {
   NEARBY_LANES,
@@ -106,7 +106,8 @@ export function NearbyFilterBar({
           ) : null}
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <SegmentedTabs
+            <SegmentedControl
+              ariaLabel="Nearby radius"
               value={String(filters.radiusKm)}
               disabled={disabled}
               onValueChange={(v) => onChange({ ...filters, radiusKm: Number(v) })}
@@ -119,7 +120,8 @@ export function NearbyFilterBar({
                 grades every record B, so offering A would return an empty
                 screen — the same dead-option trap the empty lane chips had.
                 "All" always stands, because it can never come back empty. */}
-            <SegmentedTabs
+            <SegmentedControl
+              ariaLabel="Minimum confidence"
               value={filters.minimumConfidenceGrade}
               disabled={disabled}
               onValueChange={(v) =>
@@ -127,7 +129,7 @@ export function NearbyFilterBar({
               }
               options={[
                 ...(["A", "B", "C"] as const)
-                  .filter((grade) => grades.has(grade))
+                  .filter((grade) => grades.has(grade) || grade === filters.minimumConfidenceGrade)
                   .map((grade) => ({ value: grade, label: grade })),
                 { value: "D", label: "All" },
               ]}

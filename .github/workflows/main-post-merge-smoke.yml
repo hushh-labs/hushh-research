@@ -66,11 +66,29 @@ jobs:
           cache: "npm"
           cache-dependency-path: hushh-webapp/package-lock.json
 
+      # This job is the only saver of the Next.js build cache; PR Validation's
+      # Web Core lane restores it from main and never saves. The key used to
+      # end in a hash of app/, components/, lib/ and public/, which nearly
+      # every merge changes, so nearly every push to main saved a new
+      # ~400-440MB entry: four between 18:22Z and 19:34Z on 2026-10-14, with
+      # 24-58 merges a day that week. It now ends in the UTC day, so the first
+      # green push of a day saves and later pushes restore that entry exactly.
+      # An entry written for older sources only saves time, because the build
+      # recompiles what changed: the first push after a quiet night restored an
+      # entry at least 5.6 hours old and compiled in 1.7s (38536677174, entry
+      # restored since 38504109834). Path, key and restore-keys must match
+      # web-core-check in ci.yml (scripts/ci/test_ci_cache_scopes.py).
+      - name: Resolve Next.js build cache day
+        id: nextjs-cache-day
+        shell: bash
+        run: echo "day=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+
       - name: Restore Next.js build cache
-        uses: actions/cache@v4
+        id: nextjs-cache
+        uses: actions/cache/restore@v4
         with:
           path: hushh-webapp/.next/cache
-          key: ${{ runner.os }}-nextjs-${{ env.NODE_VERSION }}-${{ hashFiles('hushh-webapp/package-lock.json', 'hushh-webapp/next.config.ts') }}-${{ hashFiles('hushh-webapp/app/**', 'hushh-webapp/components/**', 'hushh-webapp/lib/**', 'hushh-webapp/public/**', 'hushh-webapp/package.json') }}
+          key: ${{ runner.os }}-nextjs-${{ env.NODE_VERSION }}-${{ hashFiles('hushh-webapp/package-lock.json', 'hushh-webapp/next.config.ts') }}-${{ steps.nextjs-cache-day.outputs.day }}
           restore-keys: |
             ${{ runner.os }}-nextjs-${{ env.NODE_VERSION }}-${{ hashFiles('hushh-webapp/package-lock.json', 'hushh-webapp/next.config.ts') }}-
 
@@ -109,6 +127,16 @@ jobs:
           CI_RUN_PKM_UPGRADE_GATE: ${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}
           CI_VERIFICATION_PLAN_REASON: ${{ steps.verification-plan.outputs.reason }}
           CI_VERIFICATION_PLAN_FILE: ${{ runner.temp }}/main-smoke-verification-plan.json
+
+      # Saved only from main, only after a green smoke, and only when today's
+      # key is new. The key is the one the restore step resolved before the
+      # build, so the saved entry is exactly what PRs look up.
+      - name: Save Next.js build cache
+        if: github.ref == 'refs/heads/main' && steps.nextjs-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: hushh-webapp/.next/cache
+          key: ${{ steps.nextjs-cache.outputs.cache-primary-key }}
 
       - name: Upload verification-plan artifact
         if: always()

@@ -12,14 +12,27 @@ deliberately; an ordinary deploy uses `preserve`:
    `DRIVE_DOCUMENT_KEY_V1`, and `DRIVE_SHARING_KEY_V1`. Generate the three
    encryption keys independently and retain them across deployments. Never
    copy UAT keys. The Picker secret must match the reviewed, browser-restricted
-   production API key.
+   production API key named `Hussh Drive Picker (Production)`, restricted to
+   `picker.googleapis.com` and the exact HTTPS production hosts in
+   `hushh-webapp/lib/vault/passkey-domain-aliases.json`: `one.hushh.ai`,
+   `one.hussh.ai` and `one.hussh.si`, each with `/*`. UAT, localhost, HTTP and
+   wildcard hosts are not production referrers. The workflow retains the
+   current catalog with release tooling before checking out an older app SHA.
 2. Verify the production Google OAuth app's approved Drive scopes and exact
    web/native callbacks, including the connector return at
-   `https://one.hushh.ai/one/profile/connectors/oauth/return`. Set the
+   `/one/profile/connectors/oauth/return` on all three production One domains and
+   the two native callback paths on all three production API domains. UAT and local
+   origins do not belong in this production client. Set the
    production environment variable `GOOGLE_DRIVE_OAUTH_PROD_VERIFIED=true`
    only after provider verification. Existing generic Google OAuth secrets do
    not prove this registration.
-3. Provision the fixed production Scheduler service account, the backend
+3. Run `PROJECT_ID=hushh-pda bash deploy/drive/setup_native_callback_log_exclusion.sh`
+   through the authorized production operator. The release preflight reads it
+   back with `--verify-only` and cannot silently create or repair it. The guard
+   excludes only the fixed backend/native and frontend/web callback request
+   logs; structured application outcomes remain available. If an external
+   load balancer logs these callbacks, protect its request-log boundary too.
+4. Provision the fixed production Scheduler service account, the backend
    runtime account's `roles/cloudscheduler.jobRunner` grant, and the deployer's
    permissions to read the six secrets and reviewed Picker key, deploy the
    private Cloud Run worker, attach Cloud SQL, grant the Scheduler identity
@@ -47,3 +60,37 @@ accounts to confirm a document request resumes, the owner can switch
 background access off, and no new background sharing occurs while off. A
 Scheduler 200 proves dispatch only; it does not prove Google file sharing or
 device notification delivery.
+
+## UAT background processing pause
+
+Dispatch `deploy-uat.yml` with `preserve_paused_drive_worker=true` to disable
+the UAT API drain and retain the existing private worker and its three paused
+scheduler jobs. The workflow captures and verifies that exact paused baseline;
+queued work and stored files remain intact. The ordinary dispatch path activates
+legacy Drive processing, regardless of the older
+`DRIVE_WORK_DRAIN_UAT_ENABLED` variable. Keep the explicit preservation input on
+incident releases until background processing is authorized to resume.
+
+Cloud Scheduler refuses `jobs.run` on a paused job (`400 FAILED_PRECONDITION`,
+`Job.state must be ENABLED for RunJob`), so pausing the jobs also stops the
+API's prompt wakes; each refusal logs `drive_work_wake.failed stage=<stage>
+outcome=paused`. During an incident pause, withdraw the UAT runtime account's
+`roles/cloudscheduler.jobRunner` grant as well, until a serving disabled drain
+is verified. The withdrawn grant denies every wake at the IAM layer
+(`outcome=permission_denied`) whatever each job's state, so a job that a
+release or an operator resumes or recreates still cannot be run by the API.
+Restore that grant only with an explicitly authorized background-processing
+resume.
+
+The isolated V1 UAT lane has its own switch:
+`DRIVE_V1_WORK_DRAIN_UAT_ENABLED=false`. With
+`preserve_paused_drive_worker=true`, this deploys and attests the V1 image with
+its drain disabled, requires an existing paused V1 scheduler baseline, and
+verifies that baseline again after promotion. It never resumes or dispatches the
+job, and reports paused-state proof separately from a fresh Scheduler 200. Use
+the preservation input and the V1 switch together during a complete processing pause.
+
+Only a request created with `DRIVE_AGENT_PACKAGES_ENABLED=true` enters the V1
+lane, so the API wakes the V1 job only where that setting is on. Elsewhere it
+records `drive_work_wake.skipped stage=v1 outcome=disabled` at debug level and
+never calls the job; the V1 job's own schedule drains any older V1 work.

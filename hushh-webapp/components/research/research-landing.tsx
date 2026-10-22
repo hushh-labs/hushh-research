@@ -6,7 +6,7 @@ import {
   AppPageContentRegion,
 } from "@/components/app-ui/app-page-shell";
 import { Band } from "@/components/app-ui/sections";
-import { PageHeader } from "@/components/app-ui/page-sections";
+import { KnowledgeSectionHeader } from "@/components/app-ui/knowledge-section-header";
 import { ROUTES } from "@/lib/navigation/routes";
 import { BLOG_POSTS } from "@/lib/research/blog";
 
@@ -14,24 +14,22 @@ export function ResearchLanding() {
   const latestPosts = BLOG_POSTS.slice(0, 2);
 
   return (
-    <AppPageShell width="reading" className="pb-4 pt-0 sm:pb-6">
+    <AppPageShell width="agent" fitContent className="relative isolate">
       <AppPageHeaderRegion>
-        <PageHeader
-          eyebrow="Research"
+        <KnowledgeSectionHeader
           title="Open consent protocol"
           description="Protocol notes, conformance, and the reasoning behind consented information exchange."
-          descriptionFullWidth
           icon={BookOpenText}
-          accent="research"
+          tone="blue"
         />
       </AppPageHeaderRegion>
 
-      <AppPageContentRegion className="mt-5 space-y-6">
+      <AppPageContentRegion className="mt-4 min-w-0 space-y-4">
         <ul>
           <li>
             <Link
               href={ROUTES.RESEARCH_PROTOCOL}
-              className="group flex min-h-0 w-full items-center gap-3 rounded-[var(--app-card-radius-standard)] border border-border/60 px-3 py-3 transition-colors hover:bg-muted/30 sm:px-4"
+              className="group flex min-h-0 w-full items-center gap-3 rounded-[var(--app-card-radius-standard)] bg-[color:var(--app-card-surface-default-solid)] border border-border/60 px-3 py-3 transition-colors hover:bg-muted/30 sm:px-4"
             >
               <div className="flex size-9 shrink-0 items-center justify-center rounded-[var(--app-card-radius-compact)] bg-blue-100/50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400">
                 <FileText className="size-4" />
@@ -53,7 +51,7 @@ export function ResearchLanding() {
         </ul>
 
         <Band title="Latest writing" className="space-y-1">
-          <ul className="divide-y divide-border/60 rounded-[var(--app-card-radius-standard)] border border-border/60 px-3 sm:px-4">
+          <ul className="divide-y divide-border/60 rounded-[var(--app-card-radius-standard)] bg-[color:var(--app-card-surface-default-solid)] border border-border/60 px-3 sm:px-4">
             {latestPosts.map((post) => (
               <li key={post.slug}>
                 <Link

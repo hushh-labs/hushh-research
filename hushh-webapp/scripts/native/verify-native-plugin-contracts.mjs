@@ -2,6 +2,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import ts from "typescript";
 
 const appRoot = process.cwd();
 
@@ -15,9 +16,12 @@ const tsPluginFiles = [
   "lib/capacitor/session-privacy.ts",
   "lib/capacitor/native-navigation.ts",
   "lib/capacitor/native-chrome.ts",
+  "lib/capacitor/native-dock.ts",
+  "lib/capacitor/native-drawers.ts",
   "lib/capacitor/stream.ts",
   "lib/capacitor/oauth-return.ts",
   "lib/capacitor/plaid-link.ts",
+  "lib/capacitor/card-scanner.ts",
 ];
 
 const iosPluginsDir = path.join(appRoot, "ios/App/App/Plugins");
@@ -26,6 +30,12 @@ const iosControllerPath = path.join(appRoot, "ios/App/App/MyViewController.swift
 const androidActivityPath = path.join(appRoot, "android/app/src/main/java/com/hussh/app/MainActivity.kt");
 const iosInfoPlistPath = path.join(appRoot, "ios/App/App/Info.plist");
 const iosEntitlementsPath = path.join(appRoot, "ios/App/App/App.entitlements");
+const iosReleaseEntitlementsPath = path.join(appRoot, "ios/App/App/AppRelease.entitlements");
+const iosChatNotificationServiceEntitlementsPath = path.join(
+  appRoot,
+  "ios/App/ChatNotificationService/ChatNotificationService.entitlements",
+);
+const iosProjectPath = path.join(appRoot, "ios/App/App.xcodeproj/project.pbxproj");
 const iosVoicePluginPath = path.join(
   appRoot,
   "ios/App/App/Plugins/HushhVoiceInvocationPlugin.swift",
@@ -40,7 +50,9 @@ const webOnlyPlugins = new Set(["HushhDatabase", "HushhAgent"]);
 // The TypeScript adapter returns unsupported/no pending invocation elsewhere.
 // (HushhPlaidLink is implemented on both platforms: LinkKit on iOS, Plaid's
 // Link SDK on Android, so it is held to full parity like every other plugin.)
-const iosOnlyPlugins = new Set(["HushhNativeNavigation", "HushhNativeChrome"]);
+// Card scanning uses Apple Vision on iOS and the existing web worker elsewhere.
+const androidOnlyPlugins = new Set(["HushhCardCapture"]);
+const iosOnlyPlugins = new Set(["HushhNativeNavigation", "HushhNativeChrome", "HushhNativeDock", "HushhNativeDrawers", "HushhCardScanner"]);
 const appleInvocationMethods = new Set([
   "getPendingInvocation", "claimInvocation", "reportInvocationProgress", "completeInvocation",
   "getPendingActionInvocation", "claimActionInvocation", "completeActionInvocation", "reportActionInvocationProgress",
@@ -56,6 +68,8 @@ const ignoredTsMethodsByPlugin = new Map([
   ["HushhSessionPrivacy", new Set(["addListener"])],
   ["HushhNativeNavigation", new Set(["addListener"])],
   ["HushhNativeChrome", new Set(["addListener"])],
+  ["HushhNativeDock", new Set(["addListener"])],
+  ["HushhNativeDrawers", new Set(["addListener"])],
   ["HushhStream", new Set(["addListener"])],
   ["HushhPlaidLink", new Set(["addListener"])],
 ]);
@@ -82,36 +96,40 @@ function walkFiles(dir, predicate, out = []) {
   return out;
 }
 
-function matchingBraceIndex(source, openIndex) {
-  let depth = 0;
-  for (let index = openIndex; index < source.length; index += 1) {
-    const char = source[index];
-    if (char === "{") depth += 1;
-    if (char === "}") {
-      depth -= 1;
-      if (depth === 0) return index;
-    }
-  }
-  return -1;
-}
-
-function extractInterfaceMethods(source, interfaceName) {
-  const marker = new RegExp(`export\\s+interface\\s+${interfaceName}\\b`);
-  const match = marker.exec(source);
-  if (!match) return null;
-  const openIndex = source.indexOf("{", match.index);
-  if (openIndex < 0) return null;
-  const closeIndex = matchingBraceIndex(source, openIndex);
-  if (closeIndex < 0) return null;
-  const body = source.slice(openIndex + 1, closeIndex);
-  return new Set(
-    [...body.matchAll(/^\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/gm)].map(
-      (methodMatch) => methodMatch[1]
-    )
+function extractInterfaceMethods(checker, sourceFile, interfaceName) {
+  const declaration = sourceFile.statements.find(
+    (node) => ts.isInterfaceDeclaration(node) && node.name.text === interfaceName,
   );
+  if (!declaration) return null;
+  const contract = checker.getTypeAtLocation(declaration);
+  const methods = new Set();
+  // Resolve inherited Partial ports and indexed callable properties as well as
+  // method syntax. Regex over the local body silently drops those contracts.
+  for (const property of checker.getPropertiesOfType(contract)) {
+    const type = checker.getNonNullableType(checker.getTypeOfSymbolAtLocation(property, declaration));
+    if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) {
+      fail(`${interfaceName}.${property.name}: unresolved TypeScript contract.`);
+      continue;
+    }
+    if (type.getCallSignatures().length > 0) methods.add(property.name);
+  }
+  return methods;
 }
 
 function parseTsContracts() {
+  const configPath = path.join(appRoot, "tsconfig.json");
+  const config = ts.readConfigFile(configPath, ts.sys.readFile);
+  if (config.error) throw new Error(ts.flattenDiagnosticMessageText(config.error.messageText, "\n"));
+  // This check has explicit roots below. Resolve compiler options without
+  // walking every app/component glob just to discard that file list.
+  const parsed = ts.parseJsonConfigFileContent({ ...config.config, files: tsPluginFiles, include: [] }, ts.sys, appRoot);
+  if (parsed.errors.length) throw new Error(parsed.errors.map((error) => ts.flattenDiagnosticMessageText(error.messageText, "\n")).join("\n"));
+  const program = ts.createProgram(tsPluginFiles.map((file) => path.join(appRoot, file)), {
+    // Follow the contracts' actual imports and configured standard libraries,
+    // not every unrelated ambient @types package installed by the web app.
+    ...parsed.options, types: [], noEmit: true, incremental: false,
+  });
+  const checker = program.getTypeChecker();
   const byPlugin = new Map();
   for (const relativePath of tsPluginFiles) {
     const filePath = path.join(appRoot, relativePath);
@@ -120,7 +138,8 @@ function parseTsContracts() {
       /registerPlugin<([A-Za-z_$][A-Za-z0-9_$]*)>\s*\(\s*["']([^"']+)["']/g;
     for (const match of source.matchAll(registerRegex)) {
       const [, interfaceName, jsName] = match;
-      const methods = extractInterfaceMethods(source, interfaceName);
+      const sourceFile = program.getSourceFile(filePath);
+      const methods = sourceFile && extractInterfaceMethods(checker, sourceFile, interfaceName);
       if (!methods) {
         fail(`${relativePath}: could not find interface ${interfaceName} for ${jsName}.`);
         continue;
@@ -239,6 +258,41 @@ function verifyIosVaultAuthenticationConfiguration(iosContracts) {
   }
 }
 
+function verifyIosCommunicationNotificationEntitlements() {
+  const communicationNotificationsEntitlement =
+    /<key>com\.apple\.developer\.usernotifications\.communication<\/key>\s*<true\s*\/>/;
+  const chatNotificationServiceKeychainGroup =
+    "$(AppIdentifierPrefix)com.hussh.app.chatnotifications";
+  const parentEntitlements = [
+    ["App.entitlements", read(iosEntitlementsPath)],
+    ["AppRelease.entitlements", read(iosReleaseEntitlementsPath)],
+  ];
+
+  for (const [name, entitlements] of parentEntitlements) {
+    if (!communicationNotificationsEntitlement.test(entitlements)) {
+      fail(`${name} must enable the Communication Notifications entitlement for the parent app target.`);
+    }
+    if (!entitlements.includes(chatNotificationServiceKeychainGroup)) {
+      fail(`${name} must retain the ChatNotificationService keychain access group.`);
+    }
+  }
+
+  const serviceEntitlements = read(iosChatNotificationServiceEntitlementsPath);
+  if (serviceEntitlements.includes("com.apple.developer.usernotifications.communication")) {
+    fail("ChatNotificationService must not request the parent-only Communication Notifications entitlement.");
+  }
+  if (!serviceEntitlements.includes(chatNotificationServiceKeychainGroup)) {
+    fail("ChatNotificationService must retain its shared keychain access group.");
+  }
+
+  const project = read(iosProjectPath);
+  const serviceEntitlementsWiring =
+    project.match(/CODE_SIGN_ENTITLEMENTS\s*=\s*ChatNotificationService\/ChatNotificationService\.entitlements;/g) || [];
+  if (serviceEntitlementsWiring.length < 2) {
+    fail("ChatNotificationService must use its dedicated entitlements file for Debug and Release signing.");
+  }
+}
+
 function verifyIosCommandCaptureContract(iosContracts) {
   if (!iosContracts.has("HushhVoiceInvocation")) return;
 
@@ -273,6 +327,7 @@ const iosRegistrations = parseIosRegistrations();
 const androidRegistrations = parseAndroidRegistrations();
 
 verifyIosVaultAuthenticationConfiguration(iosContracts);
+verifyIosCommunicationNotificationEntitlements();
 verifyIosCommandCaptureContract(iosContracts);
 
 for (const pluginName of sorted(tsContracts.keys())) {
@@ -281,7 +336,7 @@ for (const pluginName of sorted(tsContracts.keys())) {
   const iosContract = iosContracts.get(pluginName);
   const androidContract = androidContracts.get(pluginName);
 
-  if (!iosContract) {
+  if (!iosContract && !androidOnlyPlugins.has(pluginName)) {
     fail(`${pluginName}: TypeScript contract exists in ${tsContract.source}, but iOS plugin is missing.`);
   }
   if (!androidContract && !iosOnlyPlugins.has(pluginName)) {
@@ -317,7 +372,7 @@ for (const pluginName of sorted(androidContracts.keys())) {
 }
 
 for (const pluginName of sorted(tsContracts.keys())) {
-  if (webOnlyPlugins.has(pluginName) || iosOnlyPlugins.has(pluginName)) continue;
+  if (webOnlyPlugins.has(pluginName) || iosOnlyPlugins.has(pluginName) || androidOnlyPlugins.has(pluginName)) continue;
   if (!iosContracts.has(pluginName) || !androidContracts.has(pluginName)) continue;
   const iosMethods = new Set([...iosContracts.get(pluginName).methods].filter((method) =>
     pluginName !== "HushhVoiceInvocation" || !appleInvocationMethods.has(method)));

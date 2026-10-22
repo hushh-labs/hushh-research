@@ -63,7 +63,7 @@ describe("PostAuthRouteService", () => {
     loadPendingOnboardingMock.mockResolvedValue(null);
     refreshIdentityMock.mockResolvedValue({ phone_verified: false });
     await expect(PostAuthRouteService.resolveAfterLogin({ userId: "new-user", idToken: "google-token", hostname: "one.hushh.ai" }))
-      .resolves.toBe(buildPhoneMandateRoute(ROUTES.ONE_SETUP_CONNECTIONS));
+      .resolves.toBe(buildPhoneMandateRoute(ROUTES.ONE_SETUP));
     expect(refreshIdentityMock).toHaveBeenCalledWith("new-user", "google-token");
   });
 
@@ -72,13 +72,14 @@ describe("PostAuthRouteService", () => {
     loadPendingOnboardingMock.mockResolvedValue(null);
     peekIdentityMock.mockReturnValue({ data: { phone_verified: true } });
     await expect(PostAuthRouteService.resolveAfterLogin({ userId: "user", hostname: "one.hushh.ai" }))
-      .resolves.toBe(ROUTES.ONE_SETUP_CONNECTIONS);
+      .resolves.toBe(ROUTES.ONE_SETUP);
     expect(refreshIdentityMock).not.toHaveBeenCalled();
   });
   it.each([
     "/circle/join?code=23456789ABCD",
     "/circle/join?invite=real_token",
     "/one/location/invite/real_token",
+    "/world-model/invite#claim=pwm_token",
   ])(
     "retains the invitation when reauthenticating during phone verification: %s",
     async (destination) => {
@@ -194,6 +195,7 @@ describe("PostAuthRouteService", () => {
     "/circle/join?code=23456789ABCD",
     "/circle/join/?invite=real_token",
     "/one/location/invite/real_token",
+    "/world-model/invite#claim=pwm_token",
     "/one/connect?tab=circles&action=join-circle&code=23456789ABCD",
     "/one/connect/?tab=circles&action=join-circle&code=23456789ABCD",
   ])(
@@ -300,7 +302,7 @@ describe("PostAuthRouteService", () => {
     expect(normalizeInternalRouteHref(redirect)).toBe(redirect);
   });
 
-  it("routes vault users with unresolved onboarding straight to the AI-choice step", async () => {
+  it("routes vault users with unresolved onboarding to the setup hub", async () => {
     bootstrapStateMock.mockResolvedValue({
       hasVault: true,
       setupCompleted: false,
@@ -309,7 +311,7 @@ describe("PostAuthRouteService", () => {
 
     await expect(
       PostAuthRouteService.resolveAfterLogin({ userId: "user_123" }),
-    ).resolves.toBe(ROUTES.ONE_SETUP_CONNECTIONS);
+    ).resolves.toBe(ROUTES.ONE_SETUP);
   });
 
   it("keeps the provider token attached to the authoritative setup bootstrap", async () => {
@@ -497,7 +499,7 @@ describe("PostAuthRouteService", () => {
         userId: "user_123",
         phoneNumber: "+16505550101",
       }),
-    ).resolves.toBe(ROUTES.ONE_SETUP_CONNECTIONS);
+    ).resolves.toBe(ROUTES.ONE_SETUP);
     expect(updatePreVaultStateMock).not.toHaveBeenCalled();
   });
 
@@ -524,7 +526,7 @@ describe("PostAuthRouteService", () => {
         userId: "user_123",
         phoneNumber: "+16505550101",
       }),
-    ).resolves.toBe(ROUTES.ONE_SETUP_CONNECTIONS);
+    ).resolves.toBe(ROUTES.ONE_SETUP);
     expect(updatePreVaultStateMock).not.toHaveBeenCalled();
   });
 
@@ -571,7 +573,7 @@ describe("PostAuthRouteService", () => {
         userId: "user_123",
         phoneNumber: null,
       }),
-    ).resolves.toBe(buildPhoneMandateRoute(ROUTES.ONE_SETUP_CONNECTIONS));
+    ).resolves.toBe(buildPhoneMandateRoute(ROUTES.ONE_SETUP));
   });
 
   it("keeps completed no-vault accounts home without repeating phone onboarding", async () => {
@@ -874,7 +876,7 @@ describe("PostAuthRouteService", () => {
           phoneVerified: true,
           enableFirstRunSetupGate: true,
         }),
-      ).resolves.toBe(ROUTES.ONE_SETUP_CONNECTIONS);
+      ).resolves.toBe(ROUTES.ONE_SETUP);
     });
   });
   it.each([null, undefined])("does not interpret unknown phone status (%s) as a fresh-account challenge", async (phoneVerified) => {

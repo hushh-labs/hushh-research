@@ -1,5 +1,6 @@
 /**
- * The device guard that keeps secrets away from every model. Pure module.
+ * The device guard that prevents raw protected values from entering an
+ * ordinary chat turn before the caller applies its storage policy. Pure module.
  *
  * Generalizes the card-number paste guard. Runs on the device BEFORE any text
  * reaches chat, a memory proposal, history or telemetry: the chat composer's
@@ -7,15 +8,15 @@
  * attachments all go through it. For each secret span it finds
  * (`secret-patterns.ts`, from `contracts/pkm/secret-patterns.v1.json`):
  *
- * 1. the value is captured in device memory only, to be saved into the
- *    reserved `secrets` domain by `secrets-vault-service.ts`;
+ * 1. the value is captured in device memory only until the caller either
+ *    omits credentials or persists an allowed identifier in encrypted storage;
  * 2. the span is replaced with `⟦secret:<id> <label>⟧`, where the label is
  *    built here from the surrounding words with the value masked
  *    ("GitHub token ending 4f2a").
  *
- * The text is rendered only after the save has settled, so a placeholder
- * always names a stored item, and an item saved earlier with the same value is
- * reused instead of duplicated. If nothing can be saved, nothing is sent.
+ * The text is rendered only after the caller settles that policy. One chat may
+ * later receive allowed identifiers through its separate decrypted Memory
+ * context; credentials remain omitted.
  *
  * `assertNoUnguardedSecrets` is the last line in the transport clients: a text
  * that still carries a raw secret is refused before any request is built.
@@ -28,9 +29,8 @@ import {
   type SecretKind,
   type SecretSpan,
 } from "@/lib/pkm/secret-patterns";
-import { detectBrand } from "@/lib/wallet/card-validation";
 
-/** A secret found in outgoing text. `value` lives in device memory only. */
+/** A protected value found in outgoing text; callers decide its durable policy. */
 export type SecretCapture = {
   /** Provisional id; the vault may resolve it to an existing item. */
   id: string;
@@ -76,10 +76,7 @@ const STOPWORDS: ReadonlySet<string> = new Set([
   "that", "the", "their", "these", "this", "those", "to", "token", "tokens", "use", "using", "value",
   "was", "with", "your",
 ]);
-const BRAND_LABELS: Readonly<Record<string, string>> = {
-  visa: "Visa", mastercard: "Mastercard", amex: "Amex", discover: "Discover", diners: "Diners Club",
-  jcb: "JCB", unionpay: "UnionPay", rupay: "RuPay", mir: "Mir", elo: "Elo", verve: "Verve",
-};
+
 
 /** A fresh placeholder id: `sec_` and 16 hex characters from the platform CSPRNG. */
 export function newSecretId(): string {
@@ -123,15 +120,14 @@ function maskSuffix(span: SecretSpan, value: string): string {
   return value.length >= 16 ? ` ending ${value.slice(-4)}` : "";
 }
 
-function baseLabelFor(source: string, span: SecretSpan, value: string): string {
+function baseLabelFor(source: string, span: SecretSpan, _value: string): string {
   const pattern = span.pattern;
   if (pattern.labelFromPrefix) {
     const prefix = source.slice(span.matchStart, span.start).replace(/[\s=:"']+$/g, "").trim();
     if (prefix) return prefix;
   }
   if (pattern.kind === "card_number") {
-    const brand = BRAND_LABELS[detectBrand(value) ?? ""];
-    return brand ? `${brand} card` : pattern.label;
+    return pattern.label;
   }
   return pattern.label;
 }
@@ -210,6 +206,34 @@ export function maskSecretSpans(text: string): string {
   let cursor = 0;
   for (const span of findSecretSpans(text)) {
     out += `${text.slice(cursor, span.start)}[hidden secret]`;
+    cursor = span.end;
+  }
+  return out + text.slice(cursor);
+}
+
+/**
+ * Values that must never become durable memory. Government identifiers,
+ * payment-card numbers, and bank-account numbers are intentionally excluded
+ * from this set: the owner may keep those in encrypted Memory. Credentials,
+ * PINs, and card security codes are authentication material and are omitted.
+ */
+export function isNonPersistableCredentialKind(kind: SecretKind): boolean {
+  return kind === "credential" || kind === "card_security_code";
+}
+
+/**
+ * Remove only authentication material from text before it can be written to
+ * the encrypted Markdown memory. Other regulated identifiers remain intact.
+ */
+export function omitCredentialsFromMemory(text: string): string {
+  const spans = findSecretSpans(text).filter((span) =>
+    isNonPersistableCredentialKind(span.pattern.kind),
+  );
+  if (spans.length === 0) return text;
+  let out = "";
+  let cursor = 0;
+  for (const span of spans) {
+    out += `${text.slice(cursor, span.start)}[credential omitted]`;
     cursor = span.end;
   }
   return out + text.slice(cursor);

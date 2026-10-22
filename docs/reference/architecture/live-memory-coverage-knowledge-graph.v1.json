@@ -1,0 +1,2980 @@
+{
+  "schemaVersion": "live-memory-coverage-knowledge-graph.v1",
+  "audit": {
+    "date": "2026-10-15",
+    "codeRevision": "903f8979d7e4b1efaa294763d2285b4239c16ea8",
+    "lastVerifiedUatRevision": "00642883326e7edfebe8b37a9541a82bc9c5ef5e",
+    "method": "Four read-only source, latency, graph and user-story audits, followed by two read-only Profile and Memory Agent surface audits. Code and repository contracts were inspected. No live owner journey or provider flow was executed for this audit.",
+    "confidenceMeaning": "Confidence measures how strongly cited evidence supports the stated implementation status, not the probability that a personal fact is true or the percentage of the product completed.",
+    "statusVocabulary": [
+      "implemented_in_code",
+      "partial",
+      "missing",
+      "unverified_in_real_flow",
+      "planned",
+      "excluded_by_current_contract"
+    ],
+    "evidenceLevels": [
+      "code",
+      "automated_contract",
+      "uat_release",
+      "real_source_journey"
+    ]
+  },
+  "implementationUpdate": {
+    "branch": "fix/live-memory-realtime-p0",
+    "date": "2026-10-15",
+    "evidenceLevel": "automated_contract",
+    "scope": "Live Mirror v1: one owner-scoped, in-memory projection read by Profile, the private agent's profile sheet and the private agent; pending journal hints, gap markers, read-time expiry, in-range reset repair and owner-only lag; journal-kind parity and paid-retrieval guards.",
+    "note": "Statuses reflect code and automated contract tests on this branch only. No real-owner journey was run. audit.codeRevision stays the original audit revision and audit.lastVerifiedUatRevision stays unchanged; this block records the branch change, and a later UAT verification updates lastVerifiedUatRevision.",
+    "evidenceAnchors": "Evidence with line 1 points at a whole new or changed module or test file; other evidence points at the exact line.",
+    "statusChanges": {
+      "substory.P01": "partial -> implemented_in_code",
+      "substory.P02": "partial -> implemented_in_code",
+      "substory.P03": "partial -> implemented_in_code",
+      "substory.P06": "missing -> implemented_in_code",
+      "substory.P07": "partial -> implemented_in_code",
+      "substory.P08": "partial -> implemented_in_code",
+      "substory.P09": "missing -> implemented_in_code",
+      "substory.P10": "missing -> implemented_in_code",
+      "substory.P12": "partial -> implemented_in_code",
+      "substory.A01": "missing -> implemented_in_code",
+      "substory.A02": "missing -> implemented_in_code",
+      "substory.A03": "missing -> implemented_in_code",
+      "substory.A05": "partial -> implemented_in_code",
+      "substory.A06": "partial -> implemented_in_code",
+      "substory.A07": "partial -> implemented_in_code",
+      "substory.A09": "partial -> implemented_in_code",
+      "substory.A12": "partial -> implemented_in_code",
+      "substory.E12": "missing -> implemented_in_code",
+      "substory.E14": "partial -> implemented_in_code",
+      "substory.E15": "missing -> partial",
+      "substory.A08": "partial -> implemented_in_code (v1.1)",
+      "substory.P05": "partial -> implemented_in_code (v1.1)"
+    },
+    "coverageMatrixChanges": "oneChatRecall moves from separate to partial for the seven admitted inventory surfaces: the private agent receives a bounded, allowlisted packet, not every field or record.",
+    "v1_1": "Live Mirror v1.1 (branch feat/live-mirror-v1-1, 2026-10-15): conflict claims with each side's source, currency, check or change time and version (A08); safe GFM tables and in-app links in the Profile preview (P05); fix-at-source links per source and per side (P11 stays partial: earnings and wallet activity are view-only); compact previews show rows only (A04 stays partial); value-free lag telemetry (E15 partial). Frontend only; automated proof only."
+  },
+  "productTruth": {
+    "completeAlwaysOnMemory": false,
+    "completeActionLog": false,
+    "allAgentsUseLiveMemory": false,
+    "currentBoundary": "Seven admitted source kinds can update an encrypted owner inventory and derived Profile memory.md while an owner client is open and unlocked. The source and connector journals contain change hints, not the values or full action history.",
+    "uatBoundary": "A healthy UAT release receipt exists for the earlier revision. It proves release health and provenance, not any real-owner capture story or a deployed freshness service level.",
+    "evidence": [
+      {
+        "path": "docs/reference/architecture/live-memory-p0-acceptance-stories.md",
+        "line": 26,
+        "level": "code"
+      },
+      {
+        "path": "hushh-webapp/lib/pkm/living-source-records.ts",
+        "line": 3,
+        "level": "code"
+      },
+      {
+        "path": "hushh-webapp/components/profile/living-memory-bridge.tsx",
+        "line": 30,
+        "level": "code"
+      },
+      {
+        "path": "consent-protocol/db/migrations/345_live_memory_source_journal.sql",
+        "line": 14,
+        "level": "code"
+      }
+    ]
+  },
+  "terminology": {
+    "memory.datmd": "No literal memory.datmd identifier was found in the audited repository. The closest chat authority is encrypted one_memory.markdown, called Soul.md internally. Profile memory.md is a distinct encrypted, derived document. Neither is a complete personal action log.",
+    "PWM": "The legacy /api/pwm preference document and the native researched Personal World Model are different authorities. Neither is automatically a Live Memory source.",
+    "knowledgeGraph": "The shipped living fact index has field nodes and provenance but no persisted subject→claim→evidence relationship graph or One-chat retrieval from that index.",
+    "documentationDrift": "The older freshness ADR calls a value-bearing event journal proposed and says its worker/cursor do not exist. Migration 345 and the bridge now implement a narrower metadata-hint journal and encrypted cursor. Read these as distinct contracts, not contradictory runtime claims.",
+    "evidence": [
+      {
+        "path": "hushh-webapp/lib/agent/agent-pkm-memory.ts",
+        "line": 1006,
+        "level": "code"
+      },
+      {
+        "path": "hushh-webapp/lib/pkm/memory-refresh.ts",
+        "line": 184,
+        "level": "code"
+      },
+      {
+        "path": "hushh-webapp/lib/pkm/living-source-fact-index.ts",
+        "line": 3,
+        "level": "code"
+      },
+      {
+        "path": "docs/reference/architecture/living-memory-freshness-adr.md",
+        "line": 57,
+        "level": "code"
+      }
+    ]
+  },
+  "coverageMatrixLegend": {
+    "yes": "A direct implementation path was found in audited code; real delivery still needs a journey receipt",
+    "partial": "Only the stated subset or wake mechanism exists",
+    "separate": "A different memory or product authority exists, without a Live Memory inventory path",
+    "no": "No admitted path was found in the audited contract and code",
+    "unverified": "No real-source journey receipt was reviewed"
+  },
+  "coverageMatrix": [
+    {
+      "surface": "Profile name/photo/email",
+      "committedHint": "yes",
+      "authoritativeSnapshot": "yes",
+      "liveInventory": "yes",
+      "oneChatRecall": "partial",
+      "realSourceJourney": "unverified",
+      "story": "story.profile"
+    },
+    {
+      "surface": "Other Profile and onboarding choices",
+      "committedHint": "no",
+      "authoritativeSnapshot": "separate",
+      "liveInventory": "no",
+      "oneChatRecall": "partial",
+      "realSourceJourney": "unverified",
+      "story": "story.onboarding"
+    },
+    {
+      "surface": "Consent activity",
+      "committedHint": "partial",
+      "authoritativeSnapshot": "yes",
+      "liveInventory": "yes",
+      "oneChatRecall": "partial",
+      "realSourceJourney": "unverified",
+      "story": "story.connections_consent"
+    },
+    {
+      "surface": "Established connections",
+      "committedHint": "yes",
+      "authoritativeSnapshot": "yes",
+      "liveInventory": "yes",
+      "oneChatRecall": "partial",
+      "realSourceJourney": "unverified",
+      "story": "story.connections_consent"
+    },
+    {
+      "surface": "Curated OAuth connection status",
+      "committedHint": "yes",
+      "authoritativeSnapshot": "yes",
+      "liveInventory": "yes",
+      "oneChatRecall": "partial",
+      "realSourceJourney": "unverified",
+      "story": "story.oauth_mail_contacts"
+    },
+    {
+      "surface": "Full contact list and mail activity",
+      "committedHint": "no",
+      "authoritativeSnapshot": "separate",
+      "liveInventory": "no",
+      "oneChatRecall": "no",
+      "realSourceJourney": "unverified",
+      "story": "story.oauth_mail_contacts"
+    },
+    {
+      "surface": "Gmail receipt aggregates",
+      "committedHint": "no",
+      "authoritativeSnapshot": "separate",
+      "liveInventory": "no",
+      "oneChatRecall": "partial",
+      "realSourceJourney": "unverified",
+      "story": "story.oauth_mail_contacts"
+    },
+    {
+      "surface": "Document earnings",
+      "committedHint": "partial",
+      "authoritativeSnapshot": "yes",
+      "liveInventory": "yes",
+      "oneChatRecall": "partial",
+      "realSourceJourney": "unverified",
+      "story": "story.payments_documents"
+    },
+    {
+      "surface": "Payout activity",
+      "committedHint": "partial",
+      "authoritativeSnapshot": "yes",
+      "liveInventory": "yes",
+      "oneChatRecall": "partial",
+      "realSourceJourney": "unverified",
+      "story": "story.payments_documents"
+    },
+    {
+      "surface": "Requester document payment/refund",
+      "committedHint": "yes",
+      "authoritativeSnapshot": "yes",
+      "liveInventory": "yes",
+      "oneChatRecall": "partial",
+      "realSourceJourney": "unverified",
+      "story": "story.payments_documents"
+    },
+    {
+      "surface": "Other receipts and document handoffs",
+      "committedHint": "no",
+      "authoritativeSnapshot": "separate",
+      "liveInventory": "no",
+      "oneChatRecall": "no",
+      "realSourceJourney": "unverified",
+      "story": "story.payments_documents"
+    },
+    {
+      "surface": "Feed dismissals",
+      "committedHint": "no",
+      "authoritativeSnapshot": "separate",
+      "liveInventory": "no",
+      "oneChatRecall": "no",
+      "realSourceJourney": "unverified",
+      "story": "story.feed_lifecycle"
+    },
+    {
+      "surface": "Saved Location and coordinates",
+      "committedHint": "no",
+      "authoritativeSnapshot": "separate",
+      "liveInventory": "no",
+      "oneChatRecall": "separate",
+      "realSourceJourney": "unverified",
+      "story": "story.location_pwm_agents"
+    },
+    {
+      "surface": "PWM preferences and researched claims",
+      "committedHint": "no",
+      "authoritativeSnapshot": "separate",
+      "liveInventory": "no",
+      "oneChatRecall": "separate",
+      "realSourceJourney": "unverified",
+      "story": "story.location_pwm_agents"
+    },
+    {
+      "surface": "Specialist-agent actions and logs",
+      "committedHint": "no",
+      "authoritativeSnapshot": "no",
+      "liveInventory": "no",
+      "oneChatRecall": "no",
+      "realSourceJourney": "unverified",
+      "story": "story.location_pwm_agents"
+    }
+  ],
+  "nodeTypes": {
+    "goal": "Desired outcome, never evidence of implementation",
+    "story": "User-observable outcome with a real-data acceptance test",
+    "component": "Existing or proposed runtime/data boundary",
+    "gap": "An unmet contract or observed implementation mismatch",
+    "substory": "Atomic Given/When/Then user story, with inspected baseline and evidence confidence"
+  },
+  "edgeTypes": {
+    "contains": "Goal or story decomposes into a smaller story",
+    "implemented_by": "Component contributes to a story, without implying full completion",
+    "blocked_by": "Gap prevents the story's complete acceptance",
+    "feeds": "One component supplies a derived input to another",
+    "separate_from": "Stores or authorities must not be treated as equivalent"
+  },
+  "nodes": [
+    {
+      "id": "goal.owner_continuous_memory",
+      "type": "goal",
+      "title": "Inspectable, continuously updated owner memory",
+      "desiredOutcome": "Every explicitly admitted durable owner change can be traced from its committed authority to a private, correctable memory claim, with measured freshness, lifecycle controls, and scoped access.",
+      "status": "partial",
+      "confidence": 0.99,
+      "evidence": [
+        {
+          "path": "docs/reference/architecture/live-memory-p0-acceptance-stories.md",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "story.profile",
+      "type": "story",
+      "title": "Profile rename and photo",
+      "asA": "vault owner",
+      "want": "my committed name and photo changes to replace the current version in Profile memory",
+      "soThat": "my current identity is accurate after restart",
+      "substories": [
+        "rename succeeds once",
+        "failed save creates no fact",
+        "old in-flight read cannot restore the prior value",
+        "photo changes have source provenance"
+      ],
+      "acceptance": "With a consenting test owner, save a real rename and photo, inspect the authoritative owner response and encrypted readback, then retry a stale read. Check owner isolation and no inferred age or sex.",
+      "shippedSubset": "Name, photo and email from effective owner identity; owner-scoped hint and snapshot path.",
+      "unmet": "Other Profile and onboarding fields are not automatically part of this source; no real-flow receipt in this audit.",
+      "status": "partial",
+      "confidence": 0.97,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "consent-protocol/db/migrations/345_live_memory_source_journal.sql",
+          "line": 101,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "story.onboarding",
+      "type": "story",
+      "title": "Onboarding and preference history",
+      "asA": "new owner",
+      "want": "saved onboarding choices and corrections to appear with their exact authority and current state",
+      "soThat": "my private agent does not confuse setup state with durable facts",
+      "substories": [
+        "record saved preferred name and reply style",
+        "distinguish skipped setup questions from known facts",
+        "correct or erase a saved preference"
+      ],
+      "acceptance": "Complete and then correct real onboarding choices. Verify which values entered encrypted PKM, which remained setup state, and whether each is visible in the intended memory surface after sign-out and sign-in.",
+      "shippedSubset": "Some chat onboarding preferences have a separate owner-confirmed PKM writer.",
+      "unmet": "Onboarding state is not an admitted Live Memory source or full action log.",
+      "status": "partial",
+      "confidence": 0.93,
+      "evidence": [
+        {
+          "path": "docs/reference/architecture/memory-workspace.md",
+          "line": 115,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-records.ts",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "story.connections_consent",
+      "type": "story",
+      "title": "Connection and consent lifecycle",
+      "asA": "owner",
+      "want": "my connections, requests, approvals, revocations and disconnects to update private memory",
+      "soThat": "removed access never looks active",
+      "substories": [
+        "committed add or approval",
+        "status change or revocation",
+        "verified removal tombstone",
+        "wrong-owner and partial-page rejection"
+      ],
+      "acceptance": "Use two controlled accounts to connect, request, approve, revoke and disconnect. Inspect both owner projections after each commit. A partial read must retain prior state and mark unavailable; no contact-list row or counterpart profile may be copied.",
+      "shippedSubset": "Bounded consent and established-connection snapshots plus selected committed hints.",
+      "unmet": "No complete contacts history or every possible consent mutation signal is established by the journal.",
+      "status": "partial",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "consent-protocol/db/migrations/345_live_memory_source_journal.sql",
+          "line": 169,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "story.oauth_mail_contacts",
+      "type": "story",
+      "title": "Connected apps, contacts, mail and receipts",
+      "asA": "owner",
+      "want": "a reviewed source map to show what a connected provider contributed and when",
+      "soThat": "connection status is not mistaken for captured provider data",
+      "substories": [
+        "curated OAuth connect and revoke status",
+        "separately consented contact import",
+        "mail/receipt source changes",
+        "provider disconnection and source erasure"
+      ],
+      "acceptance": "Connect and revoke a curated test OAuth provider and inspect status-only readback. Separately test a real provider-mode receipt and contact change; mark those unavailable from Live Memory unless each has an admitted source contract and verified encrypted readback. Never retain OAuth tokens or raw mail content by implication.",
+      "shippedSubset": "Curated OAuth status enters the inventory; receipt aggregates can follow a separate owner-confirmed Soul path.",
+      "unmet": "Full contacts, general mail activity, individual receipts and custom connector data are outside the Live Memory inventory.",
+      "status": "partial",
+      "confidence": 0.97,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/lib/profile/gmail-receipt-memory-save.ts",
+          "line": 43,
+          "level": "code"
+        },
+        {
+          "path": "docs/reference/architecture/live-memory-p0-acceptance-stories.md",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "story.payments_documents",
+      "type": "story",
+      "title": "Payments, receipts and document handoffs",
+      "asA": "owner or requester",
+      "want": "verified transactions and document transfer milestones to have accurate private status",
+      "soThat": "I can later recall a payment or handoff without inventing it",
+      "substories": [
+        "document earning",
+        "wallet payout activity",
+        "requester payment and refund",
+        "document share/send/receive",
+        "other receipt transactions"
+      ],
+      "acceptance": "Run a real provider test-mode earning, requester checkout, refund and wallet action, then inspect authoritative rows and encrypted owner readback. Test a document share and a separate receipt. Record absent source contracts as gaps; do not use payment success as proof of document delivery.",
+      "shippedSubset": "Document earnings, payout activity and requester document payment metadata have bounded adapters.",
+      "unmet": "No complete receipt/transaction ledger, document body or general handoff history in the source inventory.",
+      "status": "partial",
+      "confidence": 0.97,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "story.location_pwm_agents",
+      "type": "story",
+      "title": "Location, PWM and specialist-agent activity",
+      "asA": "owner",
+      "want": "the data used by my location, world-model and specialist agents to be inspectable with source and time",
+      "soThat": "the private agent can explain what it knows and what it cannot know",
+      "substories": [
+        "saved Location facts",
+        "opt-in coordinate history",
+        "PWM claims with evidence",
+        "specialist-agent outcome and provenance",
+        "owner correction and deletion"
+      ],
+      "acceptance": "Save and remove an actual Location record, approve or reject a PWM candidate, and complete a specialist-agent task. Check each existing authority and prove whether a corresponding Live Memory source record and agent-readable claim exists. A preview timing trace is not a personal memory event.",
+      "shippedSubset": "Location PKM, PWM research/legacy preferences, and some agent traces each exist in separate boundaries.",
+      "unmet": "No admitted Live Memory source or unified recall path for location, PWM or subagent activity.",
+      "status": "partial",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-records.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/lib/one-location/location-grant-memory.ts",
+          "line": 15,
+          "level": "code"
+        },
+        {
+          "path": "consent-protocol/hushh_mcp/services/pwm_service.py",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "story.feed_lifecycle",
+      "type": "story",
+      "title": "Feed dismissal, sign-out and account deletion",
+      "asA": "owner",
+      "want": "a dismissed card or deleted fact to stay removed after sign-out and sign-in",
+      "soThat": "the app does not revive information I removed",
+      "substories": [
+        "confirmed dismissal survives sign-in",
+        "zero-row dismissal does not falsely hide a card",
+        "source tombstone versus UI dismissal",
+        "account erasure removes derived projections and queued work"
+      ],
+      "acceptance": "Dismiss a real Feed card, sign out and back in, verify it remains hidden and the underlying financial or consent fact remains correct. Repeat a zero-row dismissal and controlled account erasure; inspect every store and in-flight generation fence.",
+      "shippedSubset": "Feed dismissal has its own persistence; source inventory has verified tombstones and owner erasure hooks.",
+      "unmet": "Feed dismissal itself is not a Live Memory event; cross-store erasure and late-work behavior lack a real-flow receipt in this audit.",
+      "status": "partial",
+      "confidence": 0.93,
+      "evidence": [
+        {
+          "path": "consent-protocol/hushh_mcp/services/feed_service.py",
+          "line": 1206,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-records.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "docs/reference/architecture/live-memory-p0-acceptance-stories.md",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "story.closed_app",
+      "type": "story",
+      "title": "Revocable capture while all owner clients are closed",
+      "asA": "opted-in owner",
+      "want": "admitted changes to reach encrypted memory without keeping my app open",
+      "soThat": "memory is fresh when I return",
+      "substories": [
+        "explicit pairing and key-custody review",
+        "scoped worker consumes committed changes",
+        "encrypted checkpoint/readback",
+        "pause, revoke and delete fence in-flight work"
+      ],
+      "acceptance": "Pair a reviewed private runtime, close and lock every client, commit profile, consent and test-mode payment changes, and prove encrypted revision/readback and measured lag. Restart, replay, unpair and revoke during in-flight work. No generic server credential or cached browser key may act as owner authority.",
+      "shippedSubset": "Hosted pilot review and encrypted-envelope primitives only.",
+      "unmet": "No paired worker or closed-app ingestion consumer.",
+      "status": "missing",
+      "confidence": 0.99,
+      "evidence": [
+        {
+          "path": "hushh-webapp/components/profile/living-memory-bridge.tsx",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "consent-protocol/api/routes/one/hosted_memory_pilot.py",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "story.lossless_history",
+      "type": "story",
+      "title": "Auditable committed activity history",
+      "asA": "owner",
+      "want": "the important change sequence, including reversals and removals, to be reconstructable",
+      "soThat": "a final snapshot does not hide what happened",
+      "substories": [
+        "per-source event identity and revision",
+        "encrypted minimal value/reference",
+        "idempotent replay",
+        "retention and export boundary",
+        "gap repair"
+      ],
+      "acceptance": "Commit A→B→C while every client is closed, then replay. Verify each admitted transition or explicitly report lost intermediate state and retention cutoff; a gap or duplicate must repair from authority without fabricating history.",
+      "shippedSubset": "Metadata-only owner/kind hints, up to 2,048 observed encrypted history entries and explicit gap markers for committed changes that were not individually verified.",
+      "unmet": "Intermediate values while closed cannot be reconstructed; both journals are bounded, and hints lack source ID/value/revision.",
+      "status": "partial",
+      "confidence": 0.99,
+      "evidence": [
+        {
+          "path": "consent-protocol/db/migrations/345_live_memory_source_journal.sql",
+          "line": 14,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-records.ts",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "story.latency_health",
+      "type": "story",
+      "title": "Measured freshness and truthful current state",
+      "asA": "owner",
+      "want": "to see when each source was verified and whether memory is delayed",
+      "soThat": "I do not act on stale information",
+      "substories": [
+        "commit-to-memory p50/p95/p99",
+        "backlog and cap state",
+        "stale status when browser timer suspends",
+        "retry and resource budget by source"
+      ],
+      "acceptance": "Measure source commit, hint read, snapshot verification, encrypted write/readback and Profile display across focus, offline, hidden-tab, cap and failure conditions. The UI must stop saying current when source verification expires; publish a target only after measuring it.",
+      "shippedSubset": "A 60-second browser wake, per-source five-minute verification age, read-time expiry with a two-minute grace, owner-only per-source lag and incomplete status are coded.",
+      "unmet": "No measured end-to-end latency target, fleet telemetry or completed real-source evidence.",
+      "status": "partial",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/components/profile/living-memory-bridge.tsx",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-records.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/lib/pkm/memory-refresh.ts",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "story.intelligent_recall",
+      "type": "story",
+      "title": "Provenance-aware graph and private-agent recall",
+      "asA": "owner",
+      "want": "my private agent to answer from current, verified claims across admitted sources",
+      "soThat": "it distinguishes known, missing, stale, conflicting and removed facts",
+      "substories": [
+        "subject→claim→evidence edges",
+        "temporal supersedes and contradicts edges",
+        "explicit review for inferred candidates",
+        "source-scoped agent retrieval",
+        "no inferred sex or age"
+      ],
+      "acceptance": "Change a name, tombstone a source record, introduce conflicting evidence, and ask the private agent. Verify cited source/revision, correct temporal status and an unknown answer where no eligible fact exists. PWM candidates remain outside owner facts until review.",
+      "shippedSubset": "An owner fact index and one in-memory Live Mirror projection with provenance, freshness, tombstone and conflict states. The private agent receives a bounded, allowlisted packet of it on consented, unlocked turns; Soul stays separate chat memory.",
+      "unmet": "No unified runtime claim/evidence graph; agent corrections do not write through to sources; no real-owner recall journey.",
+      "status": "partial",
+      "confidence": 0.99,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-fact-index.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/lib/agent/agent-pkm-memory.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "docs/reference/one/personal-world-model.md",
+          "line": 156,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "story.partial_paid_answer",
+      "type": "story",
+      "title": "Price only an approved, available answer subset",
+      "asA": "requester and owner",
+      "want": "an age/sex/location request to disclose available, missing and unavailable scopes separately",
+      "soThat": "no one pays for guessed or absent information",
+      "substories": [
+        "owner availability review",
+        "freeze and recheck exact scopes and price",
+        "requester coverage before checkout",
+        "verified composition and release"
+      ],
+      "acceptance": "With explicit sex and saved location but no valid age source, request all three. Confirm sex/location are eligible, age is not recorded, owner approves only the exact subset and price, requester sees omissions before checkout, and no unapproved or unavailable value becomes chargeable.",
+      "shippedSubset": "Exact approved scope slices, rechecks, and paid-answer pipeline exist separately from general Live Memory inventory.",
+      "unmet": "Real two-account provider-mode acceptance and live composer availability remain unverified here; Live Memory inclusion alone does not authorize an answer.",
+      "status": "unverified_in_real_flow",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/memory-scope-retrieval.ts",
+          "line": 119,
+          "level": "code"
+        },
+        {
+          "path": "docs/reference/architecture/live-memory-p0-acceptance-stories.md",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "story.feature_admission",
+      "type": "story",
+      "title": "Every durable feature declares its memory impact",
+      "asA": "feature engineer",
+      "want": "a CI contract that requires authority, signal, bounded snapshot, exclusions and tests",
+      "soThat": "new durable information is never silently assumed to be captured",
+      "substories": [
+        "PR impact declaration",
+        "source-kind and writer allowlist",
+        "mutation-to-hint negative control",
+        "real-source acceptance receipt"
+      ],
+      "acceptance": "Submit a feature PR with one durable owner write and no valid memory declaration: CI fails. Add a valid declaration and focused contract: CI passes. Then mutate the real source and verify commit→readback; the PR form alone cannot count as capture proof.",
+      "shippedSubset": "PR template and static source/writer admission gate exist.",
+      "unmet": "The static gate cannot prove all feature writes emit a hint or that real source flows complete.",
+      "status": "partial",
+      "confidence": 0.99,
+      "evidence": [
+        {
+          "path": "scripts/ci/live-memory-source-gate.py",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "docs/reference/architecture/live-memory-source-contract.md",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "component.source_journal",
+      "type": "component",
+      "title": "Committed source hint journal",
+      "status": "implemented_in_code",
+      "confidence": 0.99,
+      "role": "Owner-scoped, six-kind, metadata-only transactional hints; 2,048 retained events per owner, not an activity-value log.",
+      "evidence": [
+        {
+          "path": "consent-protocol/db/migrations/345_live_memory_source_journal.sql",
+          "line": 14,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "component.connector_journal",
+      "type": "component",
+      "title": "Curated connector hint journal",
+      "status": "implemented_in_code",
+      "confidence": 0.97,
+      "role": "Signals curated connector changes without copying credentials into memory.",
+      "evidence": [
+        {
+          "path": "consent-protocol/db/migrations/342_live_memory_connector_journal.sql",
+          "line": 80,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "component.unlocked_bridge",
+      "type": "component",
+      "title": "Open/unlocked source bridge",
+      "status": "implemented_in_code",
+      "confidence": 0.99,
+      "role": "Polls hints and authoritative snapshots only in an owner client with live vault key and token.",
+      "evidence": [
+        {
+          "path": "hushh-webapp/components/profile/living-memory-bridge.tsx",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "component.owner_inventory",
+      "type": "component",
+      "title": "Encrypted source inventory and observed history",
+      "status": "implemented_in_code",
+      "confidence": 0.99,
+      "role": "Current verified records/tombstones, bounded observed revisions with gap markers, and encrypted replay cursors with pending hints.",
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "component.fact_index",
+      "type": "component",
+      "title": "Owner-only in-memory fact lookup",
+      "status": "implemented_in_code",
+      "confidence": 0.99,
+      "role": "Field predicate/value nodes with source revisions and verification status; no subject/claim/evidence graph edges or agent/sharing authority.",
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-fact-index.ts",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "component.profile_document",
+      "type": "component",
+      "title": "Derived Profile memory.md",
+      "status": "implemented_in_code",
+      "confidence": 0.98,
+      "role": "Encrypted, source-linked owner presentation and approved-scope slice basis; derived from complete inventory and PKM domains.",
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/memory-refresh.ts",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "component.soul",
+      "type": "component",
+      "title": "Chat Soul Markdown",
+      "status": "implemented_in_code",
+      "confidence": 0.99,
+      "role": "Encrypted one_memory.markdown, internally called Soul.md; One chat's supplied memory, distinct from Profile memory.md.",
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/agent/agent-pkm-memory.ts",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "component.legacy_pwm",
+      "type": "component",
+      "title": "Legacy PWM preference document",
+      "status": "implemented_in_code",
+      "confidence": 0.98,
+      "role": "Separate owner preference JSONB and subscription fabric; not a Live Memory or native research graph source.",
+      "evidence": [
+        {
+          "path": "consent-protocol/hushh_mcp/services/pwm_service.py",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "component.hosted_worker",
+      "type": "component",
+      "title": "Paired hosted private memory worker",
+      "status": "planned",
+      "confidence": 0.99,
+      "role": "Proposed scoped, revocable closed-app consumer; reviewed key-custody change is required before it can operate.",
+      "evidence": [
+        {
+          "path": "consent-protocol/api/routes/one/hosted_memory_pilot.py",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "component.ci_gate",
+      "type": "component",
+      "title": "Live Memory source admission gate",
+      "status": "implemented_in_code",
+      "confidence": 0.99,
+      "role": "Checks PR declaration, admitted source kinds, guarded projection writers, journal-kind parity and the paid-retrieval import ban; semantic source coverage still requires review and real-flow evidence.",
+      "evidence": [
+        {
+          "path": "scripts/ci/live-memory-source-gate.py",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "gap.G01",
+      "type": "gap",
+      "title": "No closed-app consumer",
+      "severity": "P0",
+      "confidence": 0.99,
+      "failure": "No paired worker can decrypt, verify and commit memory after every owner client closes or locks.",
+      "proofNeeded": "Closed-client real-source commit→encrypted readback, restart and in-flight revocation test.",
+      "evidence": [
+        {
+          "path": "hushh-webapp/components/profile/living-memory-bridge.tsx",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "consent-protocol/api/routes/one/hosted_memory_pilot.py",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "gap.G02",
+      "type": "gap",
+      "title": "Major source families are not admitted",
+      "severity": "P0",
+      "confidence": 0.98,
+      "failure": "The inventory's seven kinds omit onboarding state, contacts, general mail/receipts, document handoffs, Feed dismissals, Location, PWM and agent activity.",
+      "proofNeeded": "Per-source authority and consent decision, bounded snapshot, post-commit signal, encrypted readback and deletion test.",
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-records.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "consent-protocol/db/migrations/345_live_memory_source_journal.sql",
+          "line": 168,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "gap.G03",
+      "type": "gap",
+      "title": "Metadata hints cannot reconstruct the action sequence",
+      "severity": "P0",
+      "confidence": 0.99,
+      "failure": "Hints lack source ID/value/revision, and observed history records only changes verified by an unlocked client. Intermediate closed-app values are lost; 2,048-event retention is explicit.",
+      "proofNeeded": "Multiple commits between wakes and rollover test with an explicit completeness boundary.",
+      "evidence": [
+        {
+          "path": "consent-protocol/db/migrations/345_live_memory_source_journal.sql",
+          "line": 14,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-records.ts",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "gap.G04",
+      "type": "gap",
+      "title": "Internal journal-gap reset contract mismatch",
+      "severity": "P0",
+      "confidence": 0.99,
+      "failure": "Backend returns resetRequired for a missing event inside the retained cursor range; client accepts reset only outside that range, catches the resulting error and delays repair to periodic scans.",
+      "proofNeeded": "One cross-layer automated case using the backend's in-range gap response must force all-kind rescan without cursor advance.",
+      "evidence": [
+        {
+          "path": "consent-protocol/hushh_mcp/services/source_journal_service.py",
+          "line": 103,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/lib/services/source-journal-service.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "consent-protocol/tests/test_live_memory_source_journal_postgres.py",
+          "line": 139,
+          "level": "automated_contract"
+        }
+      ],
+      "resolution": {
+        "state": "resolved_in_code",
+        "note": "The client now accepts the backend's in-range reset and forces an authoritative rescan of every kind. A real-flow receipt is still pending."
+      }
+    },
+    {
+      "id": "gap.G05",
+      "type": "gap",
+      "title": "No measured latency service level or expiry-safe current state",
+      "severity": "P0",
+      "confidence": 0.96,
+      "failure": "60-second browser polling and five-minute scan ages are scheduling rules, not a delivery guarantee. Session cache can show current after a hidden tab stops verifying sources.",
+      "proofNeeded": "Commit→UI p50/p95/p99 by source and fake-time stale-state test at verification expiry.",
+      "evidence": [
+        {
+          "path": "hushh-webapp/components/profile/living-memory-bridge.tsx",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/lib/pkm/memory-refresh.ts",
+          "line": 1,
+          "level": "code"
+        }
+      ],
+      "resolution": {
+        "state": "partially_addressed",
+        "note": "Current is judged when the view is read: five minutes after verification plus a two-minute grace, so a hidden tab cannot keep showing current. Per-source lag is measured for the owner only. A published latency target and fleet p50/p95 remain open."
+      }
+    },
+    {
+      "id": "gap.G06",
+      "type": "gap",
+      "title": "Global completeness and finite caps amplify retries",
+      "severity": "P0",
+      "confidence": 0.97,
+      "failure": "An unrelated failed kind blocks whole-inventory complete and cursor advance. Full-kind two-pass scans, 2,048-hint retention and source caps can drive repeated repair or persistent incomplete state.",
+      "proofNeeded": "Mixed healthy/failing source and capacity/rollover tests with request-count, CPU, backlog and recovery measurements.",
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
+          "line": 1,
+          "level": "code"
+        }
+      ],
+      "resolution": {
+        "state": "partially_addressed",
+        "note": "Encrypted pending hints let cursors advance while a failed kind stays pending, the mirror shows verified sources when one fails, and failing kinds back off. Whole-inventory completeness still gates the persisted document and paid slices; request-count and CPU measurements remain open."
+      }
+    },
+    {
+      "id": "gap.G07",
+      "type": "gap",
+      "title": "Memory authorities are fragmented for intelligent recall",
+      "severity": "P0",
+      "confidence": 0.99,
+      "failure": "Profile source facts, editable Soul Markdown, legacy PWM and native PWM candidates have separate authorities. One chat reads Soul rather than the Live Memory fact index. The requested structured fact/event model is not yet the shared authority for both mirrors; Profile prints raw Markdown and One’s profile shows static file cards.",
+      "proofNeeded": "One canonical structured owner revision renders the same safe Markdown preview in Profile and Memory Agent, supports source-backed recall, and survives correction/deletion without direct edits to generated Markdown.",
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-fact-index.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/lib/agent/agent-pkm-memory.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/components/profile/living-memory-document.tsx",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/components/agent/one-agent-profile-sheet.tsx",
+          "line": 1,
+          "level": "code"
+        }
+      ],
+      "resolution": {
+        "state": "narrowed",
+        "note": "Profile, the private agent's profile sheet and the private agent now read one in-memory Live Mirror projection, and its Markdown is a generated preview. Soul chat memory, legacy PWM and native PWM candidates remain separate authorities, and agent corrections do not write through to sources (A10)."
+      }
+    },
+    {
+      "id": "gap.G08",
+      "type": "gap",
+      "title": "CI admission is static; real-source acceptance is unproven",
+      "severity": "P0",
+      "confidence": 0.98,
+      "failure": "A checked PR declaration, source-kind allowlist and unit fixtures cannot prove every durable write was signalled or that a real provider/account journey reached encrypted readback and agent/UI retrieval.",
+      "proofNeeded": "Privacy-safe per-source real-flow receipt: commit time, hint/recovery, verified read, encrypted write/readback revision, UI or agent state, negative control and measured lag.",
+      "evidence": [
+        {
+          "path": "scripts/ci/live-memory-source-gate.py",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "docs/reference/architecture/live-memory-p0-acceptance-stories.md",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "substory.P01",
+      "type": "substory",
+      "group": "profile",
+      "parent": "story.profile",
+      "title": "Open Profile Live Mirror",
+      "given": "I am signed in and my vault is unlocked",
+      "when": "I open Profile > Memory",
+      "then": "I see my owner-scoped current mirror and its verification state",
+      "status": "implemented_in_code",
+      "baseline": "Profile reads the shared Live Mirror projection through one owner- and vault-epoch-fenced hook and shows one status line with the last verified time. Automated contract tests only; no real-owner journey was run.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/components/profile/profile-workspace-page.tsx",
+          "line": 4563,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/lib/pkm/use-live-mirror-view.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/components/profile/living-memory-document.tsx",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/living-memory-document.test.tsx",
+          "line": 1,
+          "level": "automated_contract"
+        }
+      ]
+    },
+    {
+      "id": "substory.P02",
+      "type": "substory",
+      "group": "profile",
+      "parent": "story.profile",
+      "title": "Rename replaces current identity",
+      "given": "my saved profile name is Ankit Kumar Singh",
+      "when": "I save Ankit through the real Profile path",
+      "then": "the current name becomes Ankit once, with the old value labeled historical",
+      "status": "implemented_in_code",
+      "baseline": "The mirror shows one current name from the highest verified revision; the earlier value appears only in History. Proved by unit tests; a real Profile save was not run.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/live-mirror-projection.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/__tests__/lib/pkm/live-mirror-projection.test.ts",
+          "line": 1,
+          "level": "automated_contract"
+        },
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "substory.P03",
+      "type": "substory",
+      "group": "profile",
+      "parent": "story.profile",
+      "title": "Profile changes update without reload",
+      "given": "my unlocked Profile mirror is open",
+      "when": "a supported name or photo mutation commits",
+      "then": "the mirror marks pending, verifies authority and updates without manual reload",
+      "status": "implemented_in_code",
+      "baseline": "A committed identity hint marks the mirror Updating, and the verified value replaces it without reload. Lag is measured per source for the owner only; no fleet latency target exists.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/components/profile/living-memory-bridge.tsx",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/living-memory-document.test.tsx",
+          "line": 1,
+          "level": "automated_contract"
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/living-memory-bridge.test.tsx",
+          "line": 1,
+          "level": "automated_contract"
+        }
+      ]
+    },
+    {
+      "id": "substory.P04",
+      "type": "substory",
+      "group": "profile",
+      "parent": "story.closed_app",
+      "title": "Catch up after every client closes",
+      "given": "I have opted into the reviewed background runtime and closed every client",
+      "when": "several supported changes commit and I reopen Profile",
+      "then": "all committed changes are reconciled with visible backlog and gap state",
+      "status": "missing",
+      "baseline": "Current bridge requires an unlocked open owner client.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/components/profile/living-memory-bridge.tsx",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/components/profile/living-memory-document.tsx",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "substory.P05",
+      "type": "substory",
+      "group": "profile",
+      "parent": "story.intelligent_recall",
+      "title": "Render Profile Markdown preview",
+      "given": "structured current facts and source revisions exist",
+      "when": "I open Profile Live Mirror",
+      "then": "I see safely rendered headings, lists and links generated from those records",
+      "status": "implemented_in_code",
+      "baseline": "The Profile preview renders headings, lists and GFM money tables generated from the projection, with one in-app link per source section that has records. Owner values are escaped so they cannot break a table or add markup, and SafeMarkdown's internal link policy renders only app-relative links (client-side), so owner URLs and emails stay text.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/components/profile/safe-markdown.tsx",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/safe-markdown.test.tsx",
+          "line": 1,
+          "level": "automated_contract"
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/living-memory-document.test.tsx",
+          "line": 1,
+          "level": "automated_contract"
+        }
+      ]
+    },
+    {
+      "id": "substory.P06",
+      "type": "substory",
+      "group": "profile",
+      "parent": "story.intelligent_recall",
+      "title": "Profile and Memory show one projection",
+      "given": "I have one verified current fact",
+      "when": "I open Profile, the Memory workspace and One profile",
+      "then": "all three previews agree on value, revision and freshness",
+      "status": "implemented_in_code",
+      "baseline": "Profile, the Memory workspace, the private agent's profile sheet and the private agent's turn packet read one projection through peekLiveMirror behind one owner and vault-epoch fence, and the three visual surfaces share one presentation module. The Soul editor stays separate chat memory, not a second mirror.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/memory-refresh.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/lib/pkm/use-live-mirror-view.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/__tests__/lib/pkm/memory-refresh.test.ts",
+          "line": 1,
+          "level": "automated_contract"
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/one-agent-profile-sheet.test.tsx",
+          "line": 1,
+          "level": "automated_contract"
+        }
+      ]
+    },
+    {
+      "id": "substory.P07",
+      "type": "substory",
+      "group": "profile",
+      "parent": "story.latency_health",
+      "title": "Show last verified time",
+      "given": "a source is current, pending, stale or unavailable",
+      "when": "I inspect its Profile mirror section",
+      "then": "I see the source state and last successful verification time",
+      "status": "implemented_in_code",
+      "baseline": "Each source row shows its read-time state and last verified time. Profile uses the in-session verification time, so an unchanged sync does not look stale. Current lasts five minutes plus a two-minute grace.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-session-verification.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/lib/pkm/live-mirror-contract.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/__tests__/lib/pkm/memory-refresh.test.ts",
+          "line": 1,
+          "level": "automated_contract"
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/living-memory-document.test.tsx",
+          "line": 1,
+          "level": "automated_contract"
+        }
+      ]
+    },
+    {
+      "id": "substory.P08",
+      "type": "substory",
+      "group": "profile",
+      "parent": "story.latency_health",
+      "title": "Distinguish withheld and unavailable",
+      "given": "a field is intentionally excluded or its source read fails",
+      "when": "I inspect the Profile mirror",
+      "then": "I see withheld and unavailable as different states and no silent omission",
+      "status": "implemented_in_code",
+      "baseline": "Withheld and unavailable are separate row states, and every source and saved section gets a row, so nothing is silently omitted. An incomplete inventory still yields this partial view.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/live-mirror-contract.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/__tests__/lib/pkm/live-mirror-projection.test.ts",
+          "line": 1,
+          "level": "automated_contract"
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/living-memory-document.test.tsx",
+          "line": 1,
+          "level": "automated_contract"
+        }
+      ]
+    },
+    {
+      "id": "substory.P09",
+      "type": "substory",
+      "group": "profile",
+      "parent": "story.intelligent_recall",
+      "title": "Inspect a fact source",
+      "given": "a current fact appears in the mirror",
+      "when": "I select that fact",
+      "then": "I see source authority, source time, revision and verification time",
+      "status": "implemented_in_code",
+      "baseline": "Selecting a fact opens Source details with its source, change time, revision, verified time and saved time; raw source IDs are never shown.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/live-mirror-contract.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/living-memory-document.test.tsx",
+          "line": 1,
+          "level": "automated_contract"
+        }
+      ]
+    },
+    {
+      "id": "substory.P10",
+      "type": "substory",
+      "group": "profile",
+      "parent": "story.lossless_history",
+      "title": "Browse chronological changes",
+      "given": "a supported value changed and was later removed",
+      "when": "I open its Profile history",
+      "then": "I see each retained event, tombstone and explicit retention cutoff in order",
+      "status": "implemented_in_code",
+      "baseline": "History lists retained changes, removals, gap markers and the exact count of dropped older changes, and says it covers only changes seen while the app was open. Earlier values of a later-removed record are hidden; missed values are never invented.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/live-mirror-contract.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/__tests__/lib/pkm/live-mirror-projection.test.ts",
+          "line": 1,
+          "level": "automated_contract"
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/living-memory-document.test.tsx",
+          "line": 1,
+          "level": "automated_contract"
+        }
+      ]
+    },
+    {
+      "id": "substory.P11",
+      "type": "substory",
+      "group": "profile",
+      "parent": "story.feed_lifecycle",
+      "title": "Correct the canonical fact",
+      "given": "I find a wrong fact in Profile Live Mirror",
+      "when": "I choose correct or delete and confirm",
+      "then": "the source authority changes and both mirrors refresh without editing generated Markdown",
+      "status": "partial",
+      "baseline": "Each living source and record links to the screen that owns its value (profile account, consents, connections, connectors, payouts, sent documents) through one route map built from existing routes, and each side of a disagreement links to its own source, including memory.md. The Live Mirror has no write path; the bridge refreshes both mirrors after a source or PKM change (the PKM-domain path is tested; the profile-edit cache path has no direct test). Earnings and wallet activity are view-only at Payouts, so those records cannot be corrected or deleted there, and no journey proves a correction end to end.",
+      "confidence": 0.9,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/live-mirror-presentation.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/components/profile/living-memory-document.tsx",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/living-memory-document.test.tsx",
+          "line": 1,
+          "level": "automated_contract"
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/living-memory-bridge.test.tsx",
+          "line": 189,
+          "level": "automated_contract"
+        }
+      ]
+    },
+    {
+      "id": "substory.P12",
+      "type": "substory",
+      "group": "profile",
+      "parent": "story.feed_lifecycle",
+      "title": "Keep deletion and owner switch isolated",
+      "given": "I delete a fact or leave owner A",
+      "when": "I sign in again or switch to owner B",
+      "then": "deleted information stays absent and B never sees A’s decrypted view",
+      "status": "implemented_in_code",
+      "baseline": "Lock, account switch or an owner or vault-epoch mismatch hides every fact, history entry and preview; locked shows only a status line. Removed records never appear as current values. Component and unit proof only; the real sign-in journey was not run.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/use-live-mirror-view.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/living-memory-document.test.tsx",
+          "line": 1,
+          "level": "automated_contract"
+        },
+        {
+          "path": "hushh-webapp/__tests__/lib/pkm/live-mirror-projection.test.ts",
+          "line": 1,
+          "level": "automated_contract"
+        }
+      ]
+    },
+    {
+      "id": "substory.A01",
+      "type": "substory",
+      "group": "memory_agent",
+      "parent": "story.intelligent_recall",
+      "title": "Agent and Profile share current facts",
+      "given": "an admitted source change is verified",
+      "when": "Profile and the Memory Agent refresh",
+      "then": "both show the same current fact and source revision",
+      "status": "implemented_in_code",
+      "baseline": "On consented, unlocked turns the private agent receives a bounded, allowlisted Live Mirror packet built from the projection Profile shows (registry send_to_model owner_turn_allowlist, shareable never). Other people's identifiers and photo URLs are excluded.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/live-mirror-agent-facts.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/lib/agent/agent-pkm-memory.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/__tests__/lib/pkm/live-mirror-agent-facts.test.ts",
+          "line": 1,
+          "level": "automated_contract"
+        },
+        {
+          "path": "hushh-webapp/__tests__/services/agent-pkm-memory.test.ts",
+          "line": 1,
+          "level": "automated_contract"
+        },
+        {
+          "path": "hushh-webapp/__tests__/lib/pkm/reserved-branches.test.ts",
+          "line": 1,
+          "level": "automated_contract"
+        }
+      ]
+    },
+    {
+      "id": "substory.A02",
+      "type": "substory",
+      "group": "memory_agent",
+      "parent": "story.intelligent_recall",
+      "title": "One profile shows a live preview",
+      "given": "my vault is unlocked",
+      "when": "I open One’s Profile tab",
+      "then": "I see current mirror content and freshness instead of static file cards",
+      "status": "implemented_in_code",
+      "baseline": "The private agent's profile sheet shows the mirror status, last checked time and current facts from the shared projection instead of static file cards, behind the same owner and vault-epoch fence.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/components/agent/one-agent-profile-sheet.tsx",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/one-agent-profile-sheet.test.tsx",
+          "line": 1,
+          "level": "automated_contract"
+        }
+      ]
+    },
+    {
+      "id": "substory.A03",
+      "type": "substory",
+      "group": "memory_agent",
+      "parent": "story.intelligent_recall",
+      "title": "Memory Agent can inspect my mirror",
+      "given": "I ask the Memory Agent about my saved information",
+      "when": "it retrieves owner-authorized current facts and history",
+      "then": "it answers from the same source-backed projection I can inspect",
+      "status": "implemented_in_code",
+      "baseline": "The private agent answers from its per-turn Live Mirror packet, the same source-backed projection the owner inspects in Profile. The marketplace personal-information agent does not receive it.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/live-mirror-agent-facts.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
+          "line": 1,
+          "level": "automated_contract"
+        },
+        {
+          "path": "hushh-webapp/__tests__/services/agent-pkm-memory.test.ts",
+          "line": 1,
+          "level": "automated_contract"
+        }
+      ]
+    },
+    {
+      "id": "substory.A04",
+      "type": "substory",
+      "group": "memory_agent",
+      "parent": "story.intelligent_recall",
+      "title": "Agent-side Markdown is a preview",
+      "given": "the structured mirror can produce Markdown",
+      "when": "I open either agent mirror",
+      "then": "headings, lists, tables and links render safely from the same projection",
+      "status": "partial",
+      "baseline": "The Profile preview renders headings, lists, GFM tables and in-app links from the projection through the shared safe renderer, and owner links stay text. The compact previews (Memory workspace, the private agent's profile sheet) show rows from the same projection, not Markdown, so they render no tables.",
+      "confidence": 0.9,
+      "evidence": [
+        {
+          "path": "hushh-webapp/components/profile/safe-markdown.tsx",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/components/profile/live-mirror-preview.tsx",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/safe-markdown.test.tsx",
+          "line": 1,
+          "level": "automated_contract"
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/living-memory-document.test.tsx",
+          "line": 1,
+          "level": "automated_contract"
+        }
+      ]
+    },
+    {
+      "id": "substory.A05",
+      "type": "substory",
+      "group": "memory_agent",
+      "parent": "story.intelligent_recall",
+      "title": "Answer where a fact came from",
+      "given": "I ask the agent why it knows a fact",
+      "when": "it retrieves an eligible source-backed claim",
+      "then": "it names the source, revision and verification time or says it cannot verify",
+      "status": "implemented_in_code",
+      "baseline": "The packet carries each fact's source kind, revision and verified time, and the authored Memory rule tells the private agent to cite them or say it cannot verify.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/__tests__/lib/pkm/live-mirror-agent-facts.test.ts",
+          "line": 1,
+          "level": "automated_contract"
+        },
+        {
+          "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
+          "line": 1,
+          "level": "automated_contract"
+        }
+      ]
+    },
+    {
+      "id": "substory.A06",
+      "type": "substory",
+      "group": "memory_agent",
+      "parent": "story.intelligent_recall",
+      "title": "Unknown differs from unavailable",
+      "given": "a field is absent or its source read fails",
+      "when": "I ask the Memory Agent for that field",
+      "then": "it says not recorded or cannot verify, respectively, and does not guess",
+      "status": "implemented_in_code",
+      "baseline": "The packet separates none recorded (verified source, no value) from cannot verify now (source unavailable), and the authored rule forbids guessing.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/__tests__/lib/pkm/live-mirror-agent-facts.test.ts",
+          "line": 1,
+          "level": "automated_contract"
+        }
+      ]
+    },
+    {
+      "id": "substory.A07",
+      "type": "substory",
+      "group": "memory_agent",
+      "parent": "story.latency_health",
+      "title": "Agent labels stale facts",
+      "given": "a fact has an expired source verification or pending update",
+      "when": "I ask the Memory Agent for it",
+      "then": "it discloses stale or pending state and avoids a current claim",
+      "status": "implemented_in_code",
+      "baseline": "Freshness is recomputed at turn time from per-kind verification age, so stale or pending facts are labeled possibly out of date instead of current.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/live-mirror-contract.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/__tests__/lib/pkm/live-mirror-agent-facts.test.ts",
+          "line": 1,
+          "level": "automated_contract"
+        }
+      ]
+    },
+    {
+      "id": "substory.A08",
+      "type": "substory",
+      "group": "memory_agent",
+      "parent": "story.intelligent_recall",
+      "title": "Expose conflicting claims",
+      "given": "a preferred name conflicts with verified Profile identity",
+      "when": "I inspect either mirror or ask the agent",
+      "then": "both claims and their provenance are shown for review without silent overwrite",
+      "status": "implemented_in_code",
+      "baseline": "The projection carries every claim for a Soul-versus-profile name conflict and for a record whose copies disagree, each with its source, version, its own currency for money, and a check or change time. Profile groups them under 'Sources disagree'; the Memory workspace and the private agent's profile sheet show one conflict row per field; no value is chosen. The private agent's packet names both names only while the profile name is singular and its source is current, stale, updating or unavailable, and otherwise uses a value-free line.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/live-mirror-projection.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/__tests__/lib/pkm/live-mirror-projection.test.ts",
+          "line": 1,
+          "level": "automated_contract"
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/living-memory-document.test.tsx",
+          "line": 1,
+          "level": "automated_contract"
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/one-agent-profile-sheet.test.tsx",
+          "line": 1,
+          "level": "automated_contract"
+        }
+      ]
+    },
+    {
+      "id": "substory.A09",
+      "type": "substory",
+      "group": "memory_agent",
+      "parent": "story.lossless_history",
+      "title": "Agent can explain revisions",
+      "given": "a fact was corrected or deleted",
+      "when": "I ask what changed",
+      "then": "the agent shows the retained event sequence, source time and cutoff without inventing missed events",
+      "status": "implemented_in_code",
+      "baseline": "The packet carries the retained-history boundary and the latest changes without values, and the rule forbids inventing missed changes. Values of later-removed records stay hidden.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/live-mirror-contract.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/__tests__/lib/pkm/live-mirror-agent-facts.test.ts",
+          "line": 1,
+          "level": "automated_contract"
+        }
+      ]
+    },
+    {
+      "id": "substory.A10",
+      "type": "substory",
+      "group": "memory_agent",
+      "parent": "story.feed_lifecycle",
+      "title": "Agent correction updates both mirrors",
+      "given": "the agent proposes correcting a claim",
+      "when": "I review and confirm the source-level change",
+      "then": "both mirrors reflect the new revision and a failed write is not reported as saved",
+      "status": "partial",
+      "baseline": "Soul has compare-before-write editing; derived source correction is a separate path.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/components/profile/soul-memory-panel.tsx",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/lib/pkm/memory-refresh.ts",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "substory.A11",
+      "type": "substory",
+      "group": "memory_agent",
+      "parent": "story.location_pwm_agents",
+      "title": "Capture agent action outcomes",
+      "given": "an authorized specialist agent completes a durable action",
+      "when": "the result commits to its authority",
+      "then": "the mirror records the result and source without storing raw tool transcripts",
+      "status": "missing",
+      "baseline": "General specialist-agent outcomes are not admitted source kinds.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-records.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py",
+          "line": 5771,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "substory.A12",
+      "type": "substory",
+      "group": "memory_agent",
+      "parent": "story.feed_lifecycle",
+      "title": "Lock and account-switch parity",
+      "given": "owner A locks or owner B signs in while a read is pending",
+      "when": "either mirror is open",
+      "then": "A’s content disappears and a late A read cannot publish under B",
+      "status": "implemented_in_code",
+      "baseline": "The profile sheet preview and the agent packet use the same owner and vault-epoch fence as Profile, so a lock or account switch hides the prior owner's mirror everywhere at once.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/use-live-mirror-view.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/one-agent-profile-sheet.test.tsx",
+          "line": 1,
+          "level": "automated_contract"
+        },
+        {
+          "path": "hushh-webapp/__tests__/lib/pkm/live-mirror-agent-facts.test.ts",
+          "line": 1,
+          "level": "automated_contract"
+        }
+      ]
+    },
+    {
+      "id": "substory.E01",
+      "type": "substory",
+      "group": "shared_pipeline",
+      "parent": "story.feature_admission",
+      "title": "Every durable feature declares capture",
+      "given": "a feature adds a durable owner mutation",
+      "when": "its PR enters CI",
+      "then": "it declares authority, admitted fields, signal, bounded read, deletion rule and evidence or an explicit exclusion",
+      "status": "partial",
+      "baseline": "A PR declaration, the static source and writer gate, a journal-kind parity check (newest SQL CHECK equals SOURCE_JOURNAL_KINDS, both declared) and a paid-retrieval import ban exist. They cannot prove every mutation is signalled; the new-table ratchet is deferred.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "scripts/ci/live-memory-source-gate.py",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "scripts/ci/live-memory-source-gate.py",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "scripts/ci/live-memory-source-gate.py",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "scripts/ci/live-memory-source-gate.py",
+          "line": 1,
+          "level": "automated_contract"
+        },
+        {
+          "path": "docs/reference/architecture/live-memory-source-contract.md",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "substory.E02",
+      "type": "substory",
+      "group": "shared_pipeline",
+      "parent": "story.profile",
+      "title": "Commit profile changes as events",
+      "given": "I save a new name or photo",
+      "when": "the authoritative profile commit succeeds",
+      "then": "a versioned owner event and current fact appear once in both mirrors",
+      "status": "partial",
+      "baseline": "Profile has kind-only transactional hints and current snapshots, not a value-bearing event history.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "consent-protocol/db/migrations/345_live_memory_source_journal.sql",
+          "line": 101,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "substory.E03",
+      "type": "substory",
+      "group": "shared_pipeline",
+      "parent": "story.onboarding",
+      "title": "Capture saved onboarding choices",
+      "given": "I finish onboarding and save a preference",
+      "when": "the authoritative setup or PKM writer commits",
+      "then": "the current choice and correction history are source-backed in both mirrors",
+      "status": "partial",
+      "baseline": "Some preferences enter a separate PKM path; onboarding is not an admitted Live Memory kind.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "docs/reference/architecture/memory-workspace.md",
+          "line": 115,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-records.ts",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "substory.E04",
+      "type": "substory",
+      "group": "shared_pipeline",
+      "parent": "story.connections_consent",
+      "title": "Capture connection and consent lifecycle",
+      "given": "two users connect, request, approve or revoke",
+      "when": "each change commits",
+      "then": "each owner gets only their scoped status, and verified removal becomes a tombstone",
+      "status": "partial",
+      "baseline": "Bounded owner snapshots and selected hints exist; full real-flow coverage is unverified.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "consent-protocol/db/migrations/345_live_memory_source_journal.sql",
+          "line": 169,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "substory.E05",
+      "type": "substory",
+      "group": "shared_pipeline",
+      "parent": "story.oauth_mail_contacts",
+      "title": "Capture reviewed OAuth state",
+      "given": "I connect or revoke a curated OAuth provider",
+      "when": "the committed status changes",
+      "then": "only provider status and time update in both mirrors without any credential material",
+      "status": "partial",
+      "baseline": "A curated connector journal and snapshot feed inventory; broader provider activity is excluded.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "consent-protocol/db/migrations/342_live_memory_connector_journal.sql",
+          "line": 80,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "substory.E06",
+      "type": "substory",
+      "group": "shared_pipeline",
+      "parent": "story.payments_documents",
+      "title": "Capture first-party payment state",
+      "given": "I earn from a document, pay for a request, receive a refund or make a wallet action",
+      "when": "the provider-backed authority commits",
+      "then": "a source-specific amount, mode and status revision appears without provider secrets",
+      "status": "partial",
+      "baseline": "Three bounded finance source kinds exist, but real provider-mode journeys remain unverified.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-sync.ts",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "substory.E07",
+      "type": "substory",
+      "group": "shared_pipeline",
+      "parent": "story.oauth_mail_contacts",
+      "title": "Admit receipts and mail intentionally",
+      "given": "I receive an eligible receipt or mail change",
+      "when": "that source commits under explicit owner consent",
+      "then": "a minimal reviewed event and fact appear with source, retention and deletion controls",
+      "status": "missing",
+      "baseline": "Receipt aggregates have a separate Soul save path; general mail and individual receipts are outside Live Memory.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/profile/gmail-receipt-memory-save.ts",
+          "line": 43,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-records.ts",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "substory.E08",
+      "type": "substory",
+      "group": "shared_pipeline",
+      "parent": "story.payments_documents",
+      "title": "Record document handoffs",
+      "given": "I share, receive or revoke a document",
+      "when": "the delivery or permission authority commits",
+      "then": "the mirror records the handoff milestone and counterpart scope without copying document content by default",
+      "status": "missing",
+      "baseline": "The admitted inventory has payment metadata, not a general document-handoff kind.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-records.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "docs/reference/architecture/live-memory-p0-acceptance-stories.md",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "substory.E09",
+      "type": "substory",
+      "group": "shared_pipeline",
+      "parent": "story.location_pwm_agents",
+      "title": "Admit opted-in Location changes",
+      "given": "I save or delete a Location record",
+      "when": "the encrypted Location authority commits",
+      "then": "both mirrors show the eligible place or visit fact and its revision, while live coordinates follow a separate opt-in",
+      "status": "missing",
+      "baseline": "Saved places and visit ratings stay in the encrypted location domain. The Live Mirror lists that saved section's state only; there is no inventory kind, history or fact-index provenance for Location.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/memory-complete-rows.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/lib/one-location/location-grant-memory.ts",
+          "line": 15,
+          "level": "code"
+        },
+        {
+          "path": "docs/reference/architecture/live-memory-source-contract.md",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "substory.E10",
+      "type": "substory",
+      "group": "shared_pipeline",
+      "parent": "story.location_pwm_agents",
+      "title": "Integrate reviewed PWM claims",
+      "given": "PWM research proposes a fact",
+      "when": "I review and approve or reject its evidence",
+      "then": "approved claims appear with provenance; unreviewed candidates remain outside both mirrors",
+      "status": "missing",
+      "baseline": "PWM and Live Memory are separate authorities; native PWM graph projection is planned.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "consent-protocol/hushh_mcp/one_adk/world_model.py",
+          "line": 370,
+          "level": "code"
+        },
+        {
+          "path": "docs/reference/one/personal-world-model.md",
+          "line": 156,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "substory.E11",
+      "type": "substory",
+      "group": "shared_pipeline",
+      "parent": "story.location_pwm_agents",
+      "title": "Record specialist-agent outcomes",
+      "given": "a specialist agent creates or changes durable owner data",
+      "when": "its source transaction commits",
+      "then": "the mirror records the outcome and source revision, excluding raw tool logs and prompts",
+      "status": "missing",
+      "baseline": "Specialist execution traces are not a general Live Memory source.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py",
+          "line": 5771,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-records.ts",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "substory.E12",
+      "type": "substory",
+      "group": "shared_pipeline",
+      "parent": "story.lossless_history",
+      "title": "Retain an auditable event sequence",
+      "given": "one fact changes A→B→C before the next read",
+      "when": "I inspect its history",
+      "then": "every admitted committed transition or explicit retention gap is represented; final C alone is not called complete history",
+      "status": "implemented_in_code",
+      "baseline": "When more changes were committed than an unlocked client verified, the encrypted history records an explicit gap marker with counts and times; final C alone is not called complete history. Values that changed while every client was closed are still not captured.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/living-source-records.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/__tests__/lib/pkm/living-source-lifecycle.test.ts",
+          "line": 1,
+          "level": "automated_contract"
+        },
+        {
+          "path": "hushh-webapp/__tests__/lib/pkm/living-source-sync.test.ts",
+          "line": 1,
+          "level": "automated_contract"
+        }
+      ]
+    },
+    {
+      "id": "substory.E13",
+      "type": "substory",
+      "group": "shared_pipeline",
+      "parent": "story.closed_app",
+      "title": "Run opt-in closed-app capture",
+      "given": "I approve a scoped, revocable hosted private runtime",
+      "when": "every owner client closes and an admitted source changes",
+      "then": "encrypted memory advances without a browser key cache and shows worker health/revocation state",
+      "status": "missing",
+      "baseline": "The hosted pilot does not pair a worker or enable capture.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "consent-protocol/api/routes/one/hosted_memory_pilot.py",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/components/profile/living-memory-bridge.tsx",
+          "line": 1,
+          "level": "code"
+        }
+      ]
+    },
+    {
+      "id": "substory.E14",
+      "type": "substory",
+      "group": "shared_pipeline",
+      "parent": "story.lossless_history",
+      "title": "Repair journal gaps immediately",
+      "given": "a replay cursor encounters a retained internal event gap",
+      "when": "the client receives resetRequired",
+      "then": "it performs authoritative rescan without treating hints as facts or advancing cursor early",
+      "status": "implemented_in_code",
+      "baseline": "The client accepts the backend's in-range reset and forces an authoritative rescan of every kind without trusting hints or advancing the cursor early.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/services/source-journal-service.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "consent-protocol/tests/test_live_memory_source_journal_postgres.py",
+          "line": 139,
+          "level": "automated_contract"
+        },
+        {
+          "path": "hushh-webapp/__tests__/services/source-journal-service.test.ts",
+          "line": 1,
+          "level": "automated_contract"
+        },
+        {
+          "path": "hushh-webapp/__tests__/lib/pkm/living-source-sync.test.ts",
+          "line": 1,
+          "level": "automated_contract"
+        }
+      ]
+    },
+    {
+      "id": "substory.E15",
+      "type": "substory",
+      "group": "shared_pipeline",
+      "parent": "story.latency_health",
+      "title": "Measure latency and background cost",
+      "given": "a supported change commits or a source fails",
+      "when": "the pipeline runs or repairs",
+      "then": "I see measured commit-to-preview lag, per-source backlog and bounded retry/CPU behavior",
+      "status": "partial",
+      "baseline": "Owner-visible lag stays; each verified source store now emits one value-free live_memory_source_verified event with minute-scale lag, pending and retry buckets and the outcome, registered in the observability event matrix. A fleet latency target still needs real data and GA dimensions.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/live-mirror-telemetry.ts",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/__tests__/lib/pkm/live-mirror-telemetry.test.ts",
+          "line": 1,
+          "level": "automated_contract"
+        },
+        {
+          "path": "docs/reference/operations/observability-event-matrix.md",
+          "line": 1,
+          "level": "automated_contract"
+        }
+      ]
+    },
+    {
+      "id": "substory.E16",
+      "type": "substory",
+      "group": "shared_pipeline",
+      "parent": "story.partial_paid_answer",
+      "title": "Answer only available approved scopes",
+      "given": "a requester asks for age, sex and location but only explicit sex and saved location are eligible",
+      "when": "the owner reviews price and exact scopes",
+      "then": "the requester sees age omitted before checkout and no missing or stale fact is chargeable",
+      "status": "unverified_in_real_flow",
+      "baseline": "Automated contract tests prove that only available, approved scopes can be priced and that the Live Memory inventory cannot make a scope chargeable. The two-account provider-mode run has not been done.",
+      "confidence": 0.96,
+      "evidence": [
+        {
+          "path": "hushh-webapp/lib/pkm/memory-scope-retrieval.ts",
+          "line": 119,
+          "level": "code"
+        },
+        {
+          "path": "docs/reference/architecture/live-memory-p0-acceptance-stories.md",
+          "line": 1,
+          "level": "code"
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/answer-request-review.test.tsx",
+          "line": 98,
+          "level": "automated_contract"
+        },
+        {
+          "path": "hushh-webapp/__tests__/lib/pkm/memory-scope-retrieval.test.ts",
+          "line": 1,
+          "level": "automated_contract"
+        },
+        {
+          "path": "scripts/ci/live-memory-source-gate.py",
+          "line": 1,
+          "level": "automated_contract"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "goal.owner_continuous_memory",
+      "to": "story.profile",
+      "type": "contains"
+    },
+    {
+      "from": "goal.owner_continuous_memory",
+      "to": "story.onboarding",
+      "type": "contains"
+    },
+    {
+      "from": "goal.owner_continuous_memory",
+      "to": "story.connections_consent",
+      "type": "contains"
+    },
+    {
+      "from": "goal.owner_continuous_memory",
+      "to": "story.oauth_mail_contacts",
+      "type": "contains"
+    },
+    {
+      "from": "goal.owner_continuous_memory",
+      "to": "story.payments_documents",
+      "type": "contains"
+    },
+    {
+      "from": "goal.owner_continuous_memory",
+      "to": "story.location_pwm_agents",
+      "type": "contains"
+    },
+    {
+      "from": "goal.owner_continuous_memory",
+      "to": "story.feed_lifecycle",
+      "type": "contains"
+    },
+    {
+      "from": "goal.owner_continuous_memory",
+      "to": "story.closed_app",
+      "type": "contains"
+    },
+    {
+      "from": "goal.owner_continuous_memory",
+      "to": "story.lossless_history",
+      "type": "contains"
+    },
+    {
+      "from": "goal.owner_continuous_memory",
+      "to": "story.latency_health",
+      "type": "contains"
+    },
+    {
+      "from": "goal.owner_continuous_memory",
+      "to": "story.intelligent_recall",
+      "type": "contains"
+    },
+    {
+      "from": "goal.owner_continuous_memory",
+      "to": "story.partial_paid_answer",
+      "type": "contains"
+    },
+    {
+      "from": "goal.owner_continuous_memory",
+      "to": "story.feature_admission",
+      "type": "contains"
+    },
+    {
+      "from": "story.profile",
+      "to": "component.source_journal",
+      "type": "implemented_by"
+    },
+    {
+      "from": "story.profile",
+      "to": "component.unlocked_bridge",
+      "type": "implemented_by"
+    },
+    {
+      "from": "story.connections_consent",
+      "to": "component.source_journal",
+      "type": "implemented_by"
+    },
+    {
+      "from": "story.oauth_mail_contacts",
+      "to": "component.connector_journal",
+      "type": "implemented_by"
+    },
+    {
+      "from": "story.payments_documents",
+      "to": "component.owner_inventory",
+      "type": "implemented_by"
+    },
+    {
+      "from": "story.lossless_history",
+      "to": "component.owner_inventory",
+      "type": "implemented_by"
+    },
+    {
+      "from": "story.intelligent_recall",
+      "to": "component.fact_index",
+      "type": "implemented_by"
+    },
+    {
+      "from": "story.partial_paid_answer",
+      "to": "component.profile_document",
+      "type": "implemented_by"
+    },
+    {
+      "from": "story.feature_admission",
+      "to": "component.ci_gate",
+      "type": "implemented_by"
+    },
+    {
+      "from": "component.source_journal",
+      "to": "component.unlocked_bridge",
+      "type": "feeds"
+    },
+    {
+      "from": "component.connector_journal",
+      "to": "component.unlocked_bridge",
+      "type": "feeds"
+    },
+    {
+      "from": "component.unlocked_bridge",
+      "to": "component.owner_inventory",
+      "type": "feeds"
+    },
+    {
+      "from": "component.owner_inventory",
+      "to": "component.fact_index",
+      "type": "feeds"
+    },
+    {
+      "from": "component.owner_inventory",
+      "to": "component.profile_document",
+      "type": "feeds"
+    },
+    {
+      "from": "component.soul",
+      "to": "component.profile_document",
+      "type": "separate_from"
+    },
+    {
+      "from": "component.legacy_pwm",
+      "to": "component.profile_document",
+      "type": "separate_from"
+    },
+    {
+      "from": "story.closed_app",
+      "to": "gap.G01",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.onboarding",
+      "to": "gap.G02",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.oauth_mail_contacts",
+      "to": "gap.G02",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.payments_documents",
+      "to": "gap.G02",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.location_pwm_agents",
+      "to": "gap.G02",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.feed_lifecycle",
+      "to": "gap.G02",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.lossless_history",
+      "to": "gap.G03",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.lossless_history",
+      "to": "gap.G04",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.latency_health",
+      "to": "gap.G04",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.latency_health",
+      "to": "gap.G05",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.latency_health",
+      "to": "gap.G06",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.intelligent_recall",
+      "to": "gap.G07",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.feature_admission",
+      "to": "gap.G08",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.partial_paid_answer",
+      "to": "gap.G08",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.profile",
+      "to": "substory.P01",
+      "type": "contains"
+    },
+    {
+      "from": "story.profile",
+      "to": "substory.P02",
+      "type": "contains"
+    },
+    {
+      "from": "substory.P02",
+      "to": "gap.G03",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.profile",
+      "to": "substory.P03",
+      "type": "contains"
+    },
+    {
+      "from": "substory.P03",
+      "to": "gap.G05",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.closed_app",
+      "to": "substory.P04",
+      "type": "contains"
+    },
+    {
+      "from": "substory.P04",
+      "to": "gap.G01",
+      "type": "blocked_by"
+    },
+    {
+      "from": "substory.P04",
+      "to": "gap.G03",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.intelligent_recall",
+      "to": "substory.P05",
+      "type": "contains"
+    },
+    {
+      "from": "substory.P05",
+      "to": "gap.G07",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.intelligent_recall",
+      "to": "substory.P06",
+      "type": "contains"
+    },
+    {
+      "from": "substory.P06",
+      "to": "gap.G07",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.latency_health",
+      "to": "substory.P07",
+      "type": "contains"
+    },
+    {
+      "from": "substory.P07",
+      "to": "gap.G05",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.latency_health",
+      "to": "substory.P08",
+      "type": "contains"
+    },
+    {
+      "from": "substory.P08",
+      "to": "gap.G07",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.intelligent_recall",
+      "to": "substory.P09",
+      "type": "contains"
+    },
+    {
+      "from": "substory.P09",
+      "to": "gap.G07",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.lossless_history",
+      "to": "substory.P10",
+      "type": "contains"
+    },
+    {
+      "from": "substory.P10",
+      "to": "gap.G03",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.feed_lifecycle",
+      "to": "substory.P11",
+      "type": "contains"
+    },
+    {
+      "from": "substory.P11",
+      "to": "gap.G07",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.feed_lifecycle",
+      "to": "substory.P12",
+      "type": "contains"
+    },
+    {
+      "from": "substory.P12",
+      "to": "gap.G08",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.intelligent_recall",
+      "to": "substory.A01",
+      "type": "contains"
+    },
+    {
+      "from": "substory.A01",
+      "to": "gap.G07",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.intelligent_recall",
+      "to": "substory.A02",
+      "type": "contains"
+    },
+    {
+      "from": "substory.A02",
+      "to": "gap.G07",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.intelligent_recall",
+      "to": "substory.A03",
+      "type": "contains"
+    },
+    {
+      "from": "substory.A03",
+      "to": "gap.G07",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.intelligent_recall",
+      "to": "substory.A04",
+      "type": "contains"
+    },
+    {
+      "from": "substory.A04",
+      "to": "gap.G07",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.intelligent_recall",
+      "to": "substory.A05",
+      "type": "contains"
+    },
+    {
+      "from": "substory.A05",
+      "to": "gap.G07",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.intelligent_recall",
+      "to": "substory.A06",
+      "type": "contains"
+    },
+    {
+      "from": "substory.A06",
+      "to": "gap.G07",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.latency_health",
+      "to": "substory.A07",
+      "type": "contains"
+    },
+    {
+      "from": "substory.A07",
+      "to": "gap.G05",
+      "type": "blocked_by"
+    },
+    {
+      "from": "substory.A07",
+      "to": "gap.G07",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.intelligent_recall",
+      "to": "substory.A08",
+      "type": "contains"
+    },
+    {
+      "from": "substory.A08",
+      "to": "gap.G07",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.lossless_history",
+      "to": "substory.A09",
+      "type": "contains"
+    },
+    {
+      "from": "substory.A09",
+      "to": "gap.G03",
+      "type": "blocked_by"
+    },
+    {
+      "from": "substory.A09",
+      "to": "gap.G07",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.feed_lifecycle",
+      "to": "substory.A10",
+      "type": "contains"
+    },
+    {
+      "from": "substory.A10",
+      "to": "gap.G07",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.location_pwm_agents",
+      "to": "substory.A11",
+      "type": "contains"
+    },
+    {
+      "from": "substory.A11",
+      "to": "gap.G02",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.feed_lifecycle",
+      "to": "substory.A12",
+      "type": "contains"
+    },
+    {
+      "from": "substory.A12",
+      "to": "gap.G07",
+      "type": "blocked_by"
+    },
+    {
+      "from": "substory.A12",
+      "to": "gap.G08",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.feature_admission",
+      "to": "substory.E01",
+      "type": "contains"
+    },
+    {
+      "from": "substory.E01",
+      "to": "gap.G08",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.profile",
+      "to": "substory.E02",
+      "type": "contains"
+    },
+    {
+      "from": "substory.E02",
+      "to": "gap.G03",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.onboarding",
+      "to": "substory.E03",
+      "type": "contains"
+    },
+    {
+      "from": "substory.E03",
+      "to": "gap.G02",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.connections_consent",
+      "to": "substory.E04",
+      "type": "contains"
+    },
+    {
+      "from": "substory.E04",
+      "to": "gap.G08",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.oauth_mail_contacts",
+      "to": "substory.E05",
+      "type": "contains"
+    },
+    {
+      "from": "substory.E05",
+      "to": "gap.G02",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.payments_documents",
+      "to": "substory.E06",
+      "type": "contains"
+    },
+    {
+      "from": "substory.E06",
+      "to": "gap.G08",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.oauth_mail_contacts",
+      "to": "substory.E07",
+      "type": "contains"
+    },
+    {
+      "from": "substory.E07",
+      "to": "gap.G02",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.payments_documents",
+      "to": "substory.E08",
+      "type": "contains"
+    },
+    {
+      "from": "substory.E08",
+      "to": "gap.G02",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.location_pwm_agents",
+      "to": "substory.E09",
+      "type": "contains"
+    },
+    {
+      "from": "substory.E09",
+      "to": "gap.G02",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.location_pwm_agents",
+      "to": "substory.E10",
+      "type": "contains"
+    },
+    {
+      "from": "substory.E10",
+      "to": "gap.G02",
+      "type": "blocked_by"
+    },
+    {
+      "from": "substory.E10",
+      "to": "gap.G07",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.location_pwm_agents",
+      "to": "substory.E11",
+      "type": "contains"
+    },
+    {
+      "from": "substory.E11",
+      "to": "gap.G02",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.lossless_history",
+      "to": "substory.E12",
+      "type": "contains"
+    },
+    {
+      "from": "substory.E12",
+      "to": "gap.G03",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.closed_app",
+      "to": "substory.E13",
+      "type": "contains"
+    },
+    {
+      "from": "substory.E13",
+      "to": "gap.G01",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.lossless_history",
+      "to": "substory.E14",
+      "type": "contains"
+    },
+    {
+      "from": "substory.E14",
+      "to": "gap.G04",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.latency_health",
+      "to": "substory.E15",
+      "type": "contains"
+    },
+    {
+      "from": "substory.E15",
+      "to": "gap.G05",
+      "type": "blocked_by"
+    },
+    {
+      "from": "substory.E15",
+      "to": "gap.G06",
+      "type": "blocked_by"
+    },
+    {
+      "from": "story.partial_paid_answer",
+      "to": "substory.E16",
+      "type": "contains"
+    },
+    {
+      "from": "substory.E16",
+      "to": "gap.G08",
+      "type": "blocked_by"
+    }
+  ],
+  "targetPersonalGraphContract": {
+    "status": "planned",
+    "purpose": "A future owner-scoped projection for questions across admitted sources, not a second source of truth and not a grant.",
+    "nodeTypes": {
+      "Subject": "Verified owner or explicitly unresolved candidate identity",
+      "Claim": "Predicate, eligible value, valid time, current/deleted/stale/conflicted state",
+      "EvidenceSource": "Canonical source authority, owner and field policy",
+      "SourceSnapshot": "Stable source ID, revision, commit/observed/verified times and completeness",
+      "EvidenceAssertion": "A reviewed source span or field that supports or refutes one claim",
+      "TopicCoverage": "Attempted/found/checked-no-findings/unavailable/not-attempted, without inventing absence",
+      "ReviewDecision": "Owner approval, correction or retraction of a candidate",
+      "ConsentGrant": "Independent, revocable scope authorization",
+      "AnswerRequest": "Question, exact approved scope set, price terms and fulfillment state",
+      "ProjectionVersion": "Encrypted owner snapshot and dependency revisions"
+    },
+    "edgeTypes": [
+      "claim_about_subject",
+      "assertion_from_snapshot",
+      "assertion_supports_claim",
+      "assertion_refutes_claim",
+      "claim_supersedes_claim",
+      "claim_contradicts_claim",
+      "claim_in_topic",
+      "claim_reviewed_by",
+      "claim_derived_from_revision",
+      "answer_uses_approved_claim"
+    ],
+    "invariants": [
+      "Only a canonical verified source or explicit owner review can publish a claim; a journal hint is only a wake signal.",
+      "A conflicting or stale source cannot silently replace a verified current value. A verified deletion is a durable tombstone.",
+      "Sex requires explicit recording; age requires a validated saved date of birth and an evaluation date. Neither is inferred from name, photo or chat style.",
+      "Owner-only encryption and source revisions precede graph projection. Consent, model processing and payment remain separate approvals.",
+      "No claim, source edge, topic label or graph membership alone grants another person access."
+    ],
+    "evidence": [
+      {
+        "path": "hushh-webapp/lib/pkm/living-source-fact-index.ts",
+        "line": 3,
+        "level": "code"
+      },
+      {
+        "path": "docs/reference/one/personal-world-model.md",
+        "line": 156,
+        "level": "code"
+      }
+    ]
+  },
+  "graphUseRule": "This coverage graph describes product-story coverage and the proposed personal-graph ontology. It contains no personal values, grants or runtime authority. The targetPersonalGraphContract is design only; it is not a deployed personal knowledge graph.",
+  "storyExpansion": {
+    "name": "Live Mirror requirement stories",
+    "codeRevision": "f0b6605e96b7b50a10e6ad522ff3c8039501885b",
+    "storyCount": 40,
+    "groups": {
+      "profile": 12,
+      "memory_agent": 12,
+      "shared_pipeline": 16
+    },
+    "canonicalModel": "Structured, owner-scoped source events, revisions, facts, evidence and lifecycle state are the proposed authority. Markdown is a deterministic, safe preview generated from that model for both mirrors.",
+    "currentMismatch": "Profile Live Mirror, the private agent's profile sheet and the private agent's turn packet now read one in-memory Live Mirror projection; its Markdown is a generated, safely rendered preview. Remaining gaps: the Soul editor is still separate chat memory, agent and Profile corrections do not write through to sources (A10, P11), agent action outcomes are not admitted (A11), and there is no closed-app catch-up (P04). Evidence is automated contract tests only; no real-owner journey was run.",
+    "stateRule": "Statuses below describe audited code only. A partial story is not a passed real-owner acceptance story.",
+    "evidence": [
+      {
+        "path": "hushh-webapp/components/profile/living-memory-document.tsx",
+        "line": 38,
+        "level": "code"
+      },
+      {
+        "path": "hushh-webapp/components/profile/soul-memory-panel.tsx",
+        "line": 143,
+        "level": "code"
+      },
+      {
+        "path": "hushh-webapp/components/agent/one-agent-profile-sheet.tsx",
+        "line": 129,
+        "level": "code"
+      },
+      {
+        "path": "hushh-webapp/lib/pkm/markdown-memory.ts",
+        "line": 24,
+        "level": "code"
+      }
+    ]
+  }
+}

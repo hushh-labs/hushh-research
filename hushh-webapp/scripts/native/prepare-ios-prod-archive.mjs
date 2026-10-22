@@ -102,7 +102,7 @@ function ensureProdEnv() {
     APP_RUNTIME_PROFILE: prodValues.APP_RUNTIME_PROFILE || "prod",
     NEXT_PUBLIC_APP_ENV: "production",
     NEXT_PUBLIC_BACKEND_URL: backendUrl,
-    NEXT_PUBLIC_APP_URL: prodValues.NEXT_PUBLIC_APP_URL || "https://one.hushh.ai",
+    NEXT_PUBLIC_APP_URL: prodValues.NEXT_PUBLIC_APP_URL || "https://one.hussh.ai",
     NEXT_PUBLIC_PASSKEY_RP_ID: prodValues.NEXT_PUBLIC_PASSKEY_RP_ID || "one.hushh.ai",
     NEXT_PUBLIC_FIREBASE_API_KEY: prodValues.NEXT_PUBLIC_FIREBASE_API_KEY,
     NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY: prodValues.NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY,

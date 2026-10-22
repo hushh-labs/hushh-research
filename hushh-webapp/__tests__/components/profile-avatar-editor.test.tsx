@@ -45,6 +45,16 @@ vi.mock("@/lib/morphy-ux/morphy", () => ({
 }));
 
 describe("ProfileAvatarEditor", () => {
+  it("opens the authored photo-options entry without picking a photo and retains preview", async () => {
+    avatarState.url = "data:image/jpeg;base64,current";
+    vi.mocked(pickAvatar).mockClear();
+    try {
+      render(<ProfileAvatarEditor openOnMount optionsOnMount />);
+      fireEvent.click(await screen.findByRole("button", { name: "View photo" }));
+      expect(await screen.findByRole("dialog", { name: "Profile photo" })).toBeVisible();
+      expect(pickAvatar).not.toHaveBeenCalled();
+    } finally { avatarState.url = null; }
+  });
   it("previews the current photo without picking or changing it, and keeps photo options reachable", async () => {
     avatarState.url = "data:image/jpeg;base64,current";
     vi.mocked(pickAvatar).mockClear();

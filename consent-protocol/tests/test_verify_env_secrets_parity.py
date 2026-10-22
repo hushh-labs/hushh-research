@@ -15,6 +15,127 @@ parity = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(parity)
 
 
+def test_domain_runtime_requires_only_the_matching_alias_group(monkeypatch):
+    origin = "https://uat.one.hushh.ai"
+    config = {
+        "cors_allowed_origins": origin + ",https://uat.one.hussh.ai,https://uat.one.hussh.si",
+        "passkey_allowed_rp_ids": "localhost,127.0.0.1,uat.one.hushh.ai,uat.one.hussh.ai,uat.one.hussh.si",
+        "plaid_webhook_url": origin + "/api/kai/plaid/webhook",
+    }
+    values = {"APP_FRONTEND_ORIGIN": origin}
+    monkeypatch.setattr(
+        parity,
+        "_read_secret_value",
+        lambda _project, key: (
+            json.dumps(config) if key == "BACKEND_RUNTIME_CONFIG_JSON" else values.get(key)
+        ),
+    )
+    assert parity._domain_runtime_contract("uat")["status"] == "valid"
+    config["passkey_allowed_rp_ids"] += ",one.hushh.ai"
+    assert parity._domain_runtime_contract("uat")["passkeys"] == "mismatch"
+    config["passkey_allowed_rp_ids"] = "localhost,127.0.0.1,uat.one.hushh.ai"
+    assert parity._domain_runtime_contract("uat")["passkeys"] == "mismatch"
+    config["cors_allowed_origins"] = origin
+    assert parity._domain_runtime_contract("uat")["cors"] == "mismatch"
+
+
+@pytest.mark.parametrize("candidate_valid", [True, False])
+@pytest.mark.parametrize("candidate_version", ["7", "latest"])
+def test_domain_parity_uses_selected_revision_not_shared_secret(
+    monkeypatch, tmp_path, candidate_valid, candidate_version
+):
+    origin = "https://one.hushh.ai"
+    valid = {
+        "cors_allowed_origins": origin + ",https://one.hussh.ai,https://one.hussh.si",
+        "passkey_allowed_rp_ids": "localhost,127.0.0.1,one.hushh.ai,one.hussh.ai,one.hussh.si",
+        "plaid_webhook_url": origin + "/api/kai/plaid/webhook",
+    }
+    invalid = {**valid, "cors_allowed_origins": origin}
+    reads = []
+
+    def read(_project, name, version="latest"):
+        reads.append((name, version))
+        if name == "candidate-config" and version == candidate_version:
+            return json.dumps(valid if candidate_valid else invalid)
+        if name == "BACKEND_RUNTIME_CONFIG_JSON":
+            return json.dumps(invalid if candidate_valid else valid)
+        return origin
+
+    env = [
+        {"name": key, "value": "present"}
+        for key in parity.BACKEND_RUNTIME_REQUIRED
+        if key not in {"APP_FRONTEND_ORIGIN", "BACKEND_RUNTIME_CONFIG_JSON"}
+    ]
+    env.extend(
+        [
+            {"name": "APP_FRONTEND_ORIGIN", "value": origin},
+            {
+                "name": "BACKEND_RUNTIME_CONFIG_JSON",
+                "valueFrom": {
+                    "secretKeyRef": {"name": "candidate-config", "key": candidate_version}
+                },
+            },
+        ]
+    )
+    revision = {
+        "metadata": {"labels": {"serving.knative.dev/service": "consent-protocol"}},
+        "spec": {"containers": [{"env": env}]},
+    }
+    monkeypatch.setattr(parity, "_read_secret_value", read)
+    monkeypatch.setattr(parity, "_has_secret", lambda *_: True)
+    monkeypatch.setattr(parity, "_describe_run_revision", lambda *_: revision)
+    report_path = tmp_path / "parity.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "verify-env-secrets-parity.py",
+            "--project",
+            "production",
+            "--backend-revision",
+            "candidate",
+            "--assert-runtime-env-contract",
+            "--report-path",
+            str(report_path),
+        ],
+    )
+    assert parity.main() == (0 if candidate_valid else 1)
+    assert reads == [("candidate-config", candidate_version)]
+    assert json.loads(report_path.read_text())["domain_runtime_contract"]["status"] == (
+        "valid" if candidate_valid else "mismatch"
+    )
+
+
+@pytest.mark.parametrize("reference", [None, {}, {"name": "candidate"}, {"key": "7"}])
+def test_missing_candidate_binding_never_reads_shared_secrets(monkeypatch, reference):
+    def reject_read(*_args):
+        pytest.fail("Missing candidate authority must not fall back to shared secrets")
+
+    monkeypatch.setattr(parity, "_read_secret_value", reject_read)
+    env = {"APP_FRONTEND_ORIGIN": {"value": "https://one.hushh.ai"}}
+    if reference is not None:
+        env["BACKEND_RUNTIME_CONFIG_JSON"] = {"valueFrom": {"secretKeyRef": reference}}
+    assert parity._domain_runtime_contract("production", env)["status"] == "unavailable"
+
+
+def test_unreadable_candidate_secret_never_falls_back(monkeypatch):
+    reads = []
+
+    def read(_project, name, version="latest"):
+        reads.append((name, version))
+        return None
+
+    monkeypatch.setattr(parity, "_read_secret_value", read)
+    env = {
+        "APP_FRONTEND_ORIGIN": {"value": "https://one.hushh.ai"},
+        "BACKEND_RUNTIME_CONFIG_JSON": {
+            "valueFrom": {"secretKeyRef": {"name": "candidate", "key": "7"}}
+        },
+    }
+    assert parity._domain_runtime_contract("production", env)["status"] == "unavailable"
+    assert reads == [("candidate", "7")]
+
+
 def _revision(service: str) -> dict[str, object]:
     return {
         "metadata": {"labels": {"serving.knative.dev/service": service}},
@@ -187,3 +308,56 @@ def test_voice_candidate_parity_blocks_missing_runtime_configuration(
     report = json.loads(report_path.read_text())
     assert report["status"] == ("blocked" if missing_voice_key else "healthy")
     assert len(report["runtime_contract"]["backend_voice"]) == 3
+
+
+@pytest.mark.parametrize("missing_credential", [False, True])
+def test_hosted_profile_does_not_require_legacy_location_but_keeps_credentials(
+    monkeypatch, tmp_path, missing_credential
+) -> None:
+    omitted = {"GOOGLE_CLOUD_LOCATION"}
+    if missing_credential:
+        omitted.add("VAULT_DATA_KEY")
+    revision = {
+        "metadata": {"labels": {"serving.knative.dev/service": "consent-protocol"}},
+        "spec": {
+            "containers": [
+                {
+                    "env": [
+                        {
+                            "name": key,
+                            "valueFrom": {"secretKeyRef": {"name": key, "key": "latest"}},
+                        }
+                        for key in parity.BACKEND_RUNTIME_REQUIRED
+                        if key not in omitted
+                    ]
+                }
+            ]
+        },
+    }
+    monkeypatch.setattr(parity, "_has_secret", lambda *_: True)
+    monkeypatch.setattr(parity, "_domain_runtime_contract", lambda *_: {"status": "valid"})
+    monkeypatch.setattr(parity, "_describe_run_service", lambda *_: {})
+    monkeypatch.setattr(parity, "_describe_run_revision", lambda *_: revision)
+    report_path = tmp_path / "parity.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "verify-env-secrets-parity.py",
+            "--project",
+            "test-project",
+            "--backend-revision",
+            "candidate",
+            "--assert-runtime-env-contract",
+            "--report-path",
+            str(report_path),
+        ],
+    )
+    assert parity.main() == (1 if missing_credential else 0)
+    report = json.loads(report_path.read_text())
+    assert report["status"] == ("blocked" if missing_credential else "healthy")
+    assert "GOOGLE_CLOUD_LOCATION" not in {
+        row["key"] for row in report["runtime_contract"]["backend"]
+    }
+    if missing_credential:
+        assert "runtime_mount_missing" in report["classifications"]

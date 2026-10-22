@@ -135,7 +135,7 @@ describe("DriveOwnerShareCard", () => {
     });
     renderCard();
     fireEvent.click(screen.getByRole("button", { name: "Find files" }));
-    await screen.findByText("No matching files found.");
+    await screen.findByText("No file candidates in this search.");
     expect(screen.getByText("Which file do you mean?")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Search again" })).toBeTruthy();
     expect(state.service.shareOwnerFiles).not.toHaveBeenCalled();
@@ -192,8 +192,8 @@ describe("DriveOwnerShareCard", () => {
     await waitFor(() =>
       expect(screen.getByRole("alert").textContent).toBe("Drive didn't answer. Try again."),
     );
-    // Never "No matching files found" for a failed search.
-    expect(screen.queryByText("No matching files found.")).toBeNull();
+    // A failed search must not appear to have returned zero candidates.
+    expect(screen.queryByText("No file candidates in this search.")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Find files" }));
     await screen.findByText("Chris onboarding 1.mp4");
     state.service.shareOwnerFiles.mockRejectedValue(

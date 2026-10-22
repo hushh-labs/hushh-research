@@ -353,6 +353,33 @@ describe("UnlockWarmOrchestrator", () => {
   });
 
   describe("resolveWarmPriority (tested indirectly via run())", () => {
+    it("starts strict Location recovery before unrelated profile warm work settles", async () => {
+      setupDefaultMocks();
+      let finish!: (value: unknown) => void;
+      profileSyncMock.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+      const warming = UnlockWarmOrchestrator.run({ ...BASE_PARAMS, userId: "slow-profile-key-owner", routePath: "/one/profile" });
+      expect(bootstrapCurrentUserLocationRecipientKey).toHaveBeenCalledWith(expect.objectContaining({ userId: "slow-profile-key-owner", strictRecovery: true }));
+      finish({ synced: true, reason: "synced" });
+      await warming;
+    });
+
+    it("retries a failed Location registration after warm completion and cancels retries on lock", async () => {
+      setupDefaultMocks();
+      vi.useFakeTimers();
+      try {
+        vi.mocked(bootstrapCurrentUserLocationRecipientKey).mockRejectedValueOnce(new Error("offline"));
+        await UnlockWarmOrchestrator.run({ ...BASE_PARAMS, userId: "retry-key-owner", routePath: "/one" });
+        expect(bootstrapCurrentUserLocationRecipientKey).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(bootstrapCurrentUserLocationRecipientKey).toHaveBeenCalledTimes(2);
+        vi.mocked(bootstrapCurrentUserLocationRecipientKey).mockRejectedValueOnce(new Error("offline"));
+        await UnlockWarmOrchestrator.run({ ...BASE_PARAMS, userId: "locked-key-owner", routePath: "/one" });
+        advanceVaultSessionEpoch();
+        await vi.advanceTimersByTimeAsync(15_000);
+        expect(bootstrapCurrentUserLocationRecipientKey).toHaveBeenCalledTimes(3);
+      } finally { vi.useRealTimers(); }
+    });
+
     it('resolves "/kai" to "market" priority without starting a second PKM upgrade', async () => {
       setupDefaultMocks();
       const result = await UnlockWarmOrchestrator.run({

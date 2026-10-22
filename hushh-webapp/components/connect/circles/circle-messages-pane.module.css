@@ -1,0 +1,56 @@
+.pane { display: grid; grid-template-columns: var(--app-messages-sidebar-width) minmax(0,1fr); min-height: 0; height: 100%; width: 100%; color: var(--chat-text); }
+.list { min-width: 0; min-height: 0; height: 100%; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--chat-glass-edge); background: var(--chat-glass-strong); backdrop-filter: blur(28px) saturate(145%); -webkit-backdrop-filter: blur(28px) saturate(145%); }
+.listHeader { flex-shrink: 0; min-height: 68px; display: flex; align-items: center; justify-content: space-between; padding: 12px 18px; font-size: 20px; font-weight: 600; }
+/* Keep the local heading in the same layer as the global h1 foundation. */
+@layer base {
+  .pane .listHeader h1 {
+    margin: 0;
+    color: var(--chat-text);
+    font-family: var(--font-app-heading);
+    font-size: 20px !important;
+    font-weight: 600 !important;
+    line-height: 1.2 !important;
+    letter-spacing: -.02em !important;
+  }
+}
+.rows { min-height: 0; flex: 1; overflow-y: auto; }
+.listHeader a, .back { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; color: var(--chat-accent); }
+.listHeader a:hover, .back:hover { background: var(--chat-row-active); }
+.row { width: 100%; min-height: 70px; display: flex; align-items: center; gap: 12px; padding: 10px 11px; margin-inline: 8px; width: calc(100% - 16px); border-radius: 16px; text-align: left; }
+.row:hover, .row[data-selected] { background: var(--chat-row-active); }
+.groupAvatar { position: relative; width: 46px; height: 44px; flex: none; display: grid; place-items: center; }
+.groupAvatarFront { width: 33px; height: 33px; display: grid; place-items: center; overflow: hidden; border: 2px solid var(--chat-surface); border-radius: 50%; color: var(--chat-accent); background: color-mix(in srgb, var(--chat-accent) 8%, var(--chat-surface)); }
+.groupAvatarFront img { width: 100%; height: 100%; object-fit: cover; }
+.rowText { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 2px; }
+.rowText strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; }
+.rowText span { color: var(--chat-muted); font-size: 12px; }
+.row > svg { color: var(--chat-muted); }
+.thread { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+
+.thread > :global([data-one-chat-surface]) { min-height: 0; flex: 1; }
+.back { display: none; }
+.placeholder, .empty { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px; color: var(--chat-muted); font-size: 13px; }
+.placeholder { height: 100%; }
+.empty { padding: 40px 20px; }
+.empty a { color: var(--chat-accent); font-weight: 600; }
+.notice { padding: 20px; font-size: 13px; color: var(--chat-muted); }
+@media (min-width: 768px) and (min-height: 500px), (min-width: 1024px) {
+  .list,
+  .thread {
+    align-self: start;
+    height: max(0px, calc(100% - max(var(--app-scroll-bottom-pad, 8rem), calc(var(--direct-message-keyboard-inset, 0px) + var(--direct-message-dock-height, 0px) + var(--direct-message-dock-clearance, 0px)))));
+  }
+}
+@media (max-width: 767px), (max-width: 1023px) and (max-height: 499px) {
+  .pane { display: block; }
+  .list[data-thread-open] { display: none; }
+  .thread:not([data-thread-open]) { display: none; }
+  .thread { height: 100%; }
+  .back { display: grid; }
+}
+
+.list > :not(.rows) { flex-shrink: 0; }
+
+.listHeader a { color: var(--chat-muted); }
+
+.searchInput { font-weight: 400; }

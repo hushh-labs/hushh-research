@@ -25,6 +25,9 @@ import {
 import { auth } from "@/lib/firebase/config";
 
 export class HushhAuthWeb implements HushhAuthPlugin {
+  async authorizeGoogleContacts(_options: { expectedUserId: string }): Promise<import("../index").NativeGoogleContactsAuthorization> {
+    throw new Error("Native Google Contacts authorization is unavailable on web.");
+  }
   async reauthenticateGoogleIdentity(_options: {
     expectedUserId: string;
   }): Promise<{ userId: string; idToken: string }> {
@@ -90,6 +93,7 @@ export class HushhAuthWeb implements HushhAuthPlugin {
   async connectCalendar(_options: {
     serverClientId: string;
     accessLevel: "read" | "manage";
+    includeCalendarList?: boolean;
   }): Promise<{ serverAuthCode: string }> {
     throw new Error(
       "Native Calendar consent is only available in the mobile app.",

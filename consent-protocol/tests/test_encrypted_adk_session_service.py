@@ -10,6 +10,11 @@ from pydantic import ConfigDict
 from pydantic_core import PydanticSerializationError
 
 from db.db_client import DatabaseExecutionError
+from db.query_telemetry import (
+    begin_query_telemetry,
+    query_telemetry_snapshot,
+    reset_query_telemetry,
+)
 from hushh_mcp.one_adk.encrypted_session_service import (
     EncryptedAdkSessionService,
     EncryptedAdkSessionUnavailableError,
@@ -76,6 +81,58 @@ def test_database_failure_never_exposes_sql_or_bound_values(monkeypatch) -> None
     assert rendered == "Conversation storage is temporarily unavailable."
     assert private_value not in rendered
     assert "INSERT" not in rendered
+
+
+@pytest.mark.asyncio
+async def test_async_session_query_uses_pool_telemetry_and_one_transient_retry(monkeypatch):
+    service = EncryptedAdkSessionService(static_chat_cipher())
+    calls: list[tuple[str, tuple[object, ...]]] = []
+
+    class Connection:
+        async def fetch(self, query, *values):
+            calls.append((query, values))
+            if len(calls) == 1:
+                raise ConnectionError("synthetic connection reset")
+            return [{"revision": 7}]
+
+    class Acquire:
+        async def __aenter__(self):
+            return Connection()
+
+        async def __aexit__(self, *_args):
+            return False
+
+    class Pool:
+        def acquire(self):
+            return Acquire()
+
+    async def pool():
+        return Pool()
+
+    monkeypatch.setattr("hushh_mcp.one_adk.encrypted_session_service.get_pool", pool)
+    token = begin_query_telemetry()
+    try:
+        result = await service._execute(
+            "SELECT revision FROM one_adk_sessions WHERE user_id = :owner OR user_id = :owner",
+            {"owner": "private-owner"},
+        )
+        telemetry = query_telemetry_snapshot()
+    finally:
+        reset_query_telemetry(token)
+
+    assert result.data == [{"revision": 7}]
+    assert calls == [
+        (
+            "SELECT revision FROM one_adk_sessions WHERE user_id = $1 OR user_id = $2",
+            ("private-owner", "private-owner"),
+        ),
+        (
+            "SELECT revision FROM one_adk_sessions WHERE user_id = $1 OR user_id = $2",
+            ("private-owner", "private-owner"),
+        ),
+    ]
+    assert telemetry["sql_count"] == 2
+    assert telemetry["repeated_sql_count"] == 1
 
 
 @pytest.mark.parametrize("placement", ["output", "state", "actions"])
@@ -453,6 +510,7 @@ async def test_stale_temp_state_is_reported_once_per_legacy_row_and_never_for_a_
 
 def test_reactions_never_enter_sealed_history_but_live_tool_results_remain():
     from hushh_mcp.one_adk.message_reactions import REACTION_TOOL_NAME
+    from hushh_mcp.one_adk.turn_completion import newest_turn_answered
 
     service = EncryptedAdkSessionService(static_chat_cipher())
     call = types.Part(
@@ -474,7 +532,9 @@ def test_reactions_never_enter_sealed_history_but_live_tool_results_remain():
             Event(
                 author="one",
                 content=types.Content(role="user", parts=[result]),
-                actions=EventActions(state_delta={"temp:message_reaction_shown": True}),
+                actions=EventActions(
+                    state_delta={"temp:message_reaction_shown": True}, skip_summarization=True
+                ),
             ),
         ],
     )
@@ -494,5 +554,6 @@ def test_reactions_never_enter_sealed_history_but_live_tool_results_remain():
     assert "💛" not in durable
     assert "message_reaction_shown" not in durable
     assert "Your answer" in durable
+    assert newest_turn_answered(decoded.events)
     assert session.events[0].content.parts[1].function_call.name == REACTION_TOOL_NAME
     assert session.events[1].content.parts[0].function_response.response["emoji"] == "💛"

@@ -40,6 +40,10 @@ flowchart TD
   root --> n15
   n16["MuleSoft Managed Omni Gateway Private Space"]
   root --> n16
+  n18["Personal World Model Runbook"]
+  root --> n18
+  n19["Source and Release Recovery"]
+  root --> n19
 ```
 
 Use this as the entrypoint for CI, docs governance, delivery, and environment operations.
@@ -109,6 +113,7 @@ Use `github-contribution-governance` when contribution graph visibility, verifie
 - [Admin merge and release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md): canonical queue, Admin PR landing, exact-SHA promotion, environment dispatch, proof, and closeout state machine.
 - [ci.md](./ci.md): local/remote CI parity and required lanes.
 - [cli.md](./cli.md): canonical root command surface for repo-level workflows.
+- [workos-sso-local-run.md](./workos-sso-local-run.md): local sandbox run for WorkOS enterprise SSO (dashboard setup, env, org seed, checks).
 - [branch-governance.md](./branch-governance.md): branch rules, review gates, and bypass policy.
 - [documentation-architecture-map.md](./documentation-architecture-map.md): canonical docs-home map across root, cross-cutting docs, and package docs.
 - [documentation-recursive-knowledge-model.md](./documentation-recursive-knowledge-model.md): recursive folder contract, rewrite sequence, and long-doc split policy.
@@ -117,13 +122,16 @@ Use `github-contribution-governance` when contribution graph visibility, verifie
 - [env-secrets-key-matrix.md](./env-secrets-key-matrix.md): key-by-key environment matrix.
 - [migration-governance.md](./migration-governance.md): canonical migration authority, the exact UAT/production DB contracts, and allowed SQL surfaces.
 - [mulesoft-managed-omni-gateway-private-space.md](./mulesoft-managed-omni-gateway-private-space.md): current CRM transport, credential boundary, and UAT handshake proof.
+- [pwm-runbook.md](./pwm-runbook.md): Personal World Model operator runbook: run lifecycle, log evidence, paging states, frontend-only deploy during a provider outage, and alerting.
 - [brand-and-compatibility-contract.md](./brand-and-compatibility-contract.md): Hussh public naming rule and compatibility boundaries.
 - [naming-policy.md](./naming-policy.md): compatibility pointer to the canonical brand contract.
 - [developer-access-matrix.md](./developer-access-matrix.md): org-level developer IAM baseline, runtime identities, and DB access path.
 - [observability-architecture-map.md](./observability-architecture-map.md): canonical analytics-plane and reporting-plane map.
 - [observability-google-first.md](./observability-google-first.md): observability operating model.
 - [observability-event-matrix.md](./observability-event-matrix.md): event taxonomy, emitter map, and dashboard contract.
+- [runtime-capacity.md](./runtime-capacity.md): connection admission, application deadlines, retained-work lifecycle, provider observability and workload qualification.
 - [production-db-backup-and-recovery.md](./production-db-backup-and-recovery.md): production DB recovery guide.
+- [source-snapshot-rollback.md](./source-snapshot-rollback.md): recover main source, UAT/production traffic, TestFlight, iOS and Android releases through their governed lanes; includes pinned AgentOne backup snapshots.
 - [hussh-code-persona.md](./hussh-code-persona.md): durable Hussh engineering and Codex product non-deviation contract.
 - [coding-agent-mcp.md](./coding-agent-mcp.md): MCP host operations for local engineering environments.
 - [subtree-maintainers.md](./subtree-maintainers.md): maintainer-only subtree sync and upstream coordination.

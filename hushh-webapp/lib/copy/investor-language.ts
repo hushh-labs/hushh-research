@@ -55,7 +55,7 @@ export function toInvestorMessage(
     case "VAULT_UNLOCK_FAILED":
       return "We could not unlock your Vault. Please confirm your details and try again.";
     case "VAULT_PASSKEY_ENROLL_REQUIRED":
-      return "This passkey was enrolled under an older domain. Use your passphrase once, then enable passkey again for one.hushh.ai.";
+      return "This passkey was enrolled under an older domain. Use your password once, then enable passkey again for one.hushh.ai.";
     case "MARKET_DATA_UNAVAILABLE":
       return "Live market information is temporarily unavailable. Showing the latest available view.";
     case "ANALYSIS_UNAVAILABLE":
@@ -84,7 +84,7 @@ export function toInvestorVaultUnlockError(value: unknown): string {
     lowered.includes("relying party id is not a registrable domain suffix") ||
     lowered.includes(".well-known/webauthn")
   ) {
-    return "This passkey is registered for a different site. Open the site where you enrolled it, or use your Passphrase or Recovery key below.";
+    return "This passkey is registered for a different site. Open the site where you enrolled it, or use your Password or Recovery key below.";
   }
 
   if (
@@ -140,6 +140,10 @@ export function toInvestorVaultUnlockError(value: unknown): string {
     lowered.includes("did not match")
   ) {
     return "That recovery key did not match. Please try again.";
+  }
+
+  if (lowered.includes("vault unlock method is not configured")) {
+    return "Password unlock is not set up for this vault yet. Use your Vault Key or Recovery key below.";
   }
 
   return toInvestorMessage("VAULT_UNLOCK_FAILED");

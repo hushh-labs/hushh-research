@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
+import { act, render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 
 import { ReferralsPanel } from "@/components/profile/referrals-panel";
 import { ApiError } from "@/lib/services/api-client";
@@ -30,6 +30,7 @@ vi.mock("@/lib/firebase/auth-context", () => {
  */
 
 const summary: ReferralSummary = {
+  joined_count: 5,
   slug: "ankit-7k4m",
   link: "https://uat.one.hushh.ai/r/ankit-7k4m",
   qualified_count: 3,
@@ -70,6 +71,7 @@ function mockSummary(value: Partial<ReferralSummary> = {}) {
  * test that only cares about ONE section does not have to mock all six.
  */
 function mockGamificationDefaults() {
+  vi.spyOn(ReferralService, "getPoints").mockResolvedValue({ points: 100, coins: 100 });
   vi.spyOn(ReferralService, "getLeaderboard").mockResolvedValue({
     snapshot_generated_at: null,
     entries: [],
@@ -78,7 +80,7 @@ function mockGamificationDefaults() {
   });
   vi.spyOn(ReferralService, "getCircleLeaderboard").mockResolvedValue({ teams: [] });
   vi.spyOn(ReferralService, "getMilestones").mockResolvedValue({
-    lifetime_qualified_count: 0,
+    joined_referral_count: 0,
     earned: [],
     next_milestone: null,
   });
@@ -102,6 +104,17 @@ afterEach(() => {
 });
 
 describe("ReferralsPanel", () => {
+  it("uses the approved neutral and accent artwork in the Profile pane", async () => {
+    mockSummary();
+    render(<ReferralsPanel panePresentation />);
+    await screen.findByRole("button", { name: "Copy" });
+    const row = screen.getByText(summary.slug).closest("[data-row-layout]");
+    const svg = row?.querySelector("[data-slot=settings-row-icon] svg");
+    expect(svg).toHaveAttribute("viewBox", "0 0 24 24");
+    expect(svg).toHaveAttribute("stroke", "currentColor");
+    expect(svg?.querySelector(".profile-pane-icon-accent, .profile-pane-icon-accent-fill")).not.toBeNull();
+  });
+
   it("shows the server's counts, never a number it worked out itself", async () => {
     mockSummary();
     render(<ReferralsPanel />);
@@ -282,10 +295,10 @@ describe("ReferralsPanel", () => {
     render(<ReferralsPanel />);
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
 
-    document.dispatchEvent(new Event("visibilitychange"));
+    await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
 
-    window.dispatchEvent(new Event("focus"));
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(3));
   });
 
@@ -338,7 +351,7 @@ describe("ReferralsPanel gamification", () => {
     await waitFor(() =>
       expect(screen.getByTestId("referral-overall-rank").textContent).toBe("#47"),
     );
-    expect(screen.getByTestId("referral-cumulative-points").textContent).toBe("20");
+    expect(screen.getByTestId("referral-cumulative-points").textContent).toBe("100");
   });
 
   it("shows 'Not yet ranked' rather than a fabricated rank with no snapshot", async () => {
@@ -374,7 +387,7 @@ describe("ReferralsPanel gamification", () => {
   it("shows progress toward the next milestone", async () => {
     mockSummary();
     vi.spyOn(ReferralService, "getMilestones").mockResolvedValue({
-      lifetime_qualified_count: 3,
+      joined_referral_count: 3,
       earned: [],
       next_milestone: { milestone_key: "tee_5", threshold: 5, reward: "Hushh tee", progress: 3 },
     });
@@ -388,7 +401,7 @@ describe("ReferralsPanel gamification", () => {
   it("lists earned merchandise", async () => {
     mockSummary();
     vi.spyOn(ReferralService, "getMilestones").mockResolvedValue({
-      lifetime_qualified_count: 5,
+      joined_referral_count: 5,
       earned: [{ milestone_key: "tee_5", reward: "Hushh tee", earned_at: "2026-10-01T00:00:00Z" }],
       next_milestone: null,
     });
@@ -396,7 +409,7 @@ describe("ReferralsPanel gamification", () => {
     render(<ReferralsPanel />);
 
     await waitFor(() => expect(screen.getByText("Hushh tee")).toBeTruthy());
-    expect(screen.getByText("Every reward earned")).toBeTruthy();
+    expect(screen.getByText("All milestones reached")).toBeTruthy();
   });
 
   it("shows streak progress only while a streak is live", async () => {
@@ -408,8 +421,8 @@ describe("ReferralsPanel gamification", () => {
 
     render(<ReferralsPanel />);
 
-    await waitFor(() => expect(screen.getByText("Referral streak")).toBeTruthy());
-    expect(screen.getByText("2 of 3 days")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("Dashboard streak")).toBeTruthy());
+    expect(screen.getByText("2 consecutive days")).toBeTruthy();
   });
 
   it("hides the engagement section with no live streak and no active flash", async () => {

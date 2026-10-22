@@ -44,6 +44,7 @@ export function useReferralStream(
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let attempt = 0;
     const controller = new AbortController();
+    let activeReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
     const scheduleReconnect = () => {
       if (cancelled) return;
@@ -67,12 +68,18 @@ export function useReferralStream(
         });
 
         if (!response.ok || !response.body) throw new Error("stream_unavailable");
-        if (cancelled) return;
+        if (cancelled) {
+          await response.body.cancel();
+          return;
+        }
 
         attempt = 0;
         setConnected(true);
+        // Recover changes missed between the last read and this subscription.
+        onChangeRef.current();
 
         const reader = response.body.getReader();
+        activeReader = reader;
         const decoder = new TextDecoder();
         let buffer = "";
 
@@ -83,14 +90,14 @@ export function useReferralStream(
           if (done || cancelled) break;
 
           buffer += decoder.decode(value, { stream: true });
-          let boundary = buffer.indexOf("\n\n");
-          while (boundary !== -1) {
-            const frame = buffer.slice(0, boundary);
-            buffer = buffer.slice(boundary + 2);
-            if (frame.includes("event: referral_changed")) {
+          let boundary = /\r?\n\r?\n/.exec(buffer);
+          while (boundary) {
+            const frame = buffer.slice(0, boundary.index);
+            buffer = buffer.slice(boundary.index + boundary[0].length);
+            if (frame.split(/\r?\n/).some((line) => line === "event: referral_changed")) {
               onChangeRef.current();
             }
-            boundary = buffer.indexOf("\n\n");
+            boundary = /\r?\n\r?\n/.exec(buffer);
           }
         }
 
@@ -103,6 +110,9 @@ export function useReferralStream(
           setConnected(false);
           scheduleReconnect();
         }
+      } finally {
+        activeReader?.releaseLock();
+        activeReader = null;
       }
     };
 
@@ -113,6 +123,9 @@ export function useReferralStream(
       setConnected(false);
       if (reconnectTimer) clearTimeout(reconnectTimer);
       controller.abort();
+      // The transport may detach the caller signal after response headers.
+      // Cancel the body explicitly so navigation always releases the socket.
+      void activeReader?.cancel().catch(() => {});
     };
   }, [user]);
 

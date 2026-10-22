@@ -217,7 +217,7 @@ describe("VaultFlow quick-unlock trust (native: automatic only after a success o
 
     render(<VaultFlow user={user} onSuccess={vi.fn()} />);
 
-    expect(await screen.findByLabelText("Vault passphrase")).toBeTruthy();
+    expect(await screen.findByLabelText("Vault password")).toBeTruthy();
     expect(screen.getByTestId("vault-use-passkey-escape")).toBeTruthy();
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(unlockGeneratedDefaultVaultMock).not.toHaveBeenCalled();
@@ -248,7 +248,7 @@ describe("VaultFlow quick-unlock trust (native: automatic only after a success o
 
     render(<VaultFlow user={user} onSuccess={vi.fn()} />);
 
-    expect(await screen.findByLabelText("Vault passphrase")).toBeTruthy();
+    expect(await screen.findByLabelText("Vault password")).toBeTruthy();
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(unlockGeneratedDefaultVaultMock).not.toHaveBeenCalled();
   });
@@ -280,7 +280,7 @@ describe("VaultFlow quick-unlock trust (native: automatic only after a success o
 
     render(<VaultFlow user={user} onSuccess={vi.fn()} />);
 
-    const field = await screen.findByLabelText("Vault passphrase");
+    const field = await screen.findByLabelText("Vault password");
     fireEvent.change(field, { target: { value: "wrong-passphrase" } });
     fireEvent.click(screen.getByRole("button", { name: "Unlock" }));
 
@@ -299,7 +299,7 @@ describe("VaultFlow quick-unlock trust (native: automatic only after a success o
 
     render(<VaultFlow user={user} onSuccess={vi.fn()} />);
 
-    expect(await screen.findByLabelText("Vault passphrase")).toBeTruthy();
+    expect(await screen.findByLabelText("Vault password")).toBeTruthy();
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(unlockGeneratedDefaultVaultMock).not.toHaveBeenCalled();
     spy.mockRestore();

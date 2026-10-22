@@ -226,7 +226,7 @@ Required checks once UAT native builds exist:
 
 Device-debug reminder from Google:
 
-- debug-mode events are excluded from overall Analytics data and from the daily BigQuery export
+- debug-mode events are excluded from overall Analytics reporting but can enter daily BigQuery exports; reporting queries must explicitly filter debug_mode
 - use them for validation, not for KPI counting
 
 Reference:
@@ -239,7 +239,7 @@ GA Admin API proof:
 
 1. production property `526603671` has a BigQuery link
 2. UAT property `533362555` has a BigQuery link
-3. production export streams include only the three Kai prod streams and exclude `HushhVoice`
+3. production export streams include the three legacy Kai production streams plus replacement Android `15395548050`, and exclude `HushhVoice`
 4. UAT export streams include the three UAT streams
 
 Project-side proof:
@@ -339,4 +339,25 @@ Kai growth analytics is only considered production-grade when all of these are t
 7. the growth dashboard is fed from modeled BigQuery results rather than raw GA cards
 8. Looker Studio tiles include KPI and instrumentation-health views
 
-Production dashboard confidence is blocked until `analytics_526603671` is visible with current event tables or the production export materialization issue is explicitly remediated.
+The original production export materialization blocker is resolved. Replacement Android ingestion requires its own package/stream-specific exported rows; legacy iOS, web or Android rows do not prove it.
+
+## Android release analytics
+
+- Native custom events use `App.getInfo().version` and bounded `app_build`
+  metadata from the installed binary; the web package version is not an Android
+  release identifier. Native metadata failure reports `unknown`.
+- The native adapter applies the same explicit reviewer-automation guard as the
+  web adapter. This protects custom events; it does not disable Firebase SDK
+  automatic lifecycle events or introduce a new consent policy.
+- BigQuery capture requires the new package `com.hussh.app`, Firebase Android app
+  `1:1006304528804:android:55bde832bb50240acfd931`, and exported stream `15395548050`.
+- GA4 `first_open` is first launch after installation/reinstallation, not a Play
+  download. Store installs and acquisition require Play's own aggregate reports.
+- Per Firebase's current [DebugView documentation](https://firebase.google.com/docs/analytics/debugview),
+  debug events can enter daily BigQuery exports unless filtered. Debug mode by
+  itself is not a customer-reporting exclusion. Android dashboard queries exclude
+  explicit debug events. Never synthesize production events for verification.
+- A successful build or mocked plugin test does not prove a device journey. Bind
+  live evidence to installed package, native version/build, installer, reporting
+  stream, backend environment and exact measurement dates. No device was attached
+  during the 7 October local audit.

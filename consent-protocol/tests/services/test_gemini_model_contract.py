@@ -1,18 +1,11 @@
-"""Pins the Gemini generation contract to the live probe of 2026-09-14.
+"""Offline Gemini adapter contracts for the supported release pair.
 
-Measured matrix (each supported model, each check):
-  baseline                 accept 200
-  thinking_level LOW       accept 200
-  thinking_level MEDIUM    accept 200
-  thinking_level HIGH      accept 200
-  thinking_level MINIMAL   reject 400 INVALID_ARGUMENT
-                           "Thinking level is unsupported: THINKING_LEVEL_MINIMAL"
-  temperature 0.2          accept 200 (silent acceptance; the field no longer means anything)
-  function_response no id  accept 200 (the model returns function_call.id)
-  function_response id     accept 200 (id and name echoed back)
-
-The adapter therefore strips the sampling fields, passes LOW / MEDIUM / HIGH through,
-maps MINIMAL to LOW, and leaves every other model id untouched.
+Historical 3.7 probes established its generation and thinking behavior. On
+2026-10-15, 3.8 returned the expected short response under the UAT runtime
+identity, passed a bounded structured quality task, and accepted LOW thinking
+with the expected synthetic tool arguments. Only global is admitted for 3.8.
+MINIMAL-to-LOW is the shared adapter policy; these tests do not claim that raw
+MINIMAL, MEDIUM or HIGH were newly measured on 3.8.
 """
 
 from __future__ import annotations
@@ -35,20 +28,104 @@ SUPPORTED = gemini_config.SUPPORTED_GEMINI_TEXT_MODELS
 # unmeasured stays global-only.
 MEASURED = {
     "gemini-3.7-flash": ("global", "us", "eu"),
-    "gemini-3.6-flash": ("global", "us", "eu"),
+    "gemini-3.8-flash": ("global",),
 }
 ACCEPTED_LEVELS = ("LOW", "MEDIUM", "HIGH")
 
 
+def test_local_cli_credentials_are_explicit_refreshable_and_never_hosted(monkeypatch):
+    from datetime import datetime, timezone
+
+    from google.auth.exceptions import RefreshError
+
+    from hushh_mcp.runtime_providers import local_credentials
+
+    monkeypatch.delenv("HUSHH_LOCAL_GCLOUD_ACCOUNT", raising=False)
+    assert local_credentials.local_cli_credentials() is None
+    monkeypatch.setenv("HUSHH_LOCAL_GCLOUD_ACCOUNT", "reviewer@example.test")
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("APP_RUNTIME_PROFILE", "local")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.delenv("K_SERVICE", raising=False)
+    monkeypatch.setattr(local_credentials.shutil, "which", lambda _: "resolved-gcloud")
+    calls = []
+
+    def run(args, **kwargs):
+        calls.append((args, kwargs))
+        return SimpleNamespace(stdout="synthetic-token")
+
+    monkeypatch.setattr(local_credentials.subprocess, "run", run)
+    credentials = local_credentials.local_cli_credentials()
+
+    def request(**kwargs):
+        assert "synthetic-token" not in kwargs["url"]
+        assert kwargs["method"] == "POST"
+        assert kwargs["timeout"] == 10
+        return SimpleNamespace(
+            status=200, data=b'{"email":"reviewer@example.test","expires_in":900}'
+        )
+
+    credentials.refresh(request)
+    assert credentials.token == "synthetic-token"
+    assert credentials.expiry > datetime.now(timezone.utc).replace(tzinfo=None)
+    assert "--account=reviewer@example.test" in calls[0][0]
+    assert calls[0][1]["timeout"] == 15
+    assert "synthetic-token" not in str(calls)
+    for data in (
+        b'{"email":"wrong@example.test","expires_in":900}',
+        b'{"email":"reviewer@example.test","expires_in":100}',
+        b"not-json",
+    ):
+        with pytest.raises(RefreshError, match="reauthentication"):
+            credentials.refresh(lambda data=data, **kwargs: SimpleNamespace(status=200, data=data))
+    monkeypatch.setenv("K_SERVICE", "hosted")
+    with pytest.raises(RuntimeError, match="local runtime"):
+        local_credentials.local_cli_credentials()
+    monkeypatch.delenv("K_SERVICE")
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    with pytest.raises(RuntimeError, match="local runtime"):
+        local_credentials.local_cli_credentials()
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setattr(local_credentials.shutil, "which", lambda _: None)
+    with pytest.raises(RefreshError, match="unavailable"):
+        credentials.refresh(None)
+
+
+def test_managed_clients_keep_local_identity_across_regional_failover(monkeypatch):
+    from hushh_mcp.runtime_providers import factory
+
+    marker = object()
+    monkeypatch.setattr(factory, "local_cli_credentials", lambda: marker)
+    calls = []
+    monkeypatch.setattr(
+        "google.genai.Client", lambda **kwargs: calls.append(kwargs) or SimpleNamespace()
+    )
+    binding = ManagedGeminiRuntimeBinding(
+        project="synthetic-project", locations=("global", "us"), auth_mode="vertex_adc"
+    )
+    client = binding.build_direct_client()
+    client._client_for("us")
+    assert [call["credentials"] for call in calls] == [marker, marker]
+    monkeypatch.setattr("google.adk.models.Gemini", lambda **kwargs: SimpleNamespace(**kwargs))
+    assert binding.build_adk_model(GEMINI_MODEL).client_kwargs["credentials"] is marker
+    monkeypatch.setattr(
+        factory, "_regional_gemini_type", lambda: lambda **kwargs: SimpleNamespace(**kwargs)
+    )
+    monkeypatch.setattr(factory, "_REGIONAL_ADK_CLIENTS", {})
+    regional = binding.build_regional_adk_model("gemini-3.7-flash")
+    regional.regional_client._client_for("global")
+    assert calls[-1]["credentials"] is marker
+
+
 def test_supported_ids_are_exactly_the_two_measured_releases() -> None:
-    assert SUPPORTED == ("gemini-3.7-flash", "gemini-3.6-flash")
+    assert SUPPORTED == ("gemini-3.8-flash", "gemini-3.7-flash")
     assert GEMINI_MODEL in SUPPORTED
     for model in SUPPORTED:
         assert gemini_config.is_supported_gemini_text_model(model)
         assert gemini_config.is_supported_gemini_text_model(f"models/{model}")
         assert gemini_config.is_supported_gemini_text_model(model.upper())
     for other in (
-        "gemini-3.8-flash",
+        "gemini-3.6-flash",
         "gemini-3.1-pro-preview",
         "gemini-3.8-flash-live-preview",
         "gemini-3.1-flash-lite",
@@ -116,8 +193,8 @@ def test_supported_model_passes_accepted_thinking_levels_through(model: str, lev
 
 @pytest.mark.parametrize("model", SUPPORTED)
 def test_supported_model_maps_minimal_to_low(model: str) -> None:
-    # MINIMAL: 3.7 measured reject 400 INVALID_ARGUMENT, 3.6 measured accept (2026-09-25);
-    # the adapter maps it to LOW for both so the fleet keeps one thinking floor.
+    # The adapter keeps one LOW thinking floor; the bounded 3.8 LOW tool probe
+    # passed on 2026-10-15. This test does not assert raw-provider MINIMAL support.
     sdk_cfg = genai_types.ThinkingConfig(
         thinking_level=genai_types.ThinkingLevel.MINIMAL,
         include_thoughts=True,
@@ -163,7 +240,7 @@ def test_supported_model_drops_a_minimal_config_it_cannot_rebuild(model: str) ->
 
 def test_unsupported_ids_pass_through_unchanged() -> None:
     minimal = genai_types.ThinkingConfig(thinking_level=genai_types.ThinkingLevel.MINIMAL)
-    for model in ("gemini-3.1-flash-lite", "gemini-3.8-flash", "gemini-3.1-pro-preview", None):
+    for model in ("gemini-3.1-flash-lite", "gemini-3.6-flash", "gemini-3.1-pro-preview", None):
         result = generation_config_kwargs(
             model,
             temperature=0,
@@ -256,7 +333,7 @@ def test_managed_binding_filters_unsupported_failover_locations() -> None:
     )
     for model in SUPPORTED:
         # Configured order is kept; an unmeasured endpoint is never used for failover.
-        assert binding.locations_for_model(model) == ("global", "us", "eu")
+        assert binding.locations_for_model(model) == MEASURED[model]
 
 
 def test_managed_binding_keeps_configured_order_for_a_measured_model(
@@ -295,7 +372,8 @@ def test_managed_binding_fails_when_global_is_not_configured() -> None:
         locations=("us", "eu"),
         auth_mode="vertex_adc",
     )
-    for model in SUPPORTED:
-        assert binding.locations_for_model(model) == ("us", "eu")
+    assert binding.locations_for_model("gemini-3.7-flash") == ("us", "eu")
+    with pytest.raises(RuntimeError, match="no configured supported Vertex location"):
+        binding.locations_for_model("gemini-3.8-flash")
     with pytest.raises(RuntimeError, match="no configured supported Vertex location"):
         binding.locations_for_model("gemini-embedding-001")

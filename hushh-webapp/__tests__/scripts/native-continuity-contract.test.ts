@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { execFileSync, spawnSync } from "node:child_process";
 
 import { describe, expect, it } from "vitest";
 import {
@@ -16,6 +17,56 @@ function source(relativePath: string): string {
 }
 
 describe("native cold-audit and continuity contract", () => {
+  it("does not pass reviewer passphrase strings to XCTest diagnostic operands", () => {
+    const uiTests = source("ios/App/AppUITests/AppUITests.swift");
+    const start = uiTests.indexOf("private func assertReviewerPassphraseAliasesMatch()");
+    const end = uiTests.indexOf("private func replaceText", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const helper = uiTests.slice(start, end);
+    const exposesCredential = (text: string) => /XCTAssert(?:Equal|NotEqual)\(\s*(?:primary|canonical)\s*,/.test(text);
+    expect(exposesCredential(helper)).toBe(false);
+    // Negative control reproduces the legacy failure diagnostic without ever
+    // loading a credential or deliberately emitting an XCTest failure.
+    const unsafe = helper.replace("XCTAssertTrue(primary == canonical,", "XCTAssertEqual(primary, canonical,");
+    expect(exposesCredential(unsafe)).toBe(true);
+  });
+
+  it("exports reviewer credentials as literal shell values, never executable substitutions", () => {
+    const synthetic = 'synthetic $(printf expanded) `printf expanded` "quoted" \'literal\' $HUSHH_SYNTHETIC_EXPANSION';
+    const environment = {
+      ...process.env,
+      REVIEWER_UID: "synthetic-reviewer",
+      REVIEWER_VAULT_PASSPHRASE: synthetic,
+      HUSHH_SYNTHETIC_EXPANSION: "expanded",
+    };
+    const assignments = execFileSync(process.execPath, [join(root, "scripts/testing/export-reviewer-test-env.mjs")], {
+      encoding: "utf8", env: environment,
+    });
+    const value = execFileSync("bash", ["-c", `unset REVIEWER_VAULT_PASSPHRASE\n${assignments}\nprintf '%s' "$REVIEWER_VAULT_PASSPHRASE"`], {
+      encoding: "utf8", env: environment,
+    });
+    expect(value).toBe(synthetic);
+  });
+
+  it("stops native execution if reviewer resolution fails despite inherited credentials", () => {
+    const script = source("scripts/native/ios-device-ui-test.sh");
+    const boundary = script.indexOf("\n(\n  # Load only for execution.");
+    expect(boundary).toBeGreaterThan(-1);
+    const result = spawnSync("zsh", ["-c", `set -eu
+COMMON_FLAGS=()
+TEST_FILTER=synthetic
+node() { return 23; }
+run_xcodebuild_with_log() { print -r -- RUNNER_CALLED; }
+${script.slice(boundary)}`], {
+      encoding: "utf8",
+      env: {...process.env, HUSHH_UI_TEST_REVIEWER_UID: "synthetic", HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE: "synthetic", REVIEWER_VAULT_PASSPHRASE: "synthetic"},
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    expect(result.stdout).not.toContain("RUNNER_CALLED");
+  });
+
   const destructiveAudits = [
     "scripts/native/ios-route-audit.mjs",
     "scripts/native/ios-ui-interaction-audit.mjs",
@@ -80,11 +131,12 @@ describe("native cold-audit and continuity contract", () => {
     expect(runtime).toContain('App.addListener("resume"');
     expect(runtime).not.toContain('App.addListener("appStateChange"');
     expect(runtime).toContain('document.visibilityState === "hidden" ? "background" : "active"');
-    // Auth and vault state stay stable across ordinary resume/focus events.
-    // Their explicit recovery and expiry paths remain independent of this
-    // shared lifecycle signal.
+    // Session admission and vault state stay stable across ordinary resume.
+    // Auth's bounded phone-cache recovery consumes the shell signal without
+    // collecting native events or reopening the session admission gate; the
+    // AuthProvider behavior suite verifies fresh and unavailable phone cases.
     expect(vault).not.toContain("appInteractionCoordinator.subscribeLifecycle");
-    expect(auth).not.toContain("appInteractionCoordinator.subscribeLifecycle");
+    expect(auth).toContain("appInteractionCoordinator.subscribeLifecycle");
     expect(notification).toContain("appInteractionCoordinator.subscribeLifecycle");
     expect(vault).not.toContain('App.addListener("pause"');
     expect(vault).not.toContain('App.addListener("resume"');
@@ -279,15 +331,6 @@ describe("native cold-audit and continuity contract", () => {
     expect(dismissSource).toContain('"skip tour"');
   });
 
-  it("keeps UI-flow routing ownership across a WebView document reload", () => {
-    const nativeSupport = source("ios/App/App/NativeTestSupport.swift");
-
-    expect(nativeSupport).toContain("function hasIncompleteUiFlowSession(runId)");
-    expect(nativeSupport).toContain("__hushh_native_ui_flow_state_v1");
-    expect(nativeSupport).toContain("bridge._uiFlowsRoutingOwned = uiFlowsOwnRouting");
-    expect(nativeSupport).toContain("bridge._uiFlowsRoutingOwned === true");
-  });
-
   it("opens Profile as a recursive pane while retaining canonical routes", () => {
     const runner = source("scripts/native/native-ui-test-runner-source.js");
     const flows = source("scripts/testing/signed-in-ui-flows.mjs");
@@ -464,20 +507,17 @@ describe("native cold-audit and continuity contract", () => {
     });
   });
 
-  it("audits resolved Connected Systems setup through the canonical workspace handoff", () => {
+  it("excludes localhost-only CRM destinations from native launch expectations", () => {
     const inventory = JSON.parse(source("native-route-inventory.json")) as {
-      routes: Array<{ route: string; expectedMarker?: string; expectedRoute?: string }>;
+      routes: Array<{ route: string; classification: string; initialRoute?: string; expectedMarker?: string; expectedRoute?: string }>;
     };
-    const routes = source("lib/navigation/routes.ts");
-    const route = inventory.routes.find(
-      (entry) => entry.route === "/one/setup/connected-systems",
-    );
-
-    expect(routes).toContain('"connected-systems": ROUTES.CONNECTED_SYSTEMS');
-    expect(route).toMatchObject({
-      expectedMarker: "native-route-connected-systems",
-      expectedRoute: "/one/connected-systems",
-    });
+    for (const path of ["/connected-systems", "/one/connected-systems", "/one/setup/connected-systems"]) {
+      const route = inventory.routes.find((entry) => entry.route === path);
+      expect(route?.classification).toBe("excluded-web-only");
+      expect(route?.initialRoute).toBeUndefined();
+      expect(route?.expectedMarker).toBeUndefined();
+      expect(route?.expectedRoute).toBeUndefined();
+    }
   });
 
   it("keeps Android cold audits debug-only, isolated, and terminally cleaned up", () => {

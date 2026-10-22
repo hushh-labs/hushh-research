@@ -13,7 +13,6 @@ import {
 } from "@/components/icons";
 import { toast } from "sonner";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
@@ -24,6 +23,7 @@ import {
 import {
   buildPhoneMandateRoute,
   buildProfileVaultRoute,
+  ROUTES,
 } from "@/lib/navigation/routes";
 import { bootstrapCurrentUserLocationRecipientKey } from "@/lib/one-location/key-bootstrap";
 import { OneLocationService } from "@/lib/one-location/service";
@@ -56,6 +56,18 @@ function formatDateTime(value?: string | null): string {
 
 function ownerLabel(invite: OneLocationCircleInvite | null): string {
   return invite?.ownerLabel || "a trusted person";
+}
+
+function InviterIdentity({ label }: { label: string }) {
+  // Legacy labels append an ASCII asterisk mask. Render a consistent mask on
+  // one baseline, keeping the name and suffix separate at narrow widths.
+  const match = label.match(/^(?:(.*?)\s*[-–—]\s*)?[*•●xX]{2,}\s*(\d{4})\s*$/u);
+  return (
+    <span className="inline-flex max-w-full flex-wrap items-baseline gap-x-2 gap-y-1">
+      <span className="min-w-0 [overflow-wrap:anywhere]">{match ? match[1]?.trim() || "A trusted person" : label}</span>
+      {match ? <span className="inline-block whitespace-nowrap tabular-nums" aria-label={`Phone ending in ${match[2]}`}>•••• {match[2]}</span> : null}
+    </span>
+  );
 }
 
 function loginHref(returnTo: string): string {
@@ -98,20 +110,23 @@ export default function OneLocationCircleInvitePageClient({
     [token, params?.token],
   );
   const invitePath = returnTo ?? `/one/location/invite/${encodeURIComponent(inviteToken)}`;
-  const claimScope = useRef({ active: true });
+  const claimScope = useRef({ active: true, busy: false });
   useEffect(() => {
-    const scope = { active: true };
+    const scope = { active: true, busy: false };
     claimScope.current = scope;
     return () => { scope.active = false; };
   }, [auth.userId, inviteToken]);
   const [invite, setInvite] = useState<OneLocationCircleInvite | null>(null);
   const [loading, setLoading] = useState(true);
+  const [inviteLoadAttempt, setInviteLoadAttempt] = useState(0);
   const [unavailable, setUnavailable] = useState(false);
   const [claiming, setClaiming] = useState(false);
   const [claimed, setClaimed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [claimError, setClaimError] = useState<string | null>(null);
   const [checkingPhone, setCheckingPhone] = useState(false);
+  const [phoneCheckError, setPhoneCheckError] = useState(false);
+  const [phoneCheckAttempt, setPhoneCheckAttempt] = useState(0);
   const [phoneVerificationRequired, setPhoneVerificationRequired] =
     useState(false);
 
@@ -151,7 +166,7 @@ export default function OneLocationCircleInvitePageClient({
     return () => {
       cancelled = true;
     };
-  }, [inviteToken]);
+  }, [inviteToken, inviteLoadAttempt]);
 
   useEffect(() => {
     if (!auth.user || !auth.userId || auth.loading) {
@@ -162,9 +177,15 @@ export default function OneLocationCircleInvitePageClient({
 
     let cancelled = false;
     setCheckingPhone(true);
+    setPhoneCheckError(false);
+    setPhoneVerificationRequired(false);
     void AccountIdentityService.syncCurrentUser(auth.user)
       .then((identity) => {
         if (cancelled) return;
+        if (typeof identity?.phone_verified !== "boolean") {
+          setPhoneCheckError(true);
+          return;
+        }
         setPhoneVerificationRequired(
           !AccountIdentityService.hasVerifiedPhone(identity),
         );
@@ -172,7 +193,7 @@ export default function OneLocationCircleInvitePageClient({
       .catch((syncError) => {
         if (cancelled) return;
         console.warn("[OneLocationInvite] Failed to check account identity:", syncError);
-        setPhoneVerificationRequired(false);
+        setPhoneCheckError(true);
       })
       .finally(() => {
         if (!cancelled) setCheckingPhone(false);
@@ -181,11 +202,13 @@ export default function OneLocationCircleInvitePageClient({
     return () => {
       cancelled = true;
     };
-  }, [auth.loading, auth.user, auth.userId]);
+  }, [auth.loading, auth.user, auth.userId, phoneCheckAttempt]);
 
   const handleClaim = useCallback(async () => {
-    if (!auth.userId || !vaultOwnerToken) return;
+    if (!auth.userId || !vaultOwnerToken || checkingPhone || phoneCheckError || phoneVerificationRequired) return;
     const scope = claimScope.current;
+    if (scope.busy) return;
+    scope.busy = true;
     setClaiming(true);
     setClaimError(null);
     setPhoneVerificationRequired(false);
@@ -238,9 +261,10 @@ export default function OneLocationCircleInvitePageClient({
       }
       toast.error(message);
     } finally {
+      scope.busy = false;
       if (scope.active) setClaiming(false);
     }
-  }, [auth.user, auth.userId, inviteToken, router, vaultOwnerToken, vaultKey]);
+  }, [auth.user, auth.userId, inviteToken, router, vaultOwnerToken, vaultKey, checkingPhone, phoneCheckError, phoneVerificationRequired]);
 
   // The glyph in this bubble already switches between three opposite
   // meanings; the bubble itself used to stay action-blue through all of
@@ -261,7 +285,7 @@ export default function OneLocationCircleInvitePageClient({
     isVaultUnlocked &&
     Boolean(vaultOwnerToken) &&
     !claimed &&
-    !phoneVerificationRequired;
+    !phoneVerificationRequired && !checkingPhone && !phoneCheckError;
 
   if (!hydrated || auth.loading) return <HushhLoader label="Checking your account" />;
 
@@ -290,10 +314,10 @@ export default function OneLocationCircleInvitePageClient({
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
-                Location
+                Invitation
               </div>
               <h1 className="ui-text-agent-title mt-1">
-                Join One
+                Connect on One
               </h1>
               <p className="mt-3 text-[15px] font-normal leading-[20px] text-muted-foreground">
                 {loading
@@ -302,7 +326,7 @@ export default function OneLocationCircleInvitePageClient({
                     ? error
                     : claimed
                       ? "You're connected on One."
-                      : `${ownerLabel(invite)} invited you to One.`}
+                      : <><InviterIdentity label={ownerLabel(invite)} /><span className="mt-1 block">invited you to connect.</span></>}
               </p>
             </div>
           </div>
@@ -315,28 +339,26 @@ export default function OneLocationCircleInvitePageClient({
             </div>
           ) : null}
 
+          {!loading && !invite ? (
+            unavailable ? (
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">Ask the person who invited you for a new link.</p>
+                <Button asChild className="min-h-11 w-full rounded-full"><Link href={ROUTES.ONE_HOME}>Open One</Link></Button>
+              </div>
+            ) : <Button onClick={() => setInviteLoadAttempt((attempt) => attempt + 1)} className="min-h-11 w-full rounded-full">Try again</Button>
+          ) : null}
+
           {!loading && invite ? (
             <div className="space-y-4">
-              <div className="flex flex-wrap items-center gap-2 text-[13px]">
-                <Badge variant="secondary">
-                  Expires {formatDateTime(invite.expiresAt)}
-                </Badge>
-                <Badge variant="outline">
-                  {invite.durationHours}h invite window
-                </Badge>
-              </div>
+              {invite.expiresAt ? <p className="text-[13px] text-muted-foreground">Expires {formatDateTime(invite.expiresAt)}</p> : null}
 
-              {invite.message ? (
-                <div className="rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-compact)] p-4 text-[15px] leading-5 text-muted-foreground">
+              {invite.message && !/^join me on one\.?$/i.test(invite.message.trim()) ? (
+                <p className="text-[15px] leading-5 text-muted-foreground [overflow-wrap:anywhere]">
                   {invite.message}
-                </div>
+                </p>
               ) : null}
 
-              <div className="rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-accent-tint)] p-4 text-[15px] leading-5 text-foreground">
-                Accepting connects both of you on One. Live location still starts only
-                when someone taps Share Location, confirms permission, and sends an
-                encrypted share from Location.
-              </div>
+              <p className="text-[15px] leading-5 text-muted-foreground">Your location stays private until you choose to share it.</p>
 
               {claimError ? (
                 <div
@@ -346,44 +368,48 @@ export default function OneLocationCircleInvitePageClient({
                 </div>
               ) : null}
 
-              {auth.loading || checkingPhone ? (
+              {phoneCheckError ? (
+                <div role="alert" className="space-y-2">
+                  <p className="text-sm text-muted-foreground">Couldn't check your account. Please try again.</p>
+                  <Button onClick={() => setPhoneCheckAttempt((attempt) => attempt + 1)} className="min-h-11 w-full rounded-full">Try again</Button>
+                </div>
+              ) : auth.loading || checkingPhone ? (
                 <Button disabled className="h-11 rounded-full">
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
                   {auth.loading ? "Checking sign in" : "Checking phone"}
                 </Button>
-              ) : !signedIn ? (
-                <Button asChild className="h-11 rounded-full">
-                  <Link href={loginHref(invitePath)}>
-                    <UserPlus className="mr-2 h-4 w-4" aria-hidden="true" />
-                    Sign in to join
-                  </Link>
-                </Button>
               ) : phoneVerificationRequired ? (
-                <Button asChild className="h-11 rounded-full">
+                <div className="space-y-2">
+                <Button asChild className="min-h-11 w-full rounded-full">
                   <Link href={buildPhoneMandateRoute(invitePath)}>
-                    <ShieldCheck className="mr-2 h-4 w-4" aria-hidden="true" />
-                    Verify phone to continue
+                    <UserPlus className="mr-2 h-4 w-4" aria-hidden="true" />
+                    Accept invitation
                   </Link>
                 </Button>
+                <p className="text-center text-[13px] text-muted-foreground">Verify your phone to accept this invitation.</p>
+                </div>
               ) : !isVaultUnlocked || !vaultOwnerToken ? (
-                <Button asChild className="h-11 rounded-full">
+                <div className="space-y-2">
+                <Button asChild className="min-h-11 w-full rounded-full">
                   <Link href={buildProfileVaultRoute(invitePath)}>
                     <ShieldCheck className="mr-2 h-4 w-4" aria-hidden="true" />
-                    Continue to Vault
+                    Accept invitation
                   </Link>
                 </Button>
+                <p className="text-center text-[13px] text-muted-foreground">Unlock your private place to continue.</p>
+                </div>
               ) : (
                 <Button
                   onClick={() => void handleClaim()}
                   disabled={!canClaim || claiming}
-                  className="h-11 rounded-full"
+                  className="min-h-11 w-full rounded-full"
                 >
                   {claiming ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
                   ) : (
                     <UserPlus className="mr-2 h-4 w-4" aria-hidden="true" />
                   )}
-                  Accept Invite
+                  {claiming ? "Accepting invitation…" : "Accept invitation"}
                 </Button>
               )}
             </div>

@@ -53,6 +53,27 @@ describe("getCalendarDirectiveFromToolEvent", () => {
     expect(runner).toContain('"one_calendar_action"');
   });
 
+  it("keeps generic Calendar recovery in chat instead of routing to the page", () => {
+    const source = readFileSync(join(process.cwd(), "components/agent/agent-chat-workspace.tsx"), "utf8");
+    const start = source.indexOf("const openConnectorSurface = useCallback(");
+    const block = source.slice(start, source.indexOf("const [recoveryCheckedForUid", start));
+    expect(block).not.toContain("router.push(ROUTES.CALENDAR)");
+    expect(block).toContain("calendarChatRecoveryRef.current()");
+  });
+
+  it("resumes Calendar through the full tool/directive handler path in an existing conversation", () => {
+    const source = readFileSync(join(process.cwd(), "components/agent/agent-chat-workspace.tsx"), "utf8");
+    const start = source.indexOf("calendarChatRecoveryRef.current = () => {");
+    const recovery = source.slice(start, source.indexOf("const submitComposerText", start));
+    expect(recovery).toContain("!conversationIdRef.current");
+    expect(recovery).toContain("runAgentTurn(");
+    expect(recovery).not.toContain("sendFollowUpTurn(");
+    const handlerStart = source.indexOf("const runAgentTurn = async");
+    const fullTurn = source.slice(handlerStart, source.indexOf("const sendFollowUpTurn = async", handlerStart));
+    expect(fullTurn).toContain("onToolResult:");
+    expect(fullTurn).toContain("onSpecialistDirective:");
+  });
+
   it("returns null for non-calendar tools", () => {
     const event = makeToolEvent("search_pkm", { results: [] });
     expect(getCalendarDirectiveFromToolEvent(event)).toBeNull();
@@ -327,15 +348,19 @@ describe("getGmailEmailDraftPayload", () => {
     });
   });
 
-  it("falls back to the bounded Email Draft Writer when One did not supply a body", () => {
+  it("retains a resolved recipient while the bounded Email Draft Writer fills the missing body", () => {
     const draft = getGmailEmailDraftPayload(
       makeToolEvent("open_gmail_email_draft", { status: "draft_opened" }, {
         request: "Send a hello email",
+        to: "pat@example.com",
+        cc: "other@example.com",
         subject: "Hello",
       }),
     );
 
-    expect(draft?.initialDraft).toBeNull();
+    expect(draft?.initialDraft).toEqual({
+      to: "pat@example.com", cc: "other@example.com", bcc: "", subject: "Hello", body: "",
+    });
   });
 });
 

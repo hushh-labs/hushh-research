@@ -72,8 +72,8 @@ export function RiaPrimaryWorkspaceShell({
 
   return (
     <RiaPrimaryWorkspaceContext.Provider value>
-      <AppPageShell as="main" fitContent width="agent">
-        <AppPageHeaderRegion className="pt-2 sm:pt-3">
+      <AppPageShell as="main" fitContent width="agent" headerContentSpacing="compact">
+        <AppPageHeaderRegion className="space-y-[var(--page-header-section-gap)]">
           <PageHeader
             title="Advisor"
             accent="ria"
@@ -81,7 +81,7 @@ export function RiaPrimaryWorkspaceShell({
             actionsInlineMobile
             className={RIA_AGENT_HEADER_CLASSNAME}
           />
-          <RiaRouteSelector className="mt-4 sm:mt-5" />
+          <RiaRouteSelector />
         </AppPageHeaderRegion>
         {children}
       </AppPageShell>
@@ -152,7 +152,7 @@ export function RiaPageShell({
     return (
       <>
         {nativeTest ? <NativeTestBeacon {...nativeTest} /> : null}
-        <AppPageContentRegion className={contentClassName}>
+        <AppPageContentRegion className={cn("mt-[var(--page-header-section-gap)]", contentClassName)}>
           <SurfaceStack className={stackClassName}>
             {statusPanel ? <div>{statusPanel}</div> : null}
             {children}
@@ -167,10 +167,11 @@ export function RiaPageShell({
       as="main"
       fitContent
       width={width}
+      headerContentSpacing={titleRole === "agent" ? "compact" : "standard"}
       className={className}
       nativeTest={nativeTest}
     >
-      <AppPageHeaderRegion className={cn("pt-2 sm:pt-3", headerClassName)}>
+      <AppPageHeaderRegion className={cn(titleRole === "agent" ? "space-y-[var(--page-header-section-gap)]" : "pt-2 sm:pt-3", headerClassName)}>
         <PageHeader
           eyebrow={eyebrow}
           title={title}
@@ -187,7 +188,7 @@ export function RiaPageShell({
           }
         />
         {showRouteSelector ? (
-          <RiaRouteSelector className="mt-4 sm:mt-5" />
+          <RiaRouteSelector className={titleRole === "agent" ? undefined : "mt-4 sm:mt-5"} />
         ) : null}
       </AppPageHeaderRegion>
 

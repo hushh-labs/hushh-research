@@ -21,6 +21,46 @@ WORKER_ROLLBACK = ROOT / "deploy" / "drive" / "rollback_after_worker_failure.sh"
 SCHEDULER_STATE = ROOT / "deploy" / "drive" / "verify_scheduler_state.py"
 
 
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [
+        ("test", "STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET STRIPE_CONNECT_WEBHOOK_SECRET"),
+        (
+            "live",
+            "STRIPE_LIVE_SECRET_KEY STRIPE_LIVE_WEBHOOK_SECRET STRIPE_LIVE_CONNECT_WEBHOOK_SECRET",
+        ),
+        ("production", None),
+    ],
+)
+def test_uat_stripe_mode_selects_isolated_secret_family(mode, expected):
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            "source deploy/drive/uat_stripe_bindings.sh && "
+            'printf "%s %s %s" "$STRIPE_UAT_KEY_SECRET" '
+            '"$STRIPE_UAT_WEBHOOK_SECRET" "$STRIPE_UAT_CONNECT_SECRET"',
+        ],
+        cwd=ROOT,
+        env={**os.environ, "STRIPE_UAT_MODE": mode},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if expected is None:
+        assert result.returncode != 0
+        assert result.stdout == ""
+    else:
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == expected
+    workflow = UAT_WORKFLOW.read_text()
+    worker = WORKER_RELEASE.read_text()
+    assert "source deploy/drive/uat_stripe_bindings.sh" in workflow
+    assert "source deploy/drive/uat_stripe_bindings.sh" in worker
+    assert "STRIPE_MODE=${STRIPE_UAT_MODE}" in workflow
+    assert "STRIPE_MODE=${STRIPE_UAT_MODE}" in worker
+
+
 def test_scheduler_targets_only_the_bounded_oidc_drain_and_never_mutates_runtime_iam():
     source = SCRIPT.read_text(encoding="utf-8")
 
@@ -34,13 +74,20 @@ def test_scheduler_targets_only_the_bounded_oidc_drain_and_never_mutates_runtime
     assert "--http-method=POST" in source
     assert '--message-body="{\\"stage\\":\\"${STAGE}\\"}"' in source
     for name, stage, cron in (
-        ("drive-work-drain-uat", "documents", "*/4 * * * *"),
-        ("drive-work-suggestions-uat", "suggestions", "2-59/4 * * * *"),
+        ("drive-work-drain-uat", "documents", "* * * * *"),
+        ("drive-work-suggestions-uat", "suggestions", "* * * * *"),
         ("drive-work-sharing-uat", "sharing", "* * * * *"),
     ):
         assert f'"${{JOB_NAME}}" == "{name}"' in source
         assert f'"${{STAGE}}" == "{stage}"' in source
         assert f'"${{CRON}}" == "{cron}"' in source
+    assert "2-59/4 * * * *" not in source
+
+    production_source = (ROOT / "deploy/drive/setup_work_drain_scheduler_prod.sh").read_text(
+        encoding="utf-8"
+    )
+    assert '"${CRON}" == "* * * * *"' in production_source
+    assert "2-59/4 * * * *" not in production_source
     assert "base64.b64decode(body, validate=True) != expected" in source
     assert "--oidc-service-account-email" in source
     assert "--oidc-token-audience" in source
@@ -142,7 +189,19 @@ def test_runtime_wires_exact_scheduler_identity_and_gates_production_activation(
     for name in names[1:]:
         assert f'_{name}: ""' in cloudbuild
 
-    assert "_DRIVE_WORK_DRAIN_ENABLED=true" in uat
+    assert (
+        "_DRIVE_WORK_DRAIN_ENABLED=${{ inputs.preserve_paused_drive_worker && 'false' || 'true' }}"
+    ) in uat
+    wake = next(
+        step
+        for step in yaml.safe_load(uat)["jobs"]["deploy"]["steps"]
+        if step.get("name") == "Verify prompt UAT Drive worker wake grant"
+    )
+    assert wake["if"] == (
+        "steps.scope.outputs.deploy_backend == 'true' "
+        "&& inputs.preserve_paused_drive_worker != true"
+    )
+    assert "roles/cloudscheduler.jobRunner" in wake["run"]
     assert "_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=${{ env.GCP_PROJECT_ID }}" in uat
     assert (
         "_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL="
@@ -172,6 +231,22 @@ def test_runtime_wires_exact_scheduler_identity_and_gates_production_activation(
             assert "_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=https://api.hushh.ai" in result.stdout
 
 
+def test_full_uat_drive_rollout_cannot_inherit_disabled_repo_drain_variable():
+    workflow = UAT_WORKFLOW.read_text(encoding="utf-8")
+    steps = yaml.safe_load(workflow)["jobs"]["deploy"]["steps"]
+    by_id = {step["id"]: step for step in steps if "id" in step}
+    active = "${{ inputs.preserve_paused_drive_worker && 'false' || 'true' }}"
+
+    # Ordinary suggestions and sharing jobs must resume on the default full
+    # rollout even if a repository Actions variable remains set to false.
+    assert "vars.DRIVE_WORK_DRAIN_UAT_ENABLED" not in workflow
+    assert "_DRIVE_WORK_DRAIN_ENABLED=" + active in by_id["deploy-backend"]["run"]
+    assert by_id["deploy-drive-worker"]["env"]["DRIVE_WORK_DRAIN_ENABLED"] == "true"
+    assert "inputs.preserve_paused_drive_worker != true" in by_id["deploy-drive-worker"]["if"]
+    status = next(step for step in steps if step.get("name") == "Write UAT release status artifact")
+    assert '"drive_processing_enabled": "' + active + '"' in status["run"]
+
+
 def test_worker_promotion_is_post_gate_attested_and_recoverable():
     release = WORKER_RELEASE.read_text(encoding="utf-8")
     rollback = WORKER_ROLLBACK.read_text(encoding="utf-8")
@@ -186,10 +261,12 @@ def test_worker_promotion_is_post_gate_attested_and_recoverable():
     assert "--depends-on=clamav" in release
     assert "--startup-probe=tcpSocket.port=3310" in release
     assert "--max-instances=2 --min-instances=0" in release
+    # The candidate attestation holds the revision to the budgeted scale.
+    assert "EXPECTED_MAX_INSTANCES=2 EXPECTED_CONCURRENCY=1" in release
     assert "--timeout=240" in release
     assert 'traffic_flags=(--no-traffic "${traffic_flags[@]}")' in release
     assert "promoted=true\ngcloud run services update-traffic" in release
-    assert "retargeted=true\nfor fixed_job in drive-work-drain-uat" in release
+    assert 'retargeted=true\nif [[ "${DRIVE_WORK_DRAIN_ENABLED}" == false ]]' in release
     assert 'python3 "${SCHEDULER_STATE_HELPER}" restore' in release
     assert 'python3 "${SCHEDULER_STATE_HELPER}" quarantine' in release
     assert 'JOB_NAME="${fixed_job}" STAGE="${fixed_stage}" CRON="${fixed_cron}"' in release
@@ -243,7 +320,8 @@ def test_worker_promotion_is_post_gate_attested_and_recoverable():
     scheduler_rollback_clause = workflow.split(
         'if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \\\n', 1
     )[1].split('if [ "${{ steps.classify-uat-release.outputs.release_failed }}"', 1)[0]
-    assert 'steps.deploy-drive-worker.outcome }}" != "success"' in scheduler_rollback_clause
+    assert '"$DRIVE_WORKER_GATE_SUCCESS" != true' in scheduler_rollback_clause
+    assert 'inputs.preserve_paused_drive_worker }}" != "true"' in scheduler_rollback_clause
     assert "DRIVE_WORKER_ROLLBACK_COMPLETE=false" in scheduler_rollback_clause
     assert 'steps.verify-drive-worker-scheduler-rollback.outcome }}" = "success"' in (
         scheduler_rollback_clause
@@ -258,7 +336,6 @@ def test_worker_promotion_is_post_gate_attested_and_recoverable():
     )
     assert "backend_sha" in workflow and "frontend_sha" in workflow
     assert 'if [ "$STATUS" != "healthy" ]; then' in workflow
-    assert "_CLOUD_RUN_MEMORY=4Gi" in workflow
 
 
 def test_frontend_only_uat_release_cannot_enter_drive_worker_fallback():
@@ -479,7 +556,21 @@ with open(os.environ["MOCK_GCLOUD_CALLS"], "a", encoding="utf-8") as log:
     log.write(json.dumps(args) + "\\n")
 command = [arg for arg in args if arg != "--quiet"]
 state = os.environ["MOCK_WORKER_STATE"]
-if command[:3] == ["run", "services", "list"]:
+if command[:4] == ["run", "services", "describe", "consent-protocol"]:
+    print(json.dumps({"status": {"traffic": [{"revisionName": "consent-protocol-01234-api", "percent": 100}]}}))
+elif command[:4] == ["run", "revisions", "describe", "consent-protocol-01234-api"]:
+    print(json.dumps({
+        "metadata": {"name": "consent-protocol-01234-api"},
+        "spec": {"serviceAccountName": os.environ["RUNTIME_SERVICE_ACCOUNT"], "containers": [{
+            "image": os.environ["IMAGE_REFERENCE"],
+            "env": [{"name": key, "value": value} for key, value in {
+                "HUSHH_DEPLOY_SHA": os.environ["DEPLOY_SHA"],
+                "HUSHH_DEPLOY_RUN_ID": os.environ["RELEASE_RUN_ID"],
+                "HUSHH_DEPLOY_ENV": "uat", "HUSHH_UAT_MANAGED_TEXT_PROVIDER": "azure_openai", "HUSHH_UAT_MANAGED_AI_PROVIDER": "azure_openai",
+            }.items()],
+        }]}, "status": {"conditions": [{"type": "Ready", "status": "True"}]},
+    }))
+elif command[:3] == ["run", "services", "list"]:
     if state == "list_error":
         sys.exit(77)
     names = ["consent-protocol-drive-worker"] if state in ("existing", "ambiguous", "failed_first_create") else []
@@ -583,8 +674,130 @@ else:
         assert len("consent-protocol-drive-worker") + 1 + len(expected_tag) <= 46
         assert "--container=drive-worker" in deploy
         assert "--container=clamav" in deploy
+        # Scaling flags precede the first container, so they bind the service
+        # and revision. Both budgeted instances stay warm through the
+        # service-level floor; the revision keeps no floor and one request.
+        first_container = deploy.index("--container=drive-worker")
+        scaling = {
+            name: value
+            for name, _, value in (arg.partition("=") for arg in deploy[:first_container])
+            if name in {"--concurrency", "--max-instances", "--min-instances", "--max", "--min"}
+        }
+        assert scaling == {
+            "--concurrency": "1",
+            "--max-instances": "2",
+            "--min-instances": "0",
+            "--max": "2",
+            "--min": "2",
+        }
+        # Pre-deploy admission reserves the profile's candidate, so the cap,
+        # launcher workers and pools must equal it; the floor never exceeds it.
+        profile = json.loads((ROOT / "config" / "runtime-capacity.json").read_text())
+        services = profile["environments"]["uat"]["services"]
+        candidate = services["consent-protocol-drive-worker"]["candidate"]
+        assert scaling["--max"] == scaling["--max-instances"] == str(candidate["max_instances"])
+        assert 1 <= int(scaling["--min"]) <= candidate["max_instances"]
+        worker = {
+            name: value
+            for name, _, value in (
+                arg.partition("=")
+                for arg in deploy[first_container : deploy.index("--container=clamav")]
+            )
+        }
+        launcher = worker["--args"].split(",")
+        assert launcher[launcher.index("-w") + 1] == str(candidate["workers_per_instance"])
+        env_vars = worker["--set-env-vars"]
+        assert env_vars.startswith("^|^")
+        env = dict(item.split("=", 1) for item in env_vars.removeprefix("^|^").split("|"))
+        assert [
+            env["DB_POOL_MAX_SIZE"],
+            env["DB_SQLALCHEMY_POOL_SIZE"],
+            env["DB_SQLALCHEMY_MAX_OVERFLOW"],
+        ] == [
+            str(candidate[key])
+            for key in ("asyncpg_pool_max", "sqlalchemy_pool_size", "sqlalchemy_max_overflow")
+        ]
+        assert int(env["DB_POOL_MIN_SIZE"]) <= candidate["asyncpg_pool_max"]
     elif worker_state == "ambiguous":
         assert "no unambiguous serving revision" in result.stderr
     if worker_state == "cancel_during_deploy":
         assert result.returncode == 143
         assert "Drive worker candidate failed" in result.stderr
+
+
+def test_uat_sandbox_connect_does_not_change_live_checkout_binding():
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            "source deploy/drive/uat_stripe_bindings.sh && "
+            'printf "%s %s %s %s" "$STRIPE_UAT_KEY_SECRET" "$STRIPE_UAT_CONNECT_KEY_SECRET" '
+            '"$STRIPE_UAT_CONNECT_SECRET" "$STRIPE_UAT_CONNECT_TEST_WEBHOOK_SECRET"',
+        ],
+        cwd=ROOT,
+        env={**os.environ, "STRIPE_UAT_MODE": "live", "STRIPE_CONNECT_UAT_MODE": "test"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == (
+        "STRIPE_LIVE_SECRET_KEY STRIPE_SECRET_KEY "
+        "STRIPE_LIVE_CONNECT_WEBHOOK_SECRET STRIPE_CONNECT_WEBHOOK_SECRET"
+    )
+
+
+@pytest.mark.parametrize(
+    ("connect_mode", "payment_mode", "connect_key", "live_flag", "secret_state", "expected"),
+    [
+        ("test", "live", "STRIPE_SECRET_KEY", "false", "ENABLED", 0),
+        ("test", "live", "STRIPE_SECRET_KEY", "false", "MISSING", 1),
+        ("test", "live", "STRIPE_SECRET_KEY", "true", "ENABLED", 1),
+        ("live", "live", "STRIPE_LIVE_SECRET_KEY", "false", "ENABLED", 0),
+        ("live", "live", "STRIPE_LIVE_SECRET_KEY", "true", "ENABLED", 0),
+        ("live", "test", "STRIPE_LIVE_SECRET_KEY", "true", "ENABLED", 1),
+        ("live", "live", "STRIPE_SECRET_KEY", "true", "ENABLED", 1),
+        ("live", "live", "STRIPE_LIVE_SECRET_KEY", "true", "DISABLED", 1),
+    ],
+)
+def test_hashcoin_deploy_preflight_checks_isolated_secret_project(
+    connect_mode, payment_mode, connect_key, live_flag, secret_state, expected
+):
+    script = """
+set -euo pipefail
+gcloud() {
+  if [[ "$*" == "secrets describe "*" --project=hushh-pda-uat" ]]; then
+    [[ "$SECRET_STATE" != MISSING ]]
+    return
+  fi
+  if [[ "$*" == "secrets versions describe latest "*" --project=hushh-pda-uat --format=value(state)" ]]; then
+    [[ "$SECRET_STATE" != MISSING ]] || return 1
+    printf '%s\\n' "$SECRET_STATE"
+    return
+  fi
+  return 2
+}
+source deploy/drive/verify_hashcoin_config.sh hushh-pda-uat
+"""
+    result = subprocess.run(  # noqa: S603 - fixed repository-owned preflight script
+        ["bash", "-c", script],
+        cwd=ROOT,
+        env={
+            **os.environ,
+            "_DRIVE_REQUEST_HASHCOINS_ENABLED": "true",
+            "_DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED": live_flag,
+            "_STRIPE_MODE": payment_mode,
+            "_STRIPE_SECRET_KEY_SECRET": "STRIPE_LIVE_SECRET_KEY"
+            if payment_mode == "live"
+            else "STRIPE_SECRET_KEY",
+            "_STRIPE_CONNECT_MODE": connect_mode,
+            "_STRIPE_CONNECT_SECRET_KEY_SECRET": connect_key,
+            "_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET": "STRIPE_LIVE_CONNECT_WEBHOOK_SECRET",
+            "_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET": "STRIPE_CONNECT_WEBHOOK_SECRET",
+            "SECRET_STATE": secret_state,
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == expected, result.stderr

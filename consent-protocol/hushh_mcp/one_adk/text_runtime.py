@@ -129,6 +129,13 @@ def _runtime_model(
         # Mirror the existing managed Agent Chat transport: Vertex mode with
         # the platform-managed key, held only by this turn-local model object.
         raise ValueError("Managed Vertex cannot be constructed from an API key")
+    from hushh_mcp.runtime_providers.managed_text import (
+        build_managed_text_model,
+        managed_text_policy,
+    )
+
+    if managed_text_policy() is not None:
+        return build_managed_text_model(scope="one_text_chat")
     return build_managed_gemini_adk_model(model, vertex_location=managed_location)
 
 
@@ -166,14 +173,19 @@ _SPECIALIST_TOOL_SOURCES: dict[str, tuple[str, str]] = {
     "ask_location_agent": ("agent_location", "Location"),
     "ask_memory_agent": ("agent_personal_information", "Memory"),
     "ask_connected_systems_agent": ("agent_connected_systems", "Connected Systems"),
+    "calendar_invitations": ("agent_calendar", "Calendar"),
+    "open_calendar_invitation": ("agent_calendar", "Calendar"),
     "calendar_summary": ("agent_calendar", "Calendar"),
+    "calendar_calendars": ("agent_calendar", "Calendar"),
     "calendar_events": ("agent_calendar", "Calendar"),
+    "calendar_event_detail": ("agent_calendar", "Calendar"),
     "calendar_availability": ("agent_calendar", "Calendar"),
     "calendar_free_slots": ("agent_calendar", "Calendar"),
     "propose_calendar_event": ("agent_calendar", "Calendar"),
     "propose_calendar_reschedule": ("agent_calendar", "Calendar"),
     "propose_calendar_cancellation": ("agent_calendar", "Calendar"),
     "propose_gmail_mailbox_change": ("agent_email", "Email"),
+    "propose_gmail_todo": ("agent_email", "Email"),
     "ask_consent_agent": ("agent_nav", "Consent Center"),
     "finance": ("agent_kai", "Finance"),
     "google_search": ("web", "Web search"),
@@ -306,8 +318,11 @@ async def _stream_one_text_turn_once(
         raise ValueError("One text session identity is missing")
 
     session_service = InMemorySessionService()
+    from hushh_mcp.hushh_adk.product_activity import product_activity_plugins
+
     runner = Runner(
         app_name=ONE_APP_NAME,
+        plugins=product_activity_plugins("agent_one"),
         agent=build_one_text_agent(
             model=_runtime_model(
                 runtime_model=runtime_model,
@@ -403,7 +418,7 @@ async def _stream_one_text_turn_once(
             "One text runtime completed without visible text or a directive"
         )
     logger.info(
-        "one_text_turn_complete model=%s first_visible_ms=%s elapsed_ms=%s directives=%s",
+        "one_text_turn_complete configured_model=%s first_visible_ms=%s elapsed_ms=%s directives=%s",
         runtime_model,
         (round((first_visible_at - started_at) * 1000) if first_visible_at is not None else None),
         round((time.perf_counter() - started_at) * 1000),
@@ -431,7 +446,9 @@ async def stream_one_text_turn(
 ) -> AsyncGenerator[OneTextStreamEvent, None]:
     """Run One with same-model regional failover before any observable event."""
     locations: tuple[str | None, ...] = (None,)
-    if runtime_mode == "hushh_managed_vertex":
+    from hushh_mcp.runtime_providers.managed_text import managed_text_policy
+
+    if runtime_mode == "hushh_managed_vertex" and managed_text_policy() is None:
         binding = ManagedGeminiRuntimeBinding.from_environment()
         locations = tuple(binding.locations_for_model(runtime_model))
 

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  authenticatePasskeyPrf: vi.fn(),
   authenticateWithPrf: vi.fn(),
   unlockVaultWithPassphrase: vi.fn(),
 }));
@@ -13,7 +14,7 @@ vi.mock("@capacitor/core", () => ({
 
 vi.mock("@/lib/capacitor", () => ({
   HushhKeychain: {},
-  HushhVault: {},
+  HushhVault: { authenticatePasskeyPrf: mocks.authenticatePasskeyPrf },
 }));
 
 vi.mock("@/lib/vault/prf-auth", () => ({
@@ -64,5 +65,17 @@ describe("VaultBootstrapService generated web unlock", () => {
       "credential-1",
       "one.hushh.ai",
     );
+  });
+
+  it("keeps a native credential's recorded RP even when the build default changes", async () => {
+    mocks.authenticatePasskeyPrf.mockResolvedValue({ vaultKeyHex: "derived-vault-key" });
+    await expect(VaultBootstrapService.unlockGeneratedDefaultVault({
+      userId: "user-1", encryptedVaultKey: "encrypted", salt: "salt", iv: "iv",
+      keyMode: "generated_default_native_passkey_prf", passkeyPrfSalt: "prf-salt",
+      passkeyCredentialId: "credential-1", passkeyRpId: "uat.one.hushh.ai",
+    })).resolves.toBe("unlocked-vault-key");
+    expect(mocks.authenticatePasskeyPrf).toHaveBeenCalledWith(expect.objectContaining({
+      rpId: "uat.one.hushh.ai", credentialId: "credential-1", prfSalt: "prf-salt",
+    }));
   });
 });

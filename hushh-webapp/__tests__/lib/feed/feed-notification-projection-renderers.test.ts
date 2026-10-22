@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { CalendarAgentIcon } from "@/components/icons/agents";
 import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
 import type { FeedItem } from "@/lib/services/feed-service";
 import {
@@ -24,6 +25,113 @@ function feedItem(
 }
 
 describe("notification-backed Feed projection renderers", () => {
+  it("opens a recipient-bound card request without putting private card details in Feed", () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    const result = presentFeedItem(feedItem("direct_message_received", { counterpart_label: "Divya", wallet_card_request_id: id, wallet_card_request_status: "pending" }, "connections"));
+    expect(result.label).toBe("Divya requested a card");
+    expect(result.description).toBe("Choose card");
+    expect(result.href).toBe(`/one/wallet?card_request=${id}`);
+    const malformed = presentFeedItem(feedItem("direct_message_received", { wallet_card_request_id: "javascript:bad" }, "connections"));
+    expect(malformed.href).not.toContain("card_request");
+  });
+  it("announces the actual card sender and offers View card without payment details", () => {
+    const result = presentFeedItem(feedItem("direct_message_received", {
+      wallet_card_grant_id: "11111111-1111-4111-8111-111111111111",
+      counterpart_label: "Divya",
+    }, "connections"));
+    expect(result.label).toBe("Divya shared their card with you");
+    expect(result.description).toBe("View card");
+    expect(result.domainLabel).toBe("Wallet");
+    expect(result.href).toContain("messages");
+    const legacy = presentFeedItem(feedItem("direct_message_received", {
+      counterpart_label: "Divya",
+      message_preview: "[wallet-access:11111111-1111-4111-8111-111111111111]",
+    }, "connections"));
+    expect(legacy.description).toBe("Shared payment card");
+    expect(legacy.domainLabel).toBe("Messages");
+  });
+  it("shows only authoritative owner net earnings and distinguishes Stripe transfer from bank deposit", () => {
+    const pending = presentFeedItem(feedItem("document_share_outcome", {
+      request_id: "11111111-1111-4111-8111-111111111111",
+      feed_audience: "owner",
+      owner_payout_status: "awaiting_fee",
+      owner_earning_cents: null,
+    }, "consent"));
+    expect(pending.description).toContain("Payout pending");
+    expect(pending.description).not.toContain("Net $");
+
+    const transferred = presentFeedItem(feedItem("document_share_outcome", {
+      request_id: "11111111-1111-4111-8111-111111111111",
+      feed_audience: "owner",
+      owner_payout_status: "transferred",
+      owner_earning_cents: 611,
+    }, "consent"));
+    expect(transferred.description).toContain("Sent to Stripe · Net $6.11");
+    expect(transferred.description).not.toMatch(/bank|deposited/i);
+
+    const setup = presentFeedItem(feedItem("document_share_request", {
+      owner_payout_account_ready: false,
+    }, "consent"));
+    expect(setup.description).toContain("Set up US payouts");
+    const pendingSetup = presentFeedItem(feedItem("document_share_outcome", {
+      owner_payout_status: "awaiting_delivery",
+      owner_payout_account_ready: false,
+    }, "consent"));
+    expect(pendingSetup.description).toContain("Payout pending setup");
+  });
+
+  it.each([
+    ["hashcoins_credited", "Hussh Coins credited"],
+    ["hashcoins_held", "Hussh Coins under review"],
+    ["hashcoins_reversed", "Hussh Coins reversed"],
+  ] as const)("shows %s settlement accurately in the owner's Feed", (status, label) => {
+    const result = presentFeedItem(feedItem("document_share_outcome", {
+      request_id: "11111111-1111-4111-8111-111111111111",
+      feed_audience: "owner",
+      owner_payout_status: status,
+      owner_earning_cents: 16,
+    }, "consent"));
+    expect(result.description).toContain(label);
+    expect(result.description).not.toContain("Payout pending");
+  });
+
+  it("opens Payouts from a history row exactly when its payout line asks for setup", () => {
+    const requestId = "11111111-1111-4111-8111-111111111111";
+    const row = (eventType: string, metadata: Record<string, unknown>) =>
+      presentFeedItem(feedItem(eventType, { request_id: requestId, ...metadata }, "consent"));
+    const payouts = "/one/profile/payouts?from=%2Fone%2Ffeed";
+    const review = `/one/consent?tab=pending&requestId=document_share_request%3A${requestId}`;
+
+    expect(row("document_share_request", { owner_payout_account_ready: false }).href).toBe(payouts);
+    expect(row("document_share_outcome", {
+      owner_payout_status: "awaiting_delivery", owner_payout_account_ready: false,
+    }).href).toBe(payouts);
+    expect(row("document_share_outcome", { owner_payout_status: "awaiting_account" }).href).toBe(payouts);
+    // A payout that asks nothing of the owner keeps opening the request.
+    const transferred = row("document_share_outcome", {
+      owner_payout_status: "transferred", owner_payout_account_ready: false,
+    });
+    expect(transferred.description).toContain("Sent to Stripe");
+    expect(transferred.href).toBe(review);
+    // The requester waits on the owner's setup; it is never theirs to do.
+    const waiting = row("document_share_payment_ready", { current_owner_payout_account_ready: false });
+    expect(waiting.description).toBe("Waiting for owner payout setup");
+    expect(waiting.href).toBe("/one/feed");
+  });
+
+  it("identifies a proportional document refund when the paid and refunded amounts are known", () => {
+    const row = presentFeedItem(feedItem("document_share_payment_refunded", {
+      request_id: "11111111-1111-4111-8111-111111111111",
+      current_payment_amount_cents: 1000,
+      current_refund_amount_cents: 400,
+    }, "consent"));
+    expect(row.description).toContain("Refunded $4.00 for undelivered files");
+    const full = presentFeedItem(feedItem("document_share_payment_refunded", {
+      current_payment_amount_cents: 1000,
+      current_refund_amount_cents: 1000,
+    }, "consent"));
+    expect(full.description).toBe("Payment refunded for your document request");
+  });
   it.each([
     ["kai_analysis_failed", "kai", "Analysis could not finish"],
     ["kai_analysis_canceled", "kai", "Analysis canceled"],
@@ -356,6 +464,9 @@ describe("notification-backed Feed projection renderers", () => {
     expect(presented.description).not.toBe("");
     expect(`${presented.label} ${presented.description}`).not.toContain(sensitive);
     expect(presented.href).toBe(href);
+    if (eventType.startsWith("calendar_")) {
+      expect(presented.icon).toBe(CalendarAgentIcon);
+    }
   });
 });
 
@@ -395,4 +506,17 @@ describe("Kai analysis ready Feed item", () => {
   it("sends older items without a run id to the analysis history", () => {
     expect(openedAnalysisId({ ticker: "NVDA" })).toBeNull();
   });
+});
+
+
+it("describes one grouped Circle row and opens that Circle", () => {
+  const id = "00000000-0000-4000-8000-000000000123";
+  const view = presentFeedItem(feedItem("location_circle_message", { circle_id: id, circle_name: "Release Hunter", chat_unread_count: 7 }));
+  expect(view.label).toBe("Release Hunter");
+  expect(view.description).toBe("7 new messages");
+  expect(view.href).toContain(id);
+});
+it("keeps the authenticated latest DM preview alongside the grouped message count", () => {
+  const view = presentFeedItem(feedItem("direct_message_received", { counterpart_label: "Parth", message_preview: "See you soon", chat_unread_count: 3 }, "connections"));
+  expect(view.description).toBe("3 new messages · See you soon");
 });

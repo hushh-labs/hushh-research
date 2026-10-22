@@ -1,4 +1,5 @@
 import { executeOneCommandInvocation } from "@/lib/agent/one-system-action-executor";
+import { observeDispatch } from "@/lib/observability/product-activity-client";
 import { executeKaiCommand } from "@/lib/kai/command-executor";
 import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
 import {
@@ -8,19 +9,20 @@ import {
   type LocalOnboardingActionResult,
 } from "@/lib/agent/local-onboarding-actions";
 import { buildConnectedSystemRoute } from "@/lib/navigation/routes";
+import { resolveSearchActionTarget } from "@/lib/search/search-route-context";
 import {
   parseVoiceCard,
   publishVoiceCard,
-} from "@/lib/voice/voice-action-card";
+} from "@/lib/kai/actions/voice-action-card";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
 import type { Persona } from "@/lib/services/ria-service";
 import {
   evaluateKaiActionAvailability,
   getKaiActionById,
-} from "@/lib/voice/kai-action-gateway";
-import { resolveNavigationJourney } from "@/lib/voice/navigation-journey";
-import type { AppRuntimeState } from "@/lib/voice/voice-types";
-import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/kai-action-gateway";
+import { resolveNavigationJourney } from "@/lib/kai/actions/navigation-journey";
+import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
+import type { VoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 type RouterLike = {
   push: (href: string) => void;
@@ -224,6 +226,13 @@ function buildLocalHandlerResult(input: {
  * tap. The returned promise represents the provider's eventual settlement.
  */
 export function executeTrustedActivationGatewayAction(
+  input: ExecuteAgentGatewayActionInput,
+): Promise<AgentActionRuntimeResult> {
+  // Invoke synchronously first: observation cannot consume the trusted tap.
+  return observeDispatch(input.actionId, executeTrustedActivationGatewayActionImpl(input));
+}
+
+function executeTrustedActivationGatewayActionImpl(
   input: ExecuteAgentGatewayActionInput,
 ): Promise<AgentActionRuntimeResult> {
   const routeBefore = input.appRuntimeState.route;
@@ -489,6 +498,12 @@ function executeConnectedSystemAgentAction(
 export async function executeAgentGatewayAction(
   input: ExecuteAgentGatewayActionInput,
 ): Promise<AgentActionRuntimeResult> {
+  return observeDispatch(input.actionId, executeAgentGatewayActionImpl(input));
+}
+
+async function executeAgentGatewayActionImpl(
+  input: ExecuteAgentGatewayActionInput,
+): Promise<AgentActionRuntimeResult> {
   const routeBefore = input.appRuntimeState.route;
   if (!isActionInActiveInventory(input)) {
     return unavailableOnActiveSurfaceResult(input);
@@ -615,13 +630,16 @@ export async function executeAgentGatewayAction(
         reason: "route_needs_entity",
       });
     }
-    input.router.push(action.execution_target.target);
+    const currentHref = typeof window !== "undefined" && window.location.pathname === routeBefore.pathname
+      ? window.location.href : routeBefore.pathname;
+    const target = resolveSearchActionTarget(action.execution_target.target, currentHref, action.surface_id);
+    input.router.push(target);
     return buildResult({
       status: "started",
       actionId: action.action_id,
       label: action.label,
       routeBefore: routeBefore.pathname,
-      routeAfter: action.execution_target.target,
+      routeAfter: target,
       screenBefore: routeBefore.screen,
       // The label alone, deliberately -- no destination named.
       //
@@ -638,7 +656,7 @@ export async function executeAgentGatewayAction(
       // against a completion tick, which is what supplies the past tense.
       resultSummary: `${action.label}.`,
       data: {
-        target: action.execution_target.target,
+        target,
         goal_id: action.goal.goal_id,
       },
     });

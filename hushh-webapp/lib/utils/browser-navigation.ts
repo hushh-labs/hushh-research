@@ -9,6 +9,7 @@ export type InternalAppNavigationRequest = {
   scroll?: boolean;
   source?: "tap" | "voice" | "search" | "native_back" | "programmatic";
   transitionMode?: "full" | "contextual";
+  feedback?: "selection" | "light";
 };
 
 // Native notification actions can arrive before React mounts the shared router

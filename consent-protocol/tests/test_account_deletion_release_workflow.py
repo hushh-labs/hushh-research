@@ -18,6 +18,7 @@ WORKFLOW_PATH = ROOT / ".github" / "workflows" / "deploy-uat.yml"
 SERVING_STATE_SCRIPT = ROOT / "scripts" / "ci" / "resolve-cloud-run-serving-state.py"
 SCHEDULER_ATTEMPT_SCRIPT = ROOT / "scripts" / "ci" / "verify-cloud-scheduler-attempt.py"
 SCHEDULER_SETUP_SCRIPT = ROOT / "deploy" / "account-deletion" / "setup_cleanup_scheduler.sh"
+FENCE_DECISION_SCRIPT = ROOT / "scripts" / "ci" / "account-deletion-fence-decision.py"
 CLOUD_RUN_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "cloud_run"
 CLOUD_SCHEDULER_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "cloud_scheduler"
 
@@ -54,6 +55,148 @@ def _scheduler_attempt_module():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def _fence_decision_module():
+    spec = importlib.util.spec_from_file_location(
+        "account_deletion_fence_decision", FENCE_DECISION_SCRIPT
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_v201_rollout_keeps_deletion_available_only_for_safe_changes() -> None:
+    decision = _fence_decision_module()
+    v201 = [{"metadata": {"labels": {"account-deletion-contract": "v201"}}}]
+    old = [{"metadata": {"labels": {"account-deletion-contract": "v200"}}}]
+    routine = ["consent-protocol/hushh_mcp/services/feed_service.py"]
+
+    assert decision.eligible_for_unfenced_release(v201, routine)
+    assert not decision.eligible_for_unfenced_release(
+        v201, ["deploy/account-deletion/verify_release_boundary.sql"]
+    )
+    assert not decision.eligible_for_unfenced_release(old, routine)
+    assert not decision.eligible_for_unfenced_release([], routine)
+    assert not decision.eligible_for_unfenced_release(v201, None)
+    assert decision.changed_paths("a" * 40, "b" * 40) is None
+    for changed_path in (
+        "consent-protocol/api/routes/account.py",
+        "consent-protocol/hushh_mcp/services/account_service.py",
+        "consent-protocol/db/migrate.py",
+        "consent-protocol/db/migrations/350_new_identity_table.sql",
+        "consent-protocol/db/release_migration_manifest.json",
+        "deploy/account-deletion/install_release_fence.sql",
+    ):
+        assert not decision.eligible_for_unfenced_release(v201, [changed_path])
+
+    for workflow in (WORKFLOW_PATH, ROOT / ".github/workflows/deploy-production.yml"):
+        steps = yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"]["deploy"]["steps"]
+        by_name = {step.get("name"): step for step in steps}
+        assert (
+            "account-deletion-fence-decision.py"
+            in by_name["Preserve current release tooling"]["run"]
+        )
+        assert (
+            "${RUNNER_TEMP}/release-tools/account-deletion-fence-decision.py"
+            in by_name["Checkout deployment SHA"]["run"]
+        )
+        qualifier = by_name["Qualify uninterrupted account deletion"]
+        assert "verify_release_boundary.sql" in qualifier["run"]
+        assert "expected_fence_count=0" in qualifier["run"]
+        assert "account-deletion-fence-decision.py" in qualifier["run"]
+        fence = by_name["Install fail-closed account deletion release fence"]
+        assert "steps.account-deletion-fence-decision.outputs.required == 'true'" in fence["if"]
+        migration = by_name[
+            next(
+                name
+                for name in by_name
+                if name.startswith("Apply ")
+                and "DB migrations behind account deletion fence" in name
+            )
+        ]
+        assert "steps.account-deletion-fence-decision.outputs.required" in migration["run"]
+        assert "expected_fence_count=0" in migration["run"]
+        rollback = by_name["Roll back backend revision"]
+        assert '|| [ "${rollback_contract}" != "v201" ]' in rollback["run"]
+
+
+def test_reviewed_circle_migration_does_not_pause_deletion(tmp_path: Path, monkeypatch) -> None:
+    decision = _fence_decision_module()
+    monkeypatch.chdir(tmp_path)
+
+    def git(*args: str) -> str:
+        return subprocess.run(  # noqa: S603 - fixed Git commands in an isolated fixture
+            ["git", *args], capture_output=True, text=True, check=True
+        ).stdout.strip()
+
+    def write(path: str, contents: bytes) -> None:
+        target = tmp_path / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(contents)
+
+    git("init", "-q")
+    git("config", "user.name", "Release Test")
+    git("config", "user.email", "release@example.test")
+    manifest = {"ordered_migrations": ["349_existing.sql"], "rollback_migrations": {}}
+    write(decision.MIGRATION_MANIFEST, json.dumps(manifest).encode())
+    write(decision.READ_ONLY_VERIFIER, b"prior fenced verifier\n")
+    git("add", ".")
+    git("commit", "-qm", "prior release")
+    base_sha = git("rev-parse", "HEAD")
+
+    for path in decision.SAFE_CIRCLE_MIGRATION_FILES:
+        write(path, (ROOT / path).read_bytes())
+    write(decision.READ_ONLY_VERIFIER, (ROOT / decision.READ_ONLY_VERIFIER).read_bytes())
+    manifest["ordered_migrations"].append(decision.SAFE_CIRCLE_MIGRATION)
+    manifest["rollback_migrations"][decision.SAFE_CIRCLE_MIGRATION] = (
+        "rollback/350_circle_chat_full_emoji_reactions.rollback.sql"
+    )
+    write(decision.MIGRATION_MANIFEST, json.dumps(manifest).encode())
+    git("add", ".")
+    git("commit", "-qm", "reviewed circle-only migration")
+    approved_sha = git("rev-parse", "HEAD")
+    v201 = [{"metadata": {"labels": {"account-deletion-contract": "v201"}}}]
+    assert decision.eligible_for_unfenced_release(
+        v201, decision.changed_paths(base_sha, approved_sha)
+    )
+
+    migration_path = next(iter(decision.SAFE_CIRCLE_MIGRATION_FILES))
+    write(migration_path, (ROOT / migration_path).read_bytes() + b"\n-- altered\n")
+    git("add", ".")
+    git("commit", "-qm", "unreviewed migration edit")
+    assert not decision.eligible_for_unfenced_release(
+        v201, decision.changed_paths(base_sha, git("rev-parse", "HEAD"))
+    )
+
+    fence_path = "deploy/account-deletion/install_release_fence.sql"
+    write(fence_path, b"SELECT true;\n")
+    git("add", ".")
+    git("commit", "-qm", "existing lifecycle file")
+    before_rename = git("rev-parse", "HEAD")
+    (tmp_path / "docs").mkdir()
+    git("mv", fence_path, "docs/release-fence.sql")
+    git("commit", "-qm", "move lifecycle file")
+    assert fence_path in decision.changed_paths(before_rename, git("rev-parse", "HEAD"))
+
+    write(migration_path, (ROOT / migration_path).read_bytes())
+    write(decision.READ_ONLY_VERIFIER, b"SELECT true; -- unreviewed verifier edit\n")
+    git("add", ".")
+    git("commit", "-qm", "unreviewed verifier edit")
+    assert not decision.eligible_for_unfenced_release(
+        v201, decision.changed_paths(base_sha, git("rev-parse", "HEAD"))
+    )
+
+    write(decision.READ_ONLY_VERIFIER, (ROOT / decision.READ_ONLY_VERIFIER).read_bytes())
+    manifest["ordered_migrations"].append("351_unreviewed.sql")
+    write(decision.MIGRATION_MANIFEST, json.dumps(manifest).encode())
+    git("add", ".")
+    git("commit", "-qm", "unreviewed manifest edit")
+    assert not decision.eligible_for_unfenced_release(
+        v201, decision.changed_paths(base_sha, git("rev-parse", "HEAD"))
+    )
 
 
 def test_uat_release_orders_image_fence_schema_runtime_and_activation() -> None:
@@ -649,12 +792,15 @@ def test_production_release_orders_image_fence_schema_runtime_and_activation() -
         assert step.get("id") == step_id
     for name in (
         "Build and pin backend image before lifecycle migration",
-        "Install fail-closed account deletion release fence",
         "Apply production DB migrations behind account deletion fence",
         "Resolve backend candidate revision",
         "Verify backend candidate readiness and exact-SHA provenance",
     ):
         assert _production_step(name).get("if") == "steps.scope.outputs.deploy_backend == 'true'"
+    assert _production_step("Install fail-closed account deletion release fence").get("if") == (
+        "steps.scope.outputs.deploy_backend == 'true' && "
+        "steps.account-deletion-fence-decision.outputs.required == 'true'"
+    )
 
 
 def test_production_fence_and_migration_target_only_the_production_database() -> None:
@@ -923,4 +1069,8 @@ def test_production_status_blocks_until_account_deletion_is_activated() -> None:
 def test_production_deploys_share_one_global_concurrency_group() -> None:
     concurrency = _production_workflow()["concurrency"]
 
-    assert concurrency == {"group": "deploy-production", "cancel-in-progress": False}
+    assert concurrency == {
+        "group": "deploy-production",
+        "cancel-in-progress": False,
+        "queue": "max",
+    }

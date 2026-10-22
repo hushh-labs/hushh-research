@@ -1,29 +1,91 @@
-.form { display:flex; flex-direction:column; gap:24px; width:100%; padding:4px 0 12px; }
-.heading { display:flex; flex-direction:column; gap:8px; }
+.form {
+  --type-card-title-size: 18px;
+  --type-card-title-line: 24px;
+  --type-form-label-size: 13px;
+  --type-input-value-size: 13px;
+  --type-helper-text-size: 12px;
+  --type-button-label-size: 13px;
+  container-type: inline-size;
+  container-name: wallet-form;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  font-family: var(--font-app-body);
+  width: 100%;
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--app-card-border-standard);
+  border-radius: var(--app-card-radius-feature);
+  background: var(--app-card-surface-default-solid);
+  box-shadow: var(--app-card-shadow-feature);
+}
+.compact { max-width: 28rem; }
+.heading { display: flex; flex-direction: column; gap: var(--app-form-field-gap); }
+.heading h2 { font-family: var(--font-app-display); font-size: 18px; line-height: 1.35; }
+.heading p { font-size: 12px; line-height: 1.5; color: var(--muted-foreground); }
+.fields { display: flex; flex-direction: column; gap: var(--app-form-section-gap); border: 0; padding: 0; margin: 0; min-width: 0; }
+.field { display: flex; flex-direction: column; min-width: 0; gap: var(--app-form-field-gap); }
+.field label { display: flex; align-items: center; gap: 8px; font-family: var(--font-app-body); font-size: 13px; font-weight: 600; line-height: 1.22; }
+.fieldIcon { width: 18px; height: 18px; flex-shrink: 0; }
+.field input { border-radius: var(--app-input-radius); min-height: 44px; font-family: var(--font-app-body); font-size: 13px; }
+.selectTrigger { width: 100%; min-width: 0; min-height: 44px; font-family: var(--font-app-body); font-size: 13px; }
+.selectMenu { max-height: min(280px, var(--radix-select-content-available-height)); max-width: calc(100vw - 32px); font-family: var(--font-app-body); }
+.selectMenu [data-slot="select-item"] { font-family: inherit; font-size: 13px; min-height: 36px; }
+.form > fieldset > p { font-size: 12px; line-height: 1.5; }
+.number input { font-variant-numeric: tabular-nums; letter-spacing: .06em; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--app-form-section-gap); }
+.pairedRow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.pairedRow label { flex: 1; align-items: flex-start; }
+.pairedRow .selectTrigger { gap: 4px; padding-inline: 8px; }
+.errors { display: flex; flex-direction: column; gap: var(--app-form-field-gap); font-size: 13px; color: var(--destructive); }
+@container wallet-form (min-width: 460px) { .row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 640px) { .form { padding: 28px; } }
 
-.heading p,.scanHint { font-size:13px; line-height:1.5; color:var(--muted-foreground); }
-.scanner { display:flex; flex-direction:column; gap:10px; }
-.scanActions { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-.scanActions button { padding-inline:8px; }
-.scanProgress { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:13px; color:var(--muted-foreground); }
-.divider { display:flex; align-items:center; gap:12px; color:var(--muted-foreground); font-size:11px; letter-spacing:.08em; text-transform:uppercase; }
-.divider::before,.divider::after { content:""; flex:1; height:1px; background:var(--border); }
-.fields { display:flex; flex-direction:column; gap:20px; border:0; padding:0; margin:0; min-width:0; }
-.fields:disabled { opacity:.65; }
-.field { position:relative; display:flex; flex-direction:column; min-width:0; gap:8px; }
-.field>label { position:absolute; left:12px; top:-7px; z-index:1; padding-inline:6px; background:var(--background); font-size:10px; line-height:14px; letter-spacing:.09em; text-transform:uppercase; font-weight:500; color:var(--muted-foreground); }
-.field input,.field select { border-radius:10px; min-height:58px; padding:16px; background:transparent; box-shadow:none; font-size:16px; }
-.field input:focus-visible,.field select:focus-visible { border-color:var(--app-accent); }
-.number input { font-variant-numeric:tabular-nums; letter-spacing:.08em; }
-.row { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
-.secretLabel { display:flex; justify-content:space-between; align-items:center; gap:12px; }
-.footer { display:flex; align-items:flex-start; gap:8px; font-size:12px; line-height:1.5; color:var(--muted-foreground); }
-.footer svg { flex:none; margin-top:1px; width:16px; height:16px; }
+/* Scan into a reviewable draft above the manual fields. */
+.scanner { display: flex; flex-direction: column; gap: 10px; }
+.scanActions { display: flex; min-height: 44px; align-items: center; justify-content: flex-start; gap: 8px; }
+.scanActions .scanAction { background: transparent !important; box-shadow: none !important; border-color: transparent; font-size: 13px; }
+.scanHint,.scanProgress { font-size: 12px; line-height: 1.3; color: var(--muted-foreground); }
+.scanProgress { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
-/* Use the same feature surface and reading scale as Mail's KYC panel. */
-.form { padding:20px; border:1px solid var(--app-card-border-standard); border-radius:var(--app-card-radius-feature); background:var(--app-card-surface-default-solid); box-shadow:var(--app-card-shadow-feature); }
-.heading { padding-bottom:8px; }
-.heading h2 { --foundation-title2-size:clamp(1.75rem,4vw,2.5rem); --foundation-title3-size:var(--foundation-title2-size); --foundation-title2-line:1.1; --foundation-title3-line:1.1; --foundation-title2-weight:800; --foundation-title3-weight:800; font-size:var(--foundation-title2-size); line-height:1.1; font-weight:800; letter-spacing:-.035em; }
-.heading p,.scanHint { font-size:15px; line-height:22px; }
-.field>label { background:var(--app-card-surface-default-solid); }
-@media(min-width:640px) { .form { padding:32px; background:radial-gradient(circle at 88% 5%,var(--app-accent-tint),transparent 40%),var(--app-card-surface-default-solid); } .fields .fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); } }
+
+
+.form > :last-child button { font-family: var(--font-app-body); font-size: 13px; }
+
+.actions { margin-inline: auto; }
+.actions > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.actions [data-action-priority] { flex: 1; min-width: 0; max-width: 244px; }
+.actions [data-action-priority="secondary"] { order: 1; }
+.actions [data-action-priority="primary"] { order: 2; }
+.actions button { min-width: 0; padding-inline: 12px; }
+@container wallet-form (min-width: 460px) {
+  .actions { padding-inline: 24px; }
+  .actions > div:first-child { gap: 32px; }
+}
+
+
+.field input { background-color: var(--app-card-surface-default-solid); }
+
+.scanIntro { display:flex; justify-content:center; padding:12px; border:1px solid transparent; border-radius:var(--app-card-radius-feature); background:transparent; overflow:hidden; }
+.scanArtwork { display:flex; flex-direction:column; align-items:center; width:100%; max-width:280px; padding:0; border:0; border-radius:12px; background:transparent; cursor:pointer; }
+.scanArtwork:focus-visible { outline:2px solid var(--app-accent); outline-offset:4px; }
+.scanArtwork:disabled { opacity:.55; cursor:default; }
+.scanVisual { position:relative; display:block; width:100%; max-width:260px; aspect-ratio:1; }
+.scanReference { display:block; width:100%; height:100%; object-fit:contain; }
+
+@layer base {
+  .scanActions .scanAction { font-size: 13px !important; }
+}
+
+.required { color: var(--destructive); font-size: 10px; line-height: 1; align-self: flex-start; margin-left: -4px; }
+.required::after { content: "*"; }
+.scanAffordance { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:44px; font-family:var(--font-app-body); font-size:13px; font-weight:var(--type-button-label-weight); line-height:1.22; color:var(--foreground); }
+.scanAffordance svg { width: 18px; height: 18px; }
+.cropStage { padding: 24px; border-radius: 16px; background: var(--muted); }
+.cropCanvas { position: relative; width: fit-content; max-width: 100%; margin: auto; }
+.cropImage { display: block; width: auto; height: auto; max-width: 100%; max-height: min(48vh, 380px); user-select: none; }
+.cropOutline { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.cropHandle { position: absolute; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; transform: translate(-50%, -50%); border: 0; background: transparent; touch-action: none; cursor: grab; }
+.cropHandle span { width: 18px; height: 18px; border: 3px solid white; border-radius: 50%; background: var(--app-accent); box-shadow: 0 1px 5px #0008; }
+.cropHandle:focus-visible { outline: 2px solid var(--app-accent); border-radius: 50%; }
+.cropHandle:active { cursor: grabbing; }

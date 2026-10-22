@@ -39,8 +39,8 @@ export const CIRCLE_MEMBER_MENU_SLOT_PX = 44;
  * the row, to the right of the kebab, and centre it on the selected row. That
  * keeps both the member identity and any Connect/Respond/Cancel control visible
  * on the wide layouts where an anchored pointer menu is appropriate. Radix may
- * collision-flip the surface on a narrower pointer viewport; the menu itself
- * therefore repeats the member name as its visible context.
+ * collision-flip the surface on a narrower pointer viewport; its accessible
+ * name keeps the selected member's identity available to assistive technology.
  *
  * These values are exported because the real-browser layout contract measures
  * the same placement that the component passes to Radix.
@@ -64,7 +64,7 @@ export const CIRCLE_MEMBER_ROW_MIN_HEIGHT_PX = 72;
  * row -- the "not aligned" half of the report, repeated once per member.
  */
 export const CIRCLE_MEMBER_ROW_CLASSNAME =
-  "grid grid-cols-[40px_minmax(0,1fr)_44px] min-h-[72px] items-center gap-x-3 gap-y-2 px-4 py-3 sm:flex sm:gap-3";
+  "grid grid-cols-[40px_minmax(0,1fr)_auto] min-h-[72px] items-center gap-x-3 gap-y-2 px-2 py-3 sm:flex sm:gap-3 sm:px-4";
 
 /** A relationship action gets its own line on phones, leaving identity readable. */
 export const CIRCLE_MEMBER_ACTION_COPY_CLASSNAME = "col-span-2 sm:col-span-1";
@@ -73,14 +73,12 @@ export const CIRCLE_MEMBER_STACKED_ACTION_CLASSNAME =
 
 export const CIRCLE_MEMBER_AVATAR_CLASSNAME = "h-10 w-10 shrink-0";
 
-/** Names and state copy remain readable at narrow widths. The row may grow
- * vertically; silently replacing an identity with an ellipsis is not an
- * acceptable responsive fallback. */
+/** Names stay on one line. The full identity remains in the DOM and title. */
 export const CIRCLE_MEMBER_NAME_ROW_CLASSNAME =
-  "flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[16px] font-medium leading-[21px] text-foreground";
+  "min-w-0 text-[16px] font-medium leading-[21px] text-foreground";
 
 export const CIRCLE_MEMBER_NAME_CLASSNAME =
-  "block min-w-0 whitespace-normal [overflow-wrap:anywhere]";
+  "block min-w-0 truncate";
 
 export const CIRCLE_MEMBER_SECONDARY_CLASSNAME =
   "whitespace-normal [overflow-wrap:anywhere]";
@@ -88,14 +86,14 @@ export const CIRCLE_MEMBER_SECONDARY_CLASSNAME =
 /** Circle detail titles share their row with Edit. The copy column must be
  * shrinkable and the title must wrap so neither can push the other off-screen. */
 export const CIRCLE_DETAIL_HEADER_CLASSNAME =
-  "flex items-start justify-between gap-4 px-1";
+  "circle-detail-header flex items-start justify-between gap-4 px-1";
 
 export const CIRCLE_DETAIL_HEADER_COPY_CLASSNAME =
   "min-w-0 flex-1 [&_h1]:whitespace-normal [&_h1]:[overflow-wrap:anywhere]";
 
 /** The menu column stays fixed; relationship actions form one trailing cluster. */
 export const CIRCLE_MEMBER_TRAILING_CLASSNAME =
-  "flex shrink-0 items-center justify-end gap-1";
+  "flex max-w-full shrink-0 flex-wrap items-center justify-end gap-1";
 
 /**
  * An actionable relationship control (Connect / Respond).
@@ -133,7 +131,7 @@ export const CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME =
  * while preserving destructive red for the remove action.
  */
 export const CIRCLE_MEMBER_MENU_ITEM_CLASSNAME =
-  "flex min-h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] hover:!bg-[color:var(--app-neutral-fill)] hover:!text-[color:var(--app-primary-label)] focus:!bg-[color:var(--app-neutral-fill)] focus:!text-[color:var(--app-primary-label)] data-[highlighted]:!bg-[color:var(--app-neutral-fill)] data-[highlighted]:!text-[color:var(--app-primary-label)] data-[variant=destructive]:hover:!text-destructive data-[variant=destructive]:focus:!text-destructive data-[variant=destructive]:data-[highlighted]:!text-destructive dark:hover:!bg-[color:var(--app-neutral-fill-strong)] dark:focus:!bg-[color:var(--app-neutral-fill-strong)] dark:data-[highlighted]:!bg-[color:var(--app-neutral-fill-strong)]";
+  "flex min-h-[52px] w-full items-center gap-3 rounded-[10px] px-4 py-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] hover:!bg-[color:var(--app-neutral-fill)] hover:!text-[color:var(--app-primary-label)] focus:!bg-[color:var(--app-neutral-fill)] focus:!text-[color:var(--app-primary-label)] data-[highlighted]:!bg-[color:var(--app-neutral-fill)] data-[highlighted]:!text-[color:var(--app-primary-label)] data-[variant=destructive]:hover:!text-destructive data-[variant=destructive]:focus:!text-destructive data-[variant=destructive]:data-[highlighted]:!text-destructive dark:hover:!bg-[color:var(--app-neutral-fill-strong)] dark:focus:!bg-[color:var(--app-neutral-fill-strong)] dark:data-[highlighted]:!bg-[color:var(--app-neutral-fill-strong)]";
 
 /**
  * Phones retain one page scroll so touch gestures cannot get trapped inside a
@@ -147,16 +145,17 @@ export const CIRCLE_MEMBERS_CARD_SCROLL_CLASSNAME =
   "min-h-0 flex-1 sm:overflow-y-auto sm:overscroll-contain sm:[-webkit-overflow-scrolling:touch]";
 
 /**
- * The SMS handoff follows the complete roster in reading order. It fills a
- * narrow phone safely, then stays bounded and right-aligned on wider screens.
+ * The SMS handoff follows the complete roster in reading order. It is the same
+ * accent pill as "Share location" on the Location hub, centred under the
+ * roster and capped at 244px on every screen width.
  */
 export const CIRCLE_PROCEED_TO_SMS_CLASSNAME =
-  "h-12 min-h-12 w-full max-w-[320px] rounded-[14px] text-[15px] font-semibold";
+  "h-12 min-h-12 w-full max-w-[244px] rounded-full bg-[color:var(--app-accent)] text-[15px] font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]";
 
 /**
  * A member's destructive exit stays easy to tap on a phone without becoming a
  * full-width desktop banner. It uses the same 320px responsive cap as the
- * Circle handoff CTA and belongs against the trailing edge of the flow.
+ * Circle handoff CTA and is centered beneath the roster.
  */
 export const CIRCLE_LEAVE_ACTION_CLASSNAME =
   "ui-text-button-label h-11 min-h-11 w-full max-w-[320px] rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive";

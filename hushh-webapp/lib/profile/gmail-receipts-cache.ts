@@ -7,6 +7,7 @@ import type {
 } from "@/lib/services/gmail-receipts-service";
 
 const RECEIPTS_CACHE_TTL_MS = 5 * 60 * 1000;
+const RETIRED_RECEIPTS_STORAGE_KEY = "kai_gmail_receipts_cache_v1";
 // The backend signs each continuation for two hours from the pass's first
 // page. Resume well inside that window; an older pass restarts at page one.
 const RECEIPT_SCAN_RESUME_WINDOW_MS = 100 * 60 * 1000;
@@ -29,6 +30,9 @@ interface CachedReceiptEntry extends ReceiptListResponse {
 // sessionStorage receipt cache: it contains legacy rows whose identities cannot
 // be resolved by the authoritative live detail endpoint.
 const receiptCache = new Map<string, CachedReceiptEntry>();
+// A scan may finish after disconnect. Its captured revision must no longer be
+// allowed to publish rows for an account whose connection was removed.
+const receiptCacheRevisions = new Map<string, number>();
 
 function normalizeUserId(userId: string | null | undefined): string {
   return String(userId || "").trim();
@@ -110,6 +114,12 @@ export function getCachedGmailReceipts(
   const cacheKey = ownerAccountKey(userId, accountKey);
   if (!cacheKey) return null;
   return receiptCache.get(cacheKey) || null;
+}
+
+export function getGmailReceiptCacheRevision(
+  userId: string | null | undefined,
+): number {
+  return receiptCacheRevisions.get(normalizeUserId(userId)) || 0;
 }
 
 export function isCachedGmailReceiptsFresh(
@@ -212,12 +222,25 @@ export function clearCachedGmailReceipts(
 ): void {
   const normalizedUserId = normalizeUserId(userId);
   if (!normalizedUserId) return;
+  receiptCacheRevisions.set(
+    normalizedUserId,
+    getGmailReceiptCacheRevision(normalizedUserId) + 1,
+  );
   for (const key of receiptCache.keys()) {
     if (
       key === normalizedUserId ||
       key.startsWith(`${normalizedUserId}\u0000`)
     ) {
       receiptCache.delete(key);
+    }
+  }
+  // Old app versions wrote receipt rows to sessionStorage. Never hydrate
+  // them; remove that retired copy when any owner disconnects.
+  if (typeof window !== "undefined") {
+    try {
+      window.sessionStorage.removeItem(RETIRED_RECEIPTS_STORAGE_KEY);
+    } catch {
+      // Storage may be disabled. The live cache has already been cleared.
     }
   }
 }

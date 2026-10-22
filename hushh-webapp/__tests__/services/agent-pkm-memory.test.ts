@@ -8,6 +8,14 @@ vi.mock("@/lib/services/api-service", () => ({
 }));
 
 const pkmGetMetadataMock = vi.fn();
+const prepareNaturalLanguageMock = vi.fn();
+vi.mock("@/lib/pkm/pkm-natural-language-ingestion", async (original) => ({
+  ...(await original<typeof import("@/lib/pkm/pkm-natural-language-ingestion")>()),
+  prepareNaturalLanguagePkm: (...args: unknown[]) => prepareNaturalLanguageMock(...args),
+}));
+vi.mock("@/lib/profile/pkm-agent-lab-capture", () => ({
+  loadPkmAgentLabContext: async () => ({ metadata: { domains: [] }, manifests: {} }),
+}));
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
   PersonalKnowledgeModelService: {
     getMetadata: (...args: unknown[]) => pkmGetMetadataMock(...args),
@@ -15,8 +23,10 @@ vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
 }));
 
 const pkmGetManyStaleFirstMock = vi.fn();
+const pkmGetStaleFirstMock = vi.fn();
 vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
   PkmDomainResourceService: {
+    getStaleFirst: (...args: unknown[]) => pkmGetStaleFirstMock(...args),
     getManyStaleFirst: (...args: unknown[]) => pkmGetManyStaleFirstMock(...args),
   },
 }));
@@ -30,6 +40,11 @@ vi.mock("@/lib/services/pkm-write-coordinator", () => ({
   },
 }));
 
+const peekLiveMirrorMock = vi.fn();
+vi.mock("@/lib/pkm/memory-refresh", () => ({
+  peekLiveMirror: (...args: unknown[]) => peekLiveMirrorMock(...args),
+}));
+
 import {
   addToPKM,
   clearAgentPkmContext,
@@ -39,16 +54,28 @@ import {
   getPkmConfirmationCards,
   loadAgentPkmContext,
   peekAgentPkmContext,
+  peekReceiptMemoryIndex,
   previewAgentPkmMemory,
   warmAgentPkmContext,
   type AgentPkmPreviewCard,
 } from "@/lib/agent/agent-pkm-memory";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
+import { prepareProfileReview } from "@/lib/agent/profile-research-review";
 import { toPlainMemoryText } from "@/lib/pkm/memory-plain-text";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
-import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { advanceVaultSessionEpoch, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import type { LiveMirrorFact, LiveMirrorView } from "@/lib/pkm/live-mirror-contract";
 import { createAgentPkmCaptureGuard, isAgentPkmProcessingReady } from "@/lib/agent/agent-pkm-capture-runtime";
 import { planSecretCaptures, UnguardedSecretError } from "@/lib/pkm/secret-span-guard";
+import { peekMarkdownMemory, replaceMarkdownMemoryDocument } from "@/lib/pkm/markdown-memory";
+
+// Structured-PKM specialist contracts stay covered independently of One's
+// Soul-only context loader. These tests must not reintroduce a chat fallback.
+async function loadLegacyPkmContext(params: Parameters<typeof loadAgentPkmContext>[0]) {
+  const context = await AgentPkmContextStore.load({ ...params, vaultKey: params.vaultKey! });
+  if (!context) throw new Error("Legacy context unavailable");
+  return context;
+}
 
 // Synthetic secrets, assembled from parts so no credential-shaped literal sits in the repository.
 const FAKE_API_KEY = ["s", "k-proj-", "fakefake0000fakefake9f2a"].join("");
@@ -57,6 +84,28 @@ const FAKE_CARD = "4111 1111 1111 1111";
 const FAKE_PASSPORT = "X1234567";
 const SECRET_PASSAGE = `openai key ${FAKE_API_KEY}, bank password is ${FAKE_PASSWORD}!\ncard ${FAKE_CARD}\npassport number ${FAKE_PASSPORT}`;
 const FAKE_VALUES = [FAKE_API_KEY, FAKE_PASSWORD, FAKE_CARD, FAKE_CARD.replace(/ /g, ""), FAKE_PASSPORT];
+
+// A read-time Live Mirror view whose records also hold fields that must never
+// reach a model: a token, a birth date and another person's id.
+function liveMirrorView(ownerId: string, vaultEpoch: number): LiveMirrorView {
+  const now = new Date().toISOString();
+  const fact = (ref: string, predicate: string, value: LiveMirrorFact["value"]): LiveMirrorFact => {
+    const [kind, field] = predicate.split(".") as [LiveMirrorFact["kind"], string];
+    return { key: `["${kind}","src-raw-${ref}","${field}"]`, predicate, kind, sourceId: `src-raw-${ref}`, ref, field,
+      label: field, value, state: "verified", revision: 2, sourceUpdatedAt: now, capturedAt: now, verifiedAt: now };
+  };
+  return {
+    schemaVersion: "live_mirror.v1", ownerId, vaultEpoch, builtAt: now, inventoryObservedAt: now, inventoryComplete: true,
+    issues: [], nameConflict: false, sources: [], markdown: "", evaluatedAt: now, overall: "current", lastVerifiedAt: now,
+    facts: [
+      fact("Profile", "profile.name", "Synthetic Owner"),
+      fact("Profile", "profile.accessToken", "ya29.SYNTH"),
+      fact("Profile", "profile.dateOfBirth", "1990-01-01"),
+      fact("Connection 1", "connection.counterpartId", "uid-other"),
+    ],
+    history: { entries: [], firstRetainedSequence: 1, droppedCount: 0, truncatedAt: null, coverage: "open_app_only" },
+  };
+}
 
 it("keeps a confirmed old-generation receipt without invalidating the replacement owner context", async () => {
   publishValidatedAuthSessionOwner("owner-a");
@@ -119,9 +168,67 @@ const METADATA = {
 let pkmBlob: Record<string, unknown>;
 
 describe("agent PKM memory helpers", () => {
+  it("an explicit Review recovers from a rejected warm-up without retrying across lock", async () => {
+    let rejectWarm!: (error: Error) => void;
+    pkmGetManyStaleFirstMock.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectWarm = reject; }));
+    const params = { userId: "user_1", vaultKey: "test-key", vaultOwnerToken: "test-token" };
+    const warm = AgentPkmContextStore.load(params).catch(() => null);
+    await vi.waitFor(() => expect(pkmGetManyStaleFirstMock).toHaveBeenCalledOnce());
+    const review = AgentPkmContextStore.load({ ...params, forceRefresh: true });
+    rejectWarm(new Error("optional warm-up unavailable"));
+    await warm;
+    expect(await review).not.toBeNull();
+    expect(pkmGetManyStaleFirstMock).toHaveBeenCalledTimes(2);
+    expect(pkmGetManyStaleFirstMock.mock.calls[1]![0]).toMatchObject({ forceRefresh: true });
+
+    clearAgentPkmContext();
+    pkmGetManyStaleFirstMock.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectWarm = reject; }));
+    const oldWarm = AgentPkmContextStore.load(params).catch(() => null);
+    await vi.waitFor(() => expect(pkmGetManyStaleFirstMock).toHaveBeenCalledTimes(3));
+    const oldReview = AgentPkmContextStore.load({ ...params, forceRefresh: true });
+    clearAgentPkmContext();
+    rejectWarm(new Error("warm-up failed after lock"));
+    await oldWarm;
+    expect(await oldReview).toBeNull();
+    expect(pkmGetManyStaleFirstMock).toHaveBeenCalledTimes(3);
+  });
+  it("a forced Review waits for warm-up then performs an authoritative complete read", async () => {
+    let finishWarm!: (value: unknown) => void;
+    pkmGetManyStaleFirstMock.mockReturnValueOnce(new Promise(resolve => { finishWarm = resolve; }));
+    const params = { userId: "user_1", vaultKey: "test-key", vaultOwnerToken: "test-token" };
+    const warm = AgentPkmContextStore.load(params);
+    await vi.waitFor(() => expect(pkmGetManyStaleFirstMock).toHaveBeenCalledOnce());
+    const review = AgentPkmContextStore.load({ ...params, forceRefresh: true });
+    finishWarm({ snapshots: {}, failedDomains: ["preferences"] });
+    await warm;
+    await review;
+    expect(pkmGetManyStaleFirstMock).toHaveBeenCalledTimes(2);
+    expect(pkmGetManyStaleFirstMock.mock.calls[1]![0]).toMatchObject({ forceRefresh: true });
+    expect(pkmGetMetadataMock.mock.calls[1]).toEqual(["user_1", true, "test-token", { allowStaleFallback: false }]);
+    expect(AgentPkmContextStore.findBusinessReconciliationCandidates({ userId: "user_1", businessUid: "not-stored" })).toEqual([]);
+  });
+  it("indexes current businesses by exact UID without sharing origin bookkeeping or other owners", async () => {
+    pkmGetMetadataMock.mockResolvedValue({ ...METADATA, domains: [{ key: "professional" }] });
+    pkmBlob = { professional: { businesses: { entities: {
+      first: { name: "Example", phone: "+15555550100", _business_origin: { business_uid: "business-one" } },
+      second: { name: "Example", _business_origin: { business_uid: "business-two" } },
+    } } } };
+    await AgentPkmContextStore.load({ userId: "user_1", vaultKey: "test-key", vaultOwnerToken: "test-token" });
+    const entries = AgentPkmContextStore.findBusinessReconciliationCandidates({ userId: "user_1", businessUid: "business-one" });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ entity_id: "first", domain: "professional", entity_scope: "businesses" });
+    expect(JSON.parse(entries[0]!.message)).toEqual({ name: "Example", phone: "+15555550100" });
+    expect(JSON.stringify(entries)).not.toContain("business-one");
+    expect(AgentPkmContextStore.findBusinessReconciliationCandidates({ userId: "user_1", businessUid: "unmatched" })).toEqual([]);
+    expect(() => AgentPkmContextStore.findBusinessReconciliationCandidates({ userId: "other-owner", businessUid: "business-one" })).toThrow();
+    clearAgentPkmContext();
+    expect(() => AgentPkmContextStore.findBusinessReconciliationCandidates({ userId: "user_1", businessUid: "business-one" })).toThrow();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     clearAgentPkmContext();
+    peekLiveMirrorMock.mockReset().mockReturnValue(null);
+    pkmGetStaleFirstMock.mockReset().mockResolvedValue({ data: { markdown: "# Soul.md\n\n## Preferences\n- concise summaries\n" } });
     pkmGetMetadataMock.mockResolvedValue(METADATA);
     pkmBlob = {
       preferences: {
@@ -152,8 +259,152 @@ describe("agent PKM memory helpers", () => {
     });
   });
 
+  it("finds origin-bearing businesses across scopes without starving existing personal details", async () => {
+    pkmGetMetadataMock.mockResolvedValue({ ...METADATA, domains: [{ key: "professional" }] });
+    pkmBlob = { professional: {
+      profile: { entities: { known: { name: "Example Company", _business_origin: { business_uid: "known-business" } } } },
+      businesses: { entities: Object.fromEntries(Array.from({ length: 12 }, (_, index) => [`business${index}`, {
+        name: `Unrelated Company ${index}`, _business_origin: { business_uid: `uid${index}` },
+      }])) },
+      education: { entities: { school: { summary: "Alex studied mathematics at Example School." } } },
+    } };
+    await AgentPkmContextStore.load({ userId: "user_1", vaultKey: "test-key", vaultOwnerToken: "test-token", forceRefresh: true });
+    const stored = AgentPkmContextStore.findBusinessReconciliationCandidates({ userId: "user_1", businessUid: "known-business" });
+    expect(stored[0]?.entity_scope).toBe("profile");
+    const personal = AgentPkmContextStore.findProfileReconciliationCandidates({ userId: "user_1", text: "Alex studied mathematics at Example School." });
+    expect(personal.some(candidate => candidate.entity_id === "school")).toBe(true);
+    expect(personal).toHaveLength(2); // Relevant company + school; unrelated companies cannot crowd them out.
+    expect(JSON.stringify(personal)).not.toContain("business_uid");
+    const target = AgentPkmContextStore.profileBusinessTarget("user_1", { card_id: "test", source_text: "A detail",
+      target_domain: "professional", candidate_payload: { notes: { entities: { known: { summary: "A detail" } } } },
+      merge_decision: { merge_mode: "extend_entity", target_entity_path: "profile.entities.known" } }, "professional");
+    expect(target?.businessUid).toBe("known-business");
+  });
+
+  it("rechecks origin at a retargeted destination inside the public-profile writer", async () => {
+    pkmSavePreparedDomainMock.mockImplementation(async (input: { build: (context: { currentDomainData: Record<string, unknown> }) => Promise<unknown> }) => {
+      await input.build({ currentDomainData: { profile: { entities: { known: { _business_origin: { business_uid: "existing-business" } } } } } });
+      return { success: true, dataVersion: 2, fullBlob: {} };
+    });
+    const result = await addToPKM({ userId: "user_1", vaultKey: "test-key", vaultOwnerToken: "test-token",
+      sourceMessage: "A company detail", source: "profile_research_review", confirmation: { confirmedByUser: true, surface: "chat" },
+      cards: [{ card_id: "test", source_text: "A company detail", write_mode: "confirm_first", target_domain: "professional",
+        candidate_payload: { notes: { entities: { known: { summary: "A company detail" } } } },
+        merge_decision: { merge_mode: "extend_entity", target_entity_path: "profile.entities.known" } }] });
+    expect(result.saved).toBe(0); expect(result.results[0]?.message).toContain("identity review");
+    await expect(addToPKM({ userId: "user_1", vaultKey: "test-key", vaultOwnerToken: "test-token",
+      sourceMessage: "A company detail", source: "profile_research_review", confirmation: { confirmedByUser: true, surface: "chat" },
+      cards: [{ card_id: "bad-target", source_text: "A company detail", write_mode: "confirm_first", target_domain: "professional",
+        candidate_payload: { notes: { entities: { known: { summary: "A company detail" } } } },
+        merge_decision: { merge_mode: "create_entity", target_entity_path: "profile.entities.known.details" } }] })).rejects.toThrow("destination");
+  });
+
+  it("keeps one reviewed inventory through a concurrent PKM change, without rebinding business identity", async () => {
+    pkmGetMetadataMock.mockResolvedValue({ ...METADATA, domains: [{ key: "professional" }] });
+    const entity = (uid: string) => ({ businesses: { entities: { chosen: {
+      summary: "Example Company", _business_origin: { business_uid: uid },
+    } } } });
+    pkmBlob = { professional: entity("business-A") };
+    const personal: AgentPkmPreviewCard = { card_id: "personal", source_text: "I studied mathematics.",
+      write_mode: "can_save", target_domain: "professional",
+      candidate_payload: { education: { entities: { school: { summary: "I studied mathematics." } } } },
+      merge_decision: { merge_mode: "create_entity", target_entity_path: "education.entities.school" } };
+    const business: AgentPkmPreviewCard = { card_id: "business", source_text: "Example Company",
+      write_mode: "can_save", target_domain: "professional",
+      candidate_payload: { businesses: { entities: { chosen: { summary: "Example Company" } } } },
+      merge_decision: { merge_mode: "extend_entity", target_entity_path: "businesses.entities.chosen" } };
+    prepareNaturalLanguageMock.mockImplementation(async (input) => {
+      window.dispatchEvent(new CustomEvent("pkm-domain-changed", { detail: { userId: "user_1" } }));
+      expect(input.findDuplicate("Example Company")?.kind).toBe("exact");
+      expect(input.findReconciliationCandidates("Example Company")).toHaveLength(1);
+      // A subsequent authoritative refresh has a different UID at the same path.
+      pkmBlob = { professional: entity("business-B") };
+      await AgentPkmContextStore.load({ userId: "user_1", vaultKey: "test-key", vaultOwnerToken: "test-token", forceRefresh: true });
+      return { cards: [personal, business], sourceCoverage: [] };
+    });
+    const review = await prepareProfileReview({ userId: "user_1", vaultKey: "test-key",
+      vaultOwnerToken: "test-token", isCurrent: () => true, assertCurrent: async () => {} },
+      "I studied mathematics. Example Company");
+    expect(review.origins.has("personal")).toBe(false);
+    expect(review.origins.get("business")).toEqual({ businessUid: "business-A" });
+    pkmSavePreparedDomainMock.mockImplementation(async (input) => {
+      await input.build({ currentDomainData: pkmBlob.professional });
+      return { success: true, dataVersion: 2, fullBlob: {} };
+    });
+    const save = (card: AgentPkmPreviewCard) => addToPKM({ userId: "user_1", vaultKey: "test-key",
+      vaultOwnerToken: "test-token", source: "profile_research_review", sourceMessage: review.message,
+      businessOrigin: review.origins.get(card.card_id), cards: [card],
+      confirmation: { confirmedByUser: true, surface: "chat" } });
+    expect((await save(review.cards[0]!)).saved).toBe(1);
+    const rejected = await save(review.cards[1]!);
+    expect(rejected.saved).toBe(0);
+    expect(rejected.results[0]?.message).toContain("different or unidentified");
+    pkmBlob = { professional: entity("business-A") };
+    expect((await save(review.cards[1]!)).saved).toBe(1);
+  });
+
+  it("never captures another owner's or incomplete inventory, and revokes the review witness on vault expiry", async () => {
+    const params = { userId: "user_1", vaultKey: "test-key", vaultOwnerToken: "test-token", forceRefresh: true };
+    pkmGetManyStaleFirstMock.mockResolvedValueOnce({ snapshots: {}, failedDomains: ["preferences"] });
+    await AgentPkmContextStore.load(params);
+    expect(() => AgentPkmContextStore.captureProfileReviewInventory("user_1")).toThrow("could not be checked");
+    await AgentPkmContextStore.load(params);
+    expect(() => AgentPkmContextStore.captureProfileReviewInventory("other-owner")).toThrow("could not be checked");
+    const inventory = AgentPkmContextStore.captureProfileReviewInventory("user_1");
+    advanceVaultSessionEpoch();
+    expect(() => inventory.findLocalDuplicate("concise summaries")).toThrow("Unlock your vault");
+    expect(() => inventory.findReconciliationCandidates("concise summaries")).toThrow("Unlock your vault");
+    expect(() => inventory.businessTarget({ card_id: "expired", source_text: "" }, "preferences")).toThrow("Unlock your vault");
+  });
+
+  it.each(["deleted", "moved", "inactive"])("does not resurrect a %s business from a pinned profile review", async (change) => {
+    const business = { summary: "Example Company", status: "active", _business_origin: { business_uid: "business-A" } };
+    const current = change === "deleted" ? {} : change === "moved"
+      ? { businesses: { entities: { relocated: business } } }
+      : { businesses: { entities: { chosen: { ...business, status: "deleted" } } } };
+    pkmSavePreparedDomainMock.mockImplementation(async (input) => {
+      await input.build({ currentDomainData: current });
+      return { success: true, dataVersion: 2, fullBlob: {} };
+    });
+    const result = await addToPKM({ userId: "user_1", vaultKey: "test-key", vaultOwnerToken: "test-token",
+      sourceMessage: "Example Company", source: "profile_research_review", businessOrigin: { businessUid: "business-A" },
+      confirmation: { confirmedByUser: true, surface: "chat" },
+      cards: [{ card_id: "business", source_text: "Example Company", write_mode: "can_save", target_domain: "professional",
+        candidate_payload: { businesses: { entities: { chosen: business } } },
+        merge_decision: { merge_mode: "extend_entity", target_entity_path: "businesses.entities.chosen" } }] });
+    expect(result.saved).toBe(0);
+    expect(result.results[0]?.message).toContain(change === "moved" ? "another destination" : "saved business changed");
+    expect(pkmSaveMergedDomainMock).not.toHaveBeenCalled();
+  });
+
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("fences business identity at the conflict-aware writer, not only in the popup", async () => {
+    const entity = (uid: string) => ({ businesses: { entities: { chosen: { summary: "Synthetic business",
+      _business_origin: { business_uid: uid } } } } });
+    const reviewed: AgentPkmPreviewCard = { card_id: "business", source_text: "Synthetic business", write_mode: "can_save",
+      target_domain: "professional", target_entity_scope: "businesses", target_entity_id: "chosen",
+      candidate_payload: entity("business-A"), structure_decision: { target_domain: "professional" },
+      merge_decision: { merge_mode: "extend_entity", target_entity_path: "businesses.entities.chosen" } };
+    let existing = entity("business-A");
+    pkmSavePreparedDomainMock.mockImplementation(async (input: { build: (context: { currentDomainData: Record<string, unknown> }) => Promise<unknown> }) => {
+      await input.build({ currentDomainData: existing });
+      return { success: true, dataVersion: 1, fullBlob: {} };
+    });
+    const save = () => addToPKM({ userId: "user_1", vaultKey: "test-key", vaultOwnerToken: "test-token",
+      sourceMessage: "Synthetic business", source: "business_profile_review", businessOrigin: { businessUid: "business-A" },
+      confirmation: { confirmedByUser: true, surface: "chat", source: "business_profile_review" },
+      batchSimpleDomainExtensions: true, cards: [reviewed] });
+    expect((await save()).saved).toBe(1);
+    existing = entity("business-B");
+    const rejected = await save();
+    expect(rejected.saved).toBe(0);
+    expect(rejected.results[0]?.message).toContain("different or unidentified");
+    expect(pkmSaveMergedDomainMock).not.toHaveBeenCalled();
+    await expect(addToPKM({ userId: "user_1", vaultKey: "test-key", vaultOwnerToken: "test-token",
+      sourceMessage: "Synthetic business", source: "business_profile_review", cards: [reviewed] })).rejects.toThrow("Business identity");
   });
 
   it("keeps sharing and uncertain cards in review while exposing only private can-save cards", () => {
@@ -259,8 +510,26 @@ describe("agent PKM memory helpers", () => {
     expect(card.write_mode).toBe("can_save");
   });
 
+  it("keeps a saved Soul.md edit available to the next chat without another network read", async () => {
+    pkmSavePreparedDomainMock.mockImplementationOnce(async (params) => {
+      await params.build({ currentDomainData: { markdown: "# Memory\n" } });
+      return { success: true };
+    });
+    const edited = "# Soul\n\n- A corrected personal preference.\n";
+    await replaceMarkdownMemoryDocument({ userId: "user_1", vaultKey: "key", vaultOwnerToken: "token",
+      markdown: edited, expectedMarkdown: "# Memory\n", expectedPersisted: true, beforeEffect: async () => {} });
+    clearAgentPkmContext("user_1", { preserveMarkdown: true });
+    const context = await loadAgentPkmContext({ userId: "user_1", vaultKey: "key", vaultOwnerToken: "token", requireDecrypted: true });
+    expect(context.text).toBe(edited);
+    expect(peekMarkdownMemory("user_1")?.persisted).toBe(true);
+    expect(pkmGetMetadataMock).not.toHaveBeenCalled();
+    expect(pkmGetManyStaleFirstMock).not.toHaveBeenCalled();
+    clearAgentPkmContext("user_1");
+    expect(peekMarkdownMemory("user_1")).toBeNull();
+  });
+
   it("loads decrypted session PKM when the vault key is available", async () => {
-    const context = await loadAgentPkmContext({
+    const context = await loadLegacyPkmContext({
       userId: "user_1",
       vaultOwnerToken: "vault_token",
       vaultKey: "vault_key",
@@ -287,8 +556,8 @@ describe("agent PKM memory helpers", () => {
     );
   });
 
-  it("fails closed for a recall turn when metadata is temporarily unavailable", async () => {
-    pkmGetMetadataMock.mockRejectedValue(new Error("metadata temporarily unavailable"));
+  it("fails closed for a recall turn when Soul.md is temporarily unavailable", async () => {
+    pkmGetStaleFirstMock.mockRejectedValue(new Error("Soul temporarily unavailable"));
 
     await expect(
       loadAgentPkmContext({
@@ -304,7 +573,7 @@ describe("agent PKM memory helpers", () => {
   });
 
   it("waits for the complete agent-safe batch before publishing a packet", async () => {
-    const context = await loadAgentPkmContext({
+    const context = await loadLegacyPkmContext({
       userId: "user_1",
       vaultOwnerToken: "vault_token",
       vaultKey: "vault_key",
@@ -326,7 +595,7 @@ describe("agent PKM memory helpers", () => {
       ...METADATA,
       domains: [...METADATA.domains, { ...METADATA.domains[0], key: "identity", displayName: "Identity" }],
     });
-    const context = await loadAgentPkmContext({
+    const context = await loadLegacyPkmContext({
       userId: "user_1",
       vaultOwnerToken: "vault_token",
       vaultKey: "vault_key",
@@ -351,8 +620,8 @@ describe("agent PKM memory helpers", () => {
       message: "Find my legal name and age for this KYC request",
     };
 
-    const first = await loadAgentPkmContext(params);
-    const second = await loadAgentPkmContext({ ...params, message: "What writing style do I prefer?" });
+    const first = await loadLegacyPkmContext(params);
+    const second = await loadLegacyPkmContext({ ...params, message: "What writing style do I prefer?" });
 
     expect(first.text).toBe(second.text);
     expect(pkmGetManyStaleFirstMock).toHaveBeenCalledTimes(1);
@@ -366,7 +635,7 @@ describe("agent PKM memory helpers", () => {
       })
     ).toBeNull();
 
-    await loadAgentPkmContext({
+    await loadLegacyPkmContext({
       userId: "user_1",
       vaultKey: "test-vault-key",
       vaultOwnerToken: "owner-token",
@@ -399,7 +668,7 @@ describe("agent PKM memory helpers", () => {
     });
     const passage = "## Current role\n- Staff Platform Engineer at Example Labs, promoted in September 2026";
     expect(AgentPkmContextStore.findReconciliationCandidates({ userId: "user_1", text: passage })).toEqual([]);
-    await loadAgentPkmContext({ userId: "user_1", vaultKey: "k", vaultOwnerToken: "t", message: "role" });
+    await loadLegacyPkmContext({ userId: "user_1", vaultKey: "k", vaultOwnerToken: "t", message: "role" });
     const candidates = AgentPkmContextStore.findReconciliationCandidates({ userId: "user_1", text: passage });
     expect(candidates).toEqual([{
       domain: "professional", entity_id: "role_senior", entity_scope: "profile",
@@ -413,6 +682,23 @@ describe("agent PKM memory helpers", () => {
     });
     const body = JSON.parse(apiFetchMock.mock.calls.at(-1)![1].body as string);
     expect(body.simulated_state).toEqual({ memories: candidates });
+  });
+
+  it("forwards the whole bounded Soul snapshot without expanding the general candidate limit", async () => {
+    apiFetchMock.mockResolvedValue({ ok: true, json: async () => ({ agent_id: "a", agent_name: "A", model: "m", used_fallback: false, preview_cards: [] }) });
+    const candidates = Array.from({ length: 24 }, (_, index) => ({ domain: "one_memory", entity_scope: "markdown",
+      entity_id: `soul_${index}`, message: `Synthetic fact ${index}.`, active: true }));
+    await previewAgentPkmMemory({ userId: "user_1", vaultOwnerToken: "t", message: "My brother likes tea.", currentDomains: ["one_memory"],
+      memoryProfile: "soul_markdown_v1", reconciliationCandidates: candidates });
+    const body = JSON.parse(apiFetchMock.mock.calls.at(-1)![1].body as string);
+    expect(body.memory_profile).toBe("soul_markdown_v1");
+    expect(body.simulated_state.memories).toEqual(candidates);
+    await previewAgentPkmMemory({ userId: "user_1", vaultOwnerToken: "t", message: "My brother likes tea.", currentDomains: [], reconciliationCandidates: candidates });
+    expect(JSON.parse(apiFetchMock.mock.calls.at(-1)![1].body as string).simulated_state.memories).toHaveLength(10);
+    apiFetchMock.mockClear();
+    await expect(previewAgentPkmMemory({ userId: "user_1", vaultOwnerToken: "t", message: "Fact", currentDomains: ["one_memory"],
+      memoryProfile: "soul_markdown_v1", reconciliationCandidates: Array(257).fill(candidates[0]) })).rejects.toThrow("bound");
+    expect(apiFetchMock).not.toHaveBeenCalled();
   });
 
   it("sends a memory proposal holding placeholders only, and refuses a raw secret (negative control)", async () => {
@@ -455,7 +741,7 @@ describe("agent PKM memory helpers", () => {
       domains: [...METADATA.domains, ...["secrets", "wallet", "identity", "notes"].map((key) => ({ ...METADATA.domains[0], key, displayName: key }))],
     });
 
-    const context = await loadAgentPkmContext({ userId: "user_1", vaultKey: "k", vaultOwnerToken: "t", message: "what do you know" });
+    const context = await loadLegacyPkmContext({ userId: "user_1", vaultKey: "k", vaultOwnerToken: "t", message: "what do you know" });
 
     expect(context.text).toContain("- Secret exists: openai API key ending 9f2a");
     expect(context.text).toContain("- Secret exists: Travel, Visa card ending 1111");
@@ -477,7 +763,7 @@ describe("agent PKM memory helpers", () => {
   });
 
   it("returns the full agent-safe packet regardless of prompt wording", async () => {
-    const context = await loadAgentPkmContext({
+    const context = await loadLegacyPkmContext({
       userId: "user_1",
       vaultOwnerToken: "vault_token",
       vaultKey: "vault_key",
@@ -493,7 +779,7 @@ describe("agent PKM memory helpers", () => {
   it("marks an oversized full packet incomplete instead of silently truncating a fact", async () => {
     pkmBlob = { preferences: { writing: { long_note: "x".repeat(2_500) } } };
 
-    const context = await loadAgentPkmContext({
+    const context = await loadLegacyPkmContext({
       userId: "user_1",
       vaultOwnerToken: "vault_token",
       vaultKey: "vault_key",
@@ -531,7 +817,7 @@ describe("agent PKM memory helpers", () => {
       ],
     });
 
-    const context = await loadAgentPkmContext({
+    const context = await loadLegacyPkmContext({
       userId: "user_1",
       vaultOwnerToken: "vault_token",
       vaultKey: "vault_key",
@@ -583,7 +869,7 @@ describe("agent PKM memory helpers", () => {
       domains: [{ ...METADATA.domains[0], key: "financial", displayName: "Financial" }],
     });
 
-    const context = await loadAgentPkmContext({
+    const context = await loadLegacyPkmContext({
       userId: "user_1",
       vaultOwnerToken: "vault_token",
       vaultKey: "vault_key",
@@ -605,21 +891,22 @@ describe("agent PKM memory helpers", () => {
     expect(context.text).toContain("Transactions V1");
   });
 
-  it("warms the full agent-safe packet into browser RAM after unlock", async () => {
+  it("warms only Soul.md into browser RAM after unlock", async () => {
     await warmAgentPkmContext({
       userId: "user_1",
       vaultOwnerToken: "vault_token",
       vaultKey: "vault_key",
     });
 
-    expect(pkmGetMetadataMock).toHaveBeenCalledTimes(1);
-    expect(pkmGetManyStaleFirstMock).toHaveBeenCalledTimes(1);
+    expect(pkmGetMetadataMock).not.toHaveBeenCalled();
+    expect(pkmGetManyStaleFirstMock).not.toHaveBeenCalled();
+    expect(pkmGetStaleFirstMock).toHaveBeenCalledOnce();
     const packet = peekAgentPkmContext({ userId: "user_1", message: "unrelated request" });
-    expect(packet?.text).toContain("agent-safe-pkm/v1");
+    expect(packet?.text).not.toContain("agent-safe-pkm/v1");
     expect(packet?.text).toContain("concise summaries");
   });
 
-  it("serves an expired session working set immediately while one refresh is shared", async () => {
+  it("reuses the decrypted Soul document throughout the unlocked session without a TTL cloud read", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-20T12:00:00Z"));
     await loadAgentPkmContext({
@@ -634,12 +921,6 @@ describe("agent PKM memory helpers", () => {
       peekAgentPkmContext({ userId: "user_1", message: "summarize my memory" })?.text,
     ).toContain("concise summaries");
 
-    let resolveMetadata: ((value: typeof METADATA) => void) | null = null;
-    pkmGetMetadataMock.mockReturnValueOnce(
-      new Promise<typeof METADATA>((resolve) => {
-        resolveMetadata = resolve;
-      }),
-    );
     const firstRefresh = loadAgentPkmContext({
       userId: "user_1",
       vaultOwnerToken: "vault_token",
@@ -653,19 +934,44 @@ describe("agent PKM memory helpers", () => {
       message: "what do you know about my writing",
     });
 
-    expect(pkmGetMetadataMock).toHaveBeenCalledTimes(2);
-    resolveMetadata?.(METADATA);
+    expect(pkmGetMetadataMock).not.toHaveBeenCalled();
     await expect(Promise.all([firstRefresh, secondRefresh])).resolves.toHaveLength(2);
-    expect(pkmGetManyStaleFirstMock).toHaveBeenCalledTimes(1);
+    expect(pkmGetManyStaleFirstMock).not.toHaveBeenCalled();
+    expect(pkmGetStaleFirstMock).toHaveBeenCalledOnce();
+  });
+
+  it("supplies Soul, then only the owner's allowlisted Live Mirror packet, on the peek and load paths", async () => {
+    // Without a mirror the context is exactly Soul, as before.
+    const soul = (await loadAgentPkmContext({ userId: "user_1", vaultOwnerToken: "vault_token", vaultKey: "vault_key" })).text;
+    expect(soul).toContain("- concise summaries");
+    peekLiveMirrorMock.mockImplementation((userId: string) => liveMirrorView(userId, snapshotVaultSessionEpoch()));
+    const loaded = await loadAgentPkmContext({ userId: "user_1", vaultOwnerToken: "vault_token", vaultKey: "vault_key" });
+    const peeked = peekAgentPkmContext({ userId: "user_1" });
+
+    for (const context of [loaded, peeked]) {
+      expect(context?.text.startsWith(`${soul}\n\nLIVE MIRROR FACTS v1 (`)).toBe(true);
+      expect(context?.text).toContain('name="Synthetic Owner"');
+      expect(context?.text.endsWith("\nEND LIVE MIRROR FACTS")).toBe(true);
+      // Debug and telemetry get counts, never the packet.
+      expect(context?.liveMirror).toEqual({ shownFacts: 2, omittedFacts: 0 });
+      for (const forbidden of ["ya29.SYNTH", "1990-01-01", "uid-other", "src-raw"])
+        expect(context?.text).not.toContain(forbidden);
+    }
+    expect(peekLiveMirrorMock).toHaveBeenCalledWith("user_1");
+
+    // Negative control: another owner's projection adds nothing to Soul.
+    peekLiveMirrorMock.mockImplementation(() => liveMirrorView("user_2", snapshotVaultSessionEpoch()));
+    expect(peekAgentPkmContext({ userId: "user_1" })?.text).toBe(soul);
+    // A mirror fault only drops the packet; the turn keeps its Soul.
+    peekLiveMirrorMock.mockImplementation(() => { throw new Error("mirror unavailable"); });
+    await expect(loadAgentPkmContext({ userId: "user_1", vaultOwnerToken: "vault_token", vaultKey: "vault_key" }))
+      .resolves.toMatchObject({ text: soul });
   });
 
   it("drops an in-flight context load when the vault session clears", async () => {
-    let resolveMetadata: ((value: typeof METADATA) => void) | null = null;
-    pkmGetMetadataMock.mockReturnValueOnce(
-      new Promise<typeof METADATA>((resolve) => {
-        resolveMetadata = resolve;
-      })
-    );
+    let finish!: (value: unknown) => void;
+    pkmGetStaleFirstMock.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    peekLiveMirrorMock.mockImplementation((userId: string) => liveMirrorView(userId, snapshotVaultSessionEpoch()));
 
     const pending = loadAgentPkmContext({
       userId: "user_1",
@@ -673,27 +979,39 @@ describe("agent PKM memory helpers", () => {
       vaultKey: "vault_key",
     });
     clearAgentPkmContext("user_1");
-    resolveMetadata?.(METADATA);
+    finish({ data: { markdown: "# Soul.md\n- A private fact.\n" } });
 
     await expect(pending).resolves.toMatchObject({ text: "", domains: [] });
     expect(pkmGetManyStaleFirstMock).not.toHaveBeenCalled();
     expect(peekAgentPkmContext({ userId: "user_1" })).toBeNull();
+
+    // A lock that lands while the packet is being read discards the whole
+    // context, on both paths, instead of returning a prior session's facts.
+    await loadAgentPkmContext({ userId: "user_1", vaultOwnerToken: "vault_token", vaultKey: "vault_key" });
+    peekLiveMirrorMock.mockImplementation((userId: string) => {
+      const view = liveMirrorView(userId, snapshotVaultSessionEpoch());
+      advanceVaultSessionEpoch();
+      return view;
+    });
+    expect(peekAgentPkmContext({ userId: "user_1" })).toBeNull();
+    await expect(loadAgentPkmContext({ userId: "user_1", vaultOwnerToken: "vault_token", vaultKey: "vault_key" }))
+      .resolves.toMatchObject({ text: "" });
   });
 
-  it("falls back to metadata PKM summaries when the vault key is unavailable", async () => {
+  it("supplies no memory or metadata when the vault key is unavailable", async () => {
     const context = await loadAgentPkmContext({
       userId: "user_1",
       vaultOwnerToken: "vault_token",
       message: "what do you know about my preferences",
     });
 
-    expect(context.source).toBe("metadata");
-    expect(context.text).toContain("PKM compact context");
-    expect(context.text).toContain("Preferences");
+    expect(context.text).toBe("");
+    expect(pkmGetStaleFirstMock).not.toHaveBeenCalled();
+    expect(pkmGetMetadataMock).not.toHaveBeenCalled();
     expect(pkmGetManyStaleFirstMock).not.toHaveBeenCalled();
   });
 
-  it("uses only redacted metadata for an interactive first-turn preflight", async () => {
+  it("does not use metadata summaries even when a compatibility caller requests them", async () => {
     const context = await loadAgentPkmContext({
       userId: "user_1",
       vaultOwnerToken: "vault_token",
@@ -702,8 +1020,32 @@ describe("agent PKM memory helpers", () => {
       metadataOnly: true,
     });
 
-    expect(context.source).toBe("metadata");
-    expect(context.text).toContain("summary metadata only");
+    expect(context.text).toBe("");
+    expect(pkmGetMetadataMock).not.toHaveBeenCalled();
+    expect(pkmGetManyStaleFirstMock).not.toHaveBeenCalled();
+  });
+
+  it("never imports a populated specialist inventory when Soul.md is absent", async () => {
+    await loadLegacyPkmContext({ userId: "user_1", vaultKey: "key", vaultOwnerToken: "token" });
+    expect(AgentPkmContextStore.peek({ userId: "user_1" })?.text).toContain("concise summaries");
+    expect(peekAgentPkmContext({ userId: "user_1" })).toBeNull();
+    pkmGetStaleFirstMock.mockResolvedValueOnce(null);
+    pkmGetMetadataMock.mockClear(); pkmGetManyStaleFirstMock.mockClear();
+    const context = await loadAgentPkmContext({ userId: "user_1", vaultKey: "key", vaultOwnerToken: "token", requireDecrypted: true });
+    expect(context.text).toBe("# memory.md\n\n## Facts\n\n## Preferences\n\n## Commitments\n");
+    expect(context.text).not.toContain("concise summaries");
+    expect(context.domains).toEqual(["one_memory"]);
+    expect(pkmGetMetadataMock).not.toHaveBeenCalled();
+    expect(pkmGetManyStaleFirstMock).not.toHaveBeenCalled();
+    expect(pkmSavePreparedDomainMock).not.toHaveBeenCalled();
+  });
+
+  it("does not treat a malformed Soul document as absent or fall back to specialist records", async () => {
+    pkmGetStaleFirstMock.mockResolvedValueOnce({ data: { markdown: null } });
+    await expect(loadAgentPkmContext({ userId: "user_1", vaultKey: "key", vaultOwnerToken: "token", requireDecrypted: true }))
+      .rejects.toThrow("private memory could not be loaded");
+    expect(peekAgentPkmContext({ userId: "user_1" })).toBeNull();
+    expect(pkmGetMetadataMock).not.toHaveBeenCalled();
     expect(pkmGetManyStaleFirstMock).not.toHaveBeenCalled();
   });
 
@@ -743,7 +1085,7 @@ describe("agent PKM memory helpers", () => {
       ],
     });
 
-    const context = await loadAgentPkmContext({
+    const context = await loadLegacyPkmContext({
       userId: "user_1",
       vaultOwnerToken: "vault_token",
       vaultKey: "vault_key",
@@ -760,6 +1102,67 @@ describe("agent PKM memory helpers", () => {
     expect(context.text).not.toContain("runtime_secrets");
     expect(context.text).not.toContain("gemini_api_key");
     expect(context.text).not.toContain("must-not-reach-agent-context");
+  });
+
+  it("keeps legacy receipt rows and highlights out of routine Chat context", async () => {
+    const transaction = {
+      ref: `txn_${"a".repeat(24)}`,
+      merchant: "Supabase",
+      amount: 124.01,
+      currency: "USD",
+      category: "Cloud & Infra",
+      status: "overdue",
+      transaction_date: "2026-10-04",
+      identifiers: [{ kind: "invoice", value: "ZSUQHV-00028" }],
+      detail: null,
+    };
+    const index = {
+      schema: "receipt_canonical_index.v1",
+      generated_at: "2026-10-09T10:00:00Z",
+      total_transactions: 1,
+      truncated: false,
+      transactions: [transaction],
+    };
+    const shoppingMetadata = {
+      ...METADATA,
+      domains: [...METADATA.domains, { ...METADATA.domains[0], key: "shopping", displayName: "Shopping" }],
+    };
+    pkmGetMetadataMock.mockResolvedValue(shoppingMetadata);
+    pkmBlob = {
+      preferences: { writing: { default_style: "concise summaries" } },
+      shopping: { wishlists: { first: "noise-cancelling headphones" }, receipts_memory: { _canonical_index: index, readable_summary: { text: "RAW_SUBJECT USD 124.01" }, observed_facts: { recent_highlights: [{ amount: 124.01, transaction_date: "2026-10-04", subject: "RAW_SUBJECT" }], merchant_affinity: [{ merchant_label: "Amazon", receipt_count_365d: 5 }, { merchant_label: "Amazon paid USD 124.01 on 2026-10-04", receipt_count_365d: 1 }] } } },
+    };
+
+    const context = await loadLegacyPkmContext({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key",
+      message: "show my receipts",
+    });
+    // The rest of the shopping domain still reaches One; the transaction index never does.
+    expect(context.text).toContain("noise-cancelling headphones");
+    for (const leaked of ["Supabase", "ZSUQHV", "124.01", "txn_aaaa", "RAW_SUBJECT", "2026-10-04"]) {
+      expect(context.text).not.toContain(leaked);
+    }
+    expect(peekReceiptMemoryIndex({ userId: "user_1" })).toBeNull();
+    expect(peekReceiptMemoryIndex({ userId: "someone_else" })).toBeNull();
+
+    // Negative control: an index carrying a field the reader's closed schema forbids is not offered.
+    clearAgentPkmContext();
+    pkmBlob = {
+      shopping: {
+        receipts_memory: {
+          _canonical_index: { ...index, transactions: [{ ...transaction, subject: "Invoice from Supabase" }] },
+        },
+      },
+    };
+    await loadLegacyPkmContext({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key",
+      message: "show my receipts",
+    });
+    expect(peekReceiptMemoryIndex({ userId: "user_1" })).toBeNull();
   });
 
   it("sends communication preferences as standing style, never inside the memory packet", async () => {
@@ -782,7 +1185,7 @@ describe("agent PKM memory helpers", () => {
       domains: [...METADATA.domains, { ...METADATA.domains[0], key: "identity", displayName: "Identity" }],
     });
 
-    const context = await loadAgentPkmContext({
+    const context = await loadLegacyPkmContext({
       userId: "user_1",
       vaultOwnerToken: "vault_token",
       vaultKey: "vault_key",
@@ -826,7 +1229,7 @@ describe("agent PKM memory helpers", () => {
       domains: [...METADATA.domains, ...["secrets", "identity"].map((key) => ({ ...METADATA.domains[0], key, displayName: key }))],
     });
 
-    const context = await loadAgentPkmContext({ userId: "user_1", vaultKey: "k", vaultOwnerToken: "t", message: "hello" });
+    const context = await loadLegacyPkmContext({ userId: "user_1", vaultKey: "k", vaultOwnerToken: "t", message: "hello" });
 
     expect(context.text).toContain("Synthetic City");
     expect(context.text).toContain("- Secret exists: Passport ending 4567");
@@ -858,7 +1261,7 @@ describe("agent PKM memory helpers", () => {
       ],
     });
 
-    const context = await loadAgentPkmContext({
+    const context = await loadLegacyPkmContext({
       userId: "user_1",
       vaultOwnerToken: "vault_token",
       vaultKey: "vault_key",
@@ -1017,14 +1420,31 @@ describe("agent PKM memory helpers", () => {
     consoleError.mockRestore();
   });
 
+  it("identifies an outdated backend contract without exposing rejected business details", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    apiFetchMock.mockResolvedValue({ ok: false, status: 422, json: async () => ({
+      detail: [{ type: "literal_error", loc: ["body", "memory_profile"], input: "private source" }],
+    }) });
+    try {
+      await expect(previewAgentPkmMemory({ userId: "user_1", vaultOwnerToken: "vault_token",
+        message: "private source", currentDomains: [], memoryProfile: "business_directory_v1",
+      })).rejects.toMatchObject({ name: "PkmBackendContractMismatch",
+        message: "Review is unavailable until the backend update finishes." });
+      expect(JSON.stringify(consoleError.mock.calls)).not.toContain("private source");
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it("saves reviewed PKM cards through the write coordinator and invalidates cached context", async () => {
-    await loadAgentPkmContext({
+    await loadAgentPkmContext({ userId: "user_1", vaultKey: "vault_key", vaultOwnerToken: "vault_token" });
+    await loadLegacyPkmContext({
       userId: "user_1",
       vaultOwnerToken: "vault_token",
       vaultKey: "vault_key",
       message: "writing",
     });
-    expect(peekAgentPkmContext({ userId: "user_1", message: "writing" })).not.toBeNull();
+    expect(AgentPkmContextStore.peek({ userId: "user_1", message: "writing" })).not.toBeNull();
 
     const cards: AgentPkmPreviewCard[] = [
       {
@@ -1071,7 +1491,10 @@ describe("agent PKM memory helpers", () => {
     expect(plan.summary).not.toHaveProperty("message_excerpt");
     expect(plan.summary).not.toHaveProperty("card_id");
     expect(plan.scopePath).toBe("preferences.writing.default_style");
-    expect(peekAgentPkmContext({ userId: "user_1", message: "writing" })).toBeNull();
+    // Specialist writes invalidate the structured inventory, while Soul.md
+    // retains its own cache and any pending browser-first facts.
+    expect(AgentPkmContextStore.peek({ userId: "user_1", message: "writing" })).toBeNull();
+    expect(peekAgentPkmContext({ userId: "user_1", message: "writing" })?.text).toContain("concise summaries");
   });
 
   it("writes independent domains concurrently while preserving per-domain merge order", async () => {

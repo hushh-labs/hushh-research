@@ -1,22 +1,16 @@
 "use client";
 
 import {
-  useEffect,
   useId,
   useLayoutEffect,
-  useState,
-  useSyncExternalStore,
   type CSSProperties,
 } from "react";
 
 import {
   BOOT_RETRY_LABEL,
   BOOT_STUCK_TEXT,
-  BOOT_TIMING,
   BOOT_TITLE,
-  bootLineFor,
   isBootSurfaceShown,
-  type BootLine,
   type BootPhase,
   type BootStage,
 } from "@/lib/boot/boot-sequence";
@@ -35,7 +29,7 @@ import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
  * Mounted once in the root layout, outside every guard and every Suspense
  * boundary, so it is in the static HTML of every route and is never
  * unmounted. Guards hold stages on it (see `lib/boot/boot-surface-store.ts`);
- * it shows the stage being waited on and exits once, into whatever the guards
+ * it keeps one steady title and exits once, into whatever the guards
  * resolved to: the app, the vault unlock, phone verification, or a recovery
  * screen.
  *
@@ -47,66 +41,12 @@ import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
  *
  * Motion is transform and opacity only: a two-ring halo and a matching
  * breath on the mark (one 2.4 s heartbeat), a 150 ms critically damped
- * spring for each status line, and a 150 ms exit fade (lengthened, never
+ * spring for the title, and a 150 ms exit fade (lengthened, never
  * blocking, when the minimum visible time is not yet met). Reduced motion
  * keeps the opacity changes and drops every transform and loop.
  */
 
 const BOOT_SURFACE_TEST_ID = "boot-surface";
-
-function subscribeOnline(listener: () => void): () => void {
-  window.addEventListener("online", listener);
-  window.addEventListener("offline", listener);
-  return () => {
-    window.removeEventListener("online", listener);
-    window.removeEventListener("offline", listener);
-  };
-}
-
-function useOffline(): boolean {
-  return useSyncExternalStore(
-    subscribeOnline,
-    () => navigator.onLine === false,
-    () => false,
-  );
-}
-
-type LineEntry = { key: string; line: BootLine; leaving: boolean };
-
-/**
- * The current line plus, for one crossfade, the line it replaced. Both sit in
- * the same grid cell, so a change of stage never changes the layout.
- */
-function useLineStack(line: BootLine | null): LineEntry[] {
-  const key = line ? `${line.emoji} ${line.text}` : "";
-  const [entries, setEntries] = useState<LineEntry[]>(() =>
-    line ? [{ key, line, leaving: false }] : [],
-  );
-
-  useEffect(() => {
-    setEntries((previous) => {
-      const current = previous.find((entry) => !entry.leaving);
-      if ((current?.key ?? "") === key) return previous;
-      const next: LineEntry[] = [];
-      if (current) next.push({ ...current, leaving: true });
-      if (line) next.push({ key, line, leaving: false });
-      return next;
-    });
-    // `line` is derived from `key`; keying on the string keeps identity stable.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-
-  const hasLeaving = entries.some((entry) => entry.leaving);
-  useEffect(() => {
-    if (!hasLeaving) return undefined;
-    const timer = window.setTimeout(() => {
-      setEntries((previous) => previous.filter((entry) => !entry.leaving));
-    }, BOOT_TIMING.exitMs);
-    return () => window.clearTimeout(timer);
-  }, [hasLeaving]);
-
-  return entries;
-}
 
 function reload(): void {
   window.location.reload();
@@ -122,7 +62,7 @@ export type BootSceneProps = {
 };
 
 /**
- * The surface's contents: mark, title, the live status line and, when a stage
+ * The surface's contents: mark, title and, when a stage
  * hangs, the way out. Shared by the persistent surface and the contained
  * presentation used inside the session privacy gate (a top-layer dialog the
  * persistent surface cannot paint above).
@@ -130,14 +70,10 @@ export type BootSceneProps = {
 export function BootScene({
   stage,
   stuck = false,
-  offline = false,
   onRetry = reload,
   contained = false,
 }: BootSceneProps) {
   const titleId = useId();
-  const line = bootLineFor(stage, offline);
-  const entries = useLineStack(line);
-  const current = entries.find((entry) => !entry.leaving) ?? null;
 
   return (
     <section
@@ -157,20 +93,8 @@ export function BootScene({
         <p id={titleId} className="boot-title" data-boot-title="">
           {BOOT_TITLE}
         </p>
-        <div className="boot-lines" data-boot-lines="" aria-hidden="true">
-          {entries.map((entry) => (
-            <p
-              key={`${entry.key}:${entry.leaving ? "out" : "in"}`}
-              className="boot-line"
-              data-boot-line={entry.leaving ? "leaving" : "current"}
-            >
-              <span className="boot-line-emoji">{entry.line.emoji}</span>
-              <span>{entry.line.text}</span>
-            </p>
-          ))}
-        </div>
         <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
-          {current?.line.text ?? ""}
+          {BOOT_TITLE}
         </p>
         {stuck ? (
           <div className="boot-stuck" data-boot-stuck-panel="">
@@ -194,7 +118,6 @@ export function BootScene({
  */
 export function BootSurface() {
   const state = useBootSurfaceState();
-  const offline = useOffline();
 
   useLayoutEffect(() => {
     startBootSurface();
@@ -220,7 +143,6 @@ export function BootSurface() {
       <BootScene
         stage={state.stage}
         stuck={state.stuck}
-        offline={offline && state.stage !== null}
       />
     </div>
   );

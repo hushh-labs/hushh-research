@@ -28,6 +28,7 @@ from api.middlewares.chat_key import (
 )
 from api.routes.one.agent_context import sanitize_agent_context
 from api.utils.firebase_auth import verify_firebase_bearer
+from hushh_mcp.hushh_adk.product_activity import product_activity_plugins
 from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
     STATE_CONSENT_TOKEN,
@@ -82,6 +83,7 @@ from hushh_mcp.one_adk.queued_input import (
 from hushh_mcp.one_adk.queued_input import (
     registry as queued_input_registry,
 )
+from hushh_mcp.one_adk.receipt_memory_turn import STATE_RECEIPT_MEMORY
 from hushh_mcp.one_adk.request_secrets import consume_request_secret, store_request_secret
 from hushh_mcp.one_adk.shared_with_me_card import (
     SHARED_WITH_ME_CARD_KIND,
@@ -95,6 +97,7 @@ from hushh_mcp.one_adk.turn_completion import (
 )
 from hushh_mcp.one_adk.turn_location import STATE_TURN_LOCATION, admit_turn_location
 from hushh_mcp.one_adk.workspace_mcp_tools import WORKSPACE_CHAT_ADMISSION_STATE
+from hushh_mcp.runtime_providers import bind_managed_vertex_project
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
@@ -253,6 +256,14 @@ def _selected_share_authorized(input_data: RunAgentInput) -> bool:
 
 
 async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[str, Any]:
+    from hushh_mcp.one_adk.receipt_client_tools import (
+        RECEIPT_TOOL_NAMES,
+        STATE_RECEIPT_RESULT,
+        admit_receipt_result,
+        read_receipt_continuation_session,
+        receipt_tool_declaration,
+    )
+
     authorization = request.headers.get("authorization")
     consent_header = request.headers.get("x-hushh-consent")
     token: dict[str, Any] | None = None
@@ -279,6 +290,12 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     # Client-provided tools are frontend execution requests, never new
     # authority. Every tool must already exist in the generated Action Gateway.
     for tool in input_data.tools:
+        if tool.name in RECEIPT_TOOL_NAMES:
+            declaration = receipt_tool_declaration(tool.name)
+            if tool.parameters != declaration["parameters"]:
+                raise HTTPException(status_code=400, detail="Receipt tool contract is invalid.")
+            tool.description = declaration["description"]
+            continue
         action_id = action_id_from_tool_name(tool.name)
         if not action_id or get_action_gateway_action(action_id) is None:
             raise HTTPException(
@@ -378,12 +395,44 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     feed_attention = await _admit_feed_attention(
         forwarded, input_data=input_data, owner_id=user_id if token else ""
     )
+    receipt_session = None
+    try:
+        if forwarded.get("receiptToolResults") is not None and token and user_id:
+            receipt_session = await read_receipt_continuation_session(
+                _agent,
+                lambda: _session_service.get_session(
+                    app_name=ONE_APP_NAME, user_id=user_id, session_id=input_data.thread_id
+                ),
+                owner_id=user_id,
+                conversation_id=input_data.thread_id,
+                results=forwarded["receiptToolResults"],
+            )
+        receipt_result = admit_receipt_result(
+            forwarded,
+            owner_id=user_id if token else "",
+            conversation_id=input_data.thread_id,
+            session=receipt_session,
+            messages=input_data.messages,
+        )
+    except (ValueError, KeyError, TypeError):
+        raise HTTPException(
+            status_code=403, detail="Receipt continuation is unavailable. Ask again."
+        ) from None
     # The device sends a coarse position only when the person already granted
     # location; pre-vault turns never keep it.
     turn_location = admit_turn_location(forwarded)
     # The person's unsent draft card, so a follow-up can revise it. Only an
     # unlocked owner turn keeps it; it never becomes conversation state.
     pending_email_draft = admit_pending_email_draft(forwarded)
+    # The owner's consented memory for this turn: Soul.md, then the bounded
+    # Live Mirror facts packet. Popped before the bridge can copy forwarded
+    # props; only an unlocked owner turn stores it (below).
+    raw_pkm_context = str(forwarded.pop("pkmContext", None) or "")[:20000]
+    # The owner's saved receipt index, decrypted on their device for this turn.
+    # Only an unlocked owner turn keeps it; it never becomes conversation state.
+    # Old clients may send it; never admit detailed PKM rows into a new turn.
+    forwarded.pop("receiptMemory", None)
+    receipt_memory = ""
     # The owner's Settings style choices, sent apart from the memory packet.
     # Closed schema: anything outside it refuses the turn instead of clipping.
     try:
@@ -397,6 +446,10 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         turn_location = ""
         consume_request_secret(pending_email_draft)
         pending_email_draft = ""
+        consume_request_secret(receipt_memory)
+        receipt_memory = ""
+        # Without a vault-owner token the memory packet is dropped, never stored.
+        raw_pkm_context = ""
     owner_display_name = await _owner_display_name_for_turn(user_id) if token and user_id else ""
     return {
         STATE_EXECUTION_SURFACE: "typed_chat",
@@ -424,7 +477,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         "hussh:typed_chat_context": True,
         STATE_SCREEN: str(screen_context.get("screen") or "")[:64],
         STATE_VOICE_CONTEXT: screen_context,
-        STATE_PKM_CONTEXT: store_request_secret(str(forwarded.get("pkmContext") or "")[:20000]),
+        STATE_PKM_CONTEXT: store_request_secret(raw_pkm_context),
         STATE_OWNER_STYLE: owner_style,
         STATE_OWNER_DISPLAY_NAME: store_request_secret(owner_display_name),
         STATE_GMAIL_INFORMATION_REQUEST_WORKFLOW_ID: workflow_id,
@@ -434,6 +487,8 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         **consent_continuation,
         **feed_attention,
         STATE_PENDING_EMAIL_DRAFT: pending_email_draft,
+        STATE_RECEIPT_MEMORY: receipt_memory,
+        STATE_RECEIPT_RESULT: receipt_result,
     }
 
 
@@ -512,17 +567,24 @@ async def _admit_consent_continuation(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
 
 
+_ONE_CHAT_VERTEX_PROJECT = None  # Chat inherits the managed AI configuration.
+
 _app = App(
     name=ONE_APP_NAME,
-    root_agent=build_one_text_agent(allow_workspace_tools=True, include_thought_summaries=True),
+    plugins=product_activity_plugins("agent_one"),
+    root_agent=build_one_text_agent(
+        vertex_project=_ONE_CHAT_VERTEX_PROJECT,
+        allow_workspace_tools=True,
+        include_thought_summaries=True,
+    ),
     resumability_config=ResumabilityConfig(is_resumable=True),
 )
 _intro_app = App(
     name=f"{ONE_APP_NAME}_intro",
-    root_agent=build_one_intro_text_agent(),
+    root_agent=build_one_intro_text_agent(vertex_project=_ONE_CHAT_VERTEX_PROJECT),
     resumability_config=ResumabilityConfig(is_resumable=True),
 )
-_session_service = EncryptedAdkSessionService()
+_session_service = EncryptedAdkSessionService(referral_usage_app_name=ONE_APP_NAME)
 _intro_session_service = InMemorySessionService()
 
 
@@ -538,6 +600,18 @@ class _DurableSessionManager(SessionManager):
 
     def _start_cleanup_task(self) -> None:
         return None
+
+    async def _find_session_by_thread_id(
+        self, app_name: str, user_id: str, thread_id: str
+    ) -> Any | None:
+        """Use the authored O(1) identity instead of decrypting all history.
+
+        This manager is configured with ``use_thread_id_as_session_id=True``.
+        The bridge nevertheless calls this recovery hook before its direct
+        get-or-create path; the stock implementation scans and decrypts up to
+        100 sessions. One exact encrypted row read is sufficient here.
+        """
+        return await self.get_session(thread_id, app_name, user_id)
 
 
 _durable_session_manager = _DurableSessionManager(
@@ -1400,7 +1474,11 @@ _ACTIVITY_TOOLS = frozenset(
         "set_preferred_model",
         "propose_style_settings",
         "calendar_summary",
+        "calendar_invitations",
+        "open_calendar_invitation",
+        "calendar_calendars",
         "calendar_events",
+        "calendar_event_detail",
         "calendar_availability",
         "calendar_free_slots",
         "propose_calendar_event",
@@ -1409,6 +1487,7 @@ _ACTIVITY_TOOLS = frozenset(
         "open_gmail_email_draft",
         "open_gmail_information_request_reply",
         "propose_gmail_mailbox_change",
+        "propose_gmail_todo",
         "propose_drive_share",
         "propose_drive_bulk_share",
         "propose_drive_file_share",
@@ -1777,12 +1856,13 @@ async def list_conversations(
     sessions = sorted(response.sessions, key=lambda item: item.last_update_time, reverse=True)[
         :limit
     ]
-    await ensure_conversation_titles(
-        sessions=sessions,
-        service=_session_service,
-        owner=user_id,
-        token=str(token.get("token") or ""),
-    )
+    with bind_managed_vertex_project(_ONE_CHAT_VERTEX_PROJECT):
+        await ensure_conversation_titles(
+            sessions=sessions,
+            service=_session_service,
+            owner=user_id,
+            token=str(token.get("token") or ""),
+        )
     return {
         "user_id": user_id,
         "conversations": [

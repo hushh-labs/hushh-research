@@ -6,6 +6,7 @@ import base64
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -71,7 +72,21 @@ def flag(name, default=None):
 def save():
     state_path.write_text(json.dumps(state, sort_keys=True))
 
-if args[:3] == ["run", "services", "list"]:
+if args[:4] == ["run", "services", "describe", "consent-protocol"]:
+    print(json.dumps({"status": {"traffic": [{"revisionName": "consent-protocol-01234-api", "percent": 100}]}}))
+elif args[:4] == ["run", "revisions", "describe", "consent-protocol-01234-api"]:
+    print(json.dumps({
+        "metadata": {"name": "consent-protocol-01234-api"},
+        "spec": {"serviceAccountName": os.environ["RUNTIME_SERVICE_ACCOUNT"], "containers": [{
+            "image": os.environ["IMAGE_REFERENCE"],
+            "env": [{"name": key, "value": value} for key, value in {
+                "HUSHH_DEPLOY_SHA": os.environ["DEPLOY_SHA"],
+                "HUSHH_DEPLOY_RUN_ID": os.environ["RELEASE_RUN_ID"],
+                "HUSHH_DEPLOY_ENV": "uat", "HUSHH_UAT_MANAGED_TEXT_PROVIDER": "azure_openai", "HUSHH_UAT_MANAGED_AI_PROVIDER": "azure_openai",
+            }.items()],
+        }]}, "status": {"conditions": [{"type": "Ready", "status": "True"}]},
+    }))
+elif args[:3] == ["run", "services", "list"]:
     print("[]")
 elif args[:3] == ["run", "services", "describe"]:
     if "--format=value(status.latestCreatedRevisionName)" in args:
@@ -81,15 +96,41 @@ elif args[:3] == ["run", "services", "describe"]:
     else:
         sys.exit(70)
 elif args[:3] == ["run", "revisions", "describe"]:
+    # A revision reports its own scale. The service-level floor stays on the
+    # service, and Cloud Run omits a zero revision floor.
+    scaling = state.get("deployed_scaling", {})
+    annotations = {"autoscaling.knative.dev/maxScale": scaling.get("--max-instances")}
+    if scaling.get("--min-instances") not in (None, "0"):
+        annotations["autoscaling.knative.dev/minScale"] = scaling["--min-instances"]
     print(json.dumps({
-        "metadata": {"labels": {"deploy-sha": os.environ["DEPLOY_SHA"]}},
-        "spec": {"containers": [
-            {"name": "drive-worker", "image": os.environ["IMAGE_REFERENCE"]},
+        "metadata": {"labels": {"deploy-sha": os.environ["DEPLOY_SHA"]},
+                     "annotations": annotations},
+        "spec": {"containerConcurrency": int(scaling.get("--concurrency") or 0),
+                 "containers": [
+            {"name": "drive-worker", "image": os.environ["IMAGE_REFERENCE"],
+             "env": [{"name": "DRIVE_WORK_DRAIN_ENABLED",
+                      "value": state.get("deployed_drain_enabled", "true")},
+                     {"name": "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER",
+                      "value": state["deployed_semantic_model_provider"]},
+                     {"name": "HUSHH_UAT_MANAGED_TEXT_PROVIDER",
+                      "value": state["deployed_managed_text_provider"]},
+                     {"name": "HUSHH_UAT_MANAGED_AI_PROVIDER",
+                      "value": state["deployed_managed_ai_provider"]}]},
             {"name": "clamav", "image": os.environ["MOCK_CLAMAV_IMAGE"]},
         ]},
         "status": {"conditions": [{"type": "Ready", "status": "True"}]},
     }))
-elif args[:2] == ["run", "deploy"] or args[:3] in (
+elif args[:2] == ["run", "deploy"]:
+    state["deployed_managed_text_provider"] = flag("--set-env-vars").split("HUSHH_UAT_MANAGED_TEXT_PROVIDER=", 1)[1].split("|", 1)[0]
+    state["deployed_managed_ai_provider"] = flag("--set-env-vars").split("HUSHH_UAT_MANAGED_AI_PROVIDER=", 1)[1].split("|", 1)[0]
+    state["deployed_drain_enabled"] = flag("--set-env-vars").split("DRIVE_WORK_DRAIN_ENABLED=", 1)[1].split("|", 1)[0]
+    state["deployed_semantic_model_provider"] = flag("--set-env-vars").split("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER=", 1)[1].split("|", 1)[0]
+    state["deployed_scaling"] = {
+        name: flag(name)
+        for name in ("--concurrency", "--max-instances", "--min-instances", "--max", "--min")
+    }
+    save()
+elif args[:3] in (
     ["run", "services", "add-iam-policy-binding"],
     ["run", "services", "update-traffic"],
 ):
@@ -108,6 +149,8 @@ elif args[:3] == ["scheduler", "jobs", "describe"]:
     job = jobs[name]
     if "--format=json" in args:
         print(json.dumps(job))
+    elif "--format=value(state)" in args:
+        print(job["state"])
     elif any(item.startswith("--format=value(state,schedule,") for item in args):
         target = job["httpTarget"]
         print("\\t".join((job["state"], job["schedule"], target["uri"],
@@ -175,14 +218,16 @@ elif args[:2] == ["logging", "read"]:
     try:
         timestamp_valid = (timestamp_value.startswith('"')
                            and timestamp_value.endswith('"')
-                           and datetime.strptime(timestamp_value[1:-1],
-                                                 "%Y-%m-%dT%H:%M:%SZ").strftime(
+                           and datetime.fromisoformat(timestamp_value[1:-1]).strftime(
                                "%Y-%m-%dT%H:%M:%SZ") == timestamp_value[1:-1])
     except ValueError:
         timestamp_valid = False
     if not timestamp_valid or not job or "--format=json" not in args:
         print("invalid Cloud Logging filter or output format", file=sys.stderr)
         sys.exit(76)
+    reads = state.setdefault("log_reads", {})
+    reads[job] = reads.get(job, 0) + 1
+    save()
     if job == os.environ.get("MOCK_MISSING_LOG_JOB"):
         print("[]")
     elif job in state.get("triggered", []):
@@ -223,12 +268,52 @@ if count == 2 and os.environ.get("MOCK_TERMINATE_AFTER_SETUP", "true") == "true"
 """
 
 
+def test_uat_worker_setup_resumes_a_paused_suggestions_job(tmp_path: Path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_gcloud = fake_bin / "gcloud"
+    fake_gcloud.write_text(FAKE_GCLOUD, encoding="utf-8")
+    fake_gcloud.chmod(0o755)
+    name = "drive-work-suggestions-uat"
+    paused = _job(name, "suggestions", "* * * * *", "240s")
+    paused["state"] = "PAUSED"
+    state_path = tmp_path / "scheduler.json"
+    state_path.write_text(json.dumps({"jobs": {name: paused}, "mutations": 0}), encoding="utf-8")
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "PATH": f"{fake_bin}:{environment['PATH']}",
+            "MOCK_SCHEDULER_STATE": str(state_path),
+            "BACKEND_URL": API_ORIGIN,
+            "OIDC_AUDIENCE": API_ORIGIN,
+            "JOB_NAME": name,
+            "STAGE": "suggestions",
+            "CRON": "* * * * *",
+        }
+    )
+    result = subprocess.run(  # noqa: S603 - fixed repository-owned release helper
+        ["/bin/bash", "deploy/drive/setup_work_drain_scheduler.sh"],
+        cwd=ROOT,
+        env=environment,
+        capture_output=True,
+        check=False,
+        text=True,
+        timeout=20,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["jobs"][name]["state"] == "ENABLED"
+
+
 @pytest.mark.parametrize(
     ("quoted_job", "timestamp_value", "json_output", "valid"),
     [
         (True, '"2026-09-23T00:00:00Z"', True, True),
         (True, "2026-09-23T00:00:00Z", True, False),
         (True, '"not-a-time"', True, False),
+        (True, '"2026-02-30T00:00:00Z"', True, False),
+        (True, '"2026-09-23T00:00:00+00:00"', True, False),
+        (True, '"2026-09-23T00:00:00.123Z"', True, False),
         (False, '"2026-09-23T00:00:00Z"', True, False),
         (True, '"2026-09-23T00:00:00Z"', False, False),
     ],
@@ -311,7 +396,9 @@ def test_term_after_partial_retarget_restores_exact_job_set_or_quarantines(
     environment = os.environ.copy()
     environment.update(
         {
-            "PATH": f"{fake_bin}:{environment['PATH']}",
+            # Preserve fake commands, then select active Python ahead of host
+            # shims whose `env bash` would recursively enter the fake Bash.
+            "PATH": f"{fake_bin}:{Path(sys.executable).parent}:{environment['PATH']}",
             "MOCK_SCHEDULER_STATE": str(state_path),
             "MOCK_SETUP_COUNT": str(setup_count),
             "MOCK_RESTORE_FAIL": str(not restore_succeeds).lower(),
@@ -350,10 +437,23 @@ def test_term_after_partial_retarget_restores_exact_job_set_or_quarantines(
         assert "CRITICAL: Drive worker rollback is incomplete" in output
 
 
-@pytest.mark.parametrize("log_failure", ["none", "wrong_url", "missing"])
+@pytest.mark.parametrize(
+    ("processing_enabled", "log_failure", "all_jobs_present"),
+    [
+        (True, "none", False),
+        (True, "wrong_url", False),
+        (True, "missing", False),
+        (False, "none", False),
+        (False, "none", True),
+    ],
+)
 @pytest.mark.parametrize("wrong_scanner_child", [False, True])
 def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
-    tmp_path: Path, log_failure: str, wrong_scanner_child: bool
+    tmp_path: Path,
+    processing_enabled: bool,
+    log_failure: str,
+    all_jobs_present: bool,
+    wrong_scanner_child: bool,
 ):
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
@@ -364,17 +464,34 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
     fake_sleep = fake_bin / "sleep"
     fake_sleep.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     fake_sleep.chmod(0o755)
+    # Verify repeated log refusal and rollback without 55 identical subprocesses.
+    # The production polling budget and this fixture's watchdog stay unchanged.
+    fake_seq = fake_bin / "seq"
+    fake_seq.write_text("#!/bin/sh\nprintf '1\\n2\\n'\n", encoding="utf-8")
+    fake_seq.chmod(0o755)
     original_document = _job("drive-work-drain-uat", None, "*/2 * * * *", "120s")
+    initial_jobs = {"drive-work-drain-uat": original_document}
+    if all_jobs_present:
+        initial_jobs.update(
+            {
+                "drive-work-suggestions-uat": _job(
+                    "drive-work-suggestions-uat", "suggestions", "* * * * *", "240s"
+                ),
+                "drive-work-sharing-uat": _job(
+                    "drive-work-sharing-uat", "sharing", "* * * * *", "240s"
+                ),
+            }
+        )
     state_path = tmp_path / "scheduler.json"
     state_path.write_text(
-        json.dumps({"jobs": {"drive-work-drain-uat": original_document}, "mutations": 0}),
+        json.dumps({"jobs": initial_jobs, "mutations": 0}),
         encoding="utf-8",
     )
     setup_count = tmp_path / "setup-count"
     environment = os.environ.copy()
     environment.update(
         {
-            "PATH": f"{fake_bin}:{environment['PATH']}",
+            "PATH": f"{fake_bin}:{Path(sys.executable).parent}:{environment['PATH']}",
             "MOCK_SCHEDULER_STATE": str(state_path),
             "MOCK_SETUP_COUNT": str(setup_count),
             "MOCK_TERMINATE_AFTER_SETUP": "false",
@@ -391,6 +508,7 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
             ),
             "CLOUDSQL_INSTANCE": "hushh-pda-uat:us-central1:hushh-uat-pg",
             "RELEASE_RUN_ID": "12345",
+            "DRIVE_WORK_DRAIN_ENABLED": str(processing_enabled).lower(),
         }
     )
     result = subprocess.run(  # noqa: S603 - fixed repository-owned release helper
@@ -408,7 +526,16 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
         assert result.returncode != 0
         assert "scanner image digest mismatch" in output
         assert not setup_count.exists(), output
-        assert state["jobs"] == {"drive-work-drain-uat": original_document}
+        assert state["jobs"] == initial_jobs
+        return
+    assert state["deployed_drain_enabled"] == str(processing_enabled).lower()
+    if not processing_enabled:
+        assert result.returncode == 0, output
+        assert not setup_count.exists()
+        assert not state.get("triggered")
+        assert set(state["jobs"]) == set(initial_jobs)
+        assert all(job["state"] == "PAUSED" for job in state["jobs"].values())
+        assert "background processing paused" in output
         return
     assert setup_count.read_text(encoding="utf-8") == "3", output
     assert state["triggered"] == [
@@ -416,6 +543,13 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
         "drive-work-suggestions-uat",
         "drive-work-sharing-uat",
     ]
+    # Fixture cost fixes must retain the real script's complete negative path,
+    # not lower its retry budget or stop testing fresh worker-URL/200 evidence.
+    assert state["log_reads"] == {
+        "drive-work-drain-uat": 1,
+        "drive-work-suggestions-uat": 1,
+        "drive-work-sharing-uat": 1 if log_failure == "none" else 2,
+    }
     if log_failure != "none":
         assert result.returncode != 0
         assert "drive-work-sharing-uat produced no fresh 200" in output

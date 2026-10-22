@@ -5,8 +5,11 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useEffect, type ReactNode } from "react";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 const mapHarness = vi.hoisted(() => {
   type CameraListener = (data: unknown) => void;
@@ -34,7 +37,7 @@ const mapHarness = vi.hoisted(() => {
     removeMarkers: vi.fn(async () => undefined),
     removeCircles: vi.fn(async () => undefined),
     setCamera: vi.fn(async () => undefined),
-    setOnMarkerClickListener: vi.fn(async () => undefined),
+    setOnMarkerClickListener: vi.fn(async (_callback: (event: { markerId: string }) => void) => undefined),
     setOnBoundsChangedListener: vi.fn(async (_callback: CameraListener) => {}),
     setOnCameraIdleListener: vi.fn(async (_callback: CameraListener) => {}),
     setOnCameraMoveStartedListener: vi.fn(
@@ -101,6 +104,7 @@ const navigationHarness = vi.hoisted(() => ({
 }));
 
 const experienceHarness = vi.hoisted(() => ({
+  startupHeld: false,
   demoMode: true,
   nearbyAvailable: false,
   query: "demo=people",
@@ -253,18 +257,28 @@ vi.mock(
       onStateChange,
       onSearchAreaChange,
       onPlaceFocusChange,
+      presentationReady = true,
+      onStartupReadyChange,
+      rendererAccess,
     }: {
+      presentationReady?: boolean;
+      onStartupReadyChange?: (ready: boolean) => void;
+      rendererAccess?: ReactNode;
       open: boolean;
       onOpenChange: (open: boolean) => void;
       onStateChange: (state: unknown) => void;
       onSearchAreaChange: (point: unknown) => void;
       onPlaceFocusChange: (focus: unknown) => void;
-    }) => (
+    }) => {
+      useEffect(() => { if (open && !experienceHarness.startupHeld) onStartupReadyChange?.(true); }, [open, onStartupReadyChange]);
+      return (
       <div
         data-testid="nearby-check-in-sheet-mock"
         data-one-location-nearby-check-in-sheet=""
-        data-open={open ? "true" : "false"}
+        data-open={open && presentationReady ? "true" : "false"}
       >
+        {open && presentationReady ? rendererAccess : null}
+        <button data-testid="finish-check-in-startup" onClick={() => onStartupReadyChange?.(true)}>Finish startup</button>
         <button
           type="button"
           data-testid="dismiss-nearby-check-in"
@@ -375,7 +389,8 @@ vi.mock(
           Clear place focus
         </button>
       </div>
-    ),
+    );
+    },
   }),
 );
 
@@ -404,12 +419,7 @@ vi.mock("@/lib/one-location/encryption", () => ({
 import { toast } from "sonner";
 
 import { LocationImmersiveMap } from "@/components/one-location/location-immersive-map";
-import {
-  MAP_CONSENT_PANEL_BOTTOM_PADDING,
-  MAP_CONSENT_PANEL_CLASSNAME,
-  MAP_CONSENT_SUPPORTING_LINE,
-  MAP_CONSENT_TITLE,
-} from "@/components/one-location/map-consent-panel-layout";
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import {
   MAP_NEUTRAL_WORLD_LATITUDE,
   neutralWorldCamera,
@@ -430,6 +440,8 @@ import { forgetCachedRendererConsent } from "@/lib/one-location/map-renderer-con
 import { __resetNativeMapLifecycleForTests } from "@/lib/one-location/native-map-lifecycle";
 
 const DEFAULT_PLACE_FOCUS = { ...experienceHarness.placeFocus };
+let renderWebMarkerElements = false;
+let webMarkerElements = new Map<string, HTMLElement>();
 
 // jsdom never lays out elements, so the tray's content-measurement effect
 // (offsetHeight) would always read 0. Stub a representative expanded-header
@@ -449,6 +461,28 @@ Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
 });
 
 beforeEach(() => {
+  renderWebMarkerElements = false;
+  webMarkerElements = new Map();
+  mapHarness.map.addMarkers.mockImplementation(async (markers) => markers.map((value, index) => {
+    const id = `marker-${index}`;
+    if (renderWebMarkerElements) {
+      const marker = document.createElement("gmp-advanced-marker");
+      marker.title = (value as { title?: string }).title ?? "";
+      marker.appendChild(document.createElement("img"));
+      marker.addEventListener("click", () => {
+        const callback = mapHarness.map.setOnMarkerClickListener.mock.lastCall?.[0] as
+          unknown as ((event: { markerId: string }) => void) | undefined;
+        callback?.({ markerId: id });
+      });
+      document.querySelector("capacitor-google-map")?.appendChild(marker);
+      webMarkerElements.set(id, marker);
+    }
+    return id;
+  }));
+  mapHarness.map.removeMarkers.mockImplementation(async (...args: unknown[]) => {
+    const ids = args[0] as string[] | undefined;
+    ids?.forEach(id => { webMarkerElements.get(id)?.remove(); webMarkerElements.delete(id); });
+  });
   overlayHarness.enabled = false;
   overlayHarness.create.mockImplementation(async () => {
     if (!overlayHarness.enabled)
@@ -497,6 +531,7 @@ beforeEach(() => {
       dispatchEvent: vi.fn(),
     })),
   });
+  experienceHarness.startupHeld = false;
   experienceHarness.demoMode = true;
   experienceHarness.nearbyAvailable = false;
   experienceHarness.query = "demo=people";
@@ -550,7 +585,7 @@ beforeEach(() => {
   });
   serviceHarness.getMapPreferences.mockResolvedValue({
     presenceMode: "ghost",
-    rendererConsentVersion: null,
+    rendererConsentVersion: "google-maps-renderer-v1",
   });
   serviceHarness.captureCurrentPosition.mockResolvedValue({
     latitude: 37.776,
@@ -587,6 +622,7 @@ beforeEach(() => {
  * + authoritative reads do for a real returning owner.
  */
 function seedConsentedRenderer() {
+  serviceHarness.getMapPreferences.mockResolvedValue({ presenceMode: "ghost", rendererConsentVersion: "google-maps-renderer-v1" });
   serviceHarness.getMapState.mockResolvedValue({
     markers: [],
     preferences: {
@@ -594,6 +630,11 @@ function seedConsentedRenderer() {
       rendererConsentVersion: "google-maps-renderer-v1",
     },
   });
+}
+
+async function awaitMapPreparation() {
+  await waitFor(() => expect(screen.getByTestId("one-location-map")).toHaveAttribute("data-map-ready", "true"));
+  await waitFor(() => expect(screen.queryByTestId("one-location-map-loading")).toBeNull());
 }
 
 function stubCheckInMapGeometry() {
@@ -654,23 +695,41 @@ afterEach(() => {
 });
 
 describe("LocationImmersiveMap demo experience", () => {
-  it("anchors the consent panel to the bottom edge on a phone and centres it as a dialog on desktop", () => {
+  it("opens Your Map directly with existing acceptance without changing preferences", async () => {
     experienceHarness.demoMode = false;
-
     render(<LocationImmersiveMap />);
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+    expect(screen.queryByText("Private until you share.")).toBeNull();
+    await awaitMapPreparation();
+    expect(serviceHarness.updateMapPreferences).not.toHaveBeenCalled();
+    expect(screen.getByTestId("one-location-map-people-tray")).toBeInTheDocument();
+  });
 
-    // Asserted against the shared class string, so the component and
-    // `e2e/one-location-map-consent-panel.layout.spec.ts` cannot drift apart.
-    // JSDOM proves the classes are rendered; only the browser spec proves what
-    // they do.
-    expect(screen.getByTestId("one-location-map-disclosure")).toHaveClass(
-      ...MAP_CONSENT_PANEL_CLASSNAME.split(" "),
-    );
-    // The panel touches the bottom edge, so the inset that used to be a gap
-    // beneath a floating card is now padding under the primary action.
-    expect(screen.getByTestId("one-location-map-disclosure")).toHaveStyle({
-      paddingBottom: MAP_CONSENT_PANEL_BOTTOM_PADDING,
-    });
+  it.each([null, "outdated-version"])("does not renew %s renderer consent on reopening until explicitly accepted", async (rendererConsentVersion) => {
+    experienceHarness.demoMode = false;
+    serviceHarness.getMapPreferences.mockResolvedValue({ presenceMode: "ghost", rendererConsentVersion });
+    const first = render(<LocationImmersiveMap />);
+    await screen.findByTestId("one-location-map-renderer-access");
+    expect(screen.queryByTestId("one-location-map-loading")).toBeNull();
+    expect(serviceHarness.updateMapPreferences).not.toHaveBeenCalled();
+    expect(serviceHarness.captureCurrentPosition).not.toHaveBeenCalled();
+    expect(serviceHarness.getMapState).not.toHaveBeenCalled();
+    first.unmount();
+    render(<LocationImmersiveMap />);
+    await screen.findByTestId("one-location-map-renderer-access");
+    expect(screen.queryByTestId("one-location-map-loading")).toBeNull();
+    expect(serviceHarness.updateMapPreferences).not.toHaveBeenCalled();
+    expect(serviceHarness.captureCurrentPosition).not.toHaveBeenCalled();
+    expect(serviceHarness.getMapState).not.toHaveBeenCalled();
+    expect(mapHarness.map.addMarkers).not.toHaveBeenCalled();
+    expect(mapHarness.map.addCircles).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Use Google Maps" }));
+    await awaitMapPreparation();
+    expect(serviceHarness.updateMapPreferences).toHaveBeenCalledTimes(1);
+    expect(serviceHarness.updateMapPreferences).toHaveBeenCalledWith({ vaultOwnerToken: "in-memory-owner-token", rendererConsentVersion: "google-maps-renderer-v1" });
+    expect(screen.getByTestId("one-location-map-people-tray")).toBeInTheDocument();
   });
 
   it("says the map is unavailable instead of asking for consent to a renderer that cannot start", async () => {
@@ -697,30 +756,81 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(screen.getByTestId("one-location-map-close")).toBeInTheDocument();
   });
 
-  it("says the title and one short line, and nothing about how the renderer is fed", () => {
+  it("keeps explicit renderer access reachable inside ready Check-in with missing consent", async () => {
     experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    serviceHarness.getMapPreferences.mockResolvedValue({ presenceMode: "ghost", rendererConsentVersion: null });
+    render(<LocationImmersiveMap surface="check-in" />);
+    const access = await screen.findByTestId("one-location-map-renderer-access");
+    expect(access.closest('[data-testid="nearby-check-in-sheet-mock"]')).not.toBeNull();
+    expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute("data-open", "true");
+    expect(screen.queryByTestId("one-location-map-loading")).toBeNull();
+    expect(serviceHarness.updateMapPreferences).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Use Google Maps" }));
+    await awaitMapPreparation();
+    expect(serviceHarness.updateMapPreferences).toHaveBeenCalledTimes(1);
+  });
 
+  it.each(["map", "check-in"] as const)("keeps preparation retry reachable on %s when Maps is unavailable", async (surface) => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    mapsKeyHarness.present = false;
+    serviceHarness.getMapPreferences.mockRejectedValueOnce(new Error("offline"));
+
+    render(<LocationImmersiveMap surface={surface} />);
+
+    await screen.findByTestId("one-location-map-preparation-error");
+    expect(screen.queryByText("Maps isn't available")).toBeNull();
+    if (surface === "check-in") {
+      expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute("data-open", "false");
+    }
+    expect(serviceHarness.captureCurrentPosition).not.toHaveBeenCalled();
+    expect(serviceHarness.getMapState).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    await screen.findByText("Maps isn't available");
+    if (surface === "check-in") {
+      await waitFor(() => {
+        expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute("data-open", "true");
+      });
+    }
+    expect(screen.queryByTestId("one-location-map-preparation-error")).toBeNull();
+    expect(mapHarness.create).not.toHaveBeenCalled();
+    expect(serviceHarness.updateMapPreferences).not.toHaveBeenCalled();
+  });
+
+  it("recovers from preparation failure without revealing private coordinates", async () => {
+    experienceHarness.demoMode = false;
+    serviceHarness.getMapPreferences.mockRejectedValueOnce(new Error("offline"));
     render(<LocationImmersiveMap />);
-
-    const panel = screen.getByTestId("one-location-map-disclosure");
-    expect(
-      screen.getByRole("heading", { name: MAP_CONSENT_TITLE }),
-    ).toBeInTheDocument();
-    expect(panel).toHaveTextContent(MAP_CONSENT_SUPPORTING_LINE);
-
-    // The three-sentence paragraph this replaced. Two of its claims were
-    // architecture the person cannot act on; the third belongs to Nearby
-    // Check-In and is still stated on Location Settings, which is the surface
-    // that actually turns Check-In on.
-    expect(panel).not.toHaveTextContent(/Google Maps/i);
-    expect(panel).not.toHaveTextContent(/Nearby Check-In/i);
-    expect(panel).not.toHaveTextContent(/on this device/i);
-
-    // Consent itself is unchanged: this is still the gate, and Continue is
-    // still the only thing that writes the renderer consent version.
-    expect(
-      screen.getByRole("button", { name: "Continue" }),
-    ).toBeInTheDocument();
+    await screen.findByTestId("one-location-map-preparation-error");
+    expect(serviceHarness.captureCurrentPosition).not.toHaveBeenCalled();
+    expect(serviceHarness.getMapState).not.toHaveBeenCalled();
+    expect(screen.getByTestId("one-location-map-close")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await awaitMapPreparation();
+    expect(screen.queryByTestId("one-location-map-preparation-error")).toBeNull();
+    expect(serviceHarness.updateMapPreferences).not.toHaveBeenCalled();
+  });
+  it("requires the server's exact renderer version and settles a superseding failed read", async () => {
+    experienceHarness.demoMode = false;
+    let settle!: (value: { presenceMode: "ghost"; rendererConsentVersion: string | null }) => void;
+    serviceHarness.getMapPreferences.mockReturnValueOnce(new Promise(resolve => { settle = resolve; })).mockRejectedValueOnce(new Error("offline"));
+    render(<LocationImmersiveMap />);
+    dispatchOneLocationStateChanged("test-user", ["map_preferences"]);
+    await screen.findByTestId("one-location-map-preparation-error");
+    await act(async () => settle({ presenceMode: "ghost", rendererConsentVersion: null }));
+    expect(serviceHarness.updateMapPreferences).not.toHaveBeenCalled();
+    expect(serviceHarness.captureCurrentPosition).not.toHaveBeenCalled();
+    serviceHarness.getMapPreferences.mockResolvedValue({ presenceMode: "ghost", rendererConsentVersion: null });
+    serviceHarness.updateMapPreferences.mockResolvedValueOnce({ presenceMode: "ghost", rendererConsentVersion: "outdated-version" });
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await screen.findByTestId("one-location-map-renderer-access");
+    expect(serviceHarness.updateMapPreferences).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Use Google Maps" }));
+    await screen.findByTestId("one-location-map-preparation-error");
+    expect(serviceHarness.captureCurrentPosition).not.toHaveBeenCalled();
+    expect(serviceHarness.getMapState).not.toHaveBeenCalled();
   });
 
   it("never carries a cached private coordinate or neutral zoom across consent", async () => {
@@ -736,13 +846,15 @@ describe("LocationImmersiveMap demo experience", () => {
       decryptedPoints: {},
     });
 
+    let authorize!: (preferences: { presenceMode: "ghost"; rendererConsentVersion: string }) => void;
+    serviceHarness.getMapPreferences.mockReturnValueOnce(new Promise(resolve => { authorize = resolve; }));
     render(<LocationImmersiveMap />);
 
     await waitFor(() => {
       expect(mapHarness.create).toHaveBeenCalled();
     });
     expect(
-      screen.getByTestId("one-location-map-disclosure"),
+      screen.getByTestId("one-location-map-loading"),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Your location" })).toBeNull();
     expect(screen.queryByTestId("one-location-map-self-avatar")).toBeNull();
@@ -761,7 +873,7 @@ describe("LocationImmersiveMap demo experience", () => {
     });
     mapHarness.map.addCircles.mockClear();
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await act(async () => authorize({ presenceMode: "ghost", rendererConsentVersion: "google-maps-renderer-v1" }));
     await waitFor(() => {
       expect(mapHarness.map.setCamera).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -912,7 +1024,8 @@ describe("LocationImmersiveMap demo experience", () => {
         "data-map-demo",
       );
     });
-    fireEvent.click(screen.getByTestId("one-location-map-demo-preview"));
+    await awaitMapPreparation();
+    fireEvent.click(screen.getByTestId("one-location-map-demo-toggle"));
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-demo",
@@ -938,6 +1051,107 @@ describe("LocationImmersiveMap demo experience", () => {
     });
   }, 15000);
 
+  it.each([false, true])(
+    "preserves the document during a slow native Close (unmounted: %s)",
+    async (unmountBeforeSettlement) => {
+      platformHarness.native = true;
+      stubCheckInMapGeometry();
+      const view = render(<LocationImmersiveMap />);
+      await waitFor(() => {
+        expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+          "data-map-ready",
+          "true",
+        );
+      });
+
+      // Hold the browser on the outgoing pathname, as a slow client route does.
+      // Observe document navigation without asking JSDOM to navigate or exposing
+      // any vault information. The legacy 1.2-second escape must fail this test.
+      const browserWindow = window;
+      const assign = vi.fn();
+      vi.stubGlobal(
+        "window",
+        new Proxy(browserWindow, {
+          get(target, property, receiver) {
+            if (property === "location") {
+              return { pathname: target.location.pathname, assign };
+            }
+            return Reflect.get(target, property, receiver);
+          },
+        }),
+      );
+      vi.useFakeTimers();
+      try {
+        fireEvent.click(screen.getByTestId("one-location-map-close"));
+        expect(navigationHarness.replace).toHaveBeenCalledTimes(1);
+        expect(navigationHarness.replace).toHaveBeenCalledWith("/one/location", {
+          scroll: false,
+        });
+        if (unmountBeforeSettlement) view.unmount();
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1_500);
+        });
+        expect(assign).not.toHaveBeenCalled();
+        expect(mapHarness.map.disableTouch).toHaveBeenCalled();
+        expect(mapHarness.map.destroy).toHaveBeenCalled();
+      } finally {
+        view.unmount();
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+
+  it.each([false, true])("allows an explicit Close retry after its owner terminates (start failed: %s)", async (startFails) => {
+    platformHarness.native = true;
+    stubCheckInMapGeometry();
+    render(<LocationImmersiveMap />);
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+    let closeIntentId = "";
+    navigationHarness.beginRouteTransition.mockImplementationOnce(
+      (target, navigate) => {
+        appInteractionCoordinator.requestNavigation({
+          target,
+          source: "tap",
+          start: (intent) => {
+            closeIntentId = intent.id;
+            if (startFails) throw new Error("Synthetic navigation rejection");
+            appInteractionCoordinator.markNavigationCommitting(intent.id);
+            navigate();
+            return () => undefined;
+          },
+        });
+      },
+    );
+    const close = screen.getByTestId("one-location-map-close");
+    fireEvent.click(close);
+    if (startFails) {
+      expect(appInteractionCoordinator.getSnapshot().find(
+        (intent) => intent.id === closeIntentId,
+      )?.status).toBe("rejected");
+      expect(toast.error).toHaveBeenCalledWith("Couldn’t leave the map. Try again.");
+    } else {
+      expect(close).toBeDisabled();
+      fireEvent.click(close);
+      expect(navigationHarness.replace).toHaveBeenCalledTimes(1);
+      act(() => {
+        appInteractionCoordinator.cancelNavigation(
+          closeIntentId,
+          "route_settlement_timeout",
+        );
+      });
+    }
+    expect(close).not.toBeDisabled();
+    expect(navigationHarness.replace).toHaveBeenCalledTimes(startFails ? 0 : 1);
+    fireEvent.click(close);
+    expect(navigationHarness.replace).toHaveBeenCalledTimes(startFails ? 1 : 2);
+  });
+
   it("keeps an empty people tray compact", async () => {
     experienceHarness.demoMode = false;
     // Only the search box and the button grid render with nothing to
@@ -946,7 +1160,7 @@ describe("LocationImmersiveMap demo experience", () => {
     trayContentHeightStub = 96;
 
     render(<LocationImmersiveMap />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await awaitMapPreparation();
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",
@@ -1002,7 +1216,7 @@ describe("LocationImmersiveMap demo experience", () => {
     }));
 
     render(<LocationImmersiveMap />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await awaitMapPreparation();
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",
@@ -1042,8 +1256,8 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(screen.getByText("Aarav Shah")).toBeInTheDocument();
     expect(screen.getByText("Connected")).toBeInTheDocument();
     expect(
-      screen.getByText(/Within 500 m.*exact spots stay private/i),
-    ).toBeInTheDocument();
+      screen.queryByText(/Within 500 m.*exact spots stay private/i),
+    ).not.toBeInTheDocument();
     expect(JSON.stringify(mapHarness.map.addMarkers.mock.calls)).not.toContain(
       "Neelesh Meena",
     );
@@ -1076,6 +1290,22 @@ describe("LocationImmersiveMap demo experience", () => {
       "/one/location/check-in",
       { scroll: false },
     );
+  });
+
+  it("unwinds check-in then leaves the map through shared Back outside Android", async () => {
+    platformHarness.native = false;
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    seedConsentedRenderer();
+    const view = render(<LocationImmersiveMap surface="check-in" />);
+    await waitFor(() => expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute("data-open", "true"));
+    act(() => expect(unwindBackLayer("/one/location/check-in")).toBe(true));
+    expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute("data-open", "false");
+    expect(navigationHarness.replace).not.toHaveBeenCalled();
+    act(() => expect(unwindBackLayer("/one/location/check-in")).toBe(true));
+    expect(navigationHarness.replace).toHaveBeenCalledWith("/one/location", { scroll: false });
+    view.unmount();
+    expect(unwindBackLayer("/one/location/check-in")).toBe(false);
   });
 
   it("renders and clears the transient 500 m check-in search circle", async () => {
@@ -1289,6 +1519,9 @@ describe("LocationImmersiveMap demo experience", () => {
             marker.coordinate.lng === -122.4172,
         ),
       ).toBe(true);
+      expect(drawn.find(marker => marker.coordinate.lat === 37.7775)).toMatchObject({
+        tintColor: { r: 0, g: 122, b: 255, a: 255 },
+      });
       // ...while the owner never does: their avatar is HTML above the map.
       expect(
         drawn.some(
@@ -1924,7 +2157,7 @@ describe("LocationImmersiveMap demo experience", () => {
       const continueButton = screen.queryByRole("button", {
         name: "Continue",
       });
-      if (continueButton) fireEvent.click(continueButton);
+      expect(continueButton).toBeNull();
       await waitFor(() => {
         expect(screen.getByTestId("one-location-map")).toHaveAttribute(
           "data-map-ready",
@@ -1967,6 +2200,22 @@ describe("LocationImmersiveMap demo experience", () => {
         "true",
       );
     });
+  });
+  it("keeps Checking you in visible after the map starts until the check-in setup settles", async () => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.startupHeld = true;
+    platformHarness.native = true;
+    stubCheckInMapGeometry();
+    seedConsentedRenderer();
+    render(<LocationImmersiveMap surface="check-in" />);
+    await waitFor(() => expect(mapHarness.map.setOnMarkerClickListener).toHaveBeenCalled());
+    expect(screen.getByText("Checking you in…")).toBeInTheDocument();
+    expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute("data-open", "false");
+    fireEvent.click(screen.getByTestId("finish-check-in-startup"));
+    await waitFor(() => expect(screen.queryByTestId("one-location-map-loading")).toBeNull());
+    expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute("data-open", "true");
+    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
   });
 
   // The reported bug, in both of its lives: dismissing the sheet on check-in's
@@ -2636,24 +2885,42 @@ describe("LocationImmersiveMap reported map defects", () => {
       // Returning consented owner: check-in opens directly, no Your Map gate.
       seedConsentedRenderer();
     }
-    render(<LocationImmersiveMap {...props} />);
+    const view = render(<LocationImmersiveMap {...props} />);
     if (props.surface === "check-in") {
       expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
-    } else {
-      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     }
+    await awaitMapPreparation();
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",
         "true",
       );
     });
+    return view;
   }
 
   beforeEach(() => {
     experienceHarness.demoMode = false;
     experienceHarness.nearbyAvailable = true;
     experienceHarness.query = "source=map";
+  });
+
+  it("keeps a selected person's last-seen text white and other people muted", async () => {
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [incomingMarker(ANKIT, 25.4358, 81.8463), incomingMarker(ABDUL, 25.4501, 81.8201)],
+      preferences: { presenceMode: "ghost" },
+    });
+    await renderReadyMap();
+    const people = await screen.findAllByTestId("one-location-map-person");
+    const firstStatus = within(people[0]).getByText(/^last seen/);
+    const secondStatus = within(people[1]).getByText(/^last seen/);
+    fireEvent.click(people[0]);
+    await waitFor(() => expect(firstStatus).toHaveClass("text-white"));
+    expect(firstStatus).not.toHaveClass("text-muted-foreground");
+    expect(secondStatus).toHaveClass("text-muted-foreground");
+    fireEvent.click(people[1]);
+    await waitFor(() => expect(secondStatus).toHaveClass("text-white"));
+    expect(firstStatus).toHaveClass("text-muted-foreground");
   });
 
   it("sends a private share to the person it was written for while Ghost Mode is on", async () => {
@@ -3231,7 +3498,7 @@ describe("LocationImmersiveMap reported map defects", () => {
       expect(mapHarness.map.destroy).toHaveBeenCalledTimes(1);
       expect(mapHarness.create).toHaveBeenCalledTimes(2);
       expect(
-        screen.getByTestId("one-location-map-disclosure"),
+        screen.getByTestId("one-location-map-renderer-access"),
       ).toBeInTheDocument();
       expect(screen.queryByTestId("one-location-map-self-avatar")).toBeNull();
     });
@@ -3260,10 +3527,6 @@ describe("LocationImmersiveMap reported map defects", () => {
       resolveRefresh = resolve;
     });
     serviceHarness.getMapState
-      .mockResolvedValueOnce({
-        markers: [],
-        preferences: { presenceMode: "ghost" },
-      })
       .mockReturnValueOnce(pendingRefresh)
       .mockResolvedValueOnce({
         markers: [],
@@ -3272,14 +3535,10 @@ describe("LocationImmersiveMap reported map defects", () => {
       });
 
     render(<LocationImmersiveMap />);
-    await waitFor(() => {
-      expect(mapHarness.create).toHaveBeenCalledTimes(1);
-      expect(serviceHarness.getMapState).toHaveBeenCalledTimes(1);
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    await waitFor(() => {
-      expect(serviceHarness.getMapState).toHaveBeenCalledTimes(2);
-    });
+    // The SDK is ready while the private-marker refresh remains pending.
+    await waitFor(() => expect(mapHarness.create).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByTestId("one-location-map-loading")).toBeNull());
+    await waitFor(() => expect(serviceHarness.getMapState).toHaveBeenCalledTimes(1));
 
     mapHarness.map.addMarkers.mockClear();
     serviceHarness.getMapPreferences.mockResolvedValue({
@@ -3289,10 +3548,11 @@ describe("LocationImmersiveMap reported map defects", () => {
     dispatchOneLocationStateChanged("test-user", ["map_preferences"]);
     await waitFor(() => expect(mapHarness.create).toHaveBeenCalledTimes(2));
 
-    // Re-consent must not inherit the abandoned refresh's in-flight lock.
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    // Reopening must not inherit the abandoned refresh's in-flight lock.
+    fireEvent.click(await screen.findByRole("button", { name: "Use Google Maps" }));
+    await awaitMapPreparation();
     await waitFor(() => {
-      expect(serviceHarness.getMapState).toHaveBeenCalledTimes(3);
+      expect(serviceHarness.getMapState).toHaveBeenCalledTimes(2);
       expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
     });
 
@@ -3339,8 +3599,8 @@ describe("LocationImmersiveMap reported map defects", () => {
     });
     dispatchOneLocationStateChanged("test-user", ["map_preferences"]);
     await waitFor(() => expect(mapHarness.create).toHaveBeenCalledTimes(2));
-
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Use Google Maps" }));
+    await awaitMapPreparation();
     await reportCamera();
     await waitFor(() => {
       expect(
@@ -3499,7 +3759,10 @@ describe("LocationImmersiveMap reported map defects", () => {
       expect(fittedFallback).toBeDefined();
       expect(fittedFallback?.center).toEqual({ lat: 25.46, lng: 81.85 });
       const longitudeSpan = 81.85 - -74.006;
-      const fittedZoom = Math.log2((390 - 48) / (256 * (longitudeSpan / 360)));
+      // The renderer clamps this cross-continent fit to its viewport floor.
+      const config = (mapHarness.create.mock.calls.at(-1)?.[0] as unknown as { config: { minZoom: number } }).config;
+      expect(config.minZoom).toBe(2);
+      const fittedZoom = Math.max(config.minZoom, Math.log2((390 - 48) / (256 * (longitudeSpan / 360))));
       const metresPerPixel =
         (156543.03392 * Math.cos((25.46 * Math.PI) / 180)) / 2 ** fittedZoom;
       expect(Number(fittedFallback?.radius) / metresPerPixel).toBeCloseTo(9, 1);
@@ -3925,6 +4188,66 @@ describe("LocationImmersiveMap reported map defects", () => {
     });
   });
 
+  it("renders each sharing owner's photo locally and refreshes profile-only changes", async () => {
+    overlayHarness.enabled = true;
+    renderWebMarkerElements = true;
+    stubPhoneGeometry();
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const first = incomingMarker(ANKIT, 25.4358, 81.8463);
+    const second = incomingMarker(ABDUL, 25.4501, 81.8201);
+    const payload = (url: string) => ({
+      markers: [
+        { ...first, grant: { ...first.grant, ownerPhotoUrl: url, recipientPhotoUrl: "https://avatars.test/viewer.jpg" } },
+        second,
+      ], preferences: { presenceMode: "ghost" },
+    });
+    serviceHarness.getMapState.mockResolvedValue(payload("https://avatars.test/share-owner.jpg"));
+    const view = await renderReadyMap();
+    await waitFor(() => expect(screen.getByTestId("one-location-map-person-avatar-photo")).toHaveAttribute("src", "https://avatars.test/share-owner.jpg"));
+    expect(screen.getByTestId("one-location-map-person-avatar-fallback")).toHaveTextContent("AR");
+    expect(screen.getByTestId("one-location-map-self-avatar-photo")).toHaveAttribute("src", "https://avatars.test/ankit.jpg");
+    expect(JSON.stringify(mapHarness.map.addMarkers.mock.calls)).not.toContain("avatars.test");
+    expect(JSON.stringify(mapHarness.map.addMarkers.mock.calls)).not.toContain(ANKIT);
+    const marker = webMarkerElements.get("marker-0")!;
+    expect(marker.title).toBe("Private location");
+    expect(marker.querySelector("button")).toBeNull();
+    mapHarness.map.setCamera.mockClear();
+    fireEvent.click(within(marker).getByTestId("one-location-map-person-avatar"));
+    await waitFor(() => expect(mapHarness.map.setCamera).toHaveBeenCalledWith(expect.objectContaining({ coordinate: { lat: 25.4358, lng: 81.8463 }, zoom: 15 })));
+    expect(mapHarness.map.setCamera).toHaveBeenCalledTimes(1);
+    serviceHarness.getMapState.mockResolvedValue(payload("https://avatars.test/share-owner-new.jpg"));
+    fireEvent(document, new Event("visibilitychange"));
+    await waitFor(() => expect(screen.getByTestId("one-location-map-person-avatar-photo")).toHaveAttribute("src", "https://avatars.test/share-owner-new.jpg"));
+    expect(marker.isConnected).toBe(false);
+    const current = screen.getByTestId("one-location-map-person-avatar-photo");
+    await act(async () => { mapHarness.listeners.cameraMoveStarted?.({ isGesture: true }); });
+    expect(current).toBeVisible();
+    serviceHarness.getMapState.mockResolvedValue({ markers: [], preferences: { presenceMode: "ghost" } });
+    fireEvent(document, new Event("visibilitychange"));
+    await waitFor(() => expect(current.isConnected).toBe(false));
+    expect(screen.queryByTestId("one-location-map-person-avatar")).toBeNull();
+    view.unmount();
+  });
+
+  it("lets the renderer hide and restore shared photos with their clusters", async () => {
+    overlayHarness.enabled = true;
+    renderWebMarkerElements = true;
+    stubPhoneGeometry();
+    serviceHarness.getMapState.mockResolvedValue({ markers: Array.from({ length: 9 }, (_, index) => incomingMarker(`Person ${index}`, 25.44 + index * 0.0001, 81.83)), preferences: { presenceMode: "ghost" } });
+    const view = await renderReadyMap();
+    await waitFor(() => expect(screen.getAllByTestId("one-location-map-person-avatar")).toHaveLength(9));
+    expect(mapHarness.map.enableClustering).toHaveBeenCalledWith(4);
+    const marker = webMarkerElements.get("marker-0")!;
+    const face = within(marker).getByTestId("one-location-map-person-avatar");
+    marker.remove();
+    expect(face.isConnected).toBe(false);
+    document.querySelector("capacitor-google-map")!.appendChild(marker);
+    expect(face.isConnected).toBe(true);
+    expect(within(marker).getByTestId("one-location-map-person-avatar")).toBe(face);
+    view.unmount();
+    expect(marker.querySelector("[data-testid='one-location-map-person-avatar']")).toBeNull();
+  });
+
   it("names each pin by first name, and draws you as your own avatar", async () => {
     // The reported gap: two pins and no way to tell who is who without opening
     // the tray. "Ankit Kumar Singh" is what the tray says; a pill over a pin
@@ -4240,6 +4563,54 @@ describe("LocationImmersiveMap reported map defects", () => {
         { width: 390, height: 844 },
       ),
     ).toBe(0);
+  });
+
+  it.each(["pointer", "keyboard"] as const)("keeps an empty consented map filled after resize and respects %s input", async (input) => {
+    experienceHarness.demoMode = false;
+    platformHarness.native = false;
+    seedConsentedRenderer();
+    serviceHarness.captureCurrentPosition.mockRejectedValue(new Error("permission denied"));
+    let width = 390;
+    let height = 844;
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function(this: Element) {
+      const map = this.tagName === "CAPACITOR-GOOGLE-MAP";
+      return { x: 0, y: 0, top: 0, left: 0, width: map ? width : 0, height: map ? height : 0,
+        right: map ? width : 0, bottom: map ? height : 0, toJSON: () => ({}) } as DOMRect;
+    });
+    render(<LocationImmersiveMap />);
+    await awaitMapPreparation();
+    expect(mapHarness.create).toHaveBeenCalledWith(expect.objectContaining({
+      config: expect.objectContaining({ minZoom: neutralWorldCamera({ width, height }).zoom }),
+    }));
+    // Capacitor Web emits isGesture for programmatic center changes too.
+    mapHarness.map.setCamera.mockImplementation(async () => {
+      mapHarness.listeners.cameraMoveStarted?.({ isGesture: true });
+    });
+    width = 430;
+    height = 932;
+    fireEvent(window, new Event("resize"));
+    const middle = neutralWorldCamera({ width, height });
+    await waitFor(() => expect(mapHarness.map.setCamera).toHaveBeenLastCalledWith({
+      coordinate: middle.center, zoom: middle.zoom, animate: false,
+    }));
+    mapHarness.map.setCamera.mockClear();
+    width = 552;
+    height = 1080;
+    fireEvent(window, new Event("resize"));
+    const target = neutralWorldCamera({ width, height });
+    await waitFor(() => expect(mapHarness.map.setCamera).toHaveBeenLastCalledWith({
+      coordinate: target.center, zoom: target.zoom, animate: false,
+    }));
+    expect(outOfWorldBandPx(target, { width, height })).toBe(0);
+    const mapElement = document.querySelector("capacitor-google-map")!;
+    if (input === "keyboard") fireEvent.keyDown(mapElement, { key: "ArrowLeft" });
+    else fireEvent.pointerDown(mapElement);
+    mapHarness.map.setCamera.mockClear();
+    width = 1440;
+    height = 900;
+    fireEvent(window, new Event("resize"));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)); });
+    expect(mapHarness.map.setCamera).not.toHaveBeenCalled();
   });
 
   it("moves the pre-consent camera off latitude 20 on a box that cannot be covered from there", () => {

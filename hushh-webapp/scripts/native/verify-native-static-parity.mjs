@@ -113,6 +113,8 @@ const androidPermissions = [
 ].map((match) => match[1]);
 const allowedAndroidPermissions = new Set([
   "android.permission.INTERNET",
+  // Ordinary chat notification vibration; normal permission, no runtime prompt.
+  "android.permission.VIBRATE",
   "android.permission.RECORD_AUDIO",
   "android.permission.MODIFY_AUDIO_SETTINGS",
   "android.permission.ACCESS_FINE_LOCATION",
@@ -126,6 +128,9 @@ if (unexpectedAndroidPermissions.length > 0) {
   fail(
     `AndroidManifest.xml has unexpected permissions: ${unexpectedAndroidPermissions.join(", ")}.`
   );
+}
+if (!androidPermissions.includes("android.permission.VIBRATE")) {
+  fail("AndroidManifest.xml must include android.permission.VIBRATE for chat alerts.");
 }
 if (!androidManifest.includes('android.permission.RECORD_AUDIO')) {
   fail("AndroidManifest.xml must include android.permission.RECORD_AUDIO.");

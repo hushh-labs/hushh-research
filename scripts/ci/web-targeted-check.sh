@@ -133,7 +133,7 @@ if has_match '^hushh-webapp/(components/consent/|components/agent/(drive-backgro
   ran=1
 fi
 
-if has_match '^hushh-webapp/(components/agent/(agent-connections-drawer|connectors-panel|agent-chat-workspace|agent-history-sidebar|connector-read-receipt|agent-structured-experience|agent-turn-stream-panel)\.tsx|components/agent/__tests__/agent-(chat-selection|turn-stream-panel)\.test\.tsx|lib/(profile/drive-oauth-popup|agent/(connector-read-receipt|agui-structured-experiences)|services/(external-connector-service|google-drive-picker-service|agent-chat-client))\.ts|app/one/(one-auth-gate\.tsx|profile/connectors/)|e2e/(connections-drawer\.layout\.spec\.ts|fixtures/connections-)|__tests__/.*(connections-panel|one-auth-gate|drive-popup|drive-oauth|google-drive-picker|connector-read-receipt|agent-chat-client))'; then
+if has_match '^hushh-webapp/(components/agent/(agent-connections-drawer|connectors-panel|agent-chat-workspace|agent-history-sidebar|connector-read-receipt|agent-structured-experience|agent-turn-stream-panel)\.tsx|components/agent/__tests__/agent-(chat-selection|turn-stream-panel)\.test\.tsx|lib/(profile/drive-oauth-popup|agent/(connector-read-receipt|agui-structured-experiences)|services/(external-connector-service|google-drive-picker-service|agent-chat-client))\.ts|app/one/(one-auth-gate\.tsx|profile/connectors/)|components/(app-ui/illustrated-request-dialog\.(tsx|module\.css)|consent/(document-file-request|document-request-button|request-scope-button)\.tsx|wallet/request-cards-button\.tsx|connections/person-profile-(page\.tsx|page\.module\.css|hero\.tsx)|profile/profile-workspace-page\.tsx|ui/(alert-dialog|sheet)\.tsx|icons/ui/shortcut-(action-icons\.tsx|icon-motion\.module\.css))|lib/(navigation/(web-history-back|profile-pane)\.ts|morphy-ux/hooks/use-shortcut-icon-motion\.ts)|app/globals\.css|e2e/(connections-drawer\.layout\.spec\.ts|person-profile-actions\.layout\.spec\.ts|profile-confirmation-back\.spec\.ts|shortcut-icons\.motion\.spec\.ts|fixtures/(connections-|person-profile(-requests|-request-ports)?\.tsx|profile-confirmation-back\.tsx|shortcut-icon-motion\.tsx))|__tests__/.*(connections-panel|one-auth-gate|drive-popup|drive-oauth|google-drive-picker|connector-read-receipt|agent-chat-client))'; then
   run_check "Connections web boundary" npm run test:connections-web
   run_check "Connections mounted browser layout" npm run test:connections-layout
   ran=1
@@ -156,6 +156,13 @@ if has_match '^hushh-webapp/(lib/voice/|lib/one-voice/|components/one-voice/|com
   if has_match '^hushh-webapp/(components/one-voice/|lib/one-voice/(mail-open|directives|session-reducer)\.ts|e2e/one-voice-mail-open\.layout\.spec\.ts|e2e/fixtures/one-voice-mail-open)'; then
     run_check "One Voice mail open layout" npm run test:one-voice-mail-open-layout
   fi
+  ran=1
+fi
+
+# Calendar owns a transport-backed fixture for connected Schedule. Keep this
+# explicitly registered; the general layout script enumerates its own specs.
+if has_match '^hushh-webapp/(components/calendar/|lib/calendar/|lib/services/google-calendar-service\.ts|e2e/calendar-connected-workspace\.layout\.spec\.ts|e2e/fixtures/calendar-connected)'; then
+  run_check "Calendar workspace layout" npm run test:calendar-workspace-layout
   ran=1
 fi
 
@@ -368,7 +375,7 @@ fi
 # globals.css changes -- which is what those specs are pinned to. The browsers
 # are installed in the workflow step, not here, so a local run of this script
 # uses whatever is already on the machine.
-if has_match '^hushh-webapp/(e2e/(.*\.layout\.spec\.ts|fixtures/one-location-people-rows\.html|fixtures/one-location-contact-scroll\.tsx|fixtures/guest-preview\.tsx)|lib/(morphy-ux/hooks/use-page-enter|one-location/contact-picker-controls)\.ts|scripts/testing/capture-one-location-people-fixture\.mjs|playwright\.config\.ts|app/globals\.css|components/onboarding/(guest-preview|IntroStep)|components/app-ui/|components/one-location/|components/feed/|components/connect/|components/secrets/)'; then
+if has_match '^hushh-webapp/(e2e/(.*\.layout\.spec\.ts|fixtures/one-location-people-rows\.html|fixtures/one-location-contact-scroll\.tsx|fixtures/guest-preview\.tsx|fixtures/direct-chat|fixtures/answer-profile-photo)|lib/morphy-ux/ui/task-surfaces\.(tsx|module\.css)|lib/(morphy-ux/hooks/use-page-enter|one-location/contact-picker-controls|answers/answer-profile-photo|one-marketplace/encryption|services/answer-request-service|vault/session-epoch|pkm/identity-memory-facts)\.ts|scripts/testing/capture-one-location-people-fixture\.mjs|playwright\.config\.ts|app/globals\.css|components/consent/answer-request-card\.tsx|components/ui/avatar\.tsx|components/agent/agent-markdown\.tsx|components/onboarding/(guest-preview|IntroStep)|components/app-ui/|components/one-location/|components/feed/|components/connect/|components/direct-messages/|components/secrets/)'; then
   run_check "layout contracts" npm run test:layout-contracts
   ran=1
 fi

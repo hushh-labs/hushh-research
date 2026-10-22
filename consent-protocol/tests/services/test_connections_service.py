@@ -1888,7 +1888,23 @@ def test_search_directory_fallback_folds_separators_like_the_sql_path():
     assert sorted(found[1:]) == ["u-hyphen", "u-initial"]
 
 
-def test_search_directory_fallback_matches_only_exact_contact_identifiers():
+@pytest.mark.parametrize(
+    "query",
+    [
+        "k",
+        "kushaltrivedi54",
+        "kushaltrivedi54@",
+        "TRIVEDI54@GMAIL",
+        "gmail.com",
+        "kushaltrivedi54@gmail.com",
+        "+1 555 010 0002",
+        "15550100002",
+        "5550100002",
+        "555-010",
+        "5",
+    ],
+)
+def test_search_directory_fallback_matches_partial_contact_identifiers(query):
     svc = _svc()
     svc._directory_lookup = lambda owner_user_id: [
         {
@@ -1902,18 +1918,17 @@ def test_search_directory_fallback_matches_only_exact_contact_identifiers():
             "userId": "user-d",
             "displayName": "Another person",
             "email": "other@example.com",
+            "phoneNumber": "+1 (555) 010-0002",
+            "phoneVerified": False,
         },
     ]
     db = _RecordingDB([[], [], []])
     with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
-        out = svc.search_directory("user-a", query="kushaltrivedi54@gmail.com", page=1, limit=20)
+        out = svc.search_directory("user-a", query=query, page=1, limit=20)
 
     assert [item["userId"] for item in out["items"]] == ["user-c"]
-    with patch("hushh_mcp.services.connections_service.get_db", lambda: _RecordingDB([[], [], []])):
-        phone = svc.search_directory("user-a", query="+1 555 010 0002")
-        prefix = svc.search_directory("user-a", query="kushaltrivedi54@")
-    assert [item["userId"] for item in phone["items"]] == ["user-c"]
-    assert prefix["items"] == []
+    assert out["items"][0]["maskedPhone"] == "55******02"
+    assert "phoneNumber" not in out["items"][0]
 
 
 def test_search_directory_fallback_pages_the_ranked_list_not_the_raw_one():
@@ -1936,6 +1951,44 @@ def test_search_directory_fallback_pages_the_ranked_list_not_the_raw_one():
     assert second["hasMore"] is False
 
 
+def test_search_directory_name_only_excludes_contact_matches_before_pagination():
+    svc = _svc()
+    svc._directory_lookup = lambda owner: [
+        {"userId": "contact", "displayName": "Aaron Peer", "email": "priya@example.test"},
+        {"userId": "name", "displayName": "Priya Nair"},
+    ]
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: _RecordingDB([])):
+        result = svc.search_directory("owner", query="priya", name_only=True, limit=1)
+    assert [item["userId"] for item in result["items"]] == ["name"]
+    assert result["hasMore"] is False
+
+
+def test_request_by_name_asks_the_directory_for_that_name_not_the_first_page():
+    """A name past the first 50 people must resolve; two matches must not."""
+    asked: list[dict[str, object]] = []
+
+    def directory_search(owner_user_id: str, **options: object) -> dict[str, object]:
+        asked.append(options)
+        people = {
+            "zed": [{"userId": "user-z", "displayName": "Zed Zimmer"}],
+            "sam": [
+                {"userId": "user-s1", "displayName": "Sam One"},
+                {"userId": "user-s2", "displayName": "Sam Two"},
+            ],
+        }
+        return {"items": people.get(str(options["query"]), []), "page": 1, "hasMore": False}
+
+    svc = ConnectionsService(directory_search=directory_search)
+    db = _RecordingDB([[], [], []])
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        assert svc._resolve_query("user-a", "Zed") == "user-z"
+        with pytest.raises(ConnectionsError) as ambiguous:
+            svc._resolve_query("user-a", "Sam")
+    assert [call["query"] for call in asked] == ["zed", "sam"]
+    assert ambiguous.value.code == "CONNECTION_IDENTITY_UNRESOLVED"
+    assert len(ambiguous.value.candidates) == 2
+
+
 def test_search_directory_delegates_pagination_to_eligible_directory_query():
     calls: list[tuple[str, dict[str, object]]] = []
 
@@ -1946,7 +1999,8 @@ def test_search_directory_delegates_pagination_to_eligible_directory_query():
                 {
                     "userId": "user-c",
                     "displayName": "Cara",
-                    "maskedPhone": "******4455",
+                    "maskedPhone": "55******55",
+                    "phoneVerified": True,
                     "maskedEmail": "c***a@example.com",
                 }
             ],
@@ -1968,7 +2022,7 @@ def test_search_directory_delegates_pagination_to_eligible_directory_query():
                 "displayName": "Cara",
                 "photoUrl": None,
                 "email": None,
-                "maskedPhone": "******4455",
+                "maskedPhone": "55******55",
                 "maskedEmail": "c***a@example.com",
                 "relationship": "none",
                 "mutualConnectionCount": 0,
@@ -2397,6 +2451,56 @@ def test_disconnecting_ends_the_pairs_one_location_circle_memberships():
     assert calls == [{"user_a_id": "user-a", "user_b_id": "user-b"}]
 
 
+def test_disconnecting_ends_the_pairs_document_request_allows():
+    """An owner's Allow on a document request never outlives the connection.
+
+    Allow lets a request from outside the owner's Trusted circle run automatic
+    Drive search and sharing while the two stay connected. Reconnecting must
+    not quietly bring it back, as it never brings back revoked scope grants or
+    named Circles, so the disconnect transaction ends it.
+    """
+    svc = _svc()
+    db = _RecordingDB(
+        [
+            [
+                {
+                    "id": "conn-1",
+                    "user_a_id": "user-a",
+                    "user_b_id": "user-b",
+                    "status": "active",
+                }
+            ],  # SELECT
+            [],  # explicit scope proposals -> none
+            [],  # explicit share grants -> none
+            [],  # RIA relation projection -> none
+            [{"id": "tc-1"}],  # UPDATE trusted_connections
+            [],  # UPDATE connection_origins
+            [{"id": "conn-1", "revoked_at": "2026-08-26T12:00:00+00:00"}],  # UPDATE connections
+        ]
+    )
+    calls: list[dict] = []
+    with (
+        patch("hushh_mcp.services.connections_service.get_db", lambda: db),
+        patch.object(svc, "_end_one_location_circle_memberships", lambda **_kwargs: None),
+        patch.object(svc, "_end_drive_owner_allows", lambda **kwargs: calls.append(kwargs)),
+    ):
+        out = svc.remove_connection("user-a", "conn-1")
+
+    assert out == {"removed": 1}
+    assert calls == [{"user_a_id": "user-a", "user_b_id": "user-b"}]
+
+    # The cleanup runs on the disconnect's own transaction connection.
+    transaction_connection = object()
+    svc._transaction_connection = transaction_connection
+    ended: list[tuple[object, dict]] = []
+    with patch(
+        "hushh_mcp.services.drive_owner_allowed.end_owner_allows_for_disconnected_pair",
+        lambda connection, **kwargs: ended.append((connection, kwargs)),
+    ):
+        svc._end_drive_owner_allows(user_a_id="user-a", user_b_id="user-b")
+    assert ended == [(transaction_connection, {"user_a_id": "user-a", "user_b_id": "user-b"})]
+
+
 def test_a_disconnect_that_changed_nothing_evicts_nobody():
     """An already-revoked connection is not a fresh disconnect.
 
@@ -2431,6 +2535,8 @@ def test_a_disconnect_that_changed_nothing_evicts_nobody():
             "_end_one_location_circle_memberships",
             lambda **kwargs: calls.append(kwargs),
         ),
+        # Nor does a no-op retry end anyone's document request Allow.
+        patch.object(svc, "_end_drive_owner_allows", lambda **kwargs: calls.append(kwargs)),
     ):
         out = svc.remove_connection("user-a", "conn-1")
 

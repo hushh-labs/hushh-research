@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { AccountConfirmationPreparation } from "@/components/profile/account-confirmation-preparation";
 
 const profilePageSource = readFileSync(
   join(process.cwd(), "components/profile/profile-workspace-page.tsx"),
@@ -23,31 +24,35 @@ describe("profile security deletion contract", () => {
     );
   });
 
-  it("allows no-vault account deletion without forcing vault creation", () => {
-    expect(profilePageSource).toContain("if (!nextHasVault)");
-    expect(profilePageSource).toContain("setShowDeleteConfirm(true);");
-    expect(profilePageSource).toContain("Deletes cloud-linked records.");
-    expect(profilePageSource).not.toContain("Create vault to delete account");
-  });
-
-  it("keeps the delete row interactive when the vault probe fails", () => {
-    expect(profilePageSource).toContain(
-      'testId="profile-account-delete-row"',
-    );
-    expect(profilePageSource).toContain(
-      'onClick={() => void handleDeleteClick()}',
-    );
-    expect(profilePageSource).toContain(
-      'setHasVault(true);\n        nextHasVault = true;',
-    );
-    expect(profilePageSource).toContain('requestVaultUnlock("delete_account")');
-  });
-
-  it("keeps the One account delete confirmation button mobile-safe", () => {
-    expect(profilePageSource).toContain('"Delete account"');
-    expect(profilePageSource).toContain('variant="destructive"');
-    expect(profilePageSource).toContain("min-h-10");
-    expect(profilePageSource).toContain("sm:min-w-[10rem]");
+  it("admits only current account confirmations, preserving vaultless and failed-probe policy", async () => {
+    const preparation = new AccountConfirmationPreparation();
+    let finish!: (hasVault: boolean) => void;
+    let ownerCurrent = true;
+    const confirm = vi.fn(), unlock = vi.fn(), vaultKnown = vi.fn();
+    const port = { hasVault: null, ownerIsCurrent: () => ownerCurrent,
+      checkVault: () => new Promise<boolean>(resolve => { finish = resolve; }),
+      canMutate: () => false, confirm, unlock, vaultKnown };
+    const previousVisit = preparation.request(port);
+    preparation.invalidate(); // Close; Account reopens before its old probe returns.
+    const currentConfirm = vi.fn();
+    await preparation.request({ ...port, hasVault: false, confirm: currentConfirm });
+    finish(false);
+    await previousVisit;
+    expect(currentConfirm).toHaveBeenCalledOnce();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(vaultKnown).toHaveBeenCalledTimes(1);
+    const oldOwner = preparation.request(port);
+    ownerCurrent = false;
+    finish(false);
+    await oldOwner;
+    expect(confirm).not.toHaveBeenCalled();
+    expect(unlock).not.toHaveBeenCalled();
+    ownerCurrent = true;
+    await preparation.request({ ...port, checkVault: async () => { throw new Error("Unavailable"); } });
+    expect(unlock).toHaveBeenCalledOnce();
+    expect(confirm).not.toHaveBeenCalled();
+    await preparation.request({ ...port, hasVault: true, canMutate: () => true });
+    expect(confirm).toHaveBeenCalledOnce();
   });
 
   it("uses the same destructive settlement from Profile and setup chrome", () => {
@@ -57,8 +62,9 @@ describe("profile security deletion contract", () => {
     expect(topAppBarSource).toContain("Unlock Vault to Delete Account");
     expect(topAppBarSource).toContain("skipFcmCleanup: true");
     expect(deleteFlowSource).toContain(
-      "result = await AccountService.deleteAccount(",
+      "performDeletion: () => AccountService.deleteAccount(",
     );
+    expect(deleteFlowSource).toContain("result = await params.performDeletion();");
     expect(deleteFlowSource).toContain("confirmDeletionAfterUncertainResponse");
     expect(deleteFlowSource).toContain("account_deletion_uncertain");
     expect(deleteFlowSource).toContain("account_delete_uncertain_unverified");
@@ -70,7 +76,7 @@ describe("profile security deletion contract", () => {
     expect(deleteFlowSource).toContain("UserLocalStateService.clearForUser");
     expect(deleteFlowSource).toContain("DELETE_ACCOUNT_DIALOG_TITLE");
     expect(deleteFlowSource).toContain(
-      "Deletes your live account, vault, memory, chats, and connections. Required records and backups may remain. This can’t be undone.",
+      "Deletes your account, vault, memory, chats, and connections. This can’t be undone.",
     );
     expect(profilePageSource).toContain("DELETE_ACCOUNT_DIALOG_TITLE");
     expect(topAppBarSource).toContain("DELETE_ACCOUNT_DIALOG_TITLE");

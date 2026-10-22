@@ -102,6 +102,11 @@ vi.mock("@/lib/utils/browser-navigation", () => ({
   reloadWindow: vi.fn(),
 }));
 
+const trackEventMock = vi.fn();
+vi.mock("@/lib/observability/client", () => ({
+  trackEvent: (...args: unknown[]) => trackEventMock(...args),
+}));
+
 type TestVaultWrapper = {
   method: string;
   encryptedVaultKey: string;
@@ -172,7 +177,7 @@ describe("VaultFlow create validation", () => {
     } as Parameters<typeof VaultFlow>[0]["user"];
     const view = render(<VaultFlow user={owner} onSuccess={onSuccess} />);
 
-    expect(await screen.findByLabelText("Vault passphrase")).toBeTruthy();
+    expect(await screen.findByLabelText("Vault password")).toBeTruthy();
     expect(screen.getByText(owner.email!)).toBeTruthy();
     expect(screen.getByRole("img", { name: providerLabel })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Recovery key" }));
@@ -194,7 +199,7 @@ describe("VaultFlow create validation", () => {
     expect(
       await screen.findByRole("button", { name: "Try again" }),
     ).toBeTruthy();
-    expect(screen.queryByLabelText("Passphrase")).toBeNull();
+    expect(screen.queryByLabelText("Password")).toBeNull();
     fireEvent.click(
       screen.getByRole("button", { name: "Sign out" }),
     );
@@ -212,7 +217,7 @@ describe("VaultFlow create validation", () => {
     expect(
       await screen.findByRole("button", { name: "Try again" }),
     ).toBeTruthy();
-    expect(screen.queryByLabelText("Passphrase")).toBeNull();
+    expect(screen.queryByLabelText("Password")).toBeNull();
   });
 
   it.each([
@@ -228,7 +233,7 @@ describe("VaultFlow create validation", () => {
       await act(async () => {});
       expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
       await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
-      expect(screen.getByLabelText("Vault passphrase")).toBeTruthy();
+      expect(screen.getByLabelText("Vault password")).toBeTruthy();
       expect(getVaultStateMock).toHaveBeenCalledTimes(2);
       expect(unlockVaultMock).not.toHaveBeenCalled();
       expect(onSuccess).not.toHaveBeenCalled();
@@ -312,10 +317,10 @@ describe("VaultFlow create validation", () => {
   it("explains why Create Vault is disabled for short or mismatched passphrases", async () => {
     render(<VaultFlow user={user} onSuccess={vi.fn()} />);
 
-    const passphraseInput = await screen.findByLabelText("Passphrase");
-    const confirmInput = screen.getByLabelText("Confirm passphrase");
+    const passphraseInput = await screen.findByLabelText("Password");
+    const confirmInput = screen.getByLabelText("Confirm password");
     const createButton = screen.getByRole("button", {
-      name: "Create passphrase",
+      name: "Create password",
     }) as HTMLButtonElement;
 
     // iOS renders `enterKeyHint="done"` as a checkmark on the keyboard.
@@ -330,7 +335,7 @@ describe("VaultFlow create validation", () => {
 
     fireEvent.change(passphraseInput, { target: { value: "long-enough" } });
     fireEvent.change(confirmInput, { target: { value: "different" } });
-    expect(await screen.findByText("Passphrases do not match.")).toBeTruthy();
+    expect(await screen.findByText("Passwords do not match.")).toBeTruthy();
     expect(createButton.disabled).toBe(true);
   });
 
@@ -344,10 +349,10 @@ describe("VaultFlow create validation", () => {
       />,
     );
 
-    fireEvent.change(await screen.findByLabelText("Passphrase"), {
+    fireEvent.change(await screen.findByLabelText("Password"), {
       target: { value: "correct horse battery staple" },
     });
-    const confirmation = screen.getByLabelText("Confirm passphrase");
+    const confirmation = screen.getByLabelText("Confirm password");
     fireEvent.change(confirmation, {
       target: { value: "correct horse battery staple" },
     });
@@ -373,12 +378,12 @@ describe("VaultFlow create validation", () => {
     // "Set a lock", not "Create your passphrase": the heading names the job,
     // not the mechanism, and it is the same phrase one-setup-hub already passes
     // as this dialog's accessible title — the screen used to announce one name
-    // and show another. "Passphrase" still labels the fields, where it belongs.
+    // and show another. "Password" still labels the fields, where it belongs.
     expect(
       await screen.findByRole("heading", { name: "Set a lock" }),
     ).toBeTruthy();
-    expect(screen.getByLabelText("Passphrase")).toBeTruthy();
-    expect(screen.getByLabelText("Confirm passphrase")).toBeTruthy();
+    expect(screen.getByLabelText("Password")).toBeTruthy();
+    expect(screen.getByLabelText("Confirm password")).toBeTruthy();
     expect(screen.queryByText("Secure Your Digital Vault")).toBeNull();
     expect(
       screen.queryByRole("button", { name: /continue to vault setup/i }),
@@ -391,6 +396,52 @@ describe("VaultFlow create validation", () => {
     );
   });
 
+  it.each([false, true])("keeps visibility actions and hover labels aligned with password state (unlock=%s)", async (unlock) => {
+    checkVaultMock.mockResolvedValue(unlock);
+    render(<VaultFlow user={user} onSuccess={vi.fn()} enableGeneratedDefault={false} />);
+
+    const password = await screen.findByLabelText(unlock ? "Vault password" : "Password");
+    const fields = unlock ? [password] : [password, screen.getByLabelText("Confirm password")];
+    for (const field of fields) {
+      fireEvent.change(field, { target: { value: "fixture-password-123" } });
+      const toggle = field.parentElement!.querySelector("button")!;
+      expect(field).toHaveAttribute("type", "password");
+      expect(toggle).toHaveAccessibleName("Show password");
+      expect(toggle).toHaveAttribute("title", "Show password");
+      expect(toggle).toHaveAttribute("aria-pressed", "false");
+
+      fireEvent.click(toggle);
+      expect(field).toHaveAttribute("type", "text");
+      expect(field).toHaveValue("fixture-password-123");
+      expect(toggle).toHaveAccessibleName("Hide password");
+      expect(toggle).toHaveAttribute("title", "Hide password");
+      expect(toggle).toHaveAttribute("aria-pressed", "true");
+      for (const other of fields.filter(candidate => candidate !== field)) {
+        expect(other).toHaveAttribute("type", "password");
+      }
+
+      fireEvent.click(toggle);
+      expect(field).toHaveAttribute("type", "password");
+      expect(field).toHaveValue("fixture-password-123");
+      expect(toggle).toHaveAttribute("title", "Show password");
+      expect(toggle).toHaveAttribute("aria-pressed", "false");
+    }
+    expect(createVaultMock).not.toHaveBeenCalled();
+    expect(unlockVaultMock).not.toHaveBeenCalled();
+  });
+
+  it("hardens the create/confirm password fields against iOS smart-punctuation substitution", async () => {
+    render(<VaultFlow user={user} onSuccess={vi.fn()} />);
+
+    const passphraseInput = await screen.findByLabelText("Password");
+    const confirmInput = screen.getByLabelText("Confirm password");
+    for (const input of [passphraseInput, confirmInput]) {
+      expect(input).toHaveAttribute("autocorrect", "off");
+      expect(input).toHaveAttribute("autocapitalize", "off");
+      expect(input).toHaveAttribute("spellcheck", "false");
+    }
+  });
+
   it("defers new vault creation until the root setup completion boundary", async () => {
     render(
       <VaultFlow user={user} onSuccess={vi.fn()} allowVaultCreation={false} />,
@@ -400,7 +451,7 @@ describe("VaultFlow create validation", () => {
       await screen.findByRole("heading", { name: "Finish setup first" }),
     ).toBeTruthy();
     expect(
-      screen.queryByRole("button", { name: "Create passphrase" }),
+      screen.queryByRole("button", { name: "Create password" }),
     ).toBeNull();
     expect(createVaultMock).not.toHaveBeenCalled();
   });
@@ -413,7 +464,7 @@ describe("VaultFlow create validation", () => {
 
     render(<VaultFlow user={user} onSuccess={vi.fn()} />);
 
-    expect(await screen.findByLabelText("Vault passphrase")).toBeTruthy();
+    expect(await screen.findByLabelText("Vault password")).toBeTruthy();
     const unlockButton = screen.getByRole("button", {
       name: "Unlock",
     }) as HTMLButtonElement;
@@ -444,7 +495,7 @@ describe("VaultFlow create validation", () => {
       "text-center",
     );
     expect(screen.queryByTestId("vault-unlock-method-divider")).toBeNull();
-    expect(screen.getByLabelText("Vault passphrase")).toHaveClass("rounded-none");
+    expect(screen.getByLabelText("Vault password")).toHaveClass("rounded-none");
     expect(document.querySelector("[data-vault-flow-icon]")).toHaveClass(
       "bg-[color:var(--app-accent-tint)]",
     );
@@ -468,7 +519,7 @@ describe("VaultFlow create validation", () => {
 
     expect(await screen.findByText("Can't get in?")).toBeTruthy();
     expect(screen.queryByText("Use another method")).toBeNull();
-    const passphraseButton = screen.getByRole("button", { name: "Passphrase" });
+    const passphraseButton = screen.getByRole("button", { name: "Password" });
     expect(passphraseButton).toHaveClass(
       "h-11",
       "min-h-11",
@@ -513,7 +564,7 @@ describe("VaultFlow create validation", () => {
       "pt-[var(--app-form-section-gap)]",
       "text-center",
     );
-    expect(screen.getByRole("button", { name: "Passphrase" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Password" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Passkey" })).toBeTruthy();
     expect(document.querySelector("[data-vault-flow-icon]")).toHaveClass(
       "bg-[color:var(--app-accent-tint)]",
@@ -528,7 +579,7 @@ describe("VaultFlow create validation", () => {
 
     render(<VaultFlow user={user} onSuccess={vi.fn()} />);
 
-    expect(await screen.findByLabelText("Vault passphrase")).toBeTruthy();
+    expect(await screen.findByLabelText("Vault password")).toBeTruthy();
     expect(screen.queryByText("Use another method")).toBeNull();
     expect(screen.getByText("Can't get in?")).toBeTruthy();
     expect(screen.getByTestId("vault-unlock-escape-group")).toHaveClass(
@@ -571,7 +622,7 @@ describe("VaultFlow create validation", () => {
       "items-center",
     );
     const escapeGroup = screen.getByTestId("vault-unlock-escape-group");
-    expect(escapeGroup.textContent).toContain("Passphrase");
+    expect(escapeGroup.textContent).toContain("Password");
     expect(escapeGroup.textContent).toContain("Recovery key");
     expect(escapeGroup.textContent).toContain("Sign out");
     expect(escapeGroup.textContent?.match(/·/g)).toHaveLength(2);
@@ -622,7 +673,7 @@ describe("VaultFlow create validation", () => {
     ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Passkey" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Try passkey again" })).toBeNull();
-    expect(screen.getByLabelText("Vault passphrase")).toBeTruthy();
+    expect(screen.getByLabelText("Vault password")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Unlock" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Recovery key" })).toBeTruthy();
 
@@ -672,7 +723,7 @@ describe("VaultFlow create validation", () => {
       ),
     ).not.toBeInTheDocument();
     expect(unlockGeneratedDefaultVaultMock).toHaveBeenCalledTimes(1);
-    expect(screen.getAllByLabelText("Vault passphrase")).toHaveLength(2);
+    expect(screen.getAllByLabelText("Vault password")).toHaveLength(2);
   });
 
   it("does not re-open a web passkey prompt after cancellation and a vault-flow remount", async () => {
@@ -751,7 +802,7 @@ describe("VaultFlow create validation", () => {
     await waitFor(() => expect(getOrIssueVaultOwnerTokenMock).toHaveBeenCalledTimes(1));
     first.unmount();
     render(<VaultFlow user={tokenUser} onSuccess={onSuccess} />);
-    await screen.findByLabelText("Vault passphrase");
+    await screen.findByLabelText("Vault password");
     expect(unlockGeneratedDefaultVaultMock).toHaveBeenCalledTimes(1);
     expect(onSuccess).not.toHaveBeenCalled();
     expect(unlockVaultMock).not.toHaveBeenCalled();
@@ -800,7 +851,7 @@ describe("VaultFlow create validation", () => {
       await waitFor(() => expect(unlockGeneratedDefaultVaultMock).toHaveBeenCalledTimes(1));
       first.unmount();
       const second = render(<VaultFlow user={pendingUser} onSuccess={vi.fn()} />);
-      await screen.findByLabelText("Vault passphrase");
+      await screen.findByLabelText("Vault password");
       expect(unlockGeneratedDefaultVaultMock).toHaveBeenCalledTimes(1);
       await act(async () => {
         rejectAttempt(Object.assign(new Error("Provider did not complete"), { name }));
@@ -837,11 +888,11 @@ describe("VaultFlow create validation", () => {
 
     expect(
       await screen.findByText(
-        "This passkey is registered for a different site. Open the site where you enrolled it, or use your Passphrase or Recovery key below.",
+        "This passkey is registered for a different site. Open the site where you enrolled it, or use your Password or Recovery key below.",
       ),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Unlock with Passkey" })).toBeTruthy();
-    expect(screen.getByLabelText("Vault passphrase")).toBeTruthy();
+    expect(screen.getByLabelText("Vault password")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Unlock" })).toBeTruthy();
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(unlockGeneratedDefaultVaultMock).toHaveBeenCalledTimes(1);
@@ -864,9 +915,72 @@ describe("VaultFlow create validation", () => {
     getOrIssueVaultOwnerTokenMock.mockResolvedValue({ token: "fixture-token", expiresAt: Date.now() + 60000 });
     const onSuccess = vi.fn();
     render(<VaultFlow user={{ uid: "optional-capability-failure" } as typeof user} onSuccess={onSuccess} />);
-    fireEvent.change(await screen.findByLabelText("Vault passphrase"), { target: { value: "fixture-passphrase" } });
+    fireEvent.change(await screen.findByLabelText("Vault password"), { target: { value: "fixture-passphrase" } });
     fireEvent.click(screen.getByRole("button", { name: "Unlock", exact: true }));
     await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
+  });
+
+  it("hardens the unlock passphrase field against iOS smart-punctuation substitution", async () => {
+    checkVaultMock.mockResolvedValue(true);
+    getVaultStateMock.mockResolvedValue(vaultState("passphrase", [passphraseWrapper]));
+    render(<VaultFlow user={user} onSuccess={vi.fn()} />);
+
+    const unlockInput = await screen.findByLabelText("Vault password");
+    expect(unlockInput).toHaveAttribute("autocorrect", "off");
+    expect(unlockInput).toHaveAttribute("autocapitalize", "off");
+    expect(unlockInput).toHaveAttribute("spellcheck", "false");
+  });
+
+  it("reports a successful passphrase unlock to observability", async () => {
+    checkVaultMock.mockResolvedValue(true);
+    getVaultStateMock.mockResolvedValue(vaultState("passphrase", [passphraseWrapper]));
+    unlockWithMethodMock.mockResolvedValue("verified-fixture-key");
+    getCapabilityMatrixMock.mockResolvedValue({ recommendedMethod: "passphrase" });
+    render(<VaultFlow user={{ uid: "observability-success" } as typeof user} onSuccess={vi.fn()} />);
+    fireEvent.change(await screen.findByLabelText("Vault password"), { target: { value: "fixture-passphrase" } });
+    fireEvent.click(screen.getByRole("button", { name: "Unlock", exact: true }));
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith("vault_unlock_result", {
+        method: "passphrase",
+        result: "success",
+      }),
+    );
+  });
+
+  it("reports a non-matching passphrase unlock to observability without crashing the UI", async () => {
+    checkVaultMock.mockResolvedValue(true);
+    getVaultStateMock.mockResolvedValue(vaultState("passphrase", [passphraseWrapper]));
+    unlockWithMethodMock.mockResolvedValue("");
+    render(<VaultFlow user={{ uid: "observability-no-match" } as typeof user} onSuccess={vi.fn()} />);
+    fireEvent.change(await screen.findByLabelText("Vault password"), { target: { value: "wrong-passphrase" } });
+    fireEvent.click(screen.getByRole("button", { name: "Unlock", exact: true }));
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith("vault_unlock_result", {
+        method: "passphrase",
+        result: "expected_error",
+        error_class: "no_match",
+      }),
+    );
+    expect(await screen.findByText("That password did not match. Please try again.")).toBeTruthy();
+  });
+
+  it("reports a thrown unlock error to observability with its error class", async () => {
+    checkVaultMock.mockResolvedValue(true);
+    getVaultStateMock.mockResolvedValue(vaultState("passphrase", [passphraseWrapper]));
+    unlockWithMethodMock.mockRejectedValue(new Error("Vault is temporarily unavailable"));
+    render(<VaultFlow user={{ uid: "observability-thrown-error" } as typeof user} onSuccess={vi.fn()} />);
+    fireEvent.change(await screen.findByLabelText("Vault password"), { target: { value: "fixture-passphrase" } });
+    fireEvent.click(screen.getByRole("button", { name: "Unlock", exact: true }));
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith("vault_unlock_result", {
+        method: "passphrase",
+        result: "error",
+        error_class: "Error",
+      }),
+    );
   });
 
   it("offers Face ID and reachable fallbacks; a late cancelled result cannot unlock", async () => {
@@ -880,11 +994,11 @@ describe("VaultFlow create validation", () => {
     const onSuccess = vi.fn();
     render(<VaultFlow user={{ uid: "face-id-switch" } as typeof user} onSuccess={onSuccess} onSignOut={vi.fn()} />);
     await screen.findByRole("button", { name: /Unlocking with Face ID/ });
-    const fallback = screen.getByRole("button", { name: "Passphrase" });
+    const fallback = screen.getByRole("button", { name: "Password" });
     expect(fallback).toBeEnabled();
     expect(screen.getByTestId("vault-use-recovery-key-escape")).toBeEnabled();
     fireEvent.click(fallback);
-    expect(await screen.findByLabelText("Vault passphrase")).toBeVisible();
+    expect(await screen.findByLabelText("Vault password")).toBeVisible();
     expect(cancelAuthenticationMock).toHaveBeenCalledWith(expect.any(String));
     await act(async () => { resolveBiometric("old-key"); });
     expect(getOrIssueVaultOwnerTokenMock).not.toHaveBeenCalled();

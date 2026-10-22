@@ -75,7 +75,7 @@ const SM_BREAKPOINT_PX = 640;
  *
  * `globals.css` is used rather than a bare `@import "tailwindcss"` because the
  * type this measures is defined there, not in Tailwind: `ui-text-input-value`
- * sets the search field to 17px/22px Inter via `--type-input-value-*`. Compiling
+ * sets the search field to 17px/22px Jakarta via `--type-input-value-*`. Compiling
  * without it would measure a 16px system font and quietly prove nothing about
  * the field that shipped.
  *
@@ -128,23 +128,12 @@ async function buildStylesheet(candidates: string[]): Promise<string> {
 /**
  * Write a fixture directory and return its `file://` URL.
  *
- * The real Inter face is copied in and the stylesheet's absolute `/fonts/...`
- * URLs rewritten to point at it. Without that step the page silently falls back
- * to a system font, and every width measured here would be a measurement of the
- * wrong typeface -- which is the only thing the placeholder assertions are
- * actually about.
+ * The fixture inlines the shipped Plus Jakarta Sans faces after removing
+ * absolute app font URLs. Placeholder widths then use the product typeface.
  */
 async function buildFixture(name: string, body: string, candidates: string[]) {
-  const webappRoot = process.cwd();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
-
-  let css = await buildStylesheet(candidates);
-
-  const fontSource = path.join(webappRoot, "public/fonts/Inter");
-  if (fs.existsSync(fontSource)) {
-    fs.cpSync(fontSource, path.join(dir, "fonts/Inter"), { recursive: true });
-    css = css.replace(/url\(["']?\/fonts\//g, 'url("./fonts/');
-  }
+  const css = await buildStylesheet(candidates);
 
   fs.writeFileSync(path.join(dir, "fixture.css"), css);
   fs.writeFileSync(
@@ -190,6 +179,61 @@ function boxOf(page: Page, selector: string): Promise<Box> {
  *  bridge -- await it and return nothing. */
 const fontsReady = (page: Page) =>
   page.evaluate(() => document.fonts.ready.then(() => undefined));
+
+test("Circle heading actions fit beside their labels on phone and tablet widths", async ({ page }, testInfo) => {
+  const root = process.cwd();
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "connect-circle-headings-"));
+  const { build } = await import("vite");
+  const { Scanner } = await import("@tailwindcss/oxide");
+  const scanner = new Scanner({});
+  const candidates = new Set<string>();
+  await build({
+    configFile: false, logLevel: "error",
+    oxc: { jsx: { runtime: "automatic" } },
+    plugins: [{ name: "fixture-css-candidates", transform(source, id) {
+      if (!id.includes("node_modules") && /\.[tj]sx?$/.test(id)) {
+        for (const candidate of scanner.scanFiles([{ content: source, extension: "tsx" }])) candidates.add(candidate);
+      }
+    } }],
+    resolve: { alias: { "@": root } },
+    define: { "process.env.NODE_ENV": JSON.stringify("production"), "process.env": "{}" },
+    build: { outDir, copyPublicDir: false, emptyOutDir: false, lib: {
+      entry: path.join(root, "e2e/fixtures/circle-discovery.tsx"), name: "Fixture", formats: ["iife"], fileName: () => "fixture.js",
+    } },
+  });
+  const script = fs.readFileSync(path.join(outDir, "fixture.js"), "utf8");
+  const css = await buildStylesheet([...candidates]) + productFontStyle() + fs.readdirSync(outDir)
+    .filter(name => name.endsWith(".css")).map(name => fs.readFileSync(path.join(outDir, name), "utf8")).join("\n");
+  for (const width of [320, 360, 393, 402, 430, 768]) {
+    await page.setViewportSize({ width, height: 852 });
+    await page.setContent(`<html data-circle-heading-actions="true"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`);
+    await page.addScriptTag({ content: script });
+    await awaitProductFont(page);
+    const buttons = page.locator('[data-testid="connect-circle-create"], [data-testid="connect-circle-join"]');
+    await expect(buttons).toHaveCount(2);
+    for (const button of await buttons.all()) {
+      const geometry = await button.evaluate(element => {
+        const heading = element.parentElement!.querySelector("h2")!;
+        const label = heading.getBoundingClientRect();
+        const action = element.getBoundingClientRect();
+        return { height: action.height, left: action.left, right: action.right, labelRight: label.right,
+          overflow: element.scrollWidth - element.clientWidth, font: getComputedStyle(element).fontFamily };
+      });
+      expect(geometry.height).toBeGreaterThanOrEqual(44);
+      expect(geometry.labelRight).toBeLessThanOrEqual(geometry.left);
+      expect(geometry.left).toBeGreaterThanOrEqual(0);
+      expect(geometry.right).toBeLessThanOrEqual(width);
+      expect(geometry.overflow).toBeLessThanOrEqual(1);
+      expect(geometry.font).toContain("Plus Jakarta Sans");
+    }
+    await page.getByTestId("connect-circle-create").click();
+    await expect(page.getByRole("status")).toHaveText("Custom circle");
+    await page.getByTestId("connect-circle-join").click();
+    await expect(page.getByRole("status")).toHaveText("Join with code");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+    if (width === 393) await page.locator("main").screenshot({ path: testInfo.outputPath("circle-heading-actions-393.png") });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // 1. The Circle name field and the control beside it
@@ -413,7 +457,7 @@ const searchRowBody = (empty: boolean) => `<div class="block w-full">
  * How much room the placeholder actually has, and how much it needs.
  *
  * Width is measured by laying the string out in the field's own computed font
- * rather than estimated from a character count -- Inter is proportional, and a
+ * rather than estimated from a character count -- Jakarta is proportional, and a
  * per-character average is wrong by enough to make a fit assertion meaningless.
  */
 function probePlaceholder(text: string) {

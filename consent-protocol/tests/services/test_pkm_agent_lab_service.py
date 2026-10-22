@@ -90,6 +90,402 @@ def _single_segment(message: str):
     }
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mode,target_valid",
+    [
+        ("create_entity", True),
+        ("correct_entity", True),
+        ("extend_entity", True),
+        ("delete_entity", True),
+        ("delete_entity", False),
+    ],
+)
+async def test_soul_profile_preserves_model_fact_and_exact_offered_target(
+    monkeypatch, mode, target_valid
+):
+    service = PKMAgentLabService()
+    monkeypatch.setattr(
+        service, "_load_domain_registry_choices", AsyncMock(return_value=_registry_choices())
+    )
+    message = "My brother Alex now lives in Seattle."
+    intent = {
+        "save_class": "durable",
+        "intent_class": "relationship",
+        "mutation_intent": "create",
+        "requires_confirmation": True,
+        "confirmation_reason": "Review",
+        "candidate_domain_choices": [{"domain_key": "one_memory", "recommended": True}],
+        "confidence": 0.99,
+        "source_agent": "memory_intent_agent",
+        "contract_version": 1,
+    }
+    target_id = "soul_23" if target_valid else "invented"
+    merge = {
+        "merge_mode": mode,
+        "target_domain": "one_memory",
+        "target_entity_id": target_id if mode != "create_entity" else "",
+        "target_entity_path": f"markdown.entities.{target_id}" if mode != "create_entity" else "",
+        "match_confidence": 0.99,
+        "match_reason": "Same brother",
+        "source_agent": "memory_merge_agent",
+        "contract_version": 1,
+    }
+    payload = {
+        "soul_text": ""
+        if mode == "delete_entity"
+        else "My brother Alex lives in Seattle and likes tea.",
+        "soul_section": "Facts",
+    }
+    structure = {
+        "candidate_payload": payload,
+        "structure_decision": {
+            "action": "extend_domain",
+            "target_domain": "one_memory",
+            "json_paths": ["soul_text", "soul_section"],
+            "top_level_scope_paths": [],
+            "externalizable_paths": [],
+            "summary_projection": {},
+            "sensitivity_labels": {},
+            "confidence": 0.99,
+            "source_agent": "pkm_structure_agent",
+            "contract_version": 1,
+        },
+        "write_mode": "confirm_first",
+        "target_entity_scope": "markdown",
+        "primary_json_path": "soul_text",
+        "validation_hints": [],
+    }
+    run = AsyncMock(side_effect=[_single_segment(message), intent, merge, structure])
+    monkeypatch.setattr(service, "_run_agent_contract", run)
+    memories = [
+        {
+            "domain": "one_memory",
+            "entity_scope": "markdown",
+            "entity_id": f"soul_{index}",
+            "message": "My brother Alex lives in Boston and likes tea. "
+            + "qualified context " * 20,
+            "active": True,
+        }
+        for index in range(24)
+    ]
+    result = await service.generate_structure_preview(
+        user_id=f"soul-{mode}-{target_valid}",
+        message=message,
+        memory_profile="soul_markdown_v1",
+        simulated_state={"memories": memories},
+        current_domains=["one_memory"],
+    )
+    assert run.await_count == 4
+    assert all(
+        _request(call.kwargs["prompt"])["memory_profile"] == "soul_markdown_v1"
+        for call in run.await_args_list
+    )
+    offered = _request(run.await_args_list[2].kwargs["prompt"])["existing_entities"]
+    assert len(offered) == 24
+    assert len(offered[-1]["summary"]) > 200
+    assert result["merge_decision"] == merge
+    if target_valid:
+        assert result["candidate_payload"] == payload
+        assert result["write_mode"] == "confirm_first"
+        assert "soul_profile_contract_invalid" not in result["validation_hints"]
+    else:
+        assert result["write_mode"] == "do_not_save"
+        assert "soul_profile_contract_invalid" in result["validation_hints"]
+
+
+def test_soul_no_op_is_valid_without_a_structure_call():
+    result = PKMAgentLabService._normalize_structure_preview(
+        message="Hello",
+        current_domains=["one_memory"],
+        registry_choices=_registry_choices(),
+        intent_frame={
+            "mutation_intent": "no_op",
+            "save_class": "ephemeral",
+            "intent_class": "command",
+        },
+        merge_decision={"merge_mode": "no_op"},
+        parsed_structure=None,
+        fallback_target_domain="one_memory",
+        simulated_state=None,
+        memory_profile="soul_markdown_v1",
+    )
+    assert result["write_mode"] == "do_not_save"
+    assert result["validation_hints"] == []
+
+
+def _find_entity_with_summary(value):
+    """Walk a candidate_payload the same way the client's assertExactProfileSelection
+    does (profile-research-review.ts): descend until a dict carries "summary"."""
+    if isinstance(value, dict):
+        if "summary" in value:
+            return value
+        for child in value.values():
+            found = _find_entity_with_summary(child)
+            if found is not None:
+                return found
+    return None
+
+
+def test_profile_review_strips_extra_structure_agent_fields() -> None:
+    """Magic Intelligence's client-side save gate (assertExactProfileSelection in
+    profile-research-review.ts) rejects any candidate_payload key outside
+    {summary, observations, kind, status, sources} and fails the whole save.
+    The generic structure agent is free to attach extra fields beside summary
+    (its own few-shot examples teach e.g. "role"); profile_review_v1 must
+    strip them server-side so a faithful save always survives the round trip,
+    regardless of what the model added. Regression for a live UAT failure.
+    """
+    summary = "Parth Mawai works as an AI Full Stack Engineer at Hushh."
+    preview = PKMAgentLabService._normalize_structure_preview(
+        message=f"Career details about me:\n- {summary}\n  Sources: hushh.ai (https://hushh.ai)",
+        current_domains=["professional"],
+        registry_choices=_registry_choices(),
+        intent_frame={
+            "intent_class": "profile_fact",
+            "mutation_intent": "create",
+            "candidate_domain_choices": [{"domain_key": "professional", "recommended": True}],
+        },
+        merge_decision={"target_domain": "professional", "merge_mode": "create_entity"},
+        parsed_structure={
+            "candidate_payload": {
+                "career": {
+                    "entities": {
+                        "role_fact": {
+                            "summary": summary,
+                            "role": "AI Full Stack Engineer",
+                            "company": "Hushh",
+                            "kind": "profile_fact",
+                            "status": "active",
+                        }
+                    }
+                }
+            },
+            "structure_decision": {"target_domain": "professional"},
+            "write_mode": "can_save",
+        },
+        fallback_target_domain="professional",
+        simulated_state=None,
+        memory_profile="profile_review_v1",
+    )
+
+    assert preview["write_mode"] != "do_not_save"
+    entity = _find_entity_with_summary(preview["candidate_payload"])
+    assert entity == {
+        "summary": summary,
+        "observations": [summary],
+        "kind": "profile_fact",
+        "status": "active",
+    }
+
+
+def test_profile_review_constraint_is_scoped_to_its_own_memory_profile() -> None:
+    """Negative control: without profile_review_v1, an extra structure-agent
+    field survives untouched, proving the strip is specific to that profile
+    and not a side effect of some other normalization step."""
+    summary = "Parth Mawai works as an AI Full Stack Engineer at Hushh."
+    preview = PKMAgentLabService._normalize_structure_preview(
+        message=f"Career details about me:\n- {summary}",
+        current_domains=["professional"],
+        registry_choices=_registry_choices(),
+        intent_frame={
+            "intent_class": "profile_fact",
+            "mutation_intent": "create",
+            "candidate_domain_choices": [{"domain_key": "professional", "recommended": True}],
+        },
+        merge_decision={"target_domain": "professional", "merge_mode": "create_entity"},
+        parsed_structure={
+            "candidate_payload": {
+                "career": {
+                    "entities": {
+                        "role_fact": {"summary": summary, "role": "AI Full Stack Engineer"}
+                    }
+                }
+            },
+            "structure_decision": {"target_domain": "professional"},
+            "write_mode": "can_save",
+        },
+        fallback_target_domain="professional",
+        simulated_state=None,
+    )
+
+    entity = _find_entity_with_summary(preview["candidate_payload"])
+    assert entity is not None
+    assert entity.get("role") == "AI Full Stack Engineer"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "fields,entity_id",
+    [
+        ({"name": "Example business", "state": "TX", "category": "Restaurant"}, "example"),
+        (
+            {"name": "Portfolio Hotel", "category": "Analysis and brokerage", "state": "TX "},
+            "raw_hotel",
+        ),
+        ({"name": "IKEA"}, "ikea"),
+    ],
+)
+@pytest.mark.parametrize(
+    "domain,mode,valid",
+    [
+        ("professional", "create_entity", True),
+        ("professional", "correct_entity", True),
+        ("professional", "extend_entity", True),
+        ("example_company", "create_entity", True),
+        ("identity", "create_entity", False),
+    ],
+)
+async def test_business_profile_runs_all_stages_and_rejects_personal_destinations(
+    monkeypatch, domain, mode, valid, fields, entity_id
+):
+    service = PKMAgentLabService()
+    monkeypatch.setattr(
+        service, "_load_domain_registry_choices", AsyncMock(return_value=_registry_choices())
+    )
+    message = json.dumps(fields)
+    intent = {
+        "save_class": "durable",
+        "intent_class": "profile_fact",
+        "mutation_intent": "create"
+        if mode == "create_entity"
+        else "correct"
+        if mode == "correct_entity"
+        else "extend",
+        "requires_confirmation": True,
+        "confirmation_reason": "Review listing",
+        "candidate_domain_choices": [
+            {
+                "domain_key": "professional" if domain == "example_company" else domain,
+                "recommended": True,
+            }
+        ],
+        "confidence": 0.99,
+        "source_agent": "memory_intent_agent",
+        "contract_version": 1,
+    }
+    merge = {
+        "merge_mode": mode,
+        "proposed_entity_id": entity_id,
+        "target_domain": domain,
+        "target_entity_id": entity_id if mode != "create_entity" else "",
+        "target_entity_path": f"businesses.entities.{entity_id}" if mode != "create_entity" else "",
+        "match_confidence": 0.99,
+        "match_reason": "Business listing",
+        "source_agent": "memory_merge_agent",
+        "contract_version": 1,
+    }
+    structure = {
+        "candidate_payload": {"businesses": {"entities": {entity_id: fields}}},
+        "structure_decision": {
+            "action": "extend_domain",
+            "target_domain": domain,
+            "json_paths": ["businesses"],
+            "top_level_scope_paths": ["businesses"],
+            "externalizable_paths": [],
+            "summary_projection": {},
+            "sensitivity_labels": {},
+            "confidence": 0.99,
+            "source_agent": "pkm_structure_agent",
+            "contract_version": 1,
+        },
+        "write_mode": "confirm_first",
+        "target_entity_scope": "businesses",
+        "primary_json_path": "businesses",
+        "validation_hints": [],
+    }
+    run = AsyncMock(side_effect=[_single_segment(message), intent, merge, structure])
+    monkeypatch.setattr(service, "_run_agent_contract", run)
+    state = (
+        None
+        if mode == "create_entity"
+        else {
+            "memories": [
+                {
+                    "domain": domain,
+                    "entity_scope": "businesses",
+                    "entity_id": entity_id,
+                    "message": json.dumps({"name": "Example business", "description": "x" * 220}),
+                    "active": True,
+                }
+            ]
+        }
+    )
+    result = await service.generate_structure_preview(
+        user_id=f"business-contract-{domain}-{mode}",
+        message=message,
+        memory_profile="business_directory_v1",
+        simulated_state=state,
+        current_domains=[] if mode == "create_entity" else [domain],
+    )
+    assert run.await_count == 4
+    entity_schema = run.await_args_list[3].kwargs["response_schema"]["properties"][
+        "candidate_payload"
+    ]["properties"]["businesses"]["properties"]["entities"]
+    assert entity_schema["required"] == [entity_id]
+    assert entity_schema["properties"][entity_id]["required"] == list(fields)
+    assert entity_schema["additionalProperties"] is False
+    assert all(
+        _request(call.kwargs["prompt"])["memory_profile"] == "business_directory_v1"
+        for call in run.await_args_list
+    )
+    assert len(result["preview_cards"]) == 1
+    if valid:
+        assert result["write_mode"] == "confirm_first", json.dumps(
+            {
+                key: result[key]
+                for key in (
+                    "candidate_payload",
+                    "merge_decision",
+                    "target_entity_scope",
+                    "validation_hints",
+                )
+            }
+        )
+        assert result["candidate_payload"] == structure["candidate_payload"]
+        assert result["structure_decision"]["target_domain"] == domain
+        if mode == "create_entity":
+            assert result["merge_decision"]["target_entity_path"] == ""
+        else:
+            assert (
+                len(
+                    _request(run.await_args_list[2].kwargs["prompt"])["existing_entities"][0][
+                        "summary"
+                    ]
+                )
+                > 200
+            )
+    else:
+        assert result["write_mode"] == "do_not_save"
+        assert "business_profile_contract_invalid" in result["validation_hints"]
+
+
+def test_business_contract_rejects_policy_fields_missing_values_and_sibling_facts():
+    from copy import deepcopy
+
+    from hushh_mcp.services.business_directory_profile import valid_business_preview
+
+    fields = {"name": "Example", "state": "TX"}
+    preview = {
+        "structure_decision": {"target_domain": "professional"},
+        "write_mode": "confirm_first",
+        "target_entity_scope": "businesses",
+        "candidate_payload": {"businesses": {"entities": {"example": fields}}},
+    }
+    merge = {"merge_mode": "create_entity", "target_domain": "professional"}
+    assert valid_business_preview(json.dumps(fields), preview, merge)
+    for key in ("summary", "observations", "kind", "disclaimer"):
+        invalid = deepcopy(preview)
+        invalid["candidate_payload"]["businesses"]["entities"]["example"][key] = "Policy text"
+        assert not valid_business_preview(json.dumps(fields), invalid, merge)
+    invalid = deepcopy(preview)
+    del invalid["candidate_payload"]["businesses"]["entities"]["example"]["state"]
+    assert not valid_business_preview(json.dumps(fields), invalid, merge)
+    invalid = deepcopy(preview)
+    invalid["candidate_payload"]["personal_fact"] = "TX"
+    assert not valid_business_preview(json.dumps(fields), invalid, merge)
+
+
 def test_default_preview_budget_outlives_one_tail_contract_without_unbounded_wait() -> None:
     # Both pins were stale on main: d1af7b695 raised the contract timeout from
     # ten to thirty and the budget from thirty-five to forty-five while
@@ -566,7 +962,11 @@ async def test_direct_contract_uses_manifest_instruction_and_input_only_segmenta
         prompt = service._build_memory_segmentation_prompt(
             message=message, strict_small_model=strict
         )
-        assert _request(prompt) == {"message": message, "strict_small_model": strict}
+        assert _request(prompt) == {
+            "message": message,
+            "strict_small_model": strict,
+            "memory_profile": "general",
+        }
         await service._run_agent_contract(
             manifest=service.memory_segmentation_manifest,
             prompt=prompt,

@@ -1,11 +1,14 @@
 """Live preparation works without a selected file or indexed chunk."""
 
 import asyncio
+import os
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
+from hushh_mcp.services.drive_document_processor import LocalDocumentProcessor
 from hushh_mcp.services.drive_live_reader import DriveLiveReader
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
 from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH, DriveMetadata, DriveReadError
@@ -84,6 +87,126 @@ async def test_compilation_read_retains_full_text_and_rechecks_exact_source():
     await reader.require_compilation_source_current(metadata=metadata)
     assert adapter.get_metadata.await_count == 3
     assert fence.await_count >= 5
+
+
+def _original_text_pdf(body: str) -> bytes:
+    lines = [body[index : index + 70] for index in range(0, len(body), 70)]
+    commands = [b"BT /F1 9 Tf 20 1800 Td"]
+    for line in lines:
+        escaped = line.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+        commands.append(b"(" + escaped.encode("ascii") + b") Tj 0 -16 Td")
+    commands.append(b"ET")
+    stream = b"\n".join(commands)
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 1900] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream",
+    ]
+    payload = b"%PDF-1.4\n"
+    offsets = [0]
+    for number, value in enumerate(objects, 1):
+        offsets.append(len(payload))
+        payload += str(number).encode() + b" 0 obj\n" + value + b"\nendobj\n"
+    xref = len(payload)
+    payload += b"xref\n0 6\n0000000000 65535 f \n"
+    payload += b"".join(f"{offset:010d} 00000 n \n".encode() for offset in offsets[1:])
+    return payload + f"trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF".encode()
+
+
+@pytest.mark.asyncio
+async def test_request_reader_extracts_original_multipage_pdf_after_20k_and_late_page():
+    from tests.services.test_drive_document_processor import joined_pdf
+
+    reader, adapter, mcp, _ = fixture()
+    reader.page_processor = LocalDocumentProcessor(scanner=SimpleNamespace(scan=AsyncMock()))
+    original = joined_pdf(
+        *(_original_text_pdf("Account activity entries and balances. " * 70) for _ in range(8)),
+        _original_text_pdf(
+            "Charles Schwab brokerage statement. September 1, 2026 to September 30, 2026. "
+            + "Holdings and ending balance. " * 70
+        ),
+    )
+    adapter.read_live_bytes = AsyncMock(return_value=("application/pdf", original))
+    source, pages, incomplete, fingerprint = await reader.read_request_visual_pages(
+        match={"file_id": "file-1", "name": "March statement.pdf", "mime_type": "application/pdf"}
+    )
+    assert source.version == "11"
+    assert len(pages) == 9 and not incomplete
+    assert sum(len(page.text.encode()) for page in pages) > 20 * 1024
+    assert "Charles Schwab brokerage statement" in pages[-1].text
+    assert "September 30," in pages[-1].text and "2026" in pages[-1].text
+    assert len(fingerprint) == 64
+    assert adapter.read_live_bytes.call_args.kwargs["max_bytes"] == 32 * 1024 * 1024
+    mcp.read_tool.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_request_reader_reports_unread_pdf_tail_after_page_budget():
+    from tests.services.test_drive_document_processor import joined_pdf
+
+    reader, adapter, _, _ = fixture()
+    reader.page_processor = LocalDocumentProcessor(scanner=SimpleNamespace(scan=AsyncMock()))
+    original = joined_pdf(
+        *(_original_text_pdf(f"Page {number} of a longer report") for number in range(17))
+    )
+    adapter.read_live_bytes = AsyncMock(return_value=("application/pdf", original))
+    _, pages, incomplete, _ = await reader.read_request_visual_pages(
+        match={"file_id": "file-1", "name": "March statement.pdf", "mime_type": "application/pdf"}
+    )
+    assert len(pages) == 16
+    assert incomplete is True
+
+
+@pytest.mark.asyncio
+async def test_request_reader_keeps_unreadable_original_image_as_gap(monkeypatch):
+    from hushh_mcp.services import drive_document_pages as pages
+    from tests.services.test_drive_document_processor import scanned_image
+
+    reader, adapter, mcp, _ = fixture()
+    reader.page_processor = SimpleNamespace(
+        extract_pages=AsyncMock(
+            side_effect=lambda **kwargs: pages.extract_pages(
+                kwargs["content"],
+                kwargs["mime_type"],
+                start_page=kwargs["start_page"],
+                page_limit=kwargs["page_limit"],
+            )
+        )
+    )
+    monkeypatch.setattr(pages, "TESSERACT_BINARY", "/nonexistent/tesseract")
+    image_meta = DriveMetadata(
+        "file-1", "scan.png", "image/png", "11", "2026-04-01T00:00:00Z", 100, None
+    )
+    adapter.get_metadata.return_value = image_meta
+    original = scanned_image()
+    adapter.read_live_bytes = AsyncMock(return_value=("image/png", original))
+    source, extracted, incomplete, fingerprint = await reader.read_request_visual_pages(
+        match={"file_id": "file-1", "name": "scan.png", "mime_type": "image/png"}
+    )
+    assert source == image_meta
+    assert len(extracted) == 1 and extracted[0].error_code == "ocr_unavailable"
+    assert incomplete is True and len(fingerprint) == 64
+    mcp.read_tool.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_request_reader_uses_original_scanned_pdf_ocr_when_engine_available():
+    from tests.services.test_drive_document_processor import scanned_pdf
+
+    binary = os.environ.get("DRIVE_TEST_TESSERACT_BINARY", "/usr/bin/tesseract")
+    if not Path(binary).is_file():
+        pytest.skip("local OCR engine not installed; production image installs it")
+    reader, adapter, mcp, _ = fixture()
+    reader.page_processor = LocalDocumentProcessor(scanner=SimpleNamespace(scan=AsyncMock()))
+    adapter.read_live_bytes = AsyncMock(return_value=("application/pdf", scanned_pdf()))
+    _, pages, incomplete, _ = await reader.read_request_visual_pages(
+        match={"file_id": "file-1", "name": "March statement.pdf", "mime_type": "application/pdf"}
+    )
+    assert not incomplete and pages[0].method == "ocr"
+    assert "September 30, 2026" in pages[0].text
+    mcp.read_tool.assert_not_awaited()
 
 
 @pytest.mark.asyncio

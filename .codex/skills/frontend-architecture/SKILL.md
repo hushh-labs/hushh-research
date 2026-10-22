@@ -48,10 +48,11 @@ Non-owned surfaces:
 3. `docs/reference/operations/ci.md`
 4. `docs/reference/quality/frontend-ui-architecture-map.md`
 5. `docs/reference/architecture/route-contracts.md`
+6. `docs/reference/architecture/ui-contract-contributor-guide.md`
 
 ## Workflow
 
-1. Inspect current package scripts, route contracts, and frontend docs before changing structure.
+1. Inspect current package scripts, route contracts, and frontend docs before changing structure. Read the UI contributor scaffold and run `cd hushh-webapp && npm run ui:doctor` before UI edits; review Back cases and Search actions, then generate with `npm run build:ui-contracts` and verify with `npm run verify:ui-contracts`.
 2. Keep CI and local package verification aligned when adding or changing frontend rules.
 3. Centralize route-container behavior in `AppPageShell` or `FullscreenFlowShell`; signed-in routes use `AppPageHeaderRegion`/`PageHeader` rather than route-local hero or logo chrome.
 4. Keep signed-in route families covered by the contract-driven browser sweep.
@@ -74,4 +75,5 @@ Non-owned surfaces:
 cd hushh-webapp && npm run verify:docs
 cd hushh-webapp && npm run typecheck
 cd hushh-webapp && npm run verify:routes
+cd hushh-webapp && npm run ui:doctor
 ```

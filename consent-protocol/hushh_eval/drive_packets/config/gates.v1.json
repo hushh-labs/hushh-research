@@ -1,0 +1,22 @@
+{
+  "schema_version": "dpe.gates.v1",
+  "thresholds_version": "gates.v1",
+  "listing": {
+    "min_independent_ready": 59,
+    "max_wrong": 0,
+    "require_no_open_s1": true,
+    "require_human_confirmation": true,
+    "max_unknown_fraction": 0.5
+  },
+  "ready": {
+    "demote_stratum_on_open_s1": true
+  },
+  "deploy": {
+    "guard_suite_required": true,
+    "anchor_new_s1_blocks": true
+  },
+  "bars": {
+    "zero_failure_n_95": 59,
+    "zero_failure_n_999": 2995
+  }
+}

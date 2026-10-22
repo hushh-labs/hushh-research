@@ -20,7 +20,7 @@
  */
 
 /** Two words. The narrowest supported phone has to be able to read all of it. */
-export const CONNECT_SEARCH_PLACEHOLDER = "Search people";
+export const CONNECT_SEARCH_PLACEHOLDER = "Name, email or phone";
 
 /** Left inset clears the search glyph; the right one is conditional. */
 export const CONNECT_SEARCH_INPUT_CLASSNAME = "h-11 pl-11";
@@ -30,6 +30,13 @@ export const CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME = "pr-11";
 
 /** Used while the gutter is empty, so the placeholder gets the space back. */
 export const CONNECT_SEARCH_INPUT_PLAIN_CLASSNAME = "pr-3.5";
+
+/**
+ * Directory people are compact rows in one column at every width, the same
+ * anatomy as Connect's own connections and Feed's person rows. Status, invite
+ * and paging rows share that column.
+ */
+export const CONNECT_DIRECTORY_CONTENT_CLASSNAME = "grid min-w-0 grid-cols-1";
 
 /**
  * The selection toggle, at a fixed width so switching between "Select"

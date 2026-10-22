@@ -11,7 +11,38 @@ import pytest
 
 from hushh_mcp.services.drive_permission_worker import DrivePermissionWorker
 from hushh_mcp.services.drive_share_notification_worker import DriveShareNotificationWorker
-from hushh_mcp.services.drive_work_drain import DriveWorkDrain
+from hushh_mcp.services.drive_work_drain import DriveWorkDrain, _safe_outcomes
+from hushh_mcp.services.stripe_connect_balances import WORKER_OUTCOMES
+
+CONNECT_LEDGER_OUTCOMES = {name: 1 for name in sorted(WORKER_OUTCOMES)}
+
+
+def test_hashcoin_recovery_counts_remain_bounded_and_visible():
+    assert _safe_outcomes(
+        "owner_payouts",
+        {
+            "outcomes": {
+                "refund_reversed": 1,
+                "refund_unknown": 2,
+                "completed_checked": 1,
+                "bank_accounts_checked": 1,
+                "bank_payouts_changed": 2,
+                "bank_provider_deferred": 3,
+                **CONNECT_LEDGER_OUTCOMES,
+                "secret": "transfer_id",
+                "succeeded": 501,
+            }
+        },
+    ) == {
+        "refund_reversed": 1,
+        "refund_unknown": 2,
+        "completed_checked": 1,
+        "bank_accounts_checked": 1,
+        "bank_payouts_changed": 2,
+        "bank_provider_deferred": 3,
+        # Connect balance and deposit-contents upkeep stays visible, never dropped.
+        **CONNECT_LEDGER_OUTCOMES,
+    }
 
 
 def _worker(result):
@@ -22,7 +53,10 @@ def _drain(
     workers,
     search_worker=None,
     bulk_share_worker=None,
+    bulk_removal_worker=None,
+    checkout_worker=None,
     refund_worker=None,
+    owner_payout_worker=None,
     packet_order_worker=None,
 ):
     return DriveWorkDrain(
@@ -31,8 +65,11 @@ def _drain(
         search_worker=search_worker or _worker({"outcomes": {"completed": 1}}),
         permission_worker=workers[2],
         bulk_share_worker=bulk_share_worker or _worker({"outcomes": {"not_claimed": 1}}),
+        bulk_removal_worker=bulk_removal_worker or _worker({"outcomes": {"materialized": 0}}),
+        checkout_worker=checkout_worker or _worker({"outcomes": {"not_claimed": 1}}),
         notification_worker=workers[3],
         refund_worker=refund_worker or _worker({"outcomes": {"disabled": 1}}),
+        owner_payout_worker=owner_payout_worker or _worker({"outcomes": {"disabled": 1}}),
         packet_order_worker=packet_order_worker or _worker({"outcomes": {"disabled": 1}}),
     )
 
@@ -56,12 +93,15 @@ async def test_document_stage_is_exclusive_bounded_and_aggregate_only():
             "searches": {"deferred": 1},
             "permissions": {"deferred": 1},
             "bulk_shares": {"deferred": 1},
+            "bulk_removals": {"deferred": 1},
+            "checkouts": {"deferred": 1},
             "notifications": {"deferred": 1},
             "refunds": {"deferred": 1},
+            "owner_payouts": {"deferred": 1},
             "packet_orders": {"deferred": 1},
         },
     }
-    workers[0].run.assert_awaited_once_with(max_jobs=1, deadline_seconds=180)
+    workers[0].run.assert_awaited_once_with(max_jobs=20, deadline_seconds=180)
     for worker in workers[1:]:
         worker.run.assert_not_awaited()
     assert "document-id" not in str(result)
@@ -84,8 +124,55 @@ async def test_suggestion_stage_does_not_claim_document_or_sharing_work():
         "searches": {"completed": 1},
         "permissions": {"deferred": 1},
         "bulk_shares": {"deferred": 1},
+        "bulk_removals": {"deferred": 1},
+        "checkouts": {"deferred": 1},
         "notifications": {"deferred": 1},
         "refunds": {"deferred": 1},
+        "owner_payouts": {"deferred": 1},
+        "packet_orders": {"deferred": 1},
+    }
+
+
+@pytest.mark.asyncio
+async def test_v1_stage_claims_only_marked_searches_approved_delivery_and_finance():
+    workers = [_worker({"outcomes": {"not_claimed": 1}}) for _ in range(4)]
+    search = _worker({"outcomes": {"completed": 1}})
+    bulk = _worker({"outcomes": {"succeeded": 1}})
+    removal = _worker({"outcomes": {"materialized": 0}})
+    checkout = _worker({"outcomes": {"ready": 1}})
+    refund = _worker({"outcomes": {"disabled": 1}})
+    payout = _worker({"outcomes": {"disabled": 1}})
+
+    result = await _drain(
+        workers,
+        search_worker=search,
+        bulk_share_worker=bulk,
+        bulk_removal_worker=removal,
+        checkout_worker=checkout,
+        refund_worker=refund,
+        owner_payout_worker=payout,
+    ).run(stage="v1")
+
+    search.run.assert_awaited_once_with(max_jobs=1, deadline_seconds=90, v1_only=True)
+    bulk.run.assert_awaited_once_with(max_jobs=400, deadline_seconds=80, v1_only=True)
+    removal.run.assert_awaited_once_with(max_jobs=20, deadline_seconds=45, v1_only=True)
+    checkout.run.assert_awaited_once_with(max_jobs=4, deadline_seconds=35, v1_only=True)
+    refund.run.assert_awaited_once_with(max_jobs=4, deadline_seconds=35, v1_only=True)
+    payout.run.assert_awaited_once_with(max_jobs=4, deadline_seconds=40, v1_only=True)
+    workers[1].run.assert_awaited_once_with(max_jobs=1, deadline_seconds=175, v1_only=True)
+    for index in (0, 2, 3):
+        workers[index].run.assert_not_awaited()
+    assert result["workers"] == {
+        "documents": {"deferred": 1},
+        "suggestions": {"not_claimed": 1},
+        "searches": {"completed": 1},
+        "permissions": {"deferred": 1},
+        "bulk_shares": {"succeeded": 1},
+        "bulk_removals": {"materialized": 0},
+        "checkouts": {"ready": 1},
+        "notifications": {"deferred": 1},
+        "refunds": {"disabled": 1},
+        "owner_payouts": {"disabled": 1},
         "packet_orders": {"deferred": 1},
     }
 
@@ -110,11 +197,48 @@ async def test_sharing_stage_continues_notification_after_permission_failure():
         "searches": {"deferred": 1},
         "permissions": {"unavailable": 1},
         "bulk_shares": {"not_claimed": 1},
+        "bulk_removals": {"materialized": 0},
+        "checkouts": {"not_claimed": 1},
         "notifications": {"settled": 1},
         "refunds": {"disabled": 1},
+        "owner_payouts": {"disabled": 1},
         "packet_orders": {"disabled": 1},
     }
     assert "private" not in str(result)
+
+
+@pytest.mark.asyncio
+async def test_sharing_stage_binds_checkout_before_dispatching_payment_notice():
+    workers = [_worker({"outcomes": {}}) for _ in range(4)]
+    checkout = _worker({"outcomes": {"ready": 1}})
+
+    async def notification_after_checkout(**_):
+        assert checkout.run.await_count == 1
+        return {"outcomes": {"settled": 1}}
+
+    workers[3].run.side_effect = notification_after_checkout
+    result = await _drain(workers, checkout_worker=checkout).run(stage="sharing")
+
+    assert result["workers"]["checkouts"] == {"ready": 1}
+    assert result["workers"]["notifications"] == {"settled": 1}
+
+
+@pytest.mark.asyncio
+async def test_sharing_snapshots_delivery_before_prorated_refunds():
+    workers = [_worker({"outcomes": {}}) for _ in range(4)]
+    payout = _worker({"outcomes": {"awaiting_refund": 1}})
+    refund = _worker({"outcomes": {"succeeded": 1}})
+
+    async def refund_after_snapshot(**_):
+        payout.run.assert_awaited_once()
+        return {"outcomes": {"succeeded": 1}}
+
+    refund.run.side_effect = refund_after_snapshot
+    result = await _drain(workers, owner_payout_worker=payout, refund_worker=refund).run(
+        stage="sharing"
+    )
+    assert result["workers"]["owner_payouts"] == {"awaiting_refund": 1}
+    assert result["workers"]["refunds"] == {"succeeded": 1}
 
 
 @pytest.mark.asyncio

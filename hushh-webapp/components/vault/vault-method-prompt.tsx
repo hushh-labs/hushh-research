@@ -151,11 +151,11 @@ export function VaultMethodPrompt({ enabled }: VaultMethodPromptProps) {
   }, [targetMethod]);
 
   const description = useMemo(() => {
-    if (!targetMethod) return "Switch from passphrase unlock to a faster secure method.";
+    if (!targetMethod) return "Switch from password unlock to a faster secure method.";
     if (targetMethod === "generated_default_native_biometric") {
-      return "Use device biometric authentication first. Passphrase and recovery key remain available.";
+      return "Use device biometric authentication first. Password and recovery key remain available.";
     }
-    return "Use passkey authentication first. Passphrase and recovery key remain available.";
+    return "Use passkey authentication first. Password and recovery key remain available.";
   }, [targetMethod]);
 
   async function handleNotNow() {

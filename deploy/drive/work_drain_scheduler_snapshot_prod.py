@@ -33,8 +33,18 @@ JOB_STAGES = {
 }
 JOB_SCHEDULES = {
     "drive-work-drain-prod": {"*/2 * * * *", "*/4 * * * *"},
-    "drive-work-suggestions-prod": {"2-59/4 * * * *"},
+    # Accept the pre-rollout schedule so an in-flight release can restore its
+    # exact baseline, while new setup writes the one-minute cadence.
+    "drive-work-suggestions-prod": {"* * * * *", "2-59/4 * * * *"},
     "drive-work-sharing-prod": {"* * * * *"},
+}
+# The candidate is the configuration written by the current worker rollout.
+# JOB_SCHEDULES also retains legacy cadence values so rollback can validate a
+# snapshot captured before the one-minute recovery fix.
+CANONICAL_JOB_SCHEDULES = {
+    "drive-work-drain-prod": "*/4 * * * *",
+    "drive-work-suggestions-prod": "* * * * *",
+    "drive-work-sharing-prod": "* * * * *",
 }
 WORKER_ORIGIN = re.compile(
     r"https://consent-protocol-drive-worker-[a-z0-9-]+\.a\.run\.app\Z"
@@ -330,7 +340,7 @@ def _candidate_job(name: str, worker_origin: str) -> dict:
         "uri": worker_origin + DRAIN_PATH,
         "audience": PUBLIC_ORIGIN,
         "serviceAccountEmail": SCHEDULER_ACCOUNT,
-        "schedule": next(iter(JOB_SCHEDULES[name] - {"*/2 * * * *"})),
+        "schedule": CANONICAL_JOB_SCHEDULES[name],
         "timeZone": "Etc/UTC",
         "state": "ENABLED",
         "httpMethod": "POST",

@@ -19,6 +19,10 @@ export async function POST(request: NextRequest, routeParams: RouteParams) {
   return proxy(request, routeParams);
 }
 
+export async function PUT(request: NextRequest, routeParams: RouteParams) {
+  return proxy(request, routeParams);
+}
+
 export async function DELETE(request: NextRequest, routeParams: RouteParams) {
   return proxy(request, routeParams);
 }

@@ -1,6 +1,10 @@
 "use client";
 
+import type { CalendarInvitationHandoff, CalendarAttendanceHandoff } from "@/lib/calendar/calendar-invitation-handoff";
+import type { CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 import { create } from "zustand";
+import { useCallback, useLayoutEffect, useState, type SetStateAction } from "react";
+import type { PendingTextAttachment } from "@/lib/agent/large-text-attachment";
 import type { SpecialistDirectiveEvent } from "@/lib/services/agent-chat-client";
 import type { GmailInformationRequestWorkflow } from "@/lib/services/gmail-information-requests-service";
 
@@ -36,6 +40,10 @@ export type AgentChatHandoff = {
   id: string;
   reason: AgentChatHandoffReason;
   transcript?: string | null;
+  calendarSlot?: CalendarSlotHandoff;
+  calendarInvitation?: CalendarInvitationHandoff;
+  calendarAttendance?: CalendarAttendanceHandoff;
+  calendarRequest?: { ownerId: string; request: string; meeting?: { calendar_id: string; event_id: string; expected_account_email: string } };
   /** A user-initiated Gmail draft request. It never authorizes delivery. */
   emailDraftInstruction?: string | null;
   /**
@@ -61,6 +69,12 @@ type OneConversationSessionState = {
   events: OneConversationMirrorEvent[];
   pendingHandoff: AgentChatHandoff | null;
   pendingEntryWelcome: OneEntryWelcomeMarker | null;
+  /** One authoritative, process-only Chat draft; never a native or disk copy. */
+  composerDraft: OneComposerDraft | null;
+  ensureComposerDraft: (ownerId: string) => void;
+  updateComposerDraft: (ownerId: string, context: string, update: (draft: OneComposerDraft) => OneComposerDraft) => void;
+  clearComposerDraft: () => void;
+  pendingProfileResearch: OneEntryWelcomeMarker | null;
   appendMirrorEvent: (event: Omit<OneConversationMirrorEvent, "id" | "createdAtMs"> & {
     id?: string;
     createdAtMs?: number;
@@ -87,11 +101,34 @@ function createSessionId(): string {
   return createId("one_conv");
 }
 
+type OneComposerDraft = {
+  ownerId: string;
+  context: string;
+  input: string;
+  attachment: PendingTextAttachment | null;
+  expanded: boolean;
+};
+function emptyComposerDraft(ownerId: string): OneComposerDraft {
+  return { ownerId, context: createId("composer"), input: "", attachment: null, expanded: false };
+}
+
 export const useOneConversationSession = create<OneConversationSessionState>((set, get) => ({
   sessionId: createSessionId(),
   events: [],
   pendingHandoff: null,
   pendingEntryWelcome: null,
+  composerDraft: null,
+  ensureComposerDraft: ownerId => {
+    if (!ownerId || get().composerDraft?.ownerId === ownerId) return;
+    set({ composerDraft: emptyComposerDraft(ownerId) });
+  },
+  updateComposerDraft: (ownerId, context, update) => {
+    const draft = get().composerDraft;
+    if (!draft || draft.ownerId !== ownerId || draft.context !== context) return;
+    set({ composerDraft: { ...update(draft), ownerId, context } });
+  },
+  clearComposerDraft: () => set({ composerDraft: null }),
+  pendingProfileResearch: null,
   appendMirrorEvent: (event) => {
     const text = event.text.trim();
     if (!text) return;
@@ -137,6 +174,42 @@ export const useOneConversationSession = create<OneConversationSessionState>((se
       events: [],
       pendingHandoff: null,
       pendingEntryWelcome: null,
+      composerDraft: null,
+      pendingProfileResearch: null,
     });
   },
 }));
+
+/** Route remounts use the existing session authority, not a mirrored draft.
+ * Embedded and pre-vault intro chats remain local. A withdrawn owner reads no
+ * retained contents; local intro editing never admits a native private editor. */
+export function useOneComposerDraft(canonical: boolean, unlockedOwnerId: string | null) {
+  const retained = useOneConversationSession(state => state.composerDraft);
+  const [local, setLocal] = useState(() => emptyComposerDraft("embedded"));
+  const owned = canonical && retained?.ownerId === unlockedOwnerId ? retained : null;
+  useLayoutEffect(() => {
+    if (!canonical) return;
+    setLocal(emptyComposerDraft("embedded"));
+    const session = useOneConversationSession.getState();
+    if (unlockedOwnerId) session.ensureComposerDraft(unlockedOwnerId);
+    else session.clearComposerDraft();
+    // Route unmount does not retire the authenticated vault session.
+  }, [canonical, unlockedOwnerId]);
+  const retainsOwnerDraft = canonical && !!unlockedOwnerId;
+  const context = retainsOwnerDraft ? owned?.context : local.context;
+  const change = useCallback(<K extends "input" | "attachment" | "expanded">(key: K, value: SetStateAction<OneComposerDraft[K]>) => {
+    const update = (draft: OneComposerDraft): OneComposerDraft => ({ ...draft,
+      [key]: typeof value === "function" ? (value as (previous: OneComposerDraft[K]) => OneComposerDraft[K])(draft[key]) : value });
+    if (!canonical || !unlockedOwnerId) {
+      setLocal(previous => previous.context === context ? update(previous) : previous);
+      return;
+    }
+    if (unlockedOwnerId && context) useOneConversationSession.getState().updateComposerDraft(unlockedOwnerId, context, update);
+  }, [canonical, unlockedOwnerId, context]);
+  const setInput = useCallback((value: SetStateAction<string>) => change("input", value), [change]);
+  const setAttachment = useCallback((value: SetStateAction<PendingTextAttachment | null>) => change("attachment", value), [change]);
+  const setExpanded = useCallback((value: SetStateAction<boolean>) => change("expanded", value), [change]);
+  const draft = retainsOwnerDraft ? owned : local;
+  return { ready: !canonical || !!owned, context, input: draft?.input ?? "", setInput,
+    attachment: draft?.attachment ?? null, setAttachment, expanded: draft?.expanded ?? false, setExpanded };
+}

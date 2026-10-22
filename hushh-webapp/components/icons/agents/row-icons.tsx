@@ -15,8 +15,6 @@ import {
   Eye,
   FolderSimple,
   HourglassMedium,
-  Key,
-  Keyhole,
   LinkBreak,
   LinkSimple,
   LockKey,
@@ -32,7 +30,6 @@ import {
   TextAa,
   TextAlignLeft,
   Translate,
-  Trash,
   Tray,
   UserCircle,
   UserPlus,
@@ -42,12 +39,14 @@ import {
   type Icon,
 } from "@phosphor-icons/react";
 
+import { AccentedKeyIcon } from "../ui/accented-key-icon";
+
 import type { AgentIconProps } from "./agent-icons";
 
 /**
  * Semantic row glyphs for `SettingsRow iconTone="capability"`.
  *
- * The Profile menu draws each row as an authored Phosphor duotone glyph in its
+ * The Profile menu draws each row as an authored Phosphor outline glyph in its
  * own signature colour on a transparent well, the way /one draws its launcher
  * (founder direction, 2026-09-27). Nested screens used to fall back to legacy
  * utility names on coloured or gray tiles, so the same idea looked different
@@ -73,7 +72,7 @@ function createRowIcon(glyph: Icon, defaultColor: string, name: string) {
   const Glyph = glyph;
   function RowIcon({
     size = "1em",
-    weight = "duotone",
+    weight = "regular",
     color = defaultColor,
     ...props
   }: AgentIconProps) {
@@ -87,7 +86,7 @@ function createRowIcon(glyph: Icon, defaultColor: string, name: string) {
 export const PhoneRowIcon = createRowIcon(Phone, ROW_TONE.emerald, "PhoneRowIcon");
 export const DiscoverableRowIcon = createRowIcon(AddressBook, ROW_TONE.sky, "DiscoverableRowIcon");
 export const ResetRowIcon = createRowIcon(ArrowCounterClockwise, ROW_TONE.amber, "ResetRowIcon");
-export const DeleteRowIcon = createRowIcon(Trash, ROW_TONE.red, "DeleteRowIcon");
+export { AppleTrashIcon as DeleteRowIcon } from "../ui/trash-icon";
 
 // Preferences
 export const AppearanceRowIcon = createRowIcon(CircleHalf, ROW_TONE.indigo, "AppearanceRowIcon");
@@ -98,8 +97,8 @@ export const SpeakerSafeRowIcon = createRowIcon(Ear, ROW_TONE.amber, "SpeakerSaf
 
 // Vault and access
 export const VaultRowIcon = createRowIcon(Vault, ROW_TONE.cobalt, "VaultRowIcon");
-export const PassphraseRowIcon = createRowIcon(Keyhole, ROW_TONE.amber, "PassphraseRowIcon");
-export const KeyRowIcon = createRowIcon(Key, ROW_TONE.indigo, "KeyRowIcon");
+export const PassphraseRowIcon = AccentedKeyIcon;
+export const KeyRowIcon = AccentedKeyIcon;
 export const LockedRowIcon = createRowIcon(LockKey, ROW_TONE.indigo, "LockedRowIcon");
 
 // Sync, status and lifecycle
@@ -124,7 +123,7 @@ export const JoinRowIcon = createRowIcon(UserPlus, ROW_TONE.purple, "JoinRowIcon
 export const PeopleRowIcon = createRowIcon(UsersThree, ROW_TONE.indigo, "PeopleRowIcon");
 /** An SOS alert from someone who listed you as an emergency contact. */
 export const EmergencyRowIcon = createRowIcon(Siren, ROW_TONE.red, "EmergencyRowIcon");
-export const InviteCodeRowIcon = createRowIcon(Key, ROW_TONE.amber, "InviteCodeRowIcon");
+export const InviteCodeRowIcon = AccentedKeyIcon;
 /** Talking to an agent: the same chat glyph as the one control that opens One. */
 export const UseAgentRowIcon = createRowIcon(ChatCircle, ROW_TONE.indigo, "UseAgentRowIcon");
 

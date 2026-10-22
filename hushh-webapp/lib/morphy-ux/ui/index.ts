@@ -28,3 +28,4 @@ export * from "./filter-chip";
 export * from "./segmented-tabs";
 export * from "./surface-primitives";
 export * from "./swipe-views";
+export * from "./task-surfaces";

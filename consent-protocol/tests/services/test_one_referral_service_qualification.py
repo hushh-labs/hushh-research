@@ -78,6 +78,7 @@ def _harness(
     phone_verified: bool,
     vault_row_exists: bool = True,
     identity_row_exists: bool = True,
+    verified_usage: bool = True,
 ):
     vault_row = (
         SimpleNamespace(setup_completed=setup_completed, setup_completed_at=setup_completed_at)
@@ -99,9 +100,22 @@ def _harness(
                     SimpleNamespace(
                         id=relationship.id,
                         status=relationship.status,
+                        created_at=datetime.fromtimestamp(NOW_MS / 1000, tz=timezone.utc),
+                        internal_reason_code=None,
+                        policy_version=1,
                         referrer_user_id=relationship.referrer_user_id,
                     )
                 ]
+            )
+        if "FROM one_referral_events" in sql:
+            return _Result(
+                [
+                    SimpleNamespace(
+                        server_timestamp=datetime.fromtimestamp(NOW_MS / 1000 + 1, tz=timezone.utc)
+                    )
+                ]
+                if verified_usage
+                else []
             )
         if "FROM vault_keys" in sql:
             return _Result([vault_row] if vault_row is not None else [])
@@ -154,6 +168,7 @@ def _run(conn, *, enqueue_scoring_work=None):
     is pinned by test_qualifying_atomically_enqueues_scoring_work below."""
     with (
         patch.object(one_referral_service, "get_db_connection", side_effect=lambda: _db(conn)),
+        patch("hushh_mcp.services.one_referral_activity_service.record_referral_activity"),
         patch.object(
             one_referral_service,
             "enqueue_scoring_work",
@@ -166,7 +181,7 @@ def _run(conn, *, enqueue_scoring_work=None):
 # --- the new funnel: onboarding completion is the whole bar ------------------
 
 
-def test_a_new_referral_qualifies_the_moment_onboarding_completes():
+def test_a_new_referral_qualifies_after_verified_product_usage():
     relationship = _Relationship("signed_up")
     conn = _harness(
         relationship=relationship,
@@ -198,7 +213,7 @@ def test_zero_credited_active_seconds_does_not_block_qualification():
     assert result["relationship_status"] == "qualified"
 
 
-def test_never_having_used_an_eligible_agent_does_not_block_qualification():
+def test_never_having_verified_product_usage_blocks_qualification():
     # No one_agent_engagement_sessions row for one_location, hushh_research, or
     # hushh_research_pkm was ever created for this user; the sync function
     # never even looks at that table.
@@ -208,11 +223,12 @@ def test_never_having_used_an_eligible_agent_does_not_block_qualification():
         setup_completed=True,
         setup_completed_at=NOW_MS,
         phone_verified=True,
+        verified_usage=False,
     )
 
     result = _run(conn)
 
-    assert result["relationship_status"] == "qualified"
+    assert result["relationship_status"] == "onboarded"
 
 
 def test_zero_meaningful_events_does_not_block_qualification():

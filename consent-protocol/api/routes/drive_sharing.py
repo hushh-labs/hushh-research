@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import os
 import re
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
@@ -37,6 +38,11 @@ from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH, DriveReadE
 from hushh_mcp.services.person_profile_service import (
     PersonProfileNotFoundError,
     PersonProfileService,
+)
+from hushh_mcp.services.ria_iam_service import (
+    IAMSchemaNotReadyError,
+    RIAIAMPolicyError,
+    RIAIAMService,
 )
 
 logger = logging.getLogger(__name__)
@@ -152,17 +158,43 @@ class CreateRequest(StrictRequest):
     ownerPersonRef: UUID | None = None
     clientRequestId: UUID
     purpose: ShareRequestPurpose
+    # The content dates live in purpose; this optional Viewer term belongs to V1 requests.
+    accessDays: int | None = Field(default=None, ge=1, le=90, strict=True)
+    requesterActorType: Literal["person", "ria"] = "person"
+    reason: str = Field(default="", max_length=500)
     timeZone: str | None = Field(default=None, min_length=1, max_length=64)
+    expectedQuoteVersion: int | None = Field(default=None, ge=0, strict=True)
 
     @model_validator(mode="after")
     def one_owner_target(self):
         if (self.ownerUserId is None) == (self.ownerPersonRef is None):
             raise ValueError("Specify one owner target.")
+        if self.requesterActorType == "ria" and not self.reason.strip():
+            raise ValueError("A verified RIA must give a reason.")
         return self
 
 
 class DecisionRequest(StrictRequest):
     revision: int = Field(ge=0, strict=True)
+
+
+class PacketListingRequest(StrictRequest):
+    version: int = Field(ge=1, strict=True)
+    decision: Literal["allow", "deny"]
+    priceCents: int = Field(ge=50, le=50000, strict=True)
+    expectedRevision: int = Field(ge=0, strict=True)
+    disclosure: Literal["drive-packet-listing-connections-v1"]
+
+
+class PacketPurchaseRequest(StrictRequest):
+    version: int = Field(ge=1, strict=True)
+    clientRequestId: UUID
+
+
+class OwnerPricingRequest(StrictRequest):
+    enabled: StrictBool
+    amountCents: int = Field(strict=True, ge=50, le=50000)
+    expectedVersion: int = Field(strict=True, ge=0)
 
 
 class QueryCreateRequest(StrictRequest):
@@ -217,9 +249,29 @@ class BulkShareCreateRequest(StrictRequest):
     audience: Literal["trusted_circle"]
 
 
+class AllowRequest(DecisionRequest):
+    packageRevision: int | None = Field(default=None, strict=True, ge=1)
+    packageDigest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    # Whole US dollars as cents. Required only for a paid request; the store
+    # checks that against the request it locks.
+    amountCents: int | None = Field(default=None, strict=True, ge=50, le=50000)
+    confirmed: StrictBool
+
+    @model_validator(mode="after")
+    def explicit_confirmation(self):
+        if self.confirmed is not True:
+            raise ValueError("Explicit approval is required.")
+        return self
+
+
+class RequestPrice(AllowRequest):
+    amountCents: int = Field(strict=True, ge=50, le=50000)
+
+
 class BulkShareApprovalRequest(StrictRequest):
     revision: int = Field(ge=1, strict=True)
     reviewDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    accessDays: int | None = Field(default=None, ge=1, le=90, strict=True)
     confirmed: StrictBool
 
     @model_validator(mode="after")
@@ -259,7 +311,7 @@ class RuleRevocationRequest(StrictRequest):
 class RevocationRequest(DecisionRequest):
     directiveId: str = Field(min_length=1, max_length=128)
     reviewDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
-    grantIds: list[UUID] = Field(min_length=1, max_length=25)
+    grantIds: list[UUID] = Field(default_factory=list, max_length=25)
     confirmed: StrictBool
 
 
@@ -293,7 +345,15 @@ def _error(error):
         "explicit_approval_required": (409, "Review and explicitly approve these files."),
         "confirmation_required": (409, "Review and explicitly confirm this removal."),
         "request_already_decided": (409, "This request already has a decision."),
+        "request_paid": (409, "This request was paid or files were shared. Refresh it."),
         "request_changed": (409, "This request changed. Refresh its status."),
+        "package_changed": (409, "The document package changed. Review it again."),
+        "package_not_ready": (409, "AgentOne is still preparing the document package."),
+        "package_not_allowed": (409, "Allow the prepared document package before sharing."),
+        "package_review_required": (409, "Review the prepared document package."),
+        "package_incomplete": (409, "The document package is incomplete. Refresh its status."),
+        "price_changed": (409, "The price changed. Review it again."),
+        "payout_unavailable": (503, "Document payments are temporarily unavailable."),
         "revocation_pending": (409, "Removal is pending. Refresh its status."),
         "no_revocable_permissions": (409, "There are no recorded permissions available to remove."),
         "sharing_unavailable": (503, "Document sharing is not available yet."),
@@ -333,7 +393,13 @@ def _error(error):
         "search_not_found": (404, "This Drive search is unavailable."),
         "no_recipients": (409, "No one in your Trusted circle can receive these files yet."),
         "date_range_required": (422, "Choose exact start and end dates before requesting files."),
+        "invalid_payment_amount": (422, "Choose a price from $0.50 to $500."),
+        "owner_price_required": (409, "Set your request price to continue."),
+        "owner_payout_required": (409, "Set up payouts to continue."),
         "invalid_argument": (422, "Check the document-sharing request."),
+        "packet_unavailable": (404, "This packet is unavailable."),
+        "packet_changed": (409, "This packet changed. Refresh it before continuing."),
+        "packet_not_ready": (409, "This packet is still being verified."),
     }
     code = str(error) if isinstance(error, DriveReadError) else "sharing_unavailable"
     if code not in known:
@@ -400,6 +466,71 @@ async def _person_target(owner: Owner, person_ref: UUID) -> str:
     return str(target_user_id)
 
 
+def _packet_service():
+    from hushh_mcp.services.drive_packet_catalog_service import DrivePacketCatalogService
+
+    return DrivePacketCatalogService()
+
+
+@router.get("/packets")
+async def list_packets(
+    ownerPersonRef: UUID | None = None,
+    cursor: str | None = Query(default=None, min_length=1, max_length=256),
+    owner: Owner = Depends(_owner),
+):
+    target = await _person_target(owner, ownerPersonRef) if ownerPersonRef else None
+    return await _call(
+        "list_packets",
+        owner=owner,
+        factory=_packet_service,
+        owner_user_id=target,
+        cursor=cursor,
+    )
+
+
+@router.post("/packets/{packet_id}/listing")
+async def set_packet_listing(
+    packet_id: UUID, body: PacketListingRequest, owner: Owner = Depends(_owner)
+):
+    # Existing listings can still be withdrawn while new packet commerce is off.
+    if (
+        body.decision == "allow"
+        and os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower() != "true"
+    ):
+        raise _error(DriveSharingError("packet_unavailable"))
+    return await _call(
+        "set_listing",
+        owner=owner,
+        factory=_packet_service,
+        packet_id=str(packet_id),
+        version=body.version,
+        decision=body.decision,
+        price_cents=body.priceCents,
+        expected_revision=body.expectedRevision,
+        disclosure=body.disclosure,
+    )
+
+
+@router.post("/packets/{packet_id}/requests", status_code=202)
+async def request_packet(
+    packet_id: UUID,
+    body: PacketPurchaseRequest,
+    recipient=Depends(_recipient),
+    owner: Owner = Depends(_owner),
+):
+    if os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower() != "true":
+        raise _error(DriveSharingError("packet_unavailable"))
+    return await _call(
+        "request_packet",
+        owner=owner,
+        factory=_packet_service,
+        recipient=recipient,
+        packet_id=str(packet_id),
+        version=body.version,
+        client_request_id=str(body.clientRequestId),
+    )
+
+
 @router.post("/requests", status_code=202)
 async def create_request(
     body: CreateRequest, recipient=Depends(_recipient), owner: Owner = Depends(_owner)
@@ -410,6 +541,25 @@ async def create_request(
         except (ValueError, ZoneInfoNotFoundError):
             raise _error(DriveSharingError("invalid_argument")) from None
     owner_user_id = await _owner_target(owner, body)
+    requester_profile = None
+    if body.requesterActorType == "ria":
+        ria_service = RIAIAMService()
+        try:
+            await ria_service.require_ria_verified(owner.user_id)
+            ria = await ria_service.get_ria_onboarding_status(owner.user_id)
+        except IAMSchemaNotReadyError as exc:
+            raise HTTPException(status_code=503, detail="RIA verification unavailable") from exc
+        except RIAIAMPolicyError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        if not ria.get("exists"):
+            raise HTTPException(status_code=403, detail="RIA verification required")
+        requester_profile = {
+            "type": "ria",
+            "displayName": ria.get("display_name"),
+            "legalName": ria.get("individual_legal_name") or ria.get("legal_name"),
+            "crd": ria.get("individual_crd") or ria.get("finra_crd"),
+            "firmName": ria.get("advisory_firm_legal_name"),
+        }
     return await _call(
         "create",
         owner=owner,
@@ -417,8 +567,34 @@ async def create_request(
         owner_user_id=owner_user_id,
         client_request_id=str(body.clientRequestId),
         purpose=body.purpose,
+        access_days=body.accessDays,
+        requester_profile=requester_profile,
+        reason=body.reason.strip(),
         request_time_zone=body.timeZone,
+        expected_quote_version=body.expectedQuoteVersion,
     )
+
+
+@router.get("/pricing")
+async def owner_pricing(owner: Owner = Depends(_owner)):
+    return await _call("owner_pricing", owner=owner)
+
+
+@router.put("/pricing")
+async def update_owner_pricing(body: OwnerPricingRequest, owner: Owner = Depends(_owner)):
+    return await _call(
+        "update_owner_pricing",
+        owner=owner,
+        enabled=body.enabled,
+        amount_cents=body.amountCents,
+        expected_version=body.expectedVersion,
+    )
+
+
+@router.get("/quote")
+async def request_quote(ownerPersonRef: UUID, owner: Owner = Depends(_owner)):
+    owner_user_id = await _person_target(owner, ownerPersonRef)
+    return await _call("request_quote", owner=owner, owner_user_id=owner_user_id)
 
 
 @router.get("/requests")
@@ -456,6 +632,11 @@ async def owner_review(request_id: UUID, owner: Owner = Depends(_owner)):
             )
         )
     return review
+
+
+@router.get("/requests/{request_id}/context")
+async def requester_context(request_id: UUID, owner: Owner = Depends(_owner)):
+    return await _call("requester_context", owner=owner, request_id=str(request_id))
 
 
 def _request_bulk_service():
@@ -519,7 +700,8 @@ async def prepare_request_bulk(
 
 @router.get("/requests/{request_id}/delivery")
 async def delivery(request_id: UUID, owner: Owner = Depends(_owner)):
-    return await _call("delivery", owner=owner, request_id=str(request_id))
+    # views: the requester's price and recovery, or the owner's review notice.
+    return await _call("delivery", owner=owner, request_id=str(request_id), views=True)
 
 
 @router.get("/requests/{request_id}/delivery/files")
@@ -955,6 +1137,34 @@ async def decline(request_id: UUID, body: DecisionRequest, owner: Owner = Depend
     )
 
 
+@router.post("/requests/{request_id}/allow", status_code=202)
+async def allow(request_id: UUID, body: AllowRequest, owner: Owner = Depends(_owner)):
+    """A allows one request outside the Trusted circle; the automatic search runs next."""
+    return await _call(
+        "allow",
+        owner=owner,
+        request_id=str(request_id),
+        revision=body.revision,
+        amount_cents=body.amountCents,
+        **(
+            {"package_revision": body.packageRevision, "package_digest": body.packageDigest}
+            if body.packageRevision is not None or body.packageDigest is not None
+            else {}
+        ),
+    )
+
+
+@router.post("/requests/{request_id}/price", status_code=202)
+async def set_request_price(request_id: UUID, body: RequestPrice, owner: Owner = Depends(_owner)):
+    return await _call(
+        "set_request_price",
+        owner=owner,
+        request_id=str(request_id),
+        revision=body.revision,
+        amount_cents=body.amountCents,
+    )
+
+
 @router.post("/requests/{request_id}/review/refresh", status_code=202)
 async def refresh_review(request_id: UUID, body: DecisionRequest, owner: Owner = Depends(_owner)):
     return await _call(
@@ -964,12 +1174,20 @@ async def refresh_review(request_id: UUID, body: DecisionRequest, owner: Owner =
 
 @router.post("/requests/{request_id}/cancel")
 async def cancel(request_id: UUID, body: DecisionRequest, owner: Owner = Depends(_owner)):
-    return await _call(
+    """The requester withdraws; a paid or already shared request gets 409 request_paid."""
+    from hushh_mcp.services.drive_request_withdrawal_store import retire_withdrawn_checkout
+
+    result = await _call(
         "decide",
         owner=owner,
         request_id=str(request_id),
         revision=body.revision,
         decision="cancelled",
+    )
+    # After commit and best-effort only: an open Checkout page is expired at
+    # Stripe; a payment that already won the race is reported as refund pending.
+    return await retire_withdrawn_checkout(
+        result, requester_user_id=owner.user_id, request_id=str(request_id)
     )
 
 
@@ -1181,6 +1399,7 @@ async def approve_bulk_share(
         share_id=str(share_id),
         revision=body.revision,
         review_digest=body.reviewDigest,
+        access_days=body.accessDays,
     )
 
 

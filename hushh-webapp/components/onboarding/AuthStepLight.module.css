@@ -1,406 +1,274 @@
-/* Figma 181:1661, 402 × 874. Keep fixed artwork/control metrics, flow the
- * sections from the safe-area top, and let only the footer whitespace grow.
- * Theme-scoped compositions preserve the shared authentication behavior.
- */
-.existingBackdrop,
-.existingIllustration,
-.existingProviderIcon,
-.existingPrivacyIcon {
-  display: contents;
+/* Auth follows the accepted white welcome visual family on web and iOS WebView. */
+.shell {
+  --auth-control-radius: 16px;
+  width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: #fff;
+  color: #1d1d1f;
+  color-scheme: light;
+  font-family: var(--font-app-body);
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
 }
 
-.illustration,
-.providerIcon,
-.privacyIcon,
-.backGlyph {
-  display: none;
-}
-
-.brandMark {
+.frame {
   position: relative;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 1160px;
+  min-height: 100%;
+  margin-inline: auto;
+  padding:
+    max(56px, calc(var(--app-safe-area-top-effective, 0px) + 42px))
+    max(24px, env(safe-area-inset-right, 0px))
+    max(24px, var(--app-safe-area-bottom-effective, 0px), env(safe-area-inset-bottom, 0px))
+    max(24px, env(safe-area-inset-left, 0px));
+}
+.frame *, .frame *::before, .frame *::after { box-sizing: border-box; }
+
+.back {
+  position: absolute;
+  z-index: 5;
+  top: max(6px, calc(var(--app-safe-area-top-effective, 0px) + 6px));
+  left: max(16px, env(safe-area-inset-left, 0px));
   display: grid;
   place-items: center;
-  width: 56px;
-  height: 56px;
-  flex: none;
-}
-
-.brandGlow {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 112px;
-  height: 112px;
-  transform: translate(-50%, -50%);
-  border-radius: 9999px;
-  background: rgba(0, 122, 255, 0.2);
-  filter: blur(40px);
-  pointer-events: none;
-}
-
-.brandIcon {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  display: block;
-  width: 56px;
-  height: 56px;
-  max-width: none;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-  user-select: none;
-}
-
-:global(html:not(.dark)) .shell {
-  --auth-font: var(--font-app-body);
-  display: flex;
-  flex-direction: column;
-  height: 100dvh !important;
-  min-height: 100svh !important;
-  padding-top: calc(var(--app-safe-area-top-effective, 0px) + clamp(80px, 20svh, 156px));
-  padding-bottom: max(28px, calc(var(--app-safe-area-bottom-effective, 0px) + 28px));
-  overflow-y: auto;
-  background: #f6f5fc;
-  color: #000;
-  isolation: isolate;
-}
-
-:global(html:not(.dark)) .existingBackdrop,
-:global(html:not(.dark)) .existingProviderIcon,
-:global(html:not(.dark)) .existingPrivacyIcon,
-:global(html:not(.dark)) .existingBackIcon {
-  display: none;
-}
-
-:global(html:not(.dark)) .content {
-  flex: none;
-  width: min(100%, 402px);
-  height: auto !important;
-  min-height: 0 !important;
-  padding: 0;
-  justify-content: flex-start;
-}
-
-:global(html:not(.dark)) .clusters {
-  gap: 24px;
-  padding: 0;
-}
-
-:global(html:not(.dark)) .hero {
-  gap: 34px;
-}
-
-:global(html:not(.dark)) .title {
-  --foundation-title1-size: 30px;
-  --foundation-title1-line: 36px;
-  --foundation-title1-weight: 600;
-  --foundation-title1-tracking: -0.5px;
-  width: auto;
-  height: auto;
-  margin: 0;
-  font-family: var(--auth-font);
-  font-size: 30px;
-  font-weight: 600;
-  line-height: 36px;
-  letter-spacing: -0.5px;
-  color: #17130c;
-}
-
-:global(html:not(.dark)) .title > span { color: var(--app-accent); }
-
-:global(html:not(.dark)) .actions {
-  width: calc(100% - 48px);
-  max-width: none;
-  transform: none;
-}
-
-:global(html:not(.dark)) .providerButton {
-  position: relative;
-  height: 60px !important;
-  min-height: 60px;
-  padding: 0 8px 0 20px !important;
-  border: 1px solid #d8d9e3 !important;
-  border-radius: 16px !important;
-  box-shadow: none !important;
-  backdrop-filter: none !important;
-}
-
-/* Important declarations reverse cascade-layer priority. Keep these scoped
- * paints in base so existing important provider utilities cannot replace them.
- * Figma's two paint layers composite to #fafafc on the #f6f5fc canvas. */
-@layer base {
-  :global(html:not(.dark)) .providerButton {
-    background: #fafafc !important;
-    color: #000 !important;
-  }
-}
-
-:global(html:not(.dark)) .providerButton,
-:global(html:not(.dark)) .providerButton span {
-  font-family: var(--auth-font) !important;
-  font-size: 17px !important;
-  font-weight: 510 !important;
-  line-height: 22px !important;
-  letter-spacing: 0 !important;
-}
-
-:global(html:not(.dark)) .providerButton > span:first-child {
-  position: static;
-  width: 100%;
-}
-
-:global(html:not(.dark)) .providerButton > span:first-child > span {
-  gap: 0;
-  padding-left: 0;
-}
-
-/* The Figma text layers include four leading spaces. Preserve their actual
- * font advance rather than approximating that advance with pixel padding.
- *
- * The empty alternative text after the slash matters. Generated content is
- * part of an element's accessible name, so without it this button is named
- * "    Continue with Apple" -- four non-breaking spaces first. VoiceOver read
- * them, and the native UI test's exact-match query for the button stopped
- * finding it, which is how the failure surfaced: `testAccountNotFoundRecovery
- * ReturnsToLogin` timing out on a button that was on screen the whole time.
- * WebKit honours the alt clause since iOS 17.4. */
-:global(html:not(.dark)) .providerButton > span:first-child > span::before {
-  content: "\00a0\00a0\00a0\00a0" / "";
-  white-space: pre;
-}
-
-:global(html:not(.dark)) .providerIcon {
-  display: block;
-  position: absolute;
-  top: 18px;
-  height: 23px;
-  object-fit: cover;
-}
-
-:global(html:not(.dark)) .appleIcon { left: calc(50% - 118px); width: 41px; }
-:global(html:not(.dark)) .googleIcon { left: calc(50% - 120px); width: 46px; }
-
-:global(html:not(.dark)) .footer {
-  position: static;
-  flex: none;
-  width: min(100%, 402px);
-  margin: auto auto 0;
-  padding-top: 40px;
-  justify-content: center;
-  padding-inline: 24px;
-}
-
-:global(html:not(.dark)) .legalRow {
-  width: 100%;
-  justify-content: center;
-  text-align: center;
-  margin-left: 0;
-  gap: 12.029842px;
-  align-items: flex-start;
-}
-
-:global(html:not(.dark)) .privacyIcon {
-  display: block;
-  flex: none;
-  width: 32.245548px;
-  height: 25.76586px;
-}
-
-:global(html:not(.dark)) .legalRow p,
-:global(html:not(.dark)) .legalRow a {
-  font-family: var(--auth-font) !important;
-  font-size: 13px !important;
-  font-weight: 400 !important;
-  line-height: 18px !important;
-  letter-spacing: 0 !important;
-}
-
-:global(html:not(.dark)) .legalRow p {
-  width: auto;
-  flex: none;
-  margin: 0;
-  color: #626b80;
-}
-
-:global(html:not(.dark)) .legalRow a { color: #006dcc; }
-
-:global(html:not(.dark)) .back {
-  position: absolute;
-  left: max(16px, calc(env(safe-area-inset-left, 0px) + 16px));
-  top: max(72px, calc(var(--app-safe-area-top-effective, 0px) + 10px));
   width: 44px;
   height: 44px;
-  border-radius: 100px;
-  background: #fcfbfe;
-  color: #8e8e93;
   border: 0;
-  box-shadow: none;
+  border-radius: 999px;
+  background: #f5f5f7;
+  color: #515158;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.back:hover { background: #ececf0; }
+.back:disabled { opacity: .4; pointer-events: none; }
+.back:focus-visible, .providerButton:focus-visible {
+  outline: 3px solid #0071e3;
+  outline-offset: 3px;
 }
 
-:global(html:not(.dark)) .backGlyph {
-  display: block;
-  font-family: var(--auth-font);
-  font-size: 19px;
-  font-weight: 510;
-  line-height: 22px;
-  letter-spacing: -0.4px;
+.artwork {
+  width: min(100%, 500px);
+  min-width: 0;
+  display: grid;
+  place-items: center;
 }
+.artwork :global([data-welcome-scene]) { width: 100%; padding: 0; }
+.artwork :global([data-welcome-artwork]) { width: min(50vw, 190px); }
 
-
-/* Dark Figma frame 194:2874: 402 × 874, including native safe areas. */
-.darkAppleIcon, .darkPrivacyIcon { display: none; }
-:global(html.dark) .shell {
-  --auth-font: var(--font-app-body);
-  display: flex;
-  flex-direction: column;
-  height: 100dvh !important;
-  min-height: 100svh !important;
-  padding-top: calc(var(--app-safe-area-top-effective, 0px) + clamp(80px, 20svh, 156px));
-  padding-bottom: max(28px, calc(var(--app-safe-area-bottom-effective, 0px) + 28px));
-  overflow-y: auto;
-  background: #000;
-  isolation: isolate;
+.content {
+  width: min(100%, 430px);
+  min-width: 0;
+  margin-top: 5px;
+  color: #1d1d1f;
 }
-:global(html.dark) .existingBackdrop,
-:global(html.dark) .existingProviderIcon,
-:global(html.dark) .existingPrivacyIcon,
-:global(html.dark) .existingBackIcon { display: none; }
-:global(html.dark) .content {
-  flex: none;
-  width: min(100%, 402px);
-  height: auto !important;
-  min-height: 0 !important;
-  padding: 0;
-  justify-content: flex-start;
-}
-:global(html.dark) .clusters { gap: 24px; padding: 0; }
-:global(html.dark) .hero { gap: 34px; }
-:global(html.dark) .title {
+.clusters { gap: 16px; padding: 0; }
+.hero { gap: 0; }
+.title {
   --foundation-title1-size: 30px;
   --foundation-title1-line: 36px;
   --foundation-title1-weight: 600;
-  --foundation-title1-tracking: -0.5px;
-  width: auto;
-  height: auto;
+  --foundation-title1-tracking: -.5px;
   margin: 0;
-  font-family: var(--auth-font);
+  color: #1d1d1f;
+  font-family: var(--font-app-display);
   font-size: 30px;
   font-weight: 600;
   line-height: 36px;
-  letter-spacing: -0.5px;
-  color: #faf6ee;
+  letter-spacing: -.5px;
 }
-:global(html.dark) .title > span { color: var(--app-accent); }
-:global(html.dark) .actions {
-  width: calc(100% - 48px);
-  max-width: none;
-  transform: none;
+.title > span { color: #0071e3; }
+.actions { width: 100%; max-width: 430px; transform: none; }
+.contacts {
+  color: #6e6e73;
+  font-family: var(--font-app-body);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.35;
 }
-:global(html.dark) .providerButton {
+.contacts label { color: #1d1d1f; font-weight: 600; }
+.contacts p { margin: 0; }
+.contacts :global([data-slot="checkbox"]) {
+  width: 18px;
+  height: 18px;
+  border-color: #86868b;
+}
+.contacts :global([data-slot="checkbox"][data-state="checked"]) {
+  border-color: #0071e3;
+  background: #0071e3;
+  color: #fff;
+}
+
+.providerButton {
   position: relative;
-  height: 60px !important;
-  min-height: 60px;
-  padding: 0 !important;
-  border: 1px solid #45454b !important;
-  border-radius: 16px !important;
+  width: 100%;
+  height: 53px !important;
+  min-height: 53px !important;
+  padding: 0 18px !important;
+  border: 1px solid #d8d8dc !important;
+  border-radius: var(--auth-control-radius) !important;
   box-shadow: none !important;
   backdrop-filter: none !important;
-}
-@layer base {
-  :global(html.dark) .providerButton {
-    background: #1c1c1e !important;
-    color: #fff !important;
-  }
-}
-:global(html.dark) .providerButton,
-:global(html.dark) .providerButton span {
-  font-family: var(--auth-font) !important;
-  font-size: 17px !important;
-  font-weight: 510 !important;
+  font-family: var(--font-app-body) !important;
+  font-size: 16px !important;
+  font-weight: 600 !important;
   line-height: 22px !important;
   letter-spacing: 0 !important;
+  touch-action: manipulation;
 }
-:global(html.dark) .providerButton > span:first-child { position: static; width: 100%; }
-:global(html.dark) .providerButton > span:first-child > span { gap: 0; }
-/* Same leading-space fidelity as the light rule above, and the same empty
- * alternative text for the same reason: these spaces are visual, not part of
- * the button's name. */
-:global(html.dark) .providerButton > span:first-child > span::before {
-  content: "\00a0\00a0\00a0\00a0" / "";
-  white-space: pre;
+@layer base {
+  .providerButton {
+    background: #fff !important;
+    color: #1d1d1f !important;
+  }
+  .title {
+    font-size: 30px !important;
+    font-weight: 600 !important;
+    line-height: 36px !important;
+  }
 }
-:global(html.dark) .providerButton:has(.googleIcon) > span:first-child > span::before {
-  content: "\00a0\00a0\00a0\00a0\00a0\00a0" / "";
+.providerButton:hover { background: #f8f8fa !important; }
+.providerButton [data-auth-provider-content] {
+  display: grid;
+  width: 240px;
+  max-width: 100%;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 12px;
+  text-align: left;
 }
-:global(html.dark) .darkAppleIcon {
-  display: block;
-  position: absolute;
-  left: calc(50% - 122px);
-  top: 12px;
-  width: 37px;
-  height: 37px;
+/* Match Google's painted mark while preserving each logo's proportions. */
+.appleProviderIcon { width: 26.4px; height: 26.4px; }
+.emailProviderIcon { width: 27.1px; height: 27.1px; }
+.appleProviderIcon, .emailProviderIcon { flex-shrink: 0; max-width: none; }
+.microsoftProviderIcon { width: 22px; height: 22px; }
+.providerButton [data-auth-provider-content] > span:last-child {
+  font-family: var(--font-app-body) !important;
+  font-size: 16px !important;
+  font-weight: 600 !important;
+  line-height: 22px !important;
+  white-space: normal;
 }
-:global(html.dark) .googleIcon {
-  display: block;
-  position: absolute;
-  left: calc(50% - 127px);
-  top: 19px;
-  width: 46px;
-  height: 23px;
-  object-fit: cover;
+.actions :global(#enterprise-sso-email) {
+  height: 53px;
+  border-radius: 16px;
+  background: #fff;
+  color: #1d1d1f;
+  font-family: var(--font-app-body);
+  font-size: 16px;
 }
-:global(html.dark) .footer {
-  position: static;
-  flex: none;
-  width: min(100%, 402px);
-  margin: auto auto 0;
-  padding-top: 40px;
-  padding-inline: 24px;
+.footer {
+  display: flex;
   justify-content: center;
+  width: min(100%, 430px);
+  margin-top: auto;
+  padding-top: 20px;
 }
-:global(html.dark) .legalRow {
-  width: 100%;
-  justify-content: center;
-  text-align: center;
-  margin-left: 0;
-  gap: 12.029842px;
-  align-items: flex-start;
-}
-:global(html.dark) .darkPrivacyIcon {
-  display: block;
-  flex: none;
-  width: 32.245548px;
-  height: 25.76586px;
-}
-:global(html.dark) .legalRow p,
-:global(html.dark) .legalRow a {
-  font-family: var(--auth-font) !important;
+.legalRow { width: 100%; justify-content: center; text-align: center; }
+.legalRow p, .legalRow a {
+  font-family: var(--font-app-body) !important;
   font-size: 13px !important;
-  font-weight: 400 !important;
   line-height: 18px !important;
   letter-spacing: 0 !important;
 }
-:global(html.dark) .legalRow p { width: auto; flex: none; margin: 0; color: #bfbfc8; }
-:global(html.dark) .legalRow a { color: #57acff; }
-:global(html.dark) .back {
-  position: absolute;
-  left: max(16px, calc(env(safe-area-inset-left, 0px) + 16px));
-  top: max(73px, calc(var(--app-safe-area-top-effective, 0px) + 11px));
-  width: 43px;
-  height: 43px;
-  border: 0;
-  box-shadow: none;
-  background: url("/onboarding/figma/auth-back-dark.svg") center / 43px 43px no-repeat;
+.legalRow p { margin: 0; color: #6e6e73; font-weight: 400; }
+.legalRow a { color: #0071e3; font-weight: 600; }
+
+@media (min-width: 800px) {
+  .frame {
+    display: grid;
+    grid-template-columns: minmax(0, 1.04fr) minmax(0, 430px);
+    grid-template-rows: minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: clamp(44px, 6vw, 88px);
+    padding:
+      max(48px, var(--app-safe-area-top-effective, 0px))
+      max(40px, env(safe-area-inset-right, 0px))
+      max(32px, var(--app-safe-area-bottom-effective, 0px), env(safe-area-inset-bottom, 0px))
+      max(40px, env(safe-area-inset-left, 0px));
+  }
+  .back { top: max(14px, calc(var(--app-safe-area-top-effective, 0px) + 6px)); left: max(40px, env(safe-area-inset-left, 0px)); }
+  .artwork { grid-column: 1; grid-row: 1 / 3; justify-self: center; }
+  .artwork :global([data-welcome-artwork]) { width: min(100%, 440px, max(300px, calc((100svh - 100px) * .858369))); }
+  .content { grid-column: 2; grid-row: 1; justify-self: stretch; margin-top: 0; }
+  .footer { grid-column: 2; grid-row: 2; justify-self: stretch; margin-top: 0; padding-top: 16px; }
 }
 
-/* Browser web uses the same safe-area top offset as Verify Phone. AuthStep
-   applies this class only when Capacitor resolves to the web platform. */
-:global(html:not(.dark)) .webBack,
-:global(html.dark) .webBack {
-  top: calc(
-    max(
-      env(safe-area-inset-top, 0px),
-      var(--app-safe-area-top-effective, 0px)
-    ) + 10px
-  );
+@media (max-width: 350px) {
+  .frame { padding-inline: max(18px, env(safe-area-inset-left, 0px)); }
+  .artwork :global([data-welcome-artwork]) { width: min(50vw, 160px); }
+}
+@media (max-height: 650px) and (max-width: 799px) {
+  .frame { padding-top: max(52px, calc(var(--app-safe-area-top-effective, 0px) + 42px)); padding-bottom: 16px; }
+  .artwork :global([data-welcome-artwork]) { width: min(42vw, 155px); }
+  .clusters { gap: 12px; }
+  .footer { padding-top: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .frame *, .frame *::before, .frame *::after { animation: none !important; transition: none !important; }
+}
+
+/* The welcome surface stays light in both themes. Its form primitives need
+   the same local palette as its provider buttons, rather than the app theme. */
+.emailSection {
+  --foreground: #1d1d1f;
+  --muted-foreground: #6e6e73;
+  --app-label: #1d1d1f;
+  --app-secondary-label: #6e6e73;
+  --destructive: #b42318;
+  --app-secondary-surface: #fff;
+  --app-separator: #d8d8dc;
+  --app-input-radius: var(--auth-control-radius);
+  --app-accent: #0071e3;
+  --app-accent-hover: #0067d1;
+  --app-accent-fg: #fff;
+  --app-accent-tint: #f0f7ff;
+  --app-focus-ring: rgb(0 113 227 / 24%);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--app-form-related-gap);
+  color: var(--foreground);
+  text-align: left;
+}
+.emailForm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  gap: var(--app-form-field-gap);
+}
+.emailLabel {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+.emailInput {
+  height: 53px;
+  font-family: var(--font-app-body);
+  font-size: 16px;
+  color: var(--foreground);
+  caret-color: var(--foreground);
+}
+.emailSection .emailCode {
+  --type-input-value-size: 24px;
+  text-align: center;
+  letter-spacing: .4em !important;
+  font-variant-numeric: tabular-nums;
+}
+.emailSubmit { margin-top: var(--app-form-related-gap); }
+.emailHint {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 20px;
+}
+.emailQuietAction {
+  width: 100%;
+  min-height: 44px;
+  font-size: 14px;
 }

@@ -100,6 +100,8 @@ describe("layer ladder", () => {
   it("declares every tier once in app/globals.css", () => {
     for (const token of [
       "chrome",
+      "feature-page-overlay",
+      "feature-page",
       "sheet-overlay",
       "sheet",
       "boot",
@@ -114,8 +116,10 @@ describe("layer ladder", () => {
     }
   });
 
-  it("orders chrome < sheet < dialog < takeover < system < transient", () => {
-    expect(ladder.chrome).toBeLessThan(ladder["sheet-overlay"]);
+  it("orders chrome < feature page < sheet < dialog < takeover < system < transient", () => {
+    expect(ladder.chrome).toBeLessThan(ladder["feature-page-overlay"]);
+    expect(ladder["feature-page-overlay"]).toBeLessThan(ladder["feature-page"]);
+    expect(ladder["feature-page"]).toBeLessThan(ladder["sheet-overlay"]);
     expect(ladder["sheet-overlay"]).toBeLessThan(ladder.sheet);
     expect(ladder.sheet).toBeLessThan(ladder.boot);
     expect(ladder.boot).toBeLessThan(ladder["dialog-overlay"]);
@@ -135,15 +139,11 @@ describe("layer ladder", () => {
   });
 
   describe("chat history drawer on iOS (WKWebView)", () => {
-    it("spans the full viewport above the chat header and the bottom bar", () => {
-      // REVERSAL (founder direction, 2026-09-28): "Extend the chat sidebar end to
-      // end, and the bottom bar is behind the chat sidebar (z-index), so that it
-      // looks like a proper UX." The earlier contract pinned the opposite: the
-      // panel and its dim layer started under the chat header and stopped at the
-      // top of the fixed bottom bar, because the drawer lived inside the chat
-      // workspace's stacking context and no z-index there could rise above the
-      // bar's. The drawer is now portalled to <body>, where the ladder alone
-      // decides, so it is a real modal side drawer: full height, over both.
+    it("portals the modal drawer above the chat header and the bottom bar", () => {
+      // The scrim covers the viewport and the drawer stays above shell chrome.
+      // The panel now shares Profile's safe-area-aware inset frame; its actual
+      // geometry is verified in connections-drawer.layout.spec.ts. Keep layer
+      // authority here without tying it to the former edge-to-edge geometry.
       const drawer = read("components/agent/agent-connections-drawer.tsx");
       const portal = drawer.slice(drawer.indexOf("data-agent-history-scrim") - 200);
       expect(portal).toMatch(/createPortal\(\s*<>/);
@@ -151,7 +151,7 @@ describe("layer ladder", () => {
       const scrim = portal.slice(0, portal.indexOf("onClick"));
       const panel = portal.slice(portal.indexOf("data-agent-history-drawer"));
       expect(scrim).toContain('"fixed inset-0"');
-      expect(panel).toContain("fixed inset-y-0 left-0 z-(--z-sheet)");
+      expect(panel).toContain("fixed z-(--z-sheet)");
       // The old geometry fails here: no edge is tied to the header or the bar.
       expect(drawer).not.toMatch(/--agent-chat-header-height/);
       expect(drawer).not.toMatch(/--app-bottom-shell-height/);
@@ -169,12 +169,6 @@ describe("layer ladder", () => {
       expect(Number(header![1])).toBeLessThan(ladder["sheet-overlay"]);
       expect(Number(bar![1])).toBeLessThan(ladder["sheet-overlay"]);
 
-      // Full height means the surface, not a gap, runs under the status bar and
-      // home indicator: the panel pads both safe areas inside itself.
-      const aside = read("components/agent/agent-history-sidebar.tsx");
-      const surface = aside.slice(aside.indexOf("<aside")).match(/isMobileMode\s*\?\s*"([^"]+)"/)?.[1] ?? "";
-      expect(surface).toContain("pt-[var(--app-safe-area-top-effective,0px)]");
-      expect(surface).toContain("pb-[var(--app-safe-area-bottom-effective,0px)]");
     });
 
     it("dims and blurs the chat behind the drawer with the canonical sheet scrim", () => {

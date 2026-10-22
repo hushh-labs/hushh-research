@@ -76,3 +76,21 @@ describe("Consent Center list proxy after the person's own change", () => {
     expect(await response.json()).not.toHaveProperty("items");
   });
 });
+
+
+it("never caches complete source reads or substitutes presentation cache on failure", async () => {
+  const upstream = vi.fn()
+    .mockResolvedValueOnce(new Response(JSON.stringify({ items: [GRANT], source_read_verified: true })))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ items: [], source_read_verified: true })))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ detail: "unavailable" }), {status: 503}));
+  vi.stubGlobal("fetch", upstream);
+  const source = () => GET(new NextRequest(URL_ACTIVE + "&source_read=true", {headers:{Authorization:"Bearer source-owner"}}));
+  expect((await (await source()).json()).items).toEqual([GRANT]);
+  const refreshed = await source();
+  expect((await refreshed.json()).items).toEqual([]);
+  expect(refreshed.headers.get("Cache-Control")).toContain("no-store");
+  expect((await source()).status).toBe(503);
+  expect(upstream).toHaveBeenCalledTimes(3);
+  expect(upstream.mock.calls.every(([,options]) => options.cache === "no-store")).toBe(true);
+  vi.unstubAllGlobals();
+});

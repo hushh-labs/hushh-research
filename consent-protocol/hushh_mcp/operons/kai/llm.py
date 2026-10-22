@@ -96,10 +96,23 @@ def _initialize_gemini_client(force: bool = False) -> None:
 
     _gemini_client = None
     _gemini_unavailable_reason = None
-    _gemini_model_name = (os.getenv("GEMINI_MODEL") or GEMINI_MODEL).strip()
+    _gemini_model_name = GEMINI_MODEL
     _gemini_use_vertex = _resolve_vertex_mode()
     binding = None
     try:
+        from hushh_mcp.runtime_providers.managed_azure import ManagedAzureBinding
+
+        azure = ManagedAzureBinding.from_environment()
+        if azure is not None:
+            from hushh_mcp.runtime_providers import build_managed_runtime_client
+
+            _gemini_client = build_managed_runtime_client("gemini")
+            _gemini_use_vertex = False
+            _gemini_project = ""
+            _gemini_project_source = "managed_azure_policy"
+            _gemini_location = "azure-global"
+            logger.info("[Kai LLM] Managed Azure text client initialized")
+            return
         binding = ManagedGeminiRuntimeBinding.from_environment()
         _gemini_project = binding.project
         _gemini_project_source = "managed_runtime_binding"
@@ -828,7 +841,12 @@ async def stream_gemini_response(
             remaining = deadline - loop.time()
             if remaining <= 0:
                 raise asyncio.TimeoutError
-            async with _gemini_stream_semaphore:
+            # Queueing consumes the same operation budget as provider work.
+            await asyncio.wait_for(_gemini_stream_semaphore.acquire(), timeout=remaining)
+            try:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    raise asyncio.TimeoutError
                 first_event_timeout = min(15.0, remaining)
                 stream = await asyncio.wait_for(
                     _gemini_client.aio.models.generate_content_stream(
@@ -912,6 +930,9 @@ async def stream_gemini_response(
                     except Exception as e:
                         logger.warning("[Gemini Streaming] Skipped chunk for %s: %s", agent_name, e)
                         continue
+
+            finally:
+                _gemini_stream_semaphore.release()
 
             elapsed_ms = round((time.perf_counter() - started_at) * 1000)
             first_response_ms = (

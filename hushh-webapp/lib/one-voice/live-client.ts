@@ -24,6 +24,7 @@ import {
   parseServerFrame,
   type AppContextFrame,
   type ClientFrame,
+  type MailDraftChange,
   type PerfFrame,
   type ServerFrame,
 } from "@/lib/one-voice/protocol";
@@ -204,6 +205,7 @@ export class OneLiveClient {
   private phase: LiveClientPhase = "idle";
   private sessionIdValue: string | null = null;
   private clientPerfSupported = false;
+  private playbackSupported = false;
   private connectPromise: Promise<void> | null = null;
   private closeReported = false;
   /** Rejects a connect() that is still pending when the socket goes away. */
@@ -373,6 +375,7 @@ export class OneLiveClient {
             platform: auth.client,
             protocol_version: ONE_VOICE_PROTOCOL_VERSION,
             input_mime_type: INPUT_MIME,
+            features: ["mail_draft_review", "audio_playback"],
           },
           // Relative dates ("today", "this week") are the owner's, and only the
           // browser knows their zone. A hint: the server validates it and falls
@@ -391,6 +394,7 @@ export class OneLiveClient {
           this.phase = "ready";
           this.sessionIdValue = frame.session_id;
           this.clientPerfSupported = frame.client_perf === true;
+          this.playbackSupported = frame.features?.includes("audio_playback") === true;
           this.options.onFrame(frame);
           this.startPing();
           this.flushOnsetBuffer();
@@ -644,6 +648,10 @@ export class OneLiveClient {
     });
   }
 
+  mailDraftChanged(change: MailDraftChange): boolean {
+    return this.sendControl({ type: "mail_draft.changed", ...change });
+  }
+
   /** Submit a typed name for an open create_circle card (relay feature `name_edit`). */
   nameEditSubmit(
     pendingActionId: string,
@@ -671,6 +679,13 @@ export class OneLiveClient {
 
   interrupt(): boolean {
     return this.sendControl({ type: "interrupt" });
+  }
+
+  acknowledgePlayback(turnId: string, itemId: string, playedMs: number): boolean {
+    if (!this.playbackSupported || !/^[0-9a-f]{12}$/.test(turnId) ||
+      !/^[A-Za-z0-9_-]{1,128}$/.test(itemId) || !Number.isInteger(playedMs) ||
+      playedMs < 0 || playedMs > 120_000) return false;
+    return this.sendControl({ type: "audio.playback", turn_id: turnId, item_id: itemId, played_ms: playedMs });
   }
 
   /** Send only bounded timings; invalid or untrusted turn IDs stay off wire. */

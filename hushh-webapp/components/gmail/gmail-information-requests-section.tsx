@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { toast } from "sonner";
 import { Loader2, MailCheck, RefreshCw } from "@/components/icons";
 
 import { SurfaceInset } from "@/components/app-ui/surfaces";
@@ -17,7 +18,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Button } from "@/lib/morphy-ux/button";
+import mailStyles from "./mail-workspace.module.css";
+import { MailActionButton as Button } from "./mail-action-button";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { navigateToAgentChat } from "@/lib/navigation/agent-navigation";
@@ -35,7 +37,14 @@ import {
 } from "@/lib/services/gmail-information-requests-service";
 import { apiErrorCode } from "@/lib/services/api-client";
 
+import { mailKycDisplayVersion } from "@/lib/gmail/mail-kyc-display-version";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { useMailKycDisplay } from "@/lib/gmail/use-mail-kyc-display";
+import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { withDeadline } from "@/lib/utils/with-deadline";
+
 type Props = {
+  accountKey?: string;
   active?: boolean;
   userId: string | null;
   vaultKey: string | null;
@@ -186,6 +195,7 @@ function WorkflowCard({
     | {
         body: string;
         actionId?: string;
+        senderToken?: string;
         preview?: {
           to: string[];
           cc: string[];
@@ -273,6 +283,7 @@ function WorkflowCard({
             size="sm"
             className="min-h-11"
             disabled={busy}
+            aria-busy={busy}
             onClick={onIgnore}
           >
             Ignore
@@ -284,9 +295,10 @@ function WorkflowCard({
               size="sm"
               className="min-h-11"
               disabled={busy || !selectedScopes.length}
+              aria-busy={busy}
               onClick={onPrepareDraft}
             >
-              {busy && !draft ? "Preparing…" : "Prepare private draft"}
+              Prepare private draft
             </Button>
           ) : null}
         </div>
@@ -324,9 +336,10 @@ function WorkflowCard({
                 size="sm"
                 className="min-h-11"
                 disabled={busy}
+            aria-busy={busy}
                 onClick={onSend}
               >
-                {busy ? "Sending…" : "Send approved reply"}
+                Send approved reply
               </Button>
             ) : (
               <Button
@@ -334,9 +347,10 @@ function WorkflowCard({
                 size="sm"
                 className="min-h-11"
                 disabled={busy || !draft.body.trim()}
+                aria-busy={busy}
                 onClick={onPrepareSend}
               >
-                {busy ? "Preparing…" : "Review send"}
+                Review send
               </Button>
             )}
             <p className="self-center text-xs text-muted-foreground">
@@ -464,9 +478,21 @@ function ActivityCard({
  * It stays inside the Gmail agent; the legacy platform-mailbox KYC surface is
  * intentionally not used by this workflow.
  */
-export default function GmailInformationRequestsSection({
+export default function GmailInformationRequestsSection(props: Props) {
+  useSyncExternalStore(subscribeVaultSessionEpoch, snapshotVaultSessionEpoch, () => 0);
+  const authority = [props.userId, props.accountKey, props.vaultKey, props.isConnected, Boolean(props.vaultOwnerToken)] as const;
+  const [scope, setScope] = useState({ authority, generation: 0 });
+  if (authority.some((value, index) => value !== scope.authority[index])) {
+    setScope({ authority, generation: scope.generation + 1 });
+  }
+  // Credential renewal fences reads without remounting the current owner's draft or focus.
+  return <GmailInformationRequestsWorkspace key={scope.generation} {...props} />;
+}
+
+function GmailInformationRequestsWorkspace({
   active = true,
   userId,
+  accountKey,
   vaultKey,
   vaultOwnerToken,
   isConnected,
@@ -477,15 +503,19 @@ export default function GmailInformationRequestsSection({
   const createHandoff = useOneConversationSession(
     (state) => state.createHandoff,
   );
+  const display = useMailKycDisplay({ userId, accountKey, vaultOwnerToken, isConnected, active, idTokenProvider });
+  const warm = display.data;
+  const publishDisplayRef = useRef(display.publish);
+  publishDisplayRef.current = display.publish;
   const [preference, setPreference] =
-    useState<GmailInformationRequestPreference | null>(null);
-  const [workflows, setWorkflows] = useState<GmailInformationRequestWorkflow[]>(
-    [],
-  );
+    useState<GmailInformationRequestPreference | null>(warm?.preference ?? null);
+  const preferenceRef = useRef(preference);
+  preferenceRef.current = preference;
+  const [workflows, setWorkflows] = useState<GmailInformationRequestWorkflow[]>(warm?.requests?.workflows ?? []);
   const [activityWorkflows, setActivityWorkflows] = useState<
     GmailInformationRequestWorkflow[]
-  >([]);
-  const [loading, setLoading] = useState(true);
+  >(warm?.activity?.workflows ?? []);
+  const [loading, setLoading] = useState(!warm);
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [needsGmailSend, setNeedsGmailSend] = useState(false);
@@ -498,6 +528,7 @@ export default function GmailInformationRequestsSection({
       {
         body: string;
         actionId?: string;
+        senderToken?: string;
         preview?: {
           to: string[];
           cc: string[];
@@ -509,15 +540,13 @@ export default function GmailInformationRequestsSection({
     >
   >({});
   const [busyWorkflowId, setBusyWorkflowId] = useState<string | null>(null);
-  const [nextOffset, setNextOffset] = useState<number | null>(null);
-  const [totalCount, setTotalCount] = useState(0);
+  const [nextOffset, setNextOffset] = useState<number | null>(warm?.requests?.next_offset ?? null);
+  const [totalCount, setTotalCount] = useState(warm?.requests?.total_count ?? 0);
   const [listView, setListView] = useState<"requests" | "activity">("requests");
-  const [activityLoaded, setActivityLoaded] = useState(false);
+  const [activityLoaded, setActivityLoaded] = useState(Boolean(warm?.activity));
   const [activityLoading, setActivityLoading] = useState(false);
-  const [activityNextOffset, setActivityNextOffset] = useState<number | null>(
-    null,
-  );
-  const [activityTotalCount, setActivityTotalCount] = useState(0);
+  const [activityNextOffset, setActivityNextOffset] = useState<number | null>(warm?.activity?.next_offset ?? null);
+  const [activityTotalCount, setActivityTotalCount] = useState(warm?.activity?.total_count ?? 0);
   const [showEnableConfirm, setShowEnableConfirm] = useState(false);
   const [showDisableConfirm, setShowDisableConfirm] = useState(false);
   const [scanSummary, setScanSummary] =
@@ -542,68 +571,43 @@ export default function GmailInformationRequestsSection({
     () => () => {
       scanAbortControllerRef.current?.abort();
     },
-    [],
+    [vaultOwnerToken],
   );
 
-  const load = useCallback(async () => {
-    const tokenProvider = idTokenProviderRef.current;
-    if (!isConnected || !userId || !tokenProvider) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
+  const readEpoch = snapshotVaultSessionEpoch();
+  const displaySnapshotRef = useRef(display.snapshot);
+  displaySnapshotRef.current = display.snapshot;
+  const refreshDisplayRef = useRef(display.refresh);
+  refreshDisplayRef.current = display.refresh;
+  const load = useCallback(async (force = false) => {
+    if (!isConnected || !userId || !idTokenProviderRef.current) { setLoading(false); return; }
+    if (!force && displaySnapshotRef.current?.isFresh) return;
+    if (!preferenceRef.current) setLoading(true);
     setError(null);
-    const requestListVersion = requestListVersionRef.current;
-    try {
-      const firebaseIdToken = await tokenProvider();
-      const nextPreference =
-        await GmailInformationRequestsService.getPreference({
-          userId,
-          firebaseIdToken,
-        });
-      setPreference(nextPreference);
-      if (nextPreference.monitoring_enabled && vaultOwnerToken) {
-        const [requests, activity] = await Promise.all([
-          GmailInformationRequestsService.list({
-            firebaseIdToken,
-            vaultOwnerToken,
-            limit: 100,
-          }),
-          GmailInformationRequestsService.list({
-            firebaseIdToken,
-            vaultOwnerToken,
-            limit: 100,
-            view: "activity",
-          }),
-        ]);
-        if (requestListVersion === requestListVersionRef.current) {
-          setWorkflows(requests.workflows);
-          setNextOffset(requests.next_offset);
-          setTotalCount(requests.total_count);
-        }
-        setActivityWorkflows(activity.workflows);
-        setActivityNextOffset(activity.next_offset);
-        setActivityTotalCount(activity.total_count);
-        setActivityLoaded(true);
-      } else {
-        setWorkflows([]);
-        setNextOffset(null);
-        setTotalCount(0);
-        setActivityWorkflows([]);
-        setActivityNextOffset(null);
-        setActivityTotalCount(0);
-        setActivityLoaded(false);
+    const version = requestListVersionRef.current;
+    const domainVersion = mailKycDisplayVersion(userId);
+    const next = await refreshDisplayRef.current({ force });
+    if (!isVaultSessionEpochCurrent(readEpoch)) return;
+    if (next && domainVersion === mailKycDisplayVersion(userId)) {
+      setPreference(next.preference);
+      if (version === requestListVersionRef.current) {
+        setWorkflows(next.requests?.workflows ?? []);
+        setNextOffset(next.requests?.next_offset ?? null);
+        setTotalCount(next.requests?.total_count ?? 0);
       }
-    } catch (loadError) {
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Personal information-request monitoring is unavailable right now.",
-      );
-    } finally {
-      setLoading(false);
+      setActivityWorkflows(next.activity?.workflows ?? []);
+      setActivityNextOffset(next.activity?.next_offset ?? null);
+      setActivityTotalCount(next.activity?.total_count ?? 0);
+      setActivityLoaded(Boolean(next.activity));
     }
-  }, [isConnected, userId, vaultOwnerToken]);
+    setLoading(false);
+  }, [isConnected, userId, readEpoch]);
+  useEffect(() => {
+    if (!display.error) return;
+    const message = "Inbox details couldn’t refresh. Try again.";
+    if (preferenceRef.current) toast.error(message);
+    else setError(message);
+  }, [display.error]);
 
   // Retain the warm workspace across tabs without restarting its first-load UI.
   const loadedForRef = useRef<typeof load | null>(null);
@@ -623,11 +627,11 @@ export default function GmailInformationRequestsSection({
 
   useEffect(() => {
     if (!active || !isConnected || !userId || !vaultOwnerToken) return;
-    const timer = window.setInterval(() => void load(), 60_000);
+    const timer = window.setInterval(() => void load(true), 60_000);
     return () => window.clearInterval(timer);
   }, [active, isConnected, load, userId, vaultOwnerToken]);
 
-  const scanInbox = useCallback(async () => {
+  const scanInbox = useCallback(async (operationDeadline = Date.now() + 120_000) => {
     if (!vaultOwnerToken || !idTokenProvider || scanInFlightRef.current) {
       return false;
     }
@@ -639,21 +643,27 @@ export default function GmailInformationRequestsSection({
     setNeedsGmailSend(false);
     const controller = new AbortController();
     scanAbortControllerRef.current = controller;
+    const deadline = operationDeadline;
+    const timeout = window.setTimeout(() => controller.abort(), Math.max(0, deadline - Date.now()));
     try {
+      return await withDeadline((async () => {
       const firebaseIdToken = await idTokenProvider();
+      if (controller.signal.aborted) return false;
       const scan = await GmailInformationRequestsService.scanStream({
         firebaseIdToken,
         vaultOwnerToken,
         maxResults: 30,
         signal: controller.signal,
         handlers: {
-          onProgress: setScannedCount,
+          onProgress: (count) => { if (!controller.signal.aborted) setScannedCount(count); },
           onRequest: (workflow) => {
+            if (controller.signal.aborted) return;
             requestListVersionRef.current += 1;
             setWorkflows((current) => mergeWorkflow(current, workflow));
           },
         },
       });
+      if (controller.signal.aborted) return false;
       setScanSummary(scan);
       const [requests, activity] = await Promise.all([
         GmailInformationRequestsService.list({
@@ -668,6 +678,9 @@ export default function GmailInformationRequestsSection({
           view: "activity",
         }),
       ]);
+      if (controller.signal.aborted) return false;
+      CacheSyncService.onMailKycChanged(userId);
+      if (preferenceRef.current) publishDisplayRef.current({ preference: preferenceRef.current, requests, activity });
       setWorkflows(requests.workflows);
       setNextOffset(requests.next_offset);
       setTotalCount(requests.total_count);
@@ -676,9 +689,12 @@ export default function GmailInformationRequestsSection({
       setActivityTotalCount(activity.total_count);
       setActivityLoaded(true);
       return true;
+      })(), deadline);
     } catch (scanError) {
       if (controller.signal.aborted) {
-        automaticScanSessionRef.current = null;
+        // A timed-out check is terminal until the person explicitly retries.
+        if (Date.now() >= deadline) setError("Checking Mail took too long. Try again.");
+        else automaticScanSessionRef.current = null;
         return false;
       }
       setError(
@@ -688,6 +704,8 @@ export default function GmailInformationRequestsSection({
       );
       return false;
     } finally {
+      window.clearTimeout(timeout);
+      controller.abort();
       scanInFlightRef.current = false;
       if (scanAbortControllerRef.current === controller) {
         scanAbortControllerRef.current = null;
@@ -696,7 +714,7 @@ export default function GmailInformationRequestsSection({
       setScannedCount(null);
       setLoading(false);
     }
-  }, [idTokenProvider, vaultOwnerToken]);
+  }, [idTokenProvider, vaultOwnerToken, userId]);
 
   useEffect(() => {
     if (!active || scanningInbox || scanInFlightRef.current) return;
@@ -704,14 +722,15 @@ export default function GmailInformationRequestsSection({
       automaticScanSessionRef.current = null;
       return;
     }
-    const sessionKey = `${userId}:${vaultOwnerToken}`;
+    const sessionKey = `${userId}:${accountKey ?? "current"}`;
     if (automaticScanSessionRef.current === sessionKey) return;
     automaticScanSessionRef.current = sessionKey;
     void scanInbox();
-  }, [active, preference?.monitoring_enabled, scanInbox, scanningInbox, userId, vaultOwnerToken]);
+  }, [active, preference?.monitoring_enabled, scanInbox, scanningInbox, userId, vaultOwnerToken, accountKey]);
 
   const setMonitoring = useCallback(
     async (enabled: boolean) => {
+      const operationDeadline = Date.now() + 120_000;
       if (!userId || !idTokenProvider) return false;
       if (!vaultOwnerToken || (enabled && !vaultKey)) {
         setError(
@@ -724,13 +743,15 @@ export default function GmailInformationRequestsSection({
       setError(null);
       setNeedsGmailSend(false);
       try {
-        const firebaseIdToken = await idTokenProvider();
-        const next = await GmailInformationRequestsService.setPreference({
+        const firebaseIdToken = await withDeadline(idTokenProvider(), operationDeadline);
+        const next = await withDeadline(GmailInformationRequestsService.setPreference({
           userId,
           firebaseIdToken,
           vaultOwnerToken,
           enabled,
-        });
+        }), operationDeadline);
+        CacheSyncService.onMailKycChanged(userId);
+        if (!next.monitoring_enabled) publishDisplayRef.current({ preference: next, requests: null, activity: null });
         setPreference(next);
         if (!enabled) {
           setWorkflows([]);
@@ -780,17 +801,18 @@ export default function GmailInformationRequestsSection({
   );
 
   const loadMore = useCallback(async () => {
+      const operationDeadline = Date.now() + 120_000;
     if (!vaultOwnerToken || !idTokenProvider || nextOffset === null) return;
     setLoading(true);
     setError(null);
     try {
-      const firebaseIdToken = await idTokenProvider();
-      const response = await GmailInformationRequestsService.list({
+      const firebaseIdToken = await withDeadline(idTokenProvider(), operationDeadline);
+      const response = await withDeadline(GmailInformationRequestsService.list({
         firebaseIdToken,
         vaultOwnerToken,
         limit: 25,
         offset: nextOffset,
-      });
+      }), operationDeadline);
       setWorkflows((current) => [...current, ...response.workflows]);
       setNextOffset(response.next_offset);
       setTotalCount(response.total_count);
@@ -803,6 +825,7 @@ export default function GmailInformationRequestsSection({
 
   const loadActivity = useCallback(
     async (append = false) => {
+      const operationDeadline = Date.now() + 120_000;
       if (
         !vaultOwnerToken ||
         !idTokenProvider ||
@@ -815,14 +838,14 @@ export default function GmailInformationRequestsSection({
       setActivityLoading(true);
       setError(null);
       try {
-        const firebaseIdToken = await idTokenProvider();
-        const response = await GmailInformationRequestsService.list({
+        const firebaseIdToken = await withDeadline(idTokenProvider(), operationDeadline);
+        const response = await withDeadline(GmailInformationRequestsService.list({
           firebaseIdToken,
           vaultOwnerToken,
           limit: 25,
           offset: append ? activityNextOffset || 0 : 0,
           view: "activity",
-        });
+        }), operationDeadline);
         setActivityWorkflows((current) =>
           append ? [...current, ...response.workflows] : response.workflows,
         );
@@ -891,6 +914,7 @@ export default function GmailInformationRequestsSection({
 
   const prepareDraft = useCallback(
     async (workflow: GmailInformationRequestWorkflow) => {
+      const operationDeadline = Date.now() + 120_000;
       if (!userId || !vaultKey || !vaultOwnerToken) return;
       const selected = selectedScopes[workflow.workflow_id] || [];
       if (!selected.length) return;
@@ -898,13 +922,13 @@ export default function GmailInformationRequestsSection({
       setError(null);
       setNeedsGmailSend(false);
       try {
-        const prepared = await prepareScopedGmailInformationRequestDraft({
+        const prepared = await withDeadline(prepareScopedGmailInformationRequestDraft({
           workflow,
           userId,
           vaultKey,
           vaultOwnerToken,
           scopes: selected,
-        });
+        }), operationDeadline);
         if (!prepared.body) {
           throw new Error(
             "No approved private details were available for these fields.",
@@ -930,6 +954,7 @@ export default function GmailInformationRequestsSection({
 
   const prepareSend = useCallback(
     async (workflow: GmailInformationRequestWorkflow) => {
+      const operationDeadline = Date.now() + 120_000;
       if (!vaultOwnerToken || !idTokenProvider) return;
       const draft = drafts[workflow.workflow_id];
       if (!draft?.body.trim()) return;
@@ -937,19 +962,20 @@ export default function GmailInformationRequestsSection({
       setError(null);
       setNeedsGmailSend(false);
       try {
-        const firebaseIdToken = await idTokenProvider();
-        const prepared = await GmailInformationRequestsService.prepareReply({
+        const firebaseIdToken = await withDeadline(idTokenProvider(), operationDeadline);
+        const prepared = await withDeadline(GmailInformationRequestsService.prepareReply({
           firebaseIdToken,
           vaultOwnerToken,
           workflowId: workflow.workflow_id,
           body: draft.body,
           idempotencyKey: crypto.randomUUID(),
-        });
+        }), operationDeadline);
         setDrafts((current) => ({
           ...current,
           [workflow.workflow_id]: {
             ...draft,
             actionId: prepared.actionId,
+            senderToken: prepared.senderToken,
             preview: prepared.preview,
           },
         }));
@@ -973,6 +999,7 @@ export default function GmailInformationRequestsSection({
 
   const sendReply = useCallback(
     async (workflow: GmailInformationRequestWorkflow) => {
+      const operationDeadline = Date.now() + 120_000;
       if (!vaultOwnerToken || !idTokenProvider) return;
       const draft = drafts[workflow.workflow_id];
       if (!draft?.actionId || !draft.body.trim()) return;
@@ -980,15 +1007,17 @@ export default function GmailInformationRequestsSection({
       setError(null);
       setNeedsGmailSend(false);
       try {
-        const firebaseIdToken = await idTokenProvider();
-        const result = await GmailInformationRequestsService.sendReply({
+        const firebaseIdToken = await withDeadline(idTokenProvider(), operationDeadline);
+        const result = await withDeadline(GmailInformationRequestsService.sendReply({
           firebaseIdToken,
           vaultOwnerToken,
           workflowId: workflow.workflow_id,
           actionId: draft.actionId,
+          senderToken: draft.senderToken,
           body: draft.body,
-        });
+        }), operationDeadline);
         if (result.state === "sent") {
+          CacheSyncService.onMailKycChanged(userId);
           setWorkflows((current) =>
             current.filter((item) => item.workflow_id !== workflow.workflow_id),
           );
@@ -1034,21 +1063,23 @@ export default function GmailInformationRequestsSection({
         setBusyWorkflowId(null);
       }
     },
-    [drafts, idTokenProvider, vaultOwnerToken],
+    [drafts, idTokenProvider, vaultOwnerToken, userId],
   );
 
   const ignoreWorkflow = useCallback(
     async (workflow: GmailInformationRequestWorkflow) => {
+      const operationDeadline = Date.now() + 120_000;
       if (!vaultOwnerToken || !idTokenProvider) return;
       setBusyWorkflowId(workflow.workflow_id);
       setError(null);
       try {
-        const firebaseIdToken = await idTokenProvider();
-        await GmailInformationRequestsService.ignore({
+        const firebaseIdToken = await withDeadline(idTokenProvider(), operationDeadline);
+        await withDeadline(GmailInformationRequestsService.ignore({
           firebaseIdToken,
           vaultOwnerToken,
           workflowId: workflow.workflow_id,
-        });
+        }), operationDeadline);
+        CacheSyncService.onMailKycChanged(userId);
         setWorkflows((current) =>
           current.filter((item) => item.workflow_id !== workflow.workflow_id),
         );
@@ -1078,7 +1109,7 @@ export default function GmailInformationRequestsSection({
         setBusyWorkflowId(null);
       }
     },
-    [idTokenProvider, vaultOwnerToken],
+    [idTokenProvider, vaultOwnerToken, userId],
   );
 
   if (!isConnected) return null;
@@ -1097,6 +1128,7 @@ export default function GmailInformationRequestsSection({
         className="min-h-11 w-full sm:w-auto"
         variant="muted"
         disabled={loading || scanningInbox}
+        aria-busy={loading || scanningInbox}
         onClick={() =>
           vaultOwnerToken ? void scanInbox() : onRequestVaultUnlock()
         }
@@ -1106,18 +1138,14 @@ export default function GmailInformationRequestsSection({
         ) : (
           <RefreshCw className="mr-2 h-4 w-4" />
         )}
-        {scanningInbox || loading
-          ? "Looking…"
-          : vaultOwnerToken
-            ? "Check now"
-            : "Unlock to check"}
+        {vaultOwnerToken ? "Check now" : "Unlock to check"}
       </Button>
       <Button
         type="button"
         size="sm"
         className="min-h-11 w-full text-muted-foreground hover:text-destructive sm:w-auto"
         variant="muted"
-        disabled={updating || loading || scanningInbox}
+        disabled={updating || loading || scanningInbox || preference === null}
         onClick={() => setShowDisableConfirm(true)}
       >
         Turn off
@@ -1129,7 +1157,7 @@ export default function GmailInformationRequestsSection({
       size="prominent"
       className="w-full justify-center"
       variant="blue-gradient"
-      disabled={updating || loading || scanningInbox}
+      disabled={updating || loading || scanningInbox || preference === null}
       onClick={() => {
         if (vaultKey && vaultOwnerToken) {
           setShowEnableConfirm(true);
@@ -1209,6 +1237,7 @@ export default function GmailInformationRequestsSection({
       {error ? (
         <p role="alert" className="text-xs text-red-600">
           {error}{" "}
+          <button type="button" className="min-h-11 px-2 text-[color:var(--app-accent)]" onClick={() => void load(true)} disabled={loading}>Try again</button>{" "}
           {needsGmailSend && onEnableGmailSend ? (
             <button
               className="font-medium underline"
@@ -1299,13 +1328,13 @@ export default function GmailInformationRequestsSection({
               disabled={loading}
               onClick={() => void loadMore()}
             >
-              {loading ? "Loading…" : "Load more"}
+              Load more
             </Button>
           ) : null}
         </div>
-      ) : enabled && listView === "requests" && vaultOwnerToken && loading ? (
+      ) : enabled && listView === "requests" && vaultOwnerToken && loading && preference === null ? (
         <KycRequestListSkeleton />
-      ) : enabled && listView === "requests" && vaultOwnerToken && !loading ? (
+      ) : enabled && listView === "requests" && vaultOwnerToken && (!loading || preference !== null) ? (
         <p className="text-xs text-muted-foreground">
           No KYC requests found yet.
         </p>
@@ -1333,7 +1362,7 @@ export default function GmailInformationRequestsSection({
             </Button>
           ) : null}
         </div>
-      ) : enabled && listView === "activity" && (activityLoading || loading) ? (
+      ) : enabled && listView === "activity" && (activityLoading || (loading && preference === null)) ? (
         <KycRequestListSkeleton label="KYC activity" />
       ) : enabled && listView === "activity" && activityLoaded ? (
         <p className="text-xs text-muted-foreground">
@@ -1344,6 +1373,7 @@ export default function GmailInformationRequestsSection({
       )}
 
       <AdaptiveDetailSurface
+        surfaceClassName={`${mailStyles.typography} ${mailStyles.portal}`}
         open={active && Boolean(selectedWorkflow)}
         onOpenChange={(open) => {
           if (!open) setSelectedWorkflowId(null);
@@ -1380,7 +1410,7 @@ export default function GmailInformationRequestsSection({
         open={active && showEnableConfirm}
         onOpenChange={(open) => setShowEnableConfirm(open)}
       >
-        <AlertDialogContent className="w-[calc(100%-1rem)] sm:max-w-md">
+        <AlertDialogContent className={`${mailStyles.typography} ${mailStyles.portal} w-[calc(100%-1rem)] sm:max-w-md`}>
           <AlertDialogHeader>
             <AlertDialogTitle>Start monitoring?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -1411,7 +1441,7 @@ export default function GmailInformationRequestsSection({
         open={active && showDisableConfirm}
         onOpenChange={(open) => setShowDisableConfirm(open)}
       >
-        <AlertDialogContent className="w-[calc(100%-1rem)] sm:max-w-md">
+        <AlertDialogContent className={`${mailStyles.typography} ${mailStyles.portal} w-[calc(100%-1rem)] sm:max-w-md`}>
           <AlertDialogHeader>
             <AlertDialogTitle>Turn off monitoring?</AlertDialogTitle>
             <AlertDialogDescription>

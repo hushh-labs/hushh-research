@@ -130,7 +130,7 @@ describe("Connect circle growth", () => {
         remainingCapacity={4}
         loading={false}
         error={null}
-        addingUserId={null}
+        selectedUserIds={new Set()} submitting={false} onSubmit={vi.fn()}
         onAdd={vi.fn()}
         searchQuery=""
         onSearchChange={vi.fn()}
@@ -182,7 +182,7 @@ describe("Connect circle growth", () => {
         remainingCapacity: 20,
         loading: false,
         error: null,
-        addingUserId: null,
+        selectedUserIds: new Set(), submitting: false, onSubmit: vi.fn(),
         onAdd: vi.fn(),
         searchQuery: "",
         onSearchChange: vi.fn(),
@@ -222,7 +222,7 @@ describe("Connect circle growth", () => {
         remainingCapacity={5}
         loading={false}
         error={null}
-        addingUserId={null}
+        selectedUserIds={new Set()} submitting={false} onSubmit={vi.fn()}
         onAdd={onAdd}
         searchQuery=""
         onSearchChange={vi.fn()}
@@ -257,6 +257,33 @@ describe("Connect circle growth", () => {
     expect(onAdd).toHaveBeenLastCalledWith("person-1");
   });
 
+  it("retains warm candidates through refresh and enforces the batch ceiling on buttons and drops", () => {
+    const onAdd = vi.fn();
+    const props: ComponentProps<typeof LivingCirclePanel> = {
+      circleName: "Family", members: [], memberCount: 1, canInvite: true,
+      candidates: [candidate], availableCount: 21, remainingCapacity: 99,
+      loading: true, error: null,
+      selectedUserIds: new Set(Array.from({ length: 20 }, (_, index) => `selected-${index}`)),
+      submitting: false, onSubmit: vi.fn(), onAdd,
+      searchQuery: "", onSearchChange: vi.fn(), hasMore: false, loadingMore: false,
+      onLoadMore: vi.fn(), onRetry: vi.fn(),
+    };
+    const view = render(<LivingCirclePanel {...props} />);
+    const button = screen.getByRole("button", { name: "Add Asha Rao to Family" });
+    expect(button).toBeDisabled();
+    expect(button.closest("[draggable]")).toHaveAttribute("draggable", "false");
+    expect(screen.queryByText("Loading connections…")).toBeNull();
+    expect(screen.getByText("You can add up to 20 people at a time.")).toBeVisible();
+    fireEvent.drop(screen.getByTestId("connect-circle-drop-zone"), {
+      dataTransfer: { getData: () => candidate.userId },
+    });
+    expect(onAdd).not.toHaveBeenCalled();
+    view.rerender(<LivingCirclePanel {...props} loading={false} error="Could not refresh connections." />);
+    expect(screen.getByText("Asha Rao")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Add 20 people", exact: true })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
+  });
+
   it("never offers an add action to a viewer without invite permission", () => {
     render(
       <LivingCirclePanel
@@ -269,7 +296,7 @@ describe("Connect circle growth", () => {
         remainingCapacity={5}
         loading={false}
         error={null}
-        addingUserId={null}
+        selectedUserIds={new Set()} submitting={false} onSubmit={vi.fn()}
         onAdd={vi.fn()}
         searchQuery=""
         onSearchChange={vi.fn()}
@@ -302,7 +329,7 @@ describe("Connect circle growth", () => {
         remainingCapacity={10}
         loading={false}
         error={null}
-        addingUserId={null}
+        selectedUserIds={new Set()} submitting={false} onSubmit={vi.fn()}
         onAdd={vi.fn()}
         searchQuery=""
         onSearchChange={onSearchChange}
@@ -358,7 +385,7 @@ describe("Connect circle growth", () => {
         remainingCapacity={4}
         loading={false}
         error={null}
-        addingUserId={null}
+        selectedUserIds={new Set()} submitting={false} onSubmit={vi.fn()}
         onAdd={vi.fn()}
         onRemove={onRemove}
         searchQuery=""

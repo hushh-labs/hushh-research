@@ -942,9 +942,11 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         
         // If VAULT_OWNER was revoked, lock the vault
         if (result.lockVault) {
-          // Dispatch event so VaultContext can react
+          // Dispatch event so VaultContext can react. Scope it to the account
+          // that started this revoke: a response that resolves after the
+          // signed-in account changed must not lock the replacement session.
           window.dispatchEvent(new CustomEvent("vault-lock-requested", {
-            detail: { reason: "VAULT_OWNER token revoked" }
+            detail: { reason: "VAULT_OWNER token revoked", userId }
           }));
           
           toast.info("Vault locked", {

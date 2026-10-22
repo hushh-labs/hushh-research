@@ -25,7 +25,7 @@ import {
   type RiaClientListResponse,
 } from "@/lib/services/ria-service";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { RIA_TONE_BADGE } from "@/lib/ria/ria-tone";
 import { RIA_COPY } from "@/lib/ria/ria-screen-copy";
 import { cn } from "@/lib/utils";

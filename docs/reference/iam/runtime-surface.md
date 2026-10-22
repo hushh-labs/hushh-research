@@ -172,3 +172,19 @@ Consent-manager surface rules:
 5. `get_ria_client_access_summary`
 
 These tools remain read-only in V1 and are gated by auth + consent + scope policy checks.
+
+### First-party Calendar Schedule read exception
+
+`POST /api/one/calendar/schedule/today`,
+`POST /api/one/calendar/schedule/availability`,
+`POST /api/one/calendar/invitations`, and
+`POST /api/one/calendar/board/day` use verified Firebase identity
+plus the owner's active, scoped Google Calendar OAuth consent grant instead of
+a VAULT_OWNER token. The server derives the owner from the bearer and verifies
+the selected owner-bound Calendar connection/grant before and after provider reads. Firebase
+alone, a Mail-only grant, or a disconnected Calendar never authorizes a read.
+This exception exposes no vault/PKM, delegated-agent or mutation authority and
+never mints a broad owner token. Vault lock/HCT revocation does not revoke these
+provider reads; Calendar disconnect and Firebase invalidation do. Responses
+are private/no-store and event information remains in component memory. Legacy
+Calendar/chat reads and attendance mutations retain their existing HCT gates.

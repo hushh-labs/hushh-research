@@ -79,7 +79,7 @@ import {
 } from "@/lib/one-voice/protocol";
 import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
 import { deriveLocationVoiceActions } from "@/lib/voice/location-voice-actions";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 

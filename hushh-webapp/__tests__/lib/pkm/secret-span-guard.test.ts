@@ -6,6 +6,7 @@ import contract from "@/contracts/pkm/secret-patterns.v1.json";
 import { findSecretSpans } from "@/lib/pkm/secret-patterns";
 import {
   assertNoUnguardedSecrets,
+  omitCredentialsFromMemory,
   planSecretCaptures,
   secretOfferFor,
   splitSecretPlaceholders,
@@ -68,7 +69,7 @@ describe("device guard", () => {
     expect(plan.captures.map((capture) => [capture.patternId, capture.label])).toEqual([
       ["model_provider_key", "openai API key ending 9f2a"],
       ["password_assignment", "Netflix password"],
-      ["card_number", "Visa card ending 1111"],
+      ["card_number", "Card ending 1111"],
       ["passport_number", "Passport ending 4567"],
       ["github_token", "GitHub token ending 4f2a"],
     ]);
@@ -101,6 +102,15 @@ describe("device guard", () => {
 
   it("refuses a raw secret at the transport line (negative control)", () => {
     expect(() => assertNoUnguardedSecrets(["plain words", `token ${GITHUB}`])).toThrow(UnguardedSecretError);
+  });
+
+  it("omits credentials from memory while retaining owner identifiers", () => {
+    const source = `password: hunter2fake; passport number X1234567; card 4111 1111 1111 1111`;
+    const memory = omitCredentialsFromMemory(source);
+    expect(memory).not.toContain("hunter2fake");
+    expect(memory).toContain("[credential omitted]");
+    expect(memory).toContain("X1234567");
+    expect(memory).toContain("4111 1111 1111 1111");
   });
 
   it("splits a transcript into text and secret chips", () => {

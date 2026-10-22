@@ -9,6 +9,8 @@
 // on this branch. Change the code and this text together. When the text
 // changes, bump `version` and `lastUpdated`.
 
+import { DRIVE_AZURE_DEFAULT_DISCLOSURE } from "./private-text-disclosure";
+
 export type LegalDocumentType = "privacy" | "terms";
 
 export type LegalInline = string | { text: string; href: string };
@@ -45,12 +47,12 @@ const LIMITED_USE_POLICY_URL =
   "https://developers.google.com/terms/api-services-user-data-policy";
 const GOOGLE_PERMISSIONS_URL = "https://myaccount.google.com/permissions";
 
-const LAST_UPDATED = "2026-09-27";
-const LAST_UPDATED_LABEL = "September 27, 2026";
-const VERSION = "2.1";
-const PRIVACY_LAST_UPDATED = "2026-09-30";
-const PRIVACY_LAST_UPDATED_LABEL = "September 30, 2026";
-const PRIVACY_VERSION = "2.2";
+const LAST_UPDATED = "2026-10-16";
+const LAST_UPDATED_LABEL = "October 16, 2026";
+const VERSION = "2.4";
+const PRIVACY_LAST_UPDATED = "2026-10-21";
+const PRIVACY_LAST_UPDATED_LABEL = "October 21, 2026";
+const PRIVACY_VERSION = "2.10";
 
 const p = (...text: LegalInline[]): LegalBlock => ({ kind: "p", text });
 const h = (text: string): LegalBlock => ({ kind: "h", text });
@@ -64,7 +66,7 @@ const privacyMail = {
   href: `mailto:${LEGAL_PRIVACY_EMAIL}`,
 };
 const deleteAccountLink = {
-  text: "one.hushh.ai/delete-account",
+  text: "one.hussh.si/delete-account",
   href: "/delete-account",
 };
 
@@ -77,7 +79,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
         "Hussh One is your private agent. It answers you, remembers what you choose to save, works with the services you connect, and shares your information with other people only when you approve. This Privacy Policy explains what information One collects, how it is protected, how it is used, who it is shared with, and the choices you have.",
       ),
       p(
-        "It applies to the Hussh One apps for iPhone and Android and to one.hushh.ai, including Kai, the investing feature inside One. It is provided by HushOne, Inc. (“Hussh”, “we”, “us”). The hushh.ai website has its own privacy policy.",
+        "It applies to the Hussh One apps for iPhone and Android and to one.hussh.si and its existing one.hussh.ai and one.hushh.ai addresses, including Kai, the investing feature inside One. It is provided by HushOne, Inc. (“Hussh”, “we”, “us”). The public website at www.hussh.si and its existing .ai addresses has its own privacy policy.",
       ),
       p(
         "We have tried to describe what One actually does, including its limits. Where information is readable by our systems, we say so. Some features described here are not available to everyone yet; where that is the case, we say “where available”.",
@@ -92,7 +94,9 @@ const PRIVACY_SECTIONS: LegalSection[] = [
         "Your vault and the memories you save are encrypted on your device with a key only you hold before they are stored. We never receive that key.",
         "To answer you, One sends the information a request needs, which can include your memories, to our servers and to the AI model for that request. It is readable there while the request runs.",
         "Your chat history is stored encrypted with a key derived from your vault key, which your device sends only while One is working on your request.",
-        "Services you connect, such as Gmail, Google Calendar, Google Drive, and your bank through Plaid, are used only to do what you ask. Google information is handled under Google’s Limited Use requirements.",
+        "Services you connect support your requests and their background features. With full Google Drive access, Agent One prepares private document packets by default; you can pause preparation in Connectors. Google information is handled under Google’s Limited Use requirements.",
+        "Where available in UAT, Personal World Model public research with Microsoft Azure AI and Bing requires a separate choice. Bing search terms may include your name and verified email or phone.",
+        "In UAT, Azure is the server-managed primary provider for One text chat and document-request planning for all accounts. New requests deliver Google Drive search matches without per-file content reading or relevance assessment; older requests retain their original processing policy. Gemini is a bounded fallback for classified temporary model-service failures. This administrator policy does not create personal approval records.",
         "You decide what to share with other people and businesses, for how long, and you can revoke access at any time.",
         "We do not sell your information, and we do not show you ads.",
         "You can delete your account in the app at any time.",
@@ -113,7 +117,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
       ),
       h("Information from services you connect"),
       p(
-        "If you connect Gmail, Google Calendar, Google Drive, Google Contacts, a bank or brokerage through Plaid, or tools you add yourself, or import a brokerage statement, One receives the information those services or files contain for your requests. Each is described below.",
+        "If you connect Gmail, Google Calendar, Google Drive, Google Contacts, a bank or brokerage through Plaid, or tools you add yourself, or import a brokerage statement, One receives information from them for your requests and the background features described below.",
       ),
       h("Location"),
       p(
@@ -139,7 +143,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
     blocks: [
       h("Your vault and memories"),
       p(
-        "Your vault key is a random AES-256-GCM key created on your device. It is protected by your passphrase, a passkey, your device’s biometric unlock, or your recovery key, and we never receive it. Memories are encrypted with it on your device before they are stored, so what we store for them is encrypted.",
+        "Your vault key is a random AES-256-GCM key created on your device. It is protected by your password, a passkey, your device’s biometric unlock, or your recovery key, and we never receive it. Memories are encrypted with it on your device before they are stored, so what we store for them is encrypted.",
       ),
       p("There are important limits to this, and we want you to know them:"),
       list(
@@ -156,7 +160,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
       ),
       h("Information protected with keys we hold"),
       p(
-        "Some information has to be usable by our servers when you are not in the app, so it is encrypted with keys Hussh manages rather than your vault key. This includes sign-in tokens for Google services, credentials for connectors we offer in the app, files you add from Google Drive, and nearby check-ins and place visits.",
+        "Some information has to be usable by our servers when you are not in the app, so it is encrypted with keys Hussh manages rather than your vault key. This includes sign-in tokens for Google services, credentials for connectors we offer in the app, Drive file text, extracted facts and private document packets, and nearby check-ins and place visits.",
       ),
     ],
   },
@@ -165,15 +169,25 @@ const PRIVACY_SECTIONS: LegalSection[] = [
     title: "How One uses AI models",
     blocks: [
       p(
-        "One answers you with Google Gemini, running on Google Cloud Vertex AI. For each request, the model receives what that request needs: your message, relevant parts of your conversation, and, when relevant or when you ask, your memories and information from connected services or from people who shared with you. That can include sensitive information you asked One to use.",
+        "Outside UAT managed text processing, One normally answers you with Google Gemini, running on Google Cloud Vertex AI. For each request, the model receives what that request needs: your message, relevant parts of your conversation, and, when relevant or when you ask, your memories and information from connected services or from people who shared with you. That can include sensitive information. During background Drive preparation, the model also receives document text or page images to extract facts, check coverage and prepare private packets.",
       ),
       list(
         "Google processes these requests as our service provider under Google Cloud’s terms. Requests may be processed in any Google Cloud location, including the United States and the European Union.",
-        "When One searches the web for you, it uses Google Search through Vertex AI. The search can include your approximate location if you shared it with that request.",
+        "For One's regular web searches and Personal World Model research outside UAT, it uses Google Search through Vertex AI. A regular web search can include your approximate location if you shared it with that request.",
         "In Settings you can instead connect One to Gemini with your own key or your own Google Cloud project. Requests then go to Google under your own account, in the location you choose. Your key is stored in your vault.",
         "Where voice mode is available, your speech is streamed to Google’s Gemini Live model on Google Cloud Vertex AI in the United States, which transcribes it to understand and answer you. We do not store your audio or a transcript; we keep a short-lived session record, without your words, for up to two hours.",
         "If you use Siri to ask One something or to send an alert, Apple processes that request under Apple’s own terms before handing it to One.",
         "Hussh does not use your information, your memories, or your connected services’ information to train AI models.",
+      ),
+      h("Managed text processing in UAT"),
+      ...DRIVE_AZURE_DEFAULT_DISCLOSURE.map(text => p(text)),
+      p("The earlier optional Azure pilot has been replaced by this administrator policy in UAT. Historical personal approval records remain historical; the administrator rollout does not create or alter them."),
+      h("Personal World Model public research in UAT"),
+      p(
+        "Where available in UAT, this research is off until you turn it on in Personal World Model; an earlier Google research setting does not authorize Microsoft research. GPT-5-mini on Microsoft Azure AI receives your name, verified email address or phone number, public page text and citations, and your earlier confirmations or rejections to assess likely matches and avoid repeating suggestions. GPT-5 mini also plans follow-up searches from received public profile labels and source URLs; earlier review decisions are not included in search-planning inputs. This research does not receive your vault key or private memories. You review every suggested detail before it is saved.",
+      ),
+      p(
+        "Bing web search receives search terms that may include your name, verified email address or phone number, and links found on public pages. Bing search processing is outside Azure's compliance and data residency boundary; Azure's data protection commitments for AI model requests do not cover Bing search. You can turn research and its ready email off in Personal World Model.",
       ),
     ],
   },
@@ -236,7 +250,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
       ),
       h("How One uses it"),
       list(
-        "One reads Gmail, Calendar, and Drive to do what you ask, such as find a message, summarize your day, or answer a question from a file.",
+        "One reads Gmail, Calendar, and Drive to do what you ask, such as find a message, summarize your day, or answer a question from a file. With full Drive access, background packet preparation is on by default. Agent One discovers and reads supported files, uses OCR when needed, extracts facts, updates the index when files change, and prepares private packets with coverage assessments and suggested prices. You can pause preparation or background Drive access in Connectors; a saved pause remains in effect after reconnecting.",
         "If you turn on request detection for Gmail, One checks new mail in the background with the AI model to find requests for your information, and keeps details of the requests it finds for 30 days.",
         "Sending an email, creating a draft, changing your mailbox, changing your calendar, and sharing or trashing a Drive file always wait for you to review and approve the exact action. One never permanently deletes email.",
         "Creating, copying, moving, renaming, and commenting on Drive files can happen when One does them for you as part of a request.",
@@ -245,8 +259,10 @@ const PRIVACY_SECTIONS: LegalSection[] = [
       list(
         "Your Google sign-in tokens, encrypted at rest with keys Hussh holds.",
         "For purchase receipts found in Gmail: the subject, a short preview, the sender, and the merchant, amount, and order number. A receipt’s subject and preview may be given to the AI model to recognize it.",
-        "For Drive files you add to One: the file text, split into passages and indexed so One can search it, encrypted at rest with a key Hussh holds.",
-        "Other mail, calendar events, Drive files, and contacts are read when needed and are not stored, except as described above.",
+        "For Drive files you add and files processed during background preparation: file text, search passages, extracted facts, evidence locations, source versions and private packet versions, encrypted at rest with keys Hussh holds. We also keep processing status and timing to resume work and show freshness. Pausing preparation stops background processing and retains existing packets; it does not make old evidence newly verified.",
+        "Drive search indexing uses a self-hosted text-embedding model on our servers. This indexing step loads its model files locally and does not send your file contents to the model publisher. When One answers from a file, relevant passages may still be sent to your selected AI service as described in “How One uses AI models”.",
+        "Preparing a packet does not publish it or grant another person access. You choose whether to list a packet for your connections, and Allow or Deny each buyer’s access request; editing its suggested price is optional.",
+        "Other mail, calendar events, and contacts are read when needed and are not stored, except as described above.",
       ),
       h("Disconnecting"),
       p(
@@ -338,7 +354,8 @@ const PRIVACY_SECTIONS: LegalSection[] = [
         "We do not sell your information or share it for advertising. We share it only in these cases:",
       ),
       list(
-        "Service providers that run One for us, under contracts that limit their use of it: Google Cloud (hosting, database, logging, and Vertex AI, including Gemini and Google Search), Google Firebase (sign-in, text-message codes, notifications, and app analytics), Google Analytics and Google Tag Manager, Google Maps Platform (places, addresses, and travel times), Apple (Sign in with Apple, notifications, Siri, and Apple Wallet cards you choose to add), and Plaid (bank connections you make). Email we send for you or to you, such as emergency alerts, goes through our own mail service using Google.",
+        "Service providers that run One for us, under contracts that limit their use of it: Google Cloud (hosting, database, logging, and Vertex AI, including Gemini and Google Search), Microsoft Azure AI (managed One text chat and document-request planning, plus older document-assessment flows under the UAT administrator policy, and Personal World Model research you turn on in UAT), Google Firebase (sign-in, text-message codes, notifications, and app analytics), Google Analytics and Google Tag Manager, Google Maps Platform (places, addresses, and travel times), Apple (Sign in with Apple, notifications, Siri, and Apple Wallet cards you choose to add), and Plaid (bank connections you make). Email we send for you or to you, such as emergency alerts, goes through our own mail service using Google.",
+        "Bing web search, only when you turn on UAT Personal World Model research. It is governed by Microsoft's separate terms and Privacy Statement; the Azure Data Protection Addendum does not apply to Bing search data.",
         "Market-information providers, which receive only the company or ticker you ask Kai about, as described above.",
         "Providers you choose. When you connect a service, add your own tool, or use your own model key, information goes to that provider to do what you asked.",
         "People and businesses you approve, as described above.",
@@ -442,7 +459,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
     title: "Where information is processed",
     blocks: [
       p(
-        "Hussh is based in the United States, and One runs on Google Cloud in the United States. AI requests may be processed in any Google Cloud location, including the United States and the European Union. If you use One from elsewhere, your information is transferred to and processed in those places, where privacy laws may differ from those where you live.",
+        "Hussh is based in the United States, and One runs on Google Cloud in the United States. Google AI requests may be processed in any Google Cloud location, including the United States and the European Union. Microsoft Azure AI processes managed One text chat and document requests in UAT under the administrator policy; Google Gemini is a bounded fallback for classified temporary Azure model-service failures. Where you separately turn on UAT Personal World Model research, Microsoft Azure AI processes model requests and Bing processes web searches separately; Bing search is outside Azure's compliance and data residency boundary. If you use One from elsewhere, your information may be transferred to and processed in other countries, where privacy laws may differ from those where you live.",
       ),
     ],
   },
@@ -472,7 +489,7 @@ const TERMS_SECTIONS: LegalSection[] = [
     title: "Agreement to these terms",
     blocks: [
       p(
-        "These Terms of Use are an agreement between you and HushOne, Inc. (“Hussh”, “we”, “us”). They govern your use of Hussh One, your private agent, in the iPhone and Android apps and at one.hushh.ai, including Kai, the investing feature inside One (together, “One”).",
+        "These Terms of Use are an agreement between you and HushOne, Inc. (“Hussh”, “we”, “us”). They govern your use of Hussh One, your private agent, in the iPhone and Android apps and at one.hussh.si and its existing one.hussh.ai and one.hushh.ai addresses, including Kai, the investing feature inside One (together, “One”).",
       ),
       p(
         "By creating an account or using One, you agree to these terms and to our ",
@@ -503,7 +520,7 @@ const TERMS_SECTIONS: LegalSection[] = [
         " if you think someone else is using your account. You are responsible for activity under your account that results from not keeping it secure.",
       ),
       p(
-        "Your vault is encrypted with a key that is created on your device and unlocked with your passphrase, passkey, device biometrics, or recovery key. We never see that key. That is what keeps your vault private, and it also means we cannot reset your passphrase or recover your recovery key. If you lose every way to unlock your vault, the information encrypted with it cannot be recovered by you or by us.",
+        "Your vault is encrypted with a key that is created on your device and unlocked with your password, passkey, device biometrics, or recovery key. We never see that key. That is what keeps your vault private, and it also means we cannot reset your password or recover your recovery key. If you lose every way to unlock your vault, the information encrypted with it cannot be recovered by you or by us.",
       ),
       p(
         "Do not use anyone else’s account without their permission.",
@@ -515,12 +532,17 @@ const TERMS_SECTIONS: LegalSection[] = [
     title: "What your private agent does",
     blocks: [
       p(
-        "One is an AI agent that works for you. It answers questions, keeps the memories you choose to save, and, with your permission, works with services you connect, such as Gmail, Google Calendar, Google Drive where available, your bank through Plaid, and tools you add yourself, and shares information with people only when you approve.",
+        "One is an AI agent that works for you. It answers questions, keeps the memories you choose to save, and, with your permission, works with services you connect, such as Gmail, Google Calendar, Google Drive where available, your bank through Plaid, and tools you add yourself. With full Drive access, Agent One prepares private document packets in the background by default; you can pause this in Connectors. Preparation does not publish a packet or approve a buyer’s access. One shares information with people only when you approve.",
       ),
       list(
         "AI can be wrong. One can misunderstand you, miss information, or produce answers that are inaccurate or out of date. Check anything important before you rely on it.",
         "You stay in charge of important actions. Before One sends an email, creates a draft, changes your mailbox or calendar, shares or trashes a Drive file, or shares your information with another person, it asks you to review and approve it. Some lower-risk actions, such as creating or organizing Drive files, and calls to tools you add yourself, can run without a separate approval. You are responsible for actions you approve and for the tools you connect.",
         "Connected services have their own terms. When you connect Google, Plaid, or another provider, their terms and privacy policies also apply to your use of them. You can disconnect them at any time.",
+      ),
+      p(
+        "Where available in UAT, Personal World Model public research with Azure AI and Bing web search requires a separate opt-in. Bing processes search data under the ",
+        { text: "Microsoft Privacy Statement", href: "https://privacy.microsoft.com/en-us/privacystatement" },
+        "; its data is outside Azure's compliance and geographic boundary. You review suggested details before saving them.",
       ),
     ],
   },
@@ -619,7 +641,7 @@ const TERMS_SECTIONS: LegalSection[] = [
     blocks: [
       p(
         "You can stop using One at any time, and you can delete your account from Profile or by following the steps at ",
-        { text: "one.hushh.ai/delete-account", href: "/delete-account" },
+        { text: "one.hussh.si/delete-account", href: "/delete-account" },
         ". We may suspend or end your access if you break these terms, if the law requires it, or if we stop offering One. Where we reasonably can, we will tell you in advance and give you a chance to export your information.",
       ),
     ],

@@ -35,6 +35,11 @@ export function dispatchAuthSessionVerificationRequired(
 let browserUserId: string | null = null;
 let browserGeneration = 0;
 
+/** Includes anonymous periods, so A -> signed out -> A cannot reuse old work. */
+export function getAuthSessionGeneration(): number | null {
+  return typeof window === "undefined" ? null : browserGeneration;
+}
+
 export function publishValidatedAuthSessionOwner(userId: string | null): void {
   if (typeof window === "undefined") return;
   const normalizedUserId = String(userId || "").trim() || null;

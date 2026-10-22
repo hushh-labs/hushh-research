@@ -12,7 +12,30 @@ readonly SCHEDULER_AUDIENCE="https://api.uat.hushh.ai"
 readonly SCHEDULER_ID="drive-work-drain-sched@hushh-pda-uat.iam.gserviceaccount.com"
 # Managed Gemini bills to the same dedicated Vertex project as the API
 # (deploy-uat.yml _GENAI_PROJECT_ID); Cloud Run, SQL and secrets stay here.
-readonly GENAI_PROJECT_ID="hushh-vertex-personal54"
+managed_ai_profile="$(python3 scripts/ops/managed_ai_config.py --environment uat --format json)"
+GENAI_PROJECT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["project"])' <<< "${managed_ai_profile}")"
+MANAGED_TEXT_MODEL="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["text_model"])' <<< "${managed_ai_profile}")"
+readonly GENAI_PROJECT_ID MANAGED_TEXT_MODEL
+DRIVE_WORK_DRAIN_ENABLED="${DRIVE_WORK_DRAIN_ENABLED:-true}"
+case "${DRIVE_WORK_DRAIN_ENABLED}" in
+  true|false) ;;
+  *) echo "Drive background processing must be true or false" >&2; exit 1 ;;
+esac
+readonly DRIVE_WORK_DRAIN_ENABLED
+
+# Creation-only policy: accepted requests retain their sealed search contract.
+DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED="${DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED:-true}"
+case "${DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED}" in
+  true|false) ;;
+  *) echo "Drive semantic request enrollment must be true or false" >&2; exit 1 ;;
+esac
+readonly DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED
+DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT="${DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT:-gemini}"
+case "${DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT}" in
+  gemini|azure_openai) ;;
+  *) echo "Invalid Documents semantic provider" >&2; exit 1 ;;
+esac
+readonly DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT
 readonly CLAMAV_IMAGE="clamav/clamav@sha256:0e31ce089574268aefa0b543767d66b70240ab51ed49eec53e07f18d5629d817"
 # The pinned OCI index above contains this Linux/AMD64 child manifest. Cloud
 # Run's registry mirror records the child digest in the deployed revision.
@@ -32,6 +55,25 @@ if [[ ! "${IMAGE_REFERENCE}" =~ ^gcr\.io/hushh-pda-uat/consent-protocol@sha256:[
   echo "Drive worker release inputs do not match the reviewed UAT boundary" >&2
   exit 1
 fi
+
+# Use the serving API's exact release binding, including a Vertex-only selection.
+MANAGED_TEXT_PROVIDER="$(python3 scripts/ci/managed_provider_readiness.py worker-provider \
+  --sha="${DEPLOY_SHA}" --image="${IMAGE_REFERENCE}" \
+  --run-id="${RELEASE_RUN_ID}" --account="${RUNTIME_SERVICE_ACCOUNT}")"
+readonly MANAGED_TEXT_PROVIDER
+
+# Reject unsafe live credentials before scheduler capture, rollback setup, or
+# any candidate revision is created.
+source deploy/drive/uat_stripe_bindings.sh
+_STRIPE_MODE="${STRIPE_UAT_MODE}"
+_STRIPE_CONNECT_MODE="${STRIPE_CONNECT_UAT_MODE}"
+_STRIPE_SECRET_KEY_SECRET="${STRIPE_UAT_KEY_SECRET}"
+_STRIPE_CONNECT_SECRET_KEY_SECRET="${STRIPE_UAT_CONNECT_KEY_SECRET}"
+_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET="${STRIPE_UAT_CONNECT_SECRET}"
+_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET="${STRIPE_UAT_CONNECT_TEST_WEBHOOK_SECRET}"
+_DRIVE_REQUEST_HASHCOINS_ENABLED="${DRIVE_REQUEST_HASHCOINS_UAT_ENABLED:-false}"
+_DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED="${DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED}"
+source deploy/drive/verify_hashcoin_config.sh "${PROJECT_ID}"
 
 # An existing service needs a known rollback revision before deploying an
 # unserved candidate. Cloud Run does not accept --no-traffic on first creation;
@@ -149,20 +191,55 @@ trap 'exit 143' TERM
 
 payment_secret_bindings=""
 stripe_secret_ready=true
-for payment_secret in STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET APP_FRONTEND_ORIGIN; do
+for payment_secret in "${STRIPE_UAT_KEY_SECRET}" "${STRIPE_UAT_WEBHOOK_SECRET}" APP_FRONTEND_ORIGIN; do
   if ! gcloud secrets describe "${payment_secret}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
     stripe_secret_ready=false
   fi
 done
-if [[ "${DRIVE_REQUEST_PAYMENTS_UAT_ENABLED:-false}" == "true" \
+if [[ ( "${DRIVE_REQUEST_PAYMENTS_UAT_ENABLED:-false}" == "true" \
+     || "${DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED:-false}" == "true" ) \
   && "${stripe_secret_ready}" != true ]]; then
-  echo "Drive payment reconciliation requires the UAT Stripe and origin secrets" >&2
+  echo "Drive payment and owner payout reconciliation require the UAT Stripe and origin secrets" >&2
   exit 1
 fi
 if [[ "${stripe_secret_ready}" == true ]]; then
-  payment_secret_bindings=",STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:latest,STRIPE_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET:latest,APP_FRONTEND_ORIGIN=APP_FRONTEND_ORIGIN:latest"
+  payment_secret_bindings=",STRIPE_SECRET_KEY=${STRIPE_UAT_KEY_SECRET}:latest,STRIPE_WEBHOOK_SECRET=${STRIPE_UAT_WEBHOOK_SECRET}:latest,APP_FRONTEND_ORIGIN=APP_FRONTEND_ORIGIN:latest"
+fi
+connect_key_ready=false
+connect_webhook_ready=false
+test_webhook_ready=false
+if gcloud secrets describe "${STRIPE_UAT_CONNECT_KEY_SECRET}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+  connect_key_ready=true
+fi
+if gcloud secrets describe "${STRIPE_UAT_CONNECT_SECRET}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+  connect_webhook_ready=true
+fi
+if gcloud secrets describe "${STRIPE_UAT_CONNECT_TEST_WEBHOOK_SECRET}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+  test_webhook_ready=true
+fi
+# Keep recovery credentials after new enrollment is disabled: an accepted or
+# uncertain redemption remains an obligation until provider reconciliation.
+if [[ "${connect_key_ready}" == true ]]; then
+  payment_secret_bindings="${payment_secret_bindings},STRIPE_CONNECT_SECRET_KEY=${STRIPE_UAT_CONNECT_KEY_SECRET}:latest"
+fi
+if [[ "${connect_webhook_ready}" == true ]]; then
+  payment_secret_bindings="${payment_secret_bindings},STRIPE_CONNECT_WEBHOOK_SECRET=${STRIPE_UAT_CONNECT_SECRET}:latest"
+fi
+if [[ "${test_webhook_ready}" == true ]]; then
+  payment_secret_bindings="${payment_secret_bindings},STRIPE_CONNECT_TEST_WEBHOOK_SECRET=${STRIPE_UAT_CONNECT_TEST_WEBHOOK_SECRET}:latest"
 fi
 
+# Both budgeted instances stay warm (service-level --min=2). A cold instance
+# takes about 2.5 minutes to become ready (the ClamAV signature and E5 model
+# checks gate readiness), and each instance runs one drain at a time, so without
+# a warm second instance a lane that arrives while another lane runs waits for
+# that start. The service-level floor follows the traffic split: a tagged
+# no-traffic candidate or a retired revision is never kept warm, and the
+# revision-level minimum stays 0 for the same reason. The connection budget
+# counts every retained revision at maxScale x workers x pool (2 x 1 x 3), so
+# the floor reserves no extra connections. Concurrency stays 1:
+# LocalDocumentProcessor's memory-heavy child limits are per request, and every
+# Drive store transaction shares the process's one SQLAlchemy connection.
 gcloud --quiet run deploy "${SERVICE}" \
   --project="${PROJECT_ID}" --region="${REGION}" --platform=managed \
   --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
@@ -170,7 +247,7 @@ gcloud --quiet run deploy "${SERVICE}" \
   --add-custom-audiences="${SCHEDULER_AUDIENCE}" \
   --add-cloudsql-instances="${CLOUDSQL_INSTANCE}" \
   --concurrency=1 --timeout=240 --max-instances=2 --min-instances=0 \
-  --max=2 --min=0 "${traffic_flags[@]}" \
+  --max=2 --min=2 "${traffic_flags[@]}" \
   --labels="managed-by=hushh-github-actions,deploy-env=uat,deploy-sha=${DEPLOY_SHA},github-run-id=${RELEASE_RUN_ID}" \
   --container=drive-worker \
   --image="${IMAGE_REFERENCE}" --port=8080 --cpu=2 --memory=4Gi \
@@ -178,7 +255,7 @@ gcloud --quiet run deploy "${SERVICE}" \
   --args=server_drive_worker:app,-w,1,-k,uvicorn.workers.UvicornWorker,--timeout,220,--worker-tmp-dir,/tmp,-b,0.0.0.0:8080 \
   --depends-on=clamav \
   --startup-probe=httpGet.port=8080,httpGet.path=/ready,periodSeconds=10,timeoutSeconds=5,failureThreshold=24 \
-  --set-env-vars="^|^ENVIRONMENT=uat|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GENAI_GOOGLE_CLOUD_PROJECT=${GENAI_PROJECT_ID}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|HUSSH_GEMINI_TEXT_MODEL=gemini-3.7-flash|DRIVE_WORKER_MODE=true|DRIVE_WORK_DRAIN_ENABLED=true|DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=${PROJECT_ID}|DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=${SCHEDULER_ID}|DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=${SCHEDULER_AUDIENCE}|DB_POOL_MIN_SIZE=0|DB_POOL_MAX_SIZE=2|DB_SQLALCHEMY_POOL_SIZE=1|DB_SQLALCHEMY_MAX_OVERFLOW=0" \
+  --set-env-vars="^|^ENVIRONMENT=uat|HUSHH_UAT_MANAGED_TEXT_PROVIDER=${MANAGED_TEXT_PROVIDER}|HUSHH_UAT_MANAGED_AI_PROVIDER=${MANAGED_TEXT_PROVIDER}|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GENAI_GOOGLE_CLOUD_PROJECT=${GENAI_PROJECT_ID}|HUSSH_GEMINI_TEXT_MODEL=${MANAGED_TEXT_MODEL}|STRIPE_MODE=${STRIPE_UAT_MODE}|DRIVE_WORKER_MODE=true|DRIVE_WORK_DRAIN_ENABLED=${DRIVE_WORK_DRAIN_ENABLED}|DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED=${DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED}|DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER=${DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT}|DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED=${DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED:-false}|DRIVE_REQUEST_HASHCOINS_ENABLED=${DRIVE_REQUEST_HASHCOINS_UAT_ENABLED:-false}|DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED=${DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED}|STRIPE_CONNECT_MODE=${STRIPE_CONNECT_UAT_MODE}|DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=${PROJECT_ID}|DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=${SCHEDULER_ID}|DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=${SCHEDULER_AUDIENCE}|DB_POOL_MIN_SIZE=0|DB_POOL_MAX_SIZE=2|DB_SQLALCHEMY_POOL_SIZE=1|DB_SQLALCHEMY_MAX_OVERFLOW=0" \
   --set-secrets="BACKEND_RUNTIME_CONFIG_JSON=BACKEND_RUNTIME_CONFIG_JSON:latest,DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest,APP_SIGNING_KEY=APP_SIGNING_KEY:latest,VAULT_DATA_KEY=VAULT_DATA_KEY:latest,GOOGLE_DRIVE_OAUTH_CLIENT_ID=GOOGLE_DRIVE_OAUTH_CLIENT_ID:latest,GOOGLE_DRIVE_OAUTH_CLIENT_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_SECRET:latest,EXTERNAL_CONNECTOR_CREDENTIAL_KEY=EXTERNAL_CONNECTOR_CREDENTIAL_KEY:latest,DRIVE_DOCUMENT_KEY_V1=DRIVE_DOCUMENT_KEY_V1:latest,DRIVE_SHARING_KEY_V1=DRIVE_SHARING_KEY_V1:latest,FIREBASE_ADMIN_CREDENTIALS_JSON=FIREBASE_ADMIN_CREDENTIALS_JSON:latest${payment_secret_bindings}" \
   --container=clamav \
   --image="${CLAMAV_IMAGE}" --cpu=2 --memory=4Gi \
@@ -197,6 +274,10 @@ gcloud run revisions describe "${candidate_revision}" \
   | EXPECTED_SHA="${DEPLOY_SHA}" EXPECTED_APP_IMAGE="${IMAGE_REFERENCE}" \
       EXPECTED_SCANNER_INDEX_DIGEST="${CLAMAV_IMAGE#*@}" \
       EXPECTED_SCANNER_AMD64_DIGEST="${CLAMAV_AMD64_DIGEST}" \
+      EXPECTED_DRAIN_ENABLED="${DRIVE_WORK_DRAIN_ENABLED}" \
+      EXPECTED_SEMANTIC_MODEL_PROVIDER="${DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT}" \
+      EXPECTED_MANAGED_TEXT_PROVIDER="${MANAGED_TEXT_PROVIDER}" \
+      EXPECTED_MAX_INSTANCES=2 EXPECTED_CONCURRENCY=1 \
       python3 deploy/drive/verify_worker_revision.py
 
 # The private service admits only this scheduler identity. The route repeats
@@ -217,10 +298,19 @@ if [[ "${worker_url}" != https://*.run.app ]]; then
   false
 fi
 retargeted=true
+if [[ "${DRIVE_WORK_DRAIN_ENABLED}" == false ]]; then
+  # A paused release must not resume or explicitly dispatch the retained jobs.
+  # The worker's existing drain admission also rejects work while this is false.
+  python3 "${SCHEDULER_STATE_HELPER}" quarantine
+  trap - EXIT INT TERM
+  rm -f "${scheduler_snapshot}"
+  echo "Verified private Drive worker ${candidate_revision}, SHA ${DEPLOY_SHA}; background processing paused"
+  exit 0
+fi
 for fixed_job in drive-work-drain-uat drive-work-suggestions-uat drive-work-sharing-uat; do
   case "${fixed_job}" in
-    drive-work-drain-uat) fixed_stage=documents; fixed_cron='*/4 * * * *' ;;
-    drive-work-suggestions-uat) fixed_stage=suggestions; fixed_cron='2-59/4 * * * *' ;;
+    drive-work-drain-uat) fixed_stage=documents; fixed_cron='* * * * *' ;;
+    drive-work-suggestions-uat) fixed_stage=suggestions; fixed_cron='* * * * *' ;;
     drive-work-sharing-uat) fixed_stage=sharing; fixed_cron='* * * * *' ;;
   esac
   JOB_NAME="${fixed_job}" STAGE="${fixed_stage}" CRON="${fixed_cron}" \

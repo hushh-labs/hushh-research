@@ -163,9 +163,14 @@ class CacheService {
    */
   invalidateUser(userId: string): void {
     const keysToDelete = new Set<string>([
+      CACHE_KEYS.DIRECT_MESSAGE_THREADS(userId),
+      CACHE_KEYS.DIRECT_MESSAGE_ROUTES(userId),
+      CACHE_KEYS.DIRECT_MESSAGE_SESSION(userId),
       CACHE_KEYS.PKM_METADATA(userId),
       CACHE_KEYS.PKM_BLOB(userId),
       CACHE_KEYS.PKM_DECRYPTED_BLOB(userId),
+      CACHE_KEYS.WALLET_PRESENTATIONS(userId),
+      `pkm_memory_document_${userId}`,
       CACHE_KEYS.VAULT_STATUS(userId),
       CACHE_KEYS.VAULT_CHECK(userId),
       CACHE_KEYS.ACCOUNT_IDENTITY(userId),
@@ -192,11 +197,15 @@ class CacheService {
       CACHE_KEYS.CONNECTED_SYSTEMS_REGISTRY(userId),
       CACHE_KEYS.FEED_UNREAD_COUNT(userId),
       CACHE_KEYS.FEED_LIST(userId),
+      CACHE_KEYS.FEED_PRESENTATION(userId),
       CACHE_KEYS.CONNECTIONS_INCOMING(userId),
+      CACHE_KEYS.CONNECTOR_FEATURES(userId),
     ]);
 
     for (const key of this.cache.keys()) {
       if (
+        key.startsWith(`mail_kyc_display_${userId}_`) ||
+        key.startsWith(`mail_kyc_intake_${userId}_`) ||
         key.startsWith(`pkm_domain_resource_${userId}_`) ||
         key.startsWith(`domain_manifest_${userId}_`) ||
         key.startsWith(`domain_data_${userId}_`) ||
@@ -216,7 +225,9 @@ class CacheService {
         key.startsWith(`connected_systems_${userId}_`) ||
         key.startsWith(`connections_first_page_${userId}_`) ||
         key.startsWith(`connect_directory_first_page_${userId}_`) ||
-        key.startsWith(`google_connection_${userId}_`)
+        key.startsWith(`google_connection_${userId}_`) ||
+        key.startsWith(`calendar_invitations_${userId}_`)
+        || key.startsWith(`referral_dashboard_${userId}_`)
       ) {
         keysToDelete.add(key);
       }
@@ -277,6 +288,11 @@ class CacheService {
 
 // Cache key constants for consistency
 export const CACHE_KEYS = {
+  CONNECTOR_FEATURES: (userId: string) => `connector_features_${userId}`,
+  WALLET_PRESENTATIONS: (userId: string) => `wallet_presentations_${userId}`,
+  DIRECT_MESSAGE_THREADS: (userId: string) => `direct_message_threads_${userId}`,
+  DIRECT_MESSAGE_ROUTES: (userId: string) => `direct_message_routes_${userId}`,
+  DIRECT_MESSAGE_SESSION: (userId: string) => `direct_message_session_${userId}`,
   GOOGLE_CONNECTION: (userId: string, service: "drive" | "calendar", generation: number, vaultEpoch: number, revision: number) =>
     `google_connection_${userId}_${service}_${generation}_${vaultEpoch}_${revision}`,
   PKM_METADATA: (userId: string) => `pkm_metadata_${userId}`,
@@ -293,7 +309,7 @@ export const CACHE_KEYS = {
   PORTFOLIO_DATA: (userId: string) => `portfolio_data_${userId}`,
   KAI_FINANCIAL_RESOURCE: (userId: string) => `kai_financial_resource_${userId}`,
   KAI_MARKET_HOME_BASELINE: (userId: string, daysBack: number) =>
-    `kai_market_home_${userId}_baseline_${daysBack}`,
+    `kai_market_home_${userId}_baseline_v5_${daysBack}`,
   KAI_MARKET_NEWS: (
     userId: string,
     scope: string,
@@ -322,6 +338,7 @@ export const CACHE_KEYS = {
     limit: number
   ) => `consent_center_list_${userId}_${actor}_${surface}_${query}_${page}_${limit}`,
   FEED_UNREAD_COUNT: (userId: string) => `feed_unread_count_${userId}`,
+  FEED_PRESENTATION: (userId: string) => `feed_presentation_${userId}`,
   // First page only; "load more" pagination stays live/uncached so a
   // stale-while-revalidate render on revisit doesn't need to reason about
   // cursor-scoped entries beyond the initial view.

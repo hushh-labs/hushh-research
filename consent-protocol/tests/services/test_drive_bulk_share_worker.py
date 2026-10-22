@@ -42,9 +42,11 @@ def _job(state="queued"):
 
 def _worker(*, permission=None, send_push=None):
     store = SimpleNamespace(
+        due=AsyncMock(return_value=[]),
+        due_notifications=AsyncMock(return_value=[]),
         require_current=AsyncMock(),
         require_reconciliation_current=AsyncMock(),
-        mark_dispatching=AsyncMock(),
+        mark_dispatching=AsyncMock(return_value=None),
         settle=AsyncMock(return_value=True),
         release=AsyncMock(return_value="unknown"),
         claim_notification=AsyncMock(
@@ -100,6 +102,78 @@ def test_rollout_disable_fences_a_new_grant_before_provider_io(monkeypatch, disa
     assert not store._owner_grants_enabled("owner")
     with pytest.raises(DriveSharingError, match="sharing_unavailable"):
         store._effect_current(None, _job())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure,expected",
+    [
+        (RuntimeError("PRIVATE recipient@example.com"), "reason=exception error=RuntimeError"),
+        ("not_an_outcome", "reason=unclassified outcome=not_an_outcome"),
+    ],
+)
+async def test_an_unavailable_share_effect_is_never_silent(caplog, failure, expected):
+    """A stuck backlog must be readable from logs, with no owner data in them."""
+    worker, store, _ = _worker()
+    row = {
+        "share_id": _job()["share_id"],
+        "user_id": "owner",
+        "position": 1,
+        "recipient_user_id": "recipient",
+    }
+    store.due.side_effect = [[row], [row]]
+    worker._pace = AsyncMock()
+    worker._effect = AsyncMock(
+        **(
+            {"side_effect": failure}
+            if isinstance(failure, Exception)
+            else {"return_value": failure}
+        )
+    )
+    caplog.set_level("WARNING", logger="drive_bulk_share")
+
+    result = await worker.run(max_jobs=1, deadline_seconds=80)
+
+    assert result["outcomes"]["unavailable"] == 1
+    assert expected in caplog.text
+    # Ids are redacted from these lines; the logger's drive_op and request_tag
+    # are what correlate them, so the reason and the type are the whole payload.
+    assert "PRIVATE" not in caplog.text
+    assert "recipient@example.com" not in caplog.text
+    assert str(row["share_id"]) not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_v1_worker_filters_due_claims_notices_and_wake_to_v1_only():
+    worker, store, _ = _worker()
+    row = {
+        "share_id": _job()["share_id"],
+        "user_id": "owner",
+        "position": 1,
+        "recipient_user_id": "recipient",
+    }
+    store.due.side_effect = [[row], [row]]
+    store.claim = AsyncMock(return_value=_job())
+    worker._pace = AsyncMock()
+    worker._grant = AsyncMock(return_value="succeeded")
+
+    result = await worker.run(max_jobs=1, deadline_seconds=80, v1_only=True)
+
+    assert result["outcomes"] == {"succeeded": 1}
+    store.due.assert_any_await(limit=1, v1_only=True)
+    store.claim.assert_awaited_once_with(
+        user_id="owner",
+        share_id=row["share_id"],
+        position=1,
+        recipient_user_id="recipient",
+        v1_only=True,
+    )
+    assert store.due_notifications.await_count >= 1
+    assert all(
+        call.kwargs.get("limit") in {1, 8} and call.kwargs.get("v1_only") is True
+        for call in store.due_notifications.await_args_list
+    )
+    worker.wake.assert_awaited_once_with("v1")
 
 
 @pytest.mark.asyncio
@@ -361,3 +435,95 @@ async def test_summary_push_has_no_file_or_account_identifiers():
     assert "recipient@example.com" not in str(calls[0][1])
     store.settle_notification.assert_awaited_once()
     assert store.settle_notification.await_args.kwargs["delivered"] is True
+
+
+@pytest.mark.asyncio
+async def test_package_grant_checks_evaluated_version_before_any_permission_write():
+    worker, store, adapter = _worker()
+    job = _job()
+    job["file"].update(packageDigest="a" * 64, sourceVersion="7", contentFingerprint="b" * 64)
+    adapter.inspect_shareable.side_effect = DrivePermissionError("source_changed")
+    await worker._grant(job)
+    assert adapter.inspect_shareable.await_args.kwargs["expected_version"] == "7"
+    assert adapter.inspect_shareable.await_args.kwargs["metadata_only"] is False
+    adapter.list_permissions.assert_not_awaited()
+    adapter.create_reader.assert_not_awaited()
+    store.mark_dispatching.assert_not_awaited()
+    assert store.release.await_args.kwargs["error"] == "source_changed"
+
+
+@pytest.mark.asyncio
+async def test_semantic_content_grant_checks_assessed_version_without_package():
+    from hushh_mcp.services.drive_request_candidate_assessment import assess_request_candidates
+    from tests.services.test_drive_request_candidate_assessment import candidate, setup
+
+    item = candidate()
+    work = setup(items=[item])
+    work["connection_generation"] = 7
+    (evidence,) = await assess_request_candidates(**work)
+    worker, store, adapter = _worker()
+    job = _job()
+    job["file"] = {**item["metadata"], "contentVerified": True, "requestEvidence": evidence}
+    adapter.inspect_shareable.side_effect = DrivePermissionError("source_changed")
+    await worker._grant(job)
+    assert adapter.inspect_shareable.await_args.kwargs["expected_version"] == "7"
+    assert adapter.inspect_shareable.await_args.kwargs["metadata_only"] is False
+    adapter.create_reader.assert_not_awaited()
+    assert store.release.await_args.kwargs["error"] == "source_changed"
+
+
+@pytest.mark.asyncio
+async def test_unbound_semantic_evidence_never_reaches_google_permissions():
+    worker, _, adapter = _worker()
+    job = _job()
+    job["file"].update(contentVerified=True, sourceVersion="7", requestEvidence={})
+    await worker._grant(job)
+    adapter.inspect_shareable.assert_not_awaited()
+    adapter.list_permissions.assert_not_awaited()
+    adapter.create_reader.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_bulk_worker_passes_frozen_expiry_and_records_it_for_early_stop():
+    worker, store, adapter = _worker()
+    expires = (datetime.now(UTC) + timedelta(days=7)).isoformat()
+    store.mark_dispatching.return_value = expires
+    adapter.create_reader.return_value = CreatedReader(
+        "permission-1", "recipient@example.com", expires
+    )
+    assert await worker._grant(_job()) == "succeeded"
+    assert adapter.create_reader.await_args.kwargs["expiration_time"] == expires
+    assert store.settle.await_args.kwargs["receipt"]["expiration_time"] == expires
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tamper", [False, True])
+async def test_discovery_delivery_uses_metadata_acl_checks_and_rejects_forged_source(tamper):
+    from hushh_mcp.services.drive_request_discovery import discovery_evidence
+    from tests.services.test_drive_request_search_unit import _discovery_checkpoint
+
+    worker, store, adapter = _worker()
+    job = _job()
+    file = {
+        "id": "media",
+        "name": "Cedar Rook recording",
+        "mimeType": "video/mp4",
+        "sourceVersion": "9",
+    }
+    checkpoint = _discovery_checkpoint()
+    file["discoveryEvidence"] = discovery_evidence(
+        checkpoint, user_id="owner", generation=7, metadata=file
+    )
+    if tamper:
+        file["name"] = "Changed recording"
+    job["file"] = file
+    await worker._grant(job)
+    if tamper:
+        adapter.inspect_shareable.assert_not_awaited()
+        adapter.create_reader.assert_not_awaited()
+    else:
+        args = adapter.inspect_shareable.await_args.kwargs
+        assert args["metadata_only"] is True
+        assert args["metadata_period"]["start"] == checkpoint["requested_period"]["start"]
+        assert args["metadata_period"]["date_basis"] == "title_created_modified"
+        adapter.create_reader.assert_awaited_once()

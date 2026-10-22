@@ -7,6 +7,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import secrets
 import threading
 import time
@@ -47,7 +48,13 @@ from hushh_mcp.services.one_location_public_invite_url import (
     public_invite_bearer_token,
     public_invite_url,
 )
-from hushh_mcp.services.people_search_sql import directory_name_rank, people_query_match_params
+from hushh_mcp.services.people_search_sql import (
+    directory_contact_match_params,
+    directory_search_rank,
+    mask_directory_phone,
+    people_query_match_params,
+)
+from hushh_mcp.services.push_tokens_service import PUSH_TOKENS_FOR_USER_SQL, remove_stale_push_token
 from hushh_mcp.services.requester_identity import (
     OPAQUE_LABEL_MIN_LENGTH,
     UUID_LIKE_LABEL_PATTERN,
@@ -480,16 +487,13 @@ def _submit_notification_send(
     token: str,
     notification_type: str,
     user_id: str,
-) -> None:
+) -> bool:
     def _deliver() -> None:
         try:
             messaging.send(message)
         except (messaging.UnregisteredError, messaging.SenderIdMismatchError):
             try:
-                get_db().execute_raw(
-                    "DELETE FROM user_push_tokens WHERE token = :token",
-                    {"token": token},
-                )
+                remove_stale_push_token(get_db(), user_id, token)
             except Exception as exc:
                 logger.warning(
                     "one.location.notification_token_cleanup_failed type=%s user=%s error=%s",
@@ -507,6 +511,7 @@ def _submit_notification_send(
 
     try:
         _NOTIFICATION_EXECUTOR.submit(_deliver)
+        return True
     except Exception as exc:
         logger.warning(
             "one.location.notification_submit_failed type=%s user=%s error=%s",
@@ -514,6 +519,7 @@ def _submit_notification_send(
             redact_log_field("user_id", user_id),
             exc,
         )
+        return False
 
 
 def _mask_phone(value: Any) -> str | None:
@@ -836,27 +842,9 @@ def _classify_share_kind(reason: str | None) -> str:
     return "check_in"
 
 
-def requires_recipient_phone_verification(
-    *,
-    share_kind: str | None,
-    reason: str | None,
-) -> bool:
-    """Keep the verified-phone gate on the emergency SMS lane only.
-
-    Ordinary private shares are authorized by an active One relationship and
-    encrypted to the recipient's active Location key.  Requiring an unrelated
-    phone claim after the recipient picker has already proved both facts makes
-    a connected, cryptographically ready Google-only account impossible to
-    share with.  SOS is different: its recipient list is explicitly the SMS
-    contact list, so that lane keeps the verified-phone requirement.
-
-    Classify legacy callers from ``reason`` exactly as grant creation does, so
-    an older ``sos_panic`` request cannot bypass the SMS protection merely by
-    omitting ``shareKind``.
-    """
-
-    resolved_kind = share_kind or _classify_share_kind(reason)
-    return _is_sos_lane(resolved_kind)
+def is_sos_share(*, share_kind: str | None, reason: str | None) -> bool:
+    """Classify current and legacy emergency requests through the grant owner."""
+    return _is_sos_lane(share_kind or _classify_share_kind(reason))
 
 
 def _is_until_stopped_share(duration_mode: str | None) -> bool:
@@ -1216,11 +1204,74 @@ class OneLocationAgentService:
         )
         return min(max_workers, worker_limit)
 
+    def _run_batched_read_queries(
+        self,
+        tasks: list[tuple[str, str, dict[str, Any]]],
+        *,
+        require_complete: bool = False,
+        required_sections: frozenset[str] = frozenset(),
+    ) -> dict[str, list[dict[str, Any]]]:
+        """One instrumented statement for authored, independent read projections.
+
+        Retain each section's ordering, caps and bound owner predicate. A failed
+        optional section falls back to the existing independently degraded reads;
+        required sections still raise on fallback failure, and complete inventory
+        keeps its strict repeatable-read path. No new persistence is introduced.
+        """
+        if require_complete or not tasks:
+            return self._run_read_queries_parallel(
+                tasks, require_complete=require_complete, required_sections=required_sections
+            )
+        projections = []
+        values: dict[str, Any] = {}
+        for index, (_, query, params) in enumerate(tasks):
+            for key, value in params.items():
+                parameter = f"section_{index}_{key}"
+                query = re.sub(rf"(?<!:):{re.escape(key)}\b", f":{parameter}", query)
+                values[parameter] = value
+            # Only authored SQL fragments and numeric aliases are composed;
+            # every request value remains a bound parameter.
+            projections.append(
+                f"(SELECT COALESCE(jsonb_agg(to_jsonb(section_row)), '[]'::jsonb) "  # nosec B608
+                f"FROM ({query}) AS section_row) AS section_{index}"
+            )
+        try:
+            # _execute_many uses execute_raw, preserving query/pool telemetry.
+            rows = self._execute_many("SELECT " + ", ".join(projections), values)
+            if len(rows) != 1 or any(
+                f"section_{index}" not in rows[0] for index in range(len(tasks))
+            ):
+                raise ValueError("Location read projection is incomplete")
+            result = {}
+            for index, (name, _, _) in enumerate(tasks):
+                section = rows[0][f"section_{index}"]
+                if not isinstance(section, list) or any(
+                    not isinstance(row, dict) for row in section
+                ):
+                    raise ValueError("Location read projection is malformed")
+                # JSONB timestamps need the same UTC serialization as driver
+                # datetime values. Nested authored metadata stays untouched.
+                result[name] = [
+                    {
+                        key: _parse_datetime(value, field_name=key)
+                        if key.endswith("_at") and isinstance(value, str)
+                        else value
+                        for key, value in row.items()
+                    }
+                    for row in section
+                ]
+            return result
+        except Exception as exc:  # additive schema rollout: preserve healthy sections
+            logger.warning("one_location.read_batch_fallback error_type=%s", type(exc).__name__)
+            return self._run_read_queries_parallel(tasks, required_sections=required_sections)
+
     def _run_read_queries_parallel(
         self,
         tasks: list[tuple[str, str, dict[str, Any]]],
         *,
         max_workers: int = 8,
+        require_complete: bool = False,
+        required_sections: frozenset[str] = frozenset(),
     ) -> dict[str, list[dict[str, Any]]]:
         """Run several independent, read-only SQL queries concurrently.
 
@@ -1237,7 +1288,7 @@ class OneLocationAgentService:
         `get_db().execute_raw`, so concurrent calls are safe -- there is no
         shared connection/cursor state across tasks.
 
-        A failing task degrades to `[]` and is logged rather than raised --
+        An optional failing task degrades to `[]` and is logged rather than raised --
         the same resilience a sequential per-section try/except gave before
         this existed. One bad section must never fail the rest of the page.
         Each worker runs inside a copy of the
@@ -1248,6 +1299,20 @@ class OneLocationAgentService:
         """
         if not tasks:
             return {}
+        if require_complete:
+            # Source inventory uses one complete, repeatable-read snapshot.
+            # A missing section must never become an authoritative deletion.
+            with get_db_connection() as connection:
+                connection.execute(
+                    text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+                )
+                return {
+                    name: [
+                        dict(row)
+                        for row in connection.execute(text(query), params).mappings().all()
+                    ]
+                    for name, query, params in tasks
+                }
         # ``execute_raw`` checks a connection out of SQLAlchemy's shared
         # QueuePool for every task.  The local runtime deliberately has a
         # two-connection pool, so the historical fixed fan-out of eight made
@@ -1266,7 +1331,11 @@ class OneLocationAgentService:
                 key = future_to_key[future]
                 try:
                     results[key] = future.result()
-                except Exception as exc:  # noqa: BLE001 - degrade, never fail the page
+                except Exception as exc:  # noqa: BLE001 - only optional sections degrade
+                    if key in required_sections:
+                        # An unavailable private-key backup must never look
+                        # absent: bootstrap could replace the account key.
+                        raise
                     logger.warning(
                         "one_location.parallel_query_failed section=%s error=%s",
                         key,
@@ -1430,7 +1499,11 @@ class OneLocationAgentService:
                         status_code=409,
                     )
                 command.save(str(grant["id"]))
-            return dict(row) if row is not None else None
+            return (
+                {**dict(row), **({"_command_owned": True} if command_operation else {})}
+                if row is not None
+                else None
+            )
 
     def _execute_recipient_key_registration(
         self,
@@ -1673,27 +1746,33 @@ class OneLocationAgentService:
         data: dict[str, str | None],
         show_alert: bool = True,
     ) -> bool:
-        """Best-effort metadata-only FCM delivery for location workflow state.
+        """Source-backed delivery for core alerts; best-effort for other state.
 
-        Returns True when at least one push message was handed to FCM, False when
-        the recipient could not be reached at all -- no registered device token
-        (notifications never enabled, or the token was reaped after an uninstall),
-        Firebase not configured, or a payload the redaction guard rejected.
+        Returns True when at least one registered device's push was queued for
+        durable or asynchronous dispatch. False covers missing tokens, Firebase not being
+        configured, rejected payloads, and executor submission failures.
 
-        The boolean exists because Save My Soul must never report a confident
-        "SENT" for an alert that reached nobody. Actual FCM delivery stays
-        asynchronous and best-effort; this only reports whether there was a
-        device to deliver to, which is the failure the sender could otherwise
-        never see.
+        This is a dispatch request, not an FCM acknowledgement or device receipt.
+        Save My Soul reports it separately from persisted location shares;
+        delivery remains best-effort and can fail after this method returns.
         """
         safe_data = _notification_safe_data(data)
         if not user_id or _contains_plaintext_location_key(safe_data):
             return False
         try:
+            from hushh_mcp.services.system_push_delivery import durable_push_receipt
+
+            receipt = (
+                durable_push_receipt(user_id, notification_type, safe_data)
+                if (show_alert and str(safe_data.get("sync_only", "")).lower() != "true")
+                else None
+            )
+            if receipt is not None:
+                return receipt > 0
             rows = (
                 get_db()
                 .execute_raw(
-                    "SELECT token, platform FROM user_push_tokens WHERE user_id = :user_id",
+                    PUSH_TOKENS_FOR_USER_SQL,
                     {"user_id": user_id},
                 )
                 .data
@@ -1741,14 +1820,14 @@ class OneLocationAgentService:
                     notification_tag=notification_tag,
                     show_alert=show_alert,
                 )
-                _submit_notification_send(
+                queued = _submit_notification_send(
                     messaging=messaging,
                     message=message,
                     token=token,
                     notification_type=notification_type,
                     user_id=user_id,
                 )
-                submitted = True
+                submitted = submitted or queued
             return submitted
         except Exception as exc:
             logger.warning(
@@ -2005,6 +2084,7 @@ class OneLocationAgentService:
         row: dict[str, Any] | None,
         *,
         allow_email_handle: bool = False,
+        directory_phone_mask: bool = False,
     ) -> dict[str, Any] | None:
         """Project one person for a client list.
 
@@ -2025,6 +2105,10 @@ class OneLocationAgentService:
 
         email = str(row.get("email") or "").strip()
         masked_phone = _mask_phone(row.get("phone_number"))
+        if directory_phone_mask:
+            masked_phone = (
+                mask_directory_phone(row.get("phone_number")) if row.get("phone_verified") else None
+            )
         user_id = str(row.get("user_id") or "")
         # The masked phone stays a rung, below the name and the handle. It is
         # the one the client rejects on sight (MASKED_PHONE_ONLY_PATTERN) and
@@ -2601,7 +2685,7 @@ class OneLocationAgentService:
         # at came from this one enrichment step alone. Each function below
         # keeps its own unchanged row-processing logic; only WHERE the rows
         # come from changed.
-        _signal_rows = self._run_read_queries_parallel(
+        _signal_rows = self._run_batched_read_queries(
             [
                 (
                     "one_location_grants",
@@ -4153,7 +4237,14 @@ class OneLocationAgentService:
             else None
         )
         mutation_sql = """
-            WITH key_id_compatibility AS MATERIALIZED (
+            WITH prior_key_state AS MATERIALIZED (
+              SELECT EXISTS (
+                SELECT 1 FROM one_location_recipient_keys
+                WHERE user_id = :user_id AND key_id = :key_id
+                  AND public_key_fingerprint = :fingerprint
+                  AND algorithm = :algorithm AND status = 'active'
+              ) AS unchanged
+            ), key_id_compatibility AS MATERIALIZED (
               SELECT (
                 NOT EXISTS (
                   SELECT 1
@@ -4254,8 +4345,13 @@ class OneLocationAgentService:
               FROM upserted_key k
               RETURNING id
             )
-            SELECT k.*
+            SELECT k.*, (
+              NOT prior.unchanged
+              OR EXISTS (SELECT 1 FROM rotated_keys)
+              OR EXISTS (SELECT 1 FROM revoked_grants)
+            ) AS recipient_metadata_changed
             FROM upserted_key k
+            CROSS JOIN prior_key_state prior
             CROSS JOIN (SELECT COUNT(*) FROM revoked_grant_events) revoked_event_barrier
             CROSS JOIN (SELECT COUNT(*) FROM registered_key_event) registered_event_barrier
             """
@@ -4301,6 +4397,26 @@ class OneLocationAgentService:
                 "This secure key id is already bound to different key material.",
                 status_code=409,
             )
+        if row.get("recipient_metadata_changed"):
+            # Registration has committed. Wake viewers' own channels so open
+            # People, Share, Ask and SMS projections discard stale public keys.
+            # Identical warm-up registrations and private-key backup backfills
+            # do not repeatedly invalidate everyone else's lists.
+            try:
+                from hushh_mcp.services.connection_graph_service import (
+                    list_connection_graph_viewer_ids,
+                )
+                from hushh_mcp.services.connections_service import _notify_connection_graph_changed
+
+                # Read viewers after the key commit. A concurrent connection
+                # accept must either be visible here or emit its own doorbell
+                # after the committed key is readable. A pre-commit snapshot
+                # could miss that edge while its early event still saw no key.
+                with get_db_connection() as connection:
+                    viewers = list_connection_graph_viewer_ids(connection, user_id=user_id)
+                _notify_connection_graph_changed(user_ids={user_id, *viewers})
+            except Exception:  # registration is already committed
+                logger.warning("one_location.recipient_graph_sync_failed", exc_info=True)
         # The caller's own record, handed straight back to them. There is no
         # privacy line to draw against yourself, and withholding it here would
         # show a person their own masked phone where every other surface now
@@ -4589,7 +4705,7 @@ class OneLocationAgentService:
             )
             SELECT page_rows.user_id, page_rows.display_name, page_rows.email,
                    page_rows.phone_number, page_rows.phone_verified,
-                   page_rows.photo_url, page_rows.is_ria,
+                   page_rows.photo_url, page_rows.is_ria, profile.public_person_ref,
                    recipient_key.key_id, recipient_key.public_key_jwk,
                    recipient_key.algorithm,
                    recipient_key.created_at AS key_created_at,
@@ -4607,6 +4723,7 @@ class OneLocationAgentService:
                    ) END AS connected_from_contacts
             FROM total
             LEFT JOIN page_rows ON TRUE
+            LEFT JOIN actor_profiles profile ON profile.user_id = page_rows.user_id
             LEFT JOIN LATERAL (
               SELECT key.key_id, key.public_key_jwk, key.algorithm, key.created_at
               FROM one_location_recipient_keys key
@@ -4681,6 +4798,7 @@ class OneLocationAgentService:
         candidate_user_id: str | None = None,
         candidate_user_ids: list[str] | None = None,
         audience: str = "all",
+        name_only: bool = False,
     ) -> dict[str, Any]:
         """Search existing Connect profiles before pagination.
 
@@ -4689,6 +4807,9 @@ class OneLocationAgentService:
         only those who do not, and ``"all"`` (the default, and what every
         pre-existing caller gets) keeps both. It is applied HERE, in the same
         statement, for the same reason the matching is -- see below.
+
+        Contact fragments follow the existing name tiers. ``name_only`` keeps
+        voice/chat person resolution independent of email and phone matches.
 
         A named, active profile with a current enabled auth account is eligible
         when EITHER it holds a ``vault_keys`` row whose ``vault_status`` is
@@ -4701,15 +4822,21 @@ class OneLocationAgentService:
         otherwise make every half-registered account searchable, while people
         someone already knows stay reachable exactly as before.
 
-        Explicit opt-outs still hide a person who set
-        ``marketplace_public_profiles.is_discoverable = FALSE`` or the
-        contact-sync opt-out from strangers. They never hide someone the viewer
-        is already connected to: an active ``connections`` edge (or a trusted
-        edge) lifts the opt-out, because "My connections" already lists that
-        person by name and photo and a search that cannot find them says
-        "no one matches" about someone on the same screen. The trusted edge
-        alone was not a safe proxy: Circle and contact-sync connections never
-        mirrored one, so on UAT roughly half of all connection pairs had none.
+        A NAME is findable whatever the marketplace or contact-sync settings
+        say. ``marketplace_public_profiles.is_discoverable`` belongs to the
+        marketplace (it defaults to FALSE, and the investor toggle and adviser
+        rows write it), and the contact-sync consent version is raised by
+        every change to that setting and by an account reset. Reading either
+        as "hide me from Connect" made people unfindable for reasons they never
+        chose, and findable only to whoever happened to be connected to them,
+        so two accounts searching the same name got different answers.
+
+        The opt-outs still guard EMAIL and PHONE fragments, which would
+        otherwise let a stranger test whether an address or number is on the
+        platform. A person who set ``is_discoverable = FALSE`` or opted out of
+        contact sync is not matched by an email or phone fragment from
+        strangers. An active ``connections`` edge (or a trusted edge) lifts
+        that, since "My connections" already lists the person.
         Vault, relationship and auth eligibility are all applied
         before the logical page is cut, so ineligible rows cannot create empty
         pages or misleading ``hasMore`` values. ``candidate_user_id`` lookups
@@ -4755,17 +4882,19 @@ class OneLocationAgentService:
         # literal could only ever return nothing. Once folded it is a space, so
         # it reaches LIKE as a space and cannot act as a wildcard either.
         raw_query = (query or "").strip().lower()
-        exact_email = raw_query if "@" in raw_query and " " not in raw_query else None
-        phone_digits = "".join(char for char in raw_query if char.isdigit())
-        exact_phone = (
-            phone_digits
-            if not exact_email
-            and 10 <= len(phone_digits) <= 15
-            and all(char.isdigit() or char in "+-(). " for char in raw_query)
-            else None
-        )
-        identifier_search = bool(exact_email or exact_phone)
+        contact_params = directory_contact_match_params(raw_query, name_only=name_only)
         needle = " ".join(raw_query.translate(_DIRECTORY_SEPARATOR_FOLD).split())
+
+        def match_rank(row: dict[str, Any]) -> int | None:
+            return directory_search_rank(
+                str(row.get("display_name") or ""),
+                raw_query,
+                email=row.get("email"),
+                phone_number=row.get("phone_number"),
+                phone_verified=bool(row.get("phone_verified")),
+                name_only=name_only,
+            )
+
         target = (candidate_user_id or "").strip() or None
         targets = (
             None
@@ -4857,7 +4986,46 @@ class OneLocationAgentService:
                 COALESCE(
                   NULLIF(BTRIM(identity.custom_photo_url), ''),
                   NULLIF(BTRIM(identity.photo_url), '')
-                ) AS photo_url
+                ) AS photo_url,
+                -- Whether an email or phone fragment may find this person. A
+                -- name is public in the directory; an email or phone is not, so
+                -- an explicit opt-out keeps a person out of contact lookups for
+                -- strangers. Someone the viewer is already connected to or
+                -- trusts stays findable.
+                (
+                  EXISTS (
+                    SELECT 1
+                    FROM trusted_connections tc
+                    WHERE tc.status = 'active'
+                      AND tc.owner_user_id = :owner_user_id
+                      AND tc.trusted_user_id = profile.user_id
+                  )
+                  OR EXISTS (
+                    SELECT 1
+                    FROM connections known
+                    WHERE known.status = 'active'
+                      AND (
+                        (known.user_a_id = :owner_user_id AND known.user_b_id = profile.user_id)
+                        OR (known.user_b_id = :owner_user_id AND known.user_a_id = profile.user_id)
+                      )
+                  )
+                  OR (
+                    marketplace.is_discoverable IS DISTINCT FROM FALSE
+                    AND (
+                      (
+                        COALESCE(profile.contact_sync_consent_rule_version, 0) = 0
+                        AND profile.contact_sync_consent_enabled_at IS NULL
+                        AND profile.contact_sync_consent_contract_version IS NULL
+                      )
+                      OR (
+                        profile.contact_discoverable = TRUE
+                        AND profile.contact_sync_consent_enabled_at IS NOT NULL
+                        AND profile.contact_sync_consent_rule_version > 0
+                        AND profile.contact_sync_consent_contract_version = :contact_sync_contract_version
+                      )
+                    )
+                  )
+                ) AS contact_listed
               FROM actor_profiles profile
               LEFT JOIN actor_identity_cache identity
                 ON identity.user_id = profile.user_id
@@ -4908,42 +5076,6 @@ class OneLocationAgentService:
                 AND (:candidate_user_id IS NULL OR profile.user_id = :candidate_user_id)
                 AND (CAST(:candidate_user_ids AS TEXT[]) IS NULL
                      OR profile.user_id = ANY(CAST(:candidate_user_ids AS TEXT[])))
-                AND (
-                  EXISTS (
-                    SELECT 1
-                    FROM trusted_connections tc
-                    WHERE tc.status = 'active'
-                      AND tc.owner_user_id = :owner_user_id
-                      AND tc.trusted_user_id = profile.user_id
-                  )
-                  OR EXISTS (
-                    -- An opt-out hides a person from strangers, not from the
-                    -- people who are already connected to them.
-                    SELECT 1
-                    FROM connections known
-                    WHERE known.status = 'active'
-                      AND (
-                        (known.user_a_id = :owner_user_id AND known.user_b_id = profile.user_id)
-                        OR (known.user_b_id = :owner_user_id AND known.user_a_id = profile.user_id)
-                      )
-                  )
-                  OR (
-                    marketplace.is_discoverable IS DISTINCT FROM FALSE
-                    AND (
-                      (
-                        COALESCE(profile.contact_sync_consent_rule_version, 0) = 0
-                        AND profile.contact_sync_consent_enabled_at IS NULL
-                        AND profile.contact_sync_consent_contract_version IS NULL
-                      )
-                      OR (
-                        profile.contact_discoverable = TRUE
-                        AND profile.contact_sync_consent_enabled_at IS NOT NULL
-                        AND profile.contact_sync_consent_rule_version > 0
-                        AND profile.contact_sync_consent_contract_version = :contact_sync_contract_version
-                      )
-                    )
-                  )
-                )
             ) a
             LEFT JOIN LATERAL (
               SELECT key_id, public_key_jwk, algorithm, created_at
@@ -4955,12 +5087,16 @@ class OneLocationAgentService:
             ) k ON TRUE
             WHERE (
               (:missing_names_only = TRUE AND a.display_name = '')
-              OR (:missing_names_only = FALSE AND a.display_name <> '' AND :identifier_search = TRUE AND (
-                (:exact_email IS NOT NULL AND LOWER(BTRIM(a.email)) = :exact_email)
-                OR (:exact_phone IS NOT NULL AND a.phone_verified = TRUE
-                    AND REGEXP_REPLACE(a.phone_number, '[^0-9]', '', 'g') = :exact_phone)
+              OR (:missing_names_only = FALSE AND a.display_name <> '' AND a.contact_listed AND (
+                LOWER(BTRIM(a.email)) LIKE :email_contains ESCAPE '!'
+                OR (a.phone_verified = TRUE
+                    AND (
+                      REGEXP_REPLACE(a.phone_number, '[^0-9]', '', 'g') LIKE :phone_contains
+                      OR REGEXP_REPLACE(a.phone_number, '[^0-9]', '', 'g')
+                           LIKE ANY(CAST(:phone_alternates AS TEXT[]))
+                    ))
               ))
-              OR (:missing_names_only = FALSE AND a.display_name <> '' AND :identifier_search = FALSE AND (
+              OR (:missing_names_only = FALSE AND a.display_name <> '' AND :name_search = TRUE AND (
                 :query = ''
                 OR {_DIRECTORY_SEPARATOR_SQL} = :exact_name
                 OR {_DIRECTORY_SEPARATOR_SQL} LIKE :name_prefix ESCAPE '!'
@@ -4981,7 +5117,7 @@ class OneLocationAgentService:
               )
             ORDER BY
               CASE
-                WHEN :identifier_search = TRUE THEN 0
+                WHEN :name_search = FALSE THEN 4
                 WHEN :query = '' THEN 0
                 WHEN {_DIRECTORY_SEPARATOR_SQL} = :exact_name THEN 0
                 WHEN {_DIRECTORY_SEPARATOR_SQL} LIKE :name_prefix ESCAPE '!' THEN 1
@@ -5002,9 +5138,7 @@ class OneLocationAgentService:
             "opaque_label_min_length": OPAQUE_LABEL_MIN_LENGTH,
             "missing_names_only": False,
             "query": needle,
-            "identifier_search": identifier_search,
-            "exact_email": exact_email,
-            "exact_phone": exact_phone,
+            **contact_params,
             "exact_name": needle,
             "name_prefix": name_prefix_pattern,
             "word_prefix": word_prefix_pattern,
@@ -5028,7 +5162,7 @@ class OneLocationAgentService:
         # than treating missing cache information as a missing person.
         fallback_rows: list[dict[str, Any]] = []
         fallback_params = {**params, "missing_names_only": True}
-        while not identifier_search:
+        while True:
             check_deadline()
             rows = self._execute_many(directory_sql, fallback_params)
             if not rows:
@@ -5040,14 +5174,14 @@ class OneLocationAgentService:
             for row in rows:
                 uid = str(row.get("user_id") or "")
                 profile = profiles.get(uid)
-                if profile and directory_name_rank(profile["display_name"], needle) is not None:
-                    fallback_rows.append(
-                        {
-                            **row,
-                            "display_name": profile["display_name"],
-                            "photo_url": row.get("photo_url") or profile["photo_url"],
-                        }
-                    )
+                if profile:
+                    recovered = {
+                        **row,
+                        "display_name": profile["display_name"],
+                        "photo_url": row.get("photo_url") or profile["photo_url"],
+                    }
+                    if match_rank(recovered) is not None:
+                        fallback_rows.append(recovered)
             if len(rows) < 100:
                 break
             fallback_params["offset"] = int(fallback_params["offset"]) + len(rows)
@@ -5070,11 +5204,7 @@ class OneLocationAgentService:
                     uid in active_user_ids
                     and uid not in seen_user_ids
                     and label_from_identity_row(row, allow_email_handle=False)
-                    and (
-                        identifier_search
-                        or directory_name_rank(str(row.get("display_name") or ""), needle)
-                        is not None
-                    )
+                    and match_rank(row) is not None
                 ):
                     seen_user_ids.add(uid)
                     eligible_rows.append(row)
@@ -5086,16 +5216,18 @@ class OneLocationAgentService:
         eligible_rows = list(eligible_by_id.values())
         eligible_rows.sort(
             key=lambda row: (
-                0
-                if identifier_search
-                else cast(int, directory_name_rank(str(row["display_name"]), needle)),
+                cast(int, match_rank(row)),
                 str(row["display_name"]).strip().lower(),
                 str(row["user_id"]),
             )
         )
         has_more = len(eligible_rows) > offset + limit
         page_rows = eligible_rows[offset : offset + limit]
-        recipients = [payload for row in page_rows if (payload := self._recipient_payload(row))]
+        recipients = [
+            payload
+            for row in page_rows
+            if (payload := self._recipient_payload(row, directory_phone_mask=True))
+        ]
         items = self._apply_kai_circle_recommendations(
             owner_user_id=owner_user_id,
             recipients=recipients,
@@ -5149,7 +5281,7 @@ class OneLocationAgentService:
                 identity = self._identity_row(recipient_user_id)
                 if identity and not bool(identity.get("phone_verified")):
                     resolved_unavailable_message = (
-                        "Ask this SMS contact to verify their phone before receiving alerts."
+                        "This contact's SMS setup could not be confirmed. Try again."
                     )
             raise OneLocationAgentError(
                 "LOCATION_RECIPIENT_UNAVAILABLE",
@@ -5575,7 +5707,9 @@ class OneLocationAgentService:
                 "Choose a different connection as an SMS contact.",
                 status_code=422,
             )
-        self._recipient_key_row(recipient_user_id=contact_user_id, require_phone_verified=True)
+        # Save My Soul is delivered to an account in One, not to a phone.
+        # The Circle writer still validates the selected active relationship.
+        self._recipient_key_row(recipient_user_id=contact_user_id, require_phone_verified=False)
         result = self._sms_circle_service().set_sms_contact(
             owner_user_id=owner_user_id,
             contact_user_id=contact_user_id,
@@ -5680,11 +5814,28 @@ class OneLocationAgentService:
         reason: str | None,
         resolved_kind: str,
     ) -> bool:
-        """Notify the recipient. Returns False when they had no reachable device.
+        return self._send_metadata_notification(
+            **self._location_share_created_notification(
+                grant=grant,
+                owner_user_id=owner_user_id,
+                recipient_user_id=recipient_user_id,
+                duration=duration,
+                reason=reason,
+                resolved_kind=resolved_kind,
+            )
+        )
 
-        Save My Soul surfaces this per recipient, so a sender is never shown a
-        confident "SENT" for an alert that had nowhere to land.
-        """
+    def _location_share_created_notification(
+        self,
+        *,
+        grant: dict[str, Any],
+        owner_user_id: str,
+        recipient_user_id: str,
+        duration: float | None,
+        reason: str | None,
+        resolved_kind: str,
+    ) -> dict[str, Any]:
+        """One copy/payload contract for live callers and durable recovery."""
         owner_identity = self._identity_row(owner_user_id)
         owner_label = _identity_notification_label(owner_identity)
         share_message = _visible_share_message(reason)
@@ -5722,7 +5873,7 @@ class OneLocationAgentService:
         else:
             notification_title = "Location shared"
             notification_body = f"{owner_label} shared location access with you."
-        return self._send_metadata_notification(
+        return dict(
             user_id=recipient_user_id,
             notification_type="location_share_created",
             title=notification_title,
@@ -6158,7 +6309,7 @@ class OneLocationAgentService:
         reason: str | None = None,
         share_kind: str | None = None,
         source_circle_id: str | None = None,
-        require_recipient_phone_verified: bool = True,
+        require_recipient_phone_verified: bool = False,
         enforce_connection: bool = False,
         require_owned_source_circle: bool = False,
         source: str | None = None,
@@ -6426,7 +6577,7 @@ class OneLocationAgentService:
         reason: str | None = None,
         share_kind: str | None = None,
         source_circle_id: str | None = None,
-        require_recipient_phone_verified: bool = True,
+        require_recipient_phone_verified: bool = False,
         enforce_connection: bool = False,
     ) -> dict[str, Any]:
         """Atomically replace a grant and persist its first ciphertext envelope.
@@ -6549,6 +6700,12 @@ class OneLocationAgentService:
         if capability is not None:
             metadata["capability_token"] = capability["token"]
         metadata_json = _json_param(metadata)
+        from hushh_mcp.services.product_value_receipts import (
+            capture_value_epoch_sync,
+            record_location_effect_sync,
+        )
+
+        value_epoch = capture_value_epoch_sync(owner_user_id) if not command_operation_id else None
         row = self._execute_atomic_private_share(
             recipient_key_lock_key=f"one-location-recipient-key:{recipient_user_id}",
             pair_lock_key=f"one-location-grant:{owner_user_id}:{recipient_user_id}",
@@ -6974,6 +7131,18 @@ class OneLocationAgentService:
             )
 
         idempotent_replay = bool(row.get("idempotent_replay"))
+        if (
+            not idempotent_replay
+            and not command_operation_id
+            and not row.get("_command_owned")
+            and resolved_kind in {"share", "check_in"}
+        ):
+            record_location_effect_sync(
+                user_id=owner_user_id,
+                kind="private_share",
+                source_id=str(grant["id"]),
+                generation=value_epoch,
+            )
         if not idempotent_replay:
             self._send_location_share_created_notification(
                 grant=grant,
@@ -9022,7 +9191,20 @@ class OneLocationAgentService:
         )
         return invite
 
-    def list_state(self, *, user_id: str) -> dict[str, Any]:
+    def list_state(self, *, user_id: str, require_complete: bool = False) -> dict[str, Any]:
+        return self._list_state(user_id=user_id, require_complete=require_complete)
+
+    def list_consent_state(self, *, user_id: str) -> dict[str, Any]:
+        """Count projection with the full state's caps, owner predicates and expiry.
+
+        Recommendations, recipient keys and standing preferences are not used by
+        consent counts. Complete source inventory still uses list_state.
+        """
+        return self._list_state(user_id=user_id, consent_only=True)
+
+    def _list_state(
+        self, *, user_id: str, require_complete: bool = False, consent_only: bool = False
+    ) -> dict[str, Any]:
         # Resilience: one failing auxiliary section (e.g. schema drift on a
         # rarely-used table) must NOT 500 the whole endpoint. A 500 here cascades
         # into the consent-center contributor (which then returns empty buckets)
@@ -9036,9 +9218,12 @@ class OneLocationAgentService:
         # fan-out belong to the bounded retention maintenance path, not an app
         # foreground/resume read. Explicit false remains a temporary rollback
         # valve for environments that have not installed the scheduler yet.
-        read_only_state = str(
-            os.getenv("ONE_LOCATION_READ_ONLY_STATE_ENABLED") or "true"
-        ).strip().lower() in {"1", "true", "yes", "on"}
+        read_only_state = (
+            consent_only
+            or require_complete
+            or str(os.getenv("ONE_LOCATION_READ_ONLY_STATE_ENABLED") or "true").strip().lower()
+            in {"1", "true", "yes", "on"}
+        )
         if not read_only_state:
             try:
                 self._expire_stale_requests(user_id)
@@ -9056,39 +9241,52 @@ class OneLocationAgentService:
                     user_id,
                     exc,
                 )
-        try:
-            recipients = self.list_verified_recipients(owner_user_id=user_id)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "one_location.list_state.recipients_failed user=%s error=%s",
-                user_id,
-                exc,
-            )
-            recipients = []
+        recipients = []
+        named_circles = []
         circle_service = None
-        try:
-            from hushh_mcp.services.one_location_circle_service import (
-                OneLocationCircleService,
-            )
+        if not consent_only:
+            try:
+                recipients = self.list_verified_recipients(owner_user_id=user_id)
+            except Exception as exc:  # noqa: BLE001
+                if require_complete:
+                    raise
+                logger.warning(
+                    "one_location.list_state.recipients_failed user=%s error=%s",
+                    user_id,
+                    exc,
+                )
+                recipients = []
+            circle_service = None
+            try:
+                from hushh_mcp.services.one_location_circle_service import (
+                    OneLocationCircleService,
+                )
 
-            circle_service = OneLocationCircleService()
-            named_circles = circle_service.list_circles(user_id=user_id)
-        except Exception as exc:  # noqa: BLE001 - additive schema rollout
-            logger.warning(
-                "one_location.list_state.named_circles_failed user=%s error=%s",
-                redact_log_field("user_id", user_id),
-                exc,
-            )
-            named_circles = []
+                circle_service = OneLocationCircleService()
+                named_circles = circle_service.list_circles(user_id=user_id)
+            except Exception as exc:  # noqa: BLE001 - additive schema rollout
+                if require_complete:
+                    raise
+                logger.warning(
+                    "one_location.list_state.named_circles_failed user=%s error=%s",
+                    redact_log_field("user_id", user_id),
+                    exc,
+                )
+                named_circles = []
         try:
+            from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
+
             circle_member_invites = (
                 circle_service or OneLocationCircleService()
             ).list_member_invites(
                 user_id=user_id,
                 direction="incoming",
                 expire_stale=not read_only_state,
+                **({"require_complete": True} if require_complete else {}),
             )
         except Exception as exc:  # noqa: BLE001 - additive schema rollout
+            if require_complete:
+                raise
             logger.warning(
                 "one_location.list_state.circle_member_invites_failed user=%s error=%s",
                 redact_log_field("user_id", user_id),
@@ -9105,14 +9303,17 @@ class OneLocationAgentService:
         # enabled on the server. Query it outside the best-effort batch so the
         # state request fails visibly on database or permission errors. A real
         # missing row is still projected as off by this method.
-        auto_approve_preference = self.get_auto_approve_preference(user_id=user_id)
-        nearby_check_in_preferences = self.get_nearby_check_in_defaults(user_id=user_id)
-        sos_voice_preference = self.get_sos_voice_preference(user_id=user_id)
-        _sections = self._run_read_queries_parallel(
-            [
-                (
-                    "owner_grants",
-                    """
+        auto_approve_preference = None
+        nearby_check_in_preferences = None
+        sos_voice_preference = None
+        if not consent_only:
+            auto_approve_preference = self.get_auto_approve_preference(user_id=user_id)
+            nearby_check_in_preferences = self.get_nearby_check_in_defaults(user_id=user_id)
+            sos_voice_preference = self.get_sos_voice_preference(user_id=user_id)
+        state_queries: list[tuple[str, str, dict[str, Any]]] = [
+            (
+                "owner_grants",
+                """
                     SELECT
                       g.*,
                       r.display_name AS recipient_display_name,
@@ -9123,13 +9324,13 @@ class OneLocationAgentService:
                     LEFT JOIN actor_identity_cache r ON r.user_id = g.recipient_user_id
                     WHERE g.owner_user_id = :user_id
                     ORDER BY g.created_at DESC
-                    LIMIT 50
+                    LIMIT :source_limit
                     """,
-                    {"user_id": user_id},
-                ),
-                (
-                    "received_grants",
-                    """
+                {"user_id": user_id, "source_limit": None if require_complete else 50},
+            ),
+            (
+                "received_grants",
+                """
                     SELECT
                       g.*,
                       o.display_name AS owner_display_name,
@@ -9140,13 +9341,13 @@ class OneLocationAgentService:
                     LEFT JOIN actor_identity_cache o ON o.user_id = g.owner_user_id
                     WHERE g.recipient_user_id = :user_id
                     ORDER BY g.created_at DESC
-                    LIMIT 50
+                    LIMIT :source_limit
                     """,
-                    {"user_id": user_id},
-                ),
-                (
-                    "requests",
-                    """
+                {"user_id": user_id, "source_limit": None if require_complete else 50},
+            ),
+            (
+                "requests",
+                """
                     SELECT
                       req.*,
                       requester.display_name AS requester_display_name,
@@ -9179,61 +9380,61 @@ class OneLocationAgentService:
                     LEFT JOIN one_location_share_grants extended ON extended.id = req.extends_grant_id
                     WHERE req.owner_user_id = :user_id OR req.requester_user_id = :user_id
                     ORDER BY req.requested_at DESC
-                    LIMIT 50
+                    LIMIT :source_limit
                     """,
-                    {"user_id": user_id},
-                ),
-                (
-                    "referrals",
-                    """
+                {"user_id": user_id, "source_limit": None if require_complete else 50},
+            ),
+            (
+                "referrals",
+                """
                     SELECT *
                     FROM one_location_referrals
                     WHERE owner_user_id = :user_id
                        OR referring_user_id = :user_id
                        OR referred_user_id = :user_id
                     ORDER BY created_at DESC
-                    LIMIT 50
+                    LIMIT :source_limit
                     """,
-                    {"user_id": user_id},
-                ),
-                (
-                    "public_invites",
-                    """
+                {"user_id": user_id, "source_limit": None if require_complete else 50},
+            ),
+            (
+                "public_invites",
+                """
                     SELECT *, (expires_at <= clock_timestamp()) AS expired_by_db_clock
                     FROM one_location_public_invites
                     WHERE owner_user_id = :user_id
                     ORDER BY created_at DESC
-                    LIMIT 20
+                    LIMIT :source_limit
                     """,
-                    {"user_id": user_id},
-                ),
-                (
-                    "circle_invites",
-                    """
+                {"user_id": user_id, "source_limit": None if require_complete else 20},
+            ),
+            (
+                "circle_invites",
+                """
                     SELECT *
                     FROM one_location_circle_invites
                     WHERE owner_user_id = :user_id
                        OR claimed_by_user_id = :user_id
                     ORDER BY created_at DESC
-                    LIMIT 20
+                    LIMIT :source_limit
                     """,
-                    {"user_id": user_id},
-                ),
-                (
-                    "network_connections",
-                    """
+                {"user_id": user_id, "source_limit": None if require_complete else 20},
+            ),
+            (
+                "network_connections",
+                """
                     SELECT id, owner_user_id, trusted_user_id, status, created_at, updated_at, revoked_at
                     FROM trusted_connections
                     WHERE status = 'active'
                       AND owner_user_id = :user_id
                     ORDER BY created_at DESC
-                    LIMIT 50
+                    LIMIT :source_limit
                     """,
-                    {"user_id": user_id},
-                ),
-                (
-                    "sms_contacts",
-                    """
+                {"user_id": user_id, "source_limit": None if require_complete else 50},
+            ),
+            (
+                "sms_contacts",
+                """
                     SELECT sms.contact_user_id AS contact_user_id
                     FROM one_location_sms_contacts sms
                     WHERE sms.owner_user_id = :user_id
@@ -9317,11 +9518,11 @@ class OneLocationAgentService:
                     WHERE membership.status = 'active'
                       AND membership.user_id <> :user_id
                     """,
-                    {"user_id": user_id},
-                ),
-                (
-                    "public_submissions",
-                    """
+                {"user_id": user_id},
+            ),
+            (
+                "public_submissions",
+                """
                     SELECT
                       submission.*,
                       req.status AS request_status
@@ -9330,13 +9531,13 @@ class OneLocationAgentService:
                     WHERE submission.owner_user_id = :user_id
                        OR submission.matched_user_id = :user_id
                     ORDER BY submission.submitted_at DESC
-                    LIMIT 50
+                    LIMIT :source_limit
                     """,
-                    {"user_id": user_id},
-                ),
-                (
-                    "my_recipient_key",
-                    """
+                {"user_id": user_id, "source_limit": None if require_complete else 50},
+            ),
+            (
+                "my_recipient_key",
+                """
                     SELECT key_id, public_key_jwk, algorithm, encrypted_private_key_jwk,
                            created_at AS key_created_at
                     FROM one_location_recipient_keys
@@ -9345,20 +9546,36 @@ class OneLocationAgentService:
                     ORDER BY created_at DESC
                     LIMIT 1
                     """,
-                    {"user_id": user_id},
-                ),
+                {"user_id": user_id},
+            ),
+        ]
+        if consent_only:
+            state_queries = [
+                task
+                for task in state_queries
+                if task[0]
+                in {
+                    "owner_grants",
+                    "received_grants",
+                    "requests",
+                    "public_invites",
+                }
             ]
+        _sections = self._run_batched_read_queries(
+            state_queries,
+            **({"require_complete": True} if require_complete else {}),
+            required_sections=frozenset() if consent_only else frozenset({"my_recipient_key"}),
         )
-        owner_grants = _sections["owner_grants"]
-        received_grants = _sections["received_grants"]
-        requests = _sections["requests"]
-        referrals = _sections["referrals"]
-        public_invites = _sections["public_invites"]
-        circle_invites = _sections["circle_invites"]
-        network_connections = _sections["network_connections"]
-        sms_contacts = _sections["sms_contacts"]
-        public_submissions = _sections["public_submissions"]
-        my_recipient_key_rows = _sections["my_recipient_key"]
+        owner_grants = _sections.get("owner_grants", [])
+        received_grants = _sections.get("received_grants", [])
+        requests = _sections.get("requests", [])
+        referrals = _sections.get("referrals", [])
+        public_invites = _sections.get("public_invites", [])
+        circle_invites = _sections.get("circle_invites", [])
+        network_connections = _sections.get("network_connections", [])
+        sms_contacts = _sections.get("sms_contacts", [])
+        public_submissions = _sections.get("public_submissions", [])
+        my_recipient_key_rows = _sections.get("my_recipient_key", [])
         my_recipient_key = None
         if my_recipient_key_rows:
             _mrk = my_recipient_key_rows[0]
@@ -9386,8 +9603,10 @@ class OneLocationAgentService:
                     )
                 )
             ],
+            # Only the recipient's own view carries their Feed clear; the
+            # owner's grants never say whether or when it was cleared.
             "receivedGrants": [
-                payload
+                {**payload, "recipientClearedAt": _iso(row.get("recipient_cleared_at"))}
                 for row in received_grants
                 if (
                     payload := self._grant_payload(
@@ -9692,6 +9911,44 @@ class OneLocationAgentService:
             "revoked_share_kind": revoked_share_kind,
             "revoked_via_sms": revoked_via_sms,
         }
+
+    def clear_received_grants(self, *, recipient_user_id: str, grant_ids: list[str]) -> list[str]:
+        """Store the recipient's Feed clear of ended shares (the SOS card).
+
+        Presentation state on the recipient's own received grants, so it holds
+        on every device. Only the caller's grants are touched, never a live
+        share; ``updated_at`` stays as it was, so the owner cannot see a clear.
+        Repeating the call returns the same ids: the requested grants that are
+        cleared now.
+        """
+        requested = sorted({str(UUID(str(grant_id))) for grant_id in grant_ids})
+        if not requested:
+            return []
+        rows = self._execute_many(
+            """
+            WITH cleared AS (
+              UPDATE one_location_share_grants AS g
+                 SET recipient_cleared_at = NOW()
+               WHERE g.recipient_user_id = :recipient_user_id
+                 AND g.id = ANY(CAST(:grant_ids AS UUID[]))
+                 AND g.recipient_cleared_at IS NULL
+                 AND NOT (
+                   g.status = 'active'
+                   AND COALESCE(g.expires_at > NOW(), g.duration_mode = 'until_stopped', FALSE)
+                 )
+              RETURNING g.id
+            )
+            SELECT id::TEXT AS id FROM cleared
+            UNION
+            SELECT g.id::TEXT AS id
+              FROM one_location_share_grants AS g
+             WHERE g.recipient_user_id = :recipient_user_id
+               AND g.id = ANY(CAST(:grant_ids AS UUID[]))
+               AND g.recipient_cleared_at IS NOT NULL
+            """,
+            {"recipient_user_id": recipient_user_id, "grant_ids": requested},
+        )
+        return sorted(str(row["id"]) for row in rows)
 
     def revoke_grant(self, *, owner_user_id: str, grant_id: str) -> dict[str, Any]:
         with self._event_bound_writer():
@@ -10420,7 +10677,7 @@ class OneLocationAgentService:
                         WHEN :expires_after_hours IS NULL THEN NULL
                         ELSE clock_timestamp() + (:expires_after_hours * INTERVAL '1 hour')
                       END,
-                      '{}'::jsonb,
+                      jsonb_build_object('notify_owner', CAST(:notify_owner AS BOOLEAN)),
                       :requested_duration_hours, :requested_duration_mode,
                       CAST(:extends_grant_id AS UUID), 1
                     )
@@ -10435,6 +10692,7 @@ class OneLocationAgentService:
                         "requested_duration_mode": duration_mode_value,
                         "extends_grant_id": extends_grant_value,
                         "expires_after_hours": expires_after_hours,
+                        "notify_owner": notify_owner,
                     },
                 )
                 transitioned = row is not None
@@ -10471,6 +10729,9 @@ class OneLocationAgentService:
                             requested_duration_mode = :requested_duration_mode,
                             extends_grant_id = CAST(:extends_grant_id AS UUID),
                             request_revision = request_revision + CASE WHEN :ask_changed THEN 1 ELSE 0 END,
+                            metadata = CASE WHEN :ask_changed THEN
+                              COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('notify_owner', CAST(:notify_owner AS BOOLEAN))
+                              ELSE metadata END,
                             requested_at = CASE
                               WHEN :ask_changed THEN clock_timestamp()
                               ELSE requested_at
@@ -10493,6 +10754,7 @@ class OneLocationAgentService:
                             "extends_grant_id": extends_grant_value,
                             "ask_changed": ask_changed,
                             "expires_after_hours": expires_after_hours,
+                            "notify_owner": notify_owner,
                         },
                     )
                     if refreshed:

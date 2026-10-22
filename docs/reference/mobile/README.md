@@ -28,16 +28,24 @@ shared web navigation. Native installation must acknowledge before DOM tabs
 are replaced by a measured layout reservation.
 
 React's `app-bottom-nav.ts` remains the routing authority for Chat, One,
-Connect, Feed and Search. Native taps carry only an allowlisted tab identity,
-document identity, interaction epoch and ordered tap sequence; Search still opens the existing command
-palette. Credentials, owner information and destination URLs do not cross
-this presentation bridge. Stale state updates and retired documents cannot act;
+Connect and Feed. Navigation capability version 3 removes Search; older wrappers
+use the four-tab web fallback. Native taps carry only an allowlisted tab identity,
+document identity, interaction epoch and ordered tap sequence. Credentials,
+owner information and destination URLs do not cross this presentation bridge. Stale state updates and retired documents cannot act;
 each tap is confirmed against native privacy generation and current visibility.
 Presentation-only revisions (selection, theme or badge changes) do not discard
 the final tap. Failed provisional loads do not retire the surviving document.
 
-Native controls are hidden and accessibility-isolated under mounted shared
-overlays, session/vault gates, the keyboard and the native privacy shield.
+The recovery wrapper hides native bottom navigation under mounted shared
+overlays and the keyboard. Profile and History remain full-height React
+drawers; custom dock, shell controls and selectors select React before first
+paint. Experimental reserved-region and asynchronous native-clipping paths
+are disabled together, not accepted presentation-continuity mechanisms.
+See the [adoption inventory](../../../hushh-webapp/docs/ios-native-surface-adoption.md)
+for the current renderer scope, qualification-only native composition study
+and separate physical evidence. Session/vault
+gates, keyboard navigation hiding and the full-window privacy shield retain
+their concealment contracts.
 The native bar and web voice slot stay pinned together without per-frame
 bridge traffic. The DOM reservation excludes the native home-indicator inset;
 the existing shared bottom shell reserves the reported native inset once, not
@@ -61,7 +69,21 @@ Native checks have two deliberately separate lanes:
 - `npm run ios:cold:audit` and `npm run android:cold:audit` are destructive fixture audits. They reset app state and use a reviewer fixture to prove cold-start route behavior. They do not prove retained route, authenticated session, or the memory-only vault across background/resume.
 - `npm run ios:continuity:local` and `npm run android:continuity:local` are non-destructive same-session rehearsals. The iOS runner stays headless by default; use `npm run ios:continuity:local -- --visible` only when a desktop window is requested. They require an already-installed, normally unlocked app and never install, clear, terminate, or inject reviewer credentials. Use them for rapid interaction, background/resume, and voice-ownership checks.
 
-The vault key and VAULT_OWNER token remain memory-only. A normal background/resume preserves a valid in-memory session; an actual WebView/process restart requires the normal unlock path. The app shell is the single native lifecycle collector. Components that need lifecycle work subscribe to its signal; AuthProvider and VaultProvider deliberately do not use routine resume events to revalidate or rerender an already-unlocked session.
+The vault key and VAULT_OWNER token remain memory-only. A normal background/resume preserves a valid in-memory session; an actual WebView/process restart requires the normal unlock path. The app shell is the single native lifecycle collector. Components that need lifecycle work subscribe to its signal; AuthProvider and VaultProvider deliberately do not use routine resume events to revalidate session admission or relock an already-unlocked session. AuthProvider consumes the shared signal only for bounded phone-identity recovery when canonical phone evidence is unavailable or expired; fresh evidence needs no request, and recovery never reopens the session gate.
+
+For an iPhone Debug reviewer preparation that must use Passphrase rather than
+the account's default quick unlock, launch once with `-UITestMode`,
+`-UITestResetAppState false`, `-UITestAutoReviewerLogin false` and
+`-UITestRunUiFlows false`. All four belong together: test mode alone defaults
+to resetting app state. Omit initial-route, expected-user and app credential
+injection; preserve the existing sign-in and verify its owner before the
+normal XCUI Unlock action. The existing test bridge selects the passphrase
+surface without authenticating it. Resolve the authorized credential into
+runner memory only. This launch is preparation, not continuity evidence;
+subsequent attach-only tests do not relaunch, reset or sign out. Ordinary
+users' default methods are unchanged. Follow
+[physical reviewer preflight](../../../.codex/skills/mobile-parity-audit/references/physical-reviewer-preflight.md)
+for device authorization and artifact handling.
 
 ## Native Authentication Settlement
 

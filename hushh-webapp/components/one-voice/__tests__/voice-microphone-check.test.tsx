@@ -1,5 +1,6 @@
 import {
   cleanup,
+  act,
   fireEvent,
   render,
   screen,
@@ -11,7 +12,6 @@ import {
   MIC_CHECK_METER_MS,
   MIC_CHECK_TONE_MS,
   VoiceMicrophoneCheck,
-  formatSampleRate,
   type MicrophoneCheckCapture,
 } from "@/components/one-voice/voice-microphone-check";
 import type { MicrophoneProbe } from "@/lib/one-voice/audio/capture";
@@ -199,17 +199,27 @@ describe("VoiceMicrophoneCheck", () => {
     ).toHaveTextContent("Test microphone");
   });
 
-  it("keeps the trigger at a 44pt target and formats sample rates", () => {
-    render(
+  it("does not start capture or publish a late permission result after leaving its owner", async () => {
+    let resolveProbe!: (value: MicrophoneProbe) => void;
+    const probe = new Promise<MicrophoneProbe>(resolve => { resolveProbe = resolve; });
+    const capture = fakeCapture([0.5]);
+    const createCapture = vi.fn(() => capture);
+    const audio = fakeAudioContext();
+    const onReport = vi.fn();
+    const view = render(
       <VoiceMicrophoneCheck
-        probe={async () => ({ ok: false })}
+        probe={() => probe}
+        createCapture={createCapture}
+        createAudioContext={() => audio.context}
+        onReport={onReport}
         wait={async () => undefined}
       />,
     );
-    expect(
-      screen.getByTestId("one-voice-microphone-check-run").className,
-    ).toContain("min-h-11");
-    expect(formatSampleRate(48_000)).toBe("48,000 Hz");
-    expect(formatSampleRate(null)).toBe("Unknown");
+    fireEvent.click(screen.getByTestId("one-voice-microphone-check-run"));
+    view.unmount();
+    await act(async () => { resolveProbe({ ok: true, sampleRate: 48_000, echoCancellation: true, workletLoaded: true }); });
+    expect(createCapture).not.toHaveBeenCalled();
+    expect(audio.raw.close).toHaveBeenCalled();
+    expect(onReport).not.toHaveBeenCalled();
   });
 });

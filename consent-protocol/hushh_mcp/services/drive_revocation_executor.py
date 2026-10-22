@@ -9,7 +9,7 @@ from hushh_mcp.services.drive_permission_executor import (
 from hushh_mcp.services.drive_revocation_store import DriveRevocationStore
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.google_drive_adapter import DriveReadError
-from hushh_mcp.services.google_drive_permission_adapter import DrivePermissionError
+from hushh_mcp.services.google_drive_permission_adapter import DrivePermissionError, same_expiration
 
 
 def current_recorded_viewer(snapshot, plan):
@@ -25,7 +25,7 @@ def current_recorded_viewer(snapshot, plan):
         or current.get("emailAddress", "").casefold() != plan["recipient_email"].casefold()
         or current.get("deleted") is True
         or current.get("pendingOwner") is True
-        or current.get("expirationTime") is not None
+        or not same_expiration(current.get("expirationTime"), plan.get("expiration_time"))
         or not isinstance(details, list)
         or not details
         or any(
@@ -58,8 +58,6 @@ class DriveRevocationExecutor(DrivePermissionExecutor):
                     required_profile="live" if plan.get("source_kind") == "live" else "selected",
                 )
                 issuer = verified_issuer(credentials)
-                if row["connection_generation"] != job["connection_generation"]:
-                    raise DriveSharingError("connection_changed")
                 if issuer != plan["issuer"]:
                     raise DriveSharingError("reconnect_original_account")
                 args = {

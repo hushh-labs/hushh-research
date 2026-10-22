@@ -228,6 +228,7 @@ export class HushhLocationWeb implements HushhLocationPlugin {
     // being shown as the user's current location. Resolves early once a fix is
     // accurate enough; otherwise returns the best sample seen when the budget
     // elapses.
+    let earlyCoarseRead: Promise<WebFix> | null = null;
     const sampleBest = (enableHighAccuracy: boolean, budgetMs: number) =>
       new Promise<WebFix>((resolve, reject) => {
         let best: WebFix | null = null;
@@ -235,6 +236,7 @@ export class HushhLocationWeb implements HushhLocationPlugin {
         let watchId: number | null = null;
         let timer: ReturnType<typeof setTimeout> | null = null;
         let refineTimer: ReturnType<typeof setTimeout> | null = null;
+        let coarseReadStarted = false;
 
         const cleanup = () => {
           if (timer !== null) {
@@ -257,41 +259,48 @@ export class HushhLocationWeb implements HushhLocationPlugin {
           if (value) resolve(value);
           else reject(error);
         };
+        const acceptSample = (fix: WebFix) => {
+          if (settled) return;
+          if (isBetter(fix, best)) best = fix;
+          if (best?.accuracyM != null && best.accuracyM <= TARGET_ACCURACY_M) {
+            finish(best);
+          } else if (refineTimer === null) {
+            refineTimer = setTimeout(() => finish(best), REFINE_AFTER_FIRST_FIX_MS);
+          }
+        };
 
         try {
           watchId = navigator.geolocation.watchPosition(
             (position) => {
-              const fix = toFix(position);
-              if (isBetter(fix, best)) best = fix;
-              if (
-                best?.accuracyM != null &&
-                best.accuracyM <= TARGET_ACCURACY_M
-              ) {
-                finish(best);
-                return;
-              }
-              // First fix in hand but not yet confident. Give later fixes a
-              // short window to beat it — enough to reject one jumpy reading,
-              // which is the whole point of sampling — then return the best of
-              // them rather than waiting out the full budget.
-              if (refineTimer === null) {
-                refineTimer = setTimeout(
-                  () => finish(best),
-                  REFINE_AFTER_FIRST_FIX_MS,
-                );
-              }
+              acceptSample(toFix(position));
             },
             (error) => {
-              // Only a hard permission denial should abort sampling; transient
-              // unavailable/timeout errors are ignored so a later fix can land.
-              if ((error as GeolocationPositionError)?.code === 1) {
+              const code = (error as GeolocationPositionError)?.code;
+              // A laptop can allow Location without having a GPS provider.
+              // Try its network provider immediately instead of waiting the
+              // entire high-accuracy window after an explicit no-fix result.
+              // Preserve a usable sample when only its refinement failed.
+              if (code === 1) {
                 finish(null, error);
+              } else if (!settled && !best && !coarseReadStarted && (code === 2 || code === 3)) {
+                coarseReadStarted = true;
+                // Keep the watch alive: phones can recover their precise fix
+                // while the laptop-friendly network request is in flight.
+                earlyCoarseRead = readOnce(false, 0, LAST_RESORT_RESERVE_MS);
+                void earlyCoarseRead.then(acceptSample, (coarseError) => {
+                  if (!settled && (coarseError as GeolocationPositionError)?.code === 1) finish(null, coarseError);
+                });
               }
             },
             { enableHighAccuracy, timeout: budgetMs, maximumAge: 0 },
           );
         } catch (error) {
           finish(null, error);
+          return;
+        }
+
+        if (settled) {
+          cleanup();
           return;
         }
 
@@ -303,7 +312,7 @@ export class HushhLocationWeb implements HushhLocationPlugin {
 
     const attempt = (enableHighAccuracy: boolean) => {
       if (!enableHighAccuracy) {
-        return readOnce(false, 0, LAST_RESORT_RESERVE_MS);
+        return earlyCoarseRead ?? readOnce(false, 0, LAST_RESORT_RESERVE_MS);
       }
       // Sample within a bounded window (cap at 9s) so the picker stays snappy
       // while still rejecting a single jumpy reading — and never past the

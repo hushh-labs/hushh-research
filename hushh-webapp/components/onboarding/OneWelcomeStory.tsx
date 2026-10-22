@@ -1,112 +1,100 @@
 "use client";
 
-import { useId, type CSSProperties, type RefObject } from "react";
-import {
-  FigmaHushhLogo,
-  FigmaOneLogo,
-  FigmaPrivacyNote,
-} from "./FigmaOnboardingPrimitives";
+import Image from "next/image";
+import type { ReactNode, RefObject } from "react";
 import styles from "./IntroStep.module.css";
 
-// Tile bounds in the original exports, normalized to their source canvases.
-// Mask and reveal the same image bytes so the settled art is the original UI.
-const LIGHT_TILES = [
-  [128, 300, 177, 170], [374, 253, 167, 162], [602, 300, 168, 178],
-  [48, 476, 175, 165], [262, 460, 169, 168], [473, 452, 168, 159],
-  [695, 497, 174, 162], [194, 635, 179, 173], [377, 690, 166, 152],
-  [549, 636, 169, 163],
-] as const;
-const DARK_TILES = [
-  [385, 98, 192, 181], [666, 32, 183, 173], [910, 92, 194, 181],
-  [312, 300, 191, 184], [545, 256, 184, 172], [778, 252, 184, 173],
-  [987, 309, 195, 188], [480, 441, 188, 177], [675, 495, 161, 153],
-  [846, 438, 187, 179],
-] as const;
+const MASCOT_SRC = "/onboarding/welcome-stitch/one-mascot.png";
 
-function WelcomeArtwork({ dark = false }: { dark?: boolean }) {
-  const id = useId().replace(/:/g, "");
-  const tiles = dark ? DARK_TILES : LIGHT_TILES;
-  const width = dark ? 1536 : 950;
-  const height = dark ? 1024 : 1698;
-  const source = `/onboarding/figma/screen-${dark ? "8" : "2"}-art.png`;
-  const box = dark ? ([750, 745] as const) : ([450, 925] as const);
+type CueKind = "calendar" | "mail" | "consent";
 
+function WelcomeIcon({ name }: { name: CueKind }) {
   return (
-    <svg
-      viewBox={dark ? "0 0 1536 1024" : "0 90 950 1192"}
-      className={`${styles.illustration} ${dark ? styles.darkArtwork : styles.lightArtwork}`}
-      aria-hidden="true"
-      data-welcome-artwork={dark ? "dark" : "light"}
-    >
-      <defs>
-        <image id={`${id}-source`} href={source} width={width} height={height} />
-        <mask id={`${id}-base`} maskUnits="userSpaceOnUse" x="0" y="0" width={width} height={height}>
-          <rect width={width} height={height} fill="white" />
-          {tiles.map(([x, y, w, h], index) => (
-            <rect key={index} x={x} y={y} width={w} height={h} fill="black" />
-          ))}
-        </mask>
-        {tiles.map(([x, y, w, h], index) => (
-          <clipPath key={index} id={`${id}-tile-${index}`}>
-            <rect x={x} y={y} width={w} height={h} />
-          </clipPath>
-        ))}
-      </defs>
-      <use href={`#${id}-source`} mask={`url(#${id}-base)`} />
-      {tiles.map(([x, y, w, h], index) => (
-        <g
-          key={index}
-          className={styles.popTile}
-          data-welcome-tile
-          style={{
-            transformOrigin: `${x + w / 2}px ${y + h / 2}px`,
-            "--pop-x": `${box[0] - x - w / 2}px`,
-            "--pop-y": `${box[1] - y - h / 2}px`,
-            "--pop-delay": `${index * 45}ms`,
-          } as CSSProperties}
-        >
-          <use href={`#${id}-source`} clipPath={`url(#${id}-tile-${index})`} />
-        </g>
-      ))}
-      <use href={`#${id}-source`} className={styles.restingArtwork} />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      {name === "calendar" && (
+        <>
+          <rect x="3.5" y="5" width="17" height="16" rx="3" />
+          <path d="M7.5 3v4m9-4v4M4 10h16m-12 4h1m6 0h1m-8 3h1" />
+        </>
+      )}
+      {name === "mail" && (
+        <>
+          <rect x="3" y="5" width="18" height="14" rx="3" />
+          <path d="m4 7 8 6 8-6" />
+        </>
+      )}
+      {name === "consent" && (
+        <>
+          <rect x="5" y="10" width="14" height="11" rx="3" />
+          <path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2" />
+        </>
+      )}
     </svg>
   );
 }
 
-/** The original welcome composition; the parent owns all navigation. */
-export function OneWelcomeStory({ headingRef, motionEnabled }: {
-  headingRef: RefObject<HTMLDivElement | null>;
-  motionEnabled: boolean;
-}) {
+function WelcomeCue({ kind, label }: { kind: CueKind; label: string }) {
+  const position = {
+    calendar: styles.cueCalendar,
+    mail: styles.cueMail,
+    consent: styles.cueConsent,
+  }[kind];
+
   return (
-    <>
-      <header className={styles.welcomeBrand}>
-        <FigmaHushhLogo className={styles.brand} />
-      </header>
-      <div className={styles.welcomeContent} data-motion={motionEnabled ? "animated" : "static"}>
-        <div className={styles.artwork} aria-hidden="true">
-          <div className={styles.artworkCanvas}>
-            <WelcomeArtwork />
-            <WelcomeArtwork dark />
-            <span className={styles.quietMark}>🤫</span>
-          </div>
-        </div>
-        <div ref={headingRef} tabIndex={-1} className={styles.hero}>
-          <h1 className={styles.title} aria-label="One">
-            <FigmaOneLogo />
-          </h1>
-          <p className={styles.tagline}>Your agents. Yours to own.</p>
-          <p className={styles.subtitle}>Your private network of AI agents</p>
-        </div>
-      </div>
-    </>
+    <div className={[styles.cue, position].join(" ")} data-welcome-cue={kind}>
+      <span className={styles.cueIcon}><WelcomeIcon name={kind} /></span>
+      <span>{label}</span>
+    </div>
   );
 }
 
-export function OneWelcomePrivacy() {
+/** Canonical mascot collage shared by the welcome and sign-in screens. */
+export function OneWelcomeArtwork({ motionEnabled = false }: { motionEnabled?: boolean }) {
   return (
-    <div className={styles.privacy}>
-      <FigmaPrivacyNote>You choose what to share.</FigmaPrivacyNote>
+    <div className={styles.visual} data-motion={motionEnabled ? "on" : "off"} data-welcome-scene aria-hidden="true">
+      <div className={styles.artboard} data-welcome-artwork>
+        <svg className={styles.shapes} viewBox="0 0 400 466" fill="none" focusable="false">
+          <path fill="#f7b5d5" d="M63 167C87 151 122 155 135 178L170 266C181 293 169 324 144 337L91 363C61 378 37 363 31 334L20 235C16 205 36 184 63 167Z" />
+          <path fill="#ffdd6b" d="M268 155C280 139 304 139 313 157C329 145 353 152 354 173C376 174 384 198 369 213C387 229 379 252 356 255C363 278 343 293 323 283C317 306 291 309 279 288C259 301 239 286 244 263C222 260 215 236 232 220C213 205 222 181 244 180C244 159 257 152 268 155Z" />
+          <path fill="#ff715d" d="M284 286C312 279 343 290 356 315C375 351 353 390 317 399L278 409L267 368L300 359C316 355 326 342 319 329C313 318 302 315 292 318L267 325L255 294L284 286Z" />
+          <path fill="#b8cfff" d="M97 331C136 313 182 328 198 361C213 392 195 418 164 429C130 441 98 419 90 389C83 366 82 345 97 331Z" />
+          <g stroke="#29292e" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M65 139l-6-12M75 135l-1-13M85 138l5-12" />
+            <path d="M326 441c-18 8-40 11-61 7M269 443l-7 4 7 5" />
+          </g>
+        </svg>
+        <Image className={styles.wordmark} src="/onboarding/figma/one-light.svg" alt="" width={221} height={91} priority data-welcome-wordmark />
+        <Image className={styles.mascot} src={MASCOT_SRC} alt="" width={1254} height={1254} priority data-welcome-mascot />
+        <WelcomeCue kind="calendar" label="Find a time" />
+        <WelcomeCue kind="mail" label="Catch me up" />
+        <WelcomeCue kind="consent" label="My access" />
+      </div>
     </div>
+  );
+}
+
+/** Shared web and iOS WebView welcome, before the existing four-slide introduction. */
+export function OneWelcomeStory({
+  headingRef,
+  motionEnabled,
+  children,
+}: {
+  headingRef: RefObject<HTMLDivElement | null>;
+  motionEnabled: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <section className={styles.composition} aria-label="Welcome to One">
+      <OneWelcomeArtwork motionEnabled={motionEnabled} />
+      <div className={styles.content}>
+        <div ref={headingRef} tabIndex={-1} className={styles.headingFocus}>
+          <h1 className={styles.heading}>
+            <span>Your private AI agent</span>{" "}
+            <span>for everyday life.</span>
+          </h1>
+        </div>
+        {children}
+      </div>
+    </section>
   );
 }

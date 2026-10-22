@@ -16,7 +16,19 @@ from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from hushh_mcp.services import one_referral_activity_service as activity_service
 from hushh_mcp.services import one_referral_leaderboard_service as leaderboard_service
+
+
+@pytest.fixture(autouse=True)
+def snapshot_publication(monkeypatch):
+    from hushh_mcp.services import one_referral_scoring_service
+
+    monkeypatch.setattr(one_referral_scoring_service, "publish_leaderboard_snapshot", lambda: None)
+    monkeypatch.setattr(leaderboard_service, "get_leaderboard_profiles", lambda *args, **kwargs: {})
+
 
 SNAPSHOT_ID = "33333333-3333-3333-3333-333333333333"
 GENERATED_AT = datetime(2026, 11, 9, tzinfo=timezone.utc)
@@ -76,6 +88,8 @@ def test_a_referrer_with_no_handle_renders_as_the_anonymous_placeholder(monkeypa
 
 
 def test_a_referrer_with_a_handle_renders_their_chosen_handle_never_a_real_name(monkeypatch):
+    identity_read = MagicMock(return_value={})
+    monkeypatch.setattr(leaderboard_service, "get_leaderboard_profiles", identity_read)
     page_rows = [SimpleNamespace(user_id="user_with_handle", cumulative_points=500, rank=1)]
     conn = MagicMock()
 
@@ -98,9 +112,25 @@ def test_a_referrer_with_a_handle_renders_their_chosen_handle_never_a_real_name(
         result = leaderboard_service.get_individual_leaderboard(viewer_user_id="someone_else")
 
     assert result["entries"][0]["handle"] == "top-dog"
+    assert result["entries"][0]["photo_url"] is None
+    identity_read.assert_called_once_with([], viewer_user_id="someone_else")
 
 
 def test_viewer_row_included_when_outside_the_page(monkeypatch):
+    monkeypatch.setattr(
+        leaderboard_service,
+        "get_leaderboard_profiles",
+        lambda *args, **kwargs: {
+            "user_viewer": {
+                "display_name": "My profile",
+                "photo_url": "https://example.test/me.png",
+            },
+            "user_rank_1": {
+                "display_name": "Visible peer",
+                "photo_url": "https://example.test/peer.png",
+            },
+        },
+    )
     page_rows = [SimpleNamespace(user_id="user_rank_1", cumulative_points=1000, rank=1)]
     viewer_row = SimpleNamespace(user_id="user_viewer", cumulative_points=20, rank=47)
     conn = MagicMock()
@@ -123,6 +153,8 @@ def test_viewer_row_included_when_outside_the_page(monkeypatch):
 
     assert result["viewer"]["rank"] == 47
     assert result["viewer"]["is_viewer"] is True
+    assert result["viewer"]["photo_url"] == "https://example.test/me.png"
+    assert result["entries"][0]["photo_url"] == "https://example.test/peer.png"
     assert len(result["entries"]) == 1  # the page itself is untouched
 
 
@@ -160,6 +192,8 @@ def test_get_milestone_progress_reports_earned_and_the_nearest_next_milestone(mo
         milestone_key="tee_5",
         reward="hushh_tee",
         earned_at=datetime(2026, 10, 1, tzinfo=timezone.utc),
+        claimed_at=None,
+        fulfillment_status="pending_review",
     )
     conn = MagicMock()
 
@@ -184,7 +218,13 @@ def test_get_milestone_progress_reports_earned_and_the_nearest_next_milestone(mo
 
     assert progress["lifetime_qualified_count"] == 7
     assert progress["earned"] == [
-        {"milestone_key": "tee_5", "reward": "hushh_tee", "earned_at": "2026-10-01T00:00:00+00:00"}
+        {
+            "milestone_key": "tee_5",
+            "reward": "hushh_tee",
+            "earned_at": "2026-10-01T00:00:00+00:00",
+            "claimed_at": None,
+            "fulfillment_status": "pending_review",
+        }
     ]
     assert progress["next_milestone"] == {
         "milestone_key": "backpack_15",
@@ -209,6 +249,11 @@ def test_get_engagement_status_reports_live_streak_and_no_active_flash(monkeypat
             return datetime(2026, 11, 9, 12, 0, tzinfo=tz or timezone.utc)
 
     monkeypatch.setattr(leaderboard_service, "datetime", _FrozenDateTime)
+    monkeypatch.setattr(
+        activity_service,
+        "get_daily_streak",
+        lambda *_args: {"current_run_days": 2, "longest_run_days": 2},
+    )
 
     with patch.object(leaderboard_service, "get_db_connection", side_effect=lambda: _db(conn)):
         status = leaderboard_service.get_engagement_status(
@@ -230,6 +275,11 @@ def test_get_engagement_status_reports_an_active_flash_window(monkeypatch):
             return datetime(2026, 11, 8, 15, 0, tzinfo=tz or timezone.utc)
 
     monkeypatch.setattr(leaderboard_service, "datetime", _FrozenDateTime)
+    monkeypatch.setattr(
+        activity_service,
+        "get_daily_streak",
+        lambda *_args: {"current_run_days": 2, "longest_run_days": 2},
+    )
     windows = [
         {
             "start": datetime(2026, 11, 8, 12, 0, tzinfo=timezone.utc).isoformat(),
@@ -257,10 +307,18 @@ def test_get_milestone_progress_has_no_next_milestone_once_everything_is_earned(
             return _Result(
                 [
                     SimpleNamespace(
-                        milestone_key="tee_5", reward="hushh_tee", earned_at=GENERATED_AT
+                        milestone_key="tee_5",
+                        reward="hushh_tee",
+                        earned_at=GENERATED_AT,
+                        claimed_at=None,
+                        fulfillment_status="pending_review",
                     ),
                     SimpleNamespace(
-                        milestone_key="backpack_15", reward="hushh_backpack", earned_at=GENERATED_AT
+                        milestone_key="backpack_15",
+                        reward="hushh_backpack",
+                        earned_at=GENERATED_AT,
+                        claimed_at=None,
+                        fulfillment_status="pending_review",
                     ),
                 ]
             )
@@ -278,3 +336,47 @@ def test_get_milestone_progress_has_no_next_milestone_once_everything_is_earned(
         )
 
     assert progress["next_milestone"] is None
+
+
+@pytest.mark.parametrize(
+    "joined,threshold",
+    [
+        (2, 10),
+        (9, 10),
+        (10, 100),
+        (99, 100),
+        (100, 500),
+        (499, 500),
+        (500, 10000),
+        (9999, 10000),
+        (10000, None),
+    ],
+)
+def test_featured_reward_uses_joined_threshold_even_when_entitlements_lag(joined, threshold):
+    conn = MagicMock()
+
+    def execute(query, params=None):
+        sql = str(query)
+        if "COUNT(DISTINCT" in sql:
+            return _Result([SimpleNamespace(total=joined)])
+        if "FROM one_referral_relationships" in sql:
+            return _Result([SimpleNamespace(total=0)])
+        return _Result([])
+
+    conn.execute.side_effect = execute
+    with patch.object(leaderboard_service, "get_db_connection", side_effect=lambda: _db(conn)):
+        result = leaderboard_service.get_milestone_progress(
+            "owner",
+            settings_milestones=[
+                {"milestone_key": str(n), "threshold": n, "reward": str(n)}
+                for n in (10, 100, 500, 10000)
+            ],
+        )
+    assert result["joined_referral_count"] == joined
+    assert result["lifetime_qualified_count"] == 0
+    assert result["earned"] == []
+    assert (
+        result["next_milestone"]["threshold"] if result["next_milestone"] else None
+    ) == threshold
+    if threshold:
+        assert result["next_milestone"]["progress"] == joined

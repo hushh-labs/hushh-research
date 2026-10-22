@@ -1,7 +1,7 @@
 import Image from "next/image";
 import type { ComponentPropsWithoutRef } from "react";
 
-import { HUSHH_MARK_PATH } from "@/lib/brand/hushh-mark";
+import { HUSHH_MARK_PATH, HUSHH_MARK_VECTOR_PATH } from "@/lib/brand/hushh-mark";
 import { cn } from "@/lib/utils";
 
 export function HushhMark({
@@ -9,11 +9,13 @@ export function HushhMark({
   className,
   imageClassName,
   priority = false,
+  vector = false,
   ...props
 }: Omit<ComponentPropsWithoutRef<"span">, "children"> & {
   alt?: string;
   imageClassName?: string;
   priority?: boolean;
+  vector?: boolean;
 }) {
   return (
     <span
@@ -22,7 +24,7 @@ export function HushhMark({
       data-hushh-mark
     >
       <Image
-        src={HUSHH_MARK_PATH}
+        src={vector ? HUSHH_MARK_VECTOR_PATH : HUSHH_MARK_PATH}
         alt={alt}
         width={512}
         height={512}

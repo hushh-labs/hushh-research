@@ -122,27 +122,18 @@ async function buildStylesheet(candidates: string[]): Promise<string> {
 
   // The app's own @font-face rules cannot load over file:// and, sharing a
   // family name with the working one, stop it satisfying fonts.check.
-  return stripAppFontFaces(compiler.build(candidates));
+  return stripAppFontFaces((await import("lightningcss")).transform({ code: Buffer.from(compiler.build(candidates)), minify: true }).code.toString());
 }
 
 /**
  * Write a fixture directory and return its `file://` URL.
  *
- * The real Inter face is copied in and the stylesheet's absolute `/fonts/...`
- * URLs rewritten to point at it. Without that step the page falls back to a
- * system font, and a row measured here would be a row of the wrong typeface.
+ * The fixture inlines the shipped Plus Jakarta Sans faces after removing
+ * absolute app font URLs. A row measured here uses the product typeface.
  */
 async function buildFixture(name: string, body: string, candidates: string[]) {
-  const webappRoot = process.cwd();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
-
-  let css = await buildStylesheet(candidates);
-
-  const fontSource = path.join(webappRoot, "public/fonts/Inter");
-  if (fs.existsSync(fontSource)) {
-    fs.cpSync(fontSource, path.join(dir, "fonts/Inter"), { recursive: true });
-    css = css.replace(/url\(["']?\/fonts\//g, 'url("./fonts/');
-  }
+  const css = await buildStylesheet(candidates);
 
   fs.writeFileSync(path.join(dir, "fixture.css"), css);
   fs.writeFileSync(
@@ -172,7 +163,9 @@ function buildProductionMemberActionsStylesheet(): Promise<string> {
     const sources = [
       "components/one-location/redesign/circles/circle-member-actions-menu.tsx",
       "components/one-location/redesign/circles/circle-member-row-layout.ts",
+      "components/one-location/redesign/location-action-styles.ts",
       "components/connections/connection-person-avatar.tsx",
+      "components/profile/profile-pane-icons.tsx",
       "components/ui/alert-dialog.tsx",
       "components/ui/avatar.tsx",
       "components/ui/button.tsx",
@@ -203,7 +196,7 @@ function pinNodeEnv(value: "development" | "production"): () => void {
   };
 }
 
-async function startProductionMemberActionsFixture() {
+async function startProductionMemberActionsFixture(owner = false) {
   const webappRoot = process.cwd();
   const fixturePrefix = "circle-member-actions-component-";
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), fixturePrefix));
@@ -213,7 +206,7 @@ async function startProductionMemberActionsFixture() {
       "components/one-location/redesign/circles/circle-member-actions-menu.tsx",
     )
     .replaceAll("\\", "/");
-  const memberName = "Wilhelmina Featherstonehaugh-Rajendran";
+  const memberName = owner ? "parth" : "Wilhelmina Featherstonehaugh-Rajendran";
 
   fs.mkdirSync(path.join(dir, "src"));
   fs.writeFileSync(
@@ -230,6 +223,15 @@ async function startProductionMemberActionsFixture() {
 export default function Link({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement> & { href: unknown; children: ReactNode }) {
   return <a href={typeof href === "string" ? href : "#"} {...props}>{children}</a>;
 }`,
+  );
+  fs.writeFileSync(
+    path.join(dir, "src/direct-messages-service.ts"),
+    `export const DirectMessagesService = { routeHref: async () => { throw new Error("Messaging is outside this roster fixture"); } };`,
+  );
+  fs.writeFileSync(
+    path.join(dir, "src/next-navigation.ts"),
+    `const router = { push: () => {}, replace: () => {}, prefetch: () => {} };
+export const useRouter = () => router;`,
   );
   fs.writeFileSync(
     path.join(dir, "src/main.tsx"),
@@ -273,9 +275,9 @@ function App() {
               <CircleMemberActionsMenu
                 displayName={memberName}
                 initials="WF"
-                secondaryLine="Connected"
+                secondaryLine="${owner ? "Owner" : "Connected"}"
                 canShare
-                canRemove
+                canRemove={${!owner}}
                 busy={false}
                 onShare={noop}
                 onRemove={noopAsync}
@@ -317,8 +319,10 @@ root.render(<App />);`,
       plugins: [react()],
       resolve: {
         alias: [
+          { find: "@/lib/services/direct-messages-service", replacement: path.join(dir, "src/direct-messages-service.ts") },
           { find: "@", replacement: webappRoot },
           { find: "next/link", replacement: path.join(dir, "src/next-link.tsx") },
+          { find: "next/navigation", replacement: path.join(dir, "src/next-navigation.ts") },
           {
             find: /^react\/jsx-dev-runtime$/,
             replacement: path.join(
@@ -462,6 +466,7 @@ type RosterRow = {
   secondary: string;
   action: "connect" | "none";
   menu: boolean;
+  fromContacts?: boolean;
 };
 
 const ROSTER: RosterRow[] = [
@@ -493,9 +498,26 @@ const ROSTER: RosterRow[] = [
     action: "connect",
     menu: true,
   },
+  {
+    name: "Asha Featherstonehaugh-Rajendran",
+    secondary: "Connected",
+    action: "none",
+    menu: true,
+    fromContacts: true,
+  },
+  {
+    name: "Asha Contact Pending",
+    secondary: "Location setup needed",
+    action: "connect",
+    menu: true,
+    fromContacts: true,
+  },
 ];
 
 function rosterBody(rows: RosterRow[], legacy = false): string {
+  // The production icon's 16px box matters to this layout fixture; its
+  // detailed paths are owned by ContactsBookIcon, not by a row geometry test.
+  const contactSourceIcon = '<svg data-testid="row-contact-source" role="img" aria-label="Connected from your contacts" class="size-4 shrink-0" viewBox="0 0 16 16" fill="none"><rect x="2" y="1.75" width="10.75" height="12.5" rx="1.65" stroke="var(--ios-account-label)" stroke-width="1.1"/><circle cx="8.5" cy="6.25" r="1.45" fill="var(--ios-account-accent)"/></svg>';
   const cells = rows
     .map((row, index) => {
       const action =
@@ -523,7 +545,7 @@ function rosterBody(rows: RosterRow[], legacy = false): string {
         : CIRCLE_MEMBER_ROW_CLASSNAME;
       const nameMarkup = legacy
         ? `<p data-testid="row-name" class="break-words text-[15px] font-semibold leading-snug text-foreground">${row.name}</p>`
-        : `<p class="${CIRCLE_MEMBER_NAME_ROW_CLASSNAME}"><span data-testid="row-name" class="${CIRCLE_MEMBER_NAME_CLASSNAME}">${row.name}</span></p>`;
+        : `<p class="${cn(CIRCLE_MEMBER_NAME_ROW_CLASSNAME, "flex items-center gap-1.5")}"><span data-testid="row-name" class="${CIRCLE_MEMBER_NAME_CLASSNAME}">${row.name}</span>${row.fromContacts ? contactSourceIcon : ""}</p>`;
 
       return `<div data-testid="row" data-row="${index}" class="${rowClass}">
   <span data-testid="row-avatar" class="${cn(
@@ -537,7 +559,7 @@ function rosterBody(rows: RosterRow[], legacy = false): string {
   ${
     legacy
       ? `${action}${menu}`
-      : `<div class="${cn(CIRCLE_MEMBER_TRAILING_CLASSNAME, row.action !== "none" && CIRCLE_MEMBER_STACKED_ACTION_CLASSNAME)}">${action}${menu}</div>`
+      : `<div class="${cn(CIRCLE_MEMBER_TRAILING_CLASSNAME, row.action !== "none" && CIRCLE_MEMBER_STACKED_ACTION_CLASSNAME)}"><div class="flex shrink-0 items-center justify-end gap-1">${action}${menu}</div></div>`
   }
 </div>`;
     })
@@ -598,6 +620,7 @@ const CANDIDATES = [
   "ui-text-page-title",
   "divide-y",
   "divide-border/60",
+  "size-4", "shrink-0", "gap-1.5", "gap-1", "items-center", "justify-end", "flex",
   "rounded-[var(--app-card-radius-standard,24px)]",
   "bg-[color:var(--app-card-surface-default-solid)]",
 ];
@@ -670,8 +693,7 @@ test.describe("Circle roster row", () => {
         "avatar left edge",
       ).toBeLessThanOrEqual(0.5);
 
-      // Every row keeps the common minimum beat. Long identities may grow the
-      // row instead of being replaced by an ellipsis.
+      // Every row keeps the common minimum beat, with a single-line identity.
       for (const row of rows) {
         // CSS min-height is border-box; a separator consumes one pixel within it.
         expect(row.height).toBeGreaterThanOrEqual(
@@ -689,15 +711,18 @@ test.describe("Circle roster row", () => {
           scrollHeight: node.scrollHeight,
           textOverflow: getComputedStyle(node).textOverflow,
           whiteSpace: getComputedStyle(node).whiteSpace,
+          overflow: getComputedStyle(node).overflow,
         })),
       );
       for (const metric of nameMetrics) {
-        expect(metric.scrollWidth).toBeLessThanOrEqual(metric.clientWidth + 1);
+        expect(metric.clientWidth).toBeGreaterThan(0);
         expect(metric.scrollHeight).toBeLessThanOrEqual(
           metric.clientHeight + 1,
         );
-        expect(metric.textOverflow).not.toBe("ellipsis");
-        expect(metric.whiteSpace).not.toBe("nowrap");
+        expect(metric.clientHeight).toBeLessThanOrEqual(22);
+        expect(metric.textOverflow).toBe("ellipsis");
+        expect(metric.whiteSpace).toBe("nowrap");
+        expect(metric.overflow).toBe("hidden");
       }
 
       if (width < 640) {
@@ -723,8 +748,8 @@ test.describe("Circle roster row", () => {
           ).toBeGreaterThanOrEqual(190);
           expect(
             names[index].height,
-            "long name uses at most three lines",
-          ).toBeLessThanOrEqual(64);
+            "long name stays on one line",
+          ).toBeLessThanOrEqual(22);
           expect(menus[index].top).toBeGreaterThanOrEqual(copies[index].bottom);
           expect(
             Math.abs(
@@ -753,6 +778,29 @@ test.describe("Circle roster row", () => {
       for (const avatar of avatars) {
         expect(avatar.left).toBeGreaterThanOrEqual(PAGE_PADDING_PX - 1);
       }
+      const iconMetrics = await page.getByTestId("row-contact-source").evaluateAll(nodes => nodes.map(node => {
+        const icon = node as SVGElement;
+        const row = icon.closest('[data-testid="row"]')!;
+        const menu = row.querySelector('[data-testid="row-menu"]')!.getBoundingClientRect();
+        const box = icon.getBoundingClientRect();
+        return {
+          right: box.right,
+          menuLeft: menu.left,
+          sharesMenuLine: box.top < menu.bottom && box.bottom > menu.top,
+          width: box.width,
+          height: box.height,
+        };
+      }));
+      expect(iconMetrics).toHaveLength(2);
+      for (const icon of iconMetrics) {
+        expect(icon.width).toBe(16);
+        expect(icon.height).toBe(16);
+        if (icon.sharesMenuLine) {
+          expect(icon.right).toBeLessThanOrEqual(icon.menuLeft);
+        }
+        expect(icon.right).toBeLessThanOrEqual(width - PAGE_PADDING_PX);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
     });
   }
 
@@ -788,15 +836,26 @@ test.describe("Circle roster row", () => {
       });
       await expect(menu).toHaveAttribute("data-side", "right");
       await expect(menu).toHaveAttribute("data-align", "center");
-      await expect(
-        page.getByTestId("circle-member-actions-menu-context"),
-      ).toHaveText(`Actions for ${fixture.memberName}`);
+      await expect(menu).toHaveAccessibleName(`Actions for ${fixture.memberName}`);
+      await expect(menu).not.toContainText("Actions for");
+      await expect(menu.getByRole("menuitem")).toHaveCount(2);
       await expect(
         page.getByRole("menuitem", { name: "Share location" }),
       ).toBeVisible();
-      await expect(
-        page.getByRole("menuitem", { name: "Remove from Circle" }),
-      ).toBeVisible();
+      const remove = page.getByRole("menuitem", { name: "Remove from Circle" });
+      await expect(remove).toBeVisible();
+      // Dropdowns use the shared destructive text token (a deeper red for
+      // small text); the phone's standalone action uses app-destructive.
+      const destructiveColor = await page.evaluate(() => {
+        const reference = document.createElement("span");
+        reference.style.color = "var(--destructive)";
+        document.body.appendChild(reference);
+        const color = getComputedStyle(reference).color;
+        reference.remove();
+        return color;
+      });
+      await expect(remove).toHaveCSS("color", destructiveColor);
+      await expect(remove.locator("svg")).toHaveCSS("color", destructiveColor);
 
       const [menuBox, triggerBox, selectedRow, selectedIdentity, relationship] =
         await Promise.all([
@@ -818,6 +877,11 @@ test.describe("Circle roster row", () => {
         ),
       ).toBeLessThanOrEqual(2);
       expect(menuBox[0].left).toBeGreaterThan(selectedRow[0].right);
+      expect(menuBox[0].width).toBeCloseTo(280, 0);
+      for (const action of await boxesOf(page, '[role="menuitem"]')) {
+        expect(action.height).toBeGreaterThanOrEqual(51.99);
+        expect(action.width).toBeCloseTo(menuBox[0].width - 10, 0);
+      }
 
       const overlaps = (first: Box, second: Box) =>
         first.left < second.right &&
@@ -828,6 +892,14 @@ test.describe("Circle roster row", () => {
       expect(overlaps(menuBox[0], selectedIdentity[0])).toBe(false);
       expect(overlaps(menuBox[0], relationship[0])).toBe(false);
       await expect(page.getByTestId("relationship-action")).toBeVisible();
+
+      for (const width of [640, 768, 1024, 1440]) {
+        await page.setViewportSize({ width, height: 900 });
+        await expect.poll(async () => {
+          const box = await menu.boundingBox();
+          return Boolean(box && box.x >= 12 && box.x + box.width <= width - 12);
+        }).toBe(true);
+      }
 
       await page.reload();
       await expect(page.getByRole("heading", { name: "SMS Circle" }))
@@ -855,82 +927,169 @@ test.describe("Circle roster row", () => {
     }
   });
 
-  test("opens the production phone sheet with member context", async ({
-    page,
-  }, testInfo) => {
-    const fixture = await startProductionMemberActionsFixture();
-    const browserErrors: string[] = [];
-    page.on("console", (message) => {
-      if (message.type() === "error") browserErrors.push(message.text());
-    });
-    page.on("pageerror", (error) => browserErrors.push(error.message));
-
-    try {
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto(fixture.url);
-      await expect(page.getByRole("heading", { name: "SMS Circle" }))
-        .toBeVisible({ timeout: 15_000 });
-      await awaitProductFont(page);
-
-      await page
-        .getByRole("button", { name: `Actions for ${fixture.memberName}` })
-        .click();
-
-      const sheet = page.getByTestId("circle-member-actions-sheet");
-      await expect(sheet).toBeVisible();
-      await sheet.evaluate(async (element) => {
-        await Promise.all(
-          element.getAnimations().map((animation) => animation.finished),
-        );
-      });
-      await expect(sheet).toContainText(fixture.memberName);
-      await expect(
-        page.getByRole("menu", { name: `Actions for ${fixture.memberName}` }),
-      ).toBeVisible();
-      await expect(
-        page.getByRole("menuitem", { name: "Share location" }),
-      ).toBeVisible();
-      await expect(
-        page.getByRole("menuitem", { name: "Remove from Circle" }),
-      ).toBeVisible();
-
-      const sheetBox = (
-        await boxesOf(page, '[data-testid="circle-member-actions-sheet"]')
-      )[0];
-      expect(sheetBox.left).toBe(0);
-      expect(sheetBox.right).toBe(390);
-      // Vaul deliberately extends the draggable sheet below the viewport so
-      // an overscroll cannot expose the page behind it. What matters to the
-      // person is that the visible surface covers the bottom edge completely.
-      expect(sheetBox.top).toBeGreaterThan(0);
-      expect(sheetBox.top).toBeLessThan(844);
-      expect(sheetBox.bottom).toBeGreaterThanOrEqual(844);
-
-      await page.reload();
-      await expect(page.getByRole("heading", { name: "SMS Circle" }))
-        .toBeVisible({ timeout: 15_000 });
-      await awaitProductFont(page);
-      await page
-        .getByRole("button", { name: `Actions for ${fixture.memberName}` })
-        .click();
-      await expect(page.getByTestId("circle-member-actions-sheet")).toBeVisible();
-      expect(browserErrors).toEqual([]);
-
-      const evidenceDir = process.env.OVERFLOW_ACTION_EVIDENCE_DIR;
-      if (evidenceDir) {
-        fs.mkdirSync(evidenceDir, { recursive: true });
-        await page.screenshot({
-          path: path.join(
-            evidenceDir,
-            `circle-overflow-actions-sheet-${testInfo.project.name}.png`,
-          ),
-          fullPage: true,
+  for (const owner of [false, true]) {
+    for (const width of [320, 390, 600]) {
+      test(`opens the production phone sheet for ${owner ? "the owner" : "a member"} at ${width}px`, async ({
+        page,
+      }, testInfo) => {
+        const fixture = await startProductionMemberActionsFixture(owner);
+        const browserErrors: string[] = [];
+        page.on("console", (message) => {
+          if (message.type() === "error") browserErrors.push(message.text());
         });
-      }
-    } finally {
-      await fixture.close();
+        page.on("pageerror", (error) => browserErrors.push(error.message));
+
+        try {
+          await page.setViewportSize({ width, height: 844 });
+          await page.goto(fixture.url);
+          await expect(page.getByRole("heading", { name: "SMS Circle" }))
+            .toBeVisible({ timeout: 15_000 });
+          await awaitProductFont(page);
+
+          await page
+            .getByRole("button", { name: `Actions for ${fixture.memberName}` })
+            .click();
+
+          const sheet = page.getByTestId("circle-member-actions-sheet");
+          await expect(sheet).toBeVisible();
+          await sheet.evaluate(async (element) => {
+            await Promise.all(
+              element.getAnimations().map((animation) => animation.finished),
+            );
+          });
+          await expect(sheet).toContainText(fixture.memberName);
+          await expect(
+            page.getByRole("menu", { name: `Actions for ${fixture.memberName}` }),
+          ).toBeVisible();
+          await expect(
+            page.getByRole("menuitem", { name: "Share location" }),
+          ).toBeVisible();
+          const remove = sheet.getByRole("button", { name: "Remove from Circle", exact: true });
+          if (owner) {
+            await expect(remove).toHaveCount(0);
+          } else {
+            await expect(remove).toBeVisible();
+            await expect(remove).toHaveCSS("color", "rgb(255, 59, 48)");
+            await expect(remove.locator("svg")).toHaveCSS("color", "rgb(255, 59, 48)");
+          }
+          await expect(sheet).toContainText(owner ? "Owner" : "Connected");
+          await expect(sheet).toHaveCSS("background-color", "rgb(255, 255, 255)");
+          await expect(sheet).toHaveCSS("border-top-left-radius", "24px");
+          await expect(sheet).toHaveCSS("border-top-right-radius", "24px");
+          await expect(sheet).toHaveCSS("padding-left", "0px");
+          await expect(sheet).toHaveCSS("padding-right", "0px");
+          await expect(sheet.locator('[data-task-region="body"]')).toHaveCSS("padding-left", "16px");
+          await expect(sheet.locator('[data-task-region="body"]')).toHaveCSS("padding-right", "16px");
+          await expect(sheet.locator('[data-slot="avatar"]')).toHaveCSS("width", "48px");
+          await expect(sheet.locator('[data-slot="avatar"]')).toHaveCSS("height", "48px");
+          await expect(sheet.locator('[data-slot="drawer-title"]')).toHaveCSS("font-weight", "600");
+          await expect(sheet.locator('[data-slot="drawer-title"]')).toHaveCSS("font-size", "20px");
+          const menu = sheet.getByRole("menu");
+          await expect(menu).toHaveCSS("border-radius", "20px");
+          const share = page.getByRole("menuitem", { name: "Share location" });
+          await expect(share).toHaveCSS("height", "52px");
+          await expect(share).toHaveCSS("font-size", "17px");
+          const colors = await share.locator("svg").evaluate(svg => ({
+            outline: getComputedStyle(svg.querySelector("path")!).stroke,
+            accent: getComputedStyle(svg.querySelector(".profile-pane-icon-accent")!).stroke,
+          }));
+          expect(colors.outline).not.toBe(colors.accent);
+          expect(colors.accent).not.toBe("none");
+          const cancel = sheet.getByRole("button", { name: "Cancel", exact: true });
+          await expect(cancel).toHaveCSS("height", "50px");
+          if (!owner) {
+            await expect(remove).toHaveCSS("justify-content", "center");
+            await expect(remove).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+            await expect(remove).toHaveCSS("border-width", "0px");
+          }
+          await expect(cancel).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+          const sheetGeometry = await sheet.evaluate((element) => {
+            const menu = element.querySelector<HTMLElement>('[role="menu"]')!;
+            const body = element.querySelector<HTMLElement>('[data-task-region="body"]')!;
+            const cancel = [...element.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === "Cancel")!;
+            const handle = element.firstElementChild!;
+            const bodyBox = body.getBoundingClientRect();
+            const bodyStyle = getComputedStyle(body);
+            const menuBox = menu.getBoundingClientRect();
+            const cancelBox = cancel.getBoundingClientRect();
+            return {
+              overflow: element.scrollWidth > element.clientWidth,
+              bodyLeft: bodyBox.left,
+              bodyRight: bodyBox.right,
+              menuLeft: menuBox.left,
+              menuRight: menuBox.right,
+              // Classic scrollbars consume the stable gutter; overlay
+              // scrollbars do not. Controls align within the content seat.
+              contentLeft: bodyBox.left + body.clientLeft + parseFloat(bodyStyle.paddingLeft),
+              contentRight: bodyBox.left + body.clientLeft + body.clientWidth - parseFloat(bodyStyle.paddingRight),
+              cancelLeft: cancelBox.left,
+              cancelRight: cancelBox.right,
+              cancelBottom: cancelBox.bottom,
+              handleHeight: handle.getBoundingClientRect().height,
+              font: getComputedStyle(menu).fontFamily,
+            };
+          });
+          expect(sheetGeometry.overflow).toBe(false);
+          expect(sheetGeometry.bodyLeft).toBe(0);
+          expect(sheetGeometry.bodyRight).toBe(width);
+          expect(sheetGeometry.menuLeft).toBe(sheetGeometry.contentLeft);
+          expect(sheetGeometry.menuRight).toBe(sheetGeometry.contentRight);
+          expect(sheetGeometry.cancelRight - sheetGeometry.cancelLeft).toBeCloseTo(244, 0);
+          expect((sheetGeometry.cancelLeft + sheetGeometry.cancelRight) / 2)
+            .toBeCloseTo((sheetGeometry.contentLeft + sheetGeometry.contentRight) / 2, 0);
+          expect(sheetGeometry.cancelBottom).toBeLessThanOrEqual(844 - 16);
+          expect(sheetGeometry.handleHeight).toBe(4);
+          expect(sheetGeometry.font).toContain("Plus Jakarta Sans");
+
+          const sheetBox = (
+            await boxesOf(page, '[data-testid="circle-member-actions-sheet"]')
+          )[0];
+          expect(sheetBox.left).toBe(0);
+          expect(sheetBox.right).toBe(width);
+          // Vaul deliberately extends the draggable sheet below the viewport so
+          // an overscroll cannot expose the page behind it. What matters to the
+          // person is that the visible surface covers the bottom edge completely.
+          expect(sheetBox.top).toBeGreaterThan(0);
+          expect(sheetBox.top).toBeLessThan(844);
+          expect(sheetBox.bottom).toBeGreaterThanOrEqual(844);
+
+          await page.reload();
+          await expect(page.getByRole("heading", { name: "SMS Circle" }))
+            .toBeVisible({ timeout: 15_000 });
+          await awaitProductFont(page);
+          await page
+            .getByRole("button", { name: `Actions for ${fixture.memberName}` })
+            .click();
+          await expect(sheet).toBeVisible();
+          expect(browserErrors).toEqual([]);
+
+          const evidenceDir = process.env.OVERFLOW_ACTION_EVIDENCE_DIR;
+          if (evidenceDir && width === 390) {
+            fs.mkdirSync(evidenceDir, { recursive: true });
+            await sheet.evaluate(async (element) => {
+              await Promise.all(element.getAnimations().map((animation) => animation.finished));
+            });
+            await page.screenshot({
+              path: path.join(
+                evidenceDir,
+                `circle-${owner ? "owner" : "member"}-sheet-${testInfo.project.name}.png`,
+              ),
+              fullPage: true,
+            });
+          }
+          await cancel.click();
+          await expect(sheet).toBeHidden();
+          await page.getByRole("button", { name: `Actions for ${fixture.memberName}` }).click();
+          await expect(sheet).toBeVisible();
+          await share.click();
+          await expect(sheet).toBeHidden();
+          expect(browserErrors).toEqual([]);
+        } finally {
+          await fixture.close();
+        }
+      });
     }
-  });
+  }
 
   test("the roster QA photographed really did stagger", async ({ page }) => {
     // Mutation check. Without it the assertions above could be passing on a
@@ -970,7 +1129,7 @@ test.describe("Circle roster row", () => {
 
 test.describe("Circle detail responsive layout", () => {
   for (const width of WIDTHS) {
-    test(`keeps Leave circle responsive and trailing-aligned at ${width}px`, async ({
+    test(`keeps Leave circle responsive and centered at ${width}px`, async ({
       page,
     }, testInfo) => {
       const leaveClass = cn(
@@ -985,7 +1144,7 @@ test.describe("Circle detail responsive layout", () => {
     <div style="min-height:72px;padding:16px;border-top:1px solid var(--app-separator);color:var(--app-primary-label)">Jhumma Kumari · Connected</div>
     <div style="min-height:72px;padding:16px;border-top:1px solid var(--app-separator);color:var(--app-primary-label)">Neelesh Meena · You</div>
   </section>
-  <div data-leave-row style="display:flex;justify-content:flex-end;margin-top:20px">
+  <div data-leave-row style="display:flex;justify-content:center;margin-top:20px">
     <button data-leave class="${leaveClass}">
       <svg data-leave-icon aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 5H5v14h4M14 8l4 4-4 4M8 12h10"/></svg>
       <span>Leave circle</span>
@@ -1002,7 +1161,10 @@ test.describe("Circle detail responsive layout", () => {
       ]);
 
       expect(leave[0].top).toBeGreaterThanOrEqual(members[0].bottom);
-      expect(Math.abs(leave[0].right - flow[0].right)).toBeLessThanOrEqual(1);
+      expect(Math.abs(
+        (leave[0].left + leave[0].right) / 2 -
+        (flow[0].left + flow[0].right) / 2,
+      )).toBeLessThanOrEqual(1);
       expect(leave[0].width).toBeLessThanOrEqual(320);
       expect(leave[0].height).toBe(44);
       await expect(page.locator("[data-leave-icon]")).toHaveCSS(
@@ -1025,7 +1187,7 @@ test.describe("Circle detail responsive layout", () => {
   }
 
   for (const width of WIDTHS) {
-    test(`places Proceed to SMS after the roster and against its right edge at ${width}px`, async ({
+    test(`places Proceed to SMS after the roster, centred, at ${width}px`, async ({
       page,
     }) => {
       const proceedClass = cn(
@@ -1041,7 +1203,7 @@ test.describe("Circle detail responsive layout", () => {
       <div style="min-height:72px;padding:16px;border-top:1px solid var(--app-separator);color:var(--app-primary-label)">Rashid</div>
     </div>
   </section>
-  <div data-proceed-row style="display:flex;justify-content:flex-end;margin-top:20px">
+  <div data-proceed-row style="display:flex;justify-content:center;margin-top:20px">
     <button data-proceed class="${proceedClass}">Proceed to SMS</button>
   </div>
 </main>`;
@@ -1057,8 +1219,13 @@ test.describe("Circle detail responsive layout", () => {
       ]);
 
       expect(proceed[0].top).toBeGreaterThanOrEqual(members[0].bottom);
-      expect(Math.abs(proceed[0].right - flow[0].right)).toBeLessThanOrEqual(1);
-      expect(proceed[0].width).toBeLessThanOrEqual(320);
+      expect(
+        Math.abs(
+          proceed[0].left + proceed[0].width / 2 -
+            (flow[0].left + flow[0].width / 2),
+        ),
+      ).toBeLessThanOrEqual(1);
+      expect(proceed[0].width).toBeLessThanOrEqual(244);
       expect(proceed[0].height).toBe(48);
 
       const evidenceDir = process.env.CIRCLE_CTA_EVIDENCE_DIR;
@@ -1076,7 +1243,7 @@ test.describe("Circle detail responsive layout", () => {
     test(`keeps the complete Circle title and Edit action visible at ${width}px`, async ({
       page,
     }) => {
-      const body = `<div data-detail-header class="${CIRCLE_DETAIL_HEADER_CLASSNAME}">
+      const body = `<div data-profile-type-scale="circles" data-detail-header class="${CIRCLE_DETAIL_HEADER_CLASSNAME}">
   <div class="${CIRCLE_DETAIL_HEADER_COPY_CLASSNAME}">
     <header><h1 data-circle-title class="ui-text-page-title">Trusted Family and Emergency Circle Featherstonehaugh-Rajendran</h1></header>
   </div>
@@ -1114,6 +1281,8 @@ test.describe("Circle detail responsive layout", () => {
         };
       });
 
+      await expect(page.locator('[data-circle-title]')).toHaveCSS("font-size", "20px");
+      await expect(page.locator('[data-edit]')).toHaveCSS("font-size", "12px");
       expect(result.titleScrollWidth).toBeLessThanOrEqual(
         result.titleClientWidth + 1,
       );

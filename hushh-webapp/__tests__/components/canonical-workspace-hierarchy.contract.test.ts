@@ -43,10 +43,11 @@ describe("canonical workspace hierarchy", () => {
     const finance = read("components/kai/kai-market-hub-page.tsx");
 
     expect(finance).toContain('width="agent"');
-    expect(finance).toContain('className="relative"');
+    expect(finance).toContain("<AppPageHeaderRegion");
+    expect(finance).toContain("<AppPageContentRegion>");
     expect(finance).toContain('title="Finance"');
     expect(finance).toContain('titleRole="agent"');
-    expect(finance).toContain(
+    expect(finance).not.toContain(
       'className="ms-[var(--page-inline-gutter-standard)]"',
     );
     expect(finance).toContain("<TopShellTabs");
@@ -96,5 +97,8 @@ describe("canonical workspace hierarchy", () => {
     expect(analysis).not.toContain("pb-safe");
     expect(analysis).not.toContain("h-full overflow-hidden");
     expect(analysis).not.toContain("space-y-6 overflow-hidden");
+    // Analysis is mounted only inside the Finance workspace; its locked and
+    // loading states must not add another shell/gutter inside that column.
+    expect(read("app/one/kai/analysis/page.tsx")).not.toContain("<AppPageShell");
   });
 });

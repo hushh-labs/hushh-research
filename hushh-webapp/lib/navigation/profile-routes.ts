@@ -5,6 +5,9 @@ import { ROUTES } from "@/lib/navigation/routes";
 export type ProfilePanel =
   | "account"
   | "my-data"
+  | "payouts"
+  | "world-model"
+  | "request-pricing"
   | "connected-systems"
   | "connectors"
   | "preferences"
@@ -64,6 +67,9 @@ export function normalizeProfilePanel(
   if (
     value === "account" ||
     value === "my-data" ||
+    value === "payouts" ||
+    value === "world-model" ||
+    value === "request-pricing" ||
     value === "connected-systems" ||
     value === "connectors" ||
     value === "preferences" ||
@@ -95,6 +101,8 @@ const BUILT_IN_CONNECTOR_TITLES: Record<string, string> = {
   google_drive: "Google Drive",
   calendar: "Calendar",
   plaid: "Plaid",
+  instagram: "Instagram",
+  linkedin: "LinkedIn",
 };
 
 /**
@@ -151,7 +159,6 @@ export function normalizeProfileDetail(
     panel === "preferences" &&
     (detail === "kai-preferences" ||
       detail === "gemini" ||
-      detail === "device" ||
       detail === "voice")
   ) {
     return detail;
@@ -260,6 +267,18 @@ export function buildProfileRoute(params?: {
     return appendQuery(ROUTES.PROFILE, {}, params?.searchParams);
   }
 
+  if (panel === "payouts" || panel === "request-pricing") {
+    return appendQuery(
+      panel === "payouts" ? ROUTES.PROFILE_PAYOUTS : ROUTES.PROFILE_REQUEST_PRICING,
+      {},
+      params?.searchParams,
+    );
+  }
+
+  if (panel === "world-model") {
+    return appendQuery(ROUTES.PROFILE_WORLD_MODEL, {}, params?.searchParams);
+  }
+
   if (panel === "account") {
     return detail === "phone"
       ? appendQuery(ROUTES.PROFILE_ACCOUNT_PHONE, {}, params?.searchParams)
@@ -277,13 +296,6 @@ export function buildProfileRoute(params?: {
     if (detail === "gemini") {
       return appendQuery(
         ROUTES.PROFILE_PREFERENCES_GEMINI,
-        {},
-        params?.searchParams,
-      );
-    }
-    if (detail === "device") {
-      return appendQuery(
-        ROUTES.PROFILE_PREFERENCES_DEVICE,
         {},
         params?.searchParams,
       );
@@ -432,6 +444,13 @@ export function resolveProfileRouteState(
     return resolveProfileRouteStateFromSearchParams(query);
   }
 
+  if (normalizedPath === ROUTES.PROFILE_PAYOUTS) {
+    return { panel: "payouts", detail: null };
+  }
+  if (normalizedPath === ROUTES.PROFILE_REQUEST_PRICING) {
+    return { panel: "request-pricing", detail: null };
+  }
+
   if (normalizedPath === ROUTES.PROFILE_ACCOUNT) {
     return { panel: "account", detail: null };
   }
@@ -449,7 +468,7 @@ export function resolveProfileRouteState(
     return { panel: "preferences", detail: "gemini" };
   }
   if (normalizedPath === ROUTES.PROFILE_PREFERENCES_DEVICE) {
-    return { panel: "preferences", detail: "device" };
+    return { panel: "preferences", detail: null };
   }
   if (normalizedPath === ROUTES.PROFILE_PREFERENCES_VOICE) {
     return { panel: "preferences", detail: "voice" };
@@ -473,6 +492,10 @@ export function resolveProfileRouteState(
 
   if (normalizedPath === ROUTES.PROFILE_MY_DATA) {
     return { panel: "my-data", detail: null };
+  }
+
+  if (normalizedPath === ROUTES.PROFILE_WORLD_MODEL) {
+    return { panel: "world-model", detail: null };
   }
   if (normalizedPath === ROUTES.PROFILE_MY_DATA_DOMAIN) {
     const domainKey = query.get("key");
@@ -557,4 +580,20 @@ export function buildCanonicalProfileRouteFromLegacyQuery(
 
   const current = appendQuery(ROUTES.PROFILE, Object.fromEntries(query), null);
   return href === current ? null : href;
+}
+
+/** Older Stripe links returned to Memory. Preserve only the bounded callback. */
+export function buildLegacyDocumentPayoutReturnRoute(
+  pathname: string,
+  searchParams?: SearchParamReader | URLSearchParams | string | null,
+): string | null {
+  const query = toSearchParams(searchParams ?? pathname.split("?")[1]);
+  const returnState = query.get("documentPayouts");
+  if (resolveProfileRouteState(pathname, query).panel !== "my-data" ||
+      (returnState !== "done" && returnState !== "refresh")) return null;
+  const target = buildProfileRoute({ panel: "payouts", searchParams: query });
+  const [path, rawQuery = ""] = target.split("?");
+  const nextQuery = new URLSearchParams(rawQuery);
+  nextQuery.set("documentPayouts", returnState);
+  return `${path}?${nextQuery.toString()}`;
 }

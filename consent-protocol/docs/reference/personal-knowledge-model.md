@@ -5,7 +5,7 @@
 
 Canonical visual owner: [consent-protocol](../README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
 
-The Personal Knowledge Model (PKM) is the current checked-in encrypted user-memory architecture. One is the product ownership target for relationship memory; current implementation evidence still comes through finance-specialist and Kai-era compatibility runtime docs because Kai remains the shipped finance specialist and generated action authority.
+The Personal Knowledge Model (PKM) is the current checked-in encrypted user-memory architecture. One chat uses only one canonical encrypted Markdown document, **memory.md** (`one_memory.markdown`), for V1 conversation memory. Structured encrypted domains remain compatibility authorities for Finance, KYC, Consent, and other specialist workflows. Chat never imports them or uses their metadata summaries as fallback memory.
 
 The approved product direction is One-owned relationship memory with specialist slices beneath it:
 
@@ -13,7 +13,168 @@ The approved product direction is One-owned relationship memory with specialist 
 - Kai owns finance memory and finance reasoning over the protected finance lane.
 - Nav owns privacy, consent, vault, deletion, and scope-review memory once Nav runtime surfaces are implemented.
 
-Until that migration lands, do not describe One-owned PKM as current-state runtime behavior. Use the One/Nav roadmap for future-state claims about portable One memory, user-private action receipts, BYO model execution, or no platform-controlled recovery.
+On vault unlock, the client decrypts `one_memory` into process memory. Concurrent
+loads coalesce; ordinary turns reuse this document without cloud reads or
+decryption. A validated same-owner, same-key credential renewal preserves it;
+lock, sign-out, or account change clears plaintext and withdraws pending effects.
+Every One turn receives the complete document, bounded to 18,000 characters so
+the backend's 20,000-character request envelope never truncates it. If the
+document does not yet exist, the client initializes a clean session-only memory.md
+with flat **Facts**, **Preferences**, and **Commitments** sections. The first
+authorized memory write persists that document and new facts atomically.
+Unlock itself does not create a write, and a failed or malformed read is never
+treated as an absent document. Reads invalidated during loading or encrypted
+device persistence retry with bounded backoff; exhausted retries reject rather
+than returning absence or obsolete information. Retries remain bound to the
+original unlocked session and stop if it locks during backoff.
+Old structured records remain untouched.
+Legacy receipt indexes are not attached to chat as a second memory channel;
+connector tools may still read live sources when the owner requests them.
+The legacy domain-summary model tool refuses typed-chat reads before querying
+the index, so a tool selection cannot bypass the Soul-only boundary.
+Personal recall uses this supplied document, not Drive. Missing information
+remains unknown; a failed Drive detour cannot replace available memory with a
+mandatory connector message. External-read authority still fails closed.
+
+The Memory screen opens on its first tab, **memory.md**, which renders this exact
+document and offers a Markdown editor with a live preview. Save changes uses
+the existing browser-encrypted PKM coordinator on web, iOS, and Android. It
+compares the edit-start document with the current document on every conflict
+retry, so a concurrent automatic save cannot be overwritten. A rejected save
+keeps the draft for recovery. Pending automatic writes must finish syncing
+before a manual save; this prevents a retained recovery checkpoint from replaying
+a deleted fact. New facts learned during an editor commit queue behind it and
+are retained in the resulting document. An explicitly empty document remains valid and
+does not restore the legacy seed. Successful edits invalidate chat context;
+passwords and other authentication material are omitted before encryption.
+Mutation doorbells reconcile cloud changes in the background after local writers
+finish, not before every prompt. Clean previews reflect RAM updates; unsaved drafts remain in
+memory until canceled, saved, or the unlocked session ends. Markdown does not
+execute raw HTML or automatically fetch external images. Saved, Add, and
+Sharing remain available as the subsequent tabs for specialist records. memory.md
+uses the product font with bold section headings, readable foreground text, and
+a bounded reading measure. New bullets follow the preparation agent's authored
+intent classification, not domain paths. The client formats technical packets
+already copied into memory.md as flat Markdown, preserving owner edits and distinct
+facts; this conversion reads no other domains and persists on the next authorized
+save through the revision-preserving writer. Arbitrary owner-authored Markdown
+is not reformatted.
+
+## Receipt Radar memory
+
+Mail owns detailed canonical receipts; PKM and memory.md contain only lightweight
+durable summaries. Neither store receives email bodies, subjects, senders,
+source passages, PDFs, URLs, provider message IDs or tokens.
+
+### Mail receipt snapshot
+
+`mail_receipt_snapshot.v1` uses the existing vault AES-GCM encryption and
+IndexedDB secure-resource database's durable store. Its resource key is
+`mail_receipts.v1:<hashed account binding>`. Encryption AAD binds the owner,
+resource key, Reset generation and monotonically increasing revision. Writes
+compare generation/revision atomically and verify decrypted read-back before
+memory migration. The closed snapshot is limited to 2 MiB UTF-8, 10,000
+canonical groups and 300 normalized events per group; excess or invalid
+information fails without replacing the prior saved snapshot.
+
+Rows preserve the existing canonical grouping decision and its UI projection:
+merchant, category, decimal amount/currency, status, transaction date, typed
+identifiers, recurrence/attention state, reviewed brand enum, confidence and
+normalized lifecycle events. Coverage and freshness describe the saved scan.
+Current `short_detail` contains source prose, so it is excluded. The optional
+sealed `grs1_` action locator is opaque, conveys no access authority and is bound
+to owner, Mail account and connection generation. It is resolved only during
+an explicit owner-authorized detail read.
+
+The existing Receipts list renders the same DTO/projection, filters and
+pagination after an owner reauthenticates and unlocks following reload. Saved
+canonical rows remain visible offline or disconnected. Email evidence and
+original/payment/invoice actions require a live authorized read when opened;
+unavailable reads show a reconnect/sync message. No provider read occurs merely
+to restore a saved list. The retired `kai_gmail_receipts` write path is unused.
+
+Retention is the latest revision per owner/account until confirmed Reset,
+account deletion or browser-storage removal. Sign-out, disconnect and vault
+lock clear session information but retain ciphertext. Reset/delete atomically
+remove device snapshots, legacy archives and pending encrypted jobs, advance
+the owner's generation and notify same-origin tabs. Existing account erasure
+removes lightweight cloud memory. Late scans, assessments and retries cannot
+adopt a newer generation or overwrite a newer snapshot revision. Other devices
+must process their own erasure/cleanup; this local store is not a cloud backup.
+Storage loss or a new device requires an authorized rescan. Failed persistence
+leaves the visible session rows and the prior durable snapshot intact.
+
+### Lightweight PKM and migration
+
+`shopping.receipts_memory` has a strict 16 KiB UTF-8 JSON budget:
+
+```ts
+{
+  schema_version: 2,
+  readable_summary: { text, highlights, updated_at, source_label: "Mail receipts" },
+  observed_facts: { merchant_affinity, category_affinity, purchase_patterns },
+  inferred_preferences: { preference_signals },
+  confidence,
+  coverage: { canonical_count, partial, truncated },
+  provenance: { source_kind: "mail_receipt_snapshot", updated_at }
+}
+```
+
+Affinities contain bounded labels and purchase counts; patterns contain verified
+recurring counts. Receipts do not establish durable preferences by themselves.
+No individual amounts, transaction dates, identifiers, rows or product lines
+are saved in PKM. Assessment selects approved aggregate sentences for memory.md;
+it cannot rewrite them into transaction details. Receipt-owned generated bullets
+use source replacement, preserving unrelated facts and owner corrections.
+Empty completed scans replace old owned summaries. Incomplete assessment keeps
+the last accepted summary; current-turn detail never becomes a memory candidate.
+
+On the next authorized update, allowed facts from the old `_canonical_index`
+and legacy `recent_highlights` are projected into a separate encrypted
+`mail_receipts_legacy.v1` archive and read-back verified before branch replacement.
+Excluded source prose is dropped. Invalid permitted facts or failed read-back
+stop replacement. The archive has incomplete account/payment provenance and is
+kept for recovery, excluded from the current UI and analytical source. Historical
+encrypted PKM revisions are not erased by this migration. Routine Chat reads
+project legacy affinities through an allowlist immediately; they never traverse
+the old index, detailed highlights or free-form receipt summaries. Unrelated
+shopping memory remains intact.
+
+### On-demand receipt functions
+
+The existing governed native client-tool continuation exposes
+`list_recent_receipts`, `receipt_spending`, `highest_receipt_spend` and
+`most_frequently_purchased_products`. Requests require `from_date` and `to_date`
+(`YYYY-MM-DD`, end exclusive), the current owner timezone and an optional
+`limit` (default 10, maximum 25). Spending/ranking additionally requires
+`group_by: merchant | category | product`. Owner, unlocked vault session,
+conversation, issued call ID, request digest and short-lived result admission
+are checked before analysis/continuation. Analysis uses one saved account
+snapshot; without an account selection it uses the owner's freshest snapshot,
+never merges accounts or falls back to inbox keyword search.
+
+Results include requested range/timezone, source freshness, snapshot revision,
+canonical/matched/included counts, coverage, truncation, dedupe policy,
+refund/cancellation handling and limitations. Lists return bounded normalized
+records; group results return decimal-string paid amounts and ranks separately
+per currency, plus exact `currency_totals` covering every included transaction
+even when the ranking is truncated. Chat never adds group rows. They use integer
+decimal minor units, never floating-point sums.
+Unpaid, failed, cancelled, trial, suspended and due records are excluded;
+delivery alone is not paid evidence. Refund events are reported separately.
+Current evidence does not verify refund amounts/allocation, so refund amounts
+and net with observed refunds remain unknown. Products always return
+`unsupported: product_data_unavailable` until structured line/quantity evidence
+exists. A function result is at most 64 KiB; group limits apply per currency.
+Unavailable results keep the requested range/timezone and policy/limitations,
+with unknown freshness, counts and coverage explicitly null.
+
+Only the authorized continuation's model request receives detailed results.
+Native tool messages, encrypted session history and restored answers contain
+value-free receipts. Receipt-result invocations cannot execute further tools.
+Private answers expire or disappear on a new turn, conversation/owner change,
+vault transition or Reset. One explains deterministic function output; it never
+computes totals from memory rows. Finance remains the bank-spending authority.
 
 ### PKM table map
 
@@ -269,60 +430,78 @@ local saves fail solely because the cloud projection is temporarily unavailable.
 
 ## Private-agent automatic memory saving
 
-Automatic memory saving is a **per-vault** preference stored only in the
-encrypted internal runtime-settings domain. The product default is enabled, and
-an owner can disable it. When enabled, One may save only backend-approved
-create or extend memories with no active sharing recipients.
-Low-confidence, ambiguous, duplicate, new-domain, corrective, deletion,
-financial-normalization, secret, government-ID, and shared-memory candidates
-are not written automatically. They are skipped by the chat auto-save path;
-that path must not manufacture a review request or imply that they were saved.
-An explicit owner request to save a supported KYC identifier uses the separate
-fixed-schema KYC flow instead: the value is encrypted as a `restricted` PKM
-field, never added to One's automatic context packet, and requires the owner's
-direct confirmation for that save. Passwords, PINs, card security values,
-authentication tokens, and bank credentials remain ineligible for PKM capture.
-Each automatic write carries an `owner_auto_save_policy` receipt that records
-the enabled policy version rather than claiming that the owner reviewed that
-individual memory.
+Automatic memory saving is the fixed One V1 behavior while the vault session is
+unlocked. The semantic preparation stage decides which typed facts are durable;
+the client then silently applies every usable flat fact to browser-resident
+`one_memory.markdown` immediately. Semantic assessment starts alongside answer
+generation. A separate owner/session-scoped queue encrypts and persists accepted
+facts through the existing conflict-aware writer; neither model streaming nor
+the next turn waits for these cloud writes. The old per-vault On/Off switch and
+per-fact confirmation UI do not govern this Markdown path. It no longer fans One
+chat facts out across model-chosen dynamic domains. Exact normalized duplicates
+are no-ops, `do_not_save` decisions remain excluded, and degraded proposals
+cannot authorize a write.
+
+Government identifiers, PAN details, payment-card numbers, and bank-account
+details may be retained in the encrypted Markdown because the owner explicitly
+selected this V1 policy. Passwords, passphrases, API keys, authentication
+tokens, private keys, PINs, and card security codes are omitted before the
+Markdown write. Each automatic write carries the product-default authorization
+record internally; it never claims an individual review or exposes capture
+progress, success, failure, a receipt, or a confirmation card in chat.
+
+### Business directory review
+
+Business suggestions use `memory_profile: "business_directory_v1"` on the existing
+proposal endpoint. The source is a JSON object containing only listing values,
+bounded to 4,000 characters. Trust instructions and disclaimers are authored agent
+policy, not selectable source facts. All four preparation agents receive the profile.
+
+The model chooses the business destination and merge relationship. A rejection-only
+validator requires one exact record under `businesses.entities.<id>`, with all supplied
+fields intact and no invented fields or personal-identity destination. A split or
+invalid proposal is not offered for saving; it is never silently clipped or retargeted.
+The owner selects individual fields before the existing encrypted PKM writer commits
+them. This creates no second profile store and does not verify business ownership.
+
+Deploy the matching backend contract before enabling the frontend request. Existing
+stored records and previously approved encrypted retries are not rewritten by this
+change; general and KYC preparation retain their existing behavior.
 
 ### Explicit saves from chat
 
 When the owner asks One to save something ("save this to my memory"), One calls
 `add_to_pkm`. The tool saves nothing itself: it returns `status: handed_to_device` with
 `saved: false`, and for a pasted document (`whole_message=true`) the browser reads the
-owner's own message instead of a copy in the tool argument. The device then:
+owner's own message instead of a copy in the tool argument. The browser accepts
+`pkm.add` as a local memory action even though it is not a route action in the
+generated Kai gateway. The existing semantic preparation pipeline receives the
+`soul_markdown_v1` profile and the already-decrypted document's offered bullets.
+It authors plain attributed facts and Facts/Preferences/Commitments sections,
+never legacy domain trees. Both explicit and automatic captures use this path;
+there is no raw-message append bypass or extra review UI. Corrections/extensions
+replace an exact offered bullet; forget requests remove it. Stale or ambiguous
+targets fail closed, preserving unrelated facts and fenced examples. Masked
+targets and multiline/nested owner bullets require the editor for replacement.
+Credential values are omitted; owner identifiers remain private.
 
-1. prepares the text one source section per proposal (`granularity: "section"`, a
-   300 second budget), so a long document is not packed into six-section chunks the
-   eight-fact segmenter can only answer with "split";
-2. sends each section with up to ten of the owner's existing details most related
-   to it (`simulated_state.memories`: entity id, scope, and a summary clipped to 200
-   characters, chosen on the device by word overlap from the unlocked working set),
-   so the merge agent can choose extend, correct or no_op instead of creating a
-   second copy. This is the same owner information One's chat already receives as
-   consented turn information; nothing is stored server-side;
-3. leaves unsaved only what the segmentation agent reports in `not_memory` (an exact
-   duplicate line or a pure disclaimer such as "Information not known"), exact duplicates
-   of what is already stored, and restatements the merge agent matched to a stored detail
-   (`no_op` with a target), which count as already known; every one of them still appears
-   in the line coverage with its reason;
-4. writes every remaining card with an `owner_confirmed` receipt, sensitive details (pay,
-   equity, immigration, a housing deposit) included, labelled sensitive. A card that still
-   carries a raw identifier value, and a detail that would change what the owner already
-   shares, wait for the owner's tap on the receipt card. A Secrets placeholder is a
-   reference, never an identifier; secret values are never written here;
-5. reports a receipt built only from server-acknowledged commits (a `data_version`):
-   saved, updated, merged, already known, skipped as not facts, waiting for the owner,
-   failed, and sections not read. A section that could not be prepared is reported; it
-   does not stop the prepared sections from saving.
+Every capture job has a deadline and settles internally to a terminal outcome.
+Capture never adds a line, status, Activity item, receipt, confirmation control,
+or card to the conversation, and One is instructed not to narrate it. Background
+failures remain observable through value-free debug and aggregate telemetry.
 
-One is told that receipt on the next turn, as counts and category names only, and its
-instruction forbids claiming a save without one. Every capture job has a deadline and
-settles to a terminal outcome. Explicit Save keeps its progress and failure visible;
-automatic preparation adds a line to an ordinary answer only after a confirmed
-save, so a general question does not acquire an unrelated Memory error or a
-stuck "Checking for details worth remembering" line.
+Accepted facts receive vault-encrypted IndexedDB checkpoints while cloud saving
+runs. Freshly unlocked sessions can recover these bounded seven-day envelopes
+with current credentials, without another semantic assessment. Encrypted staging
+order preserves dependent corrections across out-of-order device writes.
+Unreadable envelopes defer recovery rather than reordering later mutations. Checkpoints never
+contain keys or tokens. Cloud failures retry at bounded intervals, then remain
+retryable in memory.md; checkpoint cleanup failure also remains pending rather
+than falsely reporting synchronization. If device storage itself is unavailable,
+cloud saving still proceeds, but unsynced RAM cannot survive a reload. Passwords
+and other authentication material are removed before either persistence path.
+Old resumable multi-domain jobs remain readable by their compatibility code, but
+new One chat saves do not create or resume them from the chat surface.
 
 Live evidence, 2026-09-29 (Gemini 3.6, synthetic 10,290 character context transfer
 with 16 sections, the real proposal service and the real client merge path with only
@@ -407,17 +586,28 @@ labels only escalate, so a salary saved under a general profile scope makes that
 scope sensitive for consent sharing. Structured writers (runtime settings, connectors, financial replace) pass no
 memory merge decision and keep their plain merge, so no credential accumulates history.
 
-KYC onboarding has a separate first-party owner-confirmed path. It requires an
-unlocked private vault before the identity form is shown; an account without a
-vault is first sent through the vault-create flow. The person's `Save &
-Continue` action may then advance the UI immediately while the client organizes
-the submitted free-form narrative into private encrypted PKM facts in the
-background. It does not persist the raw narrative as an `about_me` value, and
-it never auto-writes a card with active sharing recipients. The action is
-recorded as an individual owner confirmation, not as the per-vault automatic
-memory policy above. The submitted KYC step remains complete even if background
-fact organization needs a retry; a transient PKM failure must never reopen KYC
-and make an owner repeat onboarding.
+Gmail KYC onboarding uses the same memory.md personal memory as chat. It requires
+an unlocked private vault; an account without a vault first enters vault setup.
+The person's import action advances the UI immediately while semantic preparation
+selects usable facts, then stages plain bullets in browser RAM and queues encrypted
+sync. It creates no new identity/profile/domain-tree records. Structured legacy
+form inputs are rendered as named facts, not nested JSON. Protected identifiers
+are retained locally; credentials are omitted and raw protected spans never reach
+preparation requests.
+
+Intake completion is internal encrypted-envelope metadata
+(`one_memory._kyc_intake_completed_at`), committed atomically with the accepted
+facts and excluded from Markdown, prompt context, readable summaries, and scopes.
+Later appends, edits, and encrypted-checkpoint recovery preserve it. Both KYC entry
+gates read this marker, with a read-only legacy completion check for already-set-up
+accounts; they never copy old identity facts into Soul. A failed, incomplete, or
+empty import creates no durable completion marker or partial personal-information
+write. KYC drafts and intake UI state are owner/key-scoped in RAM, so another
+account never inherits them. Pending accepted facts remain available
+locally while sync retries. KYC-confirmed chat replies use the same Soul staging
+path and RAM context, without structured ingestion or a pre-draft cloud refresh.
+This memory operation grants no sending or sharing authority; existing draft
+review, Send, and exact-scoped historical export contracts remain unchanged.
 
 ## Information about the person, never application state
 
@@ -655,15 +845,23 @@ entries stay in their siblings, which every reader already shows, and quarantine
 entries stay private and restorable from their source pointers. Because no domain
 contract version moved, reverting the whole release is also safe for every client: an
 older server ignores the marker, and no build is told its information is newer than it.
-## The Secrets area: kept, never sent to a model
+## Chat credential guard and legacy Secrets compatibility
 
-API keys, passwords, tokens and private keys the owner types, pastes or asks One
-to save are kept in the reserved `secrets` domain and are never sent to the AI.
-Card numbers and government id numbers (passport, SSN, Aadhaar) are held there
-too, with an offer to file them in Wallet or the KYC identity documents. Things
-that only NAME a secret (environment variable names, a secret-store path, a GCP
-project id, an OAuth URL, an app id) are not secrets and are saved as ordinary
-work context.
+The composer still detects credentials and regulated identifiers before the
+current user message leaves the device. Passwords, tokens, keys, PINs, and card
+security codes are replaced by `Credential omitted` placeholders and are not
+newly persisted. Government identifiers, card numbers, and bank-account numbers
+are staged in browser-resident Markdown Memory, with encrypted device/cloud
+persistence queued independently, then replaced by masked current-turn
+placeholders. Because the local update completes before the turn starts, the
+same One prompt receives the updated memory without waiting for cloud persistence
+or placing the raw value in the transcript, history, or telemetry.
+
+The reserved `secrets` domain and its reveal/filing UI remain a legacy
+compatibility surface for records created before this V1 change. New One chat
+messages do not create entries there. Things that only name a secret
+(environment-variable names, a secret-store path, a GCP project id, an OAuth
+URL, or an app id) remain ordinary work context.
 
 **One contract, two loaders.** `contracts/pkm/secret-patterns.v1.json` (with
 byte-identical copies in `consent-protocol/contracts/pkm/` and
@@ -679,15 +877,13 @@ under their `*secret*.json` rule.
 **The device guard runs first.** `hushh-webapp/lib/pkm/secret-span-guard.ts`
 runs in the chat composer's send path (typed text and every pasted attachment,
 including "Edit and send again" and a queued edit) before anything reaches chat,
-a memory proposal, history or telemetry. Each secret span is saved through the
-feature writer `secrets_vault` (an owner-confirmed plan through
-`PkmWriteCoordinator`, `hushh-webapp/lib/pkm/secrets-vault-service.ts`) and
-replaced by `⟦secret:<id> <label>⟧`. The label is built on the device from the
-words before the secret, with the value masked ("GitHub token ending 4f2a"). The
-text is rendered only after the save settles; if the vault is locked or the save
-fails, nothing is sent and the draft is restored. `streamAgentChat`, the queued
-input transport and `previewAgentPkmMemory` refuse any text that still holds a
-raw secret (`UnguardedSecretError`), before a request exists.
+a memory proposal, history or telemetry. Eligible identifiers are written to
+`one_memory` through `PkmWriteCoordinator`; authentication material is omitted.
+Every detected span is then replaced by `⟦secret:<id> <label>⟧`. The text is
+rendered only after any required Markdown write settles; if the vault is locked
+or the write fails, nothing is sent and the draft is restored. `streamAgentChat`,
+the queued input transport and `previewAgentPkmMemory` refuse any text that still
+holds a raw protected span (`UnguardedSecretError`) before a request exists.
 
 **The server is the second net.** `PKMAgentLabService._contains_sensitive_secret`
 now delegates to `secret_patterns.find_secret_spans`, which returns offsets and
@@ -697,14 +893,17 @@ must carry a bookkeeping-only plaintext summary
 content or a secret-shaped string is refused with
 `422 SECRETS_SUMMARY_ENVELOPE_INVALID`.
 
-**Label only, everywhere a model reads.** Any branch whose registry entry says
+**Legacy structured records stay label-only.** Any branch whose registry entry says
 `send_to_model: label_only` (`secrets.*`, `wallet.*`,
 `identity.identity_documents`) reaches One's context packet and the merge
 agent's reconciliation candidates only as `Secret exists: <label>`
 (`hushh-webapp/lib/agent/agent-pkm-context-store.ts`). A detail saved before
 this release that still holds a raw secret is printed with `[hidden secret]` in
 its place. `secrets` is identifier-class in all three `field-sensitivity.v1.json`
-copies (`identifier_domains`).
+copies (`identifier_domains`). The V1 `one_memory` document is the deliberate
+exception for allowed owner identifiers: after vault unlock its complete
+Markdown is private One prompt context. Authentication material is never
+written into that document.
 
 **Reveal and sharing.** The value is decrypted on the device only after the
 vault is unlocked, held in component memory, hidden after 45 seconds, on Hide or
@@ -742,13 +941,13 @@ exact route on a wired route action whose screen is the path's own.
 
 ## Storage rules
 
-- New writes are PKM-only.
-- Unstructured, user-authored memory from Agent chat and the KYC external-agent
-  import uses the shared `POST /api/pkm/memory/proposals` pipeline before that
-  free-form content is written to PKM. Its Flash segmentation agent proposes independently reviewable
-  facts and dynamic domains (up to eight per proposal chunk); the client rejects a
-  truncated proposal rather than silently dropping details, then encrypts and
-  saves each confirmed candidate through the ordinary PKM write coordinator.
+- New One chat memory writes target only `one_memory.markdown`.
+- Unstructured, user-authored memory still uses the shared
+  `POST /api/pkm/memory/proposals` pipeline to select durable facts, but the
+  resulting text is appended to the single Markdown document rather than saved
+  into model-chosen dynamic domains. Gmail KYC intake and KYC-confirmed chat
+  replies follow that same Markdown-only write contract. Historical exact-scoped
+  KYC exports remain compatibility readers, not a second personal-memory writer.
 - An explicit valid empty segmentation is a successful no-op, not a provider
   failure. Missing, malformed, or wholly rejected source quotes fail closed;
   the product proposal route returns a recoverable unavailable response when

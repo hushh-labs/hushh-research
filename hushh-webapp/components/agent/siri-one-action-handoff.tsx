@@ -17,7 +17,7 @@ import {
   type PendingOneSystemActionInvocation,
 } from "@/lib/capacitor/one-system-action-invocation";
 import { ROUTES } from "@/lib/navigation/routes";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
 import { buildSiriOneVoiceLoginRoute } from "@/lib/agent/siri-one-voice-handoff-policy";
 import { resolveSiriOneActionHandoffState } from "@/lib/agent/siri-one-action-handoff-policy";
 

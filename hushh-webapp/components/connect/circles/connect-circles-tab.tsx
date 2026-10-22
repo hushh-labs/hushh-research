@@ -10,33 +10,40 @@ import {
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
+import { TaskDialogContent, taskSurfaceStyles } from "@/lib/morphy-ux/ui/task-surfaces";
 import {
   Dialog,
-  DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Briefcase, ChevronRight, Heart, KeyRound, MapPin, Plus, ShieldCheck, TrendingUp, UsersRound, Wallet } from "@/components/icons";
-import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
+import { KeyRound, Search, Trash2 } from "@/components/icons";
+import { customCircleTypeGroups } from "@/lib/one-location/circle-types";
+import { Input } from "@/components/ui/input";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { ConnectCircleHeading, ConnectCircleRow } from "./connect-circle-row";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
+import styles from "../connect-workspace.module.css";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
-import { SurfaceCard } from "@/components/app-ui/surfaces";
-import { SectionTitle, RowDescription } from "@/components/app-ui/typography";
 import { Button } from "@/lib/morphy-ux/button";
 import {
   CircleDetailFlow,
   CreateCircleFlow,
   JoinCircleFlow,
 } from "@/components/one-location/redesign/circles/named-circle-flows";
-import { SmsTextIcon } from "@/components/one-location/redesign/sms-text-icon";
 import { createConnectCircleActions } from "@/components/connect/circles/connect-circle-actions";
 import { CircleChat } from "@/components/connect/circles/circle-chat";
-import { CircleAvatar } from "@/components/connect/circles/circle-photo-editor";
 import type { ConnectCirclesSnapshot } from "@/components/connect/circle-discovery";
-import {
-  CONNECT_CIRCLE_GRID_CLASSNAME,
-  CONNECT_CIRCLE_TILE_CLASSNAME,
-} from "@/components/connect/connect-living-layout";
+import { CONNECT_CIRCLE_GRID_CLASSNAME } from "@/components/connect/connect-living-layout";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { CIRCLE_JOIN_CODE_PARAM } from "@/lib/one-location/circle-join-url";
 import {
@@ -51,9 +58,10 @@ import {
   readConnectCircleAction,
   type ConnectCircleAction,
 } from "@/lib/navigation/connect-routes";
-import type { OneLocationCircleMember, OneLocationCircleSummary } from "@/lib/one-location/types";
+import type { OneLocationCircleSummary } from "@/lib/one-location/types";
 import type { DirectoryPerson } from "@/lib/services/connections-service";
 import { ROUTES } from "@/lib/navigation/routes";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import { VaultContext } from "@/lib/vault/vault-context";
 import { trackEvent } from "@/lib/observability/client";
@@ -124,99 +132,6 @@ const SYSTEM_CIRCLE_COPY = {
 
 type SystemCircleKind = "trusted" | "sms";
 
-/** A bounded roster preview, loaded only when its card approaches the viewport. */
-function CircleCluster({
-  circle,
-  vaultOwnerToken,
-  reloadToken,
-}: {
-  circle: OneLocationCircleSummary;
-  vaultOwnerToken: string;
-  reloadToken: number;
-}) {
-  const kind = systemKindOf(circle);
-  const nodeRef = useRef<HTMLSpanElement>(null);
-  const [visible, setVisible] = useState(false);
-  const [members, setMembers] = useState<OneLocationCircleMember[]>([]);
-  useEffect(() => {
-    const node = nodeRef.current;
-    if (!node) return;
-    if (typeof IntersectionObserver === "undefined") {
-      setVisible(true);
-      return;
-    }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          setVisible(true);
-          observer.disconnect();
-        }
-      },
-      { rootMargin: "200px" },
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
-  useEffect(() => {
-    if (!visible || !vaultOwnerToken || circle.memberCount <= 1) {
-      setMembers([]);
-      return;
-    }
-    let active = true;
-    void OneLocationService.listCircleMembersPage({
-      vaultOwnerToken,
-      circleId: circle.id,
-      page: 1,
-      limit: 4,
-    })
-      .then((page) => {
-        if (active) setMembers(page.items);
-      })
-      .catch(() => {
-        if (active) setMembers([]);
-      });
-    return () => {
-      active = false;
-    };
-  }, [circle.id, circle.memberCount, reloadToken, vaultOwnerToken, visible]);
-  const shown = members.slice(0, circle.memberCount > 4 ? 3 : 4);
-  const remaining = Math.max(0, circle.memberCount - shown.length);
-  return (
-    <span
-      ref={nodeRef}
-      aria-hidden="true"
-      data-testid="connect-circle-cluster"
-      className="flex h-11 min-w-0 items-center"
-    >
-      {shown.length ? (
-        <span className="flex items-center -space-x-2">
-          {shown.map((member) => (
-            <span
-              key={member.userId}
-              className="relative inline-flex size-11 shrink-0 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-card-surface-default-solid)]"
-            >
-              <ConnectionPersonAvatar size="list" photoUrl={member.photoUrl} label={member.displayName} />
-            </span>
-          ))}
-          {remaining > 0 ? (
-            <span className="relative inline-flex size-11 shrink-0 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-secondary-fill)] text-xs font-semibold text-[color:var(--app-primary-label)]">
-              +{remaining}
-            </span>
-          ) : null}
-        </span>
-      ) : (
-        <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-full border border-dashed border-[color:var(--app-card-border-standard)] bg-[color:var(--app-secondary-fill)] text-[color:var(--app-secondary-label)]">
-          {circle.memberCount <= 1 && circle.role === "owner" && kind !== "trusted" ? (
-            <Plus className="size-5" />
-          ) : (
-            <UsersRound className="size-5" />
-          )}
-        </span>
-      )}
-    </span>
-  );
-}
-
 function isSystemCircleKind(value: string | null): value is SystemCircleKind {
   return value === "trusted" || value === "sms";
 }
@@ -227,24 +142,6 @@ function systemKindOf(circle: OneLocationCircleSummary): string | null {
   // A build talking to a server that predates `systemKind` still knows the SMS
   // Circle by its flag. Trusted has no fallback because it cannot exist there.
   return circle.isSystem ? "sms" : null;
-}
-
-function SmsCircleMainIcon() {
-  return <SmsTextIcon className="text-[10px] font-bold" />;
-}
-
-/** Decorative category cues only; an arbitrary user-named circle stays generic. */
-function circleVisual(circle: OneLocationCircleSummary) {
-  const kind = systemKindOf(circle);
-  if (kind === "trusted") return { Icon: ShieldCheck, tone: "text-[color:var(--app-accent)] bg-[color:var(--app-accent-ring)]" };
-  if (kind === "sms") return { Icon: SmsCircleMainIcon, tone: "bg-orange-50 text-orange-600 dark:bg-orange-950/40 dark:text-orange-300" };
-  const name = circle.name.trim().toLowerCase();
-  if (name === "family" || name === "family circle") return { Icon: Heart, tone: "text-rose-700 bg-rose-50 dark:text-rose-300 dark:bg-rose-950/40" };
-  if (name === "finance" || name === "finance circle") return { Icon: Wallet, tone: "text-amber-700 bg-amber-50 dark:text-amber-300 dark:bg-amber-950/40" };
-  if (name === "investor" || name === "investor circle") return { Icon: TrendingUp, tone: "text-violet-700 bg-violet-50 dark:text-violet-300 dark:bg-violet-950/40" };
-  if (name === "business" || name === "business circle") return { Icon: Briefcase, tone: "text-orange-700 bg-orange-50 dark:text-orange-300 dark:bg-orange-950/40" };
-  if (name === "location" || name === "location circle") return { Icon: MapPin, tone: "text-blue-700 bg-blue-50 dark:text-blue-300 dark:bg-blue-950/40" };
-  return { Icon: UsersRound, tone: "text-[color:var(--app-accent)] bg-[color:var(--app-accent-ring)]" };
 }
 
 /**
@@ -314,6 +211,7 @@ export function orderCircles(circles: readonly OneLocationCircleSummary[]): {
 
 export function ConnectCirclesTab({
   onStateChange,
+  onSearchActiveChange,
   currentUserId = null,
   isActive = true,
   onRequestConnection,
@@ -322,6 +220,7 @@ export function ConnectCirclesTab({
   createDialogOpen = false,
   onCreateDialogOpenChange,
 }: {
+  onSearchActiveChange?: (active: boolean) => void;
   /** Lets the page keep its native beacon and voice metadata truthful without
    *  hoisting circle state into a 2,400-line component. */
   onStateChange?: (state: ConnectCirclesSnapshot) => void;
@@ -364,11 +263,13 @@ export function ConnectCirclesTab({
     token: string | null;
     ownerId: string | null;
     circles: OneLocationCircleSummary[];
+    customTypePolicy?: { version: number; maxTypes: number };
   }>({ token: null, ownerId: null, circles: [] });
-  const loadedForSession = loaded.token === vaultOwnerToken && loaded.ownerId === currentUserId;
+  const loadedForSession =
+    loaded.token === vaultOwnerToken && loaded.ownerId === currentUserId;
   // Relayed summaries must never cross an unlock/account change, even for one render.
   const circles = useMemo(
-    () => vaultOwnerToken && loadedForSession ? loaded.circles : [],
+    () => (vaultOwnerToken && loadedForSession ? loaded.circles : []),
     [loaded.circles, loadedForSession, vaultOwnerToken],
   );
   const [loading, setLoading] = useState(true);
@@ -385,12 +286,26 @@ export function ConnectCirclesTab({
   const circleIdParam = String(
     searchParams.get(CONNECT_CIRCLE_ID_PARAM) || "",
   ).trim();
-  const chatSession = useMemo(() => currentUserId && vaultOwnerToken && vault?.vaultKey && circleIdParam
-    ? { userId: currentUserId, circleId: circleIdParam, vaultOwnerToken, vaultKey: vault.vaultKey } : null,
-    [currentUserId, vaultOwnerToken, vault?.vaultKey, circleIdParam]);
+  const chatSession = useMemo(
+    () =>
+      currentUserId && vaultOwnerToken && vault?.vaultKey && circleIdParam
+        ? {
+            userId: currentUserId,
+            circleId: circleIdParam,
+            vaultOwnerToken,
+            vaultKey: vault.vaultKey,
+          }
+        : null,
+    [currentUserId, vaultOwnerToken, vault?.vaultKey, circleIdParam],
+  );
   const consumeChatIntent = useCallback(() => {
     const next = new URLSearchParams(searchParams.toString());
     next.delete("circleChat");
+    router.replace(`${ROUTES.CONNECT}?${next.toString()}`, { scroll: false });
+  }, [router, searchParams]);
+  const finishMemberSetup = useCallback(() => {
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("circleSetup");
     router.replace(`${ROUTES.CONNECT}?${next.toString()}`, { scroll: false });
   }, [router, searchParams]);
   const joinCode =
@@ -446,16 +361,25 @@ export function ConnectCirclesTab({
         });
     void provision
       .catch(() => undefined)
-      .then(() => OneLocationService.listCircles(vaultOwnerToken))
-      .then((next) => {
+      .then(() => OneLocationService.listCircleWorkspace(vaultOwnerToken))
+      .then((workspace) => {
         if (cancelled) return;
-        setLoaded({ token: vaultOwnerToken, ownerId: currentUserId, circles: next });
+        setLoaded({
+          token: vaultOwnerToken,
+          ownerId: currentUserId,
+          circles: workspace.circles,
+          customTypePolicy: workspace.customTypePolicy,
+        });
         setLoading(false);
       })
       .catch(() => {
         if (cancelled) return;
         // Never relabel a previous session's retained list as this session's data.
-        setLoaded({ token: vaultOwnerToken, ownerId: currentUserId, circles: [] });
+        setLoaded({
+          token: vaultOwnerToken,
+          ownerId: currentUserId,
+          circles: [],
+        });
         setError("Circles are unavailable right now.");
         setLoading(false);
       });
@@ -474,17 +398,74 @@ export function ConnectCirclesTab({
       circles,
       available: Boolean(vaultOwnerToken),
     });
-  }, [circles, currentUserId, error, loadedForSession, loading, onStateChange, vaultOwnerToken]);
+  }, [
+    circles,
+    currentUserId,
+    error,
+    loadedForSession,
+    loading,
+    onStateChange,
+    vaultOwnerToken,
+  ]);
 
-  const { owned, joined } = useMemo(() => orderCircles(circles), [circles]);
-  const showingStarter =
-    vaultOwnerToken !== null &&
-    !loading &&
-    !error &&
-    joined.length === 0 &&
-    owned.every(
-      (circle) => systemKindOf(circle) !== null && circle.memberCount <= 1,
-    );
+  const listSessionRef = useRef({ currentUserId, vaultOwnerToken });
+  if (
+    listSessionRef.current.currentUserId !== currentUserId ||
+    listSessionRef.current.vaultOwnerToken !== vaultOwnerToken
+  ) {
+    listSessionRef.current = { currentUserId, vaultOwnerToken };
+  }
+  const listSession = listSessionRef.current;
+  const customTypesSupported = loadedForSession && loaded.customTypePolicy?.version === 1 && loaded.customTypePolicy.maxTypes === 3;
+  const allCustomGroups = useMemo(() => customCircleTypeGroups(circles), [circles]);
+  const [pendingTypeDraft, setPendingTypeDraft] = useState<{ session: typeof listSession; label: string } | null>(null);
+  const pendingType = pendingTypeDraft?.session === listSession ? pendingTypeDraft.label : null;
+  type PendingCircle = {
+    circle: OneLocationCircleSummary;
+    action: "delete" | "leave";
+  };
+  const [circleQueryDraft, setCircleQueryDraft] = useState({
+    session: listSession,
+    value: "",
+  });
+  const circleQuery =
+    circleQueryDraft.session === listSession ? circleQueryDraft.value : "";
+  const setCircleQuery = useCallback(
+    (value: string) => setCircleQueryDraft({ session: listSession, value }),
+    [listSession],
+  );
+  const [pendingCircleDraft, setPendingCircleDraft] = useState<{
+    session: typeof listSession;
+    value: PendingCircle | null;
+  } | null>(null);
+  const pendingCircle =
+    pendingCircleDraft?.session === listSession
+      ? pendingCircleDraft.value
+      : null;
+  const setPendingCircle = useCallback(
+    (value: PendingCircle | null) =>
+      setPendingCircleDraft({ session: listSession, value }),
+    [listSession],
+  );
+  const listMutationRef = useRef(false);
+  useEffect(() => {
+    listMutationRef.current = false;
+    setBusy(false);
+  }, [listSession]);
+  useEffect(() => {
+    onSearchActiveChange?.(Boolean(circleQuery.trim()));
+  }, [circleQuery, onSearchActiveChange]);
+  const { owned, joined } = useMemo(
+    () =>
+      orderCircles(
+        circles.filter((circle) =>
+          `${circle.name} ${circle.customTypeLabel ?? ""}`
+            .toLocaleLowerCase()
+            .includes(circleQuery.trim().toLocaleLowerCase()),
+        ),
+      ),
+    [circles, circleQuery],
+  );
 
   const actions = useMemo(
     () =>
@@ -507,12 +488,15 @@ export function ConnectCirclesTab({
         action?: ConnectCircleAction | null;
         circleId?: string | null;
         code?: string | null;
+        memberSetup?: boolean;
       },
       mode: "push" | "replace" = "push",
     ) => {
       const params = new URLSearchParams(searchParams.toString());
       params.set(CONNECT_SURFACE_PARAM, "circles");
       params.delete("circleChat");
+      params.delete("circleSetup");
+      if (next.memberSetup) params.set("circleSetup", "1");
       for (const [key, value] of [
         [CONNECT_CIRCLE_ACTION_PARAM, next.action],
         [CONNECT_CIRCLE_ID_PARAM, next.circleId],
@@ -586,14 +570,26 @@ export function ConnectCirclesTab({
     const timer = window.setInterval(() => {
       if (document.visibilityState !== "visible" || inFlight) return;
       inFlight = true;
-      void OneLocationService.listCircles(vaultOwnerToken)
-        .then((next) => {
+      void OneLocationService.listCircleWorkspace(vaultOwnerToken)
+        .then((workspace) => {
           if (cancelled) return;
-          setLoaded({ token: vaultOwnerToken, ownerId: currentUserId, circles: next });
+          const next = workspace.circles;
+          setLoaded({
+            token: vaultOwnerToken,
+            ownerId: currentUserId,
+            circles: next,
+            customTypePolicy: workspace.customTypePolicy,
+          });
           setError(null);
           setLoading(false);
-          if (circleIdParam && !next.some((circle) => circle.id === circleIdParam)) {
-            goRef.current({ action: null, circleId: null, code: null }, "replace");
+          if (
+            circleIdParam &&
+            !next.some((circle) => circle.id === circleIdParam)
+          ) {
+            goRef.current(
+              { action: null, circleId: null, code: null },
+              "replace",
+            );
             return;
           }
           if (circleIdParam) setDetailReloadToken((token) => token + 1);
@@ -607,20 +603,23 @@ export function ConnectCirclesTab({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [circleIdParam, currentUserId, isActive, vaultOwnerToken]);
+  }, [circleIdParam, currentUserId, isActive, vaultOwnerToken, reloadToken, refreshToken]);
 
-  const closeFlow = useCallback((refreshList = true) => {
-    // `replace`, not push. This runs after leaving and after deleting, so the
-    // entry it closes may name a Circle that no longer exists -- and pushing
-    // left it a back destination that re-mounted into "Could not open this
-    // Circle" with a Retry that can never succeed. The Location hub replaces
-    // for exactly this reason.
-    go({ action: null, circleId: null, code: null }, "replace");
-    // The list behind the flow is stale the moment anything was created,
-    // renamed, joined or left. Re-read rather than patch: a roster kept in two
-    // places is the thing this move exists to end.
-    if (refreshList) setReloadToken((token) => token + 1);
-  }, [go]);
+  const closeFlow = useCallback(
+    (refreshList = true) => {
+      // `replace`, not push. This runs after leaving and after deleting, so the
+      // entry it closes may name a Circle that no longer exists -- and pushing
+      // left it a back destination that re-mounted into "Could not open this
+      // Circle" with a Retry that can never succeed. The Location hub replaces
+      // for exactly this reason.
+      go({ action: null, circleId: null, code: null }, "replace");
+      // The list behind the flow is stale the moment anything was created,
+      // renamed, joined or left. Re-read rather than patch: a roster kept in two
+      // places is the thing this move exists to end.
+      if (refreshList) setReloadToken((token) => token + 1);
+    },
+    [go],
+  );
 
   const openCircle = useCallback(
     (circleId: string) => go({ action: "circle-detail", circleId }),
@@ -663,22 +662,43 @@ export function ConnectCirclesTab({
   ) {
     const form = actions ? (
       <CreateCircleFlow
+        key={`${currentUserId}:${vaultOwnerToken}`}
         busy={busy}
-        onSubmit={async (name, kind) => {
-          const circle = await withBusy(() => actions.createCircle(name, kind));
-          trackEvent("one_location_circle_created", {
-            route_id: "connect",
-            result: "success",
-            circle_kind: kind,
-          });
+        customTypes={allCustomGroups.map(group => group.label)}
+        customTypesSupported={customTypesSupported}
+        pathname={ROUTES.CONNECT}
+        backLayerQuery={createDialogOpen ? {} : { action: "create-circle" }}
+        onLoadPeople={actions.loadEligibleConnectionsPage}
+        onAddPeople={async (circleId, userIds) => {
+          await withBusy(() => actions.inviteConnections(circleId, userIds));
+          announceCircleMutation("location_circle_member_added", circleId);
+        }}
+        onSubmit={async (name, kind, existingCircleId, customTypeLabel) => {
+          const circle = await withBusy(() =>
+            actions.createCircle(name, kind, existingCircleId, customTypeLabel),
+          );
+          if (!existingCircleId)
+            trackEvent("one_location_circle_created", {
+              route_id: "connect",
+              result: "success",
+              circle_kind: kind,
+            });
+          announceCircleMutation(
+            existingCircleId
+              ? "location_circle_renamed"
+              : "location_circle_created",
+            circle.id,
+          );
+          return circle;
+        }}
+        onComplete={(circleId) => {
           // Modal creation pushes details so Back returns to its launch page.
           // The full-page flow replaces the form that just succeeded.
           go(
-            { action: "circle-detail", circleId: circle.id },
+            { action: "circle-detail", circleId },
             createDialogOpen ? "push" : "replace",
           );
           onCreateDialogOpenChange?.(false);
-          announceCircleMutation("location_circle_created", circle.id);
         }}
       />
     ) : (
@@ -694,19 +714,27 @@ export function ConnectCirclesTab({
           if (!busy) onCreateDialogOpenChange?.(open);
         }}
       >
-        <DialogContent
+        <TaskDialogContent
+          className={taskSurfaceStyles.createDialog}
           showCloseButton={!busy}
-          srDescription="Name your Circle and choose its type. You can add people next."
-          onEscapeKeyDown={(event) => { if (busy) event.preventDefault(); }}
-          onInteractOutside={(event) => { if (busy) event.preventDefault(); }}
+          srDescription="Name your Circle and choose its type. Next, add people now or later."
+          onEscapeKeyDown={(event) => {
+            if (busy || unwindBackLayer(ROUTES.CONNECT, searchParams))
+              event.preventDefault();
+          }}
+          onInteractOutside={(event) => {
+            if (busy) event.preventDefault();
+          }}
         >
           <DialogHeader>
             <DialogTitle>Create a Circle</DialogTitle>
           </DialogHeader>
           {form}
-        </DialogContent>
+        </TaskDialogContent>
       </Dialog>
-    ) : form;
+    ) : (
+      form
+    );
   }
 
   if (vaultOwnerToken && actions && action === "join-circle") {
@@ -743,18 +771,39 @@ export function ConnectCirclesTab({
     return (
       <CircleDetailFlow
         livingCircleExperience
+        memberSetup={searchParams.get("circleSetup") === "1"}
+        onMemberSetupComplete={finishMemberSetup}
         chatIntent={searchParams.get("circleChat") === "1"}
-        renderChat={chatSession ? (circle, { active, readingBlocked }) => <CircleChat
-          key={`${chatSession.userId}:${chatSession.circleId}:${chatSession.vaultOwnerToken}`}
-          session={chatSession} circleName={circle.name} initialOpen active={active} readingBlocked={readingBlocked} collapsible={false}
-          onOpenIntentConsumed={searchParams.get("circleChat") === "1" ? consumeChatIntent : undefined}
-        /> : undefined}
+        renderChat={
+          chatSession
+            ? (circle, { active, readingBlocked }) => (
+                <CircleChat
+                  key={`${chatSession.userId}:${chatSession.circleId}:${chatSession.vaultOwnerToken}`}
+                  session={chatSession}
+                  circleName={circle.name}
+                  initialOpen
+                  active={active}
+                  readingBlocked={readingBlocked}
+                  collapsible={false}
+                  onOpenIntentConsumed={
+                    searchParams.get("circleChat") === "1"
+                      ? consumeChatIntent
+                      : undefined
+                  }
+                />
+              )
+            : undefined
+        }
         // A signal, not a `key`. Remounting would re-read the roster but also
         // close an open add-people sheet, clear a half-typed search and drop
         // the selection -- and a notification can arrive at any moment.
         reloadSignal={detailReloadToken + refreshToken}
         circleId={circleIdParam}
         currentUserId={currentUserId}
+        sessionScope={vaultOwnerToken}
+        initialCircleSummary={circles.find(
+          (circle) => circle.id === circleIdParam,
+        )}
         busy={busy}
         onBack={closeFlow}
         onLoad={actions.loadCircle}
@@ -768,9 +817,13 @@ export function ConnectCirclesTab({
           return renamed;
         }}
         onPhotoUpdate={async (circleId, photoUrl) => {
-          const updated = await withBusy(() => actions.updatePhoto(circleId, photoUrl));
+          const updated = await withBusy(() =>
+            actions.updatePhoto(circleId, photoUrl),
+          );
           announceCircleMutation("location_circle_photo_updated", circleId);
-          toast.success(photoUrl ? "Circle photo updated." : "Circle photo removed.");
+          toast.success(
+            photoUrl ? "Circle photo updated." : "Circle photo removed.",
+          );
           return updated;
         }}
         onGenerateCode={(circleId, rotate) =>
@@ -833,7 +886,10 @@ export function ConnectCirclesTab({
         onLoadEligibleConnections={actions.loadEligibleConnections}
         onLoadEligibleConnectionsPage={actions.loadEligibleConnectionsPage}
         onInviteConnections={async (circleId, userIds) => {
-          await withBusy(() => actions.inviteConnections(circleId, userIds));
+          // The detail flow owns scoped success feedback for its batch.
+          await withBusy(() =>
+            actions.inviteConnections(circleId, userIds, false),
+          );
           trackOneLocationJourneyAction({
             action: "circle_member_invited",
             routeId: "connect",
@@ -890,88 +946,78 @@ export function ConnectCirclesTab({
 
   const renderCircleRow = (circle: OneLocationCircleSummary) => {
     const kind = systemKindOf(circle);
-    const { Icon, tone } = circleVisual(circle);
-    const canInviteToEmptyCircle = circle.role === "owner" && circle.memberCount <= 1 && kind !== "trusted";
-    const testId = kind
-      ? `connect-circle-${kind}`
-      : circle.role === "owner"
-        ? "connect-circle-owned"
-        : "connect-circle-joined";
     const title =
       isSystemCircleKind(kind) &&
       circle.role === "owner" &&
       circle.name === SYSTEM_CIRCLE_COPY[kind].title
         ? SYSTEM_CIRCLE_COPY[kind].title
         : circle.name;
-
+    const testId = kind
+      ? `connect-circle-${kind}`
+      : circle.role === "owner"
+        ? "connect-circle-owned"
+        : "connect-circle-joined";
+    const action =
+      circle.viewerCapabilities?.canDeleteCircle === true &&
+      !kind &&
+      !circle.isSystem
+        ? "delete"
+        : circle.viewerCapabilities?.canLeaveCircle === true
+          ? "leave"
+          : null;
     return (
-      <button
-        key={circle.id}
-        type="button"
-        className={CONNECT_CIRCLE_TILE_CLASSNAME}
-        onClick={() => openCircle(circle.id)}
-        data-testid={testId}
-        aria-label={`Open ${title} circle, ${circleRowDescription(circle)}`}
-      >
-        {circle.photoUrl && !kind ? <CircleAvatar photoUrl={circle.photoUrl} /> : <span aria-hidden="true" className={`flex size-12 shrink-0 items-center justify-center rounded-2xl border border-current/10 ${tone}`}>
-          <Icon className="size-6" />
-        </span>}
-        <span className="min-w-0 flex-1">
-          <span className="block text-base font-semibold [overflow-wrap:anywhere] text-[color:var(--app-primary-label)]">
-            {title}
-          </span>
-          <span className="ui-text-row-description mt-1 block text-[color:var(--app-secondary-label)]">
-            {circleRowDescription(circle)}
-          </span>
-        </span>
-        {!canInviteToEmptyCircle ? (
-          <span className="col-span-3 flex min-w-0 items-center sm:col-auto sm:ml-auto sm:w-40 sm:shrink-0 sm:justify-end">
-            <CircleCluster circle={circle} vaultOwnerToken={vaultOwnerToken ?? ""} reloadToken={reloadToken + refreshToken} />
-
-          </span>
-        ) : null}
-        {canInviteToEmptyCircle ? (
-          <span aria-hidden="true" data-testid="connect-circle-empty-add" className="col-start-3 row-start-1 inline-flex size-11 shrink-0 items-center justify-center rounded-full border border-dashed border-[color:var(--app-card-border-standard)] text-[color:var(--app-secondary-label)] sm:col-auto">
-            <Plus className="size-5" />
-          </span>
-        ) : (
-          <ChevronRight aria-hidden="true" className="col-start-3 row-start-1 size-5 shrink-0 justify-self-end text-[color:var(--app-secondary-label)] sm:col-auto" />
-        )}
-      </button>
+      <ConnectCircleRow
+        key={`${currentUserId}:${circle.id}`}
+        title={title}
+        description={circleRowDescription(circle)}
+        testId={testId}
+        action={action}
+        onOpen={() => openCircle(circle.id)}
+        onDestructive={() => {
+          if (action) setPendingCircle({ circle, action });
+        }}
+      />
     );
   };
 
+  const customGroups = customCircleTypeGroups(owned);
+  const customIds = new Set(customGroups.flatMap(group => group.circles.map(circle => circle.id)));
+  const systemOwned = owned.filter(circle => systemKindOf(circle) || circle.isSystem);
+  const ordinaryOwned = owned.filter(circle => !systemKindOf(circle) && !circle.isSystem && !customIds.has(circle.id));
+  const untypedOwned = ordinaryOwned.filter(circle => circle.kind !== "family" && circle.kind !== "friends");
+  const ownedGroups = [
+    { label: "Family", circles: ordinaryOwned.filter(circle => circle.kind === "family"), custom: false },
+    { label: "Friends", circles: ordinaryOwned.filter(circle => circle.kind === "friends"), custom: false },
+    ...customGroups.map(group => ({ ...group, custom: true })),
+  ].filter(group => group.circles.length > 0);
+
   return (
-    <div className="space-y-8" data-testid="connect-circles-tab">
-      {vaultOwnerToken && !showingStarter ? (
-        <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
-          <div>
-            <SectionTitle as="h2">Your circles</SectionTitle>
-            <RowDescription className="mt-1">Bring people together for the things you share.</RowDescription>
-          </div>
-          <div className="flex flex-wrap items-center gap-2.5">
-            <Button type="button" variant="none" effect="fill" size="standard" showRipple={false} className="!min-h-11 !rounded-full !border !border-[color:var(--app-card-border-standard)] !bg-[color:var(--app-card-surface-default-solid)]" onClick={() => go({ action: "join-circle" })} data-testid="connect-circle-join">
-              <KeyRound aria-hidden="true" className="mr-2 size-4" />
-              Join with code
-            </Button>
-            <Button type="button" variant="blue" effect="fill" size="standard" showRipple={false} className="!min-h-11 !rounded-full" onClick={() => go({ action: "create-circle" })} data-testid="connect-circle-create">
-              <Plus aria-hidden="true" className="mr-2 size-4" />
-              Create circle
-            </Button>
-          </div>
-        </div>
+    <div className="space-y-4" data-profile-type-scale="circles" data-testid="connect-circles-tab">
+      {vaultOwnerToken ? (
+        <>
+          <label className={styles.circleSearch}>
+            <span className="sr-only">Search your and joined circles</span>
+            <Search
+              aria-hidden="true"
+              className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+            />
+            <Input
+              type="search"
+              placeholder="Circle name"
+              value={circleQuery}
+              onChange={(event) => setCircleQuery(event.target.value)}
+            />
+          </label>
+          <ConnectCircleHeading
+            title="Your circles"
+            count={!loading && !error ? owned.length : undefined}
+            action="create"
+            onAction={() => go({ action: "create-circle" })}
+          />
+        </>
       ) : null}
       {vaultOwnerToken === null ? (
         <SettingsGroup title="Your circles">
-          {/* Whose screen this actually is.
-           *
-           * A LOCKED vault never reaches here -- the guard shows its unlock
-           * dialog first. The one audience for a null token is somebody who
-           * has no vault yet, i.e. somebody still in setup, and telling them
-           * to unlock something they do not have was both false and a dead
-           * end: the row was disabled and the create/join group was withheld
-           * on the same condition. So it names the real next step and goes
-           * there. */}
           <SettingsRow
             title="Finish setting up One"
             description="Circles need your vault, which is created during setup."
@@ -982,10 +1028,7 @@ export function ConnectCirclesTab({
           />
         </SettingsGroup>
       ) : error ? (
-        <SettingsGroup title="Your circles">
-          {/* Retryable. Nothing else on this branch can bump the token: the
-           * flows that do are unreachable from an error state, and an inbound
-           * notification is not something the reader can trigger. */}
+        <SettingsGroup>
           <SettingsRow
             title="Circles are unavailable"
             description={`${error} Tap to try again.`}
@@ -996,69 +1039,226 @@ export function ConnectCirclesTab({
           />
         </SettingsGroup>
       ) : loading ? (
-        <SettingsGroup title="Your circles">
+        <SettingsGroup>
           <SettingsRow title="Loading circles…" density="compact" disabled />
         </SettingsGroup>
       ) : (
         <>
-          {showingStarter ? (
-            <section
-              data-testid="connect-circle-starter"
-              className="rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-5 py-6 text-center sm:px-8"
-            >
-              <span aria-hidden="true" className="relative mx-auto flex size-28 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)]">
-                <span className="flex size-14 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[color:var(--app-accent)]">
-                  <UsersRound className="size-7" />
-                </span>
-                <span className="absolute -left-1 top-5 size-5 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-rose-100 dark:bg-rose-950/50" />
-                <span className="absolute -right-1 top-5 size-5 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-blue-100 dark:bg-blue-950/50" />
-                <span className="absolute bottom-0 left-1/2 size-5 -translate-x-1/2 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-amber-100 dark:bg-amber-950/50" />
-              </span>
-              <h2 className="ui-text-major-section-title mt-5 text-[color:var(--app-primary-label)]">
-                A circle starts with your people
-              </h2>
-              <p className="ui-text-page-subtitle mx-auto mt-1 max-w-md text-[color:var(--app-secondary-label)]">
-                Make a space for family, friends, or any group you choose. Invite people when you're ready.
-              </p>
-              <div className="mt-5 flex flex-col justify-center gap-2.5 min-[440px]:flex-row">
-                <Button type="button" variant="blue" effect="fill" size="standard" showRipple={false} className="!h-11 !rounded-[var(--app-card-radius-compact)]" onClick={() => go({ action: "create-circle" })} data-testid="connect-circle-create">
-                  <Plus aria-hidden="true" className="mr-1.5 size-4" />
-                  Create circle
-                </Button>
-                <Button type="button" variant="blue" effect="fade" size="standard" showRipple={false} className="!h-11 !rounded-[var(--app-card-radius-compact)] !bg-[color:var(--app-secondary-surface)]" onClick={() => router.push(`${ROUTES.CONNECT}?tab=all`, { scroll: false })}>
-                  Find people
-                </Button>
-              </div>
-              <Button type="button" variant="none" effect="fade" size="compact" showRipple={false} className="mt-2" onClick={() => go({ action: "join-circle" })} data-testid="connect-circle-join">
-                Have a code? Join a circle
-              </Button>
-            </section>
-          ) : null}
           {owned.length ? (
-            <section data-testid="connect-circle-group-owned">
-              <SurfaceCard className="!overflow-hidden !p-0">
-                <div className={CONNECT_CIRCLE_GRID_CLASSNAME}>
-                  {owned.map(renderCircleRow)}
+            <section className="space-y-4" aria-label="Your circles" data-testid="connect-circle-group-owned">
+              {systemOwned.length ? (
+                <div className={`${CONNECT_CIRCLE_GRID_CLASSNAME} ${styles.circleGroup}`}>
+                  {systemOwned.map(renderCircleRow)}
                 </div>
-              </SurfaceCard>
+              ) : null}
+              {ownedGroups.map(group => (
+                <section key={group.label.toLocaleLowerCase()} aria-label={`${group.label} circles`}>
+                  <div className={styles.circleHeading}>
+                    <h3>{group.label} <span className={styles.count}>{group.circles.length}</span></h3>
+                    {group.custom && customTypesSupported ? (
+                      <Button type="button" variant="none" effect="fade" size="icon-touch"
+                        aria-label={`Delete ${group.label} type`} disabled={busy}
+                        onClick={() => setPendingTypeDraft({ session: listSession, label: group.label })}>
+                        <Trash2 aria-hidden="true" className="size-4" />
+                      </Button>
+                    ) : null}
+                  </div>
+                  <div className={`${CONNECT_CIRCLE_GRID_CLASSNAME} ${styles.circleGroup}`}>
+                    {group.circles.map(renderCircleRow)}
+                  </div>
+                </section>
+              ))}
+              {untypedOwned.length ? (
+                <div className={`${CONNECT_CIRCLE_GRID_CLASSNAME} ${styles.circleGroup}`}>
+                  {untypedOwned.map(renderCircleRow)}
+                </div>
+              ) : null}
             </section>
-          ) : null}
+          ) : (
+            <div className="py-5 text-center">
+              <h3 className="text-sm font-semibold">
+                {circleQuery
+                  ? "No circles found"
+                  : joined.length
+                    ? "No circles created yet."
+                    : "Make a circle"}
+              </h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {circleQuery
+                  ? "Try a different name."
+                  : "Bring together people you choose."}
+              </p>
+            </div>
+          )}
           {joined.length ? (
             <section data-testid="connect-circle-group-joined">
-              <div className="mb-4">
-                <SectionTitle as="h2">Joined circles</SectionTitle>
-                <RowDescription className="mt-1">Circles created by others that you are part of.</RowDescription>
+              <ConnectCircleHeading
+                title="Joined circles"
+                count={joined.length}
+                action="join"
+                onAction={() => go({ action: "join-circle" })}
+              />
+              <div
+                className={`${CONNECT_CIRCLE_GRID_CLASSNAME} ${styles.circleGroup}`}
+              >
+                {joined.map(renderCircleRow)}
               </div>
-              <SurfaceCard className="!overflow-hidden !p-0">
-                <div className={CONNECT_CIRCLE_GRID_CLASSNAME}>
-                  {joined.map(renderCircleRow)}
-                </div>
-              </SurfaceCard>
             </section>
           ) : null}
+
         </>
       )}
-
+      <AlertDialog open={pendingType !== null} onOpenChange={open => { if (!open && !listMutationRef.current) setPendingTypeDraft(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {pendingType} type?</AlertDialogTitle>
+            <AlertDialogDescription>Your circles and their members will stay. They will appear without a type heading, and you can create a new type.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={busy} onClick={event => {
+              event.preventDefault();
+              if (!pendingType || !vaultOwnerToken || !customTypesSupported || listMutationRef.current) return;
+              listMutationRef.current = true;
+              const session = listSession;
+              setBusy(true);
+              const operation = OneLocationService.deleteCircleType({ vaultOwnerToken, customTypeLabel: pendingType }).then(() => {
+                if (listSessionRef.current !== session) return;
+                setPendingTypeDraft(null);
+                setReloadToken(value => value + 1);
+                announceCircleMutation("location_circle_type_deleted");
+              });
+              morphyToast.promise(operation, { loading: "Deleting type…", success: "Type deleted. Your circles are kept.", error: "Could not delete this type. Try again." });
+              void operation.catch(() => undefined).finally(() => {
+                if (listSessionRef.current === session) { listMutationRef.current = false; setBusy(false); }
+              });
+            }}>Delete type</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        open={pendingCircle !== null}
+        onOpenChange={(open) => {
+          if (!open && !listMutationRef.current) setPendingCircle(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingCircle?.action === "delete" ? "Delete" : "Leave"}{" "}
+              {pendingCircle?.circle.name}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingCircle?.action === "delete"
+                ? "This removes the circle for everyone. This cannot be undone."
+                : "You will no longer be a member of this circle."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy}
+              onClick={(event) => {
+                event.preventDefault();
+                if (
+                  !pendingCircle ||
+                  !actions ||
+                  !currentUserId ||
+                  listMutationRef.current
+                )
+                  return;
+                listMutationRef.current = true;
+                const selected = pendingCircle;
+                const session = listSessionRef.current;
+                const isCurrent = () => listSessionRef.current === session;
+                setBusy(true);
+                const operation = (async () => {
+                  const latest = await actions.loadCircleOverview(
+                    selected.circle.id,
+                  );
+                  if (!isCurrent())
+                    throw new Error(
+                      "Circle action cancelled. Return to your current account to try again.",
+                    );
+                  const allowed =
+                    selected.action === "delete"
+                      ? latest.viewerCapabilities?.canDeleteCircle === true &&
+                        !latest.isSystem &&
+                        !latest.systemKind
+                      : latest.viewerCapabilities?.canLeaveCircle === true;
+                  if (!allowed)
+                    throw new Error(
+                      "Your permission to change this circle has changed.",
+                    );
+                  await (selected.action === "delete"
+                    ? actions.deleteCircle(latest.id, false)
+                    : actions.leaveCircle(latest.id, false));
+                  if (!isCurrent()) return;
+                  trackOneLocationJourneyAction({
+                    action:
+                      selected.action === "delete"
+                        ? "circle_deleted"
+                        : "circle_left",
+                    routeId: "connect",
+                    entrySurface: "connect_circles",
+                    targetType: "circle",
+                  });
+                  announceCircleMutation(
+                    selected.action === "delete"
+                      ? "location_circle_deleted"
+                      : "location_circle_member_left",
+                    latest.id,
+                    selected.action === "leave" ? currentUserId : undefined,
+                  );
+                  setPendingCircle(null);
+                })();
+                void morphyToast.promise(operation, {
+                  loading:
+                    selected.action === "delete"
+                      ? "Deleting circle…"
+                      : "Leaving circle…",
+                  success: "Circle updated.",
+                  error: (error) =>
+                    error instanceof Error
+                      ? error.message
+                      : "Could not update this circle.",
+                });
+                void operation
+                  .catch(() => undefined)
+                  .finally(() => {
+                    if (isCurrent()) {
+                      listMutationRef.current = false;
+                      setBusy(false);
+                    }
+                  });
+              }}
+            >
+              {busy
+                ? "Updating…"
+                : pendingCircle?.action === "delete"
+                  ? "Delete circle"
+                  : "Leave circle"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      {vaultOwnerToken && !joined.length ? (
+        <div className="flex justify-center py-2">
+          <Button
+            type="button"
+            variant="none"
+            effect="fade"
+            size="compact"
+            className={`${styles.utilityAction} ${styles.joinAction}`}
+            showRipple={false}
+            onClick={() => go({ action: "join-circle" })}
+            data-testid="connect-circle-join"
+          >
+            <KeyRound aria-hidden="true" className="mr-1.5 size-4" />
+            <span>Join with code</span>
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }

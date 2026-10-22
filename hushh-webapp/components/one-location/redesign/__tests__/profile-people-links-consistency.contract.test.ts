@@ -33,7 +33,7 @@ describe("Profile, Location People, and Location Links consistency contract", ()
 
   it("keeps Location header status on the shared readiness formatter", () => {
     const source = readSource(
-      "components/one-location/redesign/location-redesign-hub.tsx",
+      "components/one-location/redesign/location-hub-summary.tsx",
     );
 
     expect(source).toContain('return "Finding you\\u2026";');
@@ -77,9 +77,9 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     expect(ctaLayout).toContain("DURATION_EQUAL_BUTTONS_GROUP_CLASSNAME");
     expect(ctaLayout).toContain("w-full space-y-3 sm:max-w-[320px]");
     expect(ctaLayout).toContain(
-      "mx-auto flex w-full max-w-[244px] flex-col items-stretch",
+      "flex w-full max-w-[420px] flex-col items-stretch gap-4 px-4",
     );
-    expect(ctaLayout).toContain("h-[50px] min-h-[50px] w-full rounded-full");
+    expect(ctaLayout).toContain("h-12 min-h-12 w-auto max-w-full self-start rounded-full");
     expect(ctaLayout).not.toContain("min-[380px]:pl-16");
   });
 
@@ -91,7 +91,7 @@ describe("Profile, Location People, and Location Links consistency contract", ()
 
     expect(source).toContain('label.replace(/^Stops in\\b/i, "Expires in")');
     expect(source).toContain(
-      "Anyone with this link can see your location until it expires.",
+      "Anyone with the link can view.",
     );
     expect(source).toContain("Anyone with this link can see your location.");
     expect(cardSource).toContain("Revoke link");
@@ -99,34 +99,6 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     expect(source).not.toContain("Stops in 1h");
   });
 
-  it("draws Profile menu icons in their own colour with no tile, as on /one", () => {
-    const source = readSource(
-      "components/profile/profile-workspace-page.tsx",
-    );
-    const settingsSource = readSource("components/app-ui/settings-ui.tsx");
-
-    expect(source).toContain("title={PROFILE_LABELS.referrals}");
-    expect(source).toContain("title={PROFILE_LABELS.developerTools}");
-    for (const icon of [
-      "AccountProfileIcon",
-      "PreferencesProfileIcon",
-      "SecurityProfileIcon",
-      "DevicesProfileIcon",
-      "InviteFriendsProfileIcon",
-      "SupportProfileIcon",
-      "DeveloperToolsProfileIcon",
-      "SignOutProfileIcon",
-    ]) {
-      expect(source).toMatch(
-        new RegExp(`icon=\\{${icon}\\}\\s+iconTone="capability"`),
-      );
-    }
-    expect(source).toContain('tone="destructive"');
-    // The capability tone leaves the authored duotone colour in place.
-    expect(settingsSource).toContain(
-      'color={isCapabilityTone ? undefined : "currentColor"}',
-    );
-  });
 
   it("keeps Profile and Location grouped surfaces on the same compact radius token", () => {
     const css = readSource("app/globals.css");

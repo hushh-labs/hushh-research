@@ -46,9 +46,9 @@ const config: CapacitorConfig = {
   // context out of Android logcat and iOS device logs in every build. Native
   // test evidence uses the sanitized status bridge instead of console output.
   loggingBehavior: "none",
-  // Next writes static exports into `distDir` when it is overridden. Native
-  // release builds use that override to avoid colliding with a live web dev
-  // server, so Capacitor must consume the same directory.
+  // Next writes static exports into the overridden `distDir`, so Capacitor
+  // must consume that destination. The compiler still uses `.next`: this does
+  // not isolate concurrent native/web builds; serialize them in one worktree.
   webDir: WEB_DIR,
 
   // iOS-specific configuration

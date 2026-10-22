@@ -42,7 +42,7 @@ test("Auto-decrypted shared information card and agent chat consent lifecycle", 
   }
 
   const unlockInput = page.locator("#unlock-passphrase");
-  const unlockButton = page.getByRole("button", { name: /unlock with passphrase/i }).first();
+  const unlockButton = page.getByRole("button", { name: /unlock with password/i }).first();
   const deadline = Date.now() + 90_000;
   let manualUnlockSubmitted = false;
 
@@ -52,7 +52,7 @@ test("Auto-decrypted shared information card and agent chat consent lifecycle", 
     }));
     if (bootstrap.state === "vault_unlocked") break;
     if (!manualUnlockSubmitted && (await unlockInput.isVisible().catch(() => false))) {
-      console.log("Filling vault passphrase and unlocking...");
+      console.log("Filling vault password and unlocking...");
       await unlockInput.fill(reviewerPassphrase);
       if (await unlockButton.isEnabled().catch(() => false)) {
         await unlockButton.click({ noWaitAfter: true });

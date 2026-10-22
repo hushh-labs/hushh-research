@@ -127,8 +127,8 @@ async def test_per_file_grant_claim_rechecks_request_payment(permission_setup):
         )
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-              (request_id,user_id,requester_user_id,status)
-              VALUES (:request,'owner','recipient','awaiting_payment')"""),
+              (request_id,user_id,requester_user_id,stripe_mode,status)
+              VALUES (:request,'owner','recipient','test','awaiting_payment')"""),
             {"request": request_id},
         )
     with pytest.raises(DriveSharingError, match="payment_required"):
@@ -557,3 +557,228 @@ async def test_batch_invalidation_preserves_inflight_sibling_success(permission_
         )
         == 2
     )
+
+
+def _expire_leases(store, operation_id=None):
+    with store.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_permission_operations
+              SET lease_expires_at=clock_timestamp()-INTERVAL '1 second'
+              WHERE CAST(:id AS uuid) IS NULL OR operation_id=CAST(:id AS uuid)"""),
+            {"id": operation_id},
+        )
+
+
+def _receipt(store, operation_id):
+    return store.sharing_cipher.open(
+        outcome(store, operation_id)["receipt_envelope"],
+        user_id="owner",
+        resource_id=operation_id,
+        purpose="permission-receipt",
+    )
+
+
+def _direct_reader(**changes):
+    return {
+        "id": "synthetic-permission",
+        "type": "user",
+        "role": "reader",
+        "emailAddress": "recipient@example.invalid",
+        "permissionDetails": [{"inherited": False, "permissionType": "file", "role": "reader"}],
+        **changes,
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "hint,listed,expected,code",
+    [
+        # invalidSharingRequest can follow a real share: the grant is recorded.
+        ("shared_without_email", _direct_reader(), "succeeded", None),
+        # A grant that exists wins over any wording Google used.
+        ("recipient_needs_google_account", _direct_reader(), "succeeded", None),
+        # No grant: Google's refusal is reported, never retried.
+        ("drive_policy_blocked", None, "rejected", "drive_policy_blocked"),
+        ("invalid_sharing_request", None, "rejected", "permission_rejected"),
+        # Negative controls: another role or an inherited ACL is never adopted,
+        # and "shared" wording without a grant stays a reconciled absence.
+        ("shared_without_email", _direct_reader(role="writer"), "present_unattributed", None),
+        (
+            "shared_without_email",
+            _direct_reader(
+                permissionDetails=[
+                    {
+                        "inherited": True,
+                        "inheritedFrom": "parent",
+                        "permissionType": "file",
+                        "role": "reader",
+                    }
+                ]
+            ),
+            "present_unattributed",
+            None,
+        ),
+        ("shared_without_email", None, "absent", None),
+    ],
+    ids=[
+        "shared_without_email",
+        "grant_wins",
+        "policy",
+        "unclassified",
+        "other_role",
+        "inherited",
+        "shared_wording_absent",
+    ],
+)
+async def test_invalid_sharing_answer_is_reconciled_before_it_settles(
+    permission_setup, hint, listed, expected, code
+):
+    store, executor, adapter, ids = permission_setup
+    adapter.create_reader.side_effect = DrivePermissionError(
+        "permission_outcome_unknown", outcome_unknown=True, share_hint=hint
+    )
+    assert await executor.grant(user_id="owner", operation_id=ids[0]) == "unknown"
+    assert _receipt(store, ids[0])["share_hint"] == hint
+    _expire_leases(store, ids[0])
+    adapter.list_permissions.return_value = PermissionSnapshot((listed,) if listed else ())
+    assert await executor.reconcile(user_id="owner", operation_id=ids[0]) == expected
+    row = outcome(store, ids[0])
+    assert (row["state"], row["safe_error_code"]) == (expected, code)
+    receipt = _receipt(store, ids[0])
+    assert receipt["managed"] is (expected == "succeeded")
+    if expected == "succeeded":
+        assert receipt["created"]["permission_id"] == "synthetic-permission"
+    # Read-only reconciliation never repeats the create.
+    adapter.create_reader.assert_awaited_once()
+    assert await executor.grant(user_id="owner", operation_id=ids[0]) == "not_claimed"
+
+
+@pytest.mark.asyncio
+async def test_reconciled_invalid_sharing_grants_stay_removable_by_the_owner(permission_setup):
+    from hushh_mcp.services.drive_revocation_store import DriveRevocationStore
+
+    store, executor, adapter, ids = permission_setup
+    adapter.create_reader.side_effect = DrivePermissionError(
+        "permission_outcome_unknown", outcome_unknown=True, share_hint="shared_without_email"
+    )
+    for identifier in ids:
+        assert await executor.grant(user_id="owner", operation_id=identifier) == "unknown"
+    _expire_leases(store)
+    adapter.list_permissions.return_value = PermissionSnapshot((_direct_reader(),))
+    for identifier in ids:
+        assert await executor.reconcile(user_id="owner", operation_id=identifier) == "succeeded"
+    assert rows(store, "drive_share_requests")[0]["status"] == "completed"
+    # Untracked grants cannot be removed; these are One's managed receipts.
+    prepared = await DriveRevocationStore(
+        db=store.db, authority_key="synthetic-ledger-key"
+    ).prepare_revocation(
+        user_id="owner",
+        generation=1,
+        request_id=str(rows(store, "drive_share_requests")[0]["request_id"]),
+    )
+    assert len(prepared["files"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_sharing_rate_limit_waits_grow_and_every_post_follows_an_absence_check(
+    permission_setup,
+):
+    store, executor, adapter, ids = permission_setup
+    adapter.create_reader.side_effect = DrivePermissionError("sharing_rate_limited", retryable=True)
+    for attempt, expected in enumerate((300, 600, 1200, 2400), start=1):
+        assert await executor.grant(user_id="owner", operation_id=ids[0]) == "deferred"
+        row = outcome(store, ids[0])
+        # Google refused the share: queued again without a dispatch marker.
+        assert (row["state"], row["safe_error_code"], row["dispatched_at"]) == (
+            "queued",
+            "sharing_rate_limited",
+            None,
+        )
+        with store.db.engine.connect() as connection:
+            wait = connection.execute(
+                text("""SELECT EXTRACT(EPOCH FROM lease_expires_at-clock_timestamp())
+                  FROM drive_share_permission_operations WHERE operation_id=:id"""),
+                {"id": ids[0]},
+            ).scalar_one()
+        assert expected - 20 < wait <= expected
+        # The timer holds the operation: no claim and no POST until it ends.
+        assert await executor.grant(user_id="owner", operation_id=ids[0]) == "not_claimed"
+        assert adapter.create_reader.await_count == adapter.list_permissions.await_count == attempt
+        _expire_leases(store, ids[0])
+    assert await executor.grant(user_id="owner", operation_id=ids[0]) == "rejected"
+    row = outcome(store, ids[0])
+    assert (row["state"], row["safe_error_code"]) == ("rejected", "sharing_rate_limited")
+    assert adapter.create_reader.await_count == adapter.list_permissions.await_count == 5
+    with store.db.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_share_file_claims WHERE operation_id=:id"),
+                {"id": ids[0]},
+            ).scalar()
+            == 0
+        )
+
+
+def _same_drive_file(store, ids):
+    """Point the second synthetic grant at the first one's Drive file.
+
+    Two requests can share one file; its claim serializes their writes.
+    """
+    with store.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_permission_operations SET file_lock_hmac=(
+                SELECT file_lock_hmac FROM drive_share_permission_operations
+                WHERE operation_id=:first)
+              WHERE operation_id=:second"""),
+            {"first": ids[0], "second": ids[1]},
+        )
+
+
+def _file_claims(store):
+    with store.db.engine.connect() as connection:
+        return [
+            str(identifier)
+            for identifier in connection.execute(
+                text("SELECT operation_id FROM drive_share_file_claims ORDER BY operation_id")
+            ).scalars()
+        ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "answer,first,second",
+    [
+        # Google refused the share: nothing is in flight, so the file is free.
+        (DrivePermissionError("sharing_rate_limited", retryable=True), "deferred", "succeeded"),
+        # Negative control: an uncertain create keeps its file until reconciled.
+        (
+            DrivePermissionError("permission_outcome_unknown", outcome_unknown=True),
+            "unknown",
+            "not_claimed",
+        ),
+    ],
+    ids=["rate_limited", "uncertain"],
+)
+async def test_a_rate_limit_wait_never_holds_its_file_from_other_grants(
+    permission_setup, answer, first, second
+):
+    store, executor, adapter, ids = permission_setup
+    _same_drive_file(store, ids)
+    adapter.create_reader.side_effect = [
+        answer,
+        CreatedReader("synthetic-permission", "recipient@example.invalid"),
+    ]
+    assert await executor.grant(user_id="owner", operation_id=ids[0]) == first
+    assert _file_claims(store) == ([] if first == "deferred" else [ids[0]])
+    assert await executor.grant(user_id="owner", operation_id=ids[1]) == second
+    if first != "deferred":
+        assert adapter.create_reader.await_count == 1
+        return
+    assert _file_claims(store) == []
+    # When its timer ends the waiting grant takes the file again, and its
+    # complete absence check finds the access: no second POST for it.
+    _expire_leases(store, ids[0])
+    adapter.list_permissions.return_value = PermissionSnapshot((_direct_reader(),))
+    assert await executor.grant(user_id="owner", operation_id=ids[0]) == "preexisting"
+    assert adapter.create_reader.await_count == 2
+    assert _file_claims(store) == []

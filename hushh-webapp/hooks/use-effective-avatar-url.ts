@@ -6,6 +6,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { CacheService } from "@/lib/services/cache-service";
 import { shouldSkipAmbientIdentityHydrationForAutomation } from "@/lib/testing/native-test";
+import { providerAvatarAtSize } from "@/lib/profile/provider-avatar";
+export { providerAvatarAtSize } from "@/lib/profile/provider-avatar";
 
 /**
  * The avatar URL to render for the CURRENT user on every surface.
@@ -15,11 +17,11 @@ import { shouldSkipAmbientIdentityHydrationForAutomation } from "@/lib/testing/n
  * the live Firebase `photoURL`. Subscribes to identity-cache changes so an
  * upload/remove refreshes every avatar surface at once (top bar, profile, …).
  */
-export function useEffectiveAvatarUrl(): string | null {
+export function useEffectiveAvatarUrl(pixels?: number): string | null {
   const { user } = useAuth();
   const uid = user?.uid ?? null;
   const firebasePhoto = user?.photoURL ?? null;
-  const [effective, setEffective] = useState<string | null>(null);
+  const [effective, setEffective] = useState<{ owner: string; url: string | null } | null>(null);
 
   useEffect(() => {
     if (!uid) {
@@ -30,7 +32,7 @@ export function useEffectiveAvatarUrl(): string | null {
     const read = () => {
       if (!active) return;
       const snap = AccountIdentityService.peekCachedIdentity(uid);
-      setEffective(snap?.data?.photo_url ?? null);
+      setEffective({ owner: uid, url: snap?.data?.photo_url ?? null });
     };
     read();
     if (shouldSkipAmbientIdentityHydrationForAutomation()) {
@@ -50,5 +52,9 @@ export function useEffectiveAvatarUrl(): string | null {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uid]);
 
-  return effective ?? firebasePhoto;
+  const cached = effective?.owner === uid ? effective.url : null;
+  const photo = cached ?? firebasePhoto;
+  // Preserve custom uploads exactly. Request richer provider media only when
+  // the effective image is the actual provider fallback, not an override.
+  return pixels !== undefined && photo === firebasePhoto ? providerAvatarAtSize(photo, pixels) : photo;
 }

@@ -58,4 +58,18 @@ describe("ThemeToggleLean", () => {
     expect(nextThemePreference("dark")).toBe("system");
     expect(nextThemePreference(undefined)).toBe("light");
   });
+
+  it("uses the shared radio keyboard contract without repeating an unchanged preference", async () => {
+    render(<ThemeToggleLean size="compact" />);
+    const light = await screen.findByRole("radio", { name: "Light", checked: true });
+    expect(screen.getAllByRole("radio").filter(node => node.tabIndex === 0)).toHaveLength(1);
+    fireEvent.click(light);
+    expect(themeState.setTheme).not.toHaveBeenCalled();
+    fireEvent.keyDown(light, { key: "End" });
+    const system = screen.getByRole("radio", { name: "System", checked: true });
+    expect(system).toHaveFocus();
+    expect(themeState.setTheme).toHaveBeenCalledExactlyOnceWith("system");
+    fireEvent.keyDown(system, { key: "ArrowLeft", metaKey: true });
+    expect(themeState.setTheme).toHaveBeenCalledTimes(1);
+  });
 });

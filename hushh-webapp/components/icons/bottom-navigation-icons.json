@@ -1,0 +1,7 @@
+{
+  "chat": { "glyph": "ChatCircle", "weight": "fill", "selectedWeight": "fill" },
+  "dashboard": { "glyph": "SquaresFour", "weight": "fill", "selectedWeight": "fill" },
+  "connect": { "glyph": "Compass", "weight": "fill", "selectedWeight": "fill" },
+  "feed": { "glyph": "Newspaper", "weight": "fill", "selectedWeight": "fill" },
+  "search": { "glyph": "MagnifyingGlass", "weight": "fill", "selectedWeight": "fill" }
+}

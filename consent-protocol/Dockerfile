@@ -41,6 +41,8 @@ WORKDIR /app
 # Install runtime dependencies needed by operational jobs.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql-client \
+    tesseract-ocr \
+    tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy Python dependencies from builder
@@ -55,6 +57,14 @@ ENV PATH=/usr/local/bin:$PATH
 
 # Copy application code
 COPY . .
+
+# Circle chat loads this catalogue while FastAPI imports its routes. Fail the
+# build if the Cloud Build upload filter omitted it, before deploying a revision.
+RUN test -s hushh_mcp/data/emoji-reactions.v1.json
+
+# Validate the filtered image contents with the runtime loader. compileall alone
+# cannot detect a missing YAML prompt_reference. No model or network calls.
+RUN python -c 'from pathlib import Path; from hushh_mcp.hushh_adk.manifest import ManifestLoader; paths=sorted(Path("hushh_mcp/agents").rglob("agent.yaml")); assert paths, "No runtime manifests packaged"; [ManifestLoader.load(str(path)) for path in paths]'
 
 # The generated action catalog is static per image, so its passage vectors are
 # computed here, once, instead of by every instance and worker at startup (about

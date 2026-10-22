@@ -233,7 +233,15 @@ class ConsentLifecycleService:
         denied_metadata = {
             **requester_identity_metadata(metadata),
             **({"bundle_id": bundle_id} if bundle_id else {}),
+            "decision_owner_uid": user_id,
+            "owner_decision": "deny",
         }
+        from hushh_mcp.services.product_value_receipts import (
+            capture_value_epoch,
+            record_owner_decision,
+        )
+
+        value_epoch = await capture_value_epoch(user_id)
         await self._db.insert_event(
             user_id=subject_user_id,
             agent_id=pending["developer"],
@@ -241,6 +249,9 @@ class ConsentLifecycleService:
             action="CONSENT_DENIED",
             request_id=request_id,
             metadata=denied_metadata or None,
+        )
+        await record_owner_decision(
+            user_id=user_id, request_id=request_id, generation=value_epoch, decision="deny"
         )
         logger.info("consent.denied_event_saved")
         return {"status": "denied", "message": f"Consent denied to {developer_label}"}
@@ -290,6 +301,42 @@ class ConsentLifecycleService:
                 else "No active consent found for the requested scope",
                 status_code=404,
             )
+        return await self._revoke_token_row(
+            user_id, token_to_revoke, scope=scope, export_cache=export_cache
+        )
+
+    async def revoke_all_active_grants(
+        self,
+        user_id: str,
+        *,
+        export_cache: MutableMapping[str, Any] | None = None,
+    ) -> int:
+        """Revoke every live grant this owner holds, one row at a time.
+
+        Same per-token behavior as ``revoke_active_grant`` (token revoked, export
+        deleted, REVOKED event written); only the selection differs. Returns how
+        many grants were revoked. Used when the owner's enterprise identity is
+        deprovisioned, so no previously issued grant outlives the session.
+        """
+        owned = await self._owned_identifiers(user_id)
+        active_tokens = await self._db.get_active_tokens(
+            user_id, **identifier_filter_kwargs(user_id, owned)
+        )
+        internal_tokens = await self._db.get_active_internal_tokens(user_id)
+        revoked = 0
+        for token in [*internal_tokens, *active_tokens]:
+            await self._revoke_token_row(user_id, token, scope=None, export_cache=export_cache)
+            revoked += 1
+        return revoked
+
+    async def _revoke_token_row(
+        self,
+        user_id: str,
+        token_to_revoke: dict[str, Any],
+        *,
+        scope: str | None,
+        export_cache: MutableMapping[str, Any] | None,
+    ) -> dict[str, Any]:
         resolved_scope = _clean(token_to_revoke.get("scope")) or scope or ""
 
         original_token = token_to_revoke.get("token_id")

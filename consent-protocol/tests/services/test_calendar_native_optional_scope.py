@@ -1,0 +1,176 @@
+"""Native availability scope upgrades are bound to the original consent attempt."""
+
+from __future__ import annotations
+
+import asyncio
+from datetime import UTC, datetime
+from types import SimpleNamespace
+
+import pytest
+
+from hushh_mcp.services.google_connection_service import (
+    CALENDAR_LIST_READ_SCOPE,
+    GoogleConnectionError,
+    GoogleConnectionService,
+)
+from hushh_mcp.services.google_oauth_attempt import connection_generation
+from tests.google_oauth_test_support import TransactionEngine
+
+
+class _Db:
+    def __init__(self) -> None:
+        self.engine = TransactionEngine(self)
+
+    def execute_raw(self, *_: object) -> SimpleNamespace:
+        return SimpleNamespace(data=[])
+
+
+def test_optional_native_calendar_list_access_leaves_initial_base_consent_unchanged(
+    monkeypatch,
+) -> None:
+    service = GoogleConnectionService(db=_Db())
+    monkeypatch.setattr(service, "_signed_state", lambda _: "synthetic-state")
+    monkeypatch.setattr(
+        service,
+        "_encrypt",
+        lambda *_, **__: {"ciphertext": "synthetic", "iv": "synthetic", "tag": "aad-gcm-v1"},
+    )
+
+    async def attempt(include: bool):
+        return await service._create_oauth_attempt(
+            user_id="owner",
+            service="calendar",
+            access_level="read",
+            redirect_uri="",
+            transport="native",
+            include_calendar_list=include,
+        )
+
+    base = asyncio.run(attempt(False))
+    upgraded = asyncio.run(attempt(True))
+
+    assert CALENDAR_LIST_READ_SCOPE not in base["scopes"]
+    assert set(upgraded["scopes"]) == set(base["scopes"]) | {CALENDAR_LIST_READ_SCOPE}
+    assert set(GoogleConnectionService.scopes("calendar", "read")) <= set(base["scopes"])
+
+
+@pytest.mark.parametrize("optional_list", [False, True])
+def test_native_completion_accepts_only_the_exact_trusted_scope_set(
+    monkeypatch, optional_list: bool
+) -> None:
+    service = GoogleConnectionService(db=_Db())
+    monkeypatch.setattr(service, "is_configured", lambda: True)
+    monkeypatch.setattr(service, "_client_id", lambda: "synthetic-client")
+    monkeypatch.setattr(service, "_client_secret", lambda: "synthetic-test-secret")
+    requested = {"openid", "email", "profile", *service.scopes("calendar", "read")}
+    if optional_list:
+        requested.add(CALENDAR_LIST_READ_SCOPE)
+    calls: list[dict[str, object]] = []
+
+    async def consume(**_: object):
+        return "attempt-id", {
+            "service": "calendar",
+            "requested_scope_csv": " ".join(sorted(requested)),
+            "created_at": datetime.now(UTC),
+        }
+
+    async def exchange(*_: object):
+        calls.append({"exchange": True})
+        return {"access_token": "synthetic-access", "scope": " ".join(sorted(requested))}
+
+    async def store(**kwargs: object):
+        calls.append(kwargs)
+        return {"connected": True}
+
+    monkeypatch.setattr(service, "_consume_oauth_attempt", consume)
+    monkeypatch.setattr(
+        service, "_attempt_context", lambda *_, **__: {"generation": connection_generation(None)}
+    )
+    monkeypatch.setattr(service, "_post_form", exchange)
+    monkeypatch.setattr(service, "_store_authorized_connection", store)
+
+    result = asyncio.run(
+        service.complete_native(
+            user_id="owner",
+            service="calendar",
+            access_level="read",
+            server_auth_code="synthetic-one-time-code",
+            state="synthetic-state",
+        )
+    )
+
+    assert result["connected"] is True
+    assert len(calls) == 2
+    assert set(calls[1]["requested_scopes"]) == requested
+    assert calls[1]["user_id"] == "owner"
+    assert calls[1]["service"] == "calendar"
+
+
+@pytest.mark.parametrize("boundary", ["extra_scope", "wrong_service", "manage_as_read"])
+def test_native_attempt_cannot_change_service_or_access_at_completion(
+    monkeypatch, boundary: str
+) -> None:
+    service = GoogleConnectionService(db=_Db())
+    monkeypatch.setattr(service, "is_configured", lambda: True)
+    level = "manage" if boundary == "manage_as_read" else "read"
+    scopes = {"openid", "email", "profile", *service.scopes("calendar", level)}
+    if boundary == "extra_scope":
+        scopes.add("https://www.googleapis.com/auth/drive")
+
+    async def consume(**_: object):
+        return "attempt-id", {
+            "service": "drive" if boundary == "wrong_service" else "calendar",
+            "requested_scope_csv": " ".join(scopes),
+        }
+
+    async def forbidden_exchange(*_: object):
+        raise AssertionError("Untrusted native scope set reached provider exchange")
+
+    monkeypatch.setattr(service, "_consume_oauth_attempt", consume)
+    monkeypatch.setattr(service, "_post_form", forbidden_exchange)
+
+    with pytest.raises(GoogleConnectionError) as caught:
+        asyncio.run(
+            service.complete_native(
+                user_id="owner",
+                service="calendar",
+                access_level="read",
+                server_auth_code="synthetic-one-time-code",
+                state="synthetic-state",
+            )
+        )
+
+    assert caught.value.status_code == 400
+
+
+def test_optional_requested_scope_requires_explicit_google_grant_before_storage(
+    monkeypatch,
+) -> None:
+    service = GoogleConnectionService(db=_Db())
+    monkeypatch.setattr(
+        service,
+        "_userinfo",
+        lambda *_, **__: asyncio.sleep(0, result={"sub": "synthetic-provider"}),
+    )
+    monkeypatch.setattr(service, "_connection", lambda *_, **__: asyncio.sleep(0, result=None))
+
+    with pytest.raises(GoogleConnectionError) as caught:
+        asyncio.run(
+            service._store_authorized_connection(
+                user_id="owner",
+                service="calendar",
+                token={
+                    "access_token": "synthetic-access",
+                    "refresh_token": "synthetic-refresh",
+                    "expires_in": 3600,
+                    "scope": " ".join(service.scopes("calendar", "read")),
+                },
+                requested_scopes=(*service.scopes("calendar", "read"), CALENDAR_LIST_READ_SCOPE),
+                oauth_started_at=datetime.now(UTC),
+                attempt_id="attempt-id",
+                expected_generation=connection_generation(None),
+            )
+        )
+
+    assert caught.value.status_code == 403
+    assert caught.value.reason_code == "calendar_list_permission_required"

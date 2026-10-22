@@ -18,8 +18,12 @@ RUNTIME_ORIGIN = "https://consent-protocol-f2gsa4kfsq-uc.a.run.app"
 WORKER_HOST = re.compile(r"consent-protocol-drive-worker-[a-z0-9-]+\.a\.run\.app\Z")
 JOB_PREFIX = "projects/hushh-pda-uat/locations/us-central1/jobs/"
 STAGE_JOBS = {
-    "drive-work-drain-uat": ("documents", {"*/2 * * * *", "*/4 * * * *"}),
-    "drive-work-suggestions-uat": ("suggestions", {"2-59/4 * * * *"}),
+    "drive-work-drain-uat": ("documents", {"*/2 * * * *", "*/4 * * * *", "* * * * *"}),
+    # A one-minute recovery cadence prevents a missed prompt wake from adding
+    # up to four minutes before a paid request reaches the search worker. Keep
+    # the previous four-minute cadence accepted for rollback snapshots taken
+    # before this rollout; setup/deploy scripts only write the one-minute form.
+    "drive-work-suggestions-uat": ("suggestions", {"* * * * *", "2-59/4 * * * *"}),
     "drive-work-sharing-uat": ("sharing", {"* * * * *"}),
 }
 RETRY_POLICY = {
@@ -29,7 +33,10 @@ RETRY_POLICY = {
     "minBackoffDuration": "10s",
     "retryCount": 3,
 }
-REVIEWED_HEADERS = {"Content-Type": "application/json", "User-Agent": "Google-Cloud-Scheduler"}
+REVIEWED_HEADERS = {
+    "Content-Type": "application/json",
+    "User-Agent": "Google-Cloud-Scheduler",
+}
 
 
 def _https_url(value: object, *, drain_target: bool) -> str:
@@ -69,8 +76,19 @@ def _scheduler_state(snapshot: Path) -> tuple[str, str]:
     )
 
 
-def _scheduler_set(snapshot: Path, *, worker_origin: str) -> dict[str, dict[str, object]]:
+def _scheduler_set(
+    snapshot: Path,
+    *,
+    worker_origin: str,
+    expected_state: str | None = None,
+    require_all: bool = False,
+) -> dict[str, dict[str, object]]:
     """Keep only reviewed, stable job configuration, including absence."""
+    if expected_state is not None and expected_state not in {"ENABLED", "PAUSED"}:
+        raise ValueError("Unreviewed Drive scheduler state")
+    allowed_states = (
+        {expected_state} if expected_state is not None else {"ENABLED", "PAUSED"}
+    )
     jobs = json.loads(snapshot.read_text(encoding="utf-8"))
     if not isinstance(jobs, list):
         raise ValueError("Drive scheduler listing must be an array")
@@ -102,7 +120,7 @@ def _scheduler_set(snapshot: Path, *, worker_origin: str) -> dict[str, dict[str,
         if (
             (body != expected and not (stage == "documents" and body == b"{}"))
             or job.get("schedule") not in allowed_schedules
-            or job.get("state") != "ENABLED"
+            or job.get("state") not in allowed_states
             or job.get("timeZone") != "Etc/UTC"
             or target.get("httpMethod") != "POST"
             or headers != REVIEWED_HEADERS
@@ -110,15 +128,23 @@ def _scheduler_set(snapshot: Path, *, worker_origin: str) -> dict[str, dict[str,
             or job.get("retryConfig") != RETRY_POLICY
             or job.get("attemptDeadline") != ("120s" if body == b"{}" else "240s")
         ):
-            raise ValueError("Drive scheduler config is outside the reviewed UAT boundary")
+            raise ValueError(
+                "Drive scheduler config is outside the reviewed UAT boundary"
+            )
         uri = _https_url(target.get("uri"), drain_target=True)
         audience = _https_url(oidc.get("audience"), drain_target=False)
         origin = uri.removesuffix(DRAIN_PATH)
-        expected_audience = origin if origin in {PUBLIC_ORIGIN, RUNTIME_ORIGIN} else PUBLIC_ORIGIN
+        expected_audience = (
+            origin if origin in {PUBLIC_ORIGIN, RUNTIME_ORIGIN} else PUBLIC_ORIGIN
+        )
         if audience != expected_audience:
-            raise ValueError("Drive scheduler audience does not match the reviewed UAT boundary")
+            raise ValueError(
+                "Drive scheduler audience does not match the reviewed UAT boundary"
+            )
         if origin not in {PUBLIC_ORIGIN, RUNTIME_ORIGIN, worker_origin}:
-            raise ValueError("Drive scheduler target is not the verified UAT worker origin")
+            raise ValueError(
+                "Drive scheduler target is not the verified UAT worker origin"
+            )
         config = {
             "uri": uri,
             "audience": audience,
@@ -133,12 +159,16 @@ def _scheduler_set(snapshot: Path, *, worker_origin: str) -> dict[str, dict[str,
         found[short_name] = config
     if "drive-work-drain-uat" not in found:
         raise ValueError("Existing Drive document scheduler is missing")
+    if require_all and set(found) != set(STAGE_JOBS):
+        raise ValueError("The complete Drive scheduler set is required")
     return found
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("capture", "verify", "capture-set", "verify-set"))
+    parser.add_argument(
+        "mode", choices=("capture", "verify", "capture-set", "verify-set")
+    )
     parser.add_argument("--snapshot", type=Path, required=True)
     parser.add_argument("--github-output", type=Path, required=True)
     parser.add_argument("--canonical", type=Path)
@@ -154,16 +184,22 @@ def main() -> int:
         if worker_origin:
             _https_url(worker_origin, drain_target=False)
             if not WORKER_HOST.fullmatch(urlsplit(worker_origin).hostname or ""):
-                raise SystemExit("Expected Drive worker origin is outside the reviewed service")
+                raise SystemExit(
+                    "Expected Drive worker origin is outside the reviewed service"
+                )
         current = _scheduler_set(args.snapshot, worker_origin=worker_origin)
         if args.mode == "capture-set":
-            args.canonical.write_text(json.dumps(current, sort_keys=True), encoding="utf-8")
+            args.canonical.write_text(
+                json.dumps(current, sort_keys=True), encoding="utf-8"
+            )
             document = current["drive-work-drain-uat"]
             output = f"uri={document['uri']}\naudience={document['audience']}\n"
         else:
             expected = json.loads(args.canonical.read_text(encoding="utf-8"))
             if current != expected:
-                raise SystemExit("Drive scheduler set did not return to pre-worker state")
+                raise SystemExit(
+                    "Drive scheduler set did not return to pre-worker state"
+                )
             output = "restored=true\n"
         with args.github_output.open("a", encoding="utf-8") as stream:
             stream.write(output)

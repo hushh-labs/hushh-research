@@ -1,9 +1,29 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import vm from "node:vm";
 
-import { installReadOnlyMutationGuard } from "../scripts/reviewer-session-harness.mjs";
+import { installReadOnlyMutationGuard, installReviewerBridge } from "../scripts/reviewer-session-harness.mjs";
 
 const APP_ORIGIN = "https://uat.one.hushh.ai";
+
+test("explicit-login bridge leaves logout landing anonymous without unlock material", () => {
+  for (const [pathname, origin, frame, permitted] of [
+    ["/login", APP_ORIGIN, false, true], ["/", APP_ORIGIN, false, false],
+    ["/one/pkm", APP_ORIGIN, false, false], ["/login", "https://other.example", false, false],
+    ["/login", APP_ORIGIN, true, false],
+  ]) {
+    const window = { __HUSHH_NATIVE_TEST__: { vaultPassphrase: "old", reviewerSessionPassphrase: "old" } };
+    window.top = frame ? {} : window;
+    vm.runInNewContext(`(${installReviewerBridge.toString()})(config)`, { window,
+      location: { pathname, origin }, config: { explicitLoginOnly: true, appOrigin: APP_ORIGIN,
+        expectedUserId: "reviewer", vaultPassphrase: "test-unlock", reviewerSessionPassphrase: "test-mint",
+        reviewerMutationPolicy: "bounded_mutation", reviewerAuthMode: "custom_token" } });
+    const bridge = window.__HUSHH_NATIVE_TEST__;
+    assert.equal(bridge.autoReviewerLogin, permitted);
+    assert.equal(bridge.vaultPassphrase, permitted ? "test-unlock" : undefined);
+    assert.equal(bridge.reviewerSessionPassphrase, permitted ? "test-mint" : undefined);
+  }
+});
 
 function requestFor(handler, method, url) {
   const result = { forwarded: false, response: null };

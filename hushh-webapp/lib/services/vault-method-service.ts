@@ -40,7 +40,7 @@ function normalizeVaultMethodError(error: unknown): Error {
     lowered.includes("rp id is not allowed")
   ) {
     return new Error(
-      "This passkey was enrolled under an older domain. Use passphrase once, then enroll passkey again for one.hushh.ai.",
+      "This passkey was enrolled under an older domain. Use password once, then enroll passkey again for one.hushh.ai.",
     );
   }
 
@@ -50,10 +50,18 @@ function normalizeVaultMethodError(error: unknown): Error {
     );
   }
 
-  if (lowered.includes("passphrase wrapper missing")) {
+  if (/(?:password|passphrase) wrapper missing/.test(lowered)) {
     return new Error(
-      "Passphrase is missing. Use passphrase or recovery once to repair it.",
+      "Password is missing. Use password or recovery once to repair it.",
     );
+  }
+
+  if (/(?:password|passphrase) wrapper (?:cannot be removed|is mandatory|is required)/.test(lowered)) {
+    return new Error("Password unlock is required and can’t be removed.");
+  }
+
+  if (lowered.includes("vault unlock method is not configured")) {
+    return new Error("Password unlock is not set up yet. Use your recovery key to restore access.");
   }
 
   return error instanceof Error ? error : new Error(message);
@@ -140,9 +148,12 @@ export class VaultMethodService {
       const { token: vaultOwnerToken } = await VaultService.getOrIssueVaultOwnerToken(params.userId);
 
       if (params.targetMethod === "passphrase") {
-        const passphrase = params.passphrase?.trim();
+        // Preserve the input verbatim, matching create and unlock: trimming
+        // only here made a passphrase with boundary whitespace unlock with a
+        // different string than the one the owner typed when switching to it.
+        const passphrase = params.passphrase;
         if (!passphrase || passphrase.length < 8) {
-          throw new Error("Passphrase must be at least 8 characters.");
+          throw new Error("Password must be at least 8 characters.");
         }
 
         const wrapped = await rewrapVaultKeyWithPassphrase({
@@ -277,10 +288,14 @@ export class VaultMethodService {
     currentVaultKey: string;
     newPassphrase: string;
     keepPrimaryMethod?: boolean;
+    signal?: AbortSignal;
+    /** Called after acknowledged persistence, before the intentional rekey lock. */
+    onCommitted?: (result: { primaryMethod: VaultMethod; passphraseUpdated: true }) => void;
   }): Promise<{ primaryMethod: VaultMethod; passphraseUpdated: true }> {
     try {
       const canonicalVaultKey = ensureVaultKeyHex(params.currentVaultKey);
       const state = await VaultService.getVaultState(params.userId);
+      params.signal?.throwIfAborted();
       const vaultKeyHash = await VaultService.hashVaultKey(canonicalVaultKey, state.vaultKeyHash);
 
       if (state.vaultKeyHash && state.vaultKeyHash !== vaultKeyHash) {
@@ -288,15 +303,20 @@ export class VaultMethodService {
       }
       const { token: vaultOwnerToken } = await VaultService.getOrIssueVaultOwnerToken(params.userId);
 
-      const nextPassphrase = params.newPassphrase.trim();
+      // Preserve the input verbatim, matching create and unlock: trimming
+      // only here made a passphrase with boundary whitespace unlock with a
+      // different string than the one the owner typed when changing it.
+      const nextPassphrase = params.newPassphrase;
       if (nextPassphrase.length < 8) {
-        throw new Error("Passphrase must be at least 8 characters.");
+        throw new Error("Password must be at least 8 characters.");
       }
 
       const wrapped = await rewrapVaultKeyWithPassphrase({
         vaultKeyHex: canonicalVaultKey,
         wrappingSecret: nextPassphrase,
       });
+
+      params.signal?.throwIfAborted();
 
       await VaultService.upsertVaultWrapper({
         userId: params.userId,
@@ -319,15 +339,15 @@ export class VaultMethodService {
           "default",
           vaultOwnerToken,
         );
-        dispatchVaultRekeyed(params.userId, "vault_passphrase_changed");
-        return { primaryMethod: "passphrase", passphraseUpdated: true };
       }
-
-      dispatchVaultRekeyed(params.userId, "vault_passphrase_changed");
-      return {
-        primaryMethod: state.primaryMethod,
+      const result: { primaryMethod: VaultMethod; passphraseUpdated: true } = {
+        primaryMethod: keepPrimaryMethod ? state.primaryMethod : "passphrase",
         passphraseUpdated: true,
       };
+      try { params.onCommitted?.(result); }
+      catch { console.warn("VAULT_METHOD_POST_COMMIT_OBSERVER_FAILED"); }
+      dispatchVaultRekeyed(params.userId, "vault_passphrase_changed");
+      return result;
     } catch (error) {
       throw normalizeVaultMethodError(error);
     }
@@ -344,7 +364,7 @@ export class VaultMethodService {
   }): Promise<{ primaryMethod: VaultMethod }> {
     try {
       if (params.method === "passphrase") {
-        throw new Error("Passphrase unlock cannot be removed.");
+        throw new Error("Password unlock cannot be removed.");
       }
 
       const canonicalVaultKey = ensureVaultKeyHex(params.currentVaultKey);
@@ -376,7 +396,7 @@ export class VaultMethodService {
       );
       if (!fallbackWrapper) {
         throw new Error(
-          "Passphrase unlock must be repaired before removing this method.",
+          "Password unlock must be repaired before removing this method.",
         );
       }
 

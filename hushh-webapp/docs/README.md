@@ -14,6 +14,8 @@ flowchart TD
   root --> n3
   n4["iOS Native Controls And Liquid Glass"]
   root --> n4
+  contracts["Product UI Contracts"]
+  root --> contracts
 ```
 
 Frontend and native-client implementation references for the webapp package.
@@ -37,6 +39,16 @@ Brand contract: [`docs/reference/operations/brand-and-compatibility-contract.md`
 | [kai-analysis-layout-and-review-mode.md](./kai-analysis-layout-and-review-mode.md) | Kai analysis UI layout and app-review runtime behavior |
 | [one-location-now-and-map.md](./one-location-now-and-map.md) | One Location "now" surface and immersive map behavior |
 | [profile-management-design-rules.md](./profile-management-design-rules.md) | Guardrails for Profile IA, page navigation, and non-analytical summary usage |
+| [Connect UI contract](./ui-contracts/connect.md) | Connect pages, Connections and Circles CTAs, nested states, membership boundaries, and Back behavior |
+| [Person profile UI contract](./ui-contracts/person-profile.md) | Other-person profile, exact phone/desktop sizing, fonts, every request dialog/sheet, grants, packets and history |
+| [Profile UI contract](./ui-contracts/profile.md) | Profile pages/CTAs, nested Memory and Connectors contracts, account, money, preferences, security and provider boundaries |
+| [Referrals UI contract](./ui-contracts/referrals.md) | Referrals, rewards, rankings, Circle Wars enrollment and nested Circle creation |
+| [Feed UI contract](./ui-contracts/feed.md) | Feed rows/decisions, shared-file and price sheets, payment returns, history mutations and handoffs |
+| [Mail UI contract](./ui-contracts/mail.md) | Mail setup, Overview/KYC/Receipts, exact content/CTA branches, API fields, reviewed drafts/delivery, phone/desktop geometry and fonts |
+| [Calendar UI contract](./ui-contracts/calendar.md) | Calendar onboarding, Schedule/Invitations/Insights, exact content and CTA branches, API calls, attendance and meeting context, phone/desktop geometry and fonts |
+| [Drive UI contract](./ui-contracts/drive.md) | Drive connector first use and OAuth, nested preparation/packets/trust, selected files, private-agent tools and sharing/payment paths, exact copy/API fields, phone/desktop geometry and fonts |
+| [Navigation contract](./ui-contracts/navigation.md) and [Font schema](./ui-contracts/typography.md) | Shared navigation CTAs and when to use each Profile, nav and Feed typography role |
+| [Product UI contracts](./ui-contracts/README.md) | Maintained product-surface contracts and their authoring requirements |
 | [ios-native-surface-adoption.md](./ios-native-surface-adoption.md) | Source-backed native-control inventory, Liquid Glass candidates, fallback boundaries and physical verification limits |
 
 ## Source Tree Indexes

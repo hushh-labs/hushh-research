@@ -19,7 +19,7 @@ Truth-first protocol:
 Use these repo-local skills when they fit the lane:
 - repo-context
 - backend-runtime-governance
-- vault-pkm-governance
+- security-audit
 - repo-operations
 - quality-contracts
 

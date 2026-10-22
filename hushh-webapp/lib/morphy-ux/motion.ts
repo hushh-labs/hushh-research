@@ -15,6 +15,9 @@ export const motionDurations = {
 
 export type MotionDurationKey = keyof typeof motionDurations;
 
+/** Mirrors --motion-shortcut-icon-cycle-duration for finite navigation glyphs. */
+export const shortcutIconCycleDurationMs = 850;
+
 export const motionEasings = {
   // Standard Material-like curve
   standard: "cubic-bezier(0.2, 0.0, 0.0, 1)",

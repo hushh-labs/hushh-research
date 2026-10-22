@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState, type RefObject } from "react";
-import { ImageIcon, Loader2, X } from "@/components/icons";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { Download, FileText, ImageIcon, Loader2, X } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { CircleChatService, type CircleChatSession } from "@/lib/services/circle-chat-service";
-import type { ChatMessage } from "@/lib/circle-chat/crypto";
+import { chatThumbnailBlob, type ChatImageThumbnail, type ChatMessage } from "@/lib/circle-chat/crypto";
+import { createChatImageThumbnail } from "@/lib/circle-chat/image-preview";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 
 // Downloads/decryption are expensive on a phone. No image bytes or URLs live
@@ -30,20 +31,45 @@ async function imageSlot(signal: AbortSignal): Promise<() => void> {
 const foreground = () => document.visibilityState === "visible" &&
   appInteractionCoordinator.getLifecycleSnapshot().state === "active";
 
-export function ChatImage({ session, message, type, visible, layoutBlocked, scrollRoot, onError, onViewerChange }: {
-  session: CircleChatSession; message: ChatMessage; type: string; visible: boolean;
+export function ChatImage({ session, message, type, localImage, thumbnail, visible, layoutBlocked, scrollRoot, onError, onViewerChange }: {
+  session: CircleChatSession; message?: ChatMessage; type: string; visible: boolean;
+  localImage?: File; thumbnail?: ChatImageThumbnail;
   layoutBlocked: boolean; scrollRoot: RefObject<HTMLDivElement | null>; onError: (error: unknown) => void;
   onViewerChange: (open: boolean) => void;
 }) {
   const element = useRef<HTMLDivElement>(null);
+  const messageId = message?.id;
   const latest = useRef({ message, onError, onViewerChange }); latest.current = { message, onError, onViewerChange };
   const [near, setNear] = useState(false);
   const [inForeground, setInForeground] = useState(foreground);
   const [retry, setRetry] = useState(0);
   const [url, setUrl] = useState<string | null>(null);
+  const allocatedOriginal = useRef<string | null>(null);
+  const clearOriginal = useCallback(() => {
+    if (allocatedOriginal.current) URL.revokeObjectURL(allocatedOriginal.current);
+    allocatedOriginal.current = null; setUrl(null);
+  }, []);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [error, setError] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [decodingFailed, setDecodingFailed] = useState(false);
+  useEffect(() => {
+    if (!visible || !inForeground || (!localImage && !thumbnail)) return;
+    let allocated: string;
+    try { allocated = URL.createObjectURL(localImage ?? chatThumbnailBlob(thumbnail!)); }
+    catch { return; }
+    setPreviewUrl(allocated);
+    return () => { URL.revokeObjectURL(allocated); setPreviewUrl(null); };
+  }, [localImage, thumbnail, visible, inForeground, retry]);
+  useEffect(() => () => {
+    if (allocatedOriginal.current) URL.revokeObjectURL(allocatedOriginal.current);
+    allocatedOriginal.current = null;
+  }, []);
+  useEffect(() => {
+    // Release full-size remote originals outside the nearby viewport. The tiny
+    // encrypted preview keeps return scrolling immediate without retaining 300 photos.
+    if (!visible || !inForeground || !near) { clearOriginal(); setExpanded(false); }
+  }, [visible, inForeground, near, clearOriginal]);
   useEffect(() => {
     latest.current.onViewerChange(expanded);
     return () => latest.current.onViewerChange(false);
@@ -70,68 +96,122 @@ export function ChatImage({ session, message, type, visible, layoutBlocked, scro
     return () => { document.removeEventListener("visibilitychange", update); remove(); };
   }, []);
   useEffect(() => {
-    if (!visible || !near || !inForeground) return;
+    if (!visible || !near || !inForeground || localImage || url || !messageId) return;
     const controller = new AbortController();
-    let allocated: string | null = null;
     setError(false); setDecodingFailed(false);
     void (async () => {
       let release: (() => void) | undefined;
       try {
         release = await imageSlot(controller.signal);
-        const blob = await CircleChatService.image(session, latest.current.message, type, controller.signal);
+        const blob = await CircleChatService.image(session, latest.current.message!, type, controller.signal);
         if (controller.signal.aborted) return;
-        allocated = URL.createObjectURL(blob);
-        setUrl(allocated);
+        allocatedOriginal.current = URL.createObjectURL(blob);
+        setUrl(allocatedOriginal.current);
       } catch (error) {
         if (!controller.signal.aborted) { setError(true); latest.current.onError(error); }
       } finally { release?.(); }
     })();
     return () => {
       controller.abort();
-      if (allocated) URL.revokeObjectURL(allocated);
-      setUrl(null); setExpanded(false);
     };
-  }, [session, message.id, type, visible, near, inForeground, retry]);
+  }, [session, messageId, type, visible, near, inForeground, retry, localImage, url]);
+
+  const displayUrl = visible && inForeground ? (decodingFailed ? previewUrl : url ?? previewUrl) : null;
+  const retryImage = () => { clearOriginal(); setError(false); setDecodingFailed(false); setRetry((n) => n + 1); };
 
   // Decrypted blobs remain in this mounted view. An optimizer would upload
   // them; no image bytes, URLs or filenames enter a cache or a server preview.
   /* eslint-disable @next/next/no-img-element */
   return <div ref={element} data-circle-chat-image className="w-64 max-w-full overflow-hidden rounded-xl bg-muted/60">
-    {url && !decodingFailed ? <button type="button" aria-label="Open shared image"
+    {displayUrl ? <button type="button" aria-label="Open shared image"
       className="block aspect-[4/3] w-full touch-manipulation focus-visible:outline-2 focus-visible:outline-ring"
       onClick={() => setExpanded(true)}>
-      <img src={url} alt="Image shared in circle" className="h-full w-full object-contain" onError={() => setDecodingFailed(true)} />
+      <img src={displayUrl} alt="Image shared in circle" className="h-full w-full object-contain" onError={() => { if (displayUrl === url) setDecodingFailed(true); else { setPreviewUrl(null); setError(true); } }} />
     </button> : <div className="flex aspect-[4/3] w-full flex-col items-center justify-center gap-2 text-muted-foreground">
       {error || decodingFailed ? <>
         <ImageIcon aria-hidden="true" className="size-6" />
         <p className="text-xs">Image couldn’t load</p>
-        <Button variant="ghost" size="sm" className="min-h-11" onClick={() => setRetry((n) => n + 1)}>Retry image</Button>
+        <Button variant="ghost" size="sm" className="min-h-11" onClick={retryImage}>Retry image</Button>
       </> : <><Loader2 aria-hidden="true" className="size-5 animate-spin motion-reduce:animate-none" /><span role="status" className="text-xs">Loading image…</span></>}
     </div>}
-    {url && visible && inForeground ? <Dialog modal open={expanded} onOpenChange={setExpanded}>
-      <DialogContent className="sm:max-w-3xl" srDescription="Image shared in this circle">
-        <DialogTitle className="text-base">Shared image</DialogTitle>
-        <img src={url} alt="Image shared in circle" className="max-h-[70dvh] max-w-full object-contain" />
+    {displayUrl && (error || decodingFailed) ? <Button variant="ghost" size="sm" className="min-h-11 w-full" onClick={retryImage}>Retry full image</Button> : null}
+    {displayUrl ? <Dialog modal open={expanded} onOpenChange={setExpanded}>
+      <DialogContent showCloseButton={false} className="sm:max-w-3xl" srDescription="Image shared in this circle">
+        <div className="flex min-w-0 items-center justify-between gap-3">
+          <DialogTitle className="text-base">Shared image</DialogTitle>
+          <ShellActionSurface className="size-11 shrink-0" aria-label="Close" onClick={() => setExpanded(false)}><X aria-hidden="true" className="size-5" /></ShellActionSurface>
+        </div>
+        <img src={displayUrl} alt="Image shared in circle" className="max-h-[70dvh] max-w-full object-contain" />
+        {!url && !localImage ? <p role="status" className="text-xs text-muted-foreground">{error ? "Full image couldn’t load. Retry from the chat." : "Loading full image…"}</p> : null}
       </DialogContent>
     </Dialog> : null}
   </div>;
 }
 
-export function ImageAttachmentPreview({ file, disabled, onRemove }: { file: File; disabled: boolean; onRemove: () => void }) {
-  const [url, setUrl] = useState<string | null>(null);
+export function ImageAttachmentPreview({ file, disabled, onRemove, onValidity, onThumbnail }: { file: File; disabled: boolean; onRemove: () => void; onValidity: (file: File, valid: boolean) => void; onThumbnail?: (file: File, thumbnail: ChatImageThumbnail | undefined) => void }) {
+  const [preview, setPreview] = useState<{ file: File; url: string } | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     const allocated = URL.createObjectURL(file);
-    setUrl(allocated); setFailed(false);
+    setPreview({ file, url: allocated }); setFailed(false);
     return () => URL.revokeObjectURL(allocated);
   }, [file]);
   /* eslint-disable @next/next/no-img-element */
   return <div aria-label="Attached image preview" className="flex min-w-0 items-center gap-3 pb-3">
     <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-muted">
-      {url && !failed ? <img src={url} alt="Image ready to send" className="h-full w-full object-cover" onError={() => setFailed(true)} /> : <ImageIcon className="size-5 text-muted-foreground" aria-hidden="true" />}
+      {preview?.file === file && !failed ? <img src={preview.url} alt="Image ready to send" className="h-full w-full object-cover" onLoad={(event) => { onThumbnail?.(file, createChatImageThumbnail(event.currentTarget)); onValidity(file, true); }} onError={() => { setFailed(true); onValidity(file, false); }} /> : <ImageIcon className="size-5 text-muted-foreground" aria-hidden="true" />}
     </div>
     <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{file.name}</p>
       <p className="mt-0.5 text-xs text-muted-foreground">{failed ? "Choose another image" : "Image ready to send"}</p></div>
     <ShellActionSurface className="size-11" aria-label="Remove attached image" disabled={disabled} onClick={onRemove}><X className="size-4" /></ShellActionSurface>
+  </div>;
+}
+
+export function FileAttachmentPreview({ file, disabled, onRemove }: { file: File; disabled: boolean; onRemove: () => void }) {
+  return <div aria-label="Attached file preview" className="flex min-w-0 items-center gap-3 pb-3">
+    <div className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-muted"><FileText aria-hidden="true" className="size-6" /></div>
+    <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{file.name}</p><p className="text-xs text-muted-foreground">{file.type.startsWith("video/") ? "Video" : "Document"} ready to send</p></div>
+    <ShellActionSurface className="size-11" aria-label="Remove attached file" disabled={disabled} onClick={onRemove}><X className="size-4" /></ShellActionSurface>
+  </div>;
+}
+
+/** Decrypt only on an explicit open/download; revoke the URL when the view closes. */
+export function ChatSharedFile({ session, message, type, name, onError }: {
+  session: CircleChatSession; message: ChatMessage; type: string; name: string; onError: (error: unknown) => void;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
+  const request = useRef<AbortController | null>(null);
+  const allocated = useRef<string | null>(null);
+  useEffect(() => () => { request.current?.abort(); if (allocated.current) URL.revokeObjectURL(allocated.current); allocated.current = null; }, []);
+  const open = async () => {
+    if (request.current && !request.current.signal.aborted) return;
+    const abort = new AbortController(); request.current = abort;
+    setLoading(true); setError(false);
+    try {
+      const blob = await CircleChatService.image(session, message, type, abort.signal);
+      if (abort.signal.aborted) return;
+      const nextUrl = URL.createObjectURL(blob);
+      if (allocated.current) URL.revokeObjectURL(allocated.current);
+      allocated.current = nextUrl;
+      setUrl(nextUrl);
+      if (!type.startsWith("video/")) {
+        const link = document.createElement("a");
+        link.href = nextUrl;
+        link.download = name;
+        link.click();
+      }
+    } catch (caught) { if (!abort.signal.aborted) { setError(true); onError(caught); } }
+    finally { if (!abort.signal.aborted) { request.current = null; setLoading(false); } }
+  };
+  return <div className="max-w-full rounded-xl bg-muted/70 p-3">
+    <div className="flex min-w-0 items-center gap-2"><FileText aria-hidden="true" className="size-5 shrink-0" /><span className="min-w-0 flex-1 truncate text-sm">{name}</span></div>
+    {type.startsWith("video/") && url ? <video controls preload="metadata" src={url} className="mt-2 max-h-64 w-full rounded-lg" /> : null}
+    <button type="button" onClick={() => void open()} disabled={loading} className="mt-2 flex min-h-10 items-center gap-1 text-sm font-semibold text-[color:var(--chat-accent,var(--app-accent))]">
+      {loading ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Download aria-hidden="true" className="size-4" />}
+      {type.startsWith("video/") ? url ? "Reload video" : "Open video" : "Download document"}
+    </button>
+    {error ? <p role="alert" className="text-xs">File couldn’t load. Try again.</p> : null}
   </div>;
 }

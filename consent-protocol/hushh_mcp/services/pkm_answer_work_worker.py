@@ -1,0 +1,785 @@
+"""Bounded drain workers for the paid-answer lane.
+
+Three obligations that must outlive a single request, registered on the
+existing Drive work drain rather than a new runner:
+
+* **timeouts** -- a paid answer past its quoted deadline expires and files a
+  refund. Without this the deadline shown before checkout is decorative.
+* **refunds** -- a refund is a durable row claimed under a lease and retried
+  on its own schedule. A Stripe outage delays it; it never loses it.
+* **payouts** -- the owner's earning for a delivered answer, 300 bps
+  commission, mirroring the Drive lane.
+
+Every worker is bounded (`max_jobs`), claims with `FOR UPDATE SKIP LOCKED`
+under a lease, and is safe to run concurrently with another drain: two
+instances cannot claim the same row, and a crashed instance's lease expires so
+the row returns rather than sticking.
+
+No provider message is ever written to the database. Failures collapse to a
+closed `safe_error_code` set.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from datetime import UTC, datetime
+from typing import Any, Mapping
+
+import stripe
+from fastapi.concurrency import run_in_threadpool
+from sqlalchemy import text
+
+from hushh_mcp.services.drive_request_payment_service import _stripe_dict
+from hushh_mcp.services.external_connector_lifecycle_store import (
+    ExternalConnectorLifecycleStore,
+)
+from hushh_mcp.services.pkm_answer_config import answer_payment_config as _config
+from hushh_mcp.services.pkm_answer_config import available_answer_payment_modes
+from hushh_mcp.services.pkm_answer_payment_service import answer_payments_enabled
+
+logger = logging.getLogger(__name__)
+
+#: The named stages this lane's own scheduler can invoke. Each gets its own
+#: Cloud Scheduler job, so a slow provider on one cannot consume another's
+#: budget — and none of them rides the Drive drain.
+ANSWER_DRAIN_STAGES: frozenset[str] = frozenset({"timeouts", "refunds", "payouts"})
+
+#: Per-stage job bounds. Deliberately small: this lane settles money, so a
+#: sweep that falls behind is preferable to one that runs long.
+STAGE_MAX_JOBS = {"timeouts": 10, "refunds": 5, "payouts": 5}
+
+#: Counts the monitoring surface is allowed to report, per stage. Anything a
+#: worker returns that is not listed here is dropped rather than echoed, so a
+#: provider message or an identifier can never reach a dashboard.
+_SAFE_OUTCOME_KEYS = {
+    "timeouts": frozenset({"expired", "refunds_filed", "disabled"}),
+    "refunds": frozenset({"succeeded", "retried", "manual_review", "disabled"}),
+    "payouts": frozenset({"transferred", "retried", "awaiting_account", "disabled"}),
+}
+
+LEASE_SECONDS = 90
+RETRY_BACKOFF_SECONDS = 300
+MAX_REFUND_ATTEMPTS = 8
+MAX_PAYOUT_ATTEMPTS = 8
+COMMISSION_BPS = 300
+
+
+def safe_answer_drain_result(stage: str, outcomes: object) -> dict[str, Any]:
+    """Shape one sweep into a counts-only monitoring record.
+
+    Only known keys with integer values survive. A question, a scope, an
+    answer, an identifier or a provider message cannot reach the response even
+    if a worker were changed to return one.
+    """
+    allowed = _SAFE_OUTCOME_KEYS.get(stage, frozenset())
+    counts: dict[str, int] = {}
+    if isinstance(outcomes, Mapping):
+        for key, value in outcomes.items():
+            if key in allowed and type(value) is int and 0 <= value <= 1_000_000:
+                counts[str(key)] = value
+    return {
+        "schema_version": "pkm.answer_work_drain.v1",
+        "stage": stage,
+        "outcomes": counts,
+    }
+
+
+def answer_payout_amounts(*, gross_cents: int, processing_fee_cents: int) -> dict[str, int]:
+    """Split one delivered answer's gross using Drive's canonical rules.
+
+    An answer is all-or-nothing -- it is delivered with content or it is
+    refunded -- so `confirmed == expected == 1` and the whole gross is
+    retained. Everything else is Drive's:
+    `delivery_amounts` rounds the commission half-up rather than truncating,
+    and `fee_amounts` charges the owner the charge's ACTUAL Stripe processing
+    fee, capped at the proceeds after commission so an earning can never go
+    negative. Hushh absorbs anything above that cap.
+    """
+    from hushh_mcp.services.drive_request_owner_payout_service import (
+        delivery_amounts,
+        fee_amounts,
+    )
+
+    delivery = delivery_amounts(
+        gross_cents=gross_cents, confirmed=1, expected=1, commission_bps=COMMISSION_BPS
+    )
+    return {
+        **delivery,
+        **fee_amounts(
+            gross_cents=gross_cents,
+            retained_cents=delivery["retained_amount_cents"],
+            platform_fee_cents=delivery["platform_fee_cents"],
+            actual_processing_fee_cents=processing_fee_cents,
+        ),
+    }
+
+
+class PkmAnswerWorkWorker(ExternalConnectorLifecycleStore):
+    def __init__(self, db=None, *, stripe_api=None):
+        super().__init__(db)
+        self.stripe_api = stripe_api or stripe
+
+    async def run_stage(self, stage: str) -> dict[str, int]:
+        """Run one named stage with its own bound. Unknown stages are refused."""
+        if stage not in ANSWER_DRAIN_STAGES:
+            raise ValueError("invalid answer work stage")
+        max_jobs = STAGE_MAX_JOBS[stage]
+        if stage == "timeouts":
+            result = await self.run_timeouts(max_jobs=max_jobs)
+            from hushh_mcp.services.pkm_answer_config import answer_requests_enabled
+
+            if answer_requests_enabled():
+                from hushh_mcp.services.answer_scope_resolver import AnswerScopeResolver
+                from hushh_mcp.services.pkm_answer_request_service import PkmAnswerRequestService
+
+                await PkmAnswerRequestService(
+                    self.db, resolver=AnswerScopeResolver()
+                ).resolve_pending(max_jobs=1)
+            return result
+        if stage == "refunds":
+            return await self.run_refunds(max_jobs=max_jobs)
+        return await self.run_payouts(max_jobs=max_jobs)
+
+    def _charge(self, row: dict, key: str) -> dict:
+        intent = _stripe_dict(
+            self.stripe_api.PaymentIntent.retrieve(row["stripe_payment_intent_id"], api_key=key)
+        )
+        if (
+            intent.get("id") != row["stripe_payment_intent_id"]
+            or intent.get("status") != "succeeded"
+            or intent.get("livemode") is not key.startswith("sk_live_")
+        ):
+            raise ValueError("provider_mismatch")
+        charge = _stripe_dict(
+            self.stripe_api.Charge.retrieve(intent.get("latest_charge"), api_key=key)
+        )
+        if (
+            charge.get("id") != intent.get("latest_charge")
+            or charge.get("payment_intent") != row["stripe_payment_intent_id"]
+            or charge.get("livemode") is not key.startswith("sk_live_")
+            or charge.get("amount") != row["gross_amount_cents"]
+            or charge.get("currency") != "usd"
+            or charge.get("paid") is not True
+            or charge.get("captured") is not True
+            or charge.get("disputed") is True
+            or charge.get("amount_refunded") != 0
+        ):
+            raise ValueError("provider_mismatch")
+        balance = _stripe_dict(
+            self.stripe_api.BalanceTransaction.retrieve(
+                charge.get("balance_transaction"), api_key=key
+            )
+        )
+        if type(balance.get("fee")) is not int or balance["fee"] < 0:
+            raise ValueError("provider_mismatch")
+        return {**charge, "fee": balance["fee"]}
+
+    def _refund(self, row: dict, key: str) -> dict:
+        # Stripe Refund has no livemode field. Verify the source PaymentIntent
+        # under this mode-bound key BEFORE dispatch; verify the returned refund
+        # refers to that same intent and exact full amount. Source contract:
+        # https://docs.stripe.com/api/refunds/object
+        intent = _stripe_dict(
+            self.stripe_api.PaymentIntent.retrieve(row["stripe_payment_intent_id"], api_key=key)
+        )
+        if (
+            intent.get("id") != row["stripe_payment_intent_id"]
+            or intent.get("status") != "succeeded"
+            or intent.get("livemode") is not key.startswith("sk_live_")
+            or intent.get("amount") != row["amount_cents"]
+            or intent.get("amount_received") != row["amount_cents"]
+            or intent.get("currency") != "usd"
+        ):
+            raise ValueError("provider_mismatch")
+        if row["stripe_refund_id"]:
+            refund = _stripe_dict(
+                self.stripe_api.Refund.retrieve(row["stripe_refund_id"], api_key=key)
+            )
+        else:
+            # Recover unknown responses before recreating, including outside
+            # Stripe's finite idempotency window. More than one match is held.
+            if row["attempts"] > 1:
+                page = _stripe_dict(
+                    self.stripe_api.Refund.list(
+                        payment_intent=row["stripe_payment_intent_id"], limit=100, api_key=key
+                    )
+                )
+                items = page.get("data")
+                if not isinstance(items, list) or page.get("has_more"):
+                    raise ValueError("provider_mismatch")
+                if len(items) > 1:
+                    raise ValueError("provider_mismatch")
+                refund = items[0] if items else None
+            else:
+                refund = None
+            if refund is None:
+                if not _retry_open(row["first_dispatch_at"]):
+                    raise ValueError("idempotency_window_elapsed")
+                refund = _stripe_dict(
+                    self.stripe_api.Refund.create(
+                        payment_intent=row["stripe_payment_intent_id"],
+                        api_key=key,
+                        idempotency_key=f"pkm-answer-refund-{row['request_id']}",
+                    )
+                )
+        if (
+            not isinstance(refund.get("id"), str)
+            or not refund["id"].startswith("re_")
+            or refund.get("payment_intent") != row["stripe_payment_intent_id"]
+            or refund.get("amount") != row["amount_cents"]
+            or refund.get("currency") != "usd"
+            or ("livemode" in refund and refund["livemode"] is not key.startswith("sk_live_"))
+            or refund.get("status") not in {"succeeded", "pending", "requires_action"}
+        ):
+            raise ValueError("provider_mismatch")
+        return refund
+
+    # -------------------------------------------------------------- timeouts
+
+    async def run_timeouts(self, *, max_jobs: int = 4) -> dict[str, int]:
+        """Expire overdue answers and file their refunds.
+
+        The expiry and the refund row are written in one transaction, so a
+        request can never be marked expired without the obligation to refund it
+        existing beside it.
+        """
+        if not (answer_payments_enabled() or os.getenv("ANSWER_WORK_DRAIN_ENABLED") == "true"):
+            return {"disabled": 1}
+
+        def claim(connection) -> int:
+            rows = (
+                connection.execute(
+                    text(
+                        """UPDATE pkm_answer_requests SET status = 'expired',
+                               updated_at = clock_timestamp()
+                           WHERE request_id IN (
+                             SELECT r.request_id FROM pkm_answer_requests r
+                             WHERE r.status = 'answering'
+                               AND r.answer_deadline_at IS NOT NULL
+                               AND EXISTS (SELECT 1 FROM pkm_answer_payment_orders o
+                                 WHERE o.request_id=r.request_id AND o.stripe_mode IN ('test', 'live'))
+                               AND (r.answer_deadline_at < clock_timestamp() OR NOT EXISTS (
+                                 SELECT 1 FROM connections c WHERE c.status='active'
+                                   AND ((c.user_a_id=r.owner_user_id AND c.user_b_id=r.requester_user_id)
+                                     OR (c.user_b_id=r.owner_user_id AND c.user_a_id=r.requester_user_id))))
+                               AND NOT EXISTS (
+                                 SELECT 1 FROM pkm_answer_deliveries d
+                                 WHERE d.request_id = r.request_id)
+                             ORDER BY r.answer_deadline_at
+                             LIMIT :limit FOR UPDATE SKIP LOCKED)
+                           RETURNING request_id"""
+                    ),
+                    {"limit": max(1, min(int(max_jobs), 25))},
+                )
+                .mappings()
+                .all()
+            )
+            filed = 0
+            for row in rows:
+                filed += _file_refund(connection, str(row["request_id"]), "answer_timeout")
+            return filed
+
+        filed = await self._transaction(claim)
+        return {"expired": filed, "refunds_filed": filed}
+
+    # --------------------------------------------------------------- refunds
+
+    async def run_refunds(self, *, max_jobs: int = 4) -> dict[str, int]:
+        """Dispatch due refunds, retrying failures under a lease."""
+        if not (answer_payments_enabled() or os.getenv("ANSWER_WORK_DRAIN_ENABLED") == "true"):
+            return {"disabled": 1}
+        modes = available_answer_payment_modes()
+        if not modes:
+            return {"disabled": 1}
+
+        claimed = await self._transaction(
+            lambda connection: _claim_refunds(connection, max_jobs, modes)
+        )
+        outcomes = {"succeeded": 0, "retried": 0, "manual_review": 0}
+
+        for row in claimed:
+            key, _secret, _origin = _config(row["stripe_mode"])
+            request_id = str(row["request_id"])
+            try:
+                refund = await run_in_threadpool(self._refund, row, key)
+                settled = await self._transaction(
+                    lambda connection, r=refund, job=row: _settle_refund(connection, job, r)
+                )
+                if settled and refund["status"] == "succeeded":
+                    outcomes["succeeded"] += 1
+            except Exception as error:  # noqa: BLE001 - provider failure, closed code only
+                code = _safe_refund_error(error)
+                terminal = row["attempts"] >= MAX_REFUND_ATTEMPTS or code in {
+                    "provider_mismatch",
+                    "idempotency_window_elapsed",
+                }
+                await self._transaction(
+                    lambda connection, job=row, c=code, t=terminal: _defer_refund(
+                        connection, job, c, t
+                    )
+                )
+                outcomes["manual_review" if terminal else "retried"] += 1
+                logger.warning("answer_refund.deferred request=%s code=%s", request_id, code)
+
+        return outcomes
+
+    # --------------------------------------------------------------- payouts
+
+    async def run_payouts(self, *, max_jobs: int = 4) -> dict[str, int]:
+        """Transfer delivered answers' earnings to the owner's Connect account."""
+        if not (answer_payments_enabled() or os.getenv("ANSWER_WORK_DRAIN_ENABLED") == "true"):
+            return {"disabled": 1}
+        modes = available_answer_payment_modes()
+        if not modes:
+            return {"disabled": 1}
+
+        await self._transaction(_promote_due_payouts)
+        claimed = await self._transaction(
+            lambda connection: _claim_payouts(connection, max_jobs, modes)
+        )
+        outcomes = {"transferred": 0, "retried": 0, "awaiting_account": 0}
+
+        for row in claimed:
+            key, _secret, _origin = _config(row["stripe_mode"])
+            request_id = str(row["request_id"])
+            destination = row["destination_account_id"]
+            if not destination:
+                await self._transaction(lambda connection, job=row: _await_account(connection, job))
+                outcomes["awaiting_account"] += 1
+                continue
+            try:
+                charge = await run_in_threadpool(self._charge, row, key)
+                amounts = answer_payout_amounts(
+                    gross_cents=int(row["gross_amount_cents"]), processing_fee_cents=charge["fee"]
+                )
+                group = f"pkm-answer:{request_id}"
+                transfer = None
+                if row["first_dispatch_at"] is not None:
+                    page = _stripe_dict(
+                        await run_in_threadpool(
+                            self.stripe_api.Transfer.list,
+                            transfer_group=group,
+                            limit=100,
+                            api_key=key,
+                        )
+                    )
+                    items = page.get("data")
+                    if not isinstance(items, list) or page.get("has_more") or len(items) > 1:
+                        raise ValueError("provider_mismatch")
+                    transfer = items[0] if items else None
+                if transfer is None:
+                    if not _retry_open(row["first_dispatch_at"]):
+                        raise ValueError("idempotency_window_elapsed")
+                    # A cached readiness bit is not current provider evidence.
+                    from hushh_mcp.services.pkm_payout_service import _account_readiness
+
+                    account = _stripe_dict(
+                        await run_in_threadpool(
+                            self.stripe_api.Account.retrieve, destination, api_key=key
+                        )
+                    )
+                    if account.get("id") != destination or not _account_readiness(account)["ready"]:
+                        await self._transaction(lambda c, job=row: _await_account(c, job))
+                        outcomes["awaiting_account"] += 1
+                        continue
+                    # Recheck mapping under the lease before money movement.
+                    ready = await self._transaction(
+                        lambda c, job=row, a=amounts: _prepare_transfer(c, job, a)
+                    )
+                    if not ready:
+                        continue
+                    if amounts["owner_earning_cents"] == 0:
+                        settled = await self._transaction(
+                            lambda c, job=row: _settle_payout(c, job, None)
+                        )
+                        outcomes["transferred"] += int(settled)
+                        continue
+                    transfer = _stripe_dict(
+                        await run_in_threadpool(
+                            self.stripe_api.Transfer.create,
+                            amount=amounts["owner_earning_cents"],
+                            currency=row["currency"],
+                            destination=destination,
+                            source_transaction=charge["id"],
+                            transfer_group=group,
+                            metadata={
+                                "payment_kind": "pkm_answer_owner_payout",
+                                "request_id": request_id,
+                            },
+                            api_key=key,
+                            idempotency_key=f"pkm-answer-transfer-{row['transfer_attempt_id']}",
+                        )
+                    )
+                if (
+                    not isinstance(transfer.get("id"), str)
+                    or not transfer["id"].startswith("tr_")
+                    or transfer.get("amount") != amounts["owner_earning_cents"]
+                    or transfer.get("currency") != row["currency"]
+                    or transfer.get("destination") != destination
+                    or transfer.get("source_transaction") != charge["id"]
+                    or transfer.get("transfer_group") != group
+                    or transfer.get("livemode") is not key.startswith("sk_live_")
+                    or transfer.get("reversed") is not False
+                    or transfer.get("amount_reversed") != 0
+                ):
+                    raise ValueError("provider_mismatch")
+                settled = await self._transaction(
+                    lambda c, job=row, t=transfer: _settle_payout(c, job, t["id"])
+                )
+                outcomes["transferred"] += int(settled)
+            except Exception as error:
+                code = _safe_payout_error(error)
+                terminal = row["attempts"] >= MAX_PAYOUT_ATTEMPTS or code in {
+                    "provider_mismatch",
+                    "idempotency_window_elapsed",
+                }
+                await self._transaction(
+                    lambda c, job=row, code=code, terminal=terminal: _defer_payout(
+                        c, job, code, terminal
+                    )
+                )
+                outcomes["retried"] += 1
+                logger.warning("answer_payout.deferred code=%s", code)
+
+        return outcomes
+
+
+# ------------------------------------------------------------- SQL helpers --
+
+
+def file_refund(connection, request_id: str, reason: str) -> int:
+    """Public entry point so request-time paths file the same durable row."""
+    return _file_refund(connection, request_id, reason)
+
+
+def _file_refund(connection, request_id: str, reason: str) -> int:
+    """Record the obligation to refund. Idempotent per request."""
+    result = connection.execute(
+        text(
+            """INSERT INTO pkm_answer_payment_refunds (request_id, reason)
+               SELECT :request, :reason
+               WHERE EXISTS (
+                 SELECT 1 FROM pkm_answer_payment_orders
+                 WHERE request_id = :request AND status = 'paid')
+               ON CONFLICT (request_id) DO NOTHING
+               RETURNING request_id"""
+        ),
+        {"request": request_id, "reason": reason},
+    ).first()
+    if result is None:
+        return 0
+    connection.execute(
+        text(
+            "UPDATE pkm_answer_payment_orders SET refund_reason=:reason WHERE request_id=:request"
+        ),
+        {"request": request_id, "reason": reason},
+    )
+    # A refunded answer earns nothing.
+    connection.execute(
+        text(
+            """UPDATE pkm_answer_owner_payouts
+               SET status = 'void', owner_earning_cents = NULL,
+                   updated_at = clock_timestamp()
+               WHERE request_id = :request AND status <> 'transferred'"""
+        ),
+        {"request": request_id},
+    )
+    return 1
+
+
+def _claim_refunds(
+    connection, max_jobs: int, modes: tuple[str, ...] | None = None
+) -> list[dict[str, Any]]:
+    return [
+        dict(row)
+        for row in connection.execute(
+            text(
+                """UPDATE pkm_answer_payment_refunds SET
+                       status = 'dispatching',
+                       first_dispatch_at = COALESCE(first_dispatch_at, clock_timestamp()),
+                       lease_expires_at = clock_timestamp()
+                           + make_interval(secs => :lease),
+                       attempts = attempts + 1,
+                       updated_at = clock_timestamp()
+                   WHERE request_id IN (
+                     SELECT request_id FROM pkm_answer_payment_refunds
+                     WHERE status IN ('queued', 'dispatching', 'unknown', 'pending')
+                       AND next_check_at <= clock_timestamp()
+                       AND EXISTS (SELECT 1 FROM pkm_answer_payment_obligations o
+                         WHERE o.request_id=pkm_answer_payment_refunds.request_id AND o.stripe_mode = ANY(:stripe_modes))
+                       AND (lease_expires_at IS NULL
+                            OR lease_expires_at < clock_timestamp())
+                     ORDER BY next_check_at
+                     LIMIT :limit FOR UPDATE SKIP LOCKED)
+                   RETURNING request_id, attempts, first_dispatch_at, stripe_refund_id,
+                     (SELECT stripe_mode FROM pkm_answer_payment_obligations o
+                      WHERE o.request_id = pkm_answer_payment_refunds.request_id) AS stripe_mode,
+                     (SELECT amount_cents FROM pkm_answer_payment_obligations o
+                      WHERE o.request_id = pkm_answer_payment_refunds.request_id) AS amount_cents,
+                     (SELECT stripe_payment_intent_id FROM pkm_answer_payment_obligations o
+                      WHERE o.request_id = pkm_answer_payment_refunds.request_id)
+                       AS stripe_payment_intent_id"""
+            ),
+            {
+                "limit": max(1, min(int(max_jobs), 25)),
+                "lease": LEASE_SECONDS,
+                "stripe_modes": list(
+                    modes if modes is not None else available_answer_payment_modes()
+                ),
+            },
+        ).mappings()
+    ]
+
+
+def _settle_refund(connection, job: dict, refund: dict) -> bool:
+    succeeded = refund["status"] == "succeeded"
+    won = connection.execute(
+        text("""UPDATE pkm_answer_payment_refunds
+        SET status=:status, stripe_refund_id=:refund, lease_expires_at=NULL,
+            safe_error_code=NULL, next_check_at=clock_timestamp()+INTERVAL '5 minutes', updated_at=clock_timestamp()
+        WHERE request_id=:request AND status='dispatching' AND attempts=:attempts RETURNING request_id"""),
+        {
+            "request": str(job["request_id"]),
+            "attempts": job["attempts"],
+            "refund": refund["id"],
+            "status": "succeeded" if succeeded else "pending",
+        },
+    ).first()
+    if won and succeeded:
+        connection.execute(
+            text("""UPDATE pkm_answer_payment_orders SET status='refunded',
+            refunded_at=clock_timestamp(), stripe_refund_id=:refund, owner_earning_status='void',
+            updated_at=clock_timestamp() WHERE request_id=:request AND status='paid'"""),
+            {"request": str(job["request_id"]), "refund": refund["id"]},
+        )
+        connection.execute(
+            text("""UPDATE pkm_answer_payment_obligations SET status='refunded',
+            updated_at=clock_timestamp() WHERE request_id=:request AND status='paid'"""),
+            {"request": str(job["request_id"])},
+        )
+
+    return won is not None
+
+
+def _defer_refund(connection, job: dict, code: str, terminal: bool) -> None:
+    connection.execute(
+        text("""UPDATE pkm_answer_payment_refunds SET status=:status,
+        safe_error_code=:code, lease_expires_at=NULL, next_check_at=clock_timestamp()+INTERVAL '5 minutes',
+        updated_at=clock_timestamp() WHERE request_id=:request AND status='dispatching' AND attempts=:attempts"""),
+        {
+            "request": str(job["request_id"]),
+            "attempts": job["attempts"],
+            "code": code,
+            "status": "manual_review" if terminal else "queued",
+        },
+    )
+
+
+def _promote_due_payouts(connection) -> None:
+    """A delivered answer with content becomes a due earning."""
+    connection.execute(
+        text(
+            """INSERT INTO pkm_answer_owner_payouts
+               (request_id, gross_amount_cents, currency, status,
+                platform_fee_cents, owner_earning_cents, destination_account_id)
+               -- A provisional commission-only split, rounded half-up the
+               -- way Drive rounds it. It is never what gets transferred:
+               -- dispatch retrieves the charge's actual processing fee and
+               -- rewrites both columns before any money moves. The row needs
+               -- an earning here only because 'due' requires one.
+               SELECT o.request_id, o.amount_cents, o.currency, 'due',
+                      (2 * o.amount_cents * :bps + 10000) / 20000,
+                      o.amount_cents - (2 * o.amount_cents * :bps + 10000) / 20000,
+                      a.stripe_account_id
+               FROM pkm_answer_payment_orders o
+               JOIN pkm_answer_deliveries d ON d.request_id = o.request_id AND d.has_content
+               LEFT JOIN stripe_owner_payout_accounts a ON a.user_id=o.owner_user_id
+                 AND a.stripe_mode=o.stripe_mode AND a.payouts_enabled AND a.account_ready
+               WHERE o.status = 'paid' AND o.owner_earning_status = 'due'
+                 AND o.stripe_mode IN ('test', 'live') AND NOT o.reconciliation_required
+                 AND NOT EXISTS (SELECT 1 FROM pkm_answer_payment_refunds f WHERE f.request_id=o.request_id)
+               ON CONFLICT (request_id) DO NOTHING"""
+        ),
+        {"bps": COMMISSION_BPS},
+    )
+
+
+def _claim_payouts(
+    connection, max_jobs: int, modes: tuple[str, ...] | None = None
+) -> list[dict[str, Any]]:
+    connection.execute(
+        text("""UPDATE pkm_answer_owner_payouts p SET destination_account_id=(
+        SELECT a.stripe_account_id FROM stripe_owner_payout_accounts a
+        JOIN pkm_answer_payment_orders o ON o.owner_user_id=a.user_id AND o.stripe_mode=a.stripe_mode
+        WHERE o.request_id=p.request_id AND a.payouts_enabled AND a.account_ready)
+        WHERE p.first_dispatch_at IS NULL AND p.status IN ('due','awaiting_account')
+          AND (p.lease_expires_at IS NULL OR p.lease_expires_at < clock_timestamp())""")
+    )
+    return [
+        dict(row)
+        for row in connection.execute(
+            text(
+                """UPDATE pkm_answer_owner_payouts SET
+                       status = 'dispatching',
+                       lease_expires_at = clock_timestamp()
+                           + make_interval(secs => :lease),
+                       attempts = attempts + 1,
+                       updated_at = clock_timestamp()
+                   WHERE request_id IN (
+                     SELECT request_id FROM pkm_answer_owner_payouts
+                     WHERE status IN ('due', 'dispatching', 'unknown', 'awaiting_account')
+                       AND next_check_at <= clock_timestamp()
+                       AND EXISTS (SELECT 1 FROM pkm_answer_payment_obligations o
+                         WHERE o.request_id=pkm_answer_owner_payouts.request_id AND o.stripe_mode = ANY(:stripe_modes))
+                       AND NOT EXISTS (SELECT 1 FROM pkm_answer_payment_refunds f
+                         WHERE f.request_id=pkm_answer_owner_payouts.request_id)
+                       AND (lease_expires_at IS NULL
+                            OR lease_expires_at < clock_timestamp())
+                     ORDER BY next_check_at
+                     LIMIT :limit FOR UPDATE SKIP LOCKED)
+                   RETURNING request_id, attempts, first_dispatch_at, currency, gross_amount_cents,
+                             (SELECT stripe_mode FROM pkm_answer_payment_obligations o
+                              WHERE o.request_id = pkm_answer_owner_payouts.request_id) AS stripe_mode,
+                             owner_earning_cents, destination_account_id,
+                             transfer_attempt_id,
+                             (SELECT stripe_payment_intent_id
+                              FROM pkm_answer_payment_obligations o
+                              WHERE o.request_id = pkm_answer_owner_payouts.request_id)
+                               AS stripe_payment_intent_id"""
+            ),
+            {
+                "limit": max(1, min(int(max_jobs), 25)),
+                "lease": LEASE_SECONDS,
+                "stripe_modes": list(
+                    modes if modes is not None else available_answer_payment_modes()
+                ),
+            },
+        ).mappings()
+    ]
+
+
+def _settle_payout(connection, job: dict, transfer_id: str | None) -> bool:
+    won = connection.execute(
+        text(
+            """UPDATE pkm_answer_owner_payouts
+               SET status = 'transferred', stripe_transfer_id = :transfer,
+                   transferred_at = clock_timestamp(), lease_expires_at = NULL,
+                   safe_error_code = NULL, updated_at = clock_timestamp()
+               WHERE request_id = :request AND status='dispatching' AND attempts=:attempts RETURNING request_id"""
+        ),
+        {"request": str(job["request_id"]), "transfer": transfer_id, "attempts": job["attempts"]},
+    )
+    if won.first() is None:
+        return False
+    connection.execute(
+        text(
+            """UPDATE pkm_answer_payment_orders
+               SET owner_earning_status = 'transferred',
+                   stripe_transfer_id = :transfer,
+                   transferred_at = clock_timestamp(), updated_at = clock_timestamp()
+               WHERE request_id = :request AND status='paid'"""
+        ),
+        {"request": str(job["request_id"]), "transfer": transfer_id, "attempts": job["attempts"]},
+    )
+
+    return True
+
+
+def _await_account(connection, job: dict) -> None:
+    connection.execute(
+        text(
+            """UPDATE pkm_answer_owner_payouts
+               SET status = 'awaiting_account', safe_error_code = 'account_not_ready',
+                   lease_expires_at = NULL,
+                   next_check_at = clock_timestamp() + make_interval(secs => :backoff),
+                   updated_at = clock_timestamp()
+               WHERE request_id = :request AND status='dispatching' AND attempts=:attempts RETURNING request_id"""
+        ),
+        {
+            "request": str(job["request_id"]),
+            "attempts": job["attempts"],
+            "backoff": RETRY_BACKOFF_SECONDS,
+        },
+    )
+
+
+def _defer_payout(connection, job: dict, code: str, terminal: bool) -> None:
+    connection.execute(
+        text(
+            """UPDATE pkm_answer_owner_payouts
+               SET status = :status, safe_error_code = :code, lease_expires_at = NULL,
+                   next_check_at = clock_timestamp() + make_interval(secs => :backoff),
+                   updated_at = clock_timestamp()
+               WHERE request_id = :request AND status='dispatching' AND attempts=:attempts RETURNING request_id"""
+        ),
+        {
+            "request": str(job["request_id"]),
+            "attempts": job["attempts"],
+            "status": "manual_review" if terminal else "due",
+            "code": code,
+            "backoff": RETRY_BACKOFF_SECONDS,
+        },
+    )
+
+
+def _safe_refund_error(error: Exception) -> str:
+    if str(error) in {"provider_mismatch", "idempotency_window_elapsed"}:
+        return str(error)
+    name = type(error).__name__
+    if "Invalid" in name or "Permission" in name:
+        return "provider_rejected"
+    if "Idempotency" in name:
+        return "idempotency_window_elapsed"
+    return "provider_unavailable"
+
+
+def _safe_payout_error(error: Exception) -> str:
+    if str(error) in {"provider_mismatch", "idempotency_window_elapsed"}:
+        return str(error)
+    name = type(error).__name__
+    if "Invalid" in name or "Permission" in name:
+        return "provider_rejected"
+    return "provider_unavailable"
+
+
+__all__ = [
+    "ANSWER_DRAIN_STAGES",
+    "STAGE_MAX_JOBS",
+    "PkmAnswerWorkWorker",
+    "file_refund",
+    "safe_answer_drain_result",
+]
+
+
+def _retry_open(first_dispatch: datetime | None) -> bool:
+    return (
+        first_dispatch is None or (datetime.now(UTC) - first_dispatch).total_seconds() < 23 * 3600
+    )
+
+
+def _prepare_transfer(connection, job: dict, amounts: dict) -> bool:
+    won = connection.execute(
+        text("""UPDATE pkm_answer_owner_payouts p SET
+        first_dispatch_at=COALESCE(first_dispatch_at,clock_timestamp()),
+        platform_fee_cents=:fee, owner_earning_cents=:earning, updated_at=clock_timestamp()
+        WHERE request_id=:request AND status='dispatching' AND attempts=:attempts
+          AND EXISTS (SELECT 1 FROM pkm_answer_payment_orders o
+            JOIN stripe_owner_payout_accounts a ON a.user_id=o.owner_user_id AND a.stripe_mode=o.stripe_mode
+            WHERE o.request_id=p.request_id AND o.stripe_mode=:mode
+              AND a.stripe_account_id=p.destination_account_id AND a.payouts_enabled AND a.account_ready)
+        RETURNING request_id"""),
+        {
+            "request": str(job["request_id"]),
+            "attempts": job["attempts"],
+            "fee": amounts["platform_fee_cents"],
+            "earning": amounts["owner_earning_cents"],
+            "mode": job["stripe_mode"],
+        },
+    ).first()
+    if won is None:
+        if job["first_dispatch_at"] is not None:
+            _defer_payout(connection, job, "provider_mismatch", True)
+        else:
+            _await_account(connection, job)
+    return won is not None

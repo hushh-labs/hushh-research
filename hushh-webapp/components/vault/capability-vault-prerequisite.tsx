@@ -8,7 +8,7 @@ import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
 import { VaultService } from "@/lib/services/vault-service";
 import { useVault } from "@/lib/vault/vault-context";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import {
   preferPassphraseUnlockForAutomation,
   useNativeTestConfig,

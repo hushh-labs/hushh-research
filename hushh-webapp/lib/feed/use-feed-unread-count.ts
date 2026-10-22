@@ -12,6 +12,7 @@ import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 import { FeedService } from "@/lib/services/feed-service";
 import { currentFeedInvalidationEpoch } from "@/lib/cache/feed-invalidation-epoch";
 import { useRootChatDeferredReady } from "@/lib/navigation/use-root-chat-deferred-ready";
+import { useForegroundChatActive } from "@/lib/agent/foreground-chat-priority";
 
 /**
  * Returns `null` until the count has resolved. Consumers must treat that as
@@ -21,6 +22,7 @@ import { useRootChatDeferredReady } from "@/lib/navigation/use-root-chat-deferre
 export function useFeedUnreadCount(): number | null {
   const { user } = useAuth();
   const rootChatReady = useRootChatDeferredReady();
+  const foregroundChatActive = useForegroundChatActive();
   const currentUserId = user?.uid ?? null;
   // Object identity distinguishes separate sessions even when an A -> B -> A
   // account cycle returns to the same uid. State from the first A session is
@@ -101,25 +103,25 @@ export function useFeedUnreadCount(): number | null {
     refreshPendingRef.current = false;
     feedEpochRef.current = currentFeedInvalidationEpoch(session.userId ?? "");
     setCountState({ session, count: null });
-    if (!user?.uid || !rootChatReady) {
+    if (!user?.uid || !rootChatReady || foregroundChatActive) {
       return;
     }
     void load();
-  }, [user, load, rootChatReady, session]);
+  }, [user, load, rootChatReady, foregroundChatActive, session]);
 
   // Shares the Feed's live signal rather than keeping a private timer, so the
   // badge and the Feed list re-check on the same tick and cannot drift into
   // saying different things about the same unread rows.
   useFeedLiveRefresh(
     useCallback(() => void load(true), [load]),
-    Boolean(user?.uid) && rootChatReady,
+    Boolean(user?.uid) && rootChatReady && !foregroundChatActive,
   );
 
   // The badge additionally recounts on a read-only change — that shared signal
   // skips those, precisely so a list does not re-fetch rows it just marked read.
   // For the badge it is the whole point: it is the number that has to drop.
   useEffect(() => {
-    if (!user?.uid || !rootChatReady) return;
+    if (!user?.uid || !rootChatReady || foregroundChatActive) return;
     const recount = (event: Event) => {
       const epoch = currentFeedInvalidationEpoch(user.uid);
       if (epoch !== feedEpochRef.current) {
@@ -152,7 +154,7 @@ export function useFeedUnreadCount(): number | null {
     };
     window.addEventListener(FEED_STATE_CHANGED_EVENT, recount);
     return () => window.removeEventListener(FEED_STATE_CHANGED_EVENT, recount);
-  }, [load, rootChatReady, session, user?.uid]);
+  }, [load, rootChatReady, foregroundChatActive, session, user?.uid]);
 
   return countState.session === session ? countState.count : null;
 }

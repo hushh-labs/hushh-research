@@ -307,6 +307,15 @@ class TurnTiming:
     agent_started_at: float | None = None
     instruction_ms: float = 0.0
     connector_discovery_ms: float = 0.0
+    session_read_ms: float = 0.0
+    session_decrypt_ms: float = 0.0
+    session_append_ms: float = 0.0
+    # Includes serialization/encryption plus the database write.
+    session_persistence_ms: float = 0.0
+    session_read_count: int = 0
+    session_decrypt_count: int = 0
+    session_append_count: int = 0
+    session_persistence_count: int = 0
     process_turn: int = 0
     path_warmed: bool = False
     model_id: str = "unavailable"
@@ -412,13 +421,36 @@ class TurnTiming:
             return None
         return _ms_since(self.agent_started_at, self.first_model_call_at)
 
+    def session_other_ms(self) -> int | None:
+        session_ms = _ms_since(self.started_at, self.agent_started_at)
+        if session_ms is None:
+            return None
+        measured = round(
+            self.session_read_ms
+            + self.session_decrypt_ms
+            + self.session_append_ms
+            + self.session_persistence_ms
+        )
+        return max(0, session_ms - measured)
+
     def log(self) -> None:
+        completed_at = time.perf_counter()
+        pending_model_calls = self.pending_model_call_starts or []
+        # A missing after-model callback leaves model_call_total_ms at zero.
+        # This is wall time since the before-model callback, including any
+        # bridge unwind; it does not identify the provider as the cause.
+        model_inflight_ms = round(
+            sum(max(0.0, completed_at - started_at) for started_at in pending_model_calls) * 1000
+        )
         logger.info(
             "one_agent_chat_turn_complete head=%s run=%s first_visible_ms=%s "
             "first_activity_ms=%s first_answer_token_ms=%s first_tool_call_ms=%s elapsed_ms=%s "
             "first_model_call_ms=%s session_ms=%s request_build_ms=%s instruction_ms=%s "
-            "connector_discovery_ms=%s process_turn=%s path_warmed=%s "
-            "model_calls=%s model_call_total_ms=%s "
+            "connector_discovery_ms=%s session_read_ms=%s session_decrypt_ms=%s "
+            "session_append_ms=%s session_persistence_ms=%s session_other_ms=%s "
+            "session_read_count=%s session_decrypt_count=%s session_append_count=%s "
+            "session_persistence_count=%s process_turn=%s path_warmed=%s "
+            "model_calls=%s model_call_total_ms=%s model_inflight_calls=%s model_inflight_ms=%s "
             "model_id=%s thinking_level=%s "
             "prompt_chars_peak=%s tool_schema_chars_peak=%s history_items_peak=%s "
             "events=%s tool_calls=%s specialist_calls=%s outcome=%s error_class=%s "
@@ -429,16 +461,27 @@ class TurnTiming:
             _ms_since(self.started_at, self.first_activity_at),
             _ms_since(self.started_at, self.first_answer_token_at),
             _ms_since(self.started_at, self.first_tool_call_at),
-            _ms_since(self.started_at, time.perf_counter()),
+            _ms_since(self.started_at, completed_at),
             self.first_model_call_ms,
             _ms_since(self.started_at, self.agent_started_at),
             self.request_build_ms(),
             round(self.instruction_ms),
             round(self.connector_discovery_ms),
+            round(self.session_read_ms),
+            round(self.session_decrypt_ms),
+            round(self.session_append_ms),
+            round(self.session_persistence_ms),
+            self.session_other_ms(),
+            self.session_read_count,
+            self.session_decrypt_count,
+            self.session_append_count,
+            self.session_persistence_count,
             self.process_turn,
             str(self.path_warmed).lower(),
             self.model_calls,
             round(self.model_call_total_ms),
+            len(pending_model_calls),
+            model_inflight_ms,
             self.model_id,
             self.thinking_level,
             self.prompt_chars_peak,
@@ -852,6 +895,26 @@ def record_connector_discovery(elapsed_ms: float) -> None:
         timing.connector_discovery_ms += max(0.0, elapsed_ms)
 
 
+def record_session_phase(phase: str, elapsed_ms: float) -> None:
+    """Add a privacy-safe encrypted-session phase duration to this turn."""
+    timing = _CURRENT_TURN.get()
+    if timing is None or timing.agent_started_at is not None:
+        return
+    value = max(0.0, elapsed_ms)
+    if phase == "read":
+        timing.session_read_ms += value
+        timing.session_read_count += 1
+    elif phase == "decrypt":
+        timing.session_decrypt_ms += value
+        timing.session_decrypt_count += 1
+    elif phase == "append":
+        timing.session_append_ms += value
+        timing.session_append_count += 1
+    elif phase == "persistence":
+        timing.session_persistence_ms += value
+        timing.session_persistence_count += 1
+
+
 def timed_one_before_model(callback_context: Any, llm_request: Any) -> LlmResponse | None:
     """Preserve the external-read barrier and record privacy-safe request sizes."""
     drop_empty_history_parts(llm_request)
@@ -866,7 +929,9 @@ def timed_one_before_model(callback_context: Any, llm_request: Any) -> LlmRespon
 
 
 def timed_one_after_model(_callback_context: Any, _llm_response: Any) -> None:
-    """Record provider-call duration without logging prompts or response data."""
+    """Finish provider timing on the final response, after all streamed chunks."""
+    if getattr(_llm_response, "partial", False):
+        return
     timing = _CURRENT_TURN.get()
     if timing is not None:
         timing.finish_model_call()

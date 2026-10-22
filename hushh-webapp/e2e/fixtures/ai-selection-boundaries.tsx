@@ -28,6 +28,7 @@ export const PreVaultUserStateService = {
   bootstrapState: unavailable,
   markOneRuntimeChoice: async (_id:string, choice:string) => ({oneRuntimeSetupChoice:choice}),
 };
+export const InitialContactsOnboardingService = {getSnapshot: () => ({ownerId:null})};
 export const CACHE_KEYS = { PRE_VAULT_BOOTSTRAP: (id:string) => `bootstrap:${id}` };
 export const CacheService = {getInstance: () => ({subscribe: (listener: (event:{type:string;key:string}) => void) => {listeners.add(listener);return () => listeners.delete(listener);}})};
 /* eslint-disable @next/next/no-img-element -- Browser fixture preserves image geometry. */

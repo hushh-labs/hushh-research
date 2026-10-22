@@ -9,7 +9,7 @@ description: Use when resetting a Kai/UAT test account by email for end-to-end o
 
 - Primary scope: `kai-test-account-reset`
 - Trigger on requests to delete or reset a Kai test user, especially when the user provides an email and wants to retest onboarding end to end.
-- Avoid overlap with `vault-pkm-governance`, `iam-consent-governance`, and `repo-operations`.
+- Avoid overlap with `security-audit`, `iam-consent-governance`, and `repo-operations`.
 
 ## Coverage and Ownership
 
@@ -23,7 +23,7 @@ Owned repo surfaces:
 Non-owned surfaces:
 
 1. `security-audit`
-2. `vault-pkm-governance`
+2. `security-audit`
 3. `iam-consent-governance`
 4. `repo-operations`
 5. `backend`
@@ -65,7 +65,7 @@ Non-owned surfaces:
 
 ## Handoff Rules
 
-1. Route schema or account-deletion-service gaps to `iam-consent-governance` or `vault-pkm-governance`.
+1. Route schema or account-deletion-service gaps to `iam-consent-governance` or `security-audit`.
 2. Route backend runtime/proxy failures to `repo-operations`.
 3. Route user-facing One Voice/search action changes to `one-voice-governance`.
 

@@ -211,9 +211,23 @@ def test_preflight_runs_before_production_is_changed() -> None:
     )
 
 
-def test_voice_release_gate_survives_checkout_of_older_uat_sha() -> None:
+def test_release_gates_survive_checkout_of_older_uat_sha() -> None:
     preserve = str(_step("Preserve current release tooling")["run"])
     checkout = str(_step("Checkout deployment SHA")["run"])
+    for path in ("scripts/ci/runtime-capacity-budget.py", "config/runtime-capacity.json"):
+        name = Path(path).name
+        assert f"cp {path}" in preserve
+        assert f'"${{RUNNER_TEMP}}/release-tools/{name}"' in preserve
+        assert f'cp "${{RUNNER_TEMP}}/release-tools/{name}"' in checkout
+        assert path in checkout
+    assert (
+        "--phase post-release"
+        in _step("Retire unused production tags after a healthy release")["run"]
+    )
+    assert (
+        "--phase post-release"
+        not in _step("Enforce production database connection budget before deployment")["run"]
+    )
     deploy = str(_step("Deploy backend using Cloud Build")["run"])
     for path in ("deploy/backend.cloudbuild.yaml", "scripts/ci/assert_one_voice_live_probe.py"):
         assert f"cp {path} " in preserve
@@ -230,6 +244,38 @@ def _git(repo: Path, *args: str) -> str:
         capture_output=True,
         text=True,
     ).stdout.strip()
+
+
+@pytest.mark.parametrize("receipt", ["passed", "failed", "missing", "other-build"])
+def test_preserved_readiness_keeps_production_vertex_gate(tmp_path, monkeypatch, receipt):
+    spec = importlib.util.spec_from_file_location(
+        "production_provider_readiness", ROOT / "scripts/ci/managed_provider_readiness.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    build_id = "00000000-0000-4000-8000-000000000001"
+    monkeypatch.setattr(
+        module,
+        "Path",
+        lambda value: tmp_path if value == "/workspace/managed-readiness" else Path(value),
+    )
+    monkeypatch.setenv("READINESS_BUILD_ID", build_id)
+    monkeypatch.setenv("READINESS_ENVIRONMENT", "production")
+    monkeypatch.setenv("READINESS_STEP_EXIT", "1" if receipt == "failed" else "0")
+    monkeypatch.setattr(sys, "argv", ["readiness", "record", "--provider", "vertex"])
+    assert module.main() == 0
+    evidence = tmp_path / build_id / "legacy-vertex.json"
+    if receipt == "missing":
+        evidence.unlink()
+    elif receipt == "other-build":
+        evidence.write_text(json.dumps({"build_id": "different-build", "step_exit": 0}))
+    monkeypatch.setattr(sys, "argv", ["readiness", "evaluate"])
+    if receipt == "passed":
+        assert module.main() == 0
+    else:
+        with pytest.raises(SystemExit, match="original Vertex release check"):
+            module.main()
 
 
 def _preflight(tmp_path: Path, scenario: str):

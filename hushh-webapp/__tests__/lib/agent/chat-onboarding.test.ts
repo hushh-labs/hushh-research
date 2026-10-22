@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  pickedPreferredName,
   reduceChatOnboarding,
   type ChatOnboardingEvent,
   type ChatOnboardingResult,
@@ -50,6 +51,16 @@ function lastAssistant(state: ChatOnboardingState) {
 }
 
 describe("chat onboarding sequence", () => {
+  it("a newer chosen name replaces the pending label and final setup Save", () => {
+    let state = chip(start().state, "name_signin").state;
+    state = run(state, { type: "preferred_name_chosen", name: "Rootman" }).state;
+    expect(pickedPreferredName(state)).toBe("Rootman");
+    state = chip(state, "skip").state;
+    state = chip(state, "tone_casual").state;
+    expect(lastAssistant(state).text).toContain("Rootman");
+    const saved = chip(state, "save");
+    expect(saved.effects).toContainEqual({ type: "save_preferences", name: "Rootman", tone: "casual" });
+  });
   it("asks name, then focus, then tone, one question per assistant turn, then confirms", () => {
     const started = start();
     expect(started.state.step).toBe("name");
@@ -63,7 +74,7 @@ describe("chat onboarding sequence", () => {
     expect(named.state.step).toBe("focus");
     expect(lastAssistant(named.state).text).toBe("Nice to meet you, Kushal. What should I help with first?");
     expect(lastAssistant(named.state).chips?.map((c) => c.label)).toEqual([
-      "Email", "Calendar", "Money", "Memory", "Location", "Just chat", "Skip for now",
+      "Location", "Mail", "Calendar", "Finance", "Advisor", "Wallet", "Consent", "Memory", "Messages", "Skip for now",
     ]);
 
     const focused = chip(named.state, "focus_chat");
@@ -102,31 +113,61 @@ describe("chat onboarding sequence", () => {
 describe("unrelated input never breaks onboarding", () => {
   it("does not take ordinary composer text as an answer unless the person chose to type a name", () => {
     const started = start().state;
-    const idle = run(started, { type: "typed_answer", text: "Kushal", anchor: null });
+    const idle = run(started, { type: "typed_answer", text: "Kushal", anchor: null, today: TODAY });
     expect(idle.consumed).toBe(false);
     expect(idle.state).toBe(started);
   });
 
-  it("sends question-shaped text to One and keeps waiting, then accepts a real name", () => {
-    const typing = chip(start().state, "name_other").state;
-    expect(typing.step).toBe("name_typing");
-
-    const unrelated = run(typing, {
-      type: "typed_answer",
-      text: "What's on my calendar this week?",
-      anchor: "msg-1",
+  it("Something else asks for a name with Skip and saves only One's semantic name decision", () => {
+    const started = start().state;
+    const dismissed = chip(started, "name_other");
+    expect(dismissed.state.step).toBe("name_typing");
+    expect(dismissed.state.turns.at(-1)).toMatchObject({
+      role: "assistant", text: "Okay. What should I call you?", chips: [{ id: "skip", label: "Skip for now" }],
     });
-    expect(unrelated.consumed).toBe(false);
-    expect(unrelated.state.step).toBe("name");
-    expect(unrelated.state.turns).toHaveLength(typing.turns.length);
+    expect(dismissed.state.progress.status).toBe("in_progress");
+    expect(dismissed.effects).toEqual([{ type: "focus_composer" }]);
+    const ordinary = run(dismissed.state, { type: "typed_answer", text: "tell me the news", anchor: "msg-1", today: TODAY });
+    expect(ordinary.consumed).toBe(false);
+    expect(ordinary.state.draft.name).toBeNull();
+    expect(ordinary.state).toBe(dismissed.state);
+    const assessed = run(dismissed.state, {
+      type: "name_assessment", decision: "name", name: "Love", anchor: "msg-1", today: TODAY,
+    });
+    expect(assessed.state.step).toBe("saving_name");
+    expect(assessed.effects).toEqual([{ type: "save_preferences", name: "Love", tone: null }]);
+    expect(assessed.state.progress.questions.name).toBe("pending");
+    const saved = run(assessed.state, { type: "save_result", ok: true, anchor: "msg-1", today: TODAY });
+    expect(saved.state.step).toBe("focus");
+    expect(saved.state.progress.questions.name).toBe("answered");
+    expect(saved.state.draft.name).toBeNull();
+    expect(lastAssistant(saved.state).text).toBe("Nice to meet you, Love. What should I help with first?");
+    expect(JSON.stringify(saved.effects)).not.toContain("Love");
+  });
 
-    // Onboarding resumes from where it waited, anchored after the real exchange.
-    const retry = chip(unrelated.state, "name_other", "msg-2").state;
-    const named = run(retry, { type: "typed_answer", text: "  Kush  ", anchor: "msg-2" });
-    expect(named.consumed).toBe(true);
-    expect(named.state.draft.name).toBe("Kush");
-    expect(named.state.step).toBe("focus");
-    expect(named.state.turns.at(-1)?.anchor).toBe("msg-2");
+  it("keeps ambiguous and unrelated replies pending, and skips without writing", () => {
+    const pending = chip(start().state, "name_other").state;
+    for (const decision of ["clarify", "other"] as const) {
+      expect(run(pending, { type: "name_assessment", decision, anchor: null, today: TODAY }))
+        .toEqual({ state: pending, effects: [] });
+    }
+    const skipped = run(pending, { type: "name_assessment", decision: "skip", anchor: null, today: TODAY });
+    expect(skipped.state.step).toBe("focus");
+    expect(skipped.state.progress.questions.name).toBe("skipped");
+    expect(skipped.effects.every(effect => effect.type !== "save_preferences")).toBe(true);
+    expect(chip(pending, "skip").state.progress.questions.name).toBe("skipped");
+  });
+
+  it("offers retry after a name write failure without marking the name saved", () => {
+    const pending = chip(start().state, "name_other").state;
+    const saving = run(pending, { type: "name_assessment", decision: "name", name: "Roopmann", anchor: null, today: TODAY }).state;
+    const failed = run(saving, { type: "save_result", ok: false, anchor: null, today: TODAY }).state;
+    expect(failed.step).toBe("name_save_failed");
+    expect(failed.progress.questions.name).toBe("pending");
+    expect(chip(failed, "retry_save").effects).toEqual([{ type: "save_preferences", name: "Roopmann", tone: null }]);
+    const declined = chip(failed, "dont_save");
+    expect(declined.state.draft.name).toBeNull();
+    expect(declined.effects.every(effect => effect.type !== "save_preferences")).toBe(true);
   });
 });
 
@@ -170,6 +211,29 @@ describe("answers are saved only on confirmation", () => {
     expect(failed.state.progress.status).toBe("in_progress");
     expect(chip(failed.state, "retry_save").effects[0]?.type).toBe("save_preferences");
   });
+
+  it("offers the picked name for display from the pick until it is saved, declined or fails", () => {
+    const named = chip(start().state, "name_signin").state;
+    expect(pickedPreferredName(start().state)).toBeNull();
+    expect(pickedPreferredName(named)).toBe("Kushal");
+    const toned = chip(named, "focus_email").state;
+    expect(pickedPreferredName(toned)).toBe("Kushal");
+    const confirm = chip(toned, "tone_casual").state;
+    expect(pickedPreferredName(confirm)).toBe("Kushal");
+
+    const saving = chip(confirm, "save").state;
+    expect(pickedPreferredName(saving)).toBe("Kushal");
+    const failed = run(saving, { type: "save_result", ok: false, anchor: null, today: TODAY }).state;
+    expect(pickedPreferredName(failed)).toBeNull();
+    expect(pickedPreferredName(run(saving, { type: "save_result", ok: true, anchor: null, today: TODAY }).state)).toBeNull();
+    expect(pickedPreferredName(chip(confirm, "dont_save").state)).toBeNull();
+
+    // A typed name is saved before it is shown, so it surfaces from memory, never as a draft.
+    const typing = chip(start().state, "name_other").state;
+    const typed = run(typing, { type: "name_assessment", decision: "name", name: "Love", anchor: null, today: TODAY }).state;
+    expect(typed.draft.name).toBe("Love");
+    expect(pickedPreferredName(typed)).toBeNull();
+  });
 });
 
 describe("what to help with first", () => {
@@ -185,23 +249,25 @@ describe("what to help with first", () => {
     }
   });
 
-  it("reaches only read-first connect paths", () => {
-    // Calendar routes to the Calendar page, whose setup connect is read-only;
-    // Gmail opens the connectors drawer, whose Connect Mail defaults to read.
+  it("keeps Calendar read-first and requests Gmail reading/sending in one connection", () => {
+    // Calendar setup stays read-only; task recovery stays in the conversation.
+    // Gmail requests its combined grant once; this does not send an email.
     const root = process.cwd();
     const calendar = readFileSync(join(root, "components/calendar/calendar-agent-page.tsx"), "utf8");
     const connectors = readFileSync(join(root, "components/agent/connectors-panel.tsx"), "utf8");
     const workspace = readFileSync(join(root, "components/agent/agent-chat-workspace.tsx"), "utf8");
-    expect(calendar).toContain('const connect = async (accessLevel: "read" | "manage" = "read") =>');
-    expect(connectors).toContain('const connectMail = (purpose: "read" | "compose" = "read") =>');
-    expect(workspace).toMatch(/if \(provider === "calendar"\) \{\s*router\.push\(ROUTES\.CALENDAR\);/);
+    expect(calendar).toContain('const connect = async (accessLevel: "read" | "manage" = "read",');
+    expect(connectors).toContain('const connectMail = (purpose: "send" | "compose" = "send") =>');
+    expect(connectors).toContain('createGmailOAuthPopupAttempt(user.uid, purpose === "send" ? "send" : "read")');
+    expect(workspace).toMatch(/if \(provider === "calendar"\) \{\s*calendarChatRecoveryRef\.current\(\);/);
+    expect(workspace).not.toMatch(/if \(provider === "calendar"\) \{\s*router\.push\(ROUTES\.CALENDAR\);/);
   });
 
   it("shows the explanation with its single action, then asks the tone", () => {
     const named = chip(start().state, "name_signin").state;
     const focused = chip(named, "focus_money").state;
     const [user, explanation, tone] = focused.turns.slice(-3);
-    expect(user).toMatchObject({ role: "user", text: "Money" });
+    expect(user).toMatchObject({ role: "user", text: "Finance" });
     expect(explanation?.action).toMatchObject({ kind: "route", href: ROUTES.KAI_PORTFOLIO_SOURCES });
     expect(explanation?.chips).toBeUndefined();
     expect(tone?.text).toBe("Last one. How should I talk with you?");

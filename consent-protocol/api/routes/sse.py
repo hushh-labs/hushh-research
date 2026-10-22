@@ -14,14 +14,28 @@ import logging
 import os
 from typing import Annotated, AsyncGenerator, Optional
 
-from fastapi import APIRouter, Header, HTTPException, Path, Request
+from fastapi import APIRouter, Header, HTTPException, Path, Query, Request
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
 
+from api.routes import document_feed_stream as feed_stream
+from api.routes.document_feed_stream import (
+    PROTOCOL_V1,
+    PROTOCOL_V2,
+    STREAM_PROXY_HEADER,
+    STREAM_PROXY_VALUE,
+    Authorize,
+    negotiate_version,
+    open_document_feed_stream,
+    stream_lifetime_seconds,
+)
 from api.utils.firebase_auth import verify_firebase_bearer
 from hushh_mcp.services.consent_request_links import (
     build_consent_request_path,
     build_consent_request_url,
 )
+from hushh_mcp.services.system_push_delivery import SYSTEM_PUSH_NOTIFICATION_TYPES
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +44,12 @@ router = APIRouter(prefix="/api/consent", tags=["SSE"])
 # Bounded path-parameter aliases (CWE-400: uncontrolled resource consumption).
 _UserId = Annotated[str, Path(min_length=1, max_length=128)]
 _RequestId = Annotated[str, Path(min_length=1, max_length=128)]
+
+# Document-feed stream policy (owned by api/routes/document_feed_stream.py),
+# bound here so this router's entry points read it at call time.
+FEED_STREAM_LIFETIME_SECONDS = feed_stream.V1_MAX_LIFETIME_SECONDS  # v1 (installed builds) cap
+FEED_AUTH_RECHECK_SECONDS = feed_stream.FEED_AUTH_RECHECK_SECONDS
+FEED_SEND_TIMEOUT_SECONDS = feed_stream.FEED_SEND_TIMEOUT_SECONDS
 
 
 def _env_truthy(name: str, fallback: str = "false") -> bool:
@@ -98,16 +118,21 @@ def _sse_event_id(payload: dict[str, object]) -> str:
 
 def _sse_payload_from_event_payload(payload: dict[str, object]) -> dict[str, object]:
     event_type = str(payload.get("type") or "").strip()
-    if event_type.startswith("location_circle_") or event_type in {
-        "location_settings_changed",
-        "location_pkm_changed",
-        "connection_request",
-        "connection_request_cancelled",
-        "connection_request_resolved",
-        "connection_removed",
-        "connection_graph_changed",
-        "direct_message",
-    }:
+    if (
+        event_type in SYSTEM_PUSH_NOTIFICATION_TYPES
+        or event_type.startswith("location_circle_")
+        or event_type
+        in {
+            "location_settings_changed",
+            "location_pkm_changed",
+            "connection_request",
+            "connection_request_cancelled",
+            "connection_request_resolved",
+            "connection_removed",
+            "connection_graph_changed",
+            "direct_message",
+        }
+    ):
         return payload
     metadata = _payload_map(payload.get("metadata"))
     request_id = _payload_string(payload.get("request_id"))
@@ -205,6 +230,8 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
             limit=10,
         )
         for event in recent_events:
+            if event.get("type") in {"document_share_feed_changed", "bank_payout_changed"}:
+                continue
             event_id = _sse_event_id(event)
             if not event_id or event_id in notified_event_ids:
                 continue
@@ -233,6 +260,8 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
                 continue
 
             event_id = _sse_event_id(data)
+            if data.get("type") in {"document_share_feed_changed", "bank_payout_changed"}:
+                continue
             if not event_id or event_id in notified_event_ids:
                 continue
 
@@ -251,11 +280,89 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
         await unsubscribe_consent_queue(user_id, queue)
 
 
+def _owner_recheck(user_id: str, authorization: str | None) -> Authorize | None:
+    """Re-verify through the same Firebase authority as the handshake."""
+    if authorization is None:
+        return None
+
+    async def recheck() -> None:
+        await run_in_threadpool(_authorize_sse_user, user_id, authorization)
+
+    return recheck
+
+
+def _feed_lifetime_seconds(version: int, *, proxied: bool) -> float:
+    """v1 (installed builds) keeps the 120 s cap; proxied streams end sooner still."""
+    lifetime = stream_lifetime_seconds(version, proxied=proxied)
+    if version < PROTOCOL_V2:
+        lifetime = min(lifetime, FEED_STREAM_LIFETIME_SECONDS)
+    return lifetime
+
+
+def document_feed_event_generator(
+    user_id: str,
+    request: Request,
+    *,
+    authorization: str | None = None,
+    version: int = PROTOCOL_V1,
+    proxied: bool = False,
+) -> AsyncGenerator[dict[str, str], None]:
+    """Owner-scoped snapshot hints, never a durable replay or access grant.
+
+    Subscribe before resetting. General Feed hints need no document UUID.
+    Revalidate through the shared Firebase authority on a wall-clock schedule,
+    even during a busy queue, and close so every connection has a finite life.
+    Frames, coalescing and lifetimes: api/routes/document_feed_stream.py.
+    """
+    return feed_stream.document_feed_event_generator(
+        user_id,
+        request,
+        version=version,
+        lifetime_seconds=_feed_lifetime_seconds(version, proxied=proxied),
+        authorize=_owner_recheck(user_id, authorization),
+        auth_recheck_seconds=FEED_AUTH_RECHECK_SECONDS,
+    )
+
+
+@router.get("/document-feed/{user_id}")
+async def document_feed_events(
+    user_id: _UserId,
+    request: Request,
+    v: Annotated[str | None, Query(max_length=4, description="2 selects typed frames")] = None,
+    authorization: Annotated[str | None, Header(description="Bearer Firebase ID token")] = None,
+    stream_via: Annotated[
+        str | None,
+        Header(alias=STREAM_PROXY_HEADER, include_in_schema=False),
+    ] = None,
+) -> EventSourceResponse:
+    """Authenticated live wake-ups for document requests, the Feed and payouts.
+
+    Unlike the legacy consent-fallback stream, this endpoint is available
+    alongside FCM. Its reset frame instructs a fresh authenticated snapshot.
+    Native apps call it directly; the web's same-origin proxy marks its
+    requests so they end before the web server's request timeout.
+    """
+    await run_in_threadpool(_authorize_sse_user, user_id, authorization)
+    version = negotiate_version(v)
+    proxied = stream_via == STREAM_PROXY_VALUE
+    return open_document_feed_stream(
+        user_id,
+        request,
+        version=version,
+        proxied=proxied,
+        lifetime_seconds=_feed_lifetime_seconds(version, proxied=proxied),
+        authorize=_owner_recheck(user_id, authorization),
+        auth_recheck_seconds=FEED_AUTH_RECHECK_SECONDS,
+        send_timeout_seconds=FEED_SEND_TIMEOUT_SECONDS,
+    )
+
+
 @router.get("/events/{user_id}")
 async def consent_events(
     user_id: _UserId,
     request: Request,
     authorization: Optional[str] = Header(None, description="Bearer Firebase ID token"),
+    capabilities: Annotated[bool, Query()] = False,
 ):
     """
     Authenticated SSE endpoint for consent notifications.
@@ -265,8 +372,15 @@ async def consent_events(
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id required")
 
+    if capabilities:
+        await run_in_threadpool(_authorize_sse_user, user_id, authorization)
+        return JSONResponse(
+            {"enabled": _consent_sse_enabled()},
+            headers={"Cache-Control": "private, no-store", "Vary": "Authorization"},
+        )
+
     _ensure_consent_sse_enabled()
-    _authorize_sse_user(user_id, authorization)
+    await run_in_threadpool(_authorize_sse_user, user_id, authorization)
 
     return EventSourceResponse(
         consent_event_generator(user_id, request),

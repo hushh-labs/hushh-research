@@ -11,14 +11,36 @@ Canonical visual owner: [Mobile Guide](../mobile.md).
 ## What this is
 
 One command prepares a Hussh One iOS release from an exact green `main` SHA,
-wires it to the selected **UAT (default) or production backend** and the shared Firebase authority
-(`hushh-pda`; shared config is stored in `hushh-pda-uat` Secret Manager), signs it with the
+wires it to the selected **UAT (default) or production backend** and that target's Firebase
+configuration, signs it with the
 **production APNs entitlement** via Apple-managed signing, uploads it to **App Store Connect**, sets the version's
 **"What's New"** text, attaches the build, and (opt-in, one click) **submits it for public Apple
 review**. By default it stops *before* the final, irreversible "Submit for App Store Review".
 Submission is not publication. Manual release remains the default; an explicitly authorized
 `--submit --ack-blockers --release-after-approval` also selects Apple's `AFTER_APPROVAL`
 release type. Report Apple review and public availability as separate states.
+
+The authorized [automatic release cadence](../../reference/operations/ci.md#automatic-native-release-cadence)
+uses the same pipeline after every fourth distinct healthy UAT deployment
+(TestFlight qualifies every second). It pins
+one green `main` commit, overlaps the production deployment with archive work,
+joins the exact healthy production run before upload, submits for Apple review
+and selects publication after approval. While an existing version awaits review,
+Ubuntu admission defers the latest candidate without allocating a Mac; the hourly
+observer revisits it. Privacy/export attestations and configured production App
+Review sign-in information remain required. New automatic releases yield to
+queued/running UAT and only one release bundle runs at a time; production
+deploy/archive remain a parallel pair. Pending releases stay outside runners and
+retry when UAT finishes, even after a failed UAT run. Existing releases are never
+cancelled. This reduces shared-pool contention but cannot reserve GitHub-hosted
+runner slots. Manual invocation defaults are unchanged.
+
+GitHub-native monitoring runs inside the existing cadence observer and reports to
+the bot-owned `UAT release monitor` issue. It works while developer computers are
+off and adds no UAT dependency or separate monitoring job. The existing certified
+counter survives the 4/8 to 2/4 transition; already issued requests keep their
+original source and authority. See the CI reference for transition and alert
+semantics.
 
 > **Why is UAT the default?** It preserves the historical UAT-backed release path. For a
 > production-backed release, explicitly select `backend_target=production`, verify that backend's
@@ -31,15 +53,17 @@ The workflow input `backend_target` (dispatcher flag `--backend`) chooses the ba
 talks to. `uat` is the historical default. `production` builds a binary
 for `https://one.hushh.ai` and the production API:
 
-- The production workload identity (`environment: production`, from `main`) reads only the
-  routing values from `hushh-pda`: `BACKEND_URL`, `APP_FRONTEND_ORIGIN`,
-  `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID` (the production
-  analytics stream). It also reads `NEXT_PUBLIC_FIREBASE_PROJECT_ID` and
-  `NEXT_PUBLIC_FIREBASE_APP_ID`, only to compare them.
-- Everything else (ASC key, distribution certificate, `GoogleService-Info.plist`, Firebase web
-  identity, Maps keys) still comes from `hushh-pda-uat`, as before. That is valid because both
-  projects point at the one shared Firebase app, and the run **refuses** if the two projects'
-  Firebase project id or app id differ.
+- The production workload identity (`environment: production`, from `main`) reads
+  routing, every required web Firebase identity field, Maps configuration and
+  `IOS_GOOGLESERVICE_INFO_PLIST_B64` from `hushh-pda`. Production Auth remains
+  `hushh-pda` to preserve existing accounts and UIDs.
+- Apple signing and App Store Connect inputs retain their existing custody in
+  `hushh-pda-uat`. Production web/native Firebase configuration is never read from
+  UAT. The selected native plist must match that target's project, sender and
+  bundle; web/native app IDs may differ. PROD and UAT projects need not match.
+- Public submission (`submit_for_review=true`) or automatic public release
+  (`release_after_approval=true`) requires `backend_target=production`. UAT remains the
+  historical build default so a dispatcher cannot silently redirect customer data.
 - The run refuses if the production `BACKEND_URL` resolves to a UAT or loopback host, and the
   project is prepared with `ios:prepare:prod`. That ends in `verify-ios-bundled-backend.sh`, which
   requires every native plugin's `backendUrl` to equal the production backend.
@@ -98,7 +122,7 @@ runs on the session already in the app's data container and unlocks the vault wi
 `hushh-webapp/scripts/perf/ios-reviewer-signin.sh` restores a session through the review-mode mint, so it
 cannot sign into production, by design. After a sign-out, sign in by hand again.
 
-The build still archives with **production APNs** entitlements (correct for *any* App Store binary —
+The distribution export uses **production APNs** entitlements (correct for *any* App Store binary —
 push on a store build routes through Apple's PRODUCTION APNs). That means the **shared Firebase project
 must hold a production APNs key** for push notifications to deliver on the released app.
 
@@ -140,6 +164,19 @@ make ios-prod-release ARGS="--sha 1a2b3c4d"
 ```
 
 ```bash
+# Repackage the deployed production source into a new App Store version train.
+make ios-prod-release ARGS="--sha <deployed-production-sha> --backend production --marketing-version 1.4.1"
+```
+
+`--marketing-version` changes packaging metadata only. The app source and the matching
+production-backend gate remain pinned to `--sha`. Empty input uses that source project's
+committed version. The workflow validates the version, applies it to the app and extensions,
+checks their archived plists before upload, and records it in both release receipts.
+Apple still controls whether a new App Store version can be created: an approved version in
+`PENDING_DEVELOPER_RELEASE` must be resolved before another version can be attached. Uploading
+a newer packaging version does not publish or withdraw that approved version.
+
+```bash
 # Set the App Store "What's New in This Version" text for this release.
 make ios-prod-release ARGS="--whats-new 'Faster onboarding and reliability fixes.'"
 ```
@@ -161,10 +198,12 @@ For a public submit it demands you type `submit`, not just `yes`.
 | Input | Meaning |
 | --- | --- |
 | `sha` (required) | Exact green `main` SHA to release. |
+| `marketing_version` | Optional packaging version such as `1.4.1`; empty uses the exact source project's committed version. |
 | `dry_run` | Archive + sign only; no upload, no ASC changes. |
 | `backend_target` | `uat` (default) or `production`; prove the matching deployed backend before dispatch. |
 | `whats_new` | "What's New in This Version" (defaults to a generic note). |
 | `submit_for_review` | **IRREVERSIBLE.** Upload, set What's New, attach, and **SUBMIT** for public review. Unchecked = stop after attaching the build. |
+| `release_after_approval` | Publish automatically after Apple approval; requires an explicitly authorized review submission. Default keeps manual release. |
 | `notes` | Free-text note for the run summary. |
 
 Checking `submit_for_review` and running is the true one-click straight-to-review path — no
@@ -186,15 +225,15 @@ export/upload, or version/build validation):
 4. **Toolchain.** Xcode 26.3; Node 22; `npm ci --prefix hushh-webapp` — this must precede any Swift
    Package step because `CapApp-SPM/Package.swift` resolves its dependencies from the hoisted
    `node_modules` three directory levels up.
-5. **Authenticate to Google Cloud.** `GCP_SA_KEY_UAT` reads shared signing/Firebase material from
-   `hushh-pda-uat`; `backend_target=production` first reads routing values from `hushh-pda` through
-   production workload identity. The workflow then asserts the shared secret project is
-   `hushh-pda-uat`.
-6. **Materialize the selected web contract + native Firebase config.** The UAT path uses UAT
-   routing and `APP_RUNTIME_PROFILE=uat`; the production path substitutes the production backend,
-   app origin, storage bucket, measurement stream, and `APP_RUNTIME_PROFILE=prod`. Both use the
-   shared native Firebase config and refuse a production/UAT Firebase identity mismatch. Each
-   archive preparation path verifies the bundled backend matches its selected target.
+5. **Authenticate to Google Cloud.** Production WIF first materializes production
+   routing, Firebase, Maps and native plist inputs. `GCP_SA_KEY_UAT` subsequently
+   supplies Apple signing inputs from `hushh-pda-uat`; UAT builds also read their
+   own frontend/native inputs there.
+6. **Materialize the selected web contract + native Firebase config.** Each
+   target uses its own settings and project/sender checks. The production path
+   pins the existing `hushh-pda` Auth authority. Archive preparation verifies the
+   bundled backend and runs config validation under the same native env overlay
+   used by Capacitor. No PROD/UAT identity equality is required.
 7. **Decode the App Store Connect API key** (`.p8` + Key ID + Issuer ID) from `hushh-pda-uat` Secret
    Manager into a `chmod 600` temp file; validates it is a real PEM; masks the identifiers.
 8. **Create + unlock a dedicated signing keychain** (Apple-managed cloud signing needs one).
@@ -207,10 +246,8 @@ export/upload, or version/build validation):
     `max(latest ASC build for MARKETING_VERSION, pbxproj CURRENT_PROJECT_VERSION) + 1` — monotonic against both
     App Store history and the committed value. (TestFlight and the App Store share one build-number
     pool per marketing version.)
-11. **Resolve Swift packages** (cached), then **archive** in Release with the **production APNs
-    entitlement override** `CODE_SIGN_ENTITLEMENTS=App/AppRelease.entitlements` (flips
-    `aps-environment` development → production for the released binary only; the committed pbxproj
-    stays on `App/App.entitlements`, so local/dev builds are unaffected). Signs with
+11. **Resolve Swift packages** (cached), then **archive** in Release with target-owned
+    automatic development signing and each app/extension's own entitlement source. Signs with
     `-allowProvisioningUpdates` + the ASC API key; injects the resolved `CURRENT_PROJECT_VERSION`.
 12. **Verify the archived product.** The automated product-asset gate reopens the archived
     `App.app` and requires `Info.plist`, `PrivacyInfo.xcprivacy`, `Metadata.appintents`, and
@@ -219,9 +256,13 @@ export/upload, or version/build validation):
     Native audio capture permission is an operating-system permission; it is not action consent.
     Action authority remains inside Agent One's generated gateway, consent policy, directive ledger,
     and verified backend settlement.
-13. **Export + upload to App Store Connect** via `ios/ExportOptions/AppStoreConnect.plist`
-    (`destination=upload`). On `--dry-run`, PlistBuddy rewrites `destination` to `export` so the
-    step signs and produces the `.ipa` without uploading.
+13. **Export, verify, then upload to App Store Connect.** The shared
+    `scripts/ci/export-ios-distribution.py` first exports with the canonical
+    App Store Connect signing options and `destination=export`. The real IPA
+    must have production APNs in its signature/profile and disallow debugging.
+    A dry run stops here. Otherwise the existing Xcode upload uses the same
+    archive/options with `destination=upload`; Xcode may repackage the archive,
+    so the preflight does not claim byte identity with the uploaded package.
 14. **Prepare the App Store version (set What's New, attach build, one-click submit).**
     `submit-appstore-version.py` finds/creates an **editable App Store version with
     `releaseType=MANUAL`** (so it never auto-releases to the public), **sets the version's
@@ -238,8 +279,8 @@ export/upload, or version/build validation):
 
 > **You (the operator) add every secret yourself.** These instructions never ask anyone else to
 > paste a `.p8`, key, certificate, or token. All secrets live in **GCP Secret Manager, project
-> `hushh-pda-uat`** for signing and shared Firebase configuration. Production-backed builds
-> additionally read routing values from `hushh-pda` through production workload identity.
+> `hushh-pda-uat`** for Apple signing and UAT build inputs. Production-backed builds
+> read routing, web Firebase, native plist and Maps inputs from `hushh-pda` through production WIF.
 
 ### GCP Secret Manager (`hushh-pda-uat`)
 
@@ -251,7 +292,7 @@ export/upload, or version/build validation):
 | `IOS_GOOGLESERVICE_INFO_PLIST_B64` | Base64 of the **UAT** iOS `GoogleService-Info.plist`. |
 | `BACKEND_URL` | UAT backend origin (the `*uat*` / UAT Cloud Run host). |
 | `APP_FRONTEND_ORIGIN` | UAT app origin (`https://uat.one.hushh.ai`). |
-| `NEXT_PUBLIC_FIREBASE_API_KEY` … `NEXT_PUBLIC_FIREBASE_VAPID_KEY` | UAT-selected web config for the shared `hushh-pda` Firebase authority (see the workflow's `require` list). |
+| `NEXT_PUBLIC_FIREBASE_API_KEY` … `NEXT_PUBLIC_FIREBASE_VAPID_KEY` | UAT-selected web config for its configured Firebase authority (see the workflow's `require` list). |
 
 Create each once (use `versions add` instead of `create` if it already exists):
 
@@ -350,7 +391,8 @@ build, set its release notes, and attach it for review.
 | `Missing GCP secret …` | Secret absent in `hushh-pda-uat`, or the `GCP_SA_KEY_UAT` SA lacks `secretAccessor`. See setup. |
 | `must ship the UAT backend, but … resolves to '<host>'` | `BACKEND_URL` in `hushh-pda-uat` points at a non-UAT host. Fix the secret. |
 | `Cloud signing permission error` / `No signing certificate "iOS Distribution"` | ASC API key role too low — regenerate as **Admin** (App Manager cannot mint cloud distribution assets). |
-| `Invalid Pre-Release Train … is closed` / `must contain a higher version` | The marketing version is approved/closed. Bump `MARKETING_VERSION` (App target Debug+Release), land on `main`, re-release. A `--dry-run` will NOT catch this. |
+| `Invalid Pre-Release Train … is closed` / `must contain a higher version` | Select a higher `--marketing-version` while preserving the deployed source SHA, or land a committed version bump and verify its matching deployment. A `--dry-run` will NOT catch this. |
+| `PENDING_DEVELOPER_RELEASE` / version is not editable | The approved version's build is locked. Resolve its Apple state before preparing a new App Store version; never publish the old build as an incidental step. |
 | `This field is required` on Add for Review | Empty "What's New". Re-run with `--whats-new "…"`; the pipeline now sets it automatically. |
 | Export/upload agreement error | Accept the Apple Program License Agreement in App Store Connect. |
 | Duplicate build number rejected | The ASC builds API lags a just-uploaded build; re-run so the resolver sees the sibling and picks N+1. |

@@ -42,24 +42,61 @@ def test_uat_deploy_wires_the_personal_gmail_monitor_identity() -> None:
     assert "deploy/gmail/setup_personal_information_request_monitor_scheduler.sh" in workflow
 
 
+def test_production_release_pins_personal_gmail_monitor_oidc_contract() -> None:
+    workflow = yaml.safe_load(
+        (REPO_ROOT / ".github/workflows/deploy-production.yml").read_text(encoding="utf-8")
+    )
+    identity = workflow["env"][
+        "GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SCHEDULER_SERVICE_ACCOUNT_ID"
+    ]
+    assert identity == "gmail-personal-monitor-sched"
+
+    steps = {step.get("id"): step for step in workflow["jobs"]["deploy"]["steps"]}
+    assert "activate-personal-gmail-monitor" not in steps
+    assert any(
+        step["name"] == "Verify production personal Gmail monitor identity"
+        for step in workflow["jobs"]["deploy"]["steps"]
+    )
+    deploy = steps["deploy-backend"]["run"]
+    assert "_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED=true" in deploy
+    assert (
+        "_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
+    ) in deploy
+    assert (
+        "_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL="
+        "${{ env.GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SCHEDULER_SERVICE_ACCOUNT_ID }}"
+        "@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
+    ) in deploy
+    readiness = next(
+        step["run"]
+        for step in workflow["jobs"]["deploy"]["steps"]
+        if step["name"] == "Verify backend candidate readiness and exact-SHA provenance"
+    )
+    assert "gmail_monitor_oidc_required" in readiness
+    assert "gmail_monitor_audience" in readiness
+    assert "gmail_monitor_service_account" in readiness
+
+
 def _run_setup(
     tmp_path: Path,
     *,
     existing_job: bool = False,
     existing_account: bool | None = None,
+    paused: bool = False,
     **overrides: str,
 ):
     """Exercise the real shell adapter against strict local CLI contracts."""
     account_exists = existing_job if existing_account is None else existing_account
+    project_id = overrides.get("PROJECT_ID", PROJECT)
     state_path = tmp_path / "state.json"
     calls_path = tmp_path / "calls.jsonl"
     state_path.write_text(
         json.dumps(
             {
-                "accounts": [f"{_workflow_identity()}@{PROJECT}.iam.gserviceaccount.com"]
+                "accounts": [f"{_workflow_identity()}@{project_id}.iam.gserviceaccount.com"]
                 if account_exists
                 else [],
-                "job": {} if existing_job else None,
+                "job": {"state": "PAUSED" if paused else "ENABLED"} if existing_job else None,
             }
         )
     )
@@ -89,14 +126,22 @@ elif args[:3] == ["scheduler", "jobs", "describe"]:
         sys.exit(1)
     if any(arg.startswith("--format=") for arg in args):
         job = state["job"]
-        print("\t".join(["ENABLED", job["schedule"], job["uri"], job["http-method"],
-                         job["oidc-service-account-email"], job["oidc-token-audience"]]))
+        if "--format=value(state)" in args:
+            print(job["state"])
+        else:
+            print("\t".join([job["state"], job["schedule"], job["uri"], job["http-method"],
+                             job["oidc-service-account-email"], job["oidc-token-audience"]]))
 elif args[:2] == ["scheduler", "jobs"] and args[2] in ("create", "update"):
     flags = dict(arg[2:].split("=", 1) for arg in args if arg.startswith("--") and "=" in arg)
     header_flag = "headers" if args[2] == "create" else "update-headers"
     if header_flag not in flags or (args[2] == "update" and "headers" in flags):
         fail("Unsupported scheduler header flag for " + args[2])
-    state["job"] = flags
+    prior = state["job"] or {}
+    state["job"] = {**flags, "state": prior.get("state", "ENABLED")}
+elif args[:3] == ["scheduler", "jobs", "resume"]:
+    if state["job"] is None:
+        fail("Cannot resume a missing job")
+    state["job"]["state"] = "ENABLED"
 else:
     fail("Unexpected gcloud command")
 state_path.write_text(json.dumps(state))
@@ -189,3 +234,87 @@ def test_cross_project_email_override_is_rejected_before_any_cloud_call(tmp_path
     assert result.returncode != 0
     assert "PROJECT_ID" in result.stderr
     assert calls == []
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"PROJECT_ID": "hushh-pda"},
+        {
+            "PROJECT_ID": "hushh-pda",
+            "BACKEND_URL": "https://api.uat.hushh.ai",
+            "JOB_NAME": "gmail-personal-information-request-monitor-production",
+            "MAX_USERS": "8",
+        },
+        {
+            "PROJECT_ID": "hushh-pda",
+            "BACKEND_URL": "https://api.hushh.ai",
+            "JOB_NAME": "gmail-personal-information-request-monitor-uat",
+            "MAX_USERS": "8",
+        },
+        {
+            "PROJECT_ID": "hushh-pda-uat",
+            "BACKEND_URL": "https://api.hushh.ai",
+            "JOB_NAME": "gmail-personal-information-request-monitor-production",
+            "MAX_USERS": "8",
+        },
+        {
+            "PROJECT_ID": "hushh-pda",
+            "BACKEND_URL": "https://api.hushh.ai",
+            "JOB_NAME": "gmail-personal-information-request-monitor-production",
+            "MAX_USERS": "20",
+        },
+    ],
+)
+def test_production_scheduler_rejects_mixed_environment_targets_before_cloud_calls(
+    tmp_path: Path, overrides: dict[str, str]
+) -> None:
+    result, calls, _ = _run_setup(tmp_path, **overrides)
+    assert result.returncode != 0
+    assert "canonical production" in result.stderr
+    assert calls == []
+
+
+def test_production_scheduler_accepts_only_the_canonical_target(tmp_path: Path) -> None:
+    result, calls, state = _run_setup(
+        tmp_path,
+        existing_account=True,
+        PROJECT_ID="hushh-pda",
+        BACKEND_URL="https://api.hushh.ai",
+        JOB_NAME="gmail-personal-information-request-monitor-production",
+        MAX_USERS="8",
+    )
+    assert result.returncode == 0, result.stderr
+    assert any(call[:4] == ["scheduler", "jobs", "create", "http"] for call in calls)
+    assert state["job"]["uri"] == (
+        "https://api.hushh.ai/api/one/email/information-requests/scan-enabled"
+    )
+
+
+def test_production_scheduler_requires_a_preprovisioned_identity(tmp_path: Path) -> None:
+    result, calls, _ = _run_setup(
+        tmp_path,
+        PROJECT_ID="hushh-pda",
+        BACKEND_URL="https://api.hushh.ai",
+        JOB_NAME="gmail-personal-information-request-monitor-production",
+        MAX_USERS="8",
+    )
+    assert result.returncode != 0
+    assert "must be provisioned" in result.stderr
+    assert not any(call[:3] == ["iam", "service-accounts", "create"] for call in calls)
+    assert not any(call[:2] == ["scheduler", "jobs"] for call in calls)
+
+
+def test_production_scheduler_resumes_only_the_canonical_paused_job(tmp_path: Path) -> None:
+    result, calls, state = _run_setup(
+        tmp_path,
+        existing_job=True,
+        paused=True,
+        PROJECT_ID="hushh-pda",
+        BACKEND_URL="https://api.hushh.ai",
+        JOB_NAME="gmail-personal-information-request-monitor-production",
+        MAX_USERS="8",
+    )
+    assert result.returncode == 0, result.stderr
+    assert any(call[:3] == ["scheduler", "jobs", "resume"] for call in calls)
+    assert state["job"]["state"] == "ENABLED"

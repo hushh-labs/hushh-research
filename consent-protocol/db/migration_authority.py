@@ -22,6 +22,16 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable
 
+from db.referral_prize_activation import (
+    REFERRAL_POLICY_V5_SHA256 as _REFERRAL_POLICY_V5_SHA256,
+)
+from db.referral_prize_activation import (
+    policy_fingerprint_sql as _referral_policy_fingerprint_sql,
+)
+from db.referral_prize_activation import (
+    reviewed_prize_successor_sql,
+)
+
 _MIGRATION_ID_RE = re.compile(r"^(?P<id>[0-9]{8,}_[0-9A-Za-z]+|[0-9]{3,})_")
 _ADVISORY_LOCK_KEY = 0x485553534844424D  # "HUSSHDBM", within signed BIGINT.
 _ALLOWED_BASELINE_ENVIRONMENTS = {"uat", "test", "local", "development", "dev"}
@@ -87,7 +97,7 @@ async def _reset_connection(conn: Any, failure: BaseException) -> bool:
 def _lock_retry_delay_seconds(attempt: int) -> float:
     """Exponential backoff: 1s, 2s, 4s. Bounded, and short enough to stay
     inside a deploy window even if several migrations each need a retry."""
-    return _LOCK_RETRY_BASE_DELAY_S * (2 ** (attempt - 1))
+    return float(_LOCK_RETRY_BASE_DELAY_S * (2 ** (attempt - 1)))
 
 
 class MigrationAuthorityError(RuntimeError):
@@ -276,6 +286,436 @@ def _assert_checksum(entry: MigrationManifestEntryV2, row: dict[str, Any] | None
     stored = str(row.get("checksum_sha256") or "")
     if stored != entry.checksum_sha256:
         raise MigrationAuthorityError(f"Applied migration checksum changed: {entry.filename}")
+
+
+def _replay_drive_feed_sql(entry: MigrationManifestEntryV2) -> str:
+    # 288's exact allowlist test narrowed later document_share_* vocabulary on
+    # replay. Preserve the immutable file and ledger/baseline hash; adapt only
+    # the published body, retaining installed vocabulary and rows.
+    checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
+    if (
+        checksum != "b13a15ee0d27a4c78efd99718adb1996ecb8c54254dbf1377a250d8791424ee6"
+        or entry.checksum_sha256 != checksum
+    ):
+        raise MigrationAuthorityError("Legacy Drive Feed replay source checksum changed")
+    start = entry.sql.index("DO $$")
+    end = entry.sql.index("END $$;", start) + len("END $$;")
+    repair = """DO $$
+DECLARE
+  installed TEXT[];
+  allowed TEXT;
+  required TEXT[] := ARRAY[
+    'document_share_decided','document_share_outcome',
+    'document_share_payment_confirmed','document_share_payment_ready',
+    'document_share_payment_refunded','document_share_request',
+    'document_share_request_sent','document_share_review_ready',
+    'document_share_revocation_outcome','document_share_revoked'];
+BEGIN
+  SELECT ARRAY(SELECT DISTINCT hit[1] FROM regexp_matches(
+    pg_get_constraintdef(c.oid), '''(document_share_[^'']+)''', 'g') AS hit
+    ORDER BY hit[1]) INTO installed
+  FROM pg_constraint c
+  WHERE c.conrelid='drive_share_events'::regclass
+    AND c.conname='drive_share_events_event_type_check';
+  IF NOT COALESCE(installed @> required, FALSE) THEN
+    SELECT string_agg(DISTINCT quote_literal(value), ',' ORDER BY quote_literal(value)) INTO allowed
+      FROM unnest(COALESCE(installed, ARRAY[]::TEXT[]) || required) AS value;
+    ALTER TABLE drive_share_events DROP CONSTRAINT IF EXISTS drive_share_events_event_type_check;
+    EXECUTE format(
+      'ALTER TABLE drive_share_events ADD CONSTRAINT drive_share_events_event_type_check CHECK (event_type IN (%s))',
+      allowed);
+  END IF;
+END $$;"""
+    return entry.sql[:start] + repair + entry.sql[end:]
+
+
+_BANK_PAYOUT_EVENT_REPLAY_CHECKSUMS = {
+    ("298", "298_stripe_mode_isolation.sql"): (
+        "edcfe4260fef678bdf3ae759fae46fc725b7dedef5d884f9a2c8627a6d64eb99"
+    ),
+    ("304", "304_connect_bank_payout_reconciliation.sql"): (
+        "e622469054a16a1cfc52171529aa1e3814bedece8712d32d2616fbc704c54de8"
+    ),
+}
+
+_REFERRAL_POLICY_V2_REPLAY_CHECKSUM = (
+    "52a25acc61327f6b7f3b69c905fae9425844c934ac7a1000e040d7f5b2737c65"
+)
+_REFERRAL_POLICY_V3_OBSERVED_UAT_SHA256 = (
+    "ed26dc5ad4a88eaa0564200a139ded13b52e1783755c7fef569b37429138f27a"
+)
+_REFERRAL_POLICY_V4_SHA256 = "11cd7d8c9eb83a6d24f25814d3ab7b8a21182f21a98594657d6721a6dcdf5b19"
+
+
+def _replay_referral_policy_v2_sql(entry: MigrationManifestEntryV2) -> str:
+    """Accept reviewed v3 through v6 successors without rewriting policy rows.
+
+    The published 289 body requires v2 to remain active forever. A later
+    versioned policy retires v2. Replay recognizes only the reviewed v3 catalogue,
+    migration 347's v4 lifecycle policy and migration 349's v5 catalogue, after
+    verifying the entire lineage and every authored v2 value. Unknown successors
+    fail closed.
+    Keep it out of ledger/observe mode and pin the original file's checksum.
+    """
+    checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
+    if checksum != _REFERRAL_POLICY_V2_REPLAY_CHECKSUM or entry.checksum_sha256 != checksum:
+        raise MigrationAuthorityError("Referral policy v2 replay source checksum changed")
+
+    sql = entry.sql
+
+    def replace_once(old: str, new: str) -> None:
+        nonlocal sql
+        if sql.count(old) != 1:
+            raise MigrationAuthorityError("Referral policy v2 replay source shape changed")
+        sql = sql.replace(old, new, 1)
+
+    replace_once(
+        "  active_count INTEGER;\nBEGIN\n",
+        "  active_count INTEGER;\n"
+        "  successor_row RECORD;\n"
+        "  expected_successor_version INTEGER := 3;\n"
+        "  previous_retirement TIMESTAMPTZ;\n"
+        "  successor_count INTEGER := 0;\n"
+        "  successor_policy_hash TEXT;\nBEGIN\n",
+    )
+    replace_once(
+        "  PERFORM 1 FROM one_referral_program_settings WHERE version IN (1, 2) FOR UPDATE;",
+        "  LOCK TABLE one_referral_program_settings IN SHARE ROW EXCLUSIVE MODE;\n"
+        "  PERFORM 1 FROM one_referral_program_settings WHERE version IN (1, 2);",
+    )
+    replace_once(
+        "  -- Serialize: lock both candidate rows before reading either, so a second\n"
+        "  -- concurrent replay of this migration blocks here rather than racing this\n"
+        "  -- one on the read.",
+        "  -- Serialize policy writes with a table lock before reading the\n"
+        "  -- lineage. Do not also lock v1/v2 rows: a writer holding a row lock\n"
+        "  -- before its UPDATE would deadlock against the table lock.",
+    )
+    replace_once(
+        "    IF v2_row.activated_at IS NULL OR v2_row.retired_at IS NOT NULL THEN\n"
+        "      RAISE EXCEPTION 'migration 289: version 2 exists but is not the active settings version (activated_at=%, retired_at=%); refusing to guess intent; version 1 left untouched',\n"
+        "        v2_row.activated_at, v2_row.retired_at;\n"
+        "    END IF;",
+        "    IF v2_row.activated_at IS NULL THEN\n"
+        "      RAISE EXCEPTION 'migration 289: version 2 exists but was never activated';\n"
+        "    END IF;",
+    )
+    replace_once(
+        "migration 289: version 2 exists and is active, but its configuration does not match",
+        "migration 289: version 2 exists, but its configuration does not match",
+    )
+    replace_once(
+        "    RAISE NOTICE 'migration 289: version 2 already active with matching configuration; idempotent no-op';",
+        f"""    IF v2_row.retired_at IS NULL THEN
+      RAISE NOTICE 'migration 289: version 2 already active with matching configuration; idempotent no-op';
+    ELSE
+      -- A later policy may supersede v2. Require an unbroken, ordered
+      -- activation/retirement chain and leave every historical row untouched.
+      SELECT * INTO v1_row FROM one_referral_program_settings WHERE version = 1;
+      IF NOT FOUND OR v1_row.activated_at IS NULL
+         OR v1_row.retired_at IS DISTINCT FROM v2_row.activated_at THEN
+        RAISE EXCEPTION 'migration 289: version 1 to 2 policy lineage is invalid';
+      END IF;
+      previous_retirement := v2_row.retired_at;
+      FOR successor_row IN
+        SELECT version, activated_at, retired_at
+          FROM one_referral_program_settings
+         WHERE version > 2
+         ORDER BY version
+      LOOP
+        IF successor_row.version <> expected_successor_version
+           OR successor_row.activated_at IS DISTINCT FROM previous_retirement
+           OR (successor_row.retired_at IS NOT NULL
+               AND successor_row.retired_at <= successor_row.activated_at) THEN
+          RAISE EXCEPTION 'migration 289: later policy lineage is incomplete or out of order at version %',
+            successor_row.version;
+        END IF;
+        previous_retirement := successor_row.retired_at;
+        expected_successor_version := expected_successor_version + 1;
+        successor_count := successor_count + 1;
+      END LOOP;
+      IF successor_count NOT IN (1, 2, 3, 4) OR previous_retirement IS NOT NULL THEN
+        RAISE EXCEPTION 'migration 289: retired version 2 requires reviewed version 3, 4, 5 or 6 successors ending in one active policy';
+      END IF;
+      SELECT ({_referral_policy_fingerprint_sql(3)}) INTO successor_policy_hash;
+      IF successor_policy_hash IS DISTINCT FROM '{_REFERRAL_POLICY_V3_OBSERVED_UAT_SHA256}' THEN
+        RAISE EXCEPTION 'migration 289: version 3 contents differ from the reviewed policy fingerprint';
+      END IF;
+      IF successor_count >= 2 THEN
+        SELECT ({_referral_policy_fingerprint_sql(4)}) INTO successor_policy_hash;
+        IF successor_policy_hash IS DISTINCT FROM '{_REFERRAL_POLICY_V4_SHA256}' THEN
+          RAISE EXCEPTION 'migration 289: version 4 contents differ from the reviewed policy fingerprint';
+        END IF;
+      END IF;
+      IF successor_count >= 3 THEN
+        SELECT ({_referral_policy_fingerprint_sql(5)}) INTO successor_policy_hash;
+        IF successor_policy_hash IS DISTINCT FROM '{_REFERRAL_POLICY_V5_SHA256}' THEN
+          RAISE EXCEPTION 'migration 289: version 5 contents differ from the reviewed policy fingerprint';
+        END IF;
+      END IF;
+      IF successor_count = 4 AND NOT ({reviewed_prize_successor_sql()}) THEN
+        RAISE EXCEPTION 'migration 289: unreviewed weekly-prize activation successor';
+      END IF;
+      RAISE NOTICE 'migration 289: exact historical version 2 superseded by reviewed policy; idempotent no-op';
+    END IF;""",
+    )
+    return sql
+
+
+def _replay_referral_policy_v3_sql(entry: MigrationManifestEntryV2) -> str:
+    """Preserve retired v3 only under the exact, active lifecycle successor."""
+    checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
+    if (
+        checksum != "8dc499738dc5d0e7d5b1d2e7d664c66381b885bf90e9563371f8259ac304fb98"
+        or entry.checksum_sha256 != checksum
+    ):
+        raise MigrationAuthorityError("Referral policy v3 replay source checksum changed")
+    old = "IF current_row.activated_at IS NULL OR current_row.retired_at IS NOT NULL"
+    if entry.sql.count(old) != 1:
+        raise MigrationAuthorityError("Referral policy v3 replay source shape changed")
+    return entry.sql.replace(
+        old,
+        f"""IF current_row.activated_at IS NULL
+       OR prior.retired_at IS DISTINCT FROM current_row.activated_at
+       OR (current_row.retired_at IS NOT NULL AND NOT EXISTS (
+         SELECT 1 FROM one_referral_program_settings successor
+          WHERE successor.version = 4
+            AND (successor.retired_at IS NULL OR EXISTS (
+              SELECT 1 FROM one_referral_program_settings v5 WHERE v5.version=5
+                AND v5.activated_at=successor.retired_at
+                AND (v5.retired_at IS NULL OR {reviewed_prize_successor_sql()})
+                AND v5.activated_at>successor.activated_at
+                AND ({_referral_policy_fingerprint_sql(5)}) = '{_REFERRAL_POLICY_V5_SHA256}'
+            ))
+            AND successor.activated_at = current_row.retired_at
+            AND successor.activated_at > current_row.activated_at
+            AND ({_referral_policy_fingerprint_sql(3)}) = '{_REFERRAL_POLICY_V3_OBSERVED_UAT_SHA256}'
+            AND ({_referral_policy_fingerprint_sql(4)}) = '{_REFERRAL_POLICY_V4_SHA256}'
+            AND (NOT EXISTS (SELECT 1 FROM one_referral_program_settings WHERE version > 5)
+              OR {reviewed_prize_successor_sql()})
+       ))""",
+        1,
+    )
+
+
+def _replay_referral_policy_v4_sql(entry: MigrationManifestEntryV2) -> str:
+    """Accept only the exact reviewed v5 successor, preserving immutable 347."""
+    checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
+    if (
+        checksum != "2036301cdae30b7786a568b41635d5b331e542bb132677dafb4f3227bfe11279"
+        or entry.checksum_sha256 != checksum
+    ):
+        raise MigrationAuthorityError("Referral policy v4 replay source checksum changed")
+    old = "s.version=4\n    AND s.activated_at IS NOT NULL AND s.retired_at IS NULL"
+    if entry.sql.count(old) != 1:
+        raise MigrationAuthorityError("Referral policy v4 replay source shape changed")
+    return entry.sql.replace(
+        old,
+        f"""s.version=4
+    AND s.activated_at IS NOT NULL AND (s.retired_at IS NULL OR EXISTS (
+      SELECT 1 FROM one_referral_program_settings v5 WHERE v5.version=5
+        AND v5.activated_at=s.retired_at AND v5.activated_at>s.activated_at
+        AND (v5.retired_at IS NULL OR {reviewed_prize_successor_sql()})
+        AND ({_referral_policy_fingerprint_sql(4)})='{_REFERRAL_POLICY_V4_SHA256}'
+        AND ({_referral_policy_fingerprint_sql(5)})='{_REFERRAL_POLICY_V5_SHA256}'
+        AND (NOT EXISTS(SELECT 1 FROM one_referral_program_settings WHERE version>5)
+          OR {reviewed_prize_successor_sql()})
+    ))""",
+        1,
+    )
+
+
+def _replay_referral_policy_v5_sql(entry: MigrationManifestEntryV2) -> str:
+    checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
+    if (
+        checksum != "3d160ef807200eb1a2b9ac7aa385199919a92967ab665e46d46d25f175388459"
+        or entry.checksum_sha256 != checksum
+    ):
+        raise MigrationAuthorityError("Referral policy v5 replay source checksum changed")
+    old = "IF current_row.activated_at IS NULL OR current_row.retired_at IS NOT NULL"
+    if entry.sql.count(old) != 1:
+        raise MigrationAuthorityError("Referral policy v5 replay source shape changed")
+    return entry.sql.replace(
+        old,
+        f"IF current_row.activated_at IS NULL OR (current_row.retired_at IS NOT NULL AND NOT ({reviewed_prize_successor_sql()}))",
+        1,
+    )
+
+
+def _replay_bank_payout_event_sql(entry: MigrationManifestEntryV2, pinned: str) -> str:
+    # 298 and 304 re-add an exact Connect event CHECK on replay, which rejects
+    # rows of event types added later and locks the table on every deploy.
+    # Preserve the immutable file and ledger/baseline hash; adapt only the
+    # published body to widen, retaining installed vocabulary and rows.
+    checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
+    if checksum != pinned or entry.checksum_sha256 != checksum:
+        raise MigrationAuthorityError("Legacy bank payout event replay source checksum changed")
+    start = entry.sql.index("ALTER TABLE stripe_connect_bank_payout_events\n  DROP CONSTRAINT")
+    end = entry.sql.index(
+        "ADD CONSTRAINT stripe_connect_bank_payout_events_event_type_check", start
+    )
+    end = entry.sql.index("));", end) + len("));")
+    repair = """DO $$
+DECLARE
+  installed TEXT[];
+  allowed TEXT;
+  required TEXT[] := ARRAY[
+    'account.external_account.created','account.external_account.deleted',
+    'account.external_account.updated','account.updated','payout.canceled',
+    'payout.created','payout.failed','payout.paid','payout.updated'];
+BEGIN
+  SELECT ARRAY(SELECT DISTINCT hit[1] FROM regexp_matches(
+    pg_get_constraintdef(c.oid), '''([^'']+)''', 'g') AS hit
+    ORDER BY hit[1]) INTO installed
+  FROM pg_constraint c
+  WHERE c.conrelid='stripe_connect_bank_payout_events'::regclass
+    AND c.conname='stripe_connect_bank_payout_events_event_type_check';
+  IF NOT COALESCE(installed @> required, FALSE) THEN
+    SELECT string_agg(DISTINCT quote_literal(value), ',' ORDER BY quote_literal(value)) INTO allowed
+      FROM unnest(COALESCE(installed, ARRAY[]::TEXT[]) || required) AS value;
+    ALTER TABLE stripe_connect_bank_payout_events
+      DROP CONSTRAINT IF EXISTS stripe_connect_bank_payout_events_event_type_check;
+    EXECUTE format(
+      'ALTER TABLE stripe_connect_bank_payout_events ADD CONSTRAINT '
+      'stripe_connect_bank_payout_events_event_type_check CHECK (event_type IN (%s))',
+      allowed);
+  END IF;
+END $$;"""
+    return entry.sql[:start] + repair + entry.sql[end:]
+
+
+def _replay_system_push_outbox_sql(entry: MigrationManifestEntryV2) -> str:
+    """Replay published 361 without replacing delivery history or live triggers."""
+    checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
+    if (
+        checksum != "41bb1bf983b3a79df83ddb2ae2106ff8132ee2f73d666183cd9b7b8bb5f94608"
+        or entry.checksum_sha256 != checksum
+    ):
+        raise MigrationAuthorityError("System push replay source checksum changed")
+    # Preserve the immutable file and ledger/baseline hashes. Only replay mode
+    # adapts its original bare DDL; pending leases and accepted-device rows stay.
+    replay = entry.sql.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ")
+    replay = replay.replace("CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ")
+    replay = replay.replace(
+        "CREATE FUNCTION queue_system_push()", "CREATE OR REPLACE FUNCTION queue_system_push()"
+    )
+    start = replay.index("CREATE TRIGGER system_push_share ")
+    end = replay.index("\n\nALTER TABLE system_push_outbox", start)
+    # Match migration 313's hot-table policy: retain installed trigger objects,
+    # reject drift, and create only missing ones. The source checksum bounds
+    # these fixed identifiers/event clauses; no historical source rows are read.
+    triggers = """DO $$
+DECLARE spec RECORD; installed RECORD; relation REGCLASS; expected_attribute TEXT;
+BEGIN
+ FOR spec IN SELECT * FROM (VALUES
+  ('system_push_share','one_location_share_grants','INSERT OR UPDATE OF latest_envelope_id',21,'latest_envelope_id'),
+  ('system_push_location_request','one_location_access_requests','INSERT OR UPDATE',21,NULL),
+  ('system_push_connection_request','connection_requests','INSERT',5,NULL),
+  ('system_push_circle_member','one_location_circle_memberships','INSERT OR UPDATE OF status',21,'status')
+ ) AS definitions(name,table_name,events,trigger_type,column_name) LOOP
+  relation := format('public.%I',spec.table_name)::REGCLASS;
+  expected_attribute := '';
+  IF spec.column_name IS NOT NULL THEN
+   SELECT attnum::TEXT INTO expected_attribute FROM pg_attribute
+    WHERE attrelid=relation AND attname=spec.column_name AND NOT attisdropped;
+   IF expected_attribute IS NULL THEN
+    RAISE EXCEPTION 'System push trigger column is missing: %',spec.name;
+   END IF;
+  END IF;
+  SELECT * INTO installed FROM pg_trigger
+   WHERE tgrelid=relation AND tgname=spec.name AND NOT tgisinternal;
+  IF NOT FOUND THEN
+   EXECUTE format('CREATE TRIGGER %I AFTER %s ON public.%I '
+    'FOR EACH ROW EXECUTE FUNCTION public.queue_system_push()',
+    spec.name,spec.events,spec.table_name);
+  ELSIF installed.tgfoid <> 'public.queue_system_push()'::REGPROCEDURE::OID
+   OR installed.tgtype <> spec.trigger_type OR installed.tgenabled <> 'O'
+   OR installed.tgqual IS NOT NULL OR installed.tgnargs <> 0
+   OR installed.tgattr::TEXT <> expected_attribute OR installed.tgconstraint <> 0
+   OR installed.tgoldtable IS NOT NULL OR installed.tgnewtable IS NOT NULL THEN
+   RAISE EXCEPTION 'System push trigger has unexpected definition: %',spec.name;
+  END IF;
+ END LOOP;
+END $$;"""
+    return replay[:start] + triggers + replay[end:]
+
+
+def _replay_drive_cent_prices_sql(entry: MigrationManifestEntryV2) -> str:
+    """Preserve immutable 329 and the exact installed 368 waiver constraints."""
+    checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
+    if (
+        checksum != "ee91dfcc494deda10e84e0a06b506a93022c3416264c160ae6541db5786dda4a"
+        or entry.checksum_sha256 != checksum
+    ):
+        raise MigrationAuthorityError("Drive cent prices replay source checksum changed")
+    original = "    IF NOT EXISTS (SELECT 1 FROM pg_constraint\n"
+    if entry.sql.count(original) != 1:
+        raise MigrationAuthorityError("Drive cent prices replay source shape changed")
+    # Keep Boolean grouping: removing parentheses could accept a weaker CHECK.
+    # Only this exact successor skips the old rule; the other five checks and
+    # the original repair/failure path remain unchanged. No rows are rewritten.
+    successor = """    IF rule.constraint_name='drive_share_requests_locked_quote_check'
+      AND EXISTS (SELECT 1 FROM pg_attribute
+        WHERE attrelid='drive_share_requests'::regclass
+          AND attname='existing_access_waived_at' AND NOT attisdropped
+          AND atttypid='timestamptz'::regtype AND NOT attnotnull
+          AND NOT atthasdef AND attgenerated='' AND attidentity='')
+      AND EXISTS (SELECT 1 FROM pg_constraint
+        WHERE conrelid='drive_share_requests'::regclass
+          AND conname='drive_share_requests_locked_quote_check'
+          AND contype='c' AND convalidated
+          AND regexp_replace(pg_get_constraintdef(oid),'[[:space:]]','','g')=
+            'CHECK((((quoted_amount_centsISNULL)AND(quote_versionISNULL))OR(((payment_required=true)OR(existing_access_waived_atISNOTNULL))AND((quoted_amount_cents>=50)AND(quoted_amount_cents<=50000))AND(quote_version>=0))))')
+      AND EXISTS (SELECT 1 FROM pg_constraint
+        WHERE conrelid='drive_share_requests'::regclass
+          AND conname='drive_request_existing_access_waiver_check'
+          AND contype='c' AND convalidated
+          AND regexp_replace(pg_get_constraintdef(oid),'[[:space:]]','','g')=
+            'CHECK(((existing_access_waived_atISNULL)OR(payment_required=false)))') THEN
+      CONTINUE;
+    END IF;
+"""
+    return entry.sql.replace(original, successor + original, 1)
+
+
+def _replay_sql(entry: MigrationManifestEntryV2) -> str:
+    if entry.migration_id == "329" and entry.filename == "329_drive_request_cent_prices.sql":
+        return _replay_drive_cent_prices_sql(entry)
+    if entry.migration_id == "361" and entry.filename == "361_system_push_outbox.sql":
+        return _replay_system_push_outbox_sql(entry)
+    if entry.migration_id == "289" and entry.filename == "289_one_referral_program_settings_v2.sql":
+        return _replay_referral_policy_v2_sql(entry)
+    if entry.migration_id == "338" and entry.filename == "338_one_referral_usd_catalogue.sql":
+        return _replay_referral_policy_v3_sql(entry)
+    if entry.migration_id == "347" and entry.filename == "347_one_referral_dashboard_lifecycle.sql":
+        return _replay_referral_policy_v4_sql(entry)
+    if entry.migration_id == "349" and entry.filename == "349_one_referral_dashboard_truth.sql":
+        return _replay_referral_policy_v5_sql(entry)
+    if entry.migration_id == "288" and entry.filename == "288_drive_request_feed_stream.sql":
+        return _replay_drive_feed_sql(entry)
+    pinned = _BANK_PAYOUT_EVENT_REPLAY_CHECKSUMS.get((entry.migration_id, entry.filename))
+    if pinned:
+        return _replay_bank_payout_event_sql(entry, pinned)
+    # Migration 295 shipped a bare CREATE POLICY. Preserve its immutable source
+    # and ledger/baseline hashes, while making its known body replayable inside
+    # the original transaction. Never adapt other or drifted migration bodies.
+    if entry.migration_id != "295" or entry.filename != "295_direct_message_attachments.sql":
+        return entry.sql
+    checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
+    if (
+        checksum != "f76a5e6e71d1979dbcd71d2e3c5ad390c1aa9f018742946bee2dcea3831d4edc"
+        or entry.checksum_sha256 != checksum
+    ):
+        raise MigrationAuthorityError("Legacy attachment replay source checksum changed")
+    policy = (
+        "CREATE POLICY direct_message_attachments_deny_all ON public.direct_message_attachments"
+    )
+    return entry.sql.replace(
+        policy,
+        "DROP POLICY IF EXISTS direct_message_attachments_deny_all ON public.direct_message_attachments;\n"
+        + policy,
+        1,
+    )
 
 
 async def _record_result(
@@ -480,6 +920,7 @@ async def apply_manifest_entries(
                 if covered_by_baseline or (existing and existing.get("status") == "applied"):
                     continue
 
+            sql = _replay_sql(entry) if mode is MigrationMode.REPLAY else entry.sql
             for attempt in range(1, _LOCK_RETRY_ATTEMPTS + 1):
                 started = time.perf_counter()
                 recorded_applied = False
@@ -497,7 +938,7 @@ async def apply_manifest_entries(
                             await conn.execute(
                                 f"SET LOCAL statement_timeout = '{entry.statement_timeout_ms}ms'"
                             )
-                            await _execute_observed(conn, entry.sql, probe)
+                            await _execute_observed(conn, sql, probe)
                             duration_ms = round((time.perf_counter() - started) * 1000)
                             await _record_result(
                                 conn,
@@ -513,7 +954,7 @@ async def apply_manifest_entries(
                         await conn.execute(
                             f"SET statement_timeout = '{entry.statement_timeout_ms}ms'"
                         )
-                        await _execute_observed(conn, entry.sql, probe)
+                        await _execute_observed(conn, sql, probe)
                 except Exception as exc:
                     duration_ms = round((time.perf_counter() - started) * 1000)
                     # A busy database is not a broken migration. Roll back first

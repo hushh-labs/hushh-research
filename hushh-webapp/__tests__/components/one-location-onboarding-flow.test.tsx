@@ -7,9 +7,10 @@ import {
   within,
 } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { useState } from "react";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 import {
-  CONTACTS_PRIVACY_DISCLOSURE,
   OneLocationOnboardingFlow,
 } from "@/components/one-location/onboarding/one-location-onboarding-flow";
 
@@ -17,13 +18,6 @@ const INVITE = {
   circleId: "circle-1",
   circleName: "Meena Family",
   code: "ABCDEFGHJKLM",
-};
-
-const grantedPermission = {
-  state: "granted" as const,
-  precise: true,
-  background: "foreground-only" as const,
-  locationServicesEnabled: true,
 };
 
 function createProps(
@@ -34,21 +28,12 @@ function createProps(
   return {
     startAt: "welcome",
     currentUserName: "Test User",
-    locationPermission: {
-      state: "prompt",
-      precise: null,
-      background: "foreground-only",
-      locationServicesEnabled: true,
-    },
-    locationBusy: false,
     nativeTest: {
       routeId: "/one/location",
       marker: "native-route-one-location",
       authState: "authenticated",
       dataState: "loaded",
     },
-    onRequestLocation: vi.fn().mockResolvedValue(true),
-    onLocationReady: vi.fn().mockResolvedValue(true),
     onBack: vi.fn(),
     onComplete: vi.fn(),
     onSkip: vi.fn(),
@@ -91,159 +76,112 @@ async function renderReady(
   return result;
 }
 
-describe("OneLocationOnboardingFlow four-step contract", () => {
-  it("keeps the authored blue welcome and exposes step 1 of 4", () => {
-    renderFlow();
-
-    expect(screen.getByTestId("one-location-onboarding-welcome")).toBeTruthy();
-    expect(
-      screen.getByRole("heading", {
-        name: "Share your location easily with anyone.",
-      }),
-    ).toBeTruthy();
-    expect(screen.getByText("1 of 4")).toBeTruthy();
-    expect(screen.getByTestId("location-agent-heading-icon")).toBeTruthy();
+describe("OneLocationOnboardingFlow introduction", () => {
+  it("hides app chrome while mounted and starts at Features", () => {
+    const { unmount } = renderFlow();
+    expect(document.documentElement.hasAttribute("data-session-check-active")).toBe(true);
+    expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
+    expect(screen.getByText("1 of 3")).toBeTruthy();
+    expect(screen.queryByTestId("one-location-onboarding-welcome")).toBeNull();
+    expect(screen.queryByText("Your location stays private until you share.")).toBeNull();
+    expect(screen.queryByText("Location is ready. Your next tap opens the place picker.")).toBeNull();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+    unmount();
+    expect(document.documentElement.hasAttribute("data-session-check-active")).toBe(false);
   });
 
-  it("keeps the welcome CTA and centre marker legible on the blue surface", () => {
-    renderFlow();
-
-    expect(screen.getByRole("button", { name: "Get started" }).className).toContain(
-      "hover:bg-white/90",
-    );
-    expect(document.querySelector("[data-one-welcome-core] svg")?.className.baseVal).toContain(
-      "text-[color:var(--app-accent)]",
-    );
-  });
-
-  it("keeps Back and Skip separate on Welcome", () => {
-    const { props } = renderFlow();
-
-    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+  it.each(["/one/location", "/one/setup/location"])("unwinds Ready to Features before exiting %s", async (routeId) => {
+    const props = createProps({ nativeTest: { ...createProps().nativeTest, routeId } });
+    function ControlledFlow() {
+      const [activeScreen, setScreen] = useState<"features" | "ready">("features");
+      return <OneLocationOnboardingFlow {...props} activeScreen={activeScreen} onScreenChange={setScreen} />;
+    }
+    const { unmount } = render(<ControlledFlow />);
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(screen.getByTestId("one-location-onboarding-ready")).toBeTruthy();
+    expect(screen.getByText("3 of 3")).toBeTruthy();
+    act(() => { expect(unwindBackLayer(routeId)).toBe(true); });
+    expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
+    expect(props.onBack).not.toHaveBeenCalled();
+    act(() => { expect(unwindBackLayer(routeId)).toBe(true); });
     expect(props.onBack).toHaveBeenCalledTimes(1);
-    expect(props.onSkip).not.toHaveBeenCalled();
+    unmount();
+    expect(unwindBackLayer(routeId)).toBe(false);
   });
 
-  it("moves Get started only to Features and triggers no permission or capture", () => {
-    const { props } = renderFlow();
+  describe("Save a place step", () => {
+    function ControlledFlow(
+      props: React.ComponentProps<typeof OneLocationOnboardingFlow>,
+    ) {
+      const [activeScreen, setScreen] = useState<
+        "features" | "place" | "ready"
+      >("features");
+      return (
+        <OneLocationOnboardingFlow
+          {...props}
+          activeScreen={activeScreen}
+          onScreenChange={setScreen}
+        />
+      );
+    }
 
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    it("hands Features to the hosted place surface once it has opened", async () => {
+      const onPreparePlace = vi.fn().mockResolvedValue(true);
+      render(<ControlledFlow {...createProps({ onPreparePlace })} />);
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+      await waitFor(() =>
+        expect(screen.getByTestId("one-location-onboarding-place")).toBeTruthy(),
+      );
+      expect(onPreparePlace).toHaveBeenCalledTimes(1);
+    });
 
-    expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
-    expect(screen.getByText("2 of 4")).toBeTruthy();
-    expect(props.onRequestLocation).not.toHaveBeenCalled();
-    expect(props.onLocationReady).not.toHaveBeenCalled();
-  });
-
-  it("retains the two approved intro screens and exact feature CTA", () => {
-    renderFlow();
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-
-    expect(
-      screen.getByRole("heading", { name: "Keep your people updated." }),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("heading", { name: "Can’t explain where you are?" }),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("heading", {
-        name: "At the venue, but can't find each other?",
-      }),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("heading", { name: "Need help but can’t talk?" }),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Set up my location" }),
-    ).toBeTruthy();
-    expect(
-      screen.getByText("Your location stays private until you share."),
-    ).toBeTruthy();
-  });
-
-  it("requests Location only after the explicit Features CTA and advances to place", async () => {
-    const onScreenChange = vi.fn();
-    const { props } = renderFlow({ onScreenChange });
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    fireEvent.click(screen.getByRole("button", { name: "Set up my location" }));
-
-    await waitFor(() =>
-      expect(props.onRequestLocation).toHaveBeenCalledTimes(1),
-    );
-    await waitFor(() => expect(props.onLocationReady).toHaveBeenCalledTimes(1));
-    await waitFor(() =>
-      expect(onScreenChange).toHaveBeenLastCalledWith("place"),
-    );
-    expect(screen.getByTestId("one-location-onboarding-place")).toBeTruthy();
-  });
-
-  it("uses an already-granted Location without another permission request", async () => {
-    const { props } = renderFlow({ locationPermission: grantedPermission });
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    fireEvent.click(screen.getByRole("button", { name: "Set up my location" }));
-
-    await waitFor(() => expect(props.onLocationReady).toHaveBeenCalledTimes(1));
-    expect(props.onRequestLocation).not.toHaveBeenCalled();
-  });
-
-  it("stays on Features when Location is declined", async () => {
-    const onRequestLocation = vi.fn().mockResolvedValue(false);
-    renderFlow({
-      onRequestLocation,
-      locationPermission: {
-        state: "denied",
-        precise: null,
-        background: "foreground-only",
-        locationServicesEnabled: true,
+    it.each([false, "rejects"] as const)(
+      "reaches Ready instead of trapping the person when the place cannot open (%s)",
+      async (outcome) => {
+        const onPreparePlace =
+          outcome === "rejects"
+            ? vi.fn().mockRejectedValue(new Error("denied"))
+            : vi.fn().mockResolvedValue(false);
+        render(<ControlledFlow {...createProps({ onPreparePlace })} />);
+        fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+        await waitFor(() =>
+          expect(
+            screen.getByTestId("one-location-onboarding-ready"),
+          ).toBeTruthy(),
+        );
       },
+    );
+
+    it("unwinds the place step to Features", async () => {
+      const routeId = "/one/location";
+      render(
+        <ControlledFlow
+          {...createProps({ onPreparePlace: vi.fn().mockResolvedValue(true) })}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+      await waitFor(() =>
+        expect(screen.getByTestId("one-location-onboarding-place")).toBeTruthy(),
+      );
+      act(() => {
+        expect(unwindBackLayer(routeId)).toBe(true);
+      });
+      expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
     });
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-
-    expect(
-      screen.getByText(
-        "Location access is off. Turn it on to set up One Location.",
-      ),
-    ).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Open settings" }));
-    await waitFor(() => expect(onRequestLocation).toHaveBeenCalledTimes(1));
-    expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
   });
 
-  it("stays retryable when coordinate capture fails", async () => {
-    renderFlow({
-      locationPermission: grantedPermission,
-      onLocationReady: vi.fn().mockResolvedValue(false),
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    fireEvent.click(screen.getByRole("button", { name: "Set up my location" }));
-
-    expect(
-      await screen.findByRole("button", { name: "Try again" }),
-    ).toBeTruthy();
-    expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
+  it("keeps Skip independent of Back", () => {
+    const { props } = renderFlow();
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    expect(props.onSkip).toHaveBeenCalledTimes(1);
+    expect(props.onBack).not.toHaveBeenCalled();
   });
 
-  it("does not auto-request permission for the legacy permissions entry", () => {
-    const { props } = renderFlow({ startAt: "permissions" });
-
+  it.each(["welcome", "permissions"] as const)("maps legacy %s entries to Features", (startAt) => {
+    renderFlow({ startAt });
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
-    expect(props.onRequestLocation).not.toHaveBeenCalled();
-    expect(props.onLocationReady).not.toHaveBeenCalled();
+    expect(screen.getByText("1 of 3")).toBeTruthy();
   });
-
-  it.each([
-    ["welcome", "one-location-onboarding-welcome", "1 of 4"],
-    ["features", "one-location-onboarding-features", "2 of 4"],
-    ["place", "one-location-onboarding-place", null],
-    ["ready", "one-location-onboarding-ready", "4 of 4"],
-  ] as const)(
-    "renders the controlled %s checkpoint",
-    (activeScreen, testId, progress) => {
-      renderFlow({ activeScreen });
-      expect(screen.getByTestId(testId)).toBeTruthy();
-      if (progress) expect(screen.getByText(progress)).toBeTruthy();
-    },
-  );
 });
 
 describe("OneLocationOnboardingFlow combined Ready screen", () => {
@@ -283,22 +221,15 @@ describe("OneLocationOnboardingFlow combined Ready screen", () => {
     ).toBeTruthy();
   });
 
-  it("shows the contacts privacy disclosure above the button that raises the OS prompt", async () => {
+  it("keeps Find contacts concise with an explicit contact-check action", async () => {
     await renderReady({
       contactsStepAvailable: true,
       onSyncOnboardingContacts: vi.fn(),
     });
     fireEvent.click(screen.getByRole("button", { name: "Find contacts" }));
 
-    const disclosure = screen.getByTestId("onboarding-contacts-privacy-disclosure");
-    expect(disclosure.textContent).toBe(CONTACTS_PRIVACY_DISCLOSURE);
-    expect(disclosure.textContent).toMatch(/one-way codes/);
-    expect(disclosure.textContent).toMatch(/never stores your contacts' names or numbers/);
-    expect(disclosure.textContent).toMatch(/nobody is contacted for you/);
-    const button = screen.getByRole("button", { name: "Check my contacts" });
-    expect(
-      disclosure.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(screen.queryByText(/Phone numbers are standardized/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Check my contacts" })).toBeEnabled();
   });
 
   it("syncs contacts only after Check my contacts and sends a selected request", async () => {
@@ -654,11 +585,11 @@ describe("OneLocationOnboardingFlow combined Ready screen", () => {
     expect(props.onComplete).toHaveBeenCalledTimes(1);
   });
 
-  it("returns from Ready to the saved-place checkpoint", async () => {
+  it("returns from Ready to Features", async () => {
     const onScreenChange = vi.fn();
     await renderReady({ onScreenChange });
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
-    expect(onScreenChange).toHaveBeenLastCalledWith("place");
+    expect(onScreenChange).toHaveBeenLastCalledWith("features");
   });
 
   it("keeps the map claim honest", async () => {
@@ -666,6 +597,6 @@ describe("OneLocationOnboardingFlow combined Ready screen", () => {
     expect(
       screen.getByRole("heading", { name: "You're all set." }),
     ).toBeTruthy();
-    expect(screen.getByText("Map unavailable")).toBeTruthy();
+    expect(screen.getByText("Turn on Location when you're ready.")).toBeTruthy();
   });
 });

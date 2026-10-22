@@ -24,6 +24,13 @@ import type { ConsentCenterEntry } from "@/lib/services/consent-center-service";
 export type PkmDomainStatus = "complete" | "partial" | "missing" | "stale";
 export type PkmDensity = "relaxed" | "compact" | "dense";
 
+export function formatPkmTimestamp(value: string | null | undefined): string {
+  if (!value) return "Unavailable";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unavailable";
+  return date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
 export type PkmDomainAccessPresentation = NaturalAccessEntry & {
   scope: string;
   counterpartType: ConsentCenterEntry["counterpart_type"];

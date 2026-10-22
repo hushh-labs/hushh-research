@@ -28,7 +28,14 @@ capability discoverable. The generator produces:
 - [Generated action gateway](../../../contracts/kai/kai-action-gateway.vnext.json)
 - [Route orchestration index](../../../contracts/kai/one-route-orchestration-index.v1.json)
 
-Generated output is never hand-edited. Run:
+Generated output is never hand-edited.
+
+Discovery includes new/untracked authored contracts but excludes root
+`.next-*` build caches, alongside the existing dependency and build exclusions.
+Generated copies are not authoring input. This keeps verification independent
+of accumulated local Next build outputs without skipping contract validation.
+
+Run:
 
 ```bash
 cd hushh-webapp && npm run build:voice-gateway
@@ -101,15 +108,17 @@ credentials, or durable intent across screens.
 
 ## Runtime Consumers
 
-- Frontend validation and search: [kai-action-gateway.ts](../../../hushh-webapp/lib/voice/kai-action-gateway.ts)
+- Frontend validation and search: [kai-action-gateway.ts](../../../hushh-webapp/lib/kai/actions/kai-action-gateway.ts)
 - Shared client execution: [agent-action-runtime.ts](../../../hushh-webapp/lib/agent/agent-action-runtime.ts)
 - Backend generated-gateway loader: [action_gateway.py](../../../consent-protocol/hushh_mcp/services/action_gateway.py)
 - One policy tools: [action_tools.py](../../../consent-protocol/hushh_mcp/one_adk/action_tools.py)
 - Location command proposal route: [command_proposals.py](../../../consent-protocol/api/routes/one/command_proposals.py)
 
-Gmail is deliberately absent from generated discovery while it is paused. Its
-route and manifest remain dormant for an explicit future enablement; no action
-contract, Search result, or One tool can reactivate it by implication.
+Gmail route discovery and `email.chat.turn` are active in the current generated
+gateway. One Live Mail tools bind to that action and enforce their own typed
+read, draft, send-review and confirmation policies; see the
+[Live tool contract](../one/one-voice-live-tool-contract.md). Connector admission,
+Gmail scopes and the owner Send setting remain execution prerequisites.
 
 ## Verification
 

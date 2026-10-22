@@ -17,7 +17,8 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Event
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import asyncpg
 import pytest
@@ -25,12 +26,16 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 
+from hushh_mcp.services.actor_identity_service import (
+    ActorIdentityPhoneClaimConflictError,
+    ActorIdentityService,
+)
 from hushh_mcp.services.connection_graph_service import (
     activate_contact_sync_connections_bulk,
     lock_connection_graph_users,
     revoke_circle_origins,
 )
-from hushh_mcp.services.connections_service import ConnectionsService
+from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
 from hushh_mcp.services.contact_sync_contract import CONTACT_SYNC_MATCH_POLICY_VERSION
 from hushh_mcp.services.ria_iam_service import RIAIAMService
 from scripts.backfill_contact_disconnect_actors import (
@@ -280,6 +285,315 @@ async def _drop_schema(schema: str) -> None:
         await connection.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
     finally:
         await connection.close()
+
+
+@pytest.mark.db
+@pytest.mark.skipif(not POSTGRES_URL, reason="requires disposable PostgreSQL")
+@pytest.mark.parametrize(
+    ("phone_verified", "email_verified", "vault_status", "setup_completed", "evidence", "allowed"),
+    [
+        (True, False, "none", False, None, True),
+        (False, True, "active", False, " OWNER@example.test ", True),
+        (False, True, "none", True, "owner@example.test", True),
+        (False, False, "active", True, "owner@example.test", False),
+        (False, True, "active", True, "other@example.test", False),
+        (False, True, "none", False, "owner@example.test", False),
+        (False, True, "active", True, None, False),
+    ],
+)
+def test_contact_requester_admission_and_mutation_recheck_on_postgres(
+    monkeypatch, phone_verified, email_verified, vault_status, setup_completed, evidence, allowed
+) -> None:
+    """Execute both requester gates and graph writes, including proof revocation.
+
+    Fresh provider evidence is supplied by the separately tested route seam.
+    These transactions prove that vault/setup flags or a stale/mismatched email
+    cannot admit a requester, and that native phone claims retain their path.
+    """
+    import hushh_mcp.services.connections_service as connections_module
+
+    schema = f"contact_admission_{uuid.uuid4().hex}"
+    engine = create_engine(
+        make_url(POSTGRES_URL).set(drivername="postgresql+psycopg2"),
+        connect_args={"options": f"-csearch_path={schema},public"},
+    )
+    try:
+        asyncio.run(_prepare_schema(schema))
+        with engine.begin() as connection:
+            connection.execute(
+                text("ALTER TABLE actor_identity_cache ADD email_verified BOOLEAN DEFAULT FALSE")
+            )
+            connection.execute(
+                text("""
+                CREATE TABLE vault_keys (
+                    user_id TEXT PRIMARY KEY, vault_status TEXT, setup_completed BOOLEAN
+                );
+                CREATE TABLE contact_sync_lookup_budgets (
+                    user_id TEXT, bucket_kind TEXT, bucket_start TIMESTAMPTZ,
+                    lookup_count INTEGER, updated_at TIMESTAMPTZ,
+                    PRIMARY KEY (user_id, bucket_kind, bucket_start)
+                );
+            """)
+            )
+            connection.execute(
+                text("""
+                    UPDATE actor_identity_cache SET email='owner@example.test',
+                    email_verified=:email_verified, phone_verified=:phone_verified,
+                    phone_number=CASE WHEN :phone_verified THEN phone_number ELSE NULL END
+                    WHERE user_id='owner'
+                """),
+                {"email_verified": email_verified, "phone_verified": phone_verified},
+            )
+            connection.execute(
+                text("INSERT INTO vault_keys VALUES ('owner', :status, :completed)"),
+                {"status": vault_status, "completed": setup_completed},
+            )
+        monkeypatch.setattr(connections_module, "get_db", lambda: SimpleNamespace(engine=engine))
+        monkeypatch.setattr(
+            connections_module, "_notify_connection_graph_changed", lambda **_: None
+        )
+        service = ConnectionsService()
+        args = {
+            "phone_lookups": [_lookup("kushal", "+919876500003")],
+            "matches": [{"lookup_id": "kushal", "user_id": "kushal"}],
+            "verified_requester_email": evidence,
+        }
+
+        if not allowed:
+            for operation in (
+                lambda: service.reserve_contact_sync_lookup_budget(
+                    "owner", 1, verified_requester_email=evidence
+                ),
+                lambda: service.sync_contact_matches("owner", **args),
+            ):
+                with pytest.raises(ConnectionsError) as error:
+                    operation()
+                assert error.value.status_code == 403
+            with engine.connect() as connection:
+                assert (
+                    connection.execute(
+                        text("SELECT COUNT(*) FROM contact_sync_lookup_budgets")
+                    ).scalar_one()
+                    == 0
+                )
+                assert (
+                    connection.execute(text("SELECT COUNT(*) FROM connection_origins")).scalar_one()
+                    == 0
+                )
+            return
+
+        service.reserve_contact_sync_lookup_budget("owner", 1, verified_requester_email=evidence)
+        # Verification can be revoked after budget admission but before writes.
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE actor_identity_cache SET phone_verified=FALSE, email_verified=FALSE WHERE user_id='owner'"
+                )
+            )
+        with pytest.raises(ConnectionsError) as error:
+            service.sync_contact_matches("owner", **args)
+        assert error.value.status_code == 403
+        with engine.begin() as connection:
+            assert (
+                connection.execute(text("SELECT COUNT(*) FROM connection_origins")).scalar_one()
+                == 0
+            )
+            connection.execute(
+                text(
+                    "UPDATE actor_identity_cache SET phone_verified=:phone, email_verified=:email WHERE user_id='owner'"
+                ),
+                {"phone": phone_verified, "email": email_verified},
+            )
+        result = service.sync_contact_matches("owner", **args)
+        assert result["autoConnectedCount"] == 1
+        with engine.begin() as connection:
+            identity = (
+                connection.execute(
+                    text(
+                        "SELECT phone_verified, phone_number FROM actor_identity_cache WHERE user_id='owner'"
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            assert identity["phone_verified"] is phone_verified
+            if not phone_verified:
+                assert identity["phone_number"] is None
+            assert (
+                connection.execute(text("SELECT COUNT(*) FROM connection_origins")).scalar_one()
+                == 1
+            )
+            connection.execute(
+                text(
+                    "UPDATE contact_sync_lookup_budgets SET lookup_count=12000 WHERE bucket_kind='minute'"
+                )
+            )
+        with pytest.raises(ConnectionsError) as error:
+            service.reserve_contact_sync_lookup_budget(
+                "owner", 1, verified_requester_email=evidence
+            )
+        assert error.value.status_code == 429
+        with engine.connect() as connection:
+            assert dict(
+                connection.execute(
+                    text("SELECT bucket_kind, lookup_count FROM contact_sync_lookup_budgets")
+                ).all()
+            ) == {"minute": 12000, "day": 1}
+    finally:
+        engine.dispose()
+        asyncio.run(_drop_schema(schema))
+
+
+@pytest.mark.db
+@pytest.mark.skipif(not POSTGRES_URL, reason="requires disposable PostgreSQL")
+def test_signup_phone_survives_ria_deletion_and_passive_provider_conflict(monkeypatch) -> None:
+    schema = f"contact_identity_{uuid.uuid4().hex}"
+
+    async def exercise():
+        await _prepare_schema(schema)
+        settings = {"search_path": f'"{schema}", public'}
+        pool = await asyncpg.create_pool(
+            POSTGRES_URL, server_settings=settings, min_size=1, max_size=2
+        )
+        conn = await asyncpg.connect(POSTGRES_URL, server_settings=settings)
+        try:
+            await conn.execute("""
+                ALTER TABLE actor_profiles ADD COLUMN personas TEXT[] DEFAULT ARRAY['investor','ria'],
+                  ADD COLUMN last_active_persona TEXT DEFAULT 'ria',
+                  ADD COLUMN investor_marketplace_opt_in BOOLEAN DEFAULT FALSE;
+                ALTER TABLE actor_identity_cache ADD COLUMN email_verified BOOLEAN DEFAULT FALSE,
+                  ADD COLUMN source TEXT, ADD COLUMN last_synced_at TIMESTAMPTZ DEFAULT NOW(),
+                  ADD COLUMN created_at TIMESTAMPTZ DEFAULT NOW(),
+                  ADD COLUMN updated_at TIMESTAMPTZ DEFAULT NOW();
+                CREATE TABLE ria_profiles (id UUID DEFAULT gen_random_uuid(), user_id TEXT PRIMARY KEY);
+                CREATE TABLE advisor_investor_relationships
+                  (id UUID, investor_user_id TEXT, last_request_id TEXT, ria_profile_id UUID, status TEXT);
+                CREATE TABLE marketplace_investor_actions (actor_user_id TEXT);
+                CREATE TABLE ria_business_contacts (user_id TEXT);
+                CREATE TABLE ria_license_verifications (user_id TEXT);
+                INSERT INTO ria_profiles (user_id) VALUES ('owner');
+                INSERT INTO actor_profiles (user_id) VALUES ('phone-session');
+            """)
+            service = _LiveMatcher(conn)
+            with (
+                patch.object(service, "_ensure_vault_user_row", AsyncMock()),
+                patch.object(service, "_set_runtime_last_persona", AsyncMock()),
+            ):
+                assert (await service.delete_ria_self_profile("owner"))["deleted"] is True
+            identity = ActorIdentityService()
+            from firebase_admin import auth as firebase_auth
+
+            monkeypatch.setattr(
+                firebase_auth,
+                "get_user",
+                lambda *_args, **_kwargs: SimpleNamespace(phone_number=None),
+            )
+            with (
+                patch(
+                    "hushh_mcp.services.actor_identity_service.get_pool",
+                    AsyncMock(return_value=pool),
+                ),
+                patch(
+                    "hushh_mcp.services.actor_identity_service.get_firebase_auth_app",
+                    return_value=object(),
+                ),
+                patch.object(identity, "_ensure_actor_spine", AsyncMock()),
+                patch.object(identity, "_sync_referral_qualification_best_effort", AsyncMock()),
+            ):
+                # The UID syntax gate is unrelated to this SQL fixture's short IDs.
+                with patch.object(identity, "_looks_like_firebase_uid", return_value=True):
+                    refreshed = await identity.sync_from_firebase("owner", force=True)
+                assert refreshed["phone_number"] == "+919000000001"
+                assert refreshed["phone_verified"] is True
+                stale = await identity.upsert_identity(
+                    user_id="phone-session",
+                    phone_number="+919000000001",
+                    phone_verified=True,
+                    source="firebase_auth",
+                )
+                assert stale["phone_verified"] is False
+                assert (await identity.get_many(["owner"]))["owner"]["phone_verified"] is True
+                # Fixed test codes may retry the same owner, but cannot prove
+                # possession for a different account or undo a committed claim.
+                assert (
+                    await identity.can_claim_test_phone(
+                        user_id="phone-session", phone_number="+919000000001"
+                    )
+                    is False
+                )
+                assert (
+                    await identity.can_claim_test_phone(
+                        user_id="owner", phone_number="+919000000001"
+                    )
+                    is True
+                )
+                with pytest.raises(ActorIdentityPhoneClaimConflictError):
+                    await identity.claim_verified_phone(
+                        user_id="phone-session",
+                        phone_number="+919000000001",
+                        source="uat_test_phone_claim",
+                    )
+                assert (await identity.get_many(["owner"]))["owner"]["phone_verified"] is True
+                retried = await identity.claim_verified_phone(
+                    user_id="owner", phone_number="+919000000001", source="uat_test_phone_claim"
+                )
+                assert retried["phone_verified"] is True
+                # Both start-flow hints can race on an unbound number. Only
+                # one fixed-code claimant may commit; the loser cannot clear it.
+                async with pool.acquire() as fixture_connection:
+                    await fixture_connection.execute(
+                        "INSERT INTO actor_profiles(user_id) VALUES ('test-alpha'), ('test-beta')"
+                    )
+                outcomes = await asyncio.gather(
+                    identity.claim_verified_phone(
+                        user_id="test-alpha",
+                        phone_number="+919000000002",
+                        source="uat_test_phone_claim",
+                    ),
+                    identity.claim_verified_phone(
+                        user_id="test-beta",
+                        phone_number="+919000000002",
+                        source="uat_test_phone_claim",
+                    ),
+                    return_exceptions=True,
+                )
+                assert (
+                    sum(
+                        isinstance(outcome, ActorIdentityPhoneClaimConflictError)
+                        for outcome in outcomes
+                    )
+                    == 1
+                )
+                assert (
+                    sum(
+                        isinstance(outcome, dict) and outcome.get("phone_verified") is True
+                        for outcome in outcomes
+                    )
+                    == 1
+                )
+                async with pool.acquire() as fixture_connection:
+                    assert (
+                        await fixture_connection.fetchval(
+                            "SELECT COUNT(*) FROM actor_identity_cache WHERE phone_number='+919000000002' AND phone_verified=TRUE"
+                        )
+                        == 1
+                    )
+                # Explicit OTP claims retain the established owner-transfer path.
+                claimed = await identity.claim_verified_phone(
+                    user_id="phone-session",
+                    phone_number="+919000000001",
+                )
+                assert claimed["phone_verified"] is True
+                assert (await identity.get_many(["owner"]))["owner"]["phone_verified"] is False
+        finally:
+            if not conn.is_closed():
+                await conn.close()
+            await pool.close()
+
+    try:
+        asyncio.run(exercise())
+    finally:
+        asyncio.run(_drop_schema(schema))
 
 
 async def _assert_policy_writers_wait_for_graph_lock(schema: str) -> None:

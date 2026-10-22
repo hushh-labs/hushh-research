@@ -466,6 +466,7 @@ export class HushhPersonalKnowledgeModelWeb
     vaultOwnerToken?: string;
   }): Promise<{
     success: boolean;
+    idempotentReplay?: boolean;
     conflict?: boolean;
     message?: string;
     dataVersion?: number;
@@ -580,6 +581,7 @@ export class HushhPersonalKnowledgeModelWeb
     const data = (await response.json()) as Record<string, unknown>;
     return {
       success: data.success !== false,
+      idempotentReplay: data.idempotent_replay === true,
       conflict: data.conflict === true,
       message: typeof data.message === "string" ? data.message : undefined,
       dataVersion: typeof data.data_version === "number" ? data.data_version : undefined,

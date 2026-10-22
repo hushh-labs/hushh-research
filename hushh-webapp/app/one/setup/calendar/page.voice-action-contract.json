@@ -96,5 +96,6 @@
         "components/onboarding/setup/setup-completion-footer.tsx"
       ]
     }
-  ]
+  ],
+  "search": {}
 }

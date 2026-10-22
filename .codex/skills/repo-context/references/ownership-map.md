@@ -52,12 +52,11 @@ Use this reference after the initial scan to choose the correct owner skill firs
 ### `security-audit`
 
 1. `iam-consent-governance`
-2. `vault-pkm-governance`
-3. `reviewer-app-testing`
-4. `pkm-upgrade-rehearsal`
-5. `quality-contracts`
-6. `streaming-contracts`
-7. `kai-test-account-reset`
+2. `reviewer-app-testing`
+3. `pkm-upgrade-rehearsal`
+4. `quality-contracts`
+5. `streaming-contracts`
+6. `kai-test-account-reset`
 
 ### `repo-operations`
 

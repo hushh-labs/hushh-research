@@ -9,7 +9,7 @@ set -euo pipefail
 readonly UAT_PROJECT_ID="hushh-pda-uat"
 readonly UAT_SCHEDULER_LOCATION="us-central1"
 readonly UAT_JOB_NAME="drive-work-drain-uat"
-readonly UAT_CRON="*/4 * * * *"
+readonly UAT_CRON="* * * * *"
 readonly UAT_TIMEZONE="Etc/UTC"
 readonly UAT_SCHEDULER_SERVICE_ACCOUNT_NAME="drive-work-drain-sched"
 # The scheduler can mint a bearer token for its target. Keep that target to
@@ -43,11 +43,11 @@ fi
 valid_stage=false
 if [[ "${JOB_NAME}" == "drive-work-drain-uat" \
   && "${STAGE}" == "documents" \
-  && "${CRON}" == "*/4 * * * *" ]]; then
+  && "${CRON}" == "* * * * *" ]]; then
   valid_stage=true
 elif [[ "${JOB_NAME}" == "drive-work-suggestions-uat" \
   && "${STAGE}" == "suggestions" \
-  && "${CRON}" == "2-59/4 * * * *" ]]; then
+  && "${CRON}" == "* * * * *" ]]; then
   valid_stage=true
 elif [[ "${JOB_NAME}" == "drive-work-sharing-uat" \
   && "${STAGE}" == "sharing" \
@@ -141,6 +141,20 @@ if gcloud scheduler jobs describe "${JOB_NAME}" \
 else
   gcloud scheduler jobs create http "${JOB_NAME}" "${COMMON_ARGS[@]}" \
     --headers="Content-Type=application/json" >/dev/null
+fi
+
+# Editing a paused Cloud Scheduler job keeps it paused. A full UAT worker
+# rollout requires the ordinary document, suggestion and sharing drains to run.
+# The maintenance-preserving release path does not call this helper.
+JOB_STATE="$(gcloud scheduler jobs describe "${JOB_NAME}" \
+  --project="${PROJECT_ID}" --location="${SCHEDULER_LOCATION}" \
+  --format='value(state)')"
+if [[ "${JOB_STATE}" == "PAUSED" ]]; then
+  gcloud scheduler jobs resume "${JOB_NAME}" \
+    --project="${PROJECT_ID}" --location="${SCHEDULER_LOCATION}" --quiet >/dev/null
+elif [[ "${JOB_STATE}" != "ENABLED" ]]; then
+  echo "Cloud Scheduler job is not ready to resume: ${JOB_NAME}" >&2
+  exit 1
 fi
 
 JOB_EVIDENCE="$(gcloud scheduler jobs describe "${JOB_NAME}" \

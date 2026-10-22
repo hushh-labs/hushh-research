@@ -1,0 +1,280 @@
+/**
+ * The Profile pane is how /one/profile/world-model is presented: proxy.ts
+ * redirects every Profile path to /one?profile_pane=1&profile_panel=<panel>.
+ * A pane address naming the model must show the model, never the Profile root
+ * menu and never a redirect back to the route (which proxy.ts sends back here).
+ */
+import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const nav = vi.hoisted(() => ({
+  query: "profile_pane=1&profile_panel=world-model",
+  router: {
+    push: vi.fn(),
+    replace: vi.fn(),
+    back: vi.fn(),
+    prefetch: vi.fn(),
+    refresh: vi.fn(),
+    forward: vi.fn(),
+  },
+}));
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/one",
+  useRouter: () => nav.router,
+  useSearchParams: () => new URLSearchParams(nav.query),
+}));
+const auth = vi.hoisted(() => ({
+  user: {
+    uid: "owner-a",
+    displayName: "",
+    email: null,
+    emailVerified: false,
+    providerData: [],
+    getIdToken: async () => "id-token",
+  },
+  loading: false,
+  sessionVerificationRequired: false,
+  phoneNumber: null,
+  signOut: async () => undefined,
+  startPhoneVerification: async () => undefined,
+  confirmPhoneVerification: async () => undefined,
+  startPhoneReplacement: async () => undefined,
+  confirmPhoneReplacement: async () => undefined,
+}));
+vi.mock("@/lib/firebase/auth-context", () => ({ useAuth: () => auth }));
+const vault = vi.hoisted(() => ({
+  vaultKey: "key-a",
+  vaultOwnerToken: "token-a",
+  isVaultUnlocked: true,
+  tokenExpiresAt: null,
+  getVaultOwnerToken: () => "token-a",
+}));
+vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => vault }));
+vi.mock("@/lib/persona/persona-context", () => ({
+  usePersonaState: () => ({ personaState: null, refresh: async () => undefined }),
+}));
+
+// The validated auth session and vault epoch are runtime singletons; here the
+// session is the mocked owner above, current until the abort signal fires.
+vi.mock("@/lib/agent/agent-pkm-capture-runtime", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@/lib/agent/agent-pkm-capture-runtime")
+  >()),
+  createAgentPkmCaptureGuard: ({
+    signal,
+    isEnabled,
+  }: {
+    signal: AbortSignal;
+    isEnabled: () => boolean;
+  }) => ({
+    isCurrent: () => !signal.aborted && isEnabled(),
+    assertCurrent: async () => {
+      if (signal.aborted || !isEnabled()) throw new Error("stale");
+    },
+  }),
+}));
+
+import { ProfilePage } from "@/components/profile/profile-workspace-page";
+import { WorldModelProvider } from "@/components/profile/world-model-provider";
+import { WorldModelResearchService } from "@/lib/services/world-model-research-service";
+import { WorldModelDecisionService } from "@/lib/services/world-model-decision-service";
+import { VaultService } from "@/lib/services/vault-service";
+import { StepProgressProvider } from "@/lib/progress/step-progress-context";
+import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
+import { ConsentCenterService } from "@/lib/services/consent-center-service";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  publishValidatedAuthSessionOwner(auth.user.uid);
+  nav.query = "profile_pane=1&profile_panel=world-model";
+  // Profile's own background reads (identity, vault, discoverability) answer
+  // "not found"; this test is about what the pane shows, not those reads.
+  window.history.replaceState(null, "", `/one?${nav.query}`);
+  vi.spyOn(VaultService, "checkVault").mockResolvedValue(true);
+  vi.spyOn(globalThis, "fetch").mockImplementation(
+    async () =>
+      new Response(JSON.stringify({}), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      }),
+  );
+});
+
+afterEach(() => {
+  publishValidatedAuthSessionOwner(null);
+  vi.restoreAllMocks();
+});
+
+function activeScreen() {
+  return document.querySelector<HTMLElement>(
+    '[data-profile-stack-active="true"]',
+  );
+}
+
+describe("Profile pane: Personal World Model", () => {
+  it("does not replace an explicit Memory refresh with a late initialization response", async () => {
+    nav.query = "profile_pane=1&profile_panel=my-data";
+    window.history.replaceState(null, "", `/one?${nav.query}`);
+    const metadata = (label: string) => ({ ...PersonalKnowledgeModelService.emptyMetadata(auth.user.uid),
+      domains: [{ key: "synthetic", displayName: label, attributeCount: 1, summary: {}, availableScopes: [], lastUpdated: null }] });
+    let resolveInitial!: (value: ReturnType<typeof metadata>) => void;
+    const initial = new Promise<ReturnType<typeof metadata>>(resolve => { resolveInitial = resolve; });
+    const read = vi.spyOn(PersonalKnowledgeModelService, "getMetadata").mockImplementation((_id, force) =>
+      force ? Promise.resolve(metadata("Fresh category")) : initial);
+    vi.spyOn(ConsentCenterService, "getCenter").mockResolvedValue({ active_grants: [] } as never);
+    render(<StepProgressProvider><ProfilePage presentation="pane" paneLocation={{ panel: "my-data", detail: null }} /></StepProgressProvider>);
+    await waitFor(() => expect(read).toHaveBeenCalled());
+    act(() => { window.dispatchEvent(new CustomEvent("pkm-domain-changed", { detail: { userId: auth.user.uid } })); });
+    await waitFor(() => expect(within(activeScreen()!).getByText("Fresh category")).toBeInTheDocument());
+    act(() => { resolveInitial(metadata("Stale category")); });
+    // Let the intentionally deferred initialization settle without awaiting
+    // unrelated live-resource effects in one global async React act scope.
+    await initial;
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(within(activeScreen()!).getByText("Fresh category")).toBeInTheDocument();
+    expect(within(activeScreen()!).queryByText("Stale category")).not.toBeInTheDocument();
+  });
+  it.each(["domain:missing", "connection:missing"] as const)("retains a destination body when %s cannot resolve", detail => {
+    nav.query = `profile_pane=1&profile_panel=my-data&profile_detail=${encodeURIComponent(detail)}`;
+    window.history.replaceState(null, "", `/one?${nav.query}`);
+    render(<StepProgressProvider><ProfilePage presentation="pane" paneLocation={{ panel: "my-data", detail }} /></StepProgressProvider>);
+    expect(activeScreen()?.dataset.profileStackScreen).toBe(`detail:${detail}`);
+    expect(within(activeScreen()!).getByRole("status")).toHaveTextContent(/Loading|Couldn’t load|no longer available/);
+    expect(nav.router.replace).not.toHaveBeenCalled();
+  });
+  it("renders the model in the pane instead of the Profile root menu", async () => {
+    render(
+      <ProfilePage
+        presentation="pane"
+        paneLocation={{ panel: "world-model", detail: null }}
+      />,
+    );
+    await act(async () => {});
+    const status = await screen.findByText("Checking your model…");
+    // The visible stack screen is the model, holding its status region; the
+    // Profile root menu is only the hidden screen behind it.
+    const active = activeScreen();
+    expect(active?.dataset.profileStackScreen).toBe("panel:world-model");
+    expect(active).toContainElement(status);
+    const row = status.closest("[data-testid='pwm-status-row']");
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByRole("status")).toHaveTextContent("This only takes a moment.");
+    expect(within(active!).queryByText("Your account")).toBeNull();
+    // The pane never sends the owner to the route proxy.ts redirects back here.
+    expect(nav.router.replace).not.toHaveBeenCalled();
+    expect(nav.router.push).not.toHaveBeenCalled();
+  });
+
+  it("shows what the app-level provider prepares, though the pane is mounted beside it", async () => {
+    vi.spyOn(WorldModelDecisionService, "load").mockResolvedValue({
+      claims: {},
+      saved: [],
+      decidedKeys: new Set(),
+    });
+    const observe = vi
+      .spyOn(WorldModelResearchService, "observe")
+      .mockImplementation(({ onResult }) => {
+        onResult({
+          status: "pending",
+          pkm_written: false,
+          restart_required: false,
+        });
+        // The real service keeps watching while research runs; resolving
+        // here would read as an exhausted watch, not a live one.
+        return new Promise<void>(() => {});
+      });
+    vi.spyOn(WorldModelResearchService, "preferences").mockResolvedValue({
+      enabled: true,
+      email_enabled: true,
+      consent_version: "pwm-native-v1",
+      research_provider: "vertex_google_search",
+    });
+    // As in app/providers.tsx: the pane is a sibling of the provider's tree.
+    render(
+      <>
+        <WorldModelProvider>
+          <main />
+        </WorldModelProvider>
+        <ProfilePage
+          presentation="pane"
+          paneLocation={{ panel: "world-model", detail: null }}
+        />
+      </>,
+    );
+    const status = await screen.findByText("Preparing your model");
+    expect(activeScreen()).toContainElement(status);
+    // One reader prepares the model; the pane never starts its own.
+    expect(observe).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Checking your model…")).toBeNull();
+    // Never idle: the row says what is happening even before progress arrives.
+    const row = status.closest("[data-testid='pwm-status-row']") as HTMLElement;
+    expect(within(row).getByRole("status").textContent).not.toBe("");
+    expect(within(activeScreen()!).getByTestId("pwm-progress-row")).toBeInTheDocument();
+  });
+
+  it("builds every card the way the Payouts pane does", async () => {
+    vi.spyOn(WorldModelDecisionService, "load").mockResolvedValue({
+      claims: {},
+      saved: [],
+      decidedKeys: new Set(),
+    });
+    vi.spyOn(WorldModelResearchService, "observe").mockImplementation(
+      async ({ onResult }) => {
+        onResult({ status: "pending", pkm_written: false, restart_required: false });
+      },
+    );
+    vi.spyOn(WorldModelResearchService, "preferences").mockResolvedValue({
+      enabled: true,
+      email_enabled: true,
+      consent_version: "pwm-native-v1",
+      research_provider: "vertex_google_search",
+    });
+    render(
+      <>
+        <WorldModelProvider>
+          <main />
+        </WorldModelProvider>
+        <ProfilePage
+          presentation="pane"
+          paneLocation={{ panel: "world-model", detail: null }}
+        />
+      </>,
+    );
+    await screen.findByText("Preparing your model");
+    await screen.findByText("Research and email");
+    const page = activeScreen()!.querySelector<HTMLElement>("[data-pwm-page]")!;
+    const groups = within(page).getAllByTestId("settings-group");
+    expect(groups.length).toBeGreaterThanOrEqual(3);
+    for (const group of groups) {
+      // Compact density like Payouts, and only settings rows inside: no
+      // hand-padded text blocks or lists of their own.
+      expect(group).toHaveAttribute("data-settings-density", "compact");
+      expect(group.querySelector(".px-4.py-3, .px-4.pb-3, ul.divide-y")).toBeNull();
+      for (const row of group.querySelectorAll("[data-testid$='-row']"))
+        expect(row).toHaveAttribute("data-settings-density", "compact");
+    }
+    // Notes outside the cards use the pane's note style.
+    for (const note of page.querySelectorAll(".profile-account-note"))
+      expect(note).toHaveAttribute("data-ui-role", "helper-text");
+  });
+
+  it("opens the model inside the pane from the Profile row", async () => {
+    nav.query = "profile_pane=1";
+    window.history.replaceState(null, "", `/one?${nav.query}`);
+    render(
+      <ProfilePage presentation="pane" paneLocation={{ panel: null, detail: null }} />,
+    );
+    await act(async () => {});
+    const row = await within(activeScreen()!).findByText("Personal World Model");
+    await act(async () => {
+      row.click();
+    });
+    const params = new URLSearchParams(window.location.search);
+    expect(window.location.pathname).toBe("/one");
+    expect(params.get("profile_pane")).toBe("1");
+    expect(params.get("profile_panel")).toBe("world-model");
+    expect(nav.router.push).not.toHaveBeenCalled();
+    expect(nav.router.replace).not.toHaveBeenCalled();
+  });
+});

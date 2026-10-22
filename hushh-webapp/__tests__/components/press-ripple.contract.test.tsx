@@ -1,6 +1,8 @@
 /**
- * Press contract: a press is FLAT (colour or opacity plus the ripple), never a
- * scale, spring, or bounce, and the ripple is on by default everywhere a
+ * Press contract: a press is FLAT (colour or opacity plus the ripple), except
+ * the Chat composer Send button's specified 0.92 press scale and the
+ * mentor's exact V7.2 onboarding CTA's 0.985 press scale. Springs and
+ * bounce remain disallowed, and the ripple is on by default everywhere a
  * person taps, agent chat included.
  *
  * Founder report (2026-09-28): the sign-in buttons ("Create your One", Apple,
@@ -25,6 +27,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { AgentFollowUpSuggestions } from "@/components/agent/agent-follow-up-suggestions";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { AppStreamSection } from "@/components/app-ui/stream-progress-panel";
 import { AuthProviderButton } from "@/components/onboarding/AuthProviderButton";
 import { IntroStep } from "@/components/onboarding/IntroStep";
 import { Button as StockButton } from "@/components/ui/button";
@@ -61,7 +64,7 @@ function findBounceClasses(source: string): string[] {
 }
 
 /** Any CSS `:active` rule, or the press utility, that sets a transform. */
-function findActiveTransforms(css: string): string[] {
+function findActiveTransforms(css: string, allow?: (selector: string, body: string) => boolean): string[] {
   const hits: string[] = [];
   const rule = /([^{}]+)\{([^{}]*)\}/g;
   for (const match of css.matchAll(rule)) {
@@ -69,11 +72,28 @@ function findActiveTransforms(css: string): string[] {
     const body = match[2];
     const isPressRule =
       /:active\b/.test(selector) || /\.press-scale\b/.test(selector);
-    if (isPressRule && /\btransform\s*:(?!\s*none\b)/.test(body)) {
+    if (isPressRule && /\btransform\s*:(?!\s*none\b)/.test(body) && !allow?.(selector, body)) {
       hits.push(selector);
     }
   }
   return hits;
+}
+
+const SEND_SCALE_EXCEPTIONS = new Map([
+  ["components/direct-messages/direct-messages-page.module.css", ".sendButton:active"],
+  ["components/connect/circles/circle-chat-lane.module.css", '.composer :global([data-conversation-composer] button[type="submit"]:active)'],
+]);
+
+function isSpecifiedSendScale(file: string, selector: string, body: string): boolean {
+  const transforms = [...body.matchAll(/\btransform\s*:\s*([^;]+)\s*;?/g)].map((match) => match[1]?.trim());
+  return SEND_SCALE_EXCEPTIONS.get(file.replaceAll("\\", "/")) === selector && transforms.length === 1 && transforms[0] === "scale(.92)";
+}
+
+/** The supplied V7.2 artifact explicitly owns this one bounded press treatment. */
+function isMentorOnboardingScale(file: string, selector: string, body: string): boolean {
+  if (file.replaceAll("\\", "/") !== "components/onboarding/mentor-onboarding/onboarding.css" || selector !== ".ao-primary:active") return false;
+  const transforms = [...body.matchAll(/\btransform\s*:\s*([^;]+)\s*;?/g)].map((match) => match[1]?.trim());
+  return transforms.length === 1 && transforms[0] === "scale(.985)";
 }
 
 function listSourceFiles(dir: string): string[] {
@@ -169,6 +189,13 @@ describe("scanners (negative controls)", () => {
         ".a:active { opacity: 0.8; }\n.press-scale { transform: none; }",
       ),
     ).toEqual([]);
+    expect(isSpecifiedSendScale("components/direct-messages/direct-messages-page.module.css", ".sendButton:active", "transform: scale(.92); ")).toBe(true);
+    expect(isSpecifiedSendScale("components/direct-messages/direct-messages-page.module.css", ".sendButton:active", "transform: scale(.97); ")).toBe(false);
+    expect(isSpecifiedSendScale("components/direct-messages/direct-messages-page.module.css", ".other:active", "transform: scale(.92); ")).toBe(false);
+    expect(isSpecifiedSendScale("components\\direct-messages\\direct-messages-page.module.css", ".sendButton:active", "transform: scale(.92); ")).toBe(true);
+    expect(isMentorOnboardingScale("components/onboarding/mentor-onboarding/onboarding.css", ".ao-primary:active", "transform: scale(.985);")).toBe(true);
+    expect(isMentorOnboardingScale("components/onboarding/mentor-onboarding/onboarding.css", ".ao-primary:active", "transform: scale(.9);")).toBe(false);
+    expect(isMentorOnboardingScale("components/other.css", ".ao-primary:active", "transform: scale(.985);")).toBe(false);
   });
 });
 
@@ -183,12 +210,13 @@ describe("no bounce", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("keeps every :active rule and the press utility transform-free", () => {
+  it("keeps active transforms limited to the specified Chat and mentor onboarding controls", () => {
     const offenders = ["app", "components", "lib"]
       .flatMap(listSourceFiles)
       .filter((file) => file.endsWith(".css"))
       .flatMap((file) =>
-        findActiveTransforms(read(file)).map((sel) => `${file}: ${sel}`),
+        findActiveTransforms(read(file), (selector, body) => isSpecifiedSendScale(file, selector, body) || isMentorOnboardingScale(file, selector, body))
+          .map((sel) => `${file}: ${sel}`),
       );
     expect(offenders).toEqual([]);
   });
@@ -294,10 +322,7 @@ describe("reduced motion", () => {
 describe("named buttons from the founder report", () => {
   it("renders Create your One through the primitive, flat and rippled", () => {
     render(<IntroStep onLogin={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
-    fireEvent.click(screen.getByRole("button", { name: "Meet your agents" }));
-    fireEvent.click(screen.getByRole("button", { name: "See what’s next" }));
-    const cta = screen.getByRole("button", { name: "Create your One" });
+    const cta = screen.getByRole("button", { name: "Create your One", exact: true });
     expect(rippleHosts(cta)).toHaveLength(1);
     expect(cta.className).not.toMatch(/press-scale|scale-/);
   });
@@ -376,11 +401,11 @@ describe("agent chat", () => {
 
     const workspace = read("components/agent/agent-chat-workspace.tsx");
     expect(workspace).toMatch(
-      /type="submit"\s+rippleEffect="fill"[\s\S]{0,400}aria-label="Send message"/,
+      /type="submit"\s+data-agent-composer-action="send"\s+rippleEffect="fill"[\s\S]{0,500}aria-label="Send message"/,
     );
   });
 
-  it("wires the ripple into the chat's message actions and Activity trigger", () => {
+  it("wires the ripple into the chat's message actions and Activity trigger", async () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
     for (const label of [
       "Copy response",
@@ -393,12 +418,18 @@ describe("agent chat", () => {
       const close = workspace.indexOf("</button>", at);
       expect(workspace.slice(at, close), label).toContain("<MaterialRipple");
     }
-    const activity = read("components/app-ui/stream-progress-panel.tsx");
-    const trigger = activity.slice(
-      activity.indexOf("<CollapsibleTrigger asChild>"),
-      activity.indexOf("</CollapsibleTrigger>"),
-    );
-    expect(trigger).toContain("<MaterialRipple");
-    expect(trigger).toMatch(/className="[^"]*\brelative\b/);
+    // The control can compose classes with cn(). Prove its rendered ripple
+    // ownership for both appearances instead of requiring literal JSX syntax.
+    for (const appearance of ["surface", "plain"] as const) {
+      const view = render(<AppStreamSection title="Activity" items={[]} defaultOpen={false} appearance={appearance} />);
+      const trigger = screen.getByRole("button", { name: "Activity" });
+      expect(trigger).toHaveClass("relative");
+      expect(rippleHosts(trigger)).toHaveLength(1);
+      await waitFor(() => {
+        const ripple = trigger.querySelector("md-ripple") as (HTMLElement & { attachedTo: HTMLElement | null }) | null;
+        expect(ripple?.attachedTo).toBe(trigger);
+      });
+      view.unmount();
+    }
   });
 });

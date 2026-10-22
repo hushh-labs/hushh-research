@@ -21,7 +21,9 @@ def test_careers_actions_are_in_the_generated_gateway() -> None:
 
 
 @pytest.mark.parametrize("value", ["", "false", "0"])
-def test_kill_switch_off_hides_careers_from_chat(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+def test_kill_switch_off_hides_careers_from_chat(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
     monkeypatch.setenv("ONE_CAREER_ENABLED", value)
     assert not (CAREERS_ACTIONS & _action_ids())
 

@@ -2,6 +2,7 @@ import { NetworkStatusBanner } from "@/components/system/network-status-banner";
 import { BootSurface } from "@/components/app-ui/boot-surface";
 import { JsonLd } from "@/components/seo/json-ld";
 import { ThemeProvider } from "@/components/theme-provider";
+import { SITE_URL } from "@/lib/seo/site";
 import { buildOrganizationGraph } from "@/lib/seo/structured-data";
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
@@ -22,7 +23,7 @@ const nativeRuntimeAttestation = (() => {
 })();
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://hushh.ai"),
+  metadataBase: new URL(SITE_URL),
   title: "Hussh One | Your Private Agent",
   description:
     "Private AI agents with consent at the core. Your information, your control.",
@@ -53,7 +54,7 @@ export const metadata: Metadata = {
     title: "Hussh One | Your Private Agent",
     description: "Private AI agents with consent at the core.",
     siteName: "Hussh",
-    url: "https://hushh.ai",
+    url: SITE_URL,
     type: "website",
     images: [
       {
@@ -133,6 +134,7 @@ export default function RootLayout({
             }}
           />
         ) : null}
+        <Script id="calendar-capability-consume" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: "if(window.location.pathname.replace(/\\/$/,'')==='/calendar/reschedule'&&window.location.hash){window.__oneCalendarReschedulingCapability=window.location.hash.slice(1);window.history.replaceState(window.history.state,'',window.location.pathname);}" }} />
         {loadWebAnalyticsScripts && analyticsMeasurementId ? (
           <>
             <Script

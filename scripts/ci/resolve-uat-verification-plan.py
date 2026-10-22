@@ -83,6 +83,8 @@ def _is_reviewer_byok(path: str) -> bool:
         in {
             "hushh-webapp/scripts/testing/reviewer-test-identity.mjs",
             "hushh-webapp/lib/services/vault-service.ts",
+            "hushh-webapp/components/profile/world-model-provider.tsx",
+            "hushh-webapp/lib/services/world-model-research-service.ts",
             "consent-protocol/api/routes/app_review.py",
         }
     )

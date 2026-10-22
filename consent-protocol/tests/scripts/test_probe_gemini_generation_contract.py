@@ -143,7 +143,7 @@ def test_dry_run_builds_no_client_and_writes_nothing(
     assert rc == 0
     assert not out.exists()
     captured = capsys.readouterr().out
-    assert "gemini-3.6-flash   thinking_level:MINIMAL" in captured
+    assert "gemini-3.8-flash   thinking_level:MINIMAL" in captured
     assert "no client built" in captured
 
 

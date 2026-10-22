@@ -88,7 +88,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { deriveLocationVoiceActions } from "@/lib/voice/location-voice-actions";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 const SCREEN_ID = "one_location_sos";
 const VOICE_ACTIONS = deriveLocationVoiceActions(SCREEN_ID);
@@ -818,7 +818,7 @@ export function SaveMySoul() {
               <EmptyState
                 icon={<PhoneCall className="h-6 w-6" aria-hidden />}
                 title="No emergency contacts yet"
-                description="Nobody would be alerted. Add at least one connected person with a verified phone."
+                description="Nobody would be alerted. Add at least one connection ready to receive location."
                 action={
                   <Button asChild size="sm">
                     <Link href={hrefForLocationAction("sms-contacts")}>

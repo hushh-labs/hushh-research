@@ -63,7 +63,7 @@ export function AccountLifecycleStepBridge() {
         },
         afterReset: async (uid) => {
           CacheSyncService.onAccountDeleted(uid);
-          await UserLocalStateService.clearForUser(uid);
+          await UserLocalStateService.clearForUser(uid, { deleteDurableReceipts: true });
           setOnboardingRequiredCookie(true);
           setOnboardingFlowActiveCookie(true);
           router.replace(ROUTES.ONE_SETUP);

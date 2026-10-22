@@ -1,0 +1,143 @@
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+const mocks = vi.hoisted(() => ({ history: vi.fn(), revoke: vi.fn(), profile: vi.fn(), subscribe: vi.fn(), current: true }));
+vi.mock("@/lib/services/wallet-card-access-service", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/services/wallet-card-access-service")>(), WalletCardAccessService: mocks,
+}));
+import { CardAccessUnavailableError } from "@/lib/services/wallet-card-access-service";
+vi.mock("@/components/wallet/wallet-saved-card-sharing", () => ({ WalletSavedCardSharing: () => null }));
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
+vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { promise: vi.fn() } }));
+import { WalletSharingHistory } from "@/components/wallet/wallet-sharing-history";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+
+const context = { userId: "owner", vaultKey: "memory-only", vaultOwnerToken: "consent", getIdToken: async () => "identity", isCurrent: () => mocks.current };
+const getContext = () => context;
+const item = (id: string) => ({ id, cardId: "card_1", cardType: "payment", displayLabel: "VISA •••• 4242", recipientName: id, senderName: "Owner", createdAt: "2026-10-12T10:00:00Z", expiresAt: "2026-10-12T10:15:00Z", durationMinutes: 15, status: "active", trustedCircle: false, verificationMethod: "identity_reauthentication", verifiedAt: null, revokedAt: null, lastAccessedAt: "2026-10-12T10:01:00Z", activity: [{ event: "SHARE_CREATED", at: "2026-10-12T10:00:00Z", actor: "owner", outcome: "recorded" }] });
+const page = (ids: string[], cursor: string | null = null) => ({ items: ids.map(item), hasMore: Boolean(cursor), nextCursor: cursor, serverNow: "2026-10-12T10:02:00Z" });
+beforeEach(() => {
+  vi.clearAllMocks(); mocks.current = true;
+  mocks.subscribe.mockReturnValue(() => {}); mocks.profile.mockResolvedValue({ eligible: false, cardId: null });
+  mocks.history.mockResolvedValue(page(["First"])); mocks.revoke.mockResolvedValue({ revoked: true });
+});
+describe("Wallet's participant-scoped sharing ledger", () => {
+  it("preloads inactive history, retains pages across tabs, and discards late replies on session invalidation", async () => {
+    mocks.history.mockResolvedValueOnce(page(["First"], "payment:cursor")).mockResolvedValueOnce(page(["Second"]));
+    const view = render(<WalletSharingHistory ownerId="owner" active={false} getContext={getContext} />);
+    await waitFor(() => expect(mocks.history).toHaveBeenCalledTimes(1));
+    view.rerender(<WalletSharingHistory ownerId="owner" active getContext={getContext} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Load more shares" }));
+    await screen.findByText("Second");
+    view.rerender(<WalletSharingHistory ownerId="owner" active={false} getContext={getContext} />);
+    view.rerender(<WalletSharingHistory ownerId="owner" active getContext={getContext} />);
+    expect(screen.getByText("Second")).toBeVisible();
+    expect(screen.queryByText("Loading shared cards...")).toBeNull();
+    expect(mocks.history).toHaveBeenCalledTimes(2);
+    let finish!: (value: ReturnType<typeof page>) => void;
+    mocks.history.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
+    mocks.current = false;
+    act(() => advanceVaultSessionEpoch());
+    expect(screen.queryByText("Second")).toBeNull();
+    await act(async () => finish(page(["Old session reply"])));
+    expect(screen.queryByText("Old session reply")).toBeNull();
+    mocks.current = true;
+    mocks.history.mockResolvedValue(page(["New session"]));
+    act(() => advanceVaultSessionEpoch());
+    expect(await screen.findByText("New session")).toBeVisible();
+  });
+  it("renders real timing, recipient, verification and activity and confirms recipient-specific revocation", async () => {
+    const record = item("First");
+    record.activity.push(...Array.from({ length: 4 }, () => ({ event: "SHARE_OPENED", at: "2026-10-12T10:01:00Z", actor: "recipient", outcome: "opened" })));
+    mocks.history.mockResolvedValue({ ...page(["First"]), items: [record], recipientCount: 7 });
+    render(<WalletSharingHistory ownerId="owner" active getContext={getContext} />);
+    expect(await screen.findByText("First")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Shared cards | 7" })).toBeVisible();
+    expect(screen.queryByText("Identity verification required")).toBeNull();
+    expect(screen.queryByText(/15 minutes/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "View VISA •••• 4242 shared with First" }));
+    expect(screen.getAllByText(/share opened/)).toHaveLength(1);
+    expect(screen.getByText(/15 minutes/)).toBeVisible();
+    expect(screen.getByText("Identity verification required")).toBeVisible();
+    expect(screen.getByText(/Last viewed/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Revoke VISA •••• 4242 shared with First" }));
+    expect(mocks.revoke).not.toHaveBeenCalled();
+    // Preserve Cancel -> Escape -> reopen -> commit in one mounted owner.
+    // Browser cases separately retain the pixel and focus/return contracts.
+    fireEvent.click(screen.getByRole("button", { name: "Keep sharing", exact: true }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Revoke VISA •••• 4242 shared with First" })).toHaveFocus());
+    expect(mocks.revoke).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Revoke VISA •••• 4242 shared with First" }));
+    fireEvent.keyDown(document, { key: "Escape", code: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Revoke VISA •••• 4242 shared with First" })).toHaveFocus());
+    expect(mocks.revoke).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Revoke VISA •••• 4242 shared with First" }));
+    act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.getByText("Identity verification required")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Revoke VISA •••• 4242 shared with First" }));
+    fireEvent.click(screen.getByRole("button", { name: "Revoke access", exact: true }));
+    await waitFor(() => expect(mocks.revoke).toHaveBeenCalledWith(expect.objectContaining({ userId: context.userId, isCurrent: expect.any(Function) }), "First"));
+    expect(mocks.revoke).toHaveBeenCalledTimes(1);
+    act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByText("First")).toBeVisible();
+  });
+  it("keeps loaded history through refresh and rejects a late page after the owner changes", async () => {
+    mocks.history.mockResolvedValueOnce(page(["First"], "payment:cursor")).mockResolvedValueOnce(page(["Second"]));
+    const view = render(<WalletSharingHistory ownerId="owner" active getContext={getContext} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Load more shares" }));
+    await screen.findByText("Second");
+    mocks.history.mockResolvedValueOnce(page(["First"], "payment:cursor")).mockResolvedValueOnce(page(["Second"]));
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
+    await waitFor(() => expect(mocks.history).toHaveBeenCalledTimes(4));
+    expect(screen.getByText("Second")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "View VISA •••• 4242 shared with Second" }));
+    expect(screen.getByRole("dialog")).toBeVisible();
+    let finish!: (value: ReturnType<typeof page>) => void;
+    mocks.history.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
+    mocks.current = false;
+    view.rerender(<WalletSharingHistory ownerId="other" active getContext={getContext} />);
+    await act(async () => finish(page(["Old owner reply"])));
+    expect(screen.queryByText(/First|Second|Old owner reply/)).toBeNull();
+  });
+  it("does not claim an empty ledger when loading fails, and uses the received direction", async () => {
+    mocks.history.mockRejectedValueOnce(new Error("offline"));
+    const view = render(<WalletSharingHistory ownerId="owner" active getContext={getContext} />);
+    await screen.findByRole("alert");
+    expect(screen.queryByText("No cards shared yet")).toBeNull();
+    view.rerender(<WalletSharingHistory ownerId="owner" active getContext={getContext} direction="received" />);
+    await waitFor(() => expect(mocks.history).toHaveBeenLastCalledWith(context, { direction: "received" }, expect.any(AbortSignal)));
+    await screen.findByText("Owner");
+    fireEvent.click(screen.getByRole("button", { name: "View VISA •••• 4242 from Owner" }));
+    expect(screen.getByText("Identity verification required")).toBeVisible();
+    expect(screen.queryByRole("button", { name: /Revoke/ })).toBeNull();
+  });
+});
+
+it("pauses timer, focus and pagination reads while unavailable, retains history, and allows retry", async () => {
+  const intervals = vi.spyOn(window, "setInterval");
+  mocks.history.mockResolvedValueOnce(page(["Verified history"], "payment:cursor"));
+  const view = render(<WalletSharingHistory ownerId="owner" active getContext={getContext} />);
+  await screen.findByText("Verified history");
+  mocks.history.mockRejectedValueOnce(new CardAccessUnavailableError("WALLET_CARD_ACCESS_DISABLED"));
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  await screen.findByText("Card sharing is unavailable. Automatic refresh is paused.");
+  expect(screen.getByText("Verified history")).toBeVisible();
+  const refresh = intervals.mock.calls.find(call => call[1] === 30_000)?.[0] as () => void;
+  expect(refresh).toBeTypeOf("function");
+  await act(async () => { refresh(); window.dispatchEvent(new Event("focus")); });
+  fireEvent.click(screen.getByRole("button", { name: "Load more shares" }));
+  expect(mocks.history).toHaveBeenCalledTimes(2);
+  fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+  await waitFor(() => expect(mocks.history).toHaveBeenCalledTimes(3));
+  mocks.history.mockRejectedValueOnce(new CardAccessUnavailableError("WALLET_CARD_ACCESS_NOT_READY"));
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  await screen.findByText("Card sharing is unavailable. Automatic refresh is paused.");
+  await act(async () => advanceVaultSessionEpoch("test-new-session"));
+  await waitFor(() => expect(mocks.history).toHaveBeenCalledTimes(5));
+  view.unmount(); intervals.mockRestore();
+});

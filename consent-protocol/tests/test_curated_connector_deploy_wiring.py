@@ -21,6 +21,9 @@ from hushh_mcp.services.curated_connector_manifest import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CLOUDBUILD = (REPO_ROOT / "deploy" / "backend.cloudbuild.yaml").read_text(encoding="utf-8")
 UAT_WORKFLOW = (REPO_ROOT / ".github" / "workflows" / "deploy-uat.yml").read_text(encoding="utf-8")
+PROD_WORKFLOW = (REPO_ROOT / ".github" / "workflows" / "deploy-production.yml").read_text(
+    encoding="utf-8"
+)
 
 
 def _load(path: Path, name: str):
@@ -119,3 +122,29 @@ def test_the_rollout_flag_still_gates_the_secret_names():
     )[0]
     assert 'CURATED_CONNECTORS_ENABLED}" = "true"' in step
     assert "vars.CURATED_MCP_CONNECTORS_UAT" in step
+
+
+def test_production_uses_its_own_opt_in_and_fails_before_deploy_on_missing_clients():
+    step = PROD_WORKFLOW.split("Resolve production curated connector secrets", 1)[1].split(
+        "Resolve production Drive release mode", 1
+    )[0]
+    assert "vars.CURATED_MCP_CONNECTORS_PROD || 'false'" in step
+    assert "scripts/ci/curated_connector_secrets.py" in step
+    assert "gcloud secrets versions describe latest" in step
+    assert "EXTERNAL_CONNECTOR_CREDENTIAL_KEY" in step
+    assert '"${state}" != "ENABLED"' in step
+    assert '--project="${{ env.GCP_PROJECT_ID }}"' in step
+    assert (
+        "_CURATED_CONNECTOR_SECRETS=${{ steps.prod-curated-secrets.outputs.names }}"
+        in PROD_WORKFLOW
+    )
+    assert (
+        'elif [ "${{ steps.prod-curated-secrets.outputs.enabled }}" = "true" ]; then'
+        in PROD_WORKFLOW
+    )
+    assert (
+        "_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET=EXTERNAL_CONNECTOR_CREDENTIAL_KEY"
+        in PROD_WORKFLOW
+    )
+    assert '--curated-mcp-connectors "$PROD_CURATED_MCP_CONNECTORS"' in PROD_WORKFLOW
+    assert "CURATED_MCP_CONNECTORS_UAT" not in PROD_WORKFLOW

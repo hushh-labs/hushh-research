@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+import threading
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -12,6 +15,68 @@ def _build_app() -> FastAPI:
     app = FastAPI()
     app.include_router(notifications.router)
     return app
+
+
+@pytest.mark.asyncio
+async def test_registration_keeps_auth_db_and_chat_recovery_off_the_serving_loop(monkeypatch):
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    from hushh_mcp.services import (
+        chat_push_delivery,
+        circle_chat_notifications,
+        direct_message_notifications,
+    )
+    from hushh_mcp.services.chat_push_delivery import b64
+
+    loop_thread = threading.get_ident()
+    threads = []
+    key = (
+        ec.generate_private_key(ec.SECP256R1())
+        .public_key()
+        .public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+    )
+    body = {
+        "user_id": "current-owner",
+        "token": "fixture-token",
+        "platform": "ios",
+        "device_id": "388b1e4b-25cf-4c63-aed0-281607f3dd9b",
+        "preview_key_id": "488b1e4b-25cf-4c63-aed0-281607f3dd9b",
+        "preview_public_key": b64(key),
+    }
+
+    def verify(_header):
+        threads.append(threading.get_ident())
+        return "current-owner"
+
+    def upsert(**fields):
+        threads.append(threading.get_ident())
+        assert fields == body
+        return 1
+
+    def recover(user):
+        threads.append(threading.get_ident())
+        assert user == "current-owner"
+        return 1
+
+    wake_circle, wake_direct = MagicMock(), MagicMock()
+    monkeypatch.setattr(notifications, "verify_firebase_bearer", verify)
+    monkeypatch.setattr(
+        notifications, "PushTokensService", lambda: SimpleNamespace(upsert_user_push_token=upsert)
+    )
+    monkeypatch.setattr(chat_push_delivery, "retry_registered_chat_pushes", recover)
+    monkeypatch.setattr(circle_chat_notifications, "wake_circle_chat_push_worker", wake_circle)
+    monkeypatch.setattr(
+        direct_message_notifications, "wake_direct_message_push_worker", wake_direct
+    )
+    request = SimpleNamespace(
+        headers={"Authorization": "Bearer fixture-proof"}, json=AsyncMock(return_value=body)
+    )
+    result = await notifications.register_push_token(request)
+    assert result["ok"] and result["user_id"] == "current-owner"
+    assert len(threads) == 3 and all(thread != loop_thread for thread in threads)
+    wake_circle.assert_called_once_with()
+    wake_direct.assert_called_once_with()
 
 
 def test_register_push_token_requires_firebase_auth():
@@ -141,6 +206,25 @@ def test_register_push_token_maps_service_failure_to_500(monkeypatch):
             headers={"Authorization": "Bearer firebase-token"},
         )
 
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Failed to register token"
+
+
+def test_registration_does_not_acknowledge_an_unpersisted_token(monkeypatch):
+    monkeypatch.setattr(notifications, "verify_firebase_bearer", lambda _header: "current-owner")
+    monkeypatch.setattr(
+        notifications,
+        "PushTokensService",
+        lambda: SimpleNamespace(upsert_user_push_token=lambda **_fields: None),
+    )
+    response = TestClient(_build_app()).post(
+        "/api/notifications/register",
+        json={
+            "user_id": "current-owner",
+            "token": "fixture-token",
+            "platform": "ios",
+        },
+    )
     assert response.status_code == 500
     assert response.json()["detail"] == "Failed to register token"
 

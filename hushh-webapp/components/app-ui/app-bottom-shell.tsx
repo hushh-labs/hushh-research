@@ -2,7 +2,6 @@
 
 import {
   memo,
-  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -10,6 +9,8 @@ import {
 
 import { AgentBar } from "@/components/agent/agent-bar";
 import { AgentDockVoiceBoundary } from "@/components/agent/agent-dock";
+import { NativeAgentDock } from "@/components/agent/native-agent-dock";
+import { useNativeDockPorts } from "@/components/agent/native-dock-port";
 import {
   BOTTOM_CHROME_COLUMN_CLASSNAME,
   BOTTOM_CHROME_INSET_CLASSNAME,
@@ -17,13 +18,16 @@ import {
 import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
 import { useOptionalLocationCommand } from "@/components/agent/location-command-provider";
 import { Navbar } from "@/components/navbar";
-import { snapKaiBottomChromeVisible } from "@/lib/navigation/kai-bottom-chrome-visibility";
+import { bottomChromeScrollTravel, snapKaiBottomChromeVisible } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { useNativeNavigationBottomInset } from "@/lib/capacitor/native-navigation";
+import { useNativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
 
 export type BottomShellModel = {
   navigationHidden: boolean;
   /** Chat owns this same bar as its composer, including active voice controls. */
   agentBarHidden?: boolean;
+  /** Messages reserves the complete centered dock above its lists and transcript. */
+  includeComposerHeight?: boolean;
   /** An immersive route owns the full viewport and has no persistent chrome. */
   hidden?: boolean;
 };
@@ -40,18 +44,20 @@ const BOTTOM_SCROLL_TRANSFORM =
 export const AppBottomShell = memo(function AppBottomShell({ model }: { model: BottomShellModel }) {
   const command = useOptionalLocationCommand();
   const nativeBottomInset = useNativeNavigationBottomInset();
+  const nativeDock = useNativeDockPorts();
   const voiceActive = useAgentVoiceState((state) => state.active);
   const hidden = model.hidden && !command?.active && !voiceActive;
   // The owner remains mounted above routes; Chat presents its active control
   // in the composer slot, not a second overlapping shell launcher.
   const shellRef = useRef<HTMLDivElement | null>(null);
+  useNativePresentationRegions(shellRef, !hidden);
   const navigationSlotRef = useRef<HTMLDivElement | null>(null);
   // AgentBar reads client-only auth and location-command state. Rendering its
   // markup only after the first client commit keeps the server and hydration
   // trees identical while preserving the shared shell slot.
   const [agentBarMounted, setAgentBarMounted] = useState(false);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setAgentBarMounted(true);
   }, []);
 
@@ -69,16 +75,19 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
     const publishHeight = () => {
       // Chat reserves the composer separately. Publishing its height twice
       // creates a feedback loop between transcript padding and shell layout.
-      const agentHeight = model.agentBarHidden
-        ? shell.querySelector("[data-bottom-shell-agent-slot]")?.getBoundingClientRect().height ?? 0
+      const measuredAgentHeight = shell.querySelector("[data-bottom-shell-agent-slot]")?.getBoundingClientRect().height ?? 0;
+      const agentHeight = model.agentBarHidden && !model.includeComposerHeight
+        ? measuredAgentHeight
         : 0;
       const height = `${Math.ceil(shell.getBoundingClientRect().height - agentHeight)}px`;
       const navigationHeight = navigationSlotRef.current
         ? Math.ceil(navigationSlotRef.current.getBoundingClientRect().height)
         : 0;
       // Keep the hide transform clear of the navigation pill's outer border.
-      const navigationTravel = `${navigationHeight + 6}px`;
+      const navigationTravel = `${bottomChromeScrollTravel(navigationHeight)}px`;
       root.style.setProperty("--app-bottom-shell-height", height);
+      // Keyboard lift reserves navigation and outer insets, never the input.
+      shell.style.setProperty("--app-bottom-shell-keyboard-reservation", `${Math.ceil(shell.getBoundingClientRect().height - measuredAgentHeight)}px`);
       root.style.setProperty("--bottom-nav-travel", navigationTravel);
       root.style.setProperty("--bottom-chrome-hide-distance", navigationTravel);
       root.style.setProperty(
@@ -91,22 +100,24 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
     observer.observe(shell);
     if (navigationSlotRef.current) observer.observe(navigationSlotRef.current);
     return () => observer.disconnect();
-  }, [hidden, model.agentBarHidden, model.navigationHidden]);
-
-  if (hidden) return null;
+  }, [hidden, model.agentBarHidden, model.includeComposerHeight, model.navigationHidden]);
 
   return (
     <>
+      <NativeAgentDock enabled={!hidden} />
       {/* The fixed wrapper keeps its original hit box while the chrome
           inside it rides the scroll transform. Let taps pass through that
           empty area to content (especially Chat's composer); the actual nav
           controls opt back into pointer events in Navbar. */}
-      <div
+      {!hidden && <div
         ref={shellRef}
         style={nativeBottomInset === null ? undefined : { paddingBottom: nativeBottomInset }}
         data-app-bottom-shell
         data-agent-dock-chat={model.agentBarHidden || undefined}
-        data-command-active={command?.active || undefined}
+        data-native-agent-dock={nativeDock?.owned || undefined}
+        data-messages-dock={model.includeComposerHeight || undefined}
+        // Completed command cards still need their dismiss controls while typing.
+        data-command-active={command?.active || (command && command.view.phase !== "idle") || undefined}
         data-ui-role="bottom-shell"
         data-bottom-shell-navigation-hidden={
           model.navigationHidden || undefined
@@ -131,6 +142,7 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
             <div
               data-bottom-shell-agent-slot
               className="flex w-full justify-center"
+              style={agentBarMounted ? undefined : { minHeight: 52 }}
             >
               {agentBarMounted ? <AgentDockVoiceBoundary><AgentBar layout="slot" /></AgentDockVoiceBoundary> : null}
             </div>
@@ -145,7 +157,7 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
             />
           </div>
         </div>
-      </div>
+      </div>}
     </>
   );
 });

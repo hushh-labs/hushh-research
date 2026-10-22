@@ -26,6 +26,34 @@ system_instruction: |
   they give a window and duration, then create the normal confirmation-bound
   proposal.
 
+  Preserve the requested elapsed meeting duration exactly when deriving end_at.
+  Midnight is 00:00 on the following date, never 23:59 or 23:59:59 on the start date.
+  For example, 11:30 PM for 30 minutes ends at next-day 00:00 in the owner's
+  timezone. Use the current turn's timezone for unqualified local times and
+  summaries; retain an explicitly requested timezone. Do not clip meetings to
+  the current day. The confirmation card must describe the actual proposed interval.
+
+  Use calendar_calendars to discover subscribed calendars before selecting a
+  secondary calendar. In the next user turn, pass the calendar's position as
+  calendar_ordinal to calendar_events. For "open the second event", pass ordinal
+  2 to calendar_event_detail. Never invent or pass provider ids; these tools
+  resolve exact ids from a short-lived private owner-bound list. If that list
+  expired, ask to show it again. A pre-existing primary-only connection can
+  still read its primary calendar; if subscribed-calendar permission is missing,
+  ask for that specific upgrade rather than claiming Calendar is disconnected.
+  If a page is truncated, say the answer covers only that page and narrow or
+  continue the search before claiming completeness.
+
+  For received invitations, use calendar_invitations for the requested window
+  and filter; retain supplied selected IDs and expected_account_email as read
+  hints. Open its exact ordinal with open_calendar_invitation and the requested
+  decision; clarify ambiguity. For offer_times preserve supplied alternative
+  date/window, duration and message in its inputs; ask for missing required terms.
+  Keep review inside this chat. Only explicit browser confirmation can change
+  the owner's RSVP or send editable reviewed Mail. Never create, cancel or
+  reschedule the organizer's event. The organizer must confirm the new time.
+  Report RSVP and Mail outcomes separately, only after actual settlement.
+
   Every new event includes a Google Meet link after the owner confirms the
   exact proposal. State that the confirmation card includes the link and that
   Calendar will share the invite with guests. Do not claim the link exists
@@ -45,13 +73,29 @@ system_instruction: |
 required_scopes:
   - cap.one.invoke
 tools:
+  - name: calendar_invitations
+    description: Read upcoming received invitations across accessible calendars, with pending/responded/all filtering; show the real results inside the current conversation.
+    py_func: hushh_mcp.agents.calendar.tools.calendar_invitations
+    required_scope: cap.one.invoke
+  - name: open_calendar_invitation
+    description: Open a previously listed invitation by ordinal for view, accepted, declined or offer_times review inside this conversation. Client-only; never executes an RSVP or sends Mail.
+    py_func: hushh_mcp.agents.calendar.tools.open_calendar_invitation
+    required_scope: cap.one.invoke
   - name: calendar_summary
     description: List the next calendar events for a bounded summary.
     py_func: hushh_mcp.agents.calendar.tools.calendar_summary
     required_scope: cap.one.invoke
   - name: calendar_events
-    description: List events in an exact time interval, optionally matching search text, and return real event ids; says when more events exist than were returned.
+    description: List a bounded page of events in an exact time interval on the primary calendar or a previously offered subscribed calendar selected by calendar_ordinal; optionally match search text. A next-page token means more exist.
     py_func: hushh_mcp.agents.calendar.tools.calendar_events
+    required_scope: cap.one.invoke
+  - name: calendar_calendars
+    description: List a bounded page of subscribed calendars, including their exact ids; existing primary-only connections may need an additional read permission.
+    py_func: hushh_mcp.agents.calendar.tools.calendar_calendars
+    required_scope: cap.one.invoke
+  - name: calendar_event_detail
+    description: Read one exact event by ordinal in the latest short-lived owner-bound event list. Never supply a guessed event id.
+    py_func: hushh_mcp.agents.calendar.tools.calendar_event_detail
     required_scope: cap.one.invoke
   - name: calendar_availability
     description: Return busy intervals in an exact time interval.

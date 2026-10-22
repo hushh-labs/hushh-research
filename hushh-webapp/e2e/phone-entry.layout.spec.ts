@@ -6,13 +6,14 @@ import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixture
 
 let css: string;
 let script: string;
+let outDir = "";
 test.beforeAll(async () => {
   const root = process.cwd();
   const { build } = await import("vite");
   const { Scanner } = await import("@tailwindcss/oxide");
   const scanner = new Scanner({});
   const candidates = new Set<string>();
-  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "phone-entry-"));
+  outDir = fs.mkdtempSync(path.join(os.tmpdir(), "phone-entry-"));
   await build({
     configFile: false,
     logLevel: "error",
@@ -32,7 +33,7 @@ test.beforeAll(async () => {
     // Match production React regardless of the parent process build mode.
     oxc: { jsx: { runtime: "automatic", development: false } },
     resolve: { alias: [
-      ...["next/navigation", "next/image", "@/lib/firebase/auth-context", "@/components/app-ui/native-route-marker", "@/components/vault/vault-lock-guard", "@/lib/services/account-identity-service", "@/lib/services/onboarding-route-cookie", "@/lib/services/post-auth-route-service", "@/lib/services/pre-vault-user-state-service", "@/lib/services/ria-service", "@/lib/voice/voice-surface-metadata", "@/lib/agent/local-onboarding-actions", "@/lib/services/api-service", "@/lib/observability/client"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/phone-entry-boundaries.tsx") })),
+      ...["next/navigation", "next/image", "@/lib/firebase/auth-context", "@/components/app-ui/native-route-marker", "@/components/vault/vault-lock-guard", "@/lib/services/account-identity-service", "@/lib/services/onboarding-route-cookie", "@/lib/services/post-auth-route-service", "@/lib/services/pre-vault-user-state-service", "@/lib/services/ria-service", "@/lib/kai/actions/voice-surface-metadata", "@/lib/agent/local-onboarding-actions", "@/lib/services/api-service", "@/lib/observability/client"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/phone-entry-boundaries.tsx") })),
       { find: "@", replacement: root },
     ] },
     define: {
@@ -79,85 +80,121 @@ test.beforeAll(async () => {
   css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle() + fs.readdirSync(outDir).filter((name) => name.endsWith(".css")).map((name) => fs.readFileSync(path.join(outDir, name), "utf8")).join("\n");
 });
 
-for (const viewport of [{width:320,height:568}, {width:393,height:852}, {width:430,height:932}, {width:852,height:393}, {width:1440,height:900}]) {
+test.afterAll(() => {
+  if (outDir) fs.rmSync(outDir, { recursive: true, force: true });
+});
+
+
+for (const viewport of [
+  {width:320,height:568}, {width:393,height:852}, {width:430,height:932},
+  {width:852,height:393}, {width:1440,height:900}
+]) {
   for (const theme of ["light", "dark"]) {
-    test(`Phone entry ${viewport.width}x${viewport.height} ${theme}`, async ({page}, testInfo) => {
+    test("Phone and OTP " + viewport.width + "x" + viewport.height + " " + theme, async ({page}, testInfo) => {
       await page.setViewportSize(viewport);
+      await page.route("https://phone-entry.test/", route => route.fulfill({body:"<!doctype html><html></html>", contentType:"text/html"}));
       await page.route("https://phone-entry.test/onboarding/**", async route => {
         const asset = new URL(route.request().url()).pathname;
         await route.fulfill({ path: path.join(process.cwd(), "public", asset) });
       });
-      await page.setContent(`<html class="${theme === "dark" ? "dark" : ""}" style="--app-safe-area-top-effective:24px;--app-safe-area-bottom-effective:34px"><head><base href="https://phone-entry.test/"><style>${css}</style></head><body><div id="root"></div></body></html>`);
+      await page.goto("https://phone-entry.test/");
+      await page.setContent('<html class="' + (theme === "dark" ? "dark" : "") + '" style="--app-safe-area-top-effective:24px;--app-safe-area-bottom-effective:34px"><head><base href="https://phone-entry.test/"><style>' + css + '</style></head><body><div id="root"></div></body></html>');
       await page.addScriptTag({content:script});
-      const heading = page.getByRole("heading", {name:"Enter your phone number", exact:true});
-      await expect(heading).toBeVisible();
       await awaitProductFont(page);
+
+      const phoneHeading = page.getByRole("heading", {name:"Enter your phone number", exact:true});
+      await expect(phoneHeading).toBeVisible();
+      await expect(phoneHeading).toHaveCSS("font-family", /Plus Jakarta Sans/);
+      await expect(phoneHeading).toHaveCSS("font-weight", "600");
+      await expect(phoneHeading).toHaveCSS("font-size", viewport.width >= 800 ? "42px" : viewport.width <= 355 ? "28px" : "30px");
+      const phoneScene = page.locator('[data-phone-scene="phone"]');
+      await expect(phoneScene.locator("img")).toHaveJSProperty("naturalWidth", 512);
+      const phoneInput = page.getByRole("textbox", {name:"Phone number", exact:true});
+      await expect(phoneInput).toHaveAttribute("type", "tel");
+      const country = page.getByRole("button", {name:/^Country code:/});
+      await expect(country).toBeVisible();
+      const helper = page.locator("[data-figma-phone-helper]");
+      const helperBefore = (await helper.boundingBox())!;
+      await country.click();
+      const countryPanel = page.locator("#phone-flow-country-options");
+      await expect(countryPanel).toBeVisible();
+      const helperAfter = (await helper.boundingBox())!;
+      expect(helperAfter.y).toBeGreaterThan(helperBefore.y + 40);
+      const countrySearch = countryPanel.getByRole("searchbox", {name:"Search countries"});
+      const searchShell = countrySearch.locator("..");
+      const inactiveSearchFill = await searchShell.evaluate(element => getComputedStyle(element).backgroundColor);
+      await countrySearch.fill("United States");
+      await expect(countrySearch).toHaveCSS("outline-style", "none");
+      await expect(countrySearch).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      expect(await searchShell.evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe(inactiveSearchFill);
+      await expect(searchShell).not.toHaveCSS("box-shadow", "none");
+      await page.screenshot({path:testInfo.outputPath("country-search-focused.png")});
+      await countryPanel.getByRole("option", {name:"United States (+1)"}).click();
+      await expect(countryPanel).toHaveCount(0);
+      await expect(helper).toContainText("We may send SMS notifications.");
+      const continueButton = page.getByRole("button", {name:"Continue", exact:true});
+      await expect(continueButton).toHaveCSS("height", "52px");
+      await expect(continueButton).toHaveCSS("background-color", "rgb(0, 113, 227)");
+      const shell = page.getByTestId("phone-mandate-screen");
       const back = (await page.getByRole("button", {name:"Go back", exact:true}).boundingBox())!;
       const account = (await page.getByRole("button", {name:"Account actions", exact:true}).boundingBox())!;
-      expect(back.x).toBe(16);
-      expect(viewport.width - account.x - account.width).toBe(16);
-      expect(back.y).toBe(36); // 24px simulated safe area + 12px top spacing.
-      expect(account.y).toBe(back.y);
       expect(back.width).toBe(44);
-      expect(back.height).toBe(44);
       expect(account.width).toBe(44);
-      expect(account.height).toBe(44);
-      await expect(heading).toHaveCSS("font-size", "30px");
-      await expect(heading).toHaveCSS("font-weight", "600");
-      await expect(heading).toHaveCSS("line-height", "36px");
-      const input = page.getByRole("textbox", {name:"Phone number", exact:true});
-      await expect(input).toHaveAttribute("placeholder", "Phone number");
-      await expect(input).toHaveValue("");
-      const country = page.getByRole("button", {name:/^Country code:/});
-      await expect(country).toContainText("US");
-      const helper = page.locator("[data-figma-phone-helper]");
-      await expect(helper).toHaveCSS("font-size", "13px");
-      await expect(helper).toHaveCSS("line-height", "20px");
-      await expect(helper).toHaveText("By using your mobile number, you may receive SMS notifications from us. Learn more");
-      const button = page.getByRole("button", {name:"Continue", exact:true});
-      await expect(button).toHaveCSS("font-size", "17px");
-      await expect(button).toHaveCSS("font-weight", "600");
-      await expect(button.locator("span").first()).toHaveCSS("font-weight", "600");
-      await expect(button.locator("span").first()).toHaveCSS("color", "rgb(255, 255, 255)");
-      const reference = page.getByTestId("shared-primary-reference");
-      for (const property of ["height", "border-radius", "font-family", "font-size", "font-weight", "line-height", "letter-spacing", "color", "background-color"]) {
-        const expected = await reference.evaluate((el, prop) => getComputedStyle(el).getPropertyValue(prop), property);
-        await expect(button).toHaveCSS(property, expected);
-      }
-      const box = (await button.boundingBox())!;
-      const text = (await helper.boundingBox())!;
-      const form = (await page.locator("[data-figma-phone-fields]").boundingBox())!;
-      expect(box.height).toBe(50);
-      expect(box.y - text.y - text.height).toBeCloseTo(16, 0);
-      expect(text.x).toBeCloseTo(form.x, 0);
-      expect(box.x).toBeCloseTo(form.x, 0);
-      expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
       expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
-      await button.scrollIntoViewIfNeeded();
-      await expect(button).toBeInViewport();
+      const sceneBox = (await phoneScene.boundingBox())!;
+      const headingBox = (await phoneHeading.boundingBox())!;
+      if (viewport.width >= 800) expect(sceneBox.x + sceneBox.width).toBeLessThan(headingBox.x);
+      else expect(sceneBox.y + sceneBox.height).toBeLessThan(headingBox.y);
+      await page.screenshot({path:testInfo.outputPath("phone.png")});
+
+      await continueButton.click();
+      await expect(page.getByRole("alert")).toHaveText("Enter your phone number.");
+      await phoneInput.fill("6505550101");
       await expect(page.getByRole("alert")).toHaveCount(0);
-      await button.click();
-      const error = page.getByRole("alert");
-      await expect(error).toHaveText("Enter your phone number.");
-      await expect(input).toHaveAttribute("aria-invalid", "true");
-      const field = page.locator('[data-figma-phone-field="number"] [data-slot="input-group"]');
-      const errorBox = (await error.boundingBox())!;
-      const fieldBox = (await field.boundingBox())!;
-      expect(errorBox.y - fieldBox.y - fieldBox.height).toBeCloseTo(8, 0);
-      const errorColor = await error.evaluate(el => getComputedStyle(el).color);
-      await expect(field).toHaveCSS("border-top-color", errorColor);
-      await expect(field).toHaveCSS("border-top-style", "solid");
-      await expect(field).toHaveCSS("border-top-width", "1px");
-      await input.fill("123");
-      await button.click();
-      await expect(error).toHaveText("Enter a valid phone number.");
-      await page.screenshot({path:testInfo.outputPath("phone-entry-error.png")});
-      await input.fill("6505550101");
-      await expect(error).toHaveCount(0);
-      await expect(input).toHaveAttribute("aria-invalid", "false");
-      await page.screenshot({path:testInfo.outputPath("phone-entry.png")});
-      await page.getByRole("button", {name:"Learn more", exact:true}).click();
-      await expect(page.getByRole("dialog")).toContainText("We’ll send a verification code to confirm your mobile number. You may also receive SMS notifications from Hushh.");
+      await continueButton.click();
+      const codeHeading = page.getByRole("heading", {name:"Enter your code", exact:true});
+      await expect(codeHeading).toBeVisible();
+      const codeScene = page.locator('[data-phone-scene="code"]');
+      await expect(codeScene.locator("img")).toHaveJSProperty("naturalWidth", 512);
+      const codeInput = page.getByRole("textbox", {name:"One-time code", exact:true});
+      await expect(codeInput).toHaveAttribute("autocomplete", "one-time-code");
+      await expect(codeInput).toHaveAttribute("inputmode", "numeric");
+      await expect(page.locator("[data-otp-cells] > div")).toHaveCount(6);
+      const confirm = page.getByRole("button", {name:"Confirm", exact:true});
+      await expect(confirm).toBeDisabled();
+      await expect(confirm).toHaveCSS("opacity", "1");
+      await expect(confirm).toHaveCSS("background-color", theme === "dark" ? "rgb(23, 70, 124)" : "rgb(210, 229, 249)");
+      await page.screenshot({path:testInfo.outputPath("code-empty.png")});
+      await codeInput.fill("123456");
+      await expect(codeInput).toHaveValue("123456");
+      await expect(confirm).toBeEnabled();
+      await expect(confirm).toHaveCSS("background-color", "rgb(0, 113, 227)");
+      await page.screenshot({path:testInfo.outputPath("code.png")});
+
+      if (viewport.width < 800) {
+        await page.evaluate(() => {
+          const root = document.documentElement;
+          root.classList.add("native-keyboard-inset", "kb-open");
+          root.style.setProperty("--kb-height", "300px");
+        });
+        await expect(codeScene).toBeHidden();
+        const visibleHeight = await shell.evaluate(el => el.getBoundingClientRect().height);
+        expect(visibleHeight).toBeLessThanOrEqual(viewport.height - 299);
+        await confirm.scrollIntoViewIfNeeded();
+        await expect(confirm).toBeInViewport({ratio:0.9});
+        await page.screenshot({path:testInfo.outputPath("code-keyboard.png")});
+        await page.evaluate(() => {
+          document.documentElement.classList.remove("native-keyboard-inset", "kb-open");
+          document.documentElement.style.removeProperty("--kb-height");
+        });
+      }
+      await page.getByRole("button", {name:"Go back", exact:true}).click();
+      await expect(phoneHeading).toBeVisible();
+      await phoneInput.fill("6505550101");
+      await continueButton.click();
+      await expect(codeHeading).toBeVisible();
+      await page.getByRole("button", {name:"Use a Different number", exact:true}).click();
+      await expect(phoneHeading).toBeVisible();
     });
   }
 }

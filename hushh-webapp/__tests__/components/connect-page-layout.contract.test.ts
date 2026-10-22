@@ -11,14 +11,17 @@ describe("Connect page layout contract", () => {
       path.join(WEBAPP_ROOT, "app/connect/page-client.tsx"),
       "utf8",
     );
-    const breadcrumbs = fs.readFileSync(
-      path.join(WEBAPP_ROOT, "lib/navigation/top-shell-breadcrumbs.ts"),
+    // profileOriginCrumbLabel (the map this asserts against) lives in the
+    // declarative graph top-shell-breadcrumbs.ts walks, not in
+    // top-shell-breadcrumbs.ts itself.
+    const backGraph = fs.readFileSync(
+      path.join(WEBAPP_ROOT, "lib/navigation/back-navigation-graph.ts"),
       "utf8",
     );
 
     // The title sits beside the back button in the top bar, never repeated in the body.
     expect(source).not.toContain("<PageHeader");
-    expect(breadcrumbs).toContain('[ROUTES.CONNECT]: "Connect"');
+    expect(backGraph).toContain('[ROUTES.CONNECT]: "Connect"');
     expect(source).toContain("<SettingsGroup");
     expect(source).toContain("<SettingsRow");
     expect(source).not.toContain("<SectionHeader");
@@ -44,20 +47,22 @@ describe("Connect page layout contract", () => {
     );
 
     const connectionsMapStart = source.indexOf(
-      "sortedConnections.map((connection) => (",
+      "group.items.map((connection) =>",
     );
     const connectionsPagerStart = source.indexOf(
-      "{connectionsHasMore ?",
+      "{(connectionSearch.active ? connectionSearch.hasMore : connectionsHasMore) ?",
       connectionsMapStart,
     );
+    expect(connectionsMapStart).toBeGreaterThan(0);
+    expect(connectionsPagerStart).toBeGreaterThan(connectionsMapStart);
     const connectionRows = source.slice(
       connectionsMapStart,
       connectionsPagerStart,
     );
     expect(
       connectionRows,
-      "the connections list still renders a SettingsRow",
-    ).toContain("<SettingsRow");
+      "the connections list renders Feed-anatomy ConnectPersonRow rows",
+    ).toContain("<ConnectPersonRow");
     expect(connectionRows).not.toMatch(/^\s*stackTrailingOnMobile\s*$/m);
     expect(connectionRows).toContain("trailing=");
   });

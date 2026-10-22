@@ -1,4 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, renderHook, waitFor } from "@testing-library/react";
+
+const api = vi.hoisted(() => ({ list: vi.fn(), revoke: vi.fn() }));
+vi.mock("@/lib/services/api-service", () => ({ ApiService: { listTrustedDevices: api.list, revokeTrustedDevice: api.revoke } }));
+vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => false }, registerPlugin: () => ({}) }));
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { CacheService } from "@/lib/services/cache-service";
+import { useTrustedDevicesModel } from "@/components/profile/use-trusted-devices-model";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 import { formatRelativeTime } from "@/lib/format/relative-time";
 import {
@@ -8,6 +17,117 @@ import {
 } from "@/lib/trusted-device/sync-display";
 
 const NOW = 1_700_000_000_000;
+
+afterEach(() => { publishValidatedAuthSessionOwner(null); CacheService.getInstance().clear(); vi.clearAllMocks(); });
+
+describe("trusted-device operation owner", () => {
+  const device = { device_id: "synthetic-device", device_name: "Test computer", platform: "macos", status: "active" };
+  const listed = () => new Response(JSON.stringify({ devices: [device] }), { status: 200 });
+  it("rejects stale vault/visit callbacks and late owner responses while preserving a valid unlink", async () => {
+    publishValidatedAuthSessionOwner("device-owner");
+    api.list.mockImplementation(async () => listed());
+    let finish!: (value: Response) => void;
+    api.revoke.mockImplementation(async () => new Response(null, { status: 204 }));
+    const view = renderHook(({ owner, enabled }) => useTrustedDevicesModel(owner, enabled),
+      { initialProps: { owner: "device-owner", enabled: true } });
+    await waitFor(() => expect(view.result.current.devices).toHaveLength(1));
+    act(() => view.result.current.choose(device.device_id));
+    await waitFor(() => expect(view.result.current.confirmation).not.toBeNull());
+    const retainedConfirm = view.result.current.confirm;
+    act(() => view.result.current.cancel());
+    await act(async () => { await retainedConfirm(); });
+    expect(api.revoke).not.toHaveBeenCalled();
+    act(() => view.result.current.choose(device.device_id));
+    const beforeLock = view.result.current.confirm;
+    act(() => advanceVaultSessionEpoch());
+    await act(async () => { await beforeLock(); });
+    expect(api.revoke).not.toHaveBeenCalled();
+    view.rerender({ owner: "device-owner", enabled: false });
+    view.rerender({ owner: "device-owner", enabled: true });
+    await waitFor(() => expect(view.result.current.devices).toHaveLength(1));
+    api.revoke.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    act(() => view.result.current.choose(device.device_id));
+    let request!: Promise<void>;
+    act(() => { request = view.result.current.confirm(); });
+    expect(api.revoke).toHaveBeenCalledOnce();
+    publishValidatedAuthSessionOwner("other-owner");
+    view.rerender({ owner: "other-owner", enabled: true });
+    await act(async () => { finish(new Response(null, { status: 204 })); await request; });
+    expect(view.result.current.confirmation).toBeNull();
+    expect(view.result.current.busy).toBe(false);
+    expect(view.result.current.error).toBe("");
+    view.unmount();
+  });
+
+  it("does not replay an uncertain unlink, and refresh failure cannot undo a committed unlink", async () => {
+    publishValidatedAuthSessionOwner("device-owner");
+    api.list.mockImplementation(async () => listed());
+    api.revoke.mockRejectedValueOnce(new Error("synthetic transport failure"));
+    const view = renderHook(() => useTrustedDevicesModel("device-owner", true));
+    await waitFor(() => expect(view.result.current.devices).toHaveLength(1));
+    act(() => view.result.current.choose(device.device_id));
+    const retainedConfirm = view.result.current.confirm;
+    await act(async () => { await retainedConfirm(); });
+    expect(view.result.current.uncertain).toBe(true);
+    await act(async () => { await retainedConfirm(); await view.result.current.confirm(); });
+    expect(api.revoke).toHaveBeenCalledOnce();
+    api.list.mockRejectedValueOnce(new Error("synthetic list failure"));
+    await act(async () => { await view.result.current.refresh(); });
+    expect(view.result.current.uncertain).toBe(true);
+    await act(async () => { await view.result.current.refresh(); });
+    expect(view.result.current.uncertain).toBe(false);
+    api.revoke.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    api.list.mockRejectedValueOnce(new Error("synthetic list failure"));
+    await act(async () => { await view.result.current.confirm(); });
+    expect(api.revoke).toHaveBeenCalledTimes(2);
+    expect(view.result.current.confirmation).toBeNull();
+    expect(view.result.current.error).toBe("Device unlinked. Couldn’t refresh the list.");
+    expect(view.result.current.uncertain).toBe(false);
+    expect(view.result.current.devices[0]?.status).toBe("revoked");
+    act(() => view.result.current.choose(device.device_id));
+    await act(async () => { await view.result.current.confirm(); });
+    expect(api.revoke).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not accept a pre-unlink list read as post-unlink reconciliation", async () => {
+    publishValidatedAuthSessionOwner("device-owner");
+    api.list.mockImplementation(async () => listed());
+    const view = renderHook(() => useTrustedDevicesModel("device-owner", true));
+    await waitFor(() => expect(view.result.current.devices).toHaveLength(1));
+    let finishRead!: (response: Response) => void;
+    api.list.mockImplementationOnce(() => new Promise(resolve => { finishRead = resolve; }));
+    let oldRefresh!: Promise<void>;
+    act(() => { oldRefresh = view.result.current.refresh(); });
+    await waitFor(() => expect(api.list).toHaveBeenCalledTimes(2));
+    act(() => view.result.current.choose(device.device_id));
+    api.revoke.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    let unlink!: Promise<void>;
+    act(() => { unlink = view.result.current.confirm(); });
+    await waitFor(() => expect(api.revoke).toHaveBeenCalledOnce());
+    api.list.mockResolvedValueOnce(new Response(JSON.stringify({ devices: [{ ...device, status: "revoked" }] }), { status: 200 }));
+    await act(async () => { finishRead(listed()); await oldRefresh; await unlink; });
+    expect(api.list).toHaveBeenCalledTimes(3);
+    expect(view.result.current.busy).toBe(false);
+    expect(view.result.current.devices[0]?.status).toBe("revoked");
+    expect(view.result.current.error).toBe("");
+  });
+
+  it("does not join a retired visit's pending list when the same owner reopens", async () => {
+    publishValidatedAuthSessionOwner("device-owner");
+    let oldRead!: (response: Response) => void;
+    api.list.mockImplementationOnce(() => new Promise(resolve => { oldRead = resolve; }))
+      .mockImplementation(async () => listed());
+    const view = renderHook(({ enabled }) => useTrustedDevicesModel("device-owner", enabled), { initialProps: { enabled: true } });
+    await waitFor(() => expect(api.list).toHaveBeenCalledOnce());
+    view.rerender({ enabled: false });
+    view.rerender({ enabled: true });
+    await waitFor(() => expect(api.list).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(view.result.current.devices).toHaveLength(1));
+    await act(async () => { oldRead(listed()); });
+    expect(view.result.current.error).toBe("");
+    expect(view.result.current.devices[0]?.device_name).toBe("Test computer");
+  });
+});
 
 describe("deriveSyncDisplay", () => {
   it("shows an active device's real last-sync time", () => {

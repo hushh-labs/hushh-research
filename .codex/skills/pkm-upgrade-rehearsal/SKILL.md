@@ -9,7 +9,7 @@ description: Use when proving zero-loss PKM upgrades with historical fixtures, r
 
 - Primary scope: `pkm-upgrade-rehearsal`
 - Trigger on PKM version/projection upgrades, preservation proof, reviewer payload rehearsal, quarantine, rollback, or scope-origin acceptance.
-- Avoid overlap with `vault-pkm-governance`, `reviewer-app-testing`, and `data-model-audit`.
+- Avoid overlap with `security-audit`, `reviewer-app-testing`, and `data-model-audit`.
 
 ## Coverage and Ownership
 
@@ -40,7 +40,7 @@ Non-owned surfaces:
 ## Do Not Use
 
 1. Generic reviewer login, BYOK, or navigation helpers; use `reviewer-app-testing`.
-2. Vault encryption or ordinary PKM storage implementation; use `vault-pkm-governance`.
+2. Vault encryption or ordinary PKM storage implementation; use `security-audit`.
 3. Apply migrations, deploy, reset an account, or mutate shared fixtures without separate authority.
 4. Treat structure-agent output as authorization to drop or overwrite information.
 
@@ -66,7 +66,7 @@ Non-owned surfaces:
 ## Handoff Rules
 
 1. BYOK and browser-session mechanics route to `reviewer-app-testing`.
-2. Vault/storage implementation routes to `vault-pkm-governance`.
+2. Vault/storage implementation routes to `security-audit`.
 3. Migration governance routes to `data-model-audit`; deploy parity routes to `uat-scoped-deploy`.
 4. Broad security work returns to `security-audit`.
 

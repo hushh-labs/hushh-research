@@ -18,22 +18,51 @@ contain a segment matching an ignored directory.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
+import pathspec
 import pytest
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 # Every non-Python file the backend reads at runtime. Add to this list whenever
 # a service starts depending on a shipped asset.
-RUNTIME_ASSETS = (BACKEND_ROOT / "hushh_mcp" / "services" / "pass_assets" / "hushh_pass_icon.png",)
+RUNTIME_ASSETS = (
+    BACKEND_ROOT / "hushh_mcp" / "services" / "pass_assets" / "hushh_pass_icon.png",
+    BACKEND_ROOT / "hushh_mcp" / "data" / "emoji-reactions.v1.json",
+)
 
 IGNORE_FILES = (
     REPO_ROOT / ".gcloudignore",
     BACKEND_ROOT / ".gcloudignore",
     BACKEND_ROOT / ".dockerignore",
 )
+
+
+@pytest.mark.parametrize("ignore_file", IGNORE_FILES, ids=lambda p: str(p.relative_to(REPO_ROOT)))
+def test_manifest_prompts_survive_each_build_context_filter(ignore_file: Path) -> None:
+    """The October 7 image failed because upload stripped prompts before Docker."""
+    patterns = ignore_file.read_text(encoding="utf-8").splitlines()
+    spec = pathspec.GitIgnoreSpec.from_lines(patterns)
+    agents = BACKEND_ROOT / "hushh_mcp" / "agents"
+    prompts = set()
+    for manifest in agents.rglob("agent.yaml"):
+        reference = yaml.safe_load(manifest.read_text(encoding="utf-8")).get("prompt_reference")
+        if reference:
+            prompt = (manifest.parent / reference).resolve()
+            assert prompt.is_relative_to(agents)
+            assert prompt.is_file()
+            prompts.add(prompt)
+    assert prompts, "The fixture must exercise actual authored prompt references"
+    for prompt in prompts:
+        relative = prompt.relative_to(ignore_file.parent).as_posix()
+        assert not spec.match_file(relative), f"{ignore_file} removes runtime prompt {relative}"
+    # Negative control: the historical broad exclusion removes those same files.
+    broken = pathspec.GitIgnoreSpec.from_lines(["*.md"])
+    assert all(broken.match_file(p.relative_to(ignore_file.parent).as_posix()) for p in prompts)
 
 
 def _ignored_directory_names(ignore_file: Path) -> set[str]:
@@ -61,6 +90,23 @@ def test_the_asset_exists_in_the_repository(asset: Path) -> None:
     assert asset.stat().st_size > 0
 
 
+def test_runtime_assets_survive_cloud_build_upload_filter() -> None:
+    """Cloud Build must receive the files that Docker will copy into the image."""
+    patterns = (REPO_ROOT / ".gcloudignore").read_text(encoding="utf-8").splitlines()
+    upload_filter = pathspec.GitIgnoreSpec.from_lines(patterns)
+    for asset in RUNTIME_ASSETS:
+        relative = asset.relative_to(REPO_ROOT)
+        for parent in relative.parents:
+            if parent != Path("."):
+                assert not upload_filter.match_file(parent.as_posix() + "/"), str(parent)
+        assert not upload_filter.match_file(relative.as_posix()), str(relative)
+
+    assert upload_filter.match_file("data/generated.csv")
+    broken = pathspec.GitIgnoreSpec.from_lines(["data/"])
+    catalogue = BACKEND_ROOT / "hushh_mcp" / "data" / "emoji-reactions.v1.json"
+    assert broken.match_file(catalogue.relative_to(REPO_ROOT).as_posix())
+
+
 @pytest.mark.parametrize("asset", RUNTIME_ASSETS, ids=lambda p: p.name)
 @pytest.mark.parametrize("ignore_file", IGNORE_FILES, ids=lambda p: p.name)
 def test_no_ignored_directory_name_appears_in_a_runtime_asset_path(
@@ -76,9 +122,9 @@ def test_no_ignored_directory_name_appears_in_a_runtime_asset_path(
     assert not collisions, (
         f"{asset.relative_to(REPO_ROOT)} sits under {sorted(collisions)}, which "
         f"{ignore_file.name} excludes at any depth. The file would be stripped "
-        f"from the build context and the service would fall back to a "
-        f"placeholder at runtime. Rename the directory — a '!' negation cannot "
-        f"re-include a file inside an excluded directory."
+        f"from the build context and be missing at runtime. Narrow the ignore "
+        f"rule or move the asset — a '!' negation cannot re-include a file "
+        f"inside an excluded directory."
     )
 
 
@@ -107,3 +153,52 @@ def test_every_apple_image_slot_is_produced_from_the_real_asset() -> None:
         "logo@2x.png",
         "logo@3x.png",
     }
+
+
+def test_cloudbuild_sourced_shell_helpers_survive_the_upload_filter() -> None:
+    """Local preflight passes are useless when Cloud Build never receives its script."""
+    build = yaml.safe_load((REPO_ROOT / "deploy/backend.cloudbuild.yaml").read_text())
+    referenced = set()
+    for step in build["steps"]:
+        for argument in step.get("args", []):
+            referenced.update(
+                re.findall(r"(?m)^\s*source\s+(deploy/[A-Za-z0-9_./-]+\.sh)\b", argument)
+            )
+    assert referenced, "Exercise the actual external preflight helper, not an empty upload list"
+    patterns = (REPO_ROOT / ".gcloudignore").read_text().splitlines()
+    upload_filter = pathspec.GitIgnoreSpec.from_lines(patterns)
+    for helper in referenced:
+        assert (REPO_ROOT / helper).is_file()
+        assert not upload_filter.match_file(helper), f"Cloud Build upload excludes {helper}"
+        for directory in Path(helper).parents:
+            if directory != Path("."):
+                assert not upload_filter.match_file(directory.as_posix() + "/")
+    # The historic broad shell exclusion must break this exact deployment input.
+    broken = pathspec.GitIgnoreSpec.from_lines(["*.sh"])
+    assert all(broken.match_file(helper) for helper in referenced)
+
+
+def test_wallet_artwork_survives_upload_and_docker_filters():
+    """The broad assets/ filter shipped a catalog with 101 missing WebP files."""
+    from hushh_mcp.services.wallet_artwork_catalog import load_catalog
+
+    artwork_root = BACKEND_ROOT / "hushh_mcp/resources/wallet-artwork"
+    catalog, _ = load_catalog(path=artwork_root / "catalog.json")
+    # Include retained immutable revisions as well as new selectable designs.
+    # Bind the deployment proof to every catalog file, rather than a stale count.
+    assets = {artwork_root / "assets" / f"{row.digest}.webp" for row in catalog.assets}
+    assert assets, "Exercise the actual packaged artwork catalog"
+    assert set((artwork_root / "assets").glob("*.webp")) == assets
+    for ignore_file in IGNORE_FILES:
+        spec = pathspec.GitIgnoreSpec.from_lines(
+            ignore_file.read_text(encoding="utf-8").splitlines()
+        )
+        for asset in assets:
+            relative = asset.relative_to(ignore_file.parent)
+            # Uploaders prune excluded directories before inspecting their files.
+            for parent in relative.parents:
+                if parent.as_posix() != ".":
+                    assert not spec.match_file(parent.as_posix() + "/"), str(parent)
+            assert not spec.match_file(relative.as_posix()), str(asset)
+    broken = pathspec.GitIgnoreSpec.from_lines(["assets/"])
+    assert all(broken.match_file(asset.relative_to(REPO_ROOT).as_posix()) for asset in assets)

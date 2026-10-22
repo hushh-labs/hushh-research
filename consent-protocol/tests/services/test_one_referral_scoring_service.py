@@ -65,6 +65,7 @@ def _settings_row(**overrides):
 
 def _patch_settings(monkeypatch, settings):
     monkeypatch.setattr(scoring_service, "get_active_program_settings", lambda: settings)
+    monkeypatch.setattr(scoring_service, "get_program_settings_at", lambda _at: settings)
 
 
 # --- enqueue_scoring_work: the atomic-write contract --------------------------
@@ -158,6 +159,8 @@ class _ProcessJobConnection:
     def execute(self, query, params=None):
         sql = str(query)
         params = params or {}
+        if "SELECT lease_id" in sql:
+            return _Result([SimpleNamespace(lease_id="lease-1")])
         if "SELECT id, referrer_user_id, status, qualified_at" in sql:
             return _Result(
                 [
@@ -174,7 +177,7 @@ class _ProcessJobConnection:
                 raise RuntimeError("simulated insert failure")
             self.inserted_score_events.append(dict(params))
             return _Result([])
-        if "SELECT circle_id" in sql and "one_referral_circle_selections" in sql:
+        if "SELECT s.circle_id" in sql and "one_referral_circle_selections" in sql:
             if self.contributing_circle_id is None:
                 return _Result([])
             return _Result([SimpleNamespace(circle_id=self.contributing_circle_id)])
@@ -216,6 +219,7 @@ class _ProcessJobConnection:
 def _job():
     return {
         "job_id": "job-1",
+        "lease_id": "lease-1",
         "relationship_id": RELATIONSHIP_ID,
         "user_id": REFERRER,
         "retry_count": 0,
@@ -257,7 +261,7 @@ def test_process_one_job_awards_flash_points_inside_a_configured_window(monkeypa
     assert conn.inserted_score_events[0]["points"] == 200
 
 
-def test_process_one_job_awards_a_streak_bonus_on_the_third_qualifying_day(monkeypatch):
+def test_referral_qualification_days_do_not_award_app_streaks(monkeypatch):
     _patch_settings(monkeypatch, _settings_row())
     conn = _ProcessJobConnection(
         qualifying_dates=[date(2026, 11, 1), date(2026, 11, 2), date(2026, 11, 3)],
@@ -266,12 +270,9 @@ def test_process_one_job_awards_a_streak_bonus_on_the_third_qualifying_day(monke
     with patch.object(scoring_service, "get_db_connection", side_effect=lambda: _db(conn)):
         result = scoring_service.process_one_job(_job())
 
-    assert result["streak_awards"] == 1
-    streak_events = [e for e in conn.inserted_score_events if e.get("event_type") == "streak_bonus"]
-    assert len(streak_events) == 1
-    assert streak_events[0]["points"] == 15
-    assert streak_events[0]["idempotency_key"] == f"streak:{REFERRER}:2026-11-03"
-    assert conn.streak_updates[-1] == date(2026, 11, 3)
+    assert result["streak_awards"] == 0
+    assert len(conn.inserted_score_events) == 1
+    assert conn.streak_updates == []
 
 
 def test_process_one_job_does_not_reaward_a_streak_already_paid(monkeypatch):
@@ -383,7 +384,7 @@ def test_process_one_job_requeues_with_backoff_on_failure(monkeypatch):
 
 
 def test_reverse_relationship_scoring_inserts_a_negative_compensating_entry():
-    original = SimpleNamespace(id=42, points=100)
+    original = SimpleNamespace(id=42, points=100, coins=100)
     conn = MagicMock()
 
     def execute(query, params=None):
@@ -434,39 +435,28 @@ def test_get_cumulative_score_sums_the_ledger():
 
 def test_publish_leaderboard_snapshot_ranks_by_points_then_earliest_event(monkeypatch):
     _patch_settings(monkeypatch, _settings_row())
-    ranked_rows = [
-        SimpleNamespace(
-            user_id="user_b", total=300, earliest=datetime(2026, 11, 1, tzinfo=timezone.utc)
-        ),
-        SimpleNamespace(
-            user_id="user_a", total=200, earliest=datetime(2026, 11, 2, tzinfo=timezone.utc)
-        ),
-    ]
     snapshot_header = SimpleNamespace(
         snapshot_id="snap-1", generated_at=datetime(2026, 11, 9, tzinfo=timezone.utc)
     )
-    entries_inserted: list[dict] = []
     conn = MagicMock()
+    writes = []
 
     def execute(query, params=None):
         sql = str(query)
-        if "GROUP BY user_id" in sql:
-            return _Result(ranked_rows)
+        if "MAX(id)" in sql:
+            return SimpleNamespace(scalar=lambda: 2)
+        if "SELECT snapshot_id,generated_at" in sql:
+            return _Result([])
         if "INSERT INTO one_referral_leaderboard_snapshots" in sql:
             return _Result([snapshot_header])
         if "INSERT INTO one_referral_leaderboard_snapshot_entries" in sql:
-            entries_inserted.append(params)
-            return _Result([])
-        raise AssertionError(f"unexpected query: {sql}")
+            writes.append(sql)
+            return SimpleNamespace(rowcount=2)
+        return _Result([])
 
     conn.execute.side_effect = execute
-
     with patch.object(scoring_service, "get_db_connection", side_effect=lambda: _db(conn)):
-        result = scoring_service.publish_leaderboard_snapshot(limit=10)
-
+        result = scoring_service.publish_leaderboard_snapshot()
     assert result.snapshot_id == "snap-1"
     assert result.entry_count == 2
-    assert entries_inserted[0]["uid"] == "user_b"
-    assert entries_inserted[0]["rank"] == 1
-    assert entries_inserted[1]["uid"] == "user_a"
-    assert entries_inserted[1]["rank"] == 2
+    assert len(writes) == 1 and "SUM(points)" in writes[0] and "ROW_NUMBER()" in writes[0]

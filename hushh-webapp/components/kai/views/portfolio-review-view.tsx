@@ -2440,41 +2440,45 @@ export function PortfolioReviewView({
                   />
                 </TabsContent>
               </Tabs>
-
-              <div className="pt-2">
-                <MorphyButton
-                  variant="blue-gradient"
-                  effect="fade"
-                  fullWidth
-                  onClick={() => {
-                    createdVaultCopyRef.current = hasVault === false;
-                    void handleSave();
-                  }}
-                  disabled={isBusySaving || activeHoldings.length === 0}
-                  className="bg-black text-white hover:bg-black/90 dark:bg-white dark:text-black dark:hover:bg-white/90"
-                >
-                  {isBusySaving ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Icon icon={Save} size="sm" className="mr-2" aria-hidden="true" />
-                  )}
-                  {isBusySaving
-                    ? hasVault === false
-                      ? "Creating Vault and saving portfolio..."
-                      : isSaving
-                        ? "Securing portfolio in Vault..."
-                        : "Saving portfolio in background..."
-                    : onStageForFinish && !effectiveVaultKey
-                      ? "Save portfolio"
-                    : hasVault === false
-                    ? "Create Vault"
-                    : "Save to Vault"}
-                </MorphyButton>
-              </div>
             </CardContent>
           </MorphyCard>
         </div>
       </div>
+      </div>
+
+      {/* Keep the save action outside the card's overflow container so it can
+          stick above the measured Talk to One/navigation stack while reviewing. */}
+      <div
+        data-portfolio-review-save
+        className="sticky bottom-[calc(var(--app-sticky-bottom-offset,0px)+0.75rem)] z-20 px-6 pt-3"
+      >
+        <MorphyButton
+          variant="blue-gradient"
+          effect="fill"
+          fullWidth
+          onClick={() => {
+            createdVaultCopyRef.current = hasVault === false;
+            void handleSave();
+          }}
+          disabled={isBusySaving || activeHoldings.length === 0}
+        >
+          {isBusySaving ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Icon icon={Save} size="sm" className="mr-2" aria-hidden="true" />
+          )}
+          {isBusySaving
+            ? hasVault === false
+              ? "Creating Vault and saving portfolio..."
+              : isSaving
+                ? "Securing portfolio in Vault..."
+                : "Saving portfolio in background..."
+            : onStageForFinish && !effectiveVaultKey
+              ? "Save portfolio"
+            : hasVault === false
+            ? "Create Vault"
+            : "Save to Vault"}
+        </MorphyButton>
       </div>
 
       <EditHoldingModal

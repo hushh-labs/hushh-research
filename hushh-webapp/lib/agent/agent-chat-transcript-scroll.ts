@@ -71,7 +71,7 @@ export function findPendingAssistantTurn(transcript: HTMLElement): HTMLElement |
 export function measureTranscriptReveal(
   transcript: HTMLElement,
   element: HTMLElement,
-  overlay: HTMLElement | null,
+  overlay: Pick<HTMLElement, "getBoundingClientRect"> | null,
 ): TranscriptRevealGeometry {
   const transcriptRect = transcript.getBoundingClientRect();
   const elementRect = element.getBoundingClientRect();
@@ -127,4 +127,40 @@ export function transcriptFollowsLatest(state: TranscriptFollowState): boolean {
   return state.submittedTurn || state.programmatic || state.scrollTop <= 2 || state.stuckToEnd
     || state.distanceFromBottom <= TRANSCRIPT_FOLLOW_SLACK_PX
     || state.endBelowBand <= TRANSCRIPT_FOLLOW_SLACK_PX;
+}
+
+/** Reached messages stay seen when scrolling back through history. */
+export function countUnseenTranscriptMessages(
+  rows: ReadonlyArray<{ id: string; top: number; bottom: number }>,
+  visibleBottom: number,
+  seenIds: Set<string>,
+): number {
+  let count = 0;
+  for (const row of rows) {
+    if (row.top < visibleBottom - 4) seenIds.add(row.id);
+    else if (!seenIds.has(row.id)) count += 1;
+  }
+  return count;
+}
+
+export function formatTranscriptMessageCount(count: number): string {
+  return count > 99 ? "99+" : String(count);
+}
+
+export type SeenTranscriptMessages = {
+  scope: string;
+  conversationId: string | null;
+  ids: Set<string>;
+};
+
+/** Scope seen IDs to the owner/session, preserving a draft's first assigned ID. */
+export function prepareSeenTranscriptMessages(
+  previous: SeenTranscriptMessages,
+  scope: string,
+  conversationId: string | null,
+): SeenTranscriptMessages {
+  if (previous.scope !== scope || (previous.conversationId !== null && previous.conversationId !== conversationId)) {
+    return { scope, conversationId, ids: new Set() };
+  }
+  return { scope, conversationId, ids: previous.ids };
 }

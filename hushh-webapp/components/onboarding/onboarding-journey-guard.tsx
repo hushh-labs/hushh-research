@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
 
@@ -17,6 +17,7 @@ import {
   normalizeStaticExportPathname,
   resolveOneSetupCompletionTarget,
   ROUTES,
+  buildInitialContactsWelcomeRoute,
 } from "@/lib/navigation/routes";
 import {
   PreVaultUserStateService,
@@ -25,6 +26,8 @@ import {
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
+import { InitialContactsOnboardingService as InitialContacts } from "@/lib/services/initial-contacts-onboarding-service";
+import { safeWorldModelInvitationReturnPath } from "@/lib/world-model/invitation-handoff";
 
 const SETUP_REDIRECT_RETRY_MS = 1200;
 const SETUP_REDIRECT_FAILURE_MS = 2400;
@@ -79,6 +82,7 @@ export function OnboardingJourneyGuard({
   children: React.ReactNode;
 }) {
   const pathname = usePathname() || "/";
+  const normalizedGuardPathname = normalizeStaticExportPathname(pathname);
   const router = useRouter();
   const {
     user,
@@ -88,6 +92,7 @@ export function OnboardingJourneyGuard({
     signOut,
   } = useAuth();
   const userId = user?.uid ?? null;
+  const initialContacts = useSyncExternalStore(InitialContacts.subscribe, InitialContacts.getSnapshot, InitialContacts.getServerSnapshot);
   const exempt = isOnboardingAdmissionExemptRoute(pathname);
   const setupSurface = isOneSetupSurfaceRoute(pathname);
   const [checking, setChecking] = useState(true);
@@ -119,13 +124,16 @@ export function OnboardingJourneyGuard({
     userId && OneSetupCompletionHintService.isResolved(userId),
   );
   const cachedAdmissionAllowsCurrentRoute = Boolean(
-    persistentSetupResolved ||
+    (normalizedGuardPathname === ROUTES.ONE_WELCOME ||
+      Boolean(userId && InitialContacts.wasDismissed(userId)) ||
+      cachedState?.initialContactsWelcomeAcknowledged !== false && Boolean(cachedState)) &&
+    (persistentSetupResolved ||
     (cachedState &&
       admissionAllowsCurrentRoute({
         state: cachedState,
         pathname,
         setupSurface,
-      })),
+      }))),
   );
   // "Dismissed" = the user finished/skipped onboarding at least once. The root
   // setup funnel is one-time, so every post-completion setup arrival is ejected
@@ -142,7 +150,6 @@ export function OnboardingJourneyGuard({
   // questionnaire redirects to `/one/setup/finance/import`, and without that
   // route in the allowlist a root-resolved user was ejected to ONE_HOME
   // ("Opening One…" → main dashboard) instead of reaching the import step.
-  const normalizedGuardPathname = normalizeStaticExportPathname(pathname);
   const isPostRootFinanceSetup =
     normalizedGuardPathname === ROUTES.ONE_SETUP_FINANCE ||
     normalizedGuardPathname === ROUTES.ONE_SETUP_FINANCE_IMPORT;
@@ -197,6 +204,43 @@ export function OnboardingJourneyGuard({
         return;
       }
 
+      let admissionState = cachedState;
+      if (!InitialContacts.wasDismissed(userId)) {
+        // The setup latch does not acknowledge the optional welcome. Check its
+        // existing lifecycle owner before admitting an agent on cold entry.
+        if (!admissionState) {
+          try {
+            admissionState = await PreVaultUserStateService.bootstrapState(userId);
+          } catch {
+            await waitForBootstrapRetry();
+            if (cancelled) return;
+            try {
+              admissionState = await PreVaultUserStateService.bootstrapState(userId, { force: true });
+            } catch {
+              if (cancelled) return;
+              // Optional welcome discovery must not block an established
+              // account whose ordinary setup admission is already durable.
+              setError(!persistentSetupResolved);
+              setChecking(false);
+              return;
+            }
+          }
+        }
+        const welcomeState = admissionState;
+        if (cancelled) return;
+        if (welcomeState?.setupCompleted === true && welcomeState.initialContactsWelcomeAcknowledged === false && normalizedGuardPathname !== ROUTES.ONE_WELCOME) {
+          const target = buildInitialContactsWelcomeRoute(
+            safeWorldModelInvitationReturnPath(currentHref, userId),
+          );
+          if (redirectTargetRef.current !== target) {
+            redirectTargetRef.current = target;
+            setRedirecting(true);
+            router.replace(target);
+          }
+          return;
+        }
+      }
+
       // Setup completion is a one-time, non-sensitive admission fact. Hydrate
       // it synchronously from the user-scoped positive latch so a returning
       // user does not wait on the same bootstrap request after every WebView or
@@ -248,7 +292,7 @@ export function OnboardingJourneyGuard({
       setChecking(true);
       setError(false);
       try {
-        let state = cachedState;
+        let state = admissionState;
         if (!state) {
           try {
             state = await PreVaultUserStateService.bootstrapState(userId);
@@ -279,7 +323,9 @@ export function OnboardingJourneyGuard({
           return;
         }
 
-        const redirectTarget = buildOneSetupRoute({ returnTo: currentHref });
+        const redirectTarget = buildOneSetupRoute({
+          returnTo: safeWorldModelInvitationReturnPath(currentHref, userId),
+        });
         if (redirectTargetRef.current === redirectTarget) {
           return;
         }
@@ -329,10 +375,12 @@ export function OnboardingJourneyGuard({
     };
   }, [
     authLoading,
+    initialContacts,
     cachedState,
     currentHref,
     exempt,
     pathname,
+    normalizedGuardPathname,
     persistentSetupResolved,
     retryNonce,
     router,

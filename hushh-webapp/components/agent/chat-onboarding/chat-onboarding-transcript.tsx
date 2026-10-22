@@ -129,6 +129,7 @@ export function ChatOnboardingChips({
   onChip: (chipId: ChatOnboardingChipId) => void;
 }) {
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const isFocusChoice = chips.some((chip) => chip.id.startsWith("focus_"));
 
   useEffect(() => {
     // Only recover focus the previous chip group dropped when it unmounted;
@@ -163,7 +164,7 @@ export function ChatOnboardingChips({
       aria-label={label}
       data-testid="chat-onboarding-chips"
       onKeyDown={onKeyDown}
-      className="mt-2 flex flex-wrap gap-2 px-1"
+      className={isFocusChoice ? "mt-2 grid grid-cols-3 gap-2 px-1 sm:flex sm:flex-wrap" : "mt-2 flex flex-wrap gap-2 px-1"}
     >
       {chips.map((chip, index) => (
         <button
@@ -175,7 +176,7 @@ export function ChatOnboardingChips({
           disabled={disabled}
           data-chip-id={chip.id}
           onClick={() => onChip(chip.id)}
-          className={chip.id === "skip" || chip.id === "dont_save" ? QUIET_CHIP_CLASS : CHIP_CLASS}
+          className={`${chip.id === "skip" || chip.id === "dont_save" ? QUIET_CHIP_CLASS : CHIP_CLASS} ${chip.id === "skip" ? "col-span-3 basis-full" : ""} ${isFocusChoice && chip.id !== "skip" ? "justify-center px-2 sm:px-4" : ""}`}
         >
           {chip.label}
         </button>
@@ -370,15 +371,15 @@ export function ChatOnboardingDailyTip({
   return (
     <div
       data-testid="chat-onboarding-daily-tip"
-      className="mx-auto flex w-full max-w-2xl items-center gap-1 px-1 text-sm text-muted-foreground"
+      className="mx-auto flex w-full max-w-2xl items-start gap-1 rounded-2xl border border-[color:var(--profile-pane-hair)] bg-[color:var(--app-card-surface-default)] p-2 text-muted-foreground shadow-[0_2px_10px_rgba(0,0,0,0.04)]"
     >
       <button
         type="button"
         onClick={() => onUse(tip)}
-        className="min-h-11 min-w-0 flex-1 rounded-xl px-2 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60"
+        className="min-h-11 min-w-0 flex-1 rounded-xl px-2 py-1.5 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60"
       >
-        <span className="font-medium text-foreground">Tip of the day:</span>{" "}
-        <span className={cn("break-words")}>try asking “{tip}”</span>
+        <span data-profile-role="group-label" className="block text-foreground">Tip of the day</span>
+        <span data-profile-role="description" className="mt-1 block break-words">Try asking “{tip}”</span>
       </button>
       <button
         type="button"

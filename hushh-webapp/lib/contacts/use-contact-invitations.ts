@@ -16,7 +16,6 @@ import {
   assertInvitationShare,
   type InvitationShare,
 } from "@/lib/services/contact-invitations-service";
-import { personalizeInvitation } from "./personalize-invitation";
 import { useInvitationQueue } from "./use-invitation-queue";
 
 /** Owned by the account/route invitation session, never persisted. */
@@ -110,11 +109,6 @@ export function useContactInvitationSession(
         if (generation.current !== token) return false;
         if (prepared) {
           assertInvitationShare(prepared);
-          for (const candidate of candidates) {
-            assertInvitationShare(
-              personalizeInvitation(prepared, candidate.displayName),
-            );
-          }
         }
         setShare(prepared);
         if (!prepared)

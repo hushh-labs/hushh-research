@@ -18,7 +18,7 @@ flowchart TB
 ```
 
 This is the concise design authority for One. It is informed by the checked
-Apple interaction reference: quiet system typography, a restrained single
+Apple interaction reference: quiet Plus Jakarta Sans typography, a restrained single
 accent, legible hierarchy, and chrome that recedes behind the work. It does
 not copy Apple branding or substitute a separate palette for Hussh.
 
@@ -166,16 +166,15 @@ safe area
                     Market · Portfolio · Analysis
                              route content
                               voice-only control (narrow slot)
-                              Chat · One · Connect · Feed · Search
+                              Chat · One · Connect · Feed
 safe area
 ```
 
 1. The centered primary bottom navigation is fixed and constant: **Chat**,
-   **One**, **Connect**, **Feed**, and **Search**, in that order. **Chat** is
-   the canonical home route (`/`). Search is a segment in that shared control
-   and opens the global command surface. Profile remains a top-bar control.
-2. Search opens the existing global command/search surface. It is not agent
-   chat and has no route-local replacement.
+   **One**, **Connect**, and **Feed**, in that order. **Chat** is the canonical
+   home route (`/`). Profile remains a top-bar control.
+2. App-wide Search is disabled and archived under `archive/app-wide-search/`.
+   Existing page-local collection filters remain available.
 3. The voice-only control and bottom navigation are one bottom-chrome surface.
    There is no divider, nested material, or inter-slot gap; their transform,
    safe-area clearance, and fade are measured by the shared shell. Neither
@@ -191,8 +190,10 @@ safe area
 6. Tabs are horizontally scrollable when needed, retain clear selected state,
    and do not push or overlap the top-bar actions on a small viewport.
 7. The bottom navigation frame uses the shared bottom-chrome width constraint.
-   Its five segments are equal-width and centered at every breakpoint; it
-   never aligns to the wider page shell or viewport edge. The voice slot is
+   Its segments are equal-width and centered at every breakpoint. Messages
+   on tablets and desktop uses a 30% list / 70% conversation split, placing
+   the entire shared bottom column inside the conversation pane; the list
+   fills the other column to the bottom edge. Phones use one pane at a time. The voice slot is
    narrower than the navigation frame while retaining a 44px hit target.
 8. Finance is one `/one/kai?tab=` workspace. Market, Portfolio, and Analysis
    use the Location-aligned agent measure and shared outer gutter. Its stable

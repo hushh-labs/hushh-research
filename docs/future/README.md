@@ -60,6 +60,7 @@ Promotion targets:
 
 ## Current Domains
 
+- [independent-email-otp-and-microsoft-sign-in-plan.md](./independent-email-otp-and-microsoft-sign-in-plan.md): four-hour implementation and acceptance plan for automatic domain admission, the existing email API with One as sender, optional public-CA evidence and Microsoft personal/company sign-in, independent of WorkOS and customer IT admins
 - [kai/README.md](./kai/README.md): Kai future-state concepts and superseded planning history that has not yet moved
 - [hussh-one-infra/README.md](./hussh-one-infra/README.md): planning-only One infrastructure architecture for Founder Wiki validation, Salesforce/MuleSoft partner boundaries, private compute, BYOA, and code-persona alignment
 - [one-product-surface-evolution-plan.md](./one-product-surface-evolution-plan.md): planning-only product-surface evolution path for One, Kai, Nav, KYC, PCHP, PKM, OpenClaw/LLM Wiki-style projections, signature, brokerage, and brand-side access

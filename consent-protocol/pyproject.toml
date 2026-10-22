@@ -11,6 +11,7 @@ dependencies = [
     "ag-ui-adk==0.7.0",
     "ag-ui-protocol==0.1.21",
     "asyncpg>=0.29.0",
+    "azure-identity>=1.26,<2",
     "cryptography>=44.0.0",
     "defusedxml>=0.7.1",
     "fastapi>=0.115.0",
@@ -70,6 +71,8 @@ dependencies = [
     # ZoneInfo needs the IANA database in slim Linux images, including browser aliases.
     "tzdata==2026.1",
     "uvicorn>=0.34.0",
+    # WorkOS enterprise SSO (behind an adapter; see docs/reference/architecture/enterprise-sso-workos-adr.md).
+    "workos==10.5.0",
     "wrapt>=1.14.0",
     "yfinance>=0.2.36",
     "phonenumbers>=9.0.28",
@@ -77,6 +80,10 @@ dependencies = [
     "redis==5.3.1",
     "cachetools==7.1.7",
     "stripe>=13,<20",
+    "openpyxl>=3.1.5,<4",
+    "dnspython>=2.8,<3",
+    "idna>=3.10,<4",
+    "certifi>=2026.2.25",
 ]
 
 [dependency-groups]
@@ -208,11 +215,15 @@ follow_imports = "skip"
 [[tool.mypy.overrides]]
 module = [
     "hushh_mcp.services.one_location_agent_service",
+    # Preserve the durable delivery receipt type at the Location service boundary.
+    "hushh_mcp.services.system_push_delivery",
     # Preserve the public URL helper's return types at the service boundary.
     "hushh_mcp.services.one_location_public_invite_url",
     # Keep the shared manual/command public-link writer's return contract typed.
     "hushh_mcp.services.location_public_link_writer",
     "hushh_mcp.services.connections_service",
+    # Preserve shared directory matching return types at both service boundaries.
+    "hushh_mcp.services.people_search_sql",
     # A pure table plus one classifier. Cheap to check, and its return types are
     # what `google_maps_service` builds a response contract on.
     "hushh_mcp.services.place_taxonomy",

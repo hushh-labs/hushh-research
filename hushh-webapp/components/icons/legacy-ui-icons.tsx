@@ -2,13 +2,16 @@
 
 import * as Phosphor from "@phosphor-icons/react";
 import { forwardRef } from "react";
+import { AccentedKeyIcon } from "./ui/accented-key-icon";
+import { AppleTrashIcon } from "./ui/trash-icon";
+import { PeoplePairIcon } from "./ui/people-action-icons";
 import type { Icon, IconProps, IconWeight } from "@phosphor-icons/react";
 
 /**
  * Compatibility facade for legacy component names. Every export renders the
- * equivalent official Phosphor icon. Capability aliases keep the canonical
- * duotone default; utility aliases opt into regular so they never paint a
- * secondary fill that reads like a background.
+ * equivalent official Phosphor icon. Outline geometry is the shared default,
+ * without a translucent secondary fill inside the glyph. Key aliases share
+ * the neutral outline and blue pinpoint used by password fields.
  * strokeWidth is accepted for source compatibility but intentionally ignored;
  * Phosphor owns the rendered geometry and weight.
  */
@@ -20,7 +23,7 @@ export type LucideIcon = React.ForwardRefExoticComponent<CanonicalIconProps>;
 
 function createCanonicalIcon(
   icon: Icon,
-  defaultWeight: IconWeight = "duotone",
+  defaultWeight: IconWeight = "regular",
 ): LucideIcon {
   const CanonicalIcon = icon;
   const ForwardedCanonicalIcon = forwardRef<SVGSVGElement, CanonicalIconProps>(
@@ -50,6 +53,7 @@ export const AlertTriangle = createCanonicalIcon(Phosphor.Warning);
 export const AlignCenter = createCanonicalIcon(Phosphor.TextAlignCenter);
 export const AlignLeft = createCanonicalIcon(Phosphor.AlignLeft);
 export const AlignRight = createCanonicalIcon(Phosphor.AlignRight);
+export const ArrowBendUpLeft = createCanonicalIcon(Phosphor.ArrowBendUpLeft, "regular");
 export const ArrowDownLeft = createCanonicalIcon(Phosphor.ArrowDownLeft);
 export const ArrowDownRight = createCanonicalIcon(Phosphor.ArrowDownRight);
 export const ArrowLeft = createCanonicalIcon(Phosphor.ArrowLeft, "regular");
@@ -130,6 +134,7 @@ export const FileText = createCanonicalIcon(Phosphor.FileText);
 export const FileUp = createCanonicalIcon(Phosphor.FileArrowUp);
 export const ForkKnife = createCanonicalIcon(Phosphor.ForkKnife, "regular");
 export const Fingerprint = createCanonicalIcon(Phosphor.Fingerprint);
+export const Flame = createCanonicalIcon(Phosphor.Fire);
 export const Flag = createCanonicalIcon(Phosphor.Flag);
 export const FolderLock = createCanonicalIcon(Phosphor.FolderSimpleLock);
 export const FolderSearch = createCanonicalIcon(Phosphor.FolderSimple);
@@ -147,9 +152,9 @@ export const ImageIcon = createCanonicalIcon(Phosphor.Image);
 export const Inbox = createCanonicalIcon(Phosphor.Tray);
 export const Info = createCanonicalIcon(Phosphor.Info);
 export const Italic = createCanonicalIcon(Phosphor.TextItalic);
-export const Key = createCanonicalIcon(Phosphor.Key);
+export const Key = AccentedKeyIcon;
 export const Keyboard = createCanonicalIcon(Phosphor.Keyboard);
-export const KeyRound = createCanonicalIcon(Phosphor.Key);
+export const KeyRound = AccentedKeyIcon;
 export const Landmark = createCanonicalIcon(Phosphor.Bank);
 export const Laptop = createCanonicalIcon(Phosphor.Laptop);
 export const Layers = createCanonicalIcon(Phosphor.Stack);
@@ -171,7 +176,7 @@ export const LocateFixed = createCanonicalIcon(Phosphor.Crosshair);
 export const Lock = createCanonicalIcon(Phosphor.Lock);
 export const LockKeyhole = createCanonicalIcon(Phosphor.LockKey);
 export const LogIn = createCanonicalIcon(Phosphor.SignIn);
-export const LogOut = createCanonicalIcon(Phosphor.SignOut);
+export const LogOut = createCanonicalIcon(Phosphor.SignOut, "regular");
 export const Mail = createCanonicalIcon(Phosphor.EnvelopeSimple);
 export const MailCheck = createCanonicalIcon(Phosphor.EnvelopeSimple);
 export const MailPlus = createCanonicalIcon(Phosphor.EnvelopeSimple);
@@ -222,6 +227,7 @@ export const Search = createCanonicalIcon(Phosphor.MagnifyingGlass, "regular");
 export const SearchCheck = createCanonicalIcon(Phosphor.MagnifyingGlass, "regular");
 export const SearchX = createCanonicalIcon(Phosphor.MagnifyingGlass, "regular");
 export const Send = createCanonicalIcon(Phosphor.PaperPlaneRight);
+export const Smile = createCanonicalIcon(Phosphor.Smiley);
 // Stop a running reply. Filled: a duotone square reads as a checkbox, not stop.
 export const StopSquare = createCanonicalIcon(Phosphor.Square, "fill");
 export const SendHorizontal = createCanonicalIcon(Phosphor.PaperPlaneRight);
@@ -242,7 +248,7 @@ export const Target = createCanonicalIcon(Phosphor.Target);
 export const Timer = createCanonicalIcon(Phosphor.Timer);
 export const ThumbsDown = createCanonicalIcon(Phosphor.ThumbsDown);
 export const ThumbsUp = createCanonicalIcon(Phosphor.ThumbsUp);
-export const Trash2 = createCanonicalIcon(Phosphor.Trash);
+export const Trash2 = AppleTrashIcon;
 export const TrendingDown = createCanonicalIcon(Phosphor.TrendDown);
 export const TrendingUp = createCanonicalIcon(Phosphor.TrendUp);
 export const TrendingUpDown = createCanonicalIcon(Phosphor.TrendUp);
@@ -258,7 +264,11 @@ export const UserPlus = createCanonicalIcon(Phosphor.UserPlus);
 export const UserRound = createCanonicalIcon(Phosphor.UserCircle);
 export const UserRoundCheck = createCanonicalIcon(Phosphor.UserCircleCheck);
 export const UserRoundPlus = createCanonicalIcon(Phosphor.UserCirclePlus);
-export const Users = createCanonicalIcon(Phosphor.Users);
+export const Users = forwardRef<SVGSVGElement, CanonicalIconProps>(
+  function Users({ size = 16, ...props }, ref) {
+    return <PeoplePairIcon ref={ref} size={size} {...props} />;
+  },
+);
 export const UsersRound = createCanonicalIcon(Phosphor.UsersThree);
 export const Volume2 = createCanonicalIcon(Phosphor.SpeakerHigh);
 export const VolumeX = createCanonicalIcon(Phosphor.SpeakerSlash);
@@ -270,3 +280,5 @@ export const Workflow = createCanonicalIcon(Phosphor.FlowArrow);
 export const X = createCanonicalIcon(Phosphor.X, "regular");
 export const XCircle = createCanonicalIcon(Phosphor.XCircle);
 export const Zap = createCanonicalIcon(Phosphor.Lightning);
+
+export const WhatsappLogo = createCanonicalIcon(Phosphor.WhatsappLogo);

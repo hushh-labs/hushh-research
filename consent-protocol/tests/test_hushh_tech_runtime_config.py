@@ -36,16 +36,34 @@ def test_passkey_rp_ids_are_derived_from_the_active_frontend_origin():
     module = _module()
 
     assert module._canonical_passkey_allowed_rp_ids("https://dev.one.hushh.ai") == (
-        "localhost,127.0.0.1,dev.one.hushh.ai"
+        "localhost,127.0.0.1,dev.one.hushh.ai,dev.one.hussh.ai,dev.one.hussh.si"
     )
     assert module._canonical_passkey_allowed_rp_ids("https://uat.one.hushh.ai/") == (
-        "localhost,127.0.0.1,uat.one.hushh.ai"
+        "localhost,127.0.0.1,uat.one.hushh.ai,uat.one.hussh.ai,uat.one.hussh.si"
     )
     assert module._canonical_passkey_allowed_rp_ids("https://one.hushh.ai") == (
-        "localhost,127.0.0.1,one.hushh.ai"
+        "localhost,127.0.0.1,one.hushh.ai,one.hussh.ai,one.hussh.si"
     )
     assert module._canonical_passkey_allowed_rp_ids("http://localhost:3000") == (
         "localhost,127.0.0.1"
+    )
+
+    assert module._canonical_passkey_allowed_rp_ids("https://uat.one.hussh.ai") == (
+        "localhost,127.0.0.1,uat.one.hushh.ai,uat.one.hussh.ai,uat.one.hussh.si"
+    )
+    assert module._canonical_passkey_allowed_rp_ids("https://uat.one.hussh.si") == (
+        "localhost,127.0.0.1,uat.one.hushh.ai,uat.one.hussh.ai,uat.one.hussh.si"
+    )
+    assert module._canonical_passkey_allowed_rp_ids("https://unknown.hussh.ai") == (
+        "localhost,127.0.0.1,unknown.hussh.ai"
+    )
+    assert (
+        module._cors_with_frontend_aliases("https://dev.one.hushh.ai", "https://dev.one.hushh.ai")
+        == "https://dev.one.hushh.ai,https://dev.one.hussh.ai,https://dev.one.hussh.si"
+    )
+    assert (
+        module._cors_with_frontend_aliases("https://dev.one.hushh.ai", "https://unrelated.example")
+        == "https://unrelated.example"
     )
 
 
@@ -54,6 +72,27 @@ def test_passkey_rp_origin_must_be_a_bare_http_origin():
 
     with pytest.raises(ValueError, match=r"canonical HTTP\(S\) origin"):
         module._canonical_passkey_allowed_rp_ids("https://uat.one.hushh.ai/login")
+
+
+@pytest.mark.parametrize("origin", ["https://one.hussh.ai", "https://uat.one.hussh.ai"])
+def test_oauth_preparation_derives_both_callbacks_from_one_origin(monkeypatch, origin):
+    module = _module()
+    writes = {}
+    monkeypatch.setattr(
+        module,
+        "_upsert_secret",
+        lambda project, name, value: writes.update({name: value}),
+    )
+    names = module._sync_oauth_redirects("synthetic-project", origin)
+    assert names == ["GMAIL_OAUTH_REDIRECT_URI", "GOOGLE_OAUTH_REDIRECT_URI"]
+    assert writes == {
+        "GMAIL_OAUTH_REDIRECT_URI": f"{origin}/one/profile/gmail/oauth/return",
+        "GOOGLE_OAUTH_REDIRECT_URI": f"{origin}/one/profile/google/oauth/return",
+    }
+    writes.clear()
+    with pytest.raises(ValueError, match=r"canonical HTTP\(S\) origin"):
+        module._sync_oauth_redirects("synthetic-project", f"{origin}/login")
+    assert writes == {}
 
 
 def test_generator_and_runtime_hydrate_every_hushh_tech_policy_key(monkeypatch):

@@ -120,6 +120,13 @@ It also logs each blocking session's pid, `application_name`, state, wait event,
 and transaction and query ages. It samples these from a second pool connection
 while the statement waits. It never reads another session's query text.
 
+Migration 329's checksum-pinned replay adapter recognizes the exact validated
+368 no-charge quote and waiver checks, with the nullable timestamp marker and
+no generated/default waiver. This preserves completed no-charge quotes during
+later deploys without restoring the older payment-required-only check. Boolean
+grouping, all other cent-price checks and immutable ledger checksums remain
+enforced; an unknown or unvalidated successor cannot use this exception.
+
 ## UAT Zero-Loss Baseline Gate
 
 Before establishing a UAT baseline:

@@ -305,7 +305,7 @@ def validate_token(token_str, expected_scope=None):
 const unlockVault = useCallback(
   (key: string, token: string, expiresAt: number) => {
     // SECURITY: Both key and token stored in React state (memory only)
-    // XSS attacks cannot access React component state
+    // This avoids storage persistence; it does not make runtime state XSS-safe.
     setVaultKey(key);
     setVaultOwnerToken(token);
     setTokenExpiresAt(expiresAt);
@@ -573,11 +573,11 @@ CREATE INDEX idx_consent_audit_pending ON consent_audit(user_id) WHERE action = 
 
 ### 5. XSS Protection (Memory-Only Storage)
 
-**CRITICAL**: Both vault key AND VAULT_OWNER token are stored ONLY in React state (memory). This prevents XSS attacks from stealing credentials.
+**CRITICAL**: Both vault key AND VAULT_OWNER token are stored ONLY in React state (memory). This limits persistence and exposure through browser storage; it does not prevent malicious same-origin JavaScript from accessing the running application.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    MEMORY ONLY (XSS Protected)              │
+│                    MEMORY ONLY (not persisted)              │
 ├─────────────────────────────────────────────────────────────┤
 │  Vault Key        → React State (VaultContext / Zustand)    │
 │  VAULT_OWNER Token → React State (VaultContext / Zustand)   │
@@ -589,8 +589,9 @@ CREATE INDEX idx_consent_audit_pending ON consent_audit(user_id) WHERE action = 
 
 **Why this matters**:
 - XSS attacks can read `sessionStorage` and `localStorage`
-- XSS attacks CANNOT read React component state
-- Sensitive credential theft via storage APIs is prevented by memory-only key/token handling
+- React component state is not an isolation boundary against XSS
+- Storage reads cannot retrieve keys or tokens that the application never persisted; memory-only handling does not protect against malicious same-origin JavaScript.
+- Script admission, output sanitization and other XSS defenses remain necessary
 
 **Service layer pattern**:
 - Services MUST receive token as explicit parameter
@@ -680,3 +681,19 @@ What reaches the model:
 - [Agent Development](./agent-development.md) -- Building new agents and operons
 - [Kai Agents](./kai-agents.md) -- Multi-agent financial analysis system
 - [Environment Variables](./env-vars.md) -- Backend configuration reference
+
+### First-party Calendar Schedule read exception
+
+`POST /api/one/calendar/schedule/today`,
+`POST /api/one/calendar/schedule/availability`,
+`POST /api/one/calendar/invitations`, and
+`POST /api/one/calendar/board/day` use verified Firebase identity
+plus the owner's active, scoped Google Calendar OAuth consent grant instead of
+a VAULT_OWNER token. The server derives the owner from the bearer and verifies
+the selected owner-bound Calendar connection/grant before and after provider reads. Firebase
+alone, a Mail-only grant, or a disconnected Calendar never authorizes a read.
+This exception exposes no vault/PKM, delegated-agent or mutation authority and
+never mints a broad owner token. Vault lock/HCT revocation does not revoke these
+provider reads; Calendar disconnect and Firebase invalidation do. Responses
+are private/no-store and event information remains in component memory. Legacy
+Calendar/chat reads and attendance mutations retain their existing HCT gates.

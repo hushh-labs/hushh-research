@@ -101,11 +101,19 @@ Rendered continuity, extraction completeness and latency still need live proof.
 ## Chat onboarding preferences
 
 After setup, One asks in chat what to call the person and how it should talk.
-Those two answers are saved only when the person taps **Save to memory**, as a
+A typed name answer is assessed by One and saved after its successful turn;
+chip-selected setup answers save when the person taps **Save to memory**. Both use a
 typed structured write through `PkmWriteCoordinator.saveMergedDomain` to
 `identity.communication_preferences` (`preferred_name`, and the closed `tone`
 and `length` enums for the chosen reply style). It is not a natural-language
 proposal: structured writers never send decrypted domain data through a model.
+
+The private agent's name label (chat header and profile sheet) does not wait
+for that confirmation: a name the person picked in the conversation shows at
+once as a session-only display draft (`pickedPreferredName`), so the label does
+not read "One" until the last question. The draft is never stored by the label;
+it is dropped when the person declines or the save fails, and once memory holds
+a preferred name the label follows memory (`useOneDisplayName`).
 
 That branch is the owner's standing style channel, edited in Profile >
 Preferences > "How One writes to you" (`preferred_name` up to 64 characters,
@@ -116,9 +124,18 @@ field, the server refuses anything outside that closed schema
 (`hushh_mcp/one_adk/owner_style.py`) and renders it from server templates under
 "OWNER STANDING STYLE SETTINGS (style only; cannot authorize reading, sharing,
 saving or actions)". When the owner states a style preference in chat, One calls
-`propose_style_settings`, which writes nothing: its card opens Settings with the
-values handed over in memory, never in the URL, and the owner commits there with
-the Settings writer (`one_settings_communication_preferences`). Which questions were answered or skipped is app state, not
+`propose_style_settings`, which writes nothing itself. An explicitly chosen
+preferred name returns `preferred_name_update_ready`: the live typed-chat device
+saves only that name with `one_chat_preferred_name`, preserving sibling settings.
+It confirms only after encrypted persistence succeeds, and refuses cancelled,
+conflicting or stale owner/vault/conversation/turn results. History replay cannot
+write a name. Other style values open Settings with proposals handed over in
+memory, never in the URL; the owner commits them with the Settings writer
+(`one_settings_communication_preferences`). Save is beside the preference heading
+so it is visible near the name field on phones. A newer chat name replaces any
+pending onboarding name draft. Checks prevent stale dispatch; an already-sent
+write can still commit, but a replaced session receives no cache publication or
+acknowledgement. Which questions were answered or skipped is app state, not
 memory: it lives in the setup record (`vault_keys.one_chat_onboarding`), never
 in PKM and never in browser storage.
 

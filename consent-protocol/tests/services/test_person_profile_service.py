@@ -51,7 +51,22 @@ class _ConsentWithGrant(_Consent):
 
 
 @pytest.mark.asyncio
-async def test_connected_contact_email_requires_a_current_active_edge(monkeypatch):
+@pytest.mark.parametrize(
+    "phone,verified,expected_phone",
+    [
+        ("+919876543210", True, "+919876543210"),
+        ("+14155552671", True, "+14155552671"),
+        ("+919876543210", False, None),
+        (None, True, None),
+        ("9876543210", True, None),
+        ("+0123456789", True, None),
+        ("+919876543210;ext=1", True, None),
+        ("+1234567890123456", True, None),
+    ],
+)
+async def test_connected_contact_details_require_a_current_active_edge(
+    monkeypatch, phone, verified, expected_phone
+):
     service = PersonProfileService(connections=_Connections(), consent_db=_Consent())
     person_ref = "11111111-1111-4111-8111-111111111111"
     row = {
@@ -59,6 +74,7 @@ async def test_connected_contact_email_requires_a_current_active_edge(monkeypatc
         "public_person_ref": person_ref,
         "display_name": "Fixture Person",
         "email": "must-not-enter-public-projection@example.test",
+        "phone_number": "+919876543210",
     }
     monkeypatch.setattr(service, "_profile_row", lambda _ref: row)
     monkeypatch.setattr(
@@ -66,14 +82,23 @@ async def test_connected_contact_email_requires_a_current_active_edge(monkeypatc
         lambda: SimpleNamespace(execute_raw=lambda *_args: SimpleNamespace(data=[])),
     )
     assert "contactEmail" not in service.get_public_profile(person_ref)
+    assert "contactPhoneNumber" not in service.get_public_profile(person_ref)
+    assert "phone_number" not in service.get_public_profile(person_ref)
 
     edge_active = True
     contact_queries = []
 
     def read_one(sql, params):
         if "FROM connections edge" in sql:
+            assert "edge.status = 'active'" in sql
+            assert "edge.user_a_id = LEAST(:viewer, :subject)" in sql
+            assert "edge.user_b_id = GREATEST(:viewer, :subject)" in sql
             contact_queries.append(params)
-            return {"email": "friend@example.test"} if edge_active else None
+            return (
+                {"email": "friend@example.test", "phone_number": phone, "phone_verified": verified}
+                if edge_active
+                else None
+            )
         return {"public_person_ref": "viewer-ref"}
 
     monkeypatch.setattr(service, "_execute_one", read_one)
@@ -82,6 +107,7 @@ async def test_connected_contact_email_requires_a_current_active_edge(monkeypatc
         viewer_user_id="viewer", public_person_ref=person_ref
     )
     assert connected["contactEmail"] == "friend@example.test"
+    assert connected["contactPhoneNumber"] == expected_phone
     assert contact_queries == [{"viewer": "viewer", "subject": "subject"}]
 
     edge_active = False
@@ -89,12 +115,17 @@ async def test_connected_contact_email_requires_a_current_active_edge(monkeypatc
         viewer_user_id="viewer", public_person_ref=person_ref
     )
     assert revoked["contactEmail"] is None
+    assert revoked["contactPhoneNumber"] is None
 
-    monkeypatch.setattr(service, "_relationship", lambda *_args: {"status": "pending_outgoing"})
-    pending = await service.get_viewer_profile(
-        viewer_user_id="viewer", public_person_ref=person_ref
-    )
-    assert pending["contactEmail"] is None
+    for status in ("none", "pending_outgoing", "pending_incoming"):
+        monkeypatch.setattr(
+            service, "_relationship", lambda *_args, status=status: {"status": status}
+        )
+        pending = await service.get_viewer_profile(
+            viewer_user_id="viewer", public_person_ref=person_ref
+        )
+        assert pending["contactEmail"] is None
+        assert pending["contactPhoneNumber"] is None
     assert len(contact_queries) == 2
 
 

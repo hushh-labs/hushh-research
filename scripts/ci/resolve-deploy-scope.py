@@ -20,6 +20,8 @@ FRONTEND_PREFIXES = (
 )
 BACKEND_PREFIXES = (
     "consent-protocol/",
+    "deploy/email-auth/",
+    "deploy/plg/",
 )
 FRONTEND_EXACT_PATHS = {
     "deploy/frontend.cloudbuild.yaml",
@@ -29,6 +31,7 @@ FRONTEND_EXACT_PATHS = {
 BACKEND_EXACT_PATHS = {
     "deploy/backend.cloudbuild.yaml",
     "scripts/ops/sync_backend_runtime_secrets.py",
+    "scripts/ops/email_auth_uat_release.py",
 }
 NEUTRAL_PREFIXES = (
     ".codex/",
@@ -54,6 +57,11 @@ ACCOUNT_LIFECYCLE_ATOMIC_EXACT_PATHS = {
     "consent-protocol/db/migrations/rollback/201_account_deletion_tombstones.rollback.sql",
     "consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py",
     "hushh-webapp/ios/App/App/Plugins/HushhSessionPrivacyPlugin.swift",
+    # Signup Contacts is ordinary onboarding, not a per-release opt-in. Pair
+    # its admission/source contract with the backend that owns enrollment.
+    "hushh-webapp/lib/contacts/initial-contact-onboarding-config.ts",
+    "hushh-webapp/lib/services/initial-contacts-onboarding-service.ts",
+    "consent-protocol/db/migrations/337_initial_contacts_onboarding.sql",
 }
 
 

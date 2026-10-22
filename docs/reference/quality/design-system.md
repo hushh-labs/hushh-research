@@ -23,6 +23,13 @@ This contract keeps shadcn as the vendor primitive layer, makes Morphy UX the st
 
 ## Canonical Policies
 
+The shushing brand mark is authored in
+`hushh-webapp/assets/brand/hushh-mark-source.svg`. Run `npm run build:brand-assets`
+in `hushh-webapp` to regenerate the shared raster mark, browser icons, native
+launcher and splash assets, and Wallet artwork. The historical source PNG is a
+generated compatibility projection. Welcome artwork uses `HushhMark` in both
+themes; never render the brand as an operating-system emoji.
+
 1. Default to stock shadcn imports for baseline controls.
 2. Use Morphy when the change belongs to the reusable design-system layer.
 3. Keep `components/ui` overwrite-safe with `npx shadcn@latest add ... --overwrite`.
@@ -118,11 +125,20 @@ Forbidden:
 
 ## Visual Tokens
 
+Agents home artwork uses `AgentSectionIcon treatment="app"`: one native SVG
+tile with continuous corners and an optically centered glyph. The 40px list and
+68px grid share the same 64-unit vector artwork; gradients have instance-unique
+IDs. Opaque capability colours and white glyphs retain their identity in both
+themes, with only the surrounding elevation adapting. Mail uses a provider-neutral
+envelope. Keep the glyphs in `components/icons/agents/app-icons.tsx` and colours
+in `AGENT_APP_ICON_PALETTE` in `lib/design/home-icon-palette.ts`; embedded raster
+images, emoji, and provider logos are not home-agent artwork.
+
 1. Keep color, typography, radius, and motion centralized through existing tokens and CSS variables.
 2. Avoid legacy references and hardcoded old theme narratives in feature code.
 3. Keep backgrounds and surfaces aligned with the current neutral app direction.
 4. Shared shell and surface layout tokens live in `hushh-webapp/app/globals.css`.
-5. Color identity is the **Foundation** system with ONE switchable accent: the `--app-accent-*` family in `hushh-webapp/app/globals.css` (iOS Blue by default, Molten Gold under `html[data-accent="gold"]`, toggled in Profile → Preferences → Accent and persisted at `hushh.app.accent.v1` via `lib/theme/accent.ts`). Accent is emphasis ONLY; ink (`--primary`) carries primary, gray carries support. Legacy names (`--foundation-gold-*`, `--color-accent-*`, `--brand-*`, `--morphy-primary-*`, `--tone-blue*`) alias the accent family, so consumers written against them follow the preference automatically. Never hardcode an accent hex in component source; `npm run verify:accent-tokens` (part of `verify:design-system`) enforces this. RIA compatibility tokens must resolve through that same family; no persona may retint shared app chrome or bypass the active accent. The full Foundation Color Contract lives in [app-surface-design-system.md](./app-surface-design-system.md#foundation-color-contract).
+5. Color identity is the **Foundation** system with ONE switchable accent: the `--app-accent-*` family in `hushh-webapp/app/globals.css` (Blue by default, Molten Gold under `html[data-accent="gold"]`, toggled in Profile → Preferences → Accent and persisted at `hushh.app.accent.v1` via `lib/theme/accent.ts`). Accent is emphasis ONLY; ink (`--primary`) carries primary, gray carries support. Legacy names (`--foundation-gold-*`, `--color-accent-*`, `--brand-*`, `--morphy-primary-*`, `--tone-blue*`) alias the accent family, so consumers written against them follow the preference automatically. Never hardcode an accent hex in component source; `npm run verify:accent-tokens` (part of `verify:design-system`) enforces this. RIA compatibility tokens must resolve through that same family; no persona may retint shared app chrome or bypass the active accent. The full Foundation Color Contract lives in [app-surface-design-system.md](./app-surface-design-system.md#foundation-color-contract).
    5a. Promotion path for feature design systems: when a route (e.g. One Location) proves out a surface grammar, promote its tokens to `lib/morphy-ux/tokens/surfaces.ts` and its primitives to `lib/morphy-ux/ui/surface-primitives.tsx`, leave a re-export shim at the feature path, and consume the `--app-accent-*` family for any accent usage so the promoted pieces stay accent-neutral.
    5b. Portable PDF artifacts use the Morphy-owned
    `lib/morphy-ux/pdf-document-formatter.mjs`. The Markdown/PDF script is a
@@ -145,12 +161,35 @@ Forbidden:
 8. **Apple design grammar** (adopted principles; enforced by shared primitive tests and `verify:design-system` where applicable):
    - Radius grammar: shapes carry meaning. `--app-radius-pill` = action signal (CTAs, chips, search, toggles); `--app-radius-lg` (18px) = compact utility cards (the shipped `--app-card-radius-*` 20/22/24 contract remains canonical for app cards); `--app-radius-sm` (8px) = compact utility rects. Do not invent radii between the stops in new components.
    - Field geometry: direct-entry controls use `--app-input-radius`, which resolves to the capsule stop `--app-radius-pill`. `Input`, `InputGroup`, `Textarea`, `SelectTrigger`, `CommandInput`, and combobox field shells use it; compound controls keep only their outer shell rounded. Use `--app-form-field-gap` (label/control), `--app-form-related-gap` (label/related action), and `--app-form-section-gap` (primary/secondary sections) instead of local spacing guesses. Credential fallback groups keep the “Can’t get in?” descriptor on one centered line and all available quiet actions on the next centered row inside a capped `max-w-[21rem]` measure. Separate multiple actions with middle-dot separators; never add a second primary CTA, pill, column, or vertical divider. If only one action is available, keep it as the single centered element without a separator. Use `--app-form-section-gap` for the larger pause after the primary unlock action and `--app-form-related-gap` to keep the descriptor close to its action row. Visible link text stays close to the descriptor while the transparent control retains a 44px hit area; do not add pill padding, `self-start`, or a left-anchored row. Recovery, alternate unlock, and Sign out share the same quiet escape row when present.
-   - Press physics: the system-wide active state is the `.press-scale` utility (`--motion-press-scale: 0.95`, transform-only, reduced-motion aware), layered with the md-ripple. Wired into the Morphy Button and all segmented primitives; do not write per-component press styles.
-   - Weight ladder: 300 / 400 / 600 / 700. Weight 500 (`font-medium`) is deliberately absent from `lib/morphy-ux`; labels are 400, active/strong emphasis is 600, weight 300 is a rare opt-in "airy" cue (`.type-lead-airy`).
-   - Typography rungs: `.type-lead` (28/400), `.type-lead-airy` (24/300), `.type-tagline` (21/600), `.type-dense-link` (17/400/2.41) join the Foundation scale for editorial/marketing surfaces.
+   - Press physics: the shared pressed state is a flat opacity/color change with the md-ripple; no scale, spring or bounce. The compatibility `--motion-press-scale` token is `1`, and `.press-scale` no longer transforms. Use the shared Button/segmented primitives rather than per-component press styles.
+   - Weight ladder: self-hosted Plus Jakarta Sans 400 / 600 / 700. CSS navigation weight 550 resolves to the 600 face; CSS primary-action weight 650 resolves to the 700 face. The airy lead uses regular 400.
+   - Typography rungs: `.type-lead` (28/400), `.type-lead-airy` (24/400), `.type-tagline` (21/600), `.type-dense-link` (17/400/2.41) join the Foundation scale for editorial/marketing surfaces.
    - Elevation doctrine: UI elevation comes from surface change and backdrop blur, not chrome shadows. `--app-shadow-product` is the single photographic drop-shadow, reserved for imagery resting on a surface; `--app-blur-frosted` is the frosted-chrome baseline.
    - Tile system: full-bleed marketing/onboarding tiles alternate light and near-black (`--app-tile-dark-1/2/3`); the color change is the divider (no borders, no rounding, no shadows between tiles). In-copy links on dark tiles use `--app-accent-link-on-dark`.
-   - Legal note: SF Pro resolves via the system font stack only (`--font-app-*`); never bundle Apple font files. The measured scales and principles above are facts, not copied assets.
+   - Legal note: the product faces are OFL-licensed Plus Jakarta Sans in `public/fonts/PlusJakartaSans`. Emoji and unsupported glyphs use the platform fallback. Never bundle Apple font files.
+
+### Product font map
+
+The careers type hierarchy is the app-wide source for web and native WebView
+content. Use `--font-app-display` and `--font-app-body` for product text, and
+`--font-app-mono` for uppercase metadata and code. The shipped faces are 400,
+600 and 700, in normal and italic styles.
+
+| Placement | CSS weight | Shipped face |
+| --- | ---: | ---: |
+| Hussh wordmark, page H1, section heading | 600 | 600 |
+| Header navigation and agent tabs | 550 | 600 |
+| Highlighted hero phrase | 700 | 700 |
+| Primary CTA and button label | 650 | 700 |
+| Paragraph, card title, FAQ question, job-detail heading, footer copy/link | 400 | 400 |
+| Form label and pay amount | 600 | 600 |
+| Uppercase section label, footer column heading, copyright | 400 system monospace | platform |
+
+Keep the **role** distinction: a section heading is semibold, while a card
+title or FAQ question can be regular even when marked up as a heading. Use the
+semantic roles in `components/app-ui/typography.tsx` rather than applying a
+weight by element name alone. Technical code and third-party email remain in
+their appropriate portable font stacks.
 
 ## Typography and CTA contract
 
@@ -163,7 +202,7 @@ action composition without changing the Foundation color system.
    button labels, and eyebrows must not be recreated with route-local arbitrary
    font sizes or weights.
 2. Text buttons use exactly three interaction sizes:
-   - `compact`: a 44px target with the compact 15/20/600 label. Use for dense
+   - `compact`: a 44px target with the compact 15/20/650 label (shipped 700 face). Use for dense
      row and toolbar actions.
    - `standard`: a 44px target with the standard button label. Use for ordinary
      actions, retry controls, secondary actions, and pagination.
@@ -241,7 +280,7 @@ The Profile page is the canonical settings implementation for the app.
 Reference:
 
 1. `hushh-webapp/components/app-ui/settings-ui.tsx`
-2. `hushh-webapp/app/profile/profile-workspace-page.tsx`
+2. `hushh-webapp/components/profile/profile-workspace-page.tsx`
 3. [Profile Settings Design System](./profile-settings-design-system.md)
 4. [App Surface Design System](./app-surface-design-system.md)
 5. [App Surface Audit Matrix](./app-surface-audit-matrix.md)
@@ -271,8 +310,10 @@ Persistent chrome text and icons inherit the neutral theme foreground through
 `currentColor`; do not pin descendant `text-foreground` or
 `text-muted-foreground` classes. Generic icons come from the canonical
 `@/components/icons` Phosphor registry and preserve their native viewBox and
-weight. Use the registry's regular weight for Plus/X controls and duotone for
-capabilities and utility icons; do not add per-surface stroke overrides.
+weight. Use the registry's regular outline weight for capabilities and utility
+icons, without translucent interior shading; do not add per-surface stroke
+overrides. Key aliases share the neutral outline and blue accent pinpoint used
+by password fields.
 
 Location, Finance, Consent Center, and RIA route bodies render equal fixed
 tracks from the central registry below their module headers. The fixed top

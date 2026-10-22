@@ -339,8 +339,8 @@ class SupportEmailService:
                 "A passkey was removed from your One vault unlock methods.",
             ),
             "passphrase_changed": (
-                "One vault passphrase updated",
-                "Your One vault passphrase unlock was updated.",
+                "One vault password updated",
+                "Your One vault password unlock was updated.",
             ),
         }
         subject, body = copy[kind]

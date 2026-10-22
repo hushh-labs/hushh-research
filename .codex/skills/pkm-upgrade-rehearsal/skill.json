@@ -50,13 +50,13 @@
   "handoff_targets": [
     "security-audit",
     "reviewer-app-testing",
-    "vault-pkm-governance",
+    "security-audit",
     "uat-scoped-deploy"
   ],
   "adjacent_skills": [
     "security-audit",
     "reviewer-app-testing",
-    "vault-pkm-governance",
+    "security-audit",
     "uat-scoped-deploy"
   ],
   "risk_tags": [

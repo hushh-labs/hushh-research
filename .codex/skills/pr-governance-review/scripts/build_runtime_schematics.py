@@ -102,7 +102,7 @@ def _voice_family(skills: list[dict[str, Any]]) -> OrderedDict[str, Any]:
         gateway_source_contracts=source_contracts if isinstance(source_contracts, list) else [],
         runtime_sources=_existing(
             [
-                "hushh-webapp/lib/voice/kai-action-gateway.ts",
+                "hushh-webapp/lib/kai/actions/kai-action-gateway.ts",
                 "hushh-webapp/components/agent/agent-bar.tsx",
                 "hushh-webapp/components/kai/kai-command-bar-global.tsx",
                 "consent-protocol/hushh_mcp/services/action_gateway.py",
@@ -194,7 +194,7 @@ def build_schematics() -> OrderedDict[str, Any]:
     families = [
         _voice_family(skills),
         _family_from_skill(
-            _skill_by_id(skills, "vault-pkm-governance"),
+            _skill_by_id(skills, "security-audit"),
             "pkm-vault-runtime",
             [
                 "docs/reference/architecture/cache-coherence.md",

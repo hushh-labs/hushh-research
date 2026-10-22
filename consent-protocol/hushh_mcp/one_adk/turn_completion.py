@@ -25,6 +25,8 @@ from typing import Any
 
 from hushh_mcp.branding import PRODUCT_NAME
 from hushh_mcp.one_adk.follow_up_suggestions import FOLLOW_UP_TOOL_NAME
+from hushh_mcp.one_adk.message_reactions import REACTION_TOOL_NAME
+from hushh_mcp.one_adk.output_privacy import public_text
 from hushh_mcp.services.chat_key import MAX_BINDING_SECONDS
 
 logger = logging.getLogger(__name__)
@@ -89,12 +91,52 @@ def newest_turn_settled(events: Sequence[Any]) -> bool:
     return any(_is_final(event) for event in _newest_turn(events))
 
 
-def _ends_on_follow_ups(event: Any) -> bool:
-    """A turn closed by follow-up suggestions: its answer is on the call's own event."""
+def _ends_on_answer_sidecar(event: Any) -> bool:
+    """A presentation tool closed the turn after an answer in its model step."""
     responses = event.get_function_responses() if hasattr(event, "get_function_responses") else []
     return bool(responses) and all(
-        response.name == FOLLOW_UP_TOOL_NAME and (response.response or {}).get("status") == "shown"
+        response.name in {FOLLOW_UP_TOOL_NAME, REACTION_TOOL_NAME}
+        and (response.response or {}).get("status") == "shown"
         for response in responses
+    )
+
+
+def successful_answer_completion(event: Any, events: Sequence[Any]) -> bool:
+    """A successful visible answer completed, including presentation-tool endings.
+
+    Unlike history's ``newest_turn_answered``, a review pause, failed answer or
+    thought-only output is not completed product use. ADK presentation tools
+    finish without another model call, so their final response may carry no text.
+    """
+
+    def successful(candidate: Any) -> bool:
+        return not any(
+            getattr(candidate, field, False)
+            for field in ("partial", "interrupted", "error_code", "long_running_tool_ids")
+        )
+
+    def visible_answer(candidate: Any) -> bool:
+        return (
+            successful(candidate)
+            and getattr(candidate, "author", None) != "user"
+            and getattr(getattr(candidate, "content", None), "role", None) == "model"
+            and bool(public_text(candidate))
+        )
+
+    if not _is_final(event) or not successful(event):
+        return False
+    if visible_answer(event):
+        return True
+    if not _ends_on_answer_sidecar(event):
+        return False
+    invocation = getattr(event, "invocation_id", None)
+    if not invocation:
+        return False
+    return any(
+        getattr(prior, "invocation_id", None) == invocation
+        and getattr(prior, "timestamp", 0) <= getattr(event, "timestamp", 0)
+        and visible_answer(prior)
+        for prior in events
     )
 
 
@@ -106,7 +148,7 @@ def newest_turn_answered(events: Sequence[Any]) -> bool:
             continue
         if _has_answer(event):
             return True
-        if _ends_on_follow_ups(event) and any(
+        if _ends_on_answer_sidecar(event) and any(
             getattr(prior, "author", None) != "user" and _has_answer(prior)
             for prior in turn[:index]
         ):
@@ -167,4 +209,5 @@ __all__ = [
     "newest_turn_settled",
     "notify_one_reply",
     "one_reply_push",
+    "successful_answer_completion",
 ]

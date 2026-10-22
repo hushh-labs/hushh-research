@@ -15,7 +15,6 @@ import {
   EnvelopeSimple,
   GearSix,
   Info,
-  Key,
   Laptop,
   List,
   LockKey,
@@ -29,7 +28,6 @@ import {
   ShieldCheck,
   Sliders,
   SquaresFour,
-  Trash,
   User,
   WarningCircle,
   X,
@@ -37,16 +35,19 @@ import {
   type IconWeight,
 } from "@phosphor-icons/react";
 
+import { AccentedKeyIcon } from "./accented-key-icon";
+import { AppleTrashIcon } from "./trash-icon";
+
 export type UiIconProps = IconProps & {
   size?: number | string;
   weight?: IconWeight;
 };
 
-export function MessageSquareIcon({ weight = "duotone", ...props }: UiIconProps) {
+export function MessageSquareIcon({ weight = "regular", ...props }: UiIconProps) {
   return <ChatCircleDots weight={weight} {...props} />;
 }
 
-export function ShieldIcon({ weight = "duotone", ...props }: UiIconProps) {
+export function ShieldIcon({ weight = "regular", ...props }: UiIconProps) {
   return <ShieldCheck weight={weight} {...props} />;
 }
 
@@ -282,12 +283,12 @@ export function CheckIcon({
 
 export function TrashIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {
   return (
-    <Trash
+    <AppleTrashIcon
       size={size}
       weight={weight}
       className={className}
@@ -298,7 +299,7 @@ export function TrashIcon({
 
 export function PencilIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {
@@ -314,7 +315,7 @@ export function PencilIcon({
 
 export function CopyIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {
@@ -330,7 +331,7 @@ export function CopyIcon({
 
 export function SendIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {
@@ -346,7 +347,7 @@ export function SendIcon({
 
 export function MicrophoneIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {
@@ -362,7 +363,7 @@ export function MicrophoneIcon({
 
 export function GearIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {
@@ -379,7 +380,7 @@ export { GearIcon as SettingsIcon };
 
 export function SlidersIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {
@@ -412,7 +413,7 @@ export { DotsThreeIcon as MoreHorizontalIcon };
 
 export function ExternalLinkIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {
@@ -428,7 +429,7 @@ export function ExternalLinkIcon({
 
 export function PanelLeftCloseIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {
@@ -444,7 +445,7 @@ export function PanelLeftCloseIcon({
 
 export function PanelLeftOpenIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {
@@ -463,7 +464,7 @@ export function PanelLeftOpenIcon({
  */
 export function LockIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {
@@ -479,7 +480,7 @@ export function LockIcon({
 
 export function UserIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {
@@ -495,7 +496,7 @@ export function UserIcon({
 
 export function LaptopIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {
@@ -511,12 +512,12 @@ export function LaptopIcon({
 
 export function KeyIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {
   return (
-    <Key
+    <AccentedKeyIcon
       size={size}
       weight={weight}
       className={className}
@@ -527,7 +528,7 @@ export function KeyIcon({
 
 export function MailIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {
@@ -543,7 +544,7 @@ export function MailIcon({
 
 export function InfoIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {
@@ -559,7 +560,7 @@ export function InfoIcon({
 
 export function AlertCircleIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {
@@ -575,7 +576,7 @@ export function AlertCircleIcon({
 
 export function LogOutIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {

@@ -28,6 +28,7 @@ from hushh_mcp.services.one_location_agent_service import (
     _redact_location_metadata,
     _share_lane_match_sql,
 )
+from hushh_mcp.services.people_search_sql import directory_name_rank
 from hushh_mcp.services.requester_identity import (
     OPAQUE_LABEL_MIN_LENGTH,
     UUID_LIKE_LABEL_PATTERN,
@@ -349,6 +350,89 @@ def test_recipient_key_registration_locks_before_mutation(
     assert calls[1] == ("SELECT :key_id AS key_id", {"key_id": "new-key"})
 
 
+@pytest.mark.parametrize(
+    "changed,rollback,read_failure,notify_failure",
+    [
+        (True, False, False, False),
+        (False, False, False, False),
+        (True, True, False, False),
+        (True, False, True, False),
+        (True, False, False, True),
+    ],
+)
+def test_recipient_readiness_wakes_peers_only_after_a_changed_key_commits(
+    monkeypatch: pytest.MonkeyPatch,
+    changed: bool,
+    rollback: bool,
+    read_failure: bool,
+    notify_failure: bool,
+) -> None:
+    from unittest.mock import MagicMock
+
+    connection = MagicMock()
+    connection.execute.return_value.mappings.return_value.first.return_value = {
+        "user_id": "recipient",
+        "key_id": "recipient-key",
+        "public_key_jwk": {"kty": "EC"},
+        "recipient_metadata_changed": changed,
+    }
+    committed = False
+    notifications = []
+    captures = []
+
+    @contextmanager
+    def transaction():
+        nonlocal committed
+        yield connection
+        if rollback:
+            raise RuntimeError("commit failed")
+        committed = True
+
+    def capture_viewers(conn, *, user_id):
+        # A new edge may commit after the key writer's old snapshot. Only a
+        # fresh post-key-commit read is allowed to choose the final audience.
+        assert conn is connection and committed
+        assert user_id == "recipient"
+        captures.append(user_id)
+        if read_failure:
+            raise RuntimeError("graph read unavailable")
+        return {"connected-peer", "circle-peer"}
+
+    def notify(**kwargs):
+        assert committed
+        notifications.append(kwargs["user_ids"])
+        if notify_failure:
+            raise RuntimeError("push unavailable")
+
+    monkeypatch.setattr(one_location_service_module, "get_db_connection", transaction)
+    monkeypatch.setattr(
+        "hushh_mcp.services.connection_graph_service.list_connection_graph_viewer_ids",
+        capture_viewers,
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.connections_service._notify_connection_graph_changed", notify
+    )
+
+    def register():
+        return OneLocationAgentService().register_recipient_key(
+            user_id="recipient", key_id="recipient-key", public_key_jwk={"kty": "EC"}
+        )
+
+    if rollback:
+        with pytest.raises(RuntimeError, match="commit failed"):
+            register()
+    else:
+        result = register()
+        assert result["canReceiveLocation"] is True
+        assert "graph_viewer_ids" not in result
+    assert captures == (["recipient"] if changed and not rollback else [])
+    assert notifications == (
+        [{"recipient", "connected-peer", "circle-peer"}]
+        if changed and not rollback and not read_failure
+        else []
+    )
+
+
 def test_key_bound_writer_reuses_one_connection_for_nonreturning_statements(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -558,6 +642,47 @@ def test_nearby_check_in_preferences_default_visible_true_requests_false(
         "allowConnectionRequests": False,
         "updatedAt": None,
     }
+
+
+@pytest.mark.parametrize("accepts_submission", [True, False])
+def test_location_push_reports_queue_acceptance_not_device_delivery(
+    monkeypatch: pytest.MonkeyPatch, accepts_submission: bool
+) -> None:
+    def submit(deliver):
+        if not accepts_submission:
+            raise RuntimeError("executor unavailable")
+        # Deliberately do not execute: queue acceptance is not device receipt.
+        return object()
+
+    monkeypatch.setattr(
+        one_location_agent_module, "_NOTIFICATION_EXECUTOR", SimpleNamespace(submit=submit)
+    )
+    monkeypatch.setattr(
+        one_location_agent_module,
+        "get_db",
+        lambda: SimpleNamespace(
+            execute_raw=lambda *args: SimpleNamespace(
+                data=[{"token": "test-device-token", "platform": "ios"}]
+            )
+        ),
+    )
+    monkeypatch.setattr(one_location_agent_module, "ensure_firebase_admin", lambda: (True, None))
+    monkeypatch.setattr(
+        one_location_agent_module, "build_push_message", lambda *args, **kwargs: object()
+    )
+
+    assert (
+        OneLocationAgentService()._send_metadata_notification(
+            user_id="test-recipient",
+            notification_type="location_share_created",
+            title="SMS",
+            body="Emergency alert",
+            notification_tag="sms:test",
+            request_url="/one/location",
+            data={"share_kind": "sos"},
+        )
+        is accepts_submission
+    )
 
 
 def test_settings_sync_notification_is_silent_and_metadata_only(
@@ -1041,6 +1166,44 @@ def test_lock_current_auto_approve_preference_rejects_circles_scope_with_no_ids(
             expected_rule_version=5,
         )
     assert error.value.code == "LOCATION_AUTO_APPROVE_RULE_INVALID"
+
+
+@pytest.mark.parametrize(
+    ("command_owned", "replay", "expected"), [(False, False, 1), (True, False, 0), (False, True, 0)]
+)
+def test_private_share_measurement_excludes_implicit_commands_and_replays(
+    monkeypatch, command_owned, replay, expected
+):
+    from hushh_mcp.services import product_value_receipts as values
+
+    service = AtomicPrivateShareProbe(replay=replay)
+    execute = service._execute_atomic_private_share
+
+    def save(**kwargs):
+        return {**execute(**kwargs), "_command_owned": command_owned}
+
+    monkeypatch.setattr(service, "_execute_atomic_private_share", save)
+    monkeypatch.setattr(values, "capture_value_epoch_sync", lambda _: "pinned-generation")
+    captured = []
+    monkeypatch.setattr(
+        values, "record_location_effect_sync", lambda **kwargs: captured.append(kwargs)
+    )
+    now = datetime.now(timezone.utc)
+    result = service.create_grant_with_initial_envelope(
+        owner_user_id="owner",
+        recipient_user_id="recipient",
+        recipient_key_id="recipient-key",
+        duration_hours=1,
+        client_operation_id="123e4567-e89b-12d3-a456-426614174000",
+        confirmed_at=now,
+        envelope={**encrypted_envelope("recipient-key"), "capturedAt": now.isoformat()},
+        share_kind="check_in",
+    )
+    assert len(captured) == expected
+    assert "_command_owned" not in result
+    if captured:
+        assert captured[0]["generation"] == "pinned-generation"
+        assert captured[0]["source_id"] == result["grant"]["id"]
 
 
 def test_atomic_private_share_commits_grant_envelope_and_events_together() -> None:
@@ -2249,7 +2412,18 @@ class FourUserMemoryService(OneLocationAgentService):
                     if self.vault_statuses.get(user_id) != "active" and not related:
                         continue
                 network_connected = user_id in connected_ids
-                if not network_connected:
+                # The Connect statement lets an opt-out stop only an email or
+                # phone fragment from finding someone; a person whose NAME
+                # matches is listed whatever their marketplace or contact-sync
+                # settings say. (The Ready-people statement keeps the old rule.)
+                name_matches = is_connect_directory and (
+                    directory_name_rank(
+                        str(identity.get("display_name") or marketplace.get("display_name") or ""),
+                        str(params.get("query") or ""),
+                    )
+                    is not None
+                )
+                if not network_connected and not name_matches:
                     if marketplace.get("is_discoverable") is False:
                         continue
                     preference = self.contact_preferences.get(user_id) or {}
@@ -3182,7 +3356,7 @@ class FourUserMemoryService(OneLocationAgentService):
                 "requested_duration_mode": params.get("requested_duration_mode"),
                 "extends_grant_id": params.get("extends_grant_id"),
                 "request_revision": 1,
-                "metadata": {},
+                "metadata": {"notify_owner": params.get("notify_owner", True)},
             }
             self.requests[request_id] = row
             return row
@@ -3211,6 +3385,7 @@ class FourUserMemoryService(OneLocationAgentService):
                 request["extends_grant_id"] = params.get("extends_grant_id")
                 if params.get("ask_changed"):
                     request["request_revision"] = int(request.get("request_revision") or 1) + 1
+                    request["metadata"]["notify_owner"] = params.get("notify_owner", True)
                     request["requested_at"] = datetime.now(timezone.utc)
                     if params.get("expires_after_hours") is not None:
                         request["expires_at"] = datetime.now(timezone.utc) + timedelta(
@@ -3960,30 +4135,47 @@ def test_directory_candidates_include_existing_profiles_without_verified_phone_o
     assert candidates["user_without_cache"]["displayName"] == "Cache Missing Member"
 
 
-def test_directory_candidates_excludes_marketplace_hidden() -> None:
-    service = FourUserMemoryService()
-    service.marketplace_profiles["user_b"] = {
-        "user_id": "user_b",
+def _opt_out_of_marketplace_and_contact_sync(service: FourUserMemoryService, user_id: str) -> None:
+    service.marketplace_profiles[user_id] = {
+        "user_id": user_id,
         "profile_type": "investor",
         "is_discoverable": False,
         "updated_at": datetime.now(timezone.utc),
     }
-    candidate_ids = {c["userId"] for c in service.list_directory_candidates(owner_user_id="user_a")}
-    assert "user_b" not in candidate_ids
-    assert "user_c" in candidate_ids
+    # The shape `reset_account` and every consent change leave behind.
+    service.contact_preferences[user_id] = {"contact_discoverable": False, "rule_version": 1}
 
 
-def test_directory_candidates_exclude_explicit_contact_opt_out_for_strangers() -> None:
+def test_directory_finds_a_stranger_by_name_whatever_their_marketplace_or_contact_settings() -> (
+    None
+):
+    """A reset account or a marketplace toggle must not make a person unsearchable.
+
+    Two accounts searching the same name used to get different answers, because
+    only people already connected to the person bypassed the flags.
+    """
     service = FourUserMemoryService()
-    service.contact_preferences["user_b"] = {
-        "contact_discoverable": False,
-        "rule_version": 1,
-    }
+    _opt_out_of_marketplace_and_contact_sync(service, "user_b")
 
     candidate_ids = {c["userId"] for c in service.list_directory_candidates(owner_user_id="user_a")}
+    by_name = service.search_directory_candidates(owner_user_id="user_a", query="user b")
 
-    assert "user_b" not in candidate_ids
-    assert "user_c" in candidate_ids
+    assert {"user_b", "user_c"} <= candidate_ids
+    assert [item["userId"] for item in by_name["items"]] == ["user_b"]
+
+
+def test_directory_still_hides_an_opted_out_stranger_from_email_and_phone_lookups() -> None:
+    """Negative control: the opt-out guards what a name does not disclose."""
+    service = FourUserMemoryService()
+    service.identities["user_b"]["email"] = "bee@example.test"
+    service.identities["user_c"]["email"] = "cee@example.test"
+    _opt_out_of_marketplace_and_contact_sync(service, "user_b")
+
+    by_email = service.search_directory_candidates(owner_user_id="user_a", query="@example.test")
+    by_phone = service.search_directory_candidates(owner_user_id="user_a", query="5550100002")
+
+    assert [item["userId"] for item in by_email["items"]] == ["user_c"]
+    assert by_phone["items"] == []
 
 
 def test_directory_lists_strangers_only_with_an_active_vault() -> None:
@@ -4021,20 +4213,23 @@ def test_directory_candidates_query_targets_actor_identity_cache() -> None:
     assert "profile.user_id <> :owner_user_id" in service.sql
     assert "marketplace.is_discoverable IS DISTINCT FROM FALSE" in service.sql
     # The vault-or-relationship rule sits in the eligibility subquery, ahead of
-    # the opt-out block and of LIMIT, so it can never subtract from a page that
-    # was already cut.
+    # LIMIT, so it can never subtract from a page that was already cut.
     sql = " ".join(service.sql.split())
     vault_rule = "vault.user_id = profile.user_id AND vault.vault_status = 'active'"
     assert sql.count(vault_rule) == 1
     vault_at = sql.index(vault_rule)
-    assert vault_at < sql.index("FROM trusted_connections tc")
     assert vault_at < sql.index("LIMIT :fetch_limit OFFSET :offset")
     for relationship in (
         "FROM connections related WHERE related.status = 'active'",
         "FROM connection_requests pending WHERE pending.status = 'pending'",
         "FROM trusted_connections edge WHERE edge.status = 'active'",
     ):
-        assert vault_at < sql.index(relationship) < sql.index("FROM trusted_connections tc")
+        assert vault_at < sql.index(relationship) < sql.index("LIMIT :fetch_limit OFFSET :offset")
+    # The marketplace and contact-sync opt-out is a column that only the email
+    # and phone branch reads. The name branch must not depend on it.
+    assert sql.count("a.contact_listed") == 1
+    contact_branch = sql[sql.index("a.contact_listed") :]
+    assert contact_branch.index("email_contains") < contact_branch.index(":name_search = TRUE")
     assert "profile.contact_sync_consent_rule_version" in service.sql
     assert service.params["contact_sync_contract_version"] == CONTACT_SYNC_CONSENT_CONTRACT_VERSION
 
@@ -4094,6 +4289,51 @@ def test_directory_pages_current_accounts_after_stale_auth_rows() -> None:
     assert [item["userId"] for item in last["items"]] == ["current-g"]
     assert last["hasMore"] is False
     assert service.scanned_offsets == [0, 100, 0, 100]
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "+91 98765-43210",
+        "919876543210",
+        "9876543210",
+        "98765",
+        "09876543210",
+        "00919876543210",
+        "+91 (0) 98765 43210",
+        "+91 (0) 98765",
+        "+९१ ९८७६५ ४३२१०",
+        "＋９１ ９８７６５ ４３２１０",
+        "+91\u200e 98765\u201143210",
+    ],
+)
+def test_directory_phone_search_returns_only_first_and_last_two_digits(query: str) -> None:
+    service = DirectoryScanProbe(
+        named=[
+            {
+                "user_id": "verified",
+                "display_name": "Synthetic Person",
+                "phone_number": "+91 98765-43210",
+                "phone_verified": True,
+            },
+            {
+                "user_id": "unverified",
+                "display_name": "Another Person",
+                "phone_number": "+91 98765-43210",
+                "phone_verified": False,
+            },
+        ],
+        active={"verified", "unverified"},
+    )
+
+    result = service.search_directory_candidates(owner_user_id="owner", query=query)
+
+    assert [person["userId"] for person in result["items"]] == ["verified"]
+    assert result["items"][0]["maskedPhone"] == "98******10"
+    assert "9876543210" not in json.dumps(result)
+    assert all(
+        "phone_number" not in person and "phoneNumber" not in person for person in result["items"]
+    )
 
 
 def test_directory_merges_provider_named_profiles_before_search_rank_and_paging() -> None:
@@ -4297,9 +4537,10 @@ def test_directory_candidate_search_filters_before_pagination(
         "candidate_user_id": None,
         "candidate_user_ids": None,
         "query": "cara",
-        "identifier_search": False,
-        "exact_email": None,
-        "exact_phone": None,
+        "name_search": True,
+        "email_contains": "%cara%",
+        "phone_contains": None,
+        "phone_alternates": [],
         "exact_name": "cara",
         "name_prefix": "cara%",
         "word_prefix": "% cara%",
@@ -4367,23 +4608,27 @@ def test_directory_search_matches_prefixes_not_substrings() -> None:
 @pytest.mark.parametrize(
     ("query", "email", "phone"),
     [
-        ("Friend@Example.test", "friend@example.test", None),
-        ("+1 (555) 010-0002", None, "15550100002"),
+        ("Friend@Example.test", "%friend@example.test%", None),
+        ("friend@", "%friend@%", None),
+        ("friend", "%friend%", None),
+        ("+1 (555) 010-0002", None, "%15550100002%"),
+        ("5550100002", "%5550100002%", "%5550100002%"),
+        ("5", "%5%", "%5%"),
+        ("_!%", "%!_!!!%%", None),
     ],
 )
-def test_directory_identifier_search_is_exact_and_phone_is_verified(
+def test_directory_identifier_search_is_partial_and_phone_is_verified(
     query: str, email: str | None, phone: str | None
 ) -> None:
     service = RecipientDirectoryProbe()
     service.search_directory_candidates(owner_user_id="owner", query=query)
 
-    assert service.params["identifier_search"] is True
-    assert service.params["exact_email"] == email
-    assert service.params["exact_phone"] == phone
-    assert "LOWER(BTRIM(a.email)) = :exact_email" in service.sql
+    assert service.params["email_contains"] == email
+    assert service.params["phone_contains"] == phone
+    assert "LOWER(BTRIM(a.email)) LIKE :email_contains ESCAPE '!'" in service.sql
     assert "a.phone_verified = TRUE" in service.sql
-    assert "REGEXP_REPLACE(a.phone_number, '[^0-9]', '', 'g') = :exact_phone" in service.sql
-    assert ":identifier_search = FALSE AND" in service.sql
+    assert "REGEXP_REPLACE(a.phone_number, '[^0-9]', '', 'g') LIKE :phone_contains" in service.sql
+    assert ":name_search = TRUE AND" in service.sql
     assert "LIKE :email_prefix" not in service.sql
 
 
@@ -4787,7 +5032,10 @@ def test_targeted_circle_member_invite_expiry_is_ordered_locked_and_bounded() ->
     assert "WHERE invite.id = candidate.id" in service.sql
 
 
-def test_four_user_location_workflow_contract() -> None:
+def test_four_user_location_workflow_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Stable time prevents fractional timestamp digits resembling a phone suffix.
+    now = datetime.now(timezone.utc).replace(microsecond=222222)
+    monkeypatch.setattr(one_location_agent_module, "_utcnow", lambda: now)
     service = FourUserMemoryService()
     user_a = "user_a"
     user_b = "user_b"
@@ -4830,15 +5078,15 @@ def test_four_user_location_workflow_contract() -> None:
         service.view_latest_envelope(recipient_user_id=user_c, grant_id=grant_b["id"])
     assert denied_c.value.code == "LOCATION_GRANT_NOT_FOUND"
 
-    with pytest.raises(OneLocationAgentError) as unverified_share:
-        service.create_grant(
-            owner_user_id=user_a,
-            recipient_user_id=user_c,
-            recipient_key_id=f"key-{user_c}",
-            duration_hours=1,
-        )
-    assert unverified_share.value.code == "LOCATION_RECIPIENT_UNAVAILABLE"
-    assert "verify their phone" in str(unverified_share.value)
+    # A missing phone claim is unrelated to private, account-keyed receiving.
+    grant_c = service.create_grant(
+        owner_user_id=user_a,
+        recipient_user_id=user_c,
+        recipient_key_id=f"key-{user_c}",
+        duration_hours=1,
+    )
+    assert grant_c["recipientUserId"] == user_c
+    assert service.identities[user_c]["phone_verified"] is False
 
     request_event_count = sum(
         event["event_type"] == "location_access_request" for event in service.events.values()
@@ -5850,11 +6098,15 @@ def test_public_invite_is_request_only_and_token_hash_only() -> None:
     assert len(service.requests) == 1
     assert next(iter(service.requests.values()))["status"] == "pending"
     assert next(iter(service.requests.values()))["requester_user_id"] == "user_b"
+    assert next(iter(service.requests.values()))["metadata"]["notify_owner"] is False
     assert "latitude" not in json.dumps(service.public_submissions, default=str)
     assert "longitude" not in json.dumps(service.notifications, default=str)
     assert token not in json.dumps(service.notifications, default=str)
     assert {item["notification_type"] for item in service.notifications} >= {
         "location_public_invite_submitted"
+    }
+    assert "location_access_request" not in {
+        item["notification_type"] for item in service.notifications
     }
 
 
@@ -8414,6 +8666,22 @@ def test_the_owners_state_carries_the_link_back() -> None:
     assert invites[0]["publicUrl"] == created["publicUrl"]
 
 
+def test_state_never_reports_an_absent_receiving_key_when_its_read_fails() -> None:
+    class UnavailableKeyService(FourUserMemoryService):
+        def _execute_many(self, sql: str, params: dict | None = None) -> list[dict]:
+            if "encrypted_private_key_jwk" in sql:
+                raise RuntimeError("receiving key unavailable")
+            return super()._execute_many(sql, params)
+
+    with pytest.raises(RuntimeError, match="receiving key unavailable"):
+        UnavailableKeyService().list_state(user_id="user_a")
+
+    # A successful empty query is genuine absence, unlike a failed section.
+    healthy = FourUserMemoryService()
+    healthy.keys.clear()
+    assert healthy.list_state(user_id="user_a")["myRecipientKey"] is None
+
+
 def test_state_never_reports_auto_approve_off_when_its_authority_read_fails() -> None:
     class UnavailablePreferenceService(FourUserMemoryService):
         def get_auto_approve_preference(self, *, user_id: str) -> dict:
@@ -8657,7 +8925,7 @@ def test_location_and_connect_read_one_circle_list() -> None:
 
     from hushh_mcp.services import one_location_agent_service as agent_module
 
-    source = inspect.getsource(agent_module.OneLocationAgentService.list_state)
+    source = inspect.getsource(agent_module.OneLocationAgentService._list_state)
     assert "circle_service.list_circles(user_id=user_id)" in source
     # And it is handed to the caller unchanged -- no per-surface filtering.
     assert '"circles": named_circles,' in source
@@ -9150,3 +9418,31 @@ def test_stopping_a_legacy_sos_share_without_stored_kind_still_names_the_sms_lan
     push = service.notifications[-1]
     assert push["title"] == "SMS location sharing stopped"
     assert (push.get("data") or {}).get("share_kind") == "sos"
+
+
+def test_recipient_feed_clear_is_in_the_recipients_view_only() -> None:
+    """Clearing an ended SOS card is the recipient's state. The sender's view
+    of the same grant never says whether, or when, it was cleared."""
+    service = _lane_service()
+    service.add_sms_contact(owner_user_id="user_a", contact_user_id="user_b")
+    sos = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=8,
+        share_kind="sos",
+        reason="Come get me",
+        enforce_connection=True,
+    )
+    service.revoke_grant(owner_user_id="user_a", grant_id=sos["id"])
+    cleared_at = datetime(2026, 10, 15, 4, 0, tzinfo=timezone.utc)
+    service.grants[sos["id"]]["recipient_cleared_at"] = cleared_at
+
+    received = {
+        grant["id"]: grant for grant in service.list_state(user_id="user_b")["receivedGrants"]
+    }
+    owned = {grant["id"]: grant for grant in service.list_state(user_id="user_a")["ownerGrants"]}
+
+    assert received[sos["id"]]["recipientClearedAt"] == cleared_at.isoformat()
+    assert "recipientClearedAt" not in owned[sos["id"]]
+    assert all("recipientClearedAt" not in grant for grant in owned.values())

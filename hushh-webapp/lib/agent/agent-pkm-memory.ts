@@ -6,10 +6,7 @@ import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { buildReadablePkmMetadata } from "@/lib/personal-knowledge-model/natural-language";
 import { ApiService } from "@/lib/services/api-service";
 import { assertNoUnguardedSecrets } from "@/lib/pkm/secret-span-guard";
-import {
-  PersonalKnowledgeModelService,
-  type PersonalKnowledgeModelMetadata,
-} from "@/lib/services/personal-knowledge-model-service";
+import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-knowledge-model-service";
 import {
   PkmWriteCoordinator,
   type PkmWriteCoordinatorResult,
@@ -25,11 +22,33 @@ import {
   type PkmReconciliationCandidate,
 } from "@/lib/agent/agent-pkm-context-store";
 import type { OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
+import type { ReceiptCanonicalIndex } from "@/lib/profile/gmail-receipt-memory-index";
 import { isDegradedPreviewCard } from "@/lib/profile/pkm-agent-lab-preview";
 import { humanizeMemorySegment } from "@/lib/pkm/humanize-segment";
 import { toPlainMemoryText, toPlainMemoryValue } from "@/lib/pkm/memory-plain-text";
 import { pkmScopeBreadcrumb } from "@/lib/pkm/pkm-memory-level";
 import { classifyMergeOutcome, type PkmMergeOutcome } from "@/lib/pkm/pkm-supersede-merge";
+import { assertBusinessMemoryTarget, assertProfileReviewTargetPath, assertProfileSelectionCreateTarget, touchesBusinessRecord, type BusinessMemoryOrigin } from "@/lib/pkm/business-memory-origin";
+import {
+  clearMarkdownMemory,
+  loadMarkdownMemory,
+  recoverMarkdownMemorySync,
+  isMarkdownMemoryGenerationCurrent,
+  markdownMemoryToAgentContext,
+  peekMarkdownMemory,
+  snapshotMarkdownMemoryGeneration,
+} from "@/lib/pkm/markdown-memory";
+import {
+  isVaultSessionEpochCurrent,
+  snapshotVaultSessionEpoch,
+} from "@/lib/vault/session-epoch";
+import { peekLiveMirror } from "@/lib/pkm/memory-refresh";
+import {
+  appendLiveMirrorPacket,
+  buildLiveMirrorFactsPacket,
+  liveMirrorPacketBudget,
+  type LiveMirrorFactsPacket,
+} from "@/lib/pkm/live-mirror-agent-facts";
 
 export type AgentPkmDomainChoice = {
   domain_key: string;
@@ -134,6 +153,8 @@ export type AgentPkmContext = {
   coverage?: AgentPkmContextCoverage;
   /** Settings style choices for the separate `communicationPreferences` field. */
   communicationPreferences?: OwnerStyleSettings;
+  /** Live Mirror packet counts for debug and telemetry. Never its text. */
+  liveMirror?: { shownFacts: number; omittedFacts: number };
 };
 
 export type AgentPkmSaveResult = {
@@ -202,19 +223,19 @@ function titleize(value: string | null | undefined): string {
  * that markup here, the one client step every preview passes through, so the
  * review title and the value that is encrypted into Memory are both plain.
  */
-function withPlainMemoryText(card: AgentPkmPreviewCard): AgentPkmPreviewCard {
+function withPlainMemoryText(card: AgentPkmPreviewCard, preserveValues = false): AgentPkmPreviewCard {
   return {
     ...card,
     source_quote: card.source_quote ?? String(card.source_text || ""),
     source_text: toPlainMemoryText(String(card.source_text || "")),
     ...(card.candidate_payload
-      ? { candidate_payload: toPlainMemoryValue(card.candidate_payload) }
+      ? { candidate_payload: preserveValues ? card.candidate_payload : toPlainMemoryValue(card.candidate_payload) }
       : {}),
   };
 }
 
-function normalizePreviewCards(response: AgentPkmPreviewResponse): AgentPkmPreviewCard[] {
-  return rawPreviewCards(response).map(withPlainMemoryText);
+function normalizePreviewCards(response: AgentPkmPreviewResponse, preserveValues = false): AgentPkmPreviewCard[] {
+  return rawPreviewCards(response).map(card => withPlainMemoryText(card, preserveValues));
 }
 
 function rawPreviewCards(response: AgentPkmPreviewResponse): AgentPkmPreviewCard[] {
@@ -326,12 +347,14 @@ export async function previewAgentPkmMemory(params: {
   vaultOwnerToken: string;
   ingestionId?: string;
   chunkIndex?: number;
-  memoryProfile?: "general" | "kyc_identity_v1";
+  memoryProfile?: "general" | "kyc_identity_v1" | "business_directory_v1" | "soul_markdown_v1" | "profile_review_v1";
   /** Existing details the merge agent may extend or correct (explicit saves). */
   reconciliationCandidates?: readonly PkmReconciliationCandidate[];
   signal?: AbortSignal;
   isEffectCurrent?: () => boolean;
 }): Promise<AgentPkmPreviewResponse & { cards: AgentPkmPreviewCard[] }> {
+  if (params.memoryProfile === "soul_markdown_v1" && (params.reconciliationCandidates?.length ?? 0) > 256)
+    throw new Error("Soul reconciliation snapshot exceeds its bound.");
   // Last line before a memory proposal: the text was guarded on the device and
   // carries placeholders only. A raw secret here is refused, never sent; the
   // server's own net (secret_patterns.py) stays behind this one.
@@ -360,18 +383,21 @@ export async function previewAgentPkmMemory(params: {
       current_manifests: (params.currentManifests || []).filter(Boolean).slice(0, 256),
       memory_profile: params.memoryProfile || "general",
       ...(params.reconciliationCandidates?.length
-        ? { simulated_state: { memories: params.reconciliationCandidates.slice(0, 10) } }
+        ? { simulated_state: { memories: params.reconciliationCandidates.slice(0, params.memoryProfile === "soul_markdown_v1" ? 256 : 10) } }
         : {}),
     }),
   });
 
   if (!response.ok) {
     let errorCode = `http_${response.status}`;
+    let profileMismatch = false;
     try {
       const payload = await response.json() as {
-        detail?: { type?: unknown; code?: unknown } | Array<{ type?: unknown; code?: unknown }>;
+        detail?: { type?: unknown; code?: unknown; loc?: unknown } | Array<{ type?: unknown; code?: unknown; loc?: unknown }>;
       };
       const detail = Array.isArray(payload?.detail) ? payload.detail[0] : payload?.detail;
+      profileMismatch = response.status === 422 && detail?.type === "literal_error" &&
+        Array.isArray(detail.loc) && detail.loc.at(-1) === "memory_profile";
       if (detail && typeof detail === "object") {
         const candidate = detail.code || detail.type;
         if (typeof candidate === "string" && candidate.trim()) {
@@ -387,13 +413,20 @@ export async function previewAgentPkmMemory(params: {
       status: response.status,
       error_code: errorCode,
     });
+    if (profileMismatch) {
+      const error = new Error("Review is unavailable until the backend update finishes.");
+      error.name = "PkmBackendContractMismatch";
+      throw error;
+    }
     throw new Error(`Memory preparation failed (${errorCode}). Please try again.`);
   }
 
   const payload = (await response.json()) as AgentPkmPreviewResponse;
   return {
     ...payload,
-    cards: normalizePreviewCards(payload).map((card, index) => ({
+    // Business listing values are an exact contract, not pasted-note markup.
+    // Formatting them before validation changes legitimate names/descriptions.
+    cards: normalizePreviewCards(payload, params.memoryProfile === "business_directory_v1").map((card, index) => ({
       ...card,
       card_id: card.card_id || `agent_pkm_preview_${index + 1}`,
       source_text: card.source_text || toPlainMemoryText(params.message),
@@ -487,7 +520,13 @@ export async function addToPKM(params: {
    * from it, so replaying the same card after an interruption cannot write it twice.
    */
   idempotencyScopes?: readonly (string | undefined)[];
+  businessOrigin?: BusinessMemoryOrigin;
 }): Promise<AgentPkmSaveResult> {
+  if (params.source === "profile_research_review") params.cards.forEach(assertProfileReviewTargetPath);
+  if (params.source === "business_profile_review" && !params.businessOrigin)
+    throw new Error("Business identity is required for this review.");
+  if (params.source === "profile_research_review" && params.cards.some(card => touchesBusinessRecord(card)) && !params.businessOrigin)
+    throw new Error("An existing business identity is required for these company details.");
   // Writes to a single domain must stay ordered: each write reads and merges
   // the result of the preceding one. Independent domains have no such
   // dependency, so a small bounded fan-out keeps large imports responsive
@@ -657,6 +696,20 @@ export async function addToPKM(params: {
                 : undefined,
             },
         build: async (context) => {
+          if (params.source === "profile_research_review") {
+            assertProfileReviewTargetPath(card);
+            assertProfileSelectionCreateTarget(card, context.currentDomainData);
+          }
+          if (params.source === "profile_research_review" &&
+            touchesBusinessRecord(card, context.currentDomainData) && !params.businessOrigin)
+            throw new Error("The saved business needs a fresh identity review. Nothing was changed.");
+          if (params.businessOrigin) {
+            if (automatic || !["business_profile_review", "profile_research_review"].includes(params.source || ""))
+              throw new Error("Business information requires its explicit review writer.");
+            assertBusinessMemoryTarget(context.currentDomainData, card, params.businessOrigin, {
+              requireExistingTarget: params.source === "profile_research_review",
+            });
+          }
           // Re-run on a conflict retry, so the outcome follows the state that
           // was finally merged into.
           outcome = classifyMergeOutcome({
@@ -701,6 +754,8 @@ export async function addToPKM(params: {
   };
 
   const isSimpleDomainExtension = (card: AgentPkmPreviewCard): boolean => {
+    // Business-origin checks must run inside each conflict-aware entity write.
+    if (params.businessOrigin) return false;
     if (isDegradedPreviewCard(card)) return false;
     if (isReservedPkmCard(card)) return false;
     if (card.write_mode !== "can_save" && card.write_mode !== "confirm_first") {
@@ -860,6 +915,9 @@ export async function addToPKM(params: {
 
   const savedResults = completedResults.filter((result) => result.success);
   if (savedResults.length > 0 && (params.mayPublish?.() ?? true)) {
+    // Structured specialist writes invalidate their working set. The canonical
+    // Soul document, including uncommitted local facts, keeps its own lifecycle.
+    if (!peekMarkdownMemory(params.userId)) clearMarkdownMemory(params.userId);
     AgentPkmContextStore.invalidateUser(params.userId);
   }
   return {
@@ -934,6 +992,32 @@ export function buildAgentPkmContextFromMetadata(
   };
 }
 
+/**
+ * Soul.md first and never shortened, then the owner's bounded Live Mirror
+ * facts for the same owner and vault epoch. The packet is omitted, never
+ * clipped, when Soul leaves too little room, and a mirror fault only omits
+ * the packet: it never costs the turn its Soul.
+ */
+function withLiveMirrorFacts(userId: string, vaultEpoch: number, context: AgentPkmContext): AgentPkmContext {
+  let packet: LiveMirrorFactsPacket;
+  try {
+    packet = buildLiveMirrorFactsPacket({
+      expectedOwnerId: userId,
+      currentVaultEpoch: vaultEpoch,
+      view: peekLiveMirror(userId),
+      budgetChars: liveMirrorPacketBudget(context.text.length),
+      now: Date.now(),
+    });
+  } catch {
+    return context;
+  }
+  return {
+    ...context,
+    text: appendLiveMirrorPacket(context.text, packet.text),
+    liveMirror: { shownFacts: packet.shownFacts, omittedFacts: packet.omittedFacts },
+  };
+}
+
 export async function loadAgentPkmContext(params: {
   userId: string;
   vaultOwnerToken: string;
@@ -941,16 +1025,10 @@ export async function loadAgentPkmContext(params: {
   message?: string;
   forceRefresh?: boolean;
   maxChars?: number;
-  /**
-   * Interactive first turns may use redacted metadata while the decrypted
-   * session working set warms in the background. This never writes or changes
-   * PKM relevance/save policy; it only avoids blocking a new conversation on
-   * a full encrypted blob.
-   */
+  /** Deprecated compatibility flag. It yields no memory, never metadata. */
   metadataOnly?: boolean;
   /**
-   * Personal-memory requests must fail closed until the decrypted, typed
-   * session inventory is available. Metadata is intentionally insufficient.
+   * Personal-memory requests fail closed until the decrypted Soul is available.
    */
   requireDecrypted?: boolean;
 }): Promise<AgentPkmContext> {
@@ -961,18 +1039,39 @@ export async function loadAgentPkmContext(params: {
   }
 
   if (params.vaultKey && !params.metadataOnly) {
+    const vaultEpoch = snapshotVaultSessionEpoch();
+    const memoryGeneration = snapshotMarkdownMemoryGeneration();
     try {
-      const workingContext = await AgentPkmContextStore.load({
-        userId: params.userId,
-        vaultKey: params.vaultKey,
-        vaultOwnerToken: params.vaultOwnerToken,
-        message: params.message,
-        forceRefresh: params.forceRefresh,
-        maxChars: params.maxChars,
-      });
-      if (workingContext) {
-        return workingContext;
+      const cachedMarkdown = peekMarkdownMemory(params.userId);
+      const markdownMemory = cachedMarkdown && !params.forceRefresh
+        ? cachedMarkdown
+        : (await loadMarkdownMemory({
+              userId: params.userId,
+              vaultKey: params.vaultKey,
+              vaultOwnerToken: params.vaultOwnerToken,
+              forceRefresh: params.forceRefresh,
+            }));
+      if (
+        !isVaultSessionEpochCurrent(vaultEpoch) ||
+        !isMarkdownMemoryGenerationCurrent(memoryGeneration)
+      ) {
+        return { text: "", domains: [], totalAttributes: 0, updatedAt: null };
       }
+      if (markdownMemory) {
+        await recoverMarkdownMemorySync({ userId: params.userId, vaultKey: params.vaultKey, vaultOwnerToken: params.vaultOwnerToken });
+        if (!isVaultSessionEpochCurrent(vaultEpoch) || !isMarkdownMemoryGenerationCurrent(memoryGeneration))
+          return { text: "", domains: [], totalAttributes: 0, updatedAt: null };
+        const context = withLiveMirrorFacts(
+          params.userId,
+          vaultEpoch,
+          markdownMemoryToAgentContext(peekMarkdownMemory(params.userId) ?? markdownMemory),
+        );
+        // The packet never outlives the vault session it was read in.
+        if (!isVaultSessionEpochCurrent(vaultEpoch) || !isMarkdownMemoryGenerationCurrent(memoryGeneration))
+          return { text: "", domains: [], totalAttributes: 0, updatedAt: null };
+        return context;
+      }
+
       if (params.requireDecrypted) {
         throw new AgentPkmContextNotReadyError(
           "Your private memory is still preparing. Please try again in a moment."
@@ -988,7 +1087,6 @@ export async function loadAgentPkmContext(params: {
       if (error instanceof AgentPkmContextNotReadyError) {
         throw error;
       }
-      AgentPkmContextStore.invalidateUser(params.userId);
       if (params.requireDecrypted) {
         throw new AgentPkmContextNotReadyError(
           "Your private memory could not be loaded. Please try again in a moment."
@@ -1007,16 +1105,16 @@ export async function loadAgentPkmContext(params: {
       "Unlock your vault before asking Agent about your private memory."
     );
   }
-  const metadata = await PersonalKnowledgeModelService.getMetadata(
-    params.userId,
-    params.forceRefresh === true,
-    params.vaultOwnerToken
-  );
-  return {
-    ...buildAgentPkmContextFromMetadata(metadata),
-    source: "metadata",
-    mode: "summary",
-  };
+  // Metadata and structured specialist records are not One's memory. Locked
+  // callers get no personal context; only the unlocked Soul.md may supply it.
+  return { text: "", domains: [], totalAttributes: 0, updatedAt: null };
+}
+
+/** Legacy specialist compatibility. One chat does not read this index. */
+export function peekReceiptMemoryIndex(params: {
+  userId: string;
+}): ReceiptCanonicalIndex | null {
+  return AgentPkmContextStore.peekReceiptIndex(params.userId);
 }
 
 export function peekAgentPkmContext(params: {
@@ -1024,7 +1122,11 @@ export function peekAgentPkmContext(params: {
   message?: string;
   maxChars?: number;
 }): AgentPkmContext | null {
-  return AgentPkmContextStore.peek(params);
+  const markdownMemory = peekMarkdownMemory(params.userId);
+  if (!markdownMemory) return null;
+  const vaultEpoch = snapshotVaultSessionEpoch();
+  const context = withLiveMirrorFacts(params.userId, vaultEpoch, markdownMemoryToAgentContext(markdownMemory));
+  return isVaultSessionEpochCurrent(vaultEpoch) ? context : null;
 }
 
 export function warmAgentPkmContext(params: {
@@ -1037,9 +1139,9 @@ export function warmAgentPkmContext(params: {
   const existing = agentPkmWarmups.get(params.userId);
   if (existing) return existing;
 
-  // The agent-safe packet is deliberately built once at unlock and stays only
+  // Soul.md is deliberately loaded once at unlock and stays only
   // in browser RAM. Every subsequent One turn reads this same working set.
-  const warmup = AgentPkmContextStore.load({
+  const warmup = loadAgentPkmContext({
     userId: params.userId,
     vaultKey: params.vaultKey,
     vaultOwnerToken: params.vaultOwnerToken,
@@ -1054,12 +1156,13 @@ export function warmAgentPkmContext(params: {
   return warmup;
 }
 
-export function clearAgentPkmContext(userId?: string): void {
+export function clearAgentPkmContext(userId?: string, options: { preserveMarkdown?: boolean } = {}): void {
   if (userId) {
     agentPkmWarmups.delete(userId);
   } else {
     agentPkmWarmups.clear();
   }
+  if (!options.preserveMarkdown) clearMarkdownMemory(userId);
   AgentPkmContextStore.clear(userId);
 }
 

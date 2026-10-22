@@ -2,6 +2,7 @@
 
 # ruff: noqa: F401, F811 -- isolated PostgreSQL fixtures imported from their owners
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -11,6 +12,7 @@ import pytest
 from sqlalchemy import text
 
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
+from hushh_mcp.services.drive_owner_allowed import end_owner_allows_for_disconnected_pair
 from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchService
 from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
 from hushh_mcp.services.drive_owner_search_worker import DriveOwnerSearchWorker
@@ -22,7 +24,11 @@ from hushh_mcp.services.drive_sharing_contract import (
 )
 from hushh_mcp.services.drive_trusted_auto_service import DriveTrustedAutoService
 from hushh_mcp.services.google_drive_adapter import DriveReadError
-from tests.services.test_drive_request_bulk_postgres import _search, request_bulk
+from tests.services.test_drive_request_bulk_postgres import (
+    FILE_ACTIVITY_SELECTION,
+    _search,
+    request_bulk,
+)
 from tests.services.test_drive_sharing_store import (
     MIGRATIONS,
     connector_postgres_url,
@@ -43,6 +49,7 @@ async def _request(sharing, *, owner_initiated=False):
         ),
         owner_user_id="owner",
         client_request_id=str(uuid4()),
+        expected_quote_version=1,
         purpose=ShareRequestPurpose(
             purpose="Standup notes from last 3 months",
             periodStart=(today - timedelta(days=90)).isoformat(),
@@ -70,8 +77,48 @@ def _membership(sharing, status):
         )
 
 
+def _connection(sharing, status):
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE connections SET status=:status
+            WHERE 'owner' IN (user_a_id,user_b_id) AND 'recipient' IN (user_a_id,user_b_id)"""),
+            {"status": status},
+        )
+
+
+async def _paid_auto_review(sharing, bulk, *, request_id, job_id):
+    review = await bulk.create_review(
+        user_id="owner",
+        search_job_id=job_id,
+        client_request_id=str(uuid4()),
+        origin_request_id=request_id,
+        recipients=[
+            {
+                "userId": "recipient",
+                "email": "b@example.invalid",
+                "subject": "1234567",
+                "kind": "google_provider",
+            }
+        ],
+        excluded=[],
+        selected_positions=[1],
+    )
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            # The owner's Allow already created this order, so mark that one
+            # paid instead of asserting that none exists yet.
+            text("""INSERT INTO drive_request_payment_orders(
+              request_id,user_id,requester_user_id,stripe_mode,status,paid_at)
+              VALUES(:request,'owner','recipient','test','paid',clock_timestamp())
+              ON CONFLICT (request_id) DO UPDATE
+                SET status='paid',paid_at=clock_timestamp(),updated_at=clock_timestamp()"""),
+            {"request": request_id},
+        )
+    return review
+
+
 def _auto_job(bulk, *, request_id):
-    job_id = _search(bulk, request_id=request_id, count=1)
+    job_id = _search(bulk, request_id=request_id, count=1, selection=FILE_ACTIVITY_SELECTION)
     with bulk.db.engine.begin() as connection:
         envelope = connection.execute(
             text("SELECT checkpoint_envelope FROM drive_owner_search_jobs WHERE job_id=:job"),
@@ -99,6 +146,169 @@ def _auto_job(bulk, *, request_id):
             },
         )
     return job_id
+
+
+async def _frozen_auto_batch(sharing, bulk, *, payment_status=None):
+    request_id = (await _request(sharing))["requestId"]
+    # Real search startup moves a trusted request from queued to active;
+    # the synthetic search rows below must preserve that scheduler gate.
+    context = await sharing.request_bulk_context(user_id="owner", request_id=request_id, start=True)
+    assert context["searchStarted"] is True
+    job_id = _auto_job(bulk, request_id=request_id)
+    review = await bulk.create_review(
+        user_id="owner",
+        search_job_id=job_id,
+        client_request_id=str(uuid4()),
+        origin_request_id=request_id,
+        recipients=[
+            {
+                "userId": "recipient",
+                "email": "b@example.invalid",
+                "subject": "1234567",
+                "kind": "google_provider",
+            }
+        ],
+        excluded=[],
+        selected_positions=[1],
+    )
+    # The frozen review survives search completion. Release the per-owner
+    # active-search slot before constructing another independent request.
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_owner_search_jobs SET status='completed',
+              updated_at=clock_timestamp() WHERE job_id=:job"""),
+            {"job": job_id},
+        )
+        assert (
+            connection.execute(
+                text("""SELECT preparation_error_code FROM drive_share_requests
+                  WHERE request_id=:request"""),
+                {"request": request_id},
+            ).scalar_one()
+            == "trusted_auto_active"
+        )
+    if payment_status is not None:
+        with sharing.db.engine.begin() as connection:
+            connection.execute(
+                text("""INSERT INTO drive_request_payment_orders(
+                  request_id,user_id,requester_user_id,stripe_mode,status,paid_at)
+                  VALUES(:request,'owner','recipient','test',:status,
+                    CASE WHEN :status='paid' THEN clock_timestamp() ELSE NULL END)"""),
+                {"request": request_id, "status": payment_status},
+            )
+    return request_id, review
+
+
+@pytest.mark.asyncio
+async def test_paid_trusted_batch_bypasses_older_unpaid_reviews(request_bulk, sharing):
+    _membership(sharing, "active")
+    unpaid = [
+        await _frozen_auto_batch(sharing, request_bulk, payment_status="awaiting_payment")
+        for _ in range(3)
+    ]
+    initializing = await _frozen_auto_batch(sharing, request_bulk)
+    paid_request, paid_review = await _frozen_auto_batch(
+        sharing, request_bulk, payment_status="paid"
+    )
+    wake = AsyncMock()
+    auto = DriveTrustedAutoService(sharing=sharing, bulk=request_bulk, wake=wake)
+
+    due = await sharing.due_trusted_batches(limit=1)
+    assert [item["request_id"] for item in due] == [paid_request]
+    assert await auto.continue_batches(max_jobs=1) == 1
+
+    with sharing.db.engine.connect() as connection:
+        approved = connection.execute(
+            text("SELECT approval_source FROM drive_bulk_shares WHERE share_id=:share"),
+            {"share": paid_review["shareId"]},
+        ).scalar_one()
+        waiting = [
+            connection.execute(
+                text("SELECT status FROM drive_bulk_shares WHERE share_id=:share"),
+                {"share": review["shareId"]},
+            ).scalar_one()
+            for _, review in [*unpaid, initializing]
+        ]
+    assert approved == "trusted_auto"
+    assert waiting == ["review_ready"] * 4
+    assert paid_request not in {request_id for request_id, _ in unpaid}
+    wake.assert_awaited_with("sharing")
+
+
+@pytest.mark.asyncio
+async def test_unpaid_and_expired_auto_batches_recover_without_order_starvation(
+    request_bulk, sharing, monkeypatch
+):
+    _membership(sharing, "active")
+    awaiting, _ = await _frozen_auto_batch(sharing, request_bulk, payment_status="awaiting_payment")
+    expired, _ = await _frozen_auto_batch(sharing, request_bulk, payment_status="expired")
+    without_order, _ = await _frozen_auto_batch(sharing, request_bulk)
+
+    due = await sharing.due_trusted_batches(limit=3)
+
+    # Finished unpaid requests must now be eligible for fresh existing-access
+    # recovery, while paid requests still get the scheduler's first priority.
+    assert {item["request_id"] for item in due} == {without_order, awaiting, expired}
+    from hushh_mcp.services.drive_package_access_preflight import DrivePackageAccessPreflight
+
+    monkeypatch.setattr(
+        DrivePackageAccessPreflight,
+        "inspect",
+        AsyncMock(return_value=SimpleNamespace(status="none")),
+    )
+    assert (
+        await DriveTrustedAutoService(
+            sharing=sharing, bulk=request_bulk, wake=AsyncMock()
+        ).continue_batches(max_jobs=3)
+        == 3
+    )
+    with sharing.db.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT status FROM drive_request_payment_orders WHERE request_id=:request"),
+                {"request": without_order},
+            ).scalar_one()
+            == "awaiting_payment"
+        )
+        assert (
+            connection.execute(
+                text("""SELECT count(*) FROM drive_bulk_share_effects e
+              JOIN drive_bulk_shares b ON b.share_id=e.share_id
+              WHERE b.origin_request_id IN (:awaiting,:expired)"""),
+                {"awaiting": awaiting, "expired": expired},
+            ).scalar_one()
+            == 0
+        )
+
+
+@pytest.mark.asyncio
+async def test_cancelled_auto_batch_cannot_resume(request_bulk, sharing):
+    _membership(sharing, "active")
+    cancelled, _ = await _frozen_auto_batch(sharing, request_bulk, payment_status="paid")
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_share_requests SET status='cancelled' WHERE request_id=:request"),
+            {"request": cancelled},
+        )
+    assert await sharing.due_trusted_batches(limit=1) == []
+
+
+@pytest.mark.asyncio
+async def test_paid_auto_batches_rotate_one_processed_request_at_a_time(request_bulk, sharing):
+    _membership(sharing, "active")
+    first, _ = await _frozen_auto_batch(sharing, request_bulk, payment_status="paid")
+    second, _ = await _frozen_auto_batch(sharing, request_bulk, payment_status="paid")
+    auto = DriveTrustedAutoService(sharing=sharing, bulk=request_bulk, wake=AsyncMock())
+    processed = []
+
+    async def record(*, user_id, request_id):
+        assert user_id == "owner"
+        processed.append(request_id)
+
+    auto.share_available = record
+    assert await auto.continue_batches(max_jobs=1) == 1
+    assert await auto.continue_batches(max_jobs=1) == 1
+    assert processed == [first, second]
 
 
 @pytest.mark.asyncio
@@ -135,9 +345,8 @@ async def test_only_new_accepted_trusted_request_gets_auto_marker(
             ).all()
         }
     assert payment_flags[accepted["requestId"]] is True
-    assert all(
-        payment_flags[item["requestId"]] is False for item in (unaccepted, owner_selected, removed)
-    )
+    assert all(payment_flags[item["requestId"]] is True for item in (unaccepted, removed))
+    assert payment_flags[owner_selected["requestId"]] is False
     # A pre-deploy or ordinary request does not become automatic on replay.
     with sharing.db.engine.begin() as connection:
         connection.execute(text("UPDATE connection_origins SET status='active'"))
@@ -182,8 +391,11 @@ async def test_background_off_requires_one_setup_event_and_resumes_on_enable(req
     assert review["trustedAuto"] is True
     assert review["preparationError"] == "background_preparation_required"
     assert rows(sharing, "drive_share_permission_operations") == []
-    assert [event["event_type"] for event in rows(sharing, "drive_share_events")] == [
-        "document_share_request"
+    assert sorted(
+        (event["event_type"], event["user_id"]) for event in rows(sharing, "drive_share_events")
+    ) == [
+        ("document_share_request", "owner"),
+        ("document_share_request_sent", "recipient"),
     ]
     # The setup event is unique, and no automatic work retries in a tight loop.
     assert (await auto.start_pending())["deferred"] == 0
@@ -216,6 +428,47 @@ async def test_missing_dates_are_visible_and_park_trusted_search(request_bulk, s
             ),
             {"request": request_id},
         ).scalar_one()
+
+
+def test_another_requests_batch_maps_to_a_wait_not_a_failure():
+    from hushh_mcp.services.drive_trusted_auto_service import _defer_code
+
+    assert _defer_code(DriveSharingError("drive_share_in_progress")) == "share_in_progress"
+    # Another of the owner's searches is running: one search at a time. Waiting
+    # for it never counts toward the three failed starts that park a request.
+    assert _defer_code(DriveReadError("search_in_progress")) == "share_in_progress"
+    assert _defer_code(DriveSharingError("bulk_changed")) == "preparation_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_another_requests_batch_is_a_wait_never_a_failed_attempt(request_bulk, sharing):
+    _membership(sharing, "active")
+    request_id = (await _request(sharing))["requestId"]
+
+    def preparation():
+        with sharing.db.engine.connect() as connection:
+            return connection.execute(
+                text("""SELECT preparation_attempts,preparation_error_code
+                  FROM drive_share_requests WHERE request_id=:request"""),
+                {"request": request_id},
+            ).one()
+
+    # A paid sibling request queued its batches first: each approve for this
+    # request collides. Waiting never uses up its three attempts.
+    for _ in range(4):
+        await sharing.defer_trusted_search(
+            user_id="owner", request_id=request_id, code="share_in_progress"
+        )
+    assert tuple(preparation()) == (0, "trusted_auto_queued")
+    assert (await sharing.owner_review(user_id="owner", request_id=request_id))[
+        "preparationError"
+    ] is None
+    # Three real failures still end automatic preparation.
+    for _ in range(3):
+        await sharing.defer_trusted_search(
+            user_id="owner", request_id=request_id, code="preparation_unavailable"
+        )
+    assert tuple(preparation()) == (3, "preparation_unavailable")
 
 
 @pytest.mark.asyncio
@@ -335,6 +588,7 @@ async def test_removed_trust_stops_search_and_grant_authority(request_bulk, shar
     authority = await sharing.trusted_request_authority(user_id="owner", request_id=request_id)
     synthetic_share = {
         "origin_request_id": request_id,
+        "search_job_id": _auto_job(request_bulk, request_id=request_id),
         "origin_request_revision": item["revision"],
         "progressive_batch": True,
         "approval_source": "trusted_auto",
@@ -360,10 +614,162 @@ async def test_removed_trust_stops_search_and_grant_authority(request_bulk, shar
             connection, synthetic_share, "owner", "recipient"
         )
     auto = DriveTrustedAutoService(sharing=sharing, bulk=request_bulk, wake=AsyncMock())
-    assert (await auto.start_pending())["deferred"] == 1
+    continue_search = await auto.search_authority_for_job(
+        user_id="owner", job_id=synthetic_share["search_job_id"]
+    )
+    with pytest.raises(DriveSharingError, match="trusted_request_unavailable"):
+        await continue_search()
     review = await sharing.owner_review(user_id="owner", request_id=request_id)
     assert review["preparationError"] == "trusted_relationship_changed"
     assert rows(sharing, "drive_share_permission_operations") == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("authority", ["owner_allowed", "trusted"])
+@pytest.mark.parametrize("revocation", ["authority", "request_stop"])
+async def test_auto_rechecks_need_the_owner_allow_or_current_trust(
+    request_bulk, sharing, authority, revocation
+):
+    # The fixture's Trusted circle holds only another member, so an allowed
+    # request passes each automatic recheck without Trusted membership.
+    if authority == "trusted":
+        _membership(sharing, "active")
+    created = await _request(sharing)
+    request_id = created["requestId"]
+    if authority == "owner_allowed":
+        await sharing.allow_request(
+            user_id="owner",
+            request_id=request_id,
+            revision=created["revision"],
+            amount_cents=1000,
+        )
+    assert [item["request_id"] for item in await sharing.due_trusted_searches()] == [request_id]
+    await sharing.request_bulk_context(user_id="owner", request_id=request_id, start=True)
+    job_id = _auto_job(request_bulk, request_id=request_id)
+    store = DriveOwnerSearchStore(db=sharing.db)
+    page = await store.claim(user_id="owner", job_id=job_id)
+    assert page is not None
+    await store.require_current(page)
+    review = await _paid_auto_review(sharing, request_bulk, request_id=request_id, job_id=job_id)
+    await request_bulk.approve(
+        user_id="owner",
+        share_id=review["shareId"],
+        revision=review["revision"],
+        review_digest=review["reviewDigest"],
+        approval_source="trusted_auto",
+    )
+    grant = await request_bulk.claim(
+        user_id="owner", share_id=review["shareId"], position=1, recipient_user_id="recipient"
+    )
+    assert grant is not None
+    await request_bulk.require_current(grant)
+
+    if revocation == "request_stop":
+        # Stop leaves the pending request, revision and broad background
+        # preference intact. It still withdraws this request's read authority.
+        with sharing.db.engine.begin() as connection:
+            connection.execute(
+                text("""UPDATE drive_share_requests
+                  SET access_stop_requested_at=clock_timestamp()
+                  WHERE request_id=:request"""),
+                {"request": request_id},
+            )
+    elif authority == "owner_allowed":
+        _connection(sharing, "removed")  # An Allow never outlives the connection.
+    else:
+        _membership(sharing, "removed")  # Still connected, no longer Trusted.
+    with pytest.raises(DriveReadError, match="search_superseded"):
+        await store.require_current(page)
+    with pytest.raises(DriveSharingError, match="bulk_changed"):
+        await request_bulk.require_current(grant)
+
+
+@pytest.mark.asyncio
+async def test_reconnecting_never_restores_an_allow_the_disconnect_ended(request_bulk, sharing):
+    created = await _request(sharing)
+    request_id = created["requestId"]
+    await sharing.allow_request(
+        user_id="owner", request_id=request_id, revision=created["revision"], amount_cents=2000
+    )
+    await sharing.request_bulk_context(user_id="owner", request_id=request_id, start=True)
+    job_id = _auto_job(request_bulk, request_id=request_id)
+    store = DriveOwnerSearchStore(db=sharing.db)
+    page = await store.claim(user_id="owner", job_id=job_id)
+    assert page is not None
+    review = await _paid_auto_review(sharing, request_bulk, request_id=request_id, job_id=job_id)
+    await request_bulk.approve(
+        user_id="owner",
+        share_id=review["shareId"],
+        revision=review["revision"],
+        review_digest=review["reviewDigest"],
+        approval_source="trusted_auto",
+    )
+    grant = await request_bulk.claim(
+        user_id="owner", share_id=review["shareId"], position=1, recipient_user_id="recipient"
+    )
+    assert grant is not None
+    # Control: connected, the paid batch and the search continue under the Allow.
+    await store.require_current(page)
+    await request_bulk.require_current(grant)
+
+    # The owner disconnects; that transaction ends the Allow. Then they reconnect.
+    _connection(sharing, "removed")
+    with sharing.db.engine.begin() as connection:
+        assert (
+            end_owner_allows_for_disconnected_pair(
+                connection, user_a_id="owner", user_b_id="recipient"
+            )
+            == 1
+        )
+    _connection(sharing, "active")
+
+    with pytest.raises(DriveReadError, match="search_superseded"):
+        await store.require_current(page)
+    with pytest.raises(DriveSharingError, match="bulk_changed"):
+        await request_bulk.require_current(grant)
+    with pytest.raises(DriveSharingError, match="trusted_request_unavailable"):
+        await sharing.trusted_request_authority(user_id="owner", request_id=request_id)
+    assert await sharing.due_trusted_batches() == []
+    owner_view = await sharing.owner_review(user_id="owner", request_id=request_id)
+    assert (owner_view["ownerAllowed"], owner_view["preparationError"]) == (
+        True,
+        "trusted_relationship_changed",
+    )
+
+
+@pytest.mark.asyncio
+async def test_plaintext_allow_hint_without_sealed_allow_never_runs_automatically(
+    request_bulk, sharing
+):
+    request_id = (await _request(sharing))["requestId"]
+    # owner_allowed_at only feeds the Consent Center; the sealed Allow is authority.
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_requests SET owner_allowed_at=clock_timestamp(),
+              preparation_error_code='trusted_auto_queued',preparation_next_at=clock_timestamp()
+              WHERE request_id=:request"""),
+            {"request": request_id},
+        )
+    assert await sharing.due_trusted_searches() == []
+    with pytest.raises(DriveSharingError, match="trusted_request_unavailable"):
+        await sharing.trusted_request_authority(user_id="owner", request_id=request_id)
+    # A stale automatic search or batch for it fails each store recheck too.
+    await sharing.request_bulk_context(user_id="owner", request_id=request_id, start=True)
+    job_id = _auto_job(request_bulk, request_id=request_id)
+    store = DriveOwnerSearchStore(db=sharing.db)
+    page = await store.claim(user_id="owner", job_id=job_id)
+    assert page is not None
+    with pytest.raises(DriveReadError, match="search_superseded"):
+        await store.require_current(page)
+    review = await _paid_auto_review(sharing, request_bulk, request_id=request_id, job_id=job_id)
+    with pytest.raises(DriveSharingError, match="trusted_request_unavailable"):
+        await request_bulk.approve(
+            user_id="owner",
+            share_id=review["shareId"],
+            revision=review["revision"],
+            review_digest=review["reviewDigest"],
+            approval_source="trusted_auto",
+        )
 
 
 @pytest.mark.asyncio
@@ -525,6 +931,7 @@ async def test_bounded_auto_batches_continue_past_first_twenty_five(monkeypatch)
     sharing = SimpleNamespace(
         db=object(),
         trusted_request_authority=AsyncMock(return_value={}),
+        request_owner_review_required=AsyncMock(return_value=False),
         request_bulk_context=AsyncMock(
             return_value={
                 "purpose": {
@@ -553,6 +960,32 @@ async def test_bounded_auto_batches_continue_past_first_twenty_five(monkeypatch)
     assert len(approved) == 3 and remaining == []
     assert bulk.refresh_request.await_count == 2
     assert payment.ensure_payment_for_frozen_batch.await_count == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("v1,stage", [(True, "v1"), (False, "sharing")])
+async def test_unpaid_frozen_review_wakes_its_own_checkout_lane_only_when_ordered(v1, stage):
+    sharing = SimpleNamespace(request_bulk_context=AsyncMock(return_value={"v1LiveRequest": v1}))
+    payment = SimpleNamespace(
+        ensure_payment_for_frozen_batch=AsyncMock(
+            side_effect=[
+                {"status": "awaiting_payment", "orderCreated": True},
+                *[{"status": "awaiting_payment", "orderCreated": False}] * 3,
+            ]
+        )
+    )
+    wake = AsyncMock()
+    service = DriveTrustedAutoService(
+        sharing=sharing, bulk=SimpleNamespace(), payment=payment, wake=wake
+    )
+    # The handoff that commits the order wakes its Checkout lane once. Later
+    # handoffs of the same unpaid order are not news to that lane.
+    for _ in range(4):
+        assert not await service._payment_ready(
+            user_id="owner", request_id="request", share_id="share"
+        )
+    wake.assert_awaited_once_with(stage)
+    sharing.request_bulk_context.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -591,6 +1024,7 @@ async def test_frozen_auto_review_waits_for_payment_and_resumes_same_batch(monke
     sharing = SimpleNamespace(
         db=object(),
         trusted_request_authority=AsyncMock(return_value={}),
+        request_owner_review_required=AsyncMock(return_value=False),
         request_bulk_context=AsyncMock(
             return_value={
                 "purpose": {
@@ -603,7 +1037,7 @@ async def test_frozen_auto_review_waits_for_payment_and_resumes_same_batch(monke
     )
     payment = SimpleNamespace(
         ensure_payment_for_frozen_batch=AsyncMock(
-            side_effect=[{"status": "awaiting_payment"}, {"status": "paid"}]
+            side_effect=[{"status": "awaiting_payment", "orderCreated": True}, {"status": "paid"}]
         )
     )
     monkeypatch.setattr(module, "DriveRequestBulkService", FakeRequestBulk)
@@ -625,6 +1059,7 @@ async def test_legacy_undated_auto_request_does_not_approve_frozen_batches():
     pending = AsyncMock(return_value=[{"shareId": str(uuid4())}])
     sharing = SimpleNamespace(
         trusted_request_authority=AsyncMock(return_value={}),
+        request_owner_review_required=AsyncMock(return_value=False),
         request_bulk_context=AsyncMock(
             return_value={"purpose": {"purpose": "last 3 days standup notes"}}
         ),
@@ -679,6 +1114,7 @@ async def test_legacy_queued_search_requires_dates_before_provider_read():
     sharing = SimpleNamespace(
         trusted_request_for_job=AsyncMock(return_value=request_id),
         trusted_request_authority=AsyncMock(return_value={}),
+        request_owner_review_required=AsyncMock(return_value=False),
         request_bulk_context=AsyncMock(
             return_value={"purpose": {"purpose": "last 3 days standup notes"}}
         ),
@@ -726,6 +1162,92 @@ async def test_old_progressive_bulk_notice_cannot_duplicate_request_event():
     send.assert_not_awaited()
     store.settle_notification.assert_awaited_once()
     assert store.settle_notification.await_args.kwargs["delivered"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scenario", ["declined", "cancelled", "context_unavailable", "pending"])
+async def test_worker_releases_closed_request_search_without_discarding_live_work(
+    request_bulk, sharing, monkeypatch, scenario
+):
+    from tests.services.test_drive_owner_search_postgres import create
+
+    _membership(sharing, "active")
+    await DriveLivePreferences(db=sharing.db).set_background(
+        user_id="owner", enabled=True, confirmed=True
+    )
+    request = await _request(sharing)
+    request_id = request["requestId"]
+    await sharing.request_bulk_context(user_id="owner", request_id=request_id, start=True)
+    job_id = _auto_job(request_bulk, request_id=request_id)
+    if scenario != "pending":
+        # Short drains must check authority even while content assessment waits.
+        with sharing.db.engine.begin() as connection:
+            envelope = connection.execute(
+                text("SELECT checkpoint_envelope FROM drive_owner_search_jobs WHERE job_id=:job"),
+                {"job": job_id},
+            ).scalar_one()
+            checkpoint = request_bulk._open(
+                envelope, user_id="owner", resource_id=job_id, purpose="owner-search-checkpoint"
+            )
+            checkpoint["semantic_pending"] = [{"id": "synthetic-pending-file"}]
+            connection.execute(
+                text(
+                    "UPDATE drive_owner_search_jobs SET checkpoint_envelope=CAST(:value AS jsonb) WHERE job_id=:job"
+                ),
+                {
+                    "job": job_id,
+                    "value": request_bulk._seal(
+                        checkpoint,
+                        user_id="owner",
+                        resource_id=job_id,
+                        purpose="owner-search-checkpoint",
+                    ),
+                },
+            )
+    if scenario in {"declined", "cancelled"}:
+        await sharing.decline_or_cancel(
+            user_id="owner" if scenario == "declined" else "recipient",
+            request_id=request_id,
+            revision=request["revision"],
+            decision=scenario,
+        )
+    context_lookup = None
+    if scenario == "context_unavailable":
+        context_lookup = AsyncMock(side_effect=OSError("Synthetic temporary lookup failure"))
+        monkeypatch.setattr(sharing, "request_bulk_context", context_lookup)
+    before = rows(sharing, "drive_owner_search_jobs")[0]
+    store = DriveOwnerSearchStore(db=sharing.db)
+    service = DriveOwnerSearchService(store=store, transport=SimpleNamespace())
+    service._page = AsyncMock(side_effect=DriveReadError("provider_unavailable", retryable=True))
+    auto = DriveTrustedAutoService(sharing=sharing, bulk=request_bulk, wake=AsyncMock())
+    await DriveOwnerSearchWorker(service, trusted_auto=auto).run(max_jobs=1, deadline_seconds=5)
+    after = rows(sharing, "drive_owner_search_jobs")[0]
+    assert after["checkpoint_envelope"] == before["checkpoint_envelope"]
+    assert after["matched"] == before["matched"] == 1
+    with sharing.db.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_owner_search_results WHERE job_id=:job"),
+                {"job": job_id},
+            ).scalar_one()
+            == 1
+        )
+    assert after["lease_id"] is None and after["lease_expires_at"] is None
+    if scenario in {"declined", "cancelled"}:
+        service._page.assert_not_awaited()
+        assert after["status"] == "failed"
+        assert await store.due() == []
+        next_job, created = await create(store)
+        assert created and next_job["jobId"] != job_id
+    else:
+        assert after["status"] == "queued"
+        with pytest.raises(DriveReadError, match="search_in_progress"):
+            await create(store)
+        if context_lookup is not None:
+            context_lookup.assert_awaited_once()
+            service._page.assert_not_awaited()
+        else:
+            service._page.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -811,6 +1333,7 @@ async def test_committed_request_pages_reach_payment_and_sharing_before_next_pag
     sharing = SimpleNamespace(
         db=object(),
         trusted_request_authority=authority,
+        request_owner_review_required=AsyncMock(return_value=False),
         trusted_request_for_job=AsyncMock(return_value=request_id),
         request_bulk_context=AsyncMock(
             return_value={
@@ -907,7 +1430,8 @@ async def test_payment_wake_resumes_committed_batches_before_slow_search(monkeyp
     )
     service = SimpleNamespace(
         store=SimpleNamespace(
-            due=AsyncMock(return_value=[{"user_id": "owner", "job_id": str(uuid4())}]),
+            # The in-run continuation asks the queue again and finds nothing.
+            due=AsyncMock(side_effect=[[{"user_id": "owner", "job_id": str(uuid4())}], []]),
             status=AsyncMock(return_value={"errorCode": None}),
         ),
         run_one=provider_slice,
@@ -916,3 +1440,381 @@ async def test_payment_wake_resumes_committed_batches_before_slow_search(monkeyp
     result = await DriveOwnerSearchWorker(service, trusted_auto=auto).run()
     assert order[:2] == ["resume_paid_batch", "provider_read"]
     assert result["outcomes"]["queued"] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("trusted", [True, False])
+async def test_queued_search_does_not_wait_for_unrelated_trusted_planner(monkeypatch, trusted):
+    from hushh_mcp.services import drive_owner_search_worker as module
+
+    provider_started = asyncio.Event()
+    authority = AsyncMock() if trusted else None
+
+    async def plan_other_request(**_kwargs):
+        # A queued owner-approved request and a queued trusted request both
+        # progress while another request's semantic planner is still waiting.
+        await provider_started.wait()
+        return {"started": 0, "deferred": 0}
+
+    async def provider_slice(**kwargs):
+        assert kwargs.get("require_current") is authority
+        if trusted:
+            assert kwargs["after_page"] is auto.after_search_page
+        else:
+            assert "after_page" not in kwargs
+        provider_started.set()
+        return "completed"
+
+    auto = SimpleNamespace(
+        continue_batches=AsyncMock(),
+        start_pending=plan_other_request,
+        search_authority_for_job=AsyncMock(return_value=authority),
+        after_search_page=AsyncMock(),
+        after_search_slice=AsyncMock(),
+    )
+    service = SimpleNamespace(
+        store=SimpleNamespace(
+            due=AsyncMock(return_value=[{"user_id": "owner", "job_id": str(uuid4())}])
+        ),
+        run_one=provider_slice,
+    )
+    monkeypatch.setattr(module, "wake_drive_work", AsyncMock())
+    async with asyncio.timeout(1):
+        result = await DriveOwnerSearchWorker(service, trusted_auto=auto).run()
+    assert result["outcomes"]["completed"] == 1
+
+
+@pytest.mark.asyncio
+async def test_empty_search_queue_continues_new_trusted_search_in_same_drain(monkeypatch):
+    from hushh_mcp.services import drive_owner_search_worker as module
+
+    planned = asyncio.Event()
+    job = {"user_id": "owner", "job_id": str(uuid4())}
+
+    async def start_request(**_kwargs):
+        planned.set()
+        return {"started": 1, "deferred": 0}
+
+    async def provider_slice(**_kwargs):
+        assert planned.is_set()
+        return "completed"
+
+    auto = SimpleNamespace(
+        continue_batches=AsyncMock(),
+        start_pending=start_request,
+        search_authority_for_job=AsyncMock(return_value=AsyncMock()),
+        after_search_page=AsyncMock(),
+        after_search_slice=AsyncMock(),
+    )
+    service = SimpleNamespace(
+        store=SimpleNamespace(due=AsyncMock(side_effect=[[], [job]])),
+        run_one=AsyncMock(side_effect=provider_slice),
+    )
+    monkeypatch.setattr(module, "wake_drive_work", AsyncMock())
+    result = await DriveOwnerSearchWorker(service, trusted_auto=auto).run()
+    assert result["outcomes"]["completed"] == 1
+    assert result["outcomes"]["queued"] == 1
+    service.run_one.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_search_drain_cancellation_leaves_no_planner_running(monkeypatch):
+    from hushh_mcp.services import drive_owner_search_worker as module
+
+    planning = asyncio.Event()
+    provider_started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def plan_other_request(**_kwargs):
+        planning.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    async def provider_slice(**_kwargs):
+        await planning.wait()
+        provider_started.set()
+        await asyncio.Event().wait()
+
+    auto = SimpleNamespace(
+        continue_batches=AsyncMock(),
+        start_pending=plan_other_request,
+        search_authority_for_job=AsyncMock(return_value=None),
+    )
+    service = SimpleNamespace(
+        store=SimpleNamespace(
+            due=AsyncMock(return_value=[{"user_id": "owner", "job_id": str(uuid4())}])
+        ),
+        run_one=provider_slice,
+    )
+    monkeypatch.setattr(module, "wake_drive_work", AsyncMock())
+    worker = asyncio.create_task(DriveOwnerSearchWorker(service, trusted_auto=auto).run())
+    try:
+        async with asyncio.timeout(1):
+            await provider_started.wait()
+    finally:
+        worker.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await worker
+    assert cancelled.is_set()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "actual_version,generation,error",
+    [("7", 7, None), ("8", 7, "source_changed"), ("7", 8, "connection_changed")],
+)
+async def test_package_precheckout_preflight_rechecks_version_and_generation(
+    monkeypatch, actual_version, generation, error
+):
+    from hushh_mcp.services import drive_package_access_preflight as access_module
+    from hushh_mcp.services.google_drive_adapter import DriveReadError
+
+    sharing = SimpleNamespace(
+        db=None,
+        trusted_request_authority=AsyncMock(),
+        request_bulk_context=AsyncMock(
+            return_value={
+                "revision": 1,
+                "recipientUserId": "buyer",
+                "recipient": {"subject": "google-buyer", "email": "buyer@example.invalid"},
+            }
+        ),
+    )
+    bulk = SimpleNamespace(
+        package_sources=AsyncMock(
+            return_value=[
+                {
+                    "id": "file-1",
+                    "name": "Statement.pdf",
+                    "sourceVersion": "7",
+                    "generation": 7,
+                    "contentFingerprint": "a" * 64,
+                }
+            ]
+        )
+    )
+    adapter = SimpleNamespace(
+        get_share_metadata=AsyncMock(
+            return_value=SimpleNamespace(name="Statement.pdf", version=actual_version)
+        )
+    )
+    reader = SimpleNamespace(
+        _generation=generation,
+        adapter=adapter,
+        _credential=AsyncMock(return_value={"accessToken": "synthetic-token"}),
+    )
+    monkeypatch.setattr(access_module, "DriveLiveReader", lambda **kwargs: reader)
+    monkeypatch.setattr(access_module, "require_recipient_identity", AsyncMock())
+    monkeypatch.setattr(
+        access_module,
+        "GoogleDrivePermissionAdapter",
+        lambda: SimpleNamespace(
+            list_permissions=AsyncMock(return_value=SimpleNamespace(permissions=()))
+        ),
+    )
+    service = DriveTrustedAutoService(
+        sharing=sharing, bulk=bulk, payment=SimpleNamespace(), wake=AsyncMock()
+    )
+    if error:
+        with pytest.raises(DriveReadError, match=error):
+            await service.preflight_package(user_id="owner", request_id="request")
+    else:
+        await service.preflight_package(user_id="owner", request_id="request")
+        assert sharing.trusted_request_authority.await_count >= 2
+    if generation != 7:
+        adapter.get_share_metadata.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_legacy_precheckout_preflight_does_not_open_connector(monkeypatch):
+    from hushh_mcp.services import drive_live_reader
+
+    def unavailable(**kwargs):
+        raise AssertionError("legacy request must not invoke package provider reads")
+
+    monkeypatch.setattr(drive_live_reader, "DriveLiveReader", unavailable)
+    service = DriveTrustedAutoService(
+        sharing=SimpleNamespace(db=None),
+        bulk=SimpleNamespace(package_sources=AsyncMock(return_value=[])),
+        payment=SimpleNamespace(),
+        wake=AsyncMock(),
+    )
+    await service.preflight_package(user_id="owner", request_id="request")
+
+
+@pytest.mark.asyncio
+async def test_paid_delivery_preflight_checks_source_without_reclassifying_existing_acl(
+    monkeypatch,
+):
+    from hushh_mcp.services import drive_live_reader, drive_package_access_preflight
+
+    sharing = SimpleNamespace(db=None, trusted_request_authority=AsyncMock())
+    bulk = SimpleNamespace(
+        package_sources=AsyncMock(
+            return_value=[
+                {
+                    "id": "file-1",
+                    "name": "Statement.pdf",
+                    "sourceVersion": "7",
+                    "generation": 7,
+                    "resourceKey": "synthetic-resource-key",
+                }
+            ]
+        )
+    )
+    reader = SimpleNamespace(
+        _generation=7,
+        _credential=AsyncMock(return_value={"accessToken": "synthetic-token"}),
+        adapter=SimpleNamespace(
+            get_share_metadata=AsyncMock(
+                return_value=SimpleNamespace(name="Statement.pdf", version="7")
+            )
+        ),
+    )
+    monkeypatch.setattr(drive_live_reader, "DriveLiveReader", lambda **kwargs: reader)
+
+    def unavailable(**kwargs):
+        raise AssertionError("Paid delivery must not classify its own existing grants")
+
+    monkeypatch.setattr(drive_package_access_preflight, "DrivePackageAccessPreflight", unavailable)
+    service = DriveTrustedAutoService(
+        sharing=sharing, bulk=bulk, payment=SimpleNamespace(), wake=AsyncMock()
+    )
+    assert (
+        await service.preflight_package(user_id="owner", request_id="request", inspect_access=False)
+        is None
+    )
+    reader.adapter.get_share_metadata.assert_awaited_once_with(
+        file_id="file-1",
+        access_token=reader._credential.return_value["accessToken"],
+        resource_key="synthetic-resource-key",
+    )
+    assert sharing.trusted_request_authority.await_count == 2
+
+
+@pytest.mark.parametrize("status", ["queued", "failed", "running"])
+async def test_uat_processor_recovery_is_recorded_and_preserves_results_and_effects(
+    request_bulk, sharing, monkeypatch, status
+):
+    from hushh_mcp.runtime_providers import managed_text
+    from hushh_mcp.services.drive_request_package_service import assessment_policy_version
+    from tests.services.test_drive_request_search_unit import _semantic_checkpoint
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "gemini")
+    _membership(sharing, "active")
+    await DriveLivePreferences(db=sharing.db).set_background(
+        user_id="owner", enabled=True, confirmed=True
+    )
+    # Create an actual historical Gemini binding, not a current owner acceptance.
+    real_policy = managed_text.managed_text_policy
+    with monkeypatch.context() as historical:
+        # This is a historical assessed request, not the new query-match policy.
+        historical.setattr(
+            "hushh_mcp.services.drive_sharing_store.SEMANTIC_SEARCH_POLICY_VERSION", 1
+        )
+        historical.setattr(managed_text, "managed_text_policy", lambda: None)
+        created = await _request(sharing)
+    request_id = created["requestId"]
+    cp = _semantic_checkpoint("Elena Rostova")
+    cp.pop("request_revision")
+    cp.pop("request_origin_id")
+    with sharing.db.engine.connect() as connection:
+        old_request = sharing._request(connection, "owner", request_id)
+        private = (
+            sharing._open_request(old_request)
+            if hasattr(sharing, "_open_request")
+            else sharing.sharing_cipher.open(
+                old_request["request_envelope"],
+                user_id="owner",
+                resource_id=request_id,
+                purpose="request",
+            )
+        )
+        cp["semantic_purpose"] = private["purpose"]
+    cp["semantic_assessment_policy"] = assessment_policy_version(None)
+    cp["page_token"] = "preserve-provider-cursor"
+    cp["semantic_pending"] = [{"id": "pending-synthetic", "version": "12"}]
+    job = _search(request_bulk, request_id=request_id, count=1, selection=cp)
+    store = DriveOwnerSearchStore(db=sharing.db)
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_owner_search_jobs SET status=:status WHERE job_id=:job"),
+            {"status": status, "job": job},
+        )
+        before = connection.execute(
+            text("SELECT metadata_envelope FROM drive_owner_search_results WHERE job_id=:job"),
+            {"job": job},
+        ).scalar_one()
+        request_before = connection.execute(
+            text("SELECT revision FROM drive_share_requests WHERE request_id=:request"),
+            {"request": request_id},
+        ).scalar_one()
+        effects_before = {
+            table: connection.execute(text(f"SELECT count(*) FROM {table}")).scalar_one()
+            for table in (
+                "drive_request_payment_orders",
+                "drive_bulk_shares",
+                "drive_bulk_share_effects",
+            )
+        }
+    assert real_policy() is not None
+    if status == "running":
+        with sharing.db.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE drive_owner_search_jobs SET lease_id=:lease,lease_expires_at=clock_timestamp()+interval '60 seconds' WHERE job_id=:job"
+                ),
+                {"job": job, "lease": str(uuid4())},
+            )
+        assert (
+            await store.migrate_request_processor(user_id="owner", request_id=request_id) is False
+        )
+        with sharing.db.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE drive_owner_search_jobs SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE job_id=:job"
+                ),
+                {"job": job},
+            )
+    assert await store.migrate_request_processor(user_id="owner", request_id=request_id) is True
+    assert await store.migrate_request_processor(user_id="owner", request_id=request_id) is False
+    with sharing.db.engine.begin() as connection:
+        row = store._row(
+            connection, "SELECT * FROM drive_owner_search_jobs WHERE job_id=:job", {"job": job}
+        )
+        after = store._checkpoint(row)
+        assert row["status"] == "queued"
+        assert after["page_token"] == cp["page_token"]
+        assert after["semantic_pending"] == cp["semantic_pending"]
+        assert after["semantic_plan_digest"] == cp["semantic_plan_digest"]
+        assert after["processor_migration"]["basis"] == "administrator_rollout"
+        assert after["processor_migration"]["from_binding"] is None
+        assert after["semantic_model_binding"] == managed_text.managed_text_binding()
+        assert after["semantic_assessment_policy"] != cp["semantic_assessment_policy"]
+        assert (
+            connection.execute(
+                text("SELECT metadata_envelope FROM drive_owner_search_results WHERE job_id=:job"),
+                {"job": job},
+            ).scalar_one()
+            == before
+        )
+        assert (
+            connection.execute(
+                text("SELECT revision FROM drive_share_requests WHERE request_id=:request"),
+                {"request": request_id},
+            ).scalar_one()
+            == request_before
+        )
+        assert {
+            table: connection.execute(text(f"SELECT count(*) FROM {table}")).scalar_one()
+            for table in effects_before
+        } == effects_before
+    lease = await store.claim(user_id="owner", job_id=job)
+    assert lease is not None
+    await store.require_current(lease)
+    _membership(sharing, "removed")
+    with pytest.raises(DriveReadError):
+        await store.require_current(lease)

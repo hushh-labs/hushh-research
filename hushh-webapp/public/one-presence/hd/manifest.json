@@ -1,0 +1,78 @@
+{
+  "connected.riv": {
+    "bytes": 610739,
+    "sha256": "9308d7e03dbea9fb5e53068174294ef6d630b38f3a62ee4629b4caa336224535",
+    "source": "profile-hd.png",
+    "source_sha256": "b85f5387e45888f43a214e3e4192d26eaf37d86e55d36102f736bd7fea8502b1",
+    "texture_width": 1254,
+    "texture_height": 1254,
+    "textures": 1,
+    "artboard": 128,
+    "fps": 24,
+    "frames": 72,
+    "quantized": true,
+    "motion": {
+      "image": "profile-hd.png",
+      "lift": 0.8,
+      "turns": 1,
+      "tilt": 0
+    }
+  },
+  "thinking.riv": {
+    "bytes": 603875,
+    "sha256": "10270fa82433458b0f495d4e95d4bdeb156203d91612f5039d5d4c135fa0d1b3",
+    "source": "thinking-hd.png",
+    "source_sha256": "553078d164bbb6c6f36c56556a3a43e5a1d8b4e258bd1ed653d3582b8fe5ba63",
+    "texture_width": 1254,
+    "texture_height": 1254,
+    "textures": 1,
+    "artboard": 128,
+    "fps": 24,
+    "frames": 72,
+    "quantized": true,
+    "motion": {
+      "image": "thinking-hd.png",
+      "lift": 1.2,
+      "turns": 1,
+      "tilt": 0.004
+    }
+  },
+  "working.riv": {
+    "bytes": 732597,
+    "sha256": "cfd280b3783ebead5410b9d5c11e5f3c6691d5d408d1a7bedfad9c3558e6dbab",
+    "source": "drafting-hd.png",
+    "source_sha256": "83e2c8b2623f0445091a8fa5ebc2b0788ad9c95dba5a260d7494e66846384b1e",
+    "texture_width": 1254,
+    "texture_height": 1254,
+    "textures": 1,
+    "artboard": 128,
+    "fps": 24,
+    "frames": 72,
+    "quantized": true,
+    "motion": {
+      "image": "drafting-hd.png",
+      "lift": 0.8,
+      "turns": 3,
+      "tilt": 0.002
+    }
+  },
+  "answering.riv": {
+    "bytes": 759856,
+    "sha256": "bfaaf7c09d2836199b31840c149bdbbdd640ed3d1f6c56a96841e4b2bbb09d0a",
+    "source": "answering-hd.png",
+    "source_sha256": "4e6ad52ab2d70339fe85398f96a98ef4ef49a61b330d32634df7bfbfd29c58c2",
+    "texture_width": 1254,
+    "texture_height": 1254,
+    "textures": 1,
+    "artboard": 128,
+    "fps": 24,
+    "frames": 72,
+    "quantized": true,
+    "motion": {
+      "image": "answering-hd.png",
+      "lift": 1,
+      "turns": 2,
+      "tilt": 0.003
+    }
+  }
+}

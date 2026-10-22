@@ -16,11 +16,12 @@
  */
 
 import { type MouseEvent, useEffect, useRef } from "react";
-import { Loader2 } from "@/components/icons";
+import { Loader2, MapPin, MessageSquareIcon as MessageSquare } from "@/components/icons";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import type { OneLocationShareTimeSummary } from "@/lib/one-location/grant-lanes";
+import type { OneLocationShareAudienceSummary, OneLocationShareTimeSummary } from "@/lib/one-location/grant-lanes";
+import { TYPOGRAPHY_CLASSNAMES } from "@/components/app-ui/typography";
 import {
   describeShareElapsed,
   describeShareRemaining,
@@ -46,7 +47,7 @@ import {
 import { CARD_SURFACE } from "./tokens";
 
 export type LiveShareStatus = {
-  /** How many of your shares are live right now. */
+  /** Unique people receiving your active shares. */
   count: number;
   /** Raw grant count. Can be higher than the person count. */
   grantCount: number;
@@ -64,6 +65,8 @@ export type LiveShareStatus = {
   endsAt: string | null;
   timeSummary?: OneLocationShareTimeSummary | null;
   singleGrantIsSms?: boolean;
+  /** Absent until server state identifies each live sharing channel. */
+  audience?: OneLocationShareAudienceSummary | null;
   /** Set only when exactly one share is live, so one tap can end it. */
   stoppableGrantId: string | null;
 };
@@ -298,14 +301,12 @@ export function LiveShareStatusCard({
    * the first of those two shares may stop in 29 minutes. One word fixes it,
    * and only when there is more than one share to be last of.
    */
-  const foldedSummary = liveShareTimeSummary(status);
-  const footer =
-    foldedSummary ??
-    (openEnded
-      ? "Until you stop"
-      : endsAtMs !== null
-        ? `Ends ${formatShareEndsAt(endsAtMs)}`
-        : null);
+  const foldedSummary = status.audience ? null : liveShareTimeSummary(status);
+  const footer = !singleGrant && status.audience
+    ? null
+    : foldedSummary ?? (openEnded
+        ? "Until you stop"
+        : endsAtMs !== null ? `Ends ${formatShareEndsAt(endsAtMs)}` : null);
   const showClock = singleGrant;
 
   const runChildAction =
@@ -347,7 +348,7 @@ export function LiveShareStatusCard({
             disabled={stopBusy}
             className={cn(
               LIVE_SHARE_ACTION_CLASSNAME,
-              "text-destructive hover:text-destructive",
+              "text-[color:var(--app-destructive)] hover:text-[color:var(--app-destructive)]",
             )}
             data-ui-contract="occlusion-sensitive"
             data-ui-role="control"
@@ -356,7 +357,7 @@ export function LiveShareStatusCard({
             {stopBusy ? (
               <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
             ) : null}
-            Stop
+            {status.singleGrantIsSms ? "Stop SMS" : "Stop"}
           </Button>
         ) : (
           <Button
@@ -389,7 +390,7 @@ export function LiveShareStatusCard({
             {title}
           </p>
 
-          <p className={LIVE_SHARE_CLOCK_ROW_CLASSNAME}>
+          {showClock || footer ? <p className={LIVE_SHARE_CLOCK_ROW_CLASSNAME}>
             {showClock ? (
               <>
                 <span
@@ -432,9 +433,33 @@ export function LiveShareStatusCard({
               </>
             ) : null}
             {showClock ? <span className="sr-only">{spoken}</span> : null}
-          </p>
+          </p> : null}
         </div>
       </div>
+
+      {status.audience ? (
+        <div className="mt-2" data-testid="one-location-live-share-audience">
+          <div className={cn(TYPOGRAPHY_CLASSNAMES.rowDescription, "flex flex-wrap items-center gap-x-4 gap-y-1")} aria-label="Sharing methods">
+            {status.audience.locationCount > 0 ? (
+              <span className="inline-flex items-center gap-1.5" data-testid="one-location-location-count">
+                <MapPin aria-hidden="true" className="h-4 w-4 shrink-0 text-[color:var(--app-accent)]" />
+                {status.audience.locationCount} Location {status.audience.locationCount === 1 ? "share" : "shares"}
+              </span>
+            ) : null}
+            {status.audience.smsCount > 0 ? (
+              <span className="inline-flex items-center gap-1.5 text-[color:var(--app-destructive)]" data-testid="one-location-sms-count">
+                <MessageSquare aria-hidden="true" className="h-4 w-4 shrink-0" />
+                {status.audience.smsCount} SMS
+              </span>
+            ) : null}
+          </div>
+          {status.audience.bothCount > 0 ? (
+            <p className={cn(TYPOGRAPHY_CLASSNAMES.rowDescription, "mt-1 text-[color:var(--app-secondary-label)]")} data-testid="one-location-overlap-count">
+              {status.audience.bothCount} {status.audience.bothCount === 1 ? "person receives" : "people receive"} both
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       {singleGrant && progress !== null ? (
         <div aria-hidden="true" className={LIVE_SHARE_PROGRESS_TRACK_CLASSNAME}>
@@ -447,9 +472,7 @@ export function LiveShareStatusCard({
       ) : null}
 
       {onShareMore || canChangeDuration ? (
-        // One centered action row: the primary CTA first, the quieter
-        // duration control beside it. Below 360px they stack full-width so
-        // neither label wraps and both keep a full touch target.
+        // Content-width actions wrap at narrow widths without shrinking targets.
         <div className={LIVE_SHARE_FOOTER_ROW_CLASSNAME}>
           {onShareMore ? (
             <Button

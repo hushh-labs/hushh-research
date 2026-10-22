@@ -1,4 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  GOOGLE_SIGNUP_AUTH_TIMEOUT_MS,
+  googleSignupConfigured,
+  requestGoogleSignupToken,
+} from "../../auth/google-signup-token";
 
 import {
   GOOGLE_CONTACTS_AUTH_TIMEOUT_MS,
@@ -8,6 +13,7 @@ import {
 } from "../google-contacts-token";
 
 const CONTACTS_SCOPE = "https://www.googleapis.com/auth/contacts.readonly";
+const SIGNUP_IDENTITY_SCOPE = "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile";
 
 type TokenResponse = {
   access_token?: string;
@@ -31,6 +37,10 @@ describe("Google Contacts token client", () => {
     vi.stubEnv(
       "NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID",
       "uat-client.apps.googleusercontent.com",
+    );
+    vi.stubEnv(
+      "NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID",
+      "firebase-auth-client.apps.googleusercontent.com",
     );
     capturedConfig = null;
     requestAccessToken = vi.fn();
@@ -260,4 +270,132 @@ describe("Google Contacts token client", () => {
       }
     },
   );
+
+  it.each([true, false])(
+    "authenticates a signup when Contacts permission is granted=%s",
+    async (contactsGranted) => {
+      const pending = requestGoogleSignupToken({ includeContacts: true });
+      expect(requestAccessToken).toHaveBeenCalledTimes(1);
+      expect(requestAccessToken).toHaveBeenLastCalledWith({ prompt: "select_account" });
+      expect(capturedConfig).toMatchObject({
+        client_id: "firebase-auth-client.apps.googleusercontent.com",
+        scope: `${SIGNUP_IDENTITY_SCOPE} ${CONTACTS_SCOPE}`,
+        include_granted_scopes: false,
+      });
+      capturedConfig?.callback({
+        access_token: "signup-token",
+        // Google's short identity aliases describe the same narrow grant.
+        scope: `profile openid email${contactsGranted ? ` ${CONTACTS_SCOPE}` : ""}`,
+      });
+      await expect(pending).resolves.toEqual({ accessToken: "signup-token", contactsGranted });
+    },
+  );
+
+  it("keeps ordinary Google authentication free of a Contacts request", async () => {
+    const pending = requestGoogleSignupToken();
+    expect(capturedConfig?.scope).toBe(SIGNUP_IDENTITY_SCOPE);
+    capturedConfig?.callback({ access_token: "identity-token", scope: SIGNUP_IDENTITY_SCOPE });
+    await expect(pending).resolves.toEqual({ accessToken: "identity-token", contactsGranted: false });
+  });
+
+  it("does not substitute the Contacts OAuth client for a missing sign-in client", async () => {
+    vi.stubEnv("NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID", "  ");
+    expect(googleSignupConfigured()).toBe(false);
+    await expect(requestGoogleSignupToken({ includeContacts: true })).rejects.toMatchObject({
+      code: "auth/operation-not-supported-in-this-environment",
+    });
+    expect(requestAccessToken).not.toHaveBeenCalled();
+  });
+
+  it("preloads signup independently of a missing Contacts client", async () => {
+    // A completed load intentionally stays cached for the document lifetime.
+    // Isolate this SDK-success case from later tests that remove the global.
+    vi.resetModules();
+    const { preloadGoogleSignupAuth } = await import("../../auth/google-signup-token");
+    vi.stubEnv("NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID", "");
+    const sharedGis = (globalThis as Record<string, unknown>).google;
+    Reflect.deleteProperty(globalThis, "google");
+    const loading = preloadGoogleSignupAuth();
+    const script = document.querySelector<HTMLScriptElement>('script[src="https://accounts.google.com/gsi/client"]');
+    expect(googleSignupConfigured()).toBe(true);
+    expect(script).not.toBeNull();
+    (globalThis as Record<string, unknown>).google = sharedGis;
+    script?.dispatchEvent(new Event("load"));
+    await expect(loading).resolves.toBeUndefined();
+    expect(requestAccessToken).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["no identity scopes", CONTACTS_SCOPE],
+    ["a missing identity scope", "openid email"],
+    ["an accumulated write grant", `${SIGNUP_IDENTITY_SCOPE} ${CONTACTS_SCOPE} https://www.googleapis.com/auth/calendar.events`],
+    ["missing confirmed scopes", undefined],
+  ])("rejects signup credentials with %s", async (_label, scope) => {
+    const pending = requestGoogleSignupToken({ includeContacts: true });
+    capturedConfig?.callback({ access_token: "unconfirmed-token", scope });
+    await expect(pending).rejects.toMatchObject({ code: "auth/invalid-credential" });
+  });
+
+  it("rejects unrequested Contacts access on an ordinary authentication", async () => {
+    const pending = requestGoogleSignupToken({ includeContacts: false });
+    capturedConfig?.callback({ access_token: "broader-token", scope: `${SIGNUP_IDENTITY_SCOPE} ${CONTACTS_SCOPE}` });
+    await expect(pending).rejects.toMatchObject({ code: "auth/invalid-credential" });
+  });
+
+  it.each([true, false])(
+    "does not consume a signup grant after cancellation (pre-aborted=%s)",
+    async (preAborted) => {
+      vi.useFakeTimers();
+      const controller = new AbortController();
+      if (preAborted) controller.abort();
+      const pending = requestGoogleSignupToken({ includeContacts: true, signal: controller.signal });
+      const rejection = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+      controller.abort();
+      capturedConfig?.callback({ access_token: "late-token", scope: `${SIGNUP_IDENTITY_SCOPE} ${CONTACTS_SCOPE}` });
+      await rejection;
+      expect(requestAccessToken).toHaveBeenCalledTimes(preAborted ? 0 : 1);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it("times out a signup attempt and ignores its late callback during retry", async () => {
+    vi.useFakeTimers();
+    const first = requestGoogleSignupToken({ includeContacts: true });
+    const expired = capturedConfig;
+    const rejected = expect(first).rejects.toMatchObject({ code: "auth/timeout" });
+    await vi.advanceTimersByTimeAsync(GOOGLE_SIGNUP_AUTH_TIMEOUT_MS);
+    await rejected;
+    const retry = requestGoogleSignupToken({ includeContacts: true });
+    expired?.callback({ access_token: "expired-token", scope: `${SIGNUP_IDENTITY_SCOPE} ${CONTACTS_SCOPE}` });
+    capturedConfig?.callback({ access_token: "fresh-token", scope: `${SIGNUP_IDENTITY_SCOPE} ${CONTACTS_SCOPE}` });
+    await expect(retry).resolves.toEqual({ accessToken: "fresh-token", contactsGranted: true });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([
+    ["popup_closed", "auth/popup-closed-by-user"],
+    ["popup_failed_to_open", "auth/popup-blocked"],
+    ["unknown", "auth/internal-error"],
+  ])("maps signup %s to an actionable authentication error", async (type, code) => {
+    const pending = requestGoogleSignupToken();
+    capturedConfig?.error_callback?.({ type });
+    await expect(pending).rejects.toMatchObject({ code });
+  });
+
+  it("does not open signup after asynchronously warming a cold GIS client", async () => {
+    Reflect.deleteProperty(globalThis, "google");
+    await expect(requestGoogleSignupToken()).rejects.toMatchObject({ code: "auth/initialization-not-ready" });
+    expect(requestAccessToken).not.toHaveBeenCalled();
+    const script = document.querySelector<HTMLScriptElement>('script[src="https://accounts.google.com/gsi/client"]');
+    expect(script).not.toBeNull();
+    script?.dispatchEvent(new Event("error"));
+    await Promise.resolve();
+  });
+
+  it("settles a synchronous signup SDK error and clears its timeout", async () => {
+    vi.useFakeTimers();
+    requestAccessToken.mockImplementationOnce(() => { throw new Error("SDK failure"); });
+    await expect(requestGoogleSignupToken()).rejects.toMatchObject({ code: "auth/internal-error" });
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });

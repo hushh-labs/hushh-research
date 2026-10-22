@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -42,7 +43,7 @@ def _args(**overrides: Any) -> argparse.Namespace:
     base = dict(
         connector_id="notion",
         env="uat",
-        project="p",
+        project=None,
         dry_run=False,
         store=False,
         local_env_file=None,
@@ -107,9 +108,39 @@ def test_a_confidential_provider_is_never_registered_by_the_script():
         prov.build_registration_request(HUBSPOT, "uat", [])
 
 
+def test_production_public_registration_uses_only_the_production_callback():
+    request = prov.build_registration_request(NOTION, "production", [])
+    assert request["redirect_uris"] == ["https://one.hushh.ai/one/profile/connectors/oauth/return"]
+    assert request["token_endpoint_auth_method"] == "none"
+    assert prov.DEFAULT_PROJECT["production"] == "hushh-pda"
+
+
+def test_production_registration_rejects_even_a_valid_extra_loopback_redirect():
+    with pytest.raises(prov.ProvisionError, match="only its reviewed web return"):
+        prov.build_registration_request(
+            NOTION,
+            "production",
+            ["http://localhost:3000/one/profile/connectors/oauth/return"],
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "environment,wrong_project",
+    [("production", "hushh-pda-uat"), ("uat", "hushh-pda")],
+)
+async def test_registration_cannot_store_in_the_other_environment(
+    monkeypatch, environment, wrong_project
+):
+    monkeypatch.setattr(prov, "discover_registration_endpoint", pytest.fail)
+    monkeypatch.setattr(prov, "store_secret", pytest.fail)
+    with pytest.raises(prov.ProvisionError, match="must store in"):
+        await prov.cmd_register(_args(env=environment, project=wrong_project, store=True))
+
+
 def test_an_environment_without_redirects_is_rejected():
     with pytest.raises(prov.ProvisionError, match="redirect addresses"):
-        prov.build_registration_request(NOTION, "production", [])
+        prov.build_registration_request(NOTION, "development", [])
 
 
 @pytest.mark.parametrize(
@@ -131,7 +162,7 @@ def test_extra_redirect_cannot_supply_an_unsupported_environment():
     with pytest.raises(prov.ProvisionError, match="No redirect addresses"):
         prov.build_registration_request(
             NOTION,
-            "production",
+            "development",
             ["http://localhost:3000/one/profile/connectors/oauth/return"],
         )
 
@@ -389,7 +420,7 @@ async def test_register_stores_the_client_id_where_asked(monkeypatch, tmp_path):
     monkeypatch.setattr(prov, "store_secret", lambda n, v, p: stored.append((n, v, p)))
     result = await prov.cmd_register(_args(store=True, local_env_file=str(env)))
     assert result["clientId"] == "new-client"
-    assert stored == [("NOTION_OAUTH_CLIENT_ID", "new-client", "p")]
+    assert stored == [("NOTION_OAUTH_CLIENT_ID", "new-client", "hushh-pda-uat")]
     assert "NOTION_OAUTH_CLIENT_ID=new-client" in env.read_text(encoding="utf-8")
 
 
@@ -491,6 +522,70 @@ def test_apply_goes_through_the_manifest_path_and_the_guarded_cli(monkeypatch):
     assert descriptor.raw["toolAllowlist"] == list(NOTION.tool_allowlist)
 
 
+def test_production_apply_rejects_a_uat_project_before_registry_write(monkeypatch):
+    monkeypatch.setattr(cli, "_apply", pytest.fail)
+    with pytest.raises(prov.ProvisionError, match="require hushh-pda"):
+        prov.cmd_apply(
+            SimpleNamespace(
+                connector_id="notion",
+                env="production",
+                project="hushh-pda-uat",
+                operator="op@hushh.ai",
+            )
+        )
+
+
+@pytest.fixture
+def uat_database_disguised_as_production(monkeypatch):
+    from db import db_client
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda")
+    monkeypatch.setenv("CLOUDSQL_INSTANCE_CONNECTION_NAME", "hushh-pda:us-central1:hushh-vault-db")
+    monkeypatch.delenv("HUSSH_RELEASE_ENVIRONMENT", raising=False)
+    monkeypatch.delenv("GCP_PROJECT_ID", raising=False)
+    uat_identity = {
+        "database_name": "postgres",
+        "database_role": "hushh_uat_app",
+        "server_version_num": 150000,
+        "system_identifier": "7612942862467162128",
+    }
+    result = SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: uat_identity))
+    connection = SimpleNamespace(execute=lambda _sql: result)
+    db = SimpleNamespace(engine=SimpleNamespace(connect=lambda: nullcontext(connection)))
+    monkeypatch.setattr(db_client, "get_db", lambda: db)
+
+
+def test_production_apply_rejects_a_uat_connected_database_before_registry_write(
+    monkeypatch, uat_database_disguised_as_production
+):
+    monkeypatch.setattr(cli, "_apply", pytest.fail)
+
+    with pytest.raises(prov.ProvisionError, match="target could not be verified"):
+        prov.cmd_apply(
+            SimpleNamespace(
+                connector_id="notion",
+                env="production",
+                project="hushh-pda",
+                operator="op@hushh.ai",
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_production_verify_rejects_a_uat_project_before_registry_read():
+    with pytest.raises(prov.ProvisionError, match="require hushh-pda"):
+        await prov.cmd_verify(_args(env="production", project="hushh-pda-uat"))
+
+
+@pytest.mark.asyncio
+async def test_production_verify_rejects_a_uat_connected_database_before_registry_read(
+    uat_database_disguised_as_production,
+):
+    with pytest.raises(prov.ProvisionError, match="target could not be verified"):
+        await prov.cmd_verify(_args(env="production", project="hushh-pda"))
+
+
 def test_apply_applies_attio_as_a_runtime_provider_not_a_registration_only_spec(monkeypatch):
     calls: list[Any] = []
     monkeypatch.setattr(
@@ -512,9 +607,7 @@ def test_apply_applies_attio_as_a_runtime_provider_not_a_registration_only_spec(
     assert descriptor.raw["toolAllowlist"] == list(ATTIO.tool_allowlist)
     assert descriptor.raw["mcpEndpoint"] == "https://mcp.attio.com/mcp"
     assert descriptor.raw["oauthScopes"] == ["mcp", "offline_access", "openid"]
-    assert descriptor.raw["registeredRedirectUris"] == [
-        "https://uat.one.hushh.ai/one/profile/connectors/oauth/return"
-    ]
+    assert descriptor.raw["registeredRedirectUris"] == list(ATTIO.redirect_uris["uat"])
 
 
 def test_apply_refuses_a_registration_only_spec_before_descriptor_or_registry_work(
@@ -613,6 +706,4 @@ async def test_the_attio_dry_run_builds_the_reviewed_request_and_sends_nothing(m
     assert result["registrationEndpoint"] == "https://app.attio.com/oauth/register"
     assert result["request"]["token_endpoint_auth_method"] == "none"
     assert result["request"]["scope"] == "mcp offline_access openid"
-    assert result["request"]["redirect_uris"] == [
-        "https://uat.one.hushh.ai/one/profile/connectors/oauth/return"
-    ]
+    assert result["request"]["redirect_uris"] == list(ATTIO.redirect_uris["uat"])

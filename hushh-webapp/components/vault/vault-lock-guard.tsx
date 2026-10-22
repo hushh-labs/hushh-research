@@ -37,6 +37,7 @@ import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 import { SessionVerificationRecovery } from "@/components/auth/session-verification-recovery";
 import { SessionPrivacyGate } from "@/components/auth/session-privacy-gate";
+import { safeWorldModelInvitationReturnPath } from "@/lib/world-model/invitation-handoff";
 import {
   hasIncompleteNativeUiFlowSession,
   isNativeTestVaultBootstrapManaged,
@@ -79,6 +80,10 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
     signOut,
   } = useAuth();
   const userId = user?.uid ?? null;
+  const lastUserIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (userId) lastUserIdRef.current = userId;
+  }, [userId]);
   const { beginTask, completeTaskStep, endTask } = useStepProgress();
   const [hasVault, setHasVault] = useState<boolean | null>(null);
   const [vaultCheckFailed, setVaultCheckFailed] = useState(false);
@@ -202,7 +207,11 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
         window.location.pathname +
         window.location.search +
         window.location.hash;
-      router.replace(`/login?redirect=${encodeURIComponent(currentPath)}`);
+      const returnPath = safeWorldModelInvitationReturnPath(
+        currentPath,
+        lastUserIdRef.current,
+      );
+      router.replace(`/login?redirect=${encodeURIComponent(returnPath)}`);
     }
   }, [
     authLoading,

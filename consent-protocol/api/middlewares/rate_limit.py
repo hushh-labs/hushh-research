@@ -48,9 +48,13 @@ _TYPED_RATE_LIMIT_PATHS = (
     "/api/marketplace/contacts/match",
     "/api/one/connections/contact-sync",
     "/api/one/connections/directory",
+    "/api/one/business/suggestion",
+    "/api/one/profile-research",
+    "/api/auth/sso/",
 )
 
 _TYPED_RATE_LIMIT_MESSAGES = {
+    "/api/auth/sso/": "Too many sign-in attempts. Give it a minute and try again.",
     "/api/marketplace/contacts/match": (
         "You have checked your contacts a few times just now. Give it a minute and try again."
     ),
@@ -58,6 +62,8 @@ _TYPED_RATE_LIMIT_MESSAGES = {
         "You have checked many contacts recently. Give it a little time and try again."
     ),
     "/api/one/connections/directory": "Too many searches. Try again shortly.",
+    "/api/one/business/suggestion": "Business suggestions are taking a moment. Try again shortly.",
+    "/api/one/profile-research": "Your profile is taking a moment. Try again shortly.",
 }
 
 

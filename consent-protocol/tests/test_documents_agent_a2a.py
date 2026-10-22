@@ -448,6 +448,8 @@ async def test_owner_date_only_find_uses_live_drive_without_content_or_index(mon
                 "terms": [],
                 "mode": "find",
                 "relative_days": 2,
+                "subject_scope": "metadata_listing",
+                "subject_complete": True,
                 "time_intent": "file_activity",
             }
         ),
@@ -826,7 +828,14 @@ async def test_an_empty_selection_is_an_honest_no_match_for_the_owner(monkeypatc
     ("plan", "message", "previous_answer", "stage"),
     [
         (
-            {"terms": [], "mode": "find", "relative_days": 2, "time_intent": "file_activity"},
+            {
+                "terms": [],
+                "mode": "find",
+                "relative_days": 2,
+                "time_intent": "file_activity",
+                "subject_scope": "metadata_listing",
+                "subject_complete": True,
+            },
             "What are my files from the last two days?",
             "",
             "metadata_listing",
@@ -1054,7 +1063,14 @@ async def test_an_over_long_find_lists_eight_and_says_more_may_exist(monkeypatch
     ("plan", "message", "stage"),
     [
         (
-            {"terms": [], "mode": "find", "relative_days": 2, "time_intent": "file_activity"},
+            {
+                "terms": [],
+                "mode": "find",
+                "relative_days": 2,
+                "time_intent": "file_activity",
+                "subject_scope": "metadata_listing",
+                "subject_complete": True,
+            },
             "What are my files from the last two days?",
             "metadata_listing",
         ),

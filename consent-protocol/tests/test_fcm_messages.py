@@ -1,3 +1,5 @@
+import pytest
+
 from api.utils.fcm_messages import build_push_message
 
 
@@ -52,6 +54,7 @@ class _MessagingStub:
             content_available=None,
             category=None,
             thread_id=None,
+            mutable_content=None,
         ):
             self.alert = alert
             self.sound = sound
@@ -59,6 +62,7 @@ class _MessagingStub:
             self.content_available = content_available
             self.category = category
             self.thread_id = thread_id
+            self.mutable_content = mutable_content
 
     class APNSPayload:
         def __init__(self, aps=None, custom_data=None, **kwargs):
@@ -81,6 +85,7 @@ class _MessagingStub:
             priority=None,
             visibility=None,
             vibrate_timings_millis=None,
+            sound=None,
         ):
             self.title = title
             self.body = body
@@ -90,11 +95,13 @@ class _MessagingStub:
             self.priority = priority
             self.visibility = visibility
             self.vibrate_timings_millis = vibrate_timings_millis
+            self.sound = sound
 
     class AndroidConfig:
-        def __init__(self, priority=None, notification=None):
+        def __init__(self, priority=None, notification=None, ttl=None):
             self.priority = priority
             self.notification = notification
+            self.ttl = ttl
 
     class Message:
         def __init__(
@@ -222,10 +229,15 @@ def test_location_notification_name_only_body_reaches_every_platform() -> None:
     )
 
     assert android.notification.body == body
+    assert android.android.priority == "high"
+    assert android.android.notification.channel_id == "hushh_activity_alerts_v1"
+    assert android.android.notification.sound == "default"
+    assert android.android.notification.priority == "high"
     assert web.notification.body == body
     assert web.webpush.notification.body == body
     assert ios.notification.body == body
     assert ios.apns.payload.aps.alert.body == body
+    assert ios.apns.payload.aps.sound == "default"
 
 
 def test_connection_request_identity_reaches_every_platform() -> None:
@@ -602,3 +614,170 @@ def test_real_firebase_encoder_keeps_presentation_and_apns_data_top_level():
             assert "custom_data" not in payload
         else:
             assert platform not in encoded
+
+
+def test_chat_transport_supports_legacy_android_and_mutable_ios(monkeypatch):
+    monkeypatch.setattr("api.utils.fcm_messages.time.time", lambda: 1000)
+    import hashlib
+
+    from firebase_admin import messaging
+    from firebase_admin.messaging import _MessagingService
+
+    delivery_target = "synthetic-device-id"
+    for kind in ("direct_message", "location_circle_message"):
+        data = {
+            "type": kind,
+            "message_id": "fixture-event",
+            "conversation_id": "fixture-thread",
+            "recipient_key_id": "fixture-key",
+        }
+
+        def wire(platform, payload):
+            return _MessagingService.encode_message(
+                build_push_message(
+                    messaging,
+                    token=delivery_target,
+                    platform=platform,
+                    data=payload,
+                    title="New message",
+                    body="Open chat",
+                    request_url="/one/feed",
+                    notification_tag="fixture-event",
+                    show_alert=True,
+                )
+            )
+
+        assert "notification" not in wire("android", data)
+        assert wire("android", data)["android"]["priority"] == "high"
+        assert wire("android", data)["android"]["ttl"] == "86400s"
+        web = wire("web", data)
+        assert "notification" not in web
+        assert "notification" not in web["webpush"]
+        assert "fcm_options" not in web["webpush"]
+        assert web["webpush"]["headers"]["TTL"] == "86400"
+        legacy = {key: value for key, value in data.items() if key != "recipient_key_id"}
+        assert "notification" in wire("android", legacy)
+        assert wire("android", legacy)["android"]["ttl"] == "86400s"
+        ios = wire("ios", data)["apns"]
+        assert ios["payload"]["aps"]["mutable-content"] == 1
+        assert ios["payload"]["aps"]["thread-id"] == "fixture-thread"
+        assert "badge" not in ios["payload"]["aps"]
+        assert (
+            wire("ios", {**data, "chat_badge_count": "7"})["apns"]["payload"]["aps"]["badge"] == 7
+        )
+        assert ios["headers"]["apns-collapse-id"] == hashlib.sha256(b"fixture-event").hexdigest()
+
+
+def test_chat_read_badge_sync_has_no_alert_or_sound():
+    from firebase_admin import messaging
+    from firebase_admin.messaging import _MessagingService
+
+    delivery_target = "synthetic-device-id"
+    encoded = _MessagingService.encode_message(
+        build_push_message(
+            messaging,
+            token=delivery_target,
+            platform="ios",
+            data={"type": "direct_message_read", "chat_badge_count": "0"},
+            title="",
+            body="",
+            request_url="/one/messages",
+            notification_tag="fixture-thread",
+            show_alert=False,
+        )
+    )
+    assert encoded["apns"]["headers"]["apns-push-type"] == "alert"
+    aps = encoded["apns"]["payload"]["aps"]
+    assert aps["badge"] == 0 and aps["content-available"] == 1
+    assert "alert" not in aps and "sound" not in aps and "notification" not in encoded
+
+
+def test_chat_avatar_raster_budget_and_untrusted_url_rejection(monkeypatch):
+    import base64
+    import io
+
+    import requests
+    from PIL import Image
+
+    from hushh_mcp.services.chat_push_delivery import thumbnail
+
+    monkeypatch.setattr(
+        requests,
+        "get",
+        lambda *args, **kwargs: pytest.fail("Untrusted avatar caused a network request"),
+    )
+    assert thumbnail("https://example.test/avatar.jpg") == ""
+    assert thumbnail("http://169.254.169.254/latest/meta-data") == ""
+    source = io.BytesIO()
+    Image.new("RGB", (64, 64), color="blue").save(source, format="PNG")
+    result = thumbnail("data:image/png;base64," + base64.b64encode(source.getvalue()).decode())
+    assert result.startswith("data:image/jpeg;base64,")
+    assert len(result) <= 1023
+
+
+@pytest.mark.parametrize("deadline,ttl", [("2030-01-01T00:01:00Z", 60), ("", 0)])
+def test_sms_transport_lifetime_and_legacy_android_sound(monkeypatch, deadline, ttl):
+    from firebase_admin import messaging
+    from firebase_admin.messaging import _MessagingService
+
+    now = 1893456000
+    monkeypatch.setattr("api.utils.fcm_messages.time.time", lambda: now)
+    for platform in ("web", "android", "ios"):
+        message = build_push_message(
+            messaging,
+            token=f"{platform}-device-id",
+            platform=platform,
+            data={"type": "location_share_created", "share_kind": "sos", "expires_at": deadline},
+            title="UAT TEST",
+            body="No emergency",
+            request_url="/one/feed",
+            notification_tag="sms-test",
+            show_alert=True,
+        )
+        wire = _MessagingService.encode_message(message)
+        if platform == "android":
+            assert wire["android"]["ttl"] == f"{ttl}s"
+            assert wire["android"]["notification"]["sound"] == "default"
+            assert wire["android"]["notification"]["channel_id"] == "one_location_sms_emergency_v1"
+        elif platform == "web":
+            assert wire["webpush"]["headers"]["TTL"] == str(ttl)
+        else:
+            assert wire["apns"]["headers"]["apns-expiration"] == str(now + ttl if ttl else 0)
+            assert wire["apns"]["payload"]["aps"]["sound"] == "one_location_sms_alarm.wav"
+
+
+@pytest.mark.parametrize("deadline", ["2000-01-01T00:00:00Z", "invalid"])
+def test_expired_sms_is_silent_on_every_transport(deadline):
+    from firebase_admin import messaging
+    from firebase_admin.messaging import _MessagingService
+
+    for platform in ("web", "android", "ios"):
+        wire = _MessagingService.encode_message(
+            build_push_message(
+                messaging,
+                token=f"{platform}-device-id",
+                platform=platform,
+                data={
+                    "type": "location_share_created",
+                    "share_kind": "sos",
+                    "expires_at": deadline,
+                },
+                title="UAT TEST",
+                body="No emergency",
+                request_url="/one/feed",
+                notification_tag="sms-test",
+                show_alert=True,
+            )
+        )
+        assert wire["data"]["notification_presentation"] == "silent"
+        assert "notification" not in wire
+        if platform == "ios":
+            assert "sound" not in wire["apns"]["payload"]["aps"]
+            assert "alert" not in wire["apns"]["payload"]["aps"]
+            assert int(wire["apns"]["headers"]["apns-expiration"]) <= 946684800
+        elif platform == "android":
+            assert wire["android"]["ttl"] == "0s"
+            assert "notification" not in wire["android"]
+        else:
+            assert wire["webpush"]["headers"]["TTL"] == "0"
+            assert "notification" not in wire["webpush"]

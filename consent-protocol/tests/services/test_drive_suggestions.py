@@ -6,7 +6,7 @@ import asyncio
 import json
 from threading import Barrier
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 import pytest
@@ -33,6 +33,44 @@ from tests.services.test_drive_sharing_store import (  # noqa: F401
     sharing,
     source,
 )
+
+
+@pytest.mark.asyncio
+async def test_flag_off_suggestions_skip_packages_but_historical_v1_still_runs(
+    monkeypatch,
+):
+    from hushh_mcp.services import drive_request_package_service, drive_suggestion_worker
+
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "false")
+    legacy_store = SimpleNamespace(due_preparations=AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        drive_suggestion_worker,
+        "DriveSuggestionService",
+        lambda: SimpleNamespace(store=legacy_store),
+    )
+    packages = SimpleNamespace(run=AsyncMock(return_value={"ready": 1}))
+    package_factory = Mock(return_value=packages)
+    monkeypatch.setattr(
+        drive_request_package_service, "DriveRequestPackageService", package_factory
+    )
+
+    worker = DriveSuggestionWorker()
+    assert (await worker.run(max_jobs=1, deadline_seconds=20))["outcomes"] == {}
+    legacy_store.due_preparations.assert_awaited_once_with(1)
+    package_factory.assert_not_called()
+
+    assert (await worker.run(max_jobs=1, deadline_seconds=20, v1_only=True))["outcomes"] == {
+        "review_ready": 1
+    }
+    package_factory.assert_called_once_with()
+    packages.run.assert_awaited_once_with(max_jobs=1, deadline_seconds=20, v1_only=True)
+
+    await worker.run(max_jobs=1, deadline_seconds=20)
+    packages.run.assert_awaited_once()
+
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "true")
+    assert (await worker.run(max_jobs=1, deadline_seconds=20))["outcomes"] == {"review_ready": 1}
+    packages.run.assert_any_await(max_jobs=1, deadline_seconds=20)
 
 
 @pytest.fixture

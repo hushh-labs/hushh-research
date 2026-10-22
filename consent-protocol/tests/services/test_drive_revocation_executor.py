@@ -17,6 +17,8 @@ from hushh_mcp.services.google_drive_permission_adapter import (
     PermissionSnapshot,
 )
 from tests.services.test_drive_permission_executor import (  # noqa: F401
+    _expire_leases,
+    _same_drive_file,
     connector_postgres_url,
     documents,
     drive,
@@ -278,3 +280,46 @@ async def test_unmanaged_permissions_cannot_enter_revocation_review(permission_s
     with pytest.raises(DriveSharingError, match="no_revocable_permissions"):
         await store.prepare_revocation(user_id="owner", generation=1, request_id=request_id)
     adapter.remove_recorded_permission.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "answer,waiting,removal",
+    [
+        # A grant waiting out Google's sharing rate limit holds no file claim.
+        (DrivePermissionError("sharing_rate_limited", retryable=True), "deferred", "succeeded"),
+        # Negative control: an uncertain create still holds its file until
+        # reconciliation, so the removal waits instead of racing it.
+        (
+            DrivePermissionError("permission_outcome_unknown", outcome_unknown=True),
+            "unknown",
+            "not_claimed",
+        ),
+    ],
+    ids=["rate_limited", "uncertain"],
+)
+async def test_confirmed_stop_never_waits_on_a_rate_limited_grant_of_the_same_file(
+    permission_setup, answer, waiting, removal
+):
+    grants, grantor, adapter, ids = permission_setup
+    _same_drive_file(grants, ids)
+    assert await grantor.grant(user_id="owner", operation_id=ids[0]) == "succeeded"
+    adapter.create_reader.side_effect = answer
+    assert await grantor.grant(user_id="owner", operation_id=ids[1]) == waiting
+    store = DriveRevocationStore(db=grants.db, authority_key="synthetic-ledger-key")
+    adapter.list_permissions.return_value = PermissionSnapshot((direct_reader(),))
+    adapter.inspect_permission_management = AsyncMock()
+    executor = DriveRevocationExecutor(store=store, adapter=adapter, oauth=grantor.oauth)
+    revokes = await confirm(store, str(rows(store, "drive_share_requests")[0]["request_id"]))
+    assert len(revokes) == 1
+    assert await executor.revoke(user_id="owner", operation_id=revokes[0]) == removal
+    if removal == "not_claimed":
+        adapter.remove_recorded_permission.assert_not_awaited()
+        return
+    adapter.remove_recorded_permission.assert_awaited_once()
+    # The Stop also retires the waiting grant when its timer ends: no POST.
+    _expire_leases(store, ids[1])
+    with pytest.raises(DriveSharingError, match="approval_superseded"):
+        await grantor.grant(user_id="owner", operation_id=ids[1])
+    assert outcome(store, ids[1])["state"] == "not_dispatched"
+    assert adapter.create_reader.await_count == 2

@@ -144,13 +144,22 @@ function pickImageViaFileInput(): Promise<AvatarPickResult> {
  * Center-crop to a square, downscale to AVATAR_SIZE, re-encode as a JPEG
  * data-URL. Enforces the small-payload contract for both native and web images.
  */
-export function normalizeToAvatarDataUrl(sourceDataUrl: string): Promise<string> {
+export function normalizeToAvatarDataUrl(sourceDataUrl: string, signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
     if (typeof document === "undefined") {
       reject(new Error("Image processing is not available."));
       return;
     }
     const img = new Image();
+    let settled = false;
+    const cleanup = () => {
+      signal?.removeEventListener("abort", abort);
+      img.onload = null; img.onerror = null; img.removeAttribute("src");
+    };
+    const fail = (error: Error) => { if (!settled) { settled = true; cleanup(); reject(error); } };
+    const abort = () => fail(new Error("Image preparation cancelled."));
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) { abort(); return; }
     img.onload = () => {
       const side = Math.min(img.naturalWidth, img.naturalHeight) || AVATAR_SIZE;
       const sx = (img.naturalWidth - side) / 2;
@@ -160,17 +169,21 @@ export function normalizeToAvatarDataUrl(sourceDataUrl: string): Promise<string>
       canvas.height = AVATAR_SIZE;
       const ctx = canvas.getContext("2d");
       if (!ctx) {
-        reject(new Error("Could not process the image."));
+        fail(new Error("Could not process the image."));
         return;
       }
       ctx.drawImage(img, sx, sy, side, side, 0, 0, AVATAR_SIZE, AVATAR_SIZE);
       try {
-        resolve(canvas.toDataURL("image/jpeg", JPEG_QUALITY));
+        const result = canvas.toDataURL("image/jpeg", JPEG_QUALITY);
+        settled = true; cleanup(); resolve(result);
       } catch (error) {
-        reject(error instanceof Error ? error : new Error("Could not encode the image."));
+        fail(error instanceof Error ? error : new Error("Could not encode the image."));
       }
     };
-    img.onerror = () => reject(new Error("Could not load the selected image."));
+    img.onerror = () => fail(new Error("Could not load the selected image."));
+    // Provider images may be projected into native presentation as bounded
+    // raster bytes. Never attach ambient cookies to that cross-origin read.
+    if (sourceDataUrl.startsWith("https://")) img.crossOrigin = "anonymous";
     img.src = sourceDataUrl;
   });
 }

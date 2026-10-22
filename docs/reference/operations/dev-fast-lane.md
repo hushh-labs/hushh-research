@@ -41,12 +41,12 @@ flowchart LR
    Dev is where the train is proven against real infrastructure *before* promotion to
    `main`, which is the whole point of having a dev environment.
 3. **Escape hatch for speed:** a governed maintainer may dispatch a dev deploy from
-   ANY ref, provided the exact SHA carries a green `CI Status Gate`. This lets a team
+   ANY ref, provided the exact SHA carries an accepted full-CI gate. This lets a team
    validate a feature branch on real infrastructure without waiting for train intake.
-4. **One correctness gate, reused — not a new one.** The dev deploy requires the same
-   authoritative check that gates every merge in this repo (`CI Status Gate` on the
-   exact SHA). No `Main Post-Merge Smoke` requirement (that is a `main` artifact), no
-   extra review lane, no new approval ceremony.
+4. **Reuse the full CI aggregate.** PR runs publish `CI Status Gate`; manual full
+   branch runs publish a distinct `Branch Validation Gate`, accepted only by dev
+   after exact workflow, event, check-suite and SHA verification. The branch gate
+   cannot authorize a main merge, UAT or production. Partial diagnostic scopes fail.
 5. **Dev never promotes.** There is no dev→UAT or dev→prod path. Promotion is only
    `integration/pr-train` → `main` → UAT signoff → production. Dev is evidence, not
    authority (no second decision-maker).
@@ -55,7 +55,7 @@ flowchart LR
 
 | Gate | Where it runs | What it guarantees |
 | --- | --- | --- |
-| Authoritative full-CI check on the exact SHA (`CI Status Gate` for PR heads, `Queue Validation` for train heads, `Main Post-Merge Smoke Gate` for main merges — any-of) | before every dev deploy | code is test-, type-, secret-, DCO-, and governance-clean — the same bar required to merge anywhere |
+| Authoritative full-CI check on the exact SHA (`CI Status Gate` for PR heads, `Queue Validation` for train heads, `Main Post-Merge Smoke Gate` for main merges, authenticated `Branch Validation Gate` for manual full branch runs — any-of) | before every dev deploy | code is test-, type-, secret-, DCO-, and governance-clean ; PR merge eligibility remains separate |
 | Governed-actor dispatch (`assert-governed-actor.py --surface dev`) | dispatch time | only the maintainer cohort can deploy |
 | Workflow definition pinned to `main` | dispatch time | the pipeline itself cannot be mutated from a feature branch; only the deployed *content* comes from the requested ref |
 | Secret sync + runtime identity assertions | every deploy | dev cannot silently drift to wrong DB/CORS/identity |
@@ -70,8 +70,9 @@ flowchart LR
   keep fresh — pure maintenance cost.
 - **No new review or approval step.** Landing on the train already requires review +
   merge queue + `CI Status Gate`. Dev deploy adds zero human steps to that.
-- **No dev-specific CI workflow.** The existing PR Validation produces the
-  `CI Status Gate` the dev deploy consumes.
+- **No dev-specific CI workflow.** Existing PR Validation owns both event-specific
+  aggregate names and all selected suites; dev-only branch evidence does not
+  replace the PR's policy and freshness checks.
 - **No auto-deploy-on-push in the workflow itself.** Dispatch stays
   manual-by-governed-actor so workflow-lane dev deploys are always intentional and
   attributable. Auto-deploy exists as a separate GCP-native lane (below), added
@@ -186,3 +187,20 @@ clocks run independently:
 Every gate in this repo must pay for itself in caught defects. When adding a step to
 any deploy lane, name the defect class it catches; if an existing gate already catches
 it, do not add the step.
+
+
+### Isolated scope-commerce preview schema admission
+
+The fixed `scope-commerce-sandbox` target applies only the canonical release
+migrations and checks `prod_core_schema.json` before and after deployment. A
+missing contract fails admission; it cannot fall back to shared Dev. The
+shared-Dev target retains `dev_minimum_schema.json` and its parked notification
+checkpoint requirements. Application readiness derives its release head from
+the same full release contract in the candidate source.
+
+The 2026-10-08 preview run 37763775324 exposed a mismatch between these lanes.
+The unused `remove_domain_summary_key` requirement also described only historical
+migration 013 and retired storage; it was removed from the authored contracts.
+No legacy or parked SQL was replayed, no migration receipts were fabricated, and
+no runtime or financial authority was added. The corrected full release contract
+passed read-only verification against the isolated database with zero violations.

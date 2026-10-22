@@ -209,6 +209,11 @@ export type OneLocationGrant = {
    * coordinate-free and bounded by the backend; shown verbatim to the recipient.
    */
   shareMessage?: string | null;
+  /**
+   * When the recipient cleared this ended share from their Feed, on any
+   * device. Present only on received grants; the owner never sees it.
+   */
+  recipientClearedAt?: string | null;
 };
 
 export type OneLocationAccessRequest = {
@@ -367,6 +372,8 @@ export type OneLocationCircleSummary = {
   photoUrl?: string | null;
   kind: OneLocationCircleKind;
   role: OneLocationCircleRole;
+  /** Owner-authored descriptive type; never changes membership or permissions. */
+  customTypeLabel?: string | null;
   memberCount: number;
   /** `null` is retained for compatibility with older server responses. */
   memberLimit: number | null;

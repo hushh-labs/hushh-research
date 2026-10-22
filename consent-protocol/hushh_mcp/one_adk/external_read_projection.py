@@ -15,14 +15,23 @@ from hushh_mcp.one_adk.external_read_boundary import (
     STATE_EXTERNAL_READ_CONTINUATION,
     STATE_SELECTED_DRIVE_SHARE,
 )
+from hushh_mcp.one_adk.receipt_client_tools import (
+    PRIVATE_RECEIPT_ANSWER,
+    RECEIPT_TOOL_NAMES,
+    STATE_RECEIPT_PRIVATE,
+    STATE_RECEIPT_RESULT,
+)
 
 _EPHEMERAL = frozenset(
     {
+        "hussh:pending_directive:calendar_invitations",
+        "hussh:pending_directive:calendar",
         STATE_EXECUTION_SURFACE,
         STATE_DRIVE_READ_OUTCOME,
         STATE_EXTERNAL_READ,
         STATE_EXTERNAL_READ_CONTINUATION,
         STATE_SELECTED_DRIVE_SHARE,
+        STATE_RECEIPT_RESULT,
         "temp:hussh:workspace_chat_admission",
         "temp:hussh:drive_search_selection",
         "temp:hussh:mcp_approval",
@@ -36,7 +45,16 @@ _EPHEMERAL = frozenset(
         "hussh:pending_directive:gmail_information_request_reply",
     }
 )
-_PRIVATE_DRAFT_TOOLS = frozenset({"open_gmail_email_draft", "open_gmail_information_request_reply"})
+_PRIVATE_DRAFT_TOOLS = frozenset(
+    {
+        "open_calendar_invitation",
+        "propose_calendar_event",
+        "propose_calendar_reschedule",
+        "propose_calendar_cancellation",
+        "open_gmail_email_draft",
+        "open_gmail_information_request_reply",
+    }
+)
 
 
 def redacted_read_receipt(response: Any) -> dict[str, Any]:
@@ -60,6 +78,27 @@ def redacted_read_receipt(response: Any) -> dict[str, Any]:
 
 
 def durable_external_read_projection(session: Session) -> Session:
+    receipt_result_invocations = set(session.state.get(STATE_RECEIPT_PRIVATE) or []) | {
+        invocation
+        for event in session.events
+        for invocation in event.actions.state_delta.get(STATE_RECEIPT_PRIVATE, [])
+    }
+    receipt_invocations = (
+        set(session.state.get(STATE_RECEIPT_PRIVATE) or [])
+        | {
+            event.invocation_id
+            for event in session.events
+            if event.content
+            for part in event.content.parts or []
+            if (part.function_call and part.function_call.name in RECEIPT_TOOL_NAMES)
+            or (part.function_response and part.function_response.name in RECEIPT_TOOL_NAMES)
+        }
+        | {
+            invocation
+            for event in session.events
+            for invocation in event.actions.state_delta.get(STATE_RECEIPT_PRIVATE, [])
+        }
+    )
     read_invocations = {
         event.invocation_id
         for event in session.events
@@ -78,6 +117,7 @@ def durable_external_read_projection(session: Session) -> Session:
     }
     if (
         not read_invocations
+        and not receipt_invocations
         and not private_draft_invocations
         and not any(key in session.state for key in _EPHEMERAL)
         and not any(
@@ -94,6 +134,18 @@ def durable_external_read_projection(session: Session) -> Session:
         if event.content is None:
             continue
         for part in event.content.parts or []:
+            if part.function_call and (
+                part.function_call.name in RECEIPT_TOOL_NAMES
+                or event.invocation_id in receipt_result_invocations
+            ):
+                part.function_call.args = {}
+            if part.function_response and (
+                part.function_response.name in RECEIPT_TOOL_NAMES
+                or event.invocation_id in receipt_result_invocations
+            ):
+                part.function_response.response = {"content_redacted": True}
+            if event.author != "user" and event.invocation_id in receipt_invocations and part.text:
+                part.text = None if part.thought else PRIVATE_RECEIPT_ANSWER
             # Keep SDK call names, IDs, associations and opaque thought
             # signatures. Only tool arguments/results are redacted. Ordinary
             # user requests and the encrypted assistant answer are preserved.

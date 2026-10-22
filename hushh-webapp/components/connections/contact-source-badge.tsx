@@ -1,20 +1,14 @@
-import { ContactRound } from "@/components/icons";
-
-import { Badge } from "@/components/ui/badge";
+import { ContactsBookIcon } from "@/components/icons";
 import { cn } from "@/lib/utils";
 
 export function ContactSourceBadge({ className }: { className?: string }) {
   return (
-    <Badge
-      variant="secondary"
-      className={cn(
-        "h-5 max-w-full gap-1 bg-[color:var(--app-neutral-fill)] px-1.5 text-[10px] font-medium leading-none text-[color:var(--app-secondary-label)]",
-        className,
-      )}
+    <span
+      role="img"
       aria-label="Connected from your contacts"
+      className={cn("inline-flex size-4 shrink-0 items-center justify-center align-middle", className)}
     >
-      <ContactRound className="h-3 w-3" aria-hidden="true" />
-      <span>From contacts</span>
-    </Badge>
+      <ContactsBookIcon className="size-full" aria-hidden="true" />
+    </span>
   );
 }

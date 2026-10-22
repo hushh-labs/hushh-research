@@ -18,10 +18,11 @@
  * evaluates correctly in both environments.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
 import {
   BriefcaseBusiness,
   Code2,
-  KeyRound,
+  AccentedKeyIcon,
   LayoutDashboard,
   type LucideIcon,
   Loader2,
@@ -40,6 +41,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   APP_SHELL_FRAME_CLASSNAME,
   APP_SHELL_FRAME_STYLE,
+  APP_MEASURE_STYLES,
 } from "@/components/app-ui/app-page-shell";
 import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 import { Icon } from "@/lib/morphy-ux/ui";
@@ -520,6 +522,8 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     normalizedPathname === ROUTES.ONE_SETUP ||
     normalizedPathname.startsWith(`${ROUTES.ONE_SETUP}/`),
   );
+  const isOneDashboardRef = useRef(false);
+  isOneDashboardRef.current = normalizedPathname === ROUTES.ONE_HOME;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -608,7 +612,12 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
       // way off the screen — Location deliberately draws no in-content back
       // control, so a collapsed bar there leaves nothing to press, which is
       // exactly how "I keep tapping the top and nothing happens" happened.
-      if (hasBackControlRef.current) {
+      // Desktop dashboard navigation stays visible when a shorter viewport
+      // needs to scroll. Mobile retains its existing space-saving collapse.
+      if (
+        hasBackControlRef.current ||
+        (isOneDashboardRef.current && window.matchMedia("(min-width: 768px)").matches)
+      ) {
         topChromeProgress = 0;
       }
       if (!barRow?.isConnected) {
@@ -875,6 +884,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
           scroll: false,
           source: "tap",
           transitionMode: action.transitionMode,
+          feedback: "light",
         });
       },
     });
@@ -961,11 +971,14 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     ],
   );
 
+  const nativeRegionRef = useRef<HTMLDivElement>(null);
+  useNativePresentationRegions(nativeRegionRef, !hideChrome);
   if (hideChrome) return null;
 
   return (
     <div
       data-app-top-bar
+      ref={nativeRegionRef}
       data-ui-role="top-navigation"
       data-top-app-bar-tabs-only={tabsOnlyChrome || undefined}
       data-ambient-chrome-ignore
@@ -1012,16 +1025,13 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
             APP_SHELL_FRAME_CLASSNAME,
             "pointer-events-none relative flex w-full flex-col",
           )}
-          style={{ ...APP_SHELL_FRAME_STYLE, maxWidth: "80rem" }}
+          style={topShellBreadcrumb?.width === "profile" ? APP_MEASURE_STYLES.reading : { ...APP_SHELL_FRAME_STYLE, maxWidth: "80rem" }}
         >
           <div
             data-testid="top-app-bar-header"
             className="pointer-events-none relative w-full shrink-0 overflow-hidden transform-gpu will-change-[max-height,opacity]"
             style={{
-              // Clip only vertically: the max-height collapse needs it, but the
-              // back button sits in a -ml-3.5 box so its glyph lines up with the
-              // content column, which put its pressed/focus circle ~10px past a
-              // horizontal clip edge and sliced it. `clip` (unlike `hidden`)
+              // Clip only vertically for header collapse. `clip` (unlike `hidden`)
               // keeps the other axis visible without becoming a scroll
               // container; where `clip` is unsupported the overflow-hidden
               // class still applies.
@@ -1059,20 +1069,10 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                     width: hasBreadcrumbTrail
                       ? "auto"
                       : "var(--top-bar-side-w)",
-                    // The collapsed gutter otherwise leaves the back button's
-                    // focus ring / ripple flush against top-app-bar-header's
-                    // overflow-hidden edge, clipping it on the left in
-                    // browsers that round the centered 44px hit-box a
-                    // fraction of a pixel tighter than others.
-                    paddingLeft: hasBreadcrumbTrail ? "4px" : undefined,
                   }}
                 >
                   {topShellBreadcrumb && !topShellBreadcrumb.hideBack ? (
-                    // The arrow's glyph sits on the content column (16 px),
-                    // where the page title and every card below start; the
-                    // 44 px target reaches toward the screen edge. Centred in
-                    // its box it read 30 px in, while the avatar opposite
-                    // sits at 16 (Galaxy S24 Ultra, 2026-09-22).
+                    // Keep the entire target inside the authored reading frame.
                     <NativeShellBack
                       label={topShellBreadcrumb.backLabel ?? "Go back"}
                       onBack={handleTopShellBack}
@@ -1125,7 +1125,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                       : "justify-center",
                   )}
                 >
-                  {hasBreadcrumbTrail ? (
+                  {model.mode === "bar-with-tabs" && model.tabs.id === "public" ? null : hasBreadcrumbTrail ? (
                     <TopShellBreadcrumbTrail items={breadcrumbTrailItems} />
                   ) : centerTitle ? (
                     centerTitle.interactive && canShowPersonaSwitcher ? (
@@ -1256,14 +1256,14 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                             aria-label="Unlock vault"
                             onClick={() => setVaultUnlockOpen(true)}
                           >
-                            <KeyRound className="h-5 w-5 text-amber-600 dark:text-amber-300" />
+                            <AccentedKeyIcon size={20} className="h-5 w-5" />
                           </ShellActionSurface>
                         ) : null}
 
                         <ShellActionSurface
                           variant="avatar"
                           aria-label="Open Profile"
-                          onClick={() => requestProfilePaneOpen("tap")}
+                          onClick={(event) => requestProfilePaneOpen("tap", event.currentTarget)}
                         >
                           <Avatar className="h-8 w-8">
                             {effectiveAvatarUrl ? (
@@ -1446,7 +1446,7 @@ function OnboardingRouteActions() {
           <DropdownMenuItem
             variant="destructive"
             onClick={() => void requestDeleteAccount()}
-            className="cursor-pointer rounded-[10px] hover:!bg-[color:var(--app-destructive)] hover:!text-[color:var(--app-destructive-fg)] hover:[&_svg]:!stroke-[color:var(--app-destructive-fg)] hover:[&_svg]:!text-[color:var(--app-destructive-fg)] focus:!bg-[color:var(--app-destructive)] focus:!text-[color:var(--app-destructive-fg)] focus:[&_svg]:!stroke-[color:var(--app-destructive-fg)] focus:[&_svg]:!text-[color:var(--app-destructive-fg)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70"
+            className="cursor-pointer rounded-[10px] hover:!bg-[color:var(--app-destructive-tint)] hover:!text-destructive focus:!bg-[color:var(--app-destructive-tint)] focus:!text-destructive focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-destructive)]"
           >
             <Trash2 className="h-4 w-4 text-current" />
             Delete account

@@ -113,8 +113,12 @@ def _events(fake: FakeLive) -> list[dict]:
 async def _card(transport, fake, pending):
     session = _session(transport, fake, pending)
     task = asyncio.create_task(session.run())
-    await asyncio.sleep(0.3)
-    card = transport.frames("pending_action")[-1]
+    try:
+        card = await transport.wait_for_frame("pending_action")
+    except BaseException:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        raise
     transport.push({"type": "pending_action.shown", "pending_action_id": card["pending_action_id"]})
     await asyncio.sleep(0.05)
     return session, task, card
@@ -132,7 +136,19 @@ async def _tap(transport, card, *, proof: str | None = FRESH_PROOF):
     await asyncio.sleep(0.2)
 
 
-async def test_reset_tap_issues_a_device_step_and_the_server_stamp_settles_it(doubles):
+@pytest.mark.parametrize("auth_delay", [0, 0.5], ids=["immediate-auth", "delayed-auth"])
+async def test_reset_tap_issues_a_device_step_and_the_server_stamp_settles_it(
+    doubles, monkeypatch, auth_delay
+):
+    if auth_delay:
+        original_auth = _ok_auth
+
+        async def delayed_auth(frame, claims):
+            await asyncio.sleep(auth_delay)
+            return await original_auth(frame, claims)
+
+        monkeypatch.setattr(f"{__name__}._ok_auth", delayed_auth)
+
     _life, account = doubles
     transport = FakeTransport([AUTH])
     fake = FakeLive([_tool_call("c1", "reset_account"), None])

@@ -4,7 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   native: false,
   deliveryMode: "inbox_only",
+  deliveryDetail: null as string | null,
   retry: vi.fn(),
+  openSettings: vi.fn(),
 }));
 
 vi.mock("@capacitor/core", () => ({
@@ -14,6 +16,7 @@ vi.mock("@capacitor/core", () => ({
 vi.mock("@/components/consent/notification-provider", () => ({
   useConsentNotificationState: () => ({
     deliveryMode: state.deliveryMode,
+    deliveryDetail: state.deliveryDetail,
     retryPushRegistration: state.retry,
     isRetryingPushRegistration: false,
   }),
@@ -24,6 +27,8 @@ vi.mock("@/lib/morphy-ux/button", () => ({
     <button {...(props as object)}>{children as never}</button>
   ),
 }));
+
+vi.mock("@/lib/services/notification-settings-service", () => ({ NotificationSettingsService: { open: state.openSettings } }));
 
 import { FeedPushPrompt } from "@/components/feed/feed-push-prompt";
 
@@ -40,7 +45,9 @@ describe("FeedPushPrompt", () => {
   beforeEach(() => {
     state.native = false;
     state.deliveryMode = "inbox_only";
+    state.deliveryDetail = null;
     state.retry.mockReset();
+    state.openSettings.mockReset();
   });
   afterEach(() => {
     Reflect.deleteProperty(window, "Notification");
@@ -63,15 +70,58 @@ describe("FeedPushPrompt", () => {
     expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it("stays out of the way once push works, and on native", () => {
+  it("stays out of the way once push works", () => {
     setPermission("default");
     state.deliveryMode = "push_active";
     const { container, rerender } = render(<FeedPushPrompt />);
     expect(container.innerHTML).toBe("");
 
-    state.deliveryMode = "inbox_only";
-    state.native = true;
     rerender(<FeedPushPrompt />);
     expect(container.innerHTML).toBe("");
   });
+  it("offers registration retry after permission is granted but delivery failed", async () => {
+    const requestPermission = setPermission("granted");
+    render(<FeedPushPrompt context="chat" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
+    expect(state.retry).toHaveBeenCalledOnce();
+    expect(requestPermission).not.toHaveBeenCalled();
+  });
+  it("provides native authorization and settings recovery", async () => {
+    state.native = true;
+    const { rerender } = render(<FeedPushPrompt />);
+    fireEvent.click(await screen.findByRole("button", { name: "Turn on" }));
+    expect(state.retry).toHaveBeenCalledOnce();
+    state.deliveryMode = "push_blocked";
+    rerender(<FeedPushPrompt />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open settings" }));
+    await waitFor(() => expect(state.openSettings).toHaveBeenCalledOnce());
+  });
+  it("does not hide quiet OS settings behind a successfully registered token", async () => {
+    state.native = true;
+    state.deliveryMode = "push_active";
+    state.deliveryDetail = "native_sound_disabled";
+    render(<FeedPushPrompt context="location" />);
+    expect(await screen.findByText(/Device alerts or sounds are off/)).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Open settings" }));
+    await waitFor(() => expect(state.openSettings).toHaveBeenCalled());
+    expect(state.retry).not.toHaveBeenCalled();
+  });
+
+  it.each(["native_chat_alerts_disabled", "native_chat_sound_disabled"])(
+    "scopes %s recovery to chat while other channels remain enabled",
+    async (detail) => {
+      state.native = true;
+      state.deliveryMode = "push_active";
+      state.deliveryDetail = detail;
+      const { rerender } = render(<FeedPushPrompt />);
+      expect(screen.queryByRole("status")).toBeNull();
+      rerender(<FeedPushPrompt context="location" />);
+      expect(screen.queryByRole("status")).toBeNull();
+
+      rerender(<FeedPushPrompt context="chat" />);
+      fireEvent.click(await screen.findByRole("button", { name: "Open settings" }));
+      await waitFor(() => expect(state.openSettings).toHaveBeenCalledOnce());
+      expect(state.retry).not.toHaveBeenCalled();
+    },
+  );
 });

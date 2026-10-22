@@ -1,9 +1,7 @@
-"""Environment contract for One Live Voice.
+"""One Live Voice uses the shared managed AI profile and an explicit enable flag.
 
-One explicit model id, one regional Vertex location, one server-side flag.
-There are no aliases and no fallbacks: when the flag is on and the model or
-location is missing or malformed, the process fails closed by naming the
-variable, never by picking a different model.
+Hosted model/project/region values come from the packaged profile. Local
+experiments may override them; malformed settings fail closed.
 """
 
 from __future__ import annotations
@@ -11,17 +9,19 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, Literal
 
 ONE_VOICE_LIVE_ENABLED_ENV = "ONE_VOICE_LIVE_ENABLED"
 VERTEX_LIVE_MODEL_ID_ENV = "VERTEX_LIVE_MODEL_ID"
 VERTEX_LIVE_LOCATION_ENV = "VERTEX_LIVE_LOCATION"
+HUSHH_ONE_VOICE_VERTEX_PROJECT_ENV = "HUSHH_ONE_VOICE_VERTEX_PROJECT"
 ONE_VOICE_MAX_SESSIONS_PER_INSTANCE_ENV = "ONE_VOICE_MAX_SESSIONS_PER_INSTANCE"
 ONE_VOICE_SESSION_MAX_MINUTES_ENV = "ONE_VOICE_SESSION_MAX_MINUTES"
 ONE_VOICE_IDLE_CLOSE_SECONDS_ENV = "ONE_VOICE_IDLE_CLOSE_SECONDS"
 ONE_VOICE_DAILY_MINUTES_PER_USER_ENV = "ONE_VOICE_DAILY_MINUTES_PER_USER"
 ONE_VOICE_MAIL_READS_ENABLED_ENV = "ONE_VOICE_MAIL_READS_ENABLED"
 ONE_VOICE_MAIL_NARRATION_ENABLED_ENV = "ONE_VOICE_MAIL_NARRATION_ENABLED"
+ONE_VOICE_CALENDAR_NARRATION_ENABLED_ENV = "ONE_VOICE_CALENDAR_NARRATION_ENABLED"
 ONE_VOICE_MAIL_REPLY_ENABLED_ENV = "ONE_VOICE_MAIL_REPLY_ENABLED"
 ONE_VOICE_MAIL_SCHEDULE_SEND_ENABLED_ENV = "ONE_VOICE_MAIL_SCHEDULE_SEND_ENABLED"
 ONE_VOICE_MAIL_DRAFTS_ENABLED_ENV = "ONE_VOICE_MAIL_DRAFTS_ENABLED"
@@ -31,6 +31,7 @@ PROTOCOL_VERSION: Final = "one-voice-v1"
 
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 _MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
+_PROJECT_ID_RE = re.compile(r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$")
 # Live models are served from regional endpoints only. The multi-region
 # aliases the text fleet uses (global/us/eu) are rejected on purpose.
 _REGIONAL_LOCATION_RE = re.compile(r"^[a-z]+-[a-z]+[0-9]+$")
@@ -66,6 +67,8 @@ class OneVoiceLiveConfig:
     session_max_minutes: int = 30
     idle_close_seconds: int = 90
     daily_minutes_per_user: int = 30
+    vertex_project: str | None = None
+    provider: Literal["vertex", "azure_openai"] = "vertex"
 
     @classmethod
     def from_environment(cls) -> OneVoiceLiveConfig:
@@ -75,21 +78,58 @@ class OneVoiceLiveConfig:
         if not enabled:
             # Disabled: never touch the model contract, never construct a client.
             return cls(enabled=False, model_id="", location="")
-        model_id = _clean(VERTEX_LIVE_MODEL_ID_ENV)
+        from hushh_mcp.runtime_providers.managed_azure import ManagedAzureBinding
+
+        try:
+            azure = ManagedAzureBinding.from_environment()
+        except (RuntimeError, ValueError) as exc:
+            raise OneVoiceConfigError("Managed Voice selection is invalid") from exc
+        if azure is not None:
+            return cls(
+                enabled=True,
+                model_id=azure.deployment("realtime"),
+                location="azure-global",
+                provider="azure_openai",
+                max_sessions_per_instance=_positive_int(
+                    ONE_VOICE_MAX_SESSIONS_PER_INSTANCE_ENV, cls.max_sessions_per_instance
+                ),
+                session_max_minutes=_positive_int(
+                    ONE_VOICE_SESSION_MAX_MINUTES_ENV, cls.session_max_minutes
+                ),
+                idle_close_seconds=_positive_int(
+                    ONE_VOICE_IDLE_CLOSE_SECONDS_ENV, cls.idle_close_seconds
+                ),
+                daily_minutes_per_user=_positive_int(
+                    ONE_VOICE_DAILY_MINUTES_PER_USER_ENV, cls.daily_minutes_per_user
+                ),
+            )
+        from hushh_mcp.runtime_settings import managed_ai_settings
+
+        try:
+            managed = managed_ai_settings()
+        except RuntimeError as exc:
+            raise OneVoiceConfigError(str(exc)) from exc
+        model_id = managed.live_model
         if not model_id or not _MODEL_ID_RE.fullmatch(model_id):
             raise OneVoiceConfigError(
                 f"{VERTEX_LIVE_MODEL_ID_ENV} must name one explicit Vertex Live model id"
             )
-        location = _clean(VERTEX_LIVE_LOCATION_ENV).lower()
+        location = managed.live_location
         if not location or not _REGIONAL_LOCATION_RE.fullmatch(location):
             raise OneVoiceConfigError(
                 f"{VERTEX_LIVE_LOCATION_ENV} must be one regional Vertex location "
                 "(for example us-central1); global/us/eu are not Live endpoints"
             )
+        vertex_project = managed.project
+        if vertex_project and not _PROJECT_ID_RE.fullmatch(vertex_project):
+            raise OneVoiceConfigError(
+                f"{HUSHH_ONE_VOICE_VERTEX_PROJECT_ENV} must be a valid Google Cloud project id"
+            )
         return cls(
             enabled=True,
             model_id=model_id,
             location=location,
+            vertex_project=vertex_project or None,
             max_sessions_per_instance=_positive_int(
                 ONE_VOICE_MAX_SESSIONS_PER_INSTANCE_ENV, cls.max_sessions_per_instance
             ),
@@ -153,6 +193,11 @@ def voice_mail_narration_enabled() -> bool:
     Set ``ONE_VOICE_MAIL_NARRATION_ENABLED=true`` to enable it.
     """
     return _clean(ONE_VOICE_MAIL_NARRATION_ENABLED_ENV).lower() in _TRUE_VALUES
+
+
+def voice_calendar_narration_enabled() -> bool:
+    """Opt in to isolated spoken Calendar details; screen reads stay available."""
+    return _clean(ONE_VOICE_CALENDAR_NARRATION_ENABLED_ENV).lower() in _TRUE_VALUES
 
 
 def voice_mail_reply_enabled() -> bool:

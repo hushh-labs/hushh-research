@@ -2,6 +2,10 @@ import type { ComponentPropsWithoutRef, ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
+/** Opening-chat copy, also used by Puppy's introduction and connection states. */
+export const CHAT_WELCOME_COPY_CLASSNAME =
+  "text-[16px] leading-7 text-muted-foreground max-sm:font-[family-name:var(--font-app-body)] sm:text-[17px]";
+
 /** Shared presentation only: live chat and the read-only product introduction. */
 export const CHAT_USER_BUBBLE_CLASSNAME =
   "rounded-[22px] rounded-br-[7px] bg-[linear-gradient(145deg,var(--app-accent),var(--app-accent-deep))] px-4 py-2 text-[color:var(--app-accent-fg)] shadow-[0_14px_34px_-24px_var(--app-accent-deep)]";

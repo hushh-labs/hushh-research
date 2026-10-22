@@ -17,8 +17,8 @@
 
 import {
   useCallback,
-  useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type FormEvent,
@@ -129,37 +129,75 @@ export type DisplayNameEditorProps = {
   className?: string;
 };
 
-export function DisplayNameEditor({
+export type DisplayNameSaveOutcome =
+  | { kind: "saved"; identity: AccountIdentity }
+  | { kind: "refused" | "busy" | "stale" | "failed" | "committed-unreadable" };
+
+function initialName(
+  user: User | null | undefined,
+  provided?: string | null,
+): string {
+  if (!user?.uid) return "";
+  const identity = AccountIdentityService.peekCachedIdentity(user.uid)?.data;
+  const cached =
+    identity?.user_id !== undefined && identity.user_id !== user.uid
+      ? null
+      : storedDisplayName(identity);
+  return (
+    String(provided ?? "").trim() ||
+    cached ||
+    String(user.displayName ?? "").trim()
+  );
+}
+
+/** One private, memory-only feature owner for web and native presentation.
+ * Renderer callbacks receive an explicit result, never success from a caught
+ * exception. No credentials or provider transport cross the presentation port. */
+export function useDisplayNameEditor({
   user,
   initialDisplayName,
   onSaved,
-  onCancel,
-  className,
-}: DisplayNameEditorProps) {
+}: Pick<DisplayNameEditorProps, "user" | "initialDisplayName" | "onSaved">) {
   const uid = user?.uid ?? null;
-  const [shownName, setShownName] = useState<string>(() => {
-    const cached = uid
-      ? storedDisplayName(AccountIdentityService.peekCachedIdentity(uid)?.data)
-      : null;
-    return (
-      String(initialDisplayName ?? "").trim() ||
-      cached ||
-      String(user?.displayName ?? "").trim()
-    );
-  });
+  const owner = useRef({ uid });
+  const [stateOwner, setStateOwner] = useState(owner.current);
+  const ready = stateOwner.uid === uid && stateOwner === owner.current;
+  const [shownName, setShownName] = useState(() =>
+    initialName(user, initialDisplayName),
+  );
   const [draft, setDraft] = useState(shownName);
   const [dirty, setDirty] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
-  const inputId = useId();
-  const helpId = `${inputId}-help`;
-  const errorId = `${inputId}-error`;
   const mountedRef = useRef(true);
   const saveSeqRef = useRef(0);
+  const pendingSave = useRef(0);
+  // Edits, confirmed voice writes and saves each supersede older readbacks.
+  const draftRevision = useRef(0);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (owner.current.uid === uid) return;
+    // Change authority at commit, not during an abortable concurrent render.
+    // A fresh object also fences A -> B -> A with the same UID string.
+    owner.current = { uid };
+    // The old owner's optional seed may still be in the parent props. Resolve
+    // the incoming owner from its own cache/auth identity instead.
+    const name = initialName(user);
+    saveSeqRef.current += 1;
+    pendingSave.current = 0;
+    draftRevision.current += 1;
+    setShownName(name);
+    setDraft(name);
+    setDirty(false);
+    setSubmitted(false);
+    setSaving(false);
+    setServerError(null);
+    setStateOwner(owner.current);
+  }, [uid, user, initialDisplayName]);
+
+  useLayoutEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
@@ -172,12 +210,15 @@ export function DisplayNameEditor({
   const showValidation = (dirty || submitted) && validationError !== null;
   const inlineError = serverError ?? (showValidation ? validationError : null);
   const canSave =
-    Boolean(uid) && !saving && !unchanged && validationError === null;
+    ready && Boolean(uid) && !saving && !unchanged && validationError === null;
 
   const applyServerIdentity = useCallback(
     (identity: AccountIdentity | null, options?: { toast?: boolean }) => {
       const stored = storedDisplayName(identity);
-      if (!stored) return false;
+      if (
+        !stored ||
+        (identity?.user_id !== undefined && identity.user_id !== owner.current.uid)
+      ) return false;
       setShownName(stored);
       setDraft(stored);
       setDirty(false);
@@ -197,6 +238,9 @@ export function DisplayNameEditor({
   useVoiceToolEffects({
     onToolResult: (tool, result) => {
       if (
+        !mountedRef.current || !uid || !ready || owner.current !== stateOwner
+      ) return;
+      if (
         tool !== "update_display_name" ||
         (result.status !== "updated" && result.status !== "committed_sync_pending")
       )
@@ -209,48 +253,113 @@ export function DisplayNameEditor({
         applyServerIdentity({ display_name: spoken });
       }
       if (!user) return;
+      const binding = stateOwner;
+      const revision = ++draftRevision.current;
       void AccountIdentityService.refreshCurrentUserIdentity(user, {
         force: true,
+        requireSuccess: true,
       })
         .then((identity) => {
-          if (!mountedRef.current) return;
+          if (
+            !mountedRef.current || owner.current !== binding ||
+            draftRevision.current !== revision
+          ) return;
+          if (
+            result.status === "committed_sync_pending" && spoken &&
+            storedDisplayName(identity) !== spoken
+          ) return;
           applyServerIdentity(identity);
         })
         .catch(() => undefined);
     },
   });
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const renderedDraftRevision = draftRevision.current;
+  const submit = async (): Promise<DisplayNameSaveOutcome> => {
+    if (!mountedRef.current || owner.current !== stateOwner) return { kind: "stale" };
+    if (!ready || !user) return { kind: "refused" };
+    if (saving || pendingSave.current !== 0) return { kind: "busy" };
+    if (renderedDraftRevision !== draftRevision.current) return { kind: "stale" };
     setSubmitted(true);
     setServerError(null);
-    if (!user || saving) return;
-    if (validationError !== null || unchanged) return;
+    if (validationError !== null || unchanged) return { kind: "refused" };
 
+    const binding = stateOwner;
+    const revision = ++draftRevision.current;
     const seq = ++saveSeqRef.current;
+    pendingSave.current = seq;
+    const ownsRequest = () =>
+      mountedRef.current && owner.current === binding && seq === saveSeqRef.current;
+    const current = () => ownsRequest() && draftRevision.current === revision;
     setSaving(true);
     try {
       const identity = await AccountIdentityService.updateDisplayName(
         user,
         normalizedDraft,
       );
-      if (!mountedRef.current || seq !== saveSeqRef.current) return;
+      if (!current()) return { kind: "stale" };
+      if (identity?.user_id !== undefined && identity.user_id !== uid) {
+        setServerError(GENERIC_FAILURE);
+        return { kind: "failed" };
+      }
       const applied = applyServerIdentity(identity, { toast: true });
-      if (!applied) {
+      if (!applied || !identity) {
         // The provider accepted the change but the response carried no name;
         // never echo the input as if it were confirmed.
         setServerError(
           "Saved, but Hussh couldn't read your new name back yet. Reopen this screen in a moment.",
         );
-        return;
+        return { kind: "committed-unreadable" };
       }
       onSaved?.(identity);
+      return { kind: "saved", identity };
     } catch (error) {
-      if (!mountedRef.current || seq !== saveSeqRef.current) return;
+      if (!current()) return { kind: "stale" };
       setServerError(describeSaveError(error));
+      return { kind: "failed" };
     } finally {
-      if (mountedRef.current && seq === saveSeqRef.current) setSaving(false);
+      if (ownsRequest()) {
+        pendingSave.current = 0;
+        setSaving(false);
+      }
     }
+  };
+
+  const changeDraft = (value: string) => {
+    if (
+      !mountedRef.current || owner.current !== stateOwner || !uid || !ready ||
+      pendingSave.current !== 0
+    ) return;
+    draftRevision.current += 1;
+    setDraft(value);
+    setDirty(true);
+    setServerError(null);
+  };
+  return {
+    uid, ready, draft, normalizedDraft, shownName, inlineError, canSave, saving,
+    draftRevision: renderedDraftRevision, changeDraft, submit,
+  };
+}
+
+export function DisplayNameEditor(props: DisplayNameEditorProps) {
+  return <DisplayNameEditorForm {...props} model={useDisplayNameEditor(props)} />;
+}
+
+/** Shared web fallback, with no competing editor or operation state. */
+export function DisplayNameEditorForm(props: Pick<DisplayNameEditorProps, "onCancel" | "className"> & {
+  model: ReturnType<typeof useDisplayNameEditor>;
+}) {
+  const { onCancel, className } = props;
+  const {
+    uid, ready, draft, normalizedDraft, shownName, inlineError, canSave, saving,
+    changeDraft, submit,
+  } = props.model;
+  const inputId = useId();
+  const helpId = `${inputId}-help`;
+  const errorId = `${inputId}-error`;
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    await submit();
   };
 
   return (
@@ -272,26 +381,24 @@ export function DisplayNameEditor({
             spellCheck={false}
             enterKeyHint="done"
             value={draft}
-            disabled={!uid || saving}
+            disabled={!uid || !ready || saving}
             aria-invalid={inlineError ? true : undefined}
             aria-describedby={inlineError ? `${helpId} ${errorId}` : helpId}
             onChange={(event) => {
-              setDraft(event.target.value);
-              setDirty(true);
-              setServerError(null);
+              changeDraft(event.target.value);
             }}
           />
           <FieldDescription
             id={helpId}
             className="flex items-baseline justify-between gap-3"
           >
-            <span>
+            <span className="min-w-0 [overflow-wrap:anywhere]">
               {shownName
                 ? `Shown to people you share with. Currently ${shownName}.`
                 : "Shown to people you share with."}
             </span>
             <span
-              className="tabular-nums text-muted-foreground"
+              className="shrink-0 whitespace-nowrap tabular-nums text-muted-foreground"
               aria-hidden="true"
               data-testid="display-name-count"
             >
@@ -304,23 +411,23 @@ export function DisplayNameEditor({
         </Field>
       </FieldGroup>
 
-      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+      <div data-display-name-actions className="flex flex-row justify-end gap-2">
         {onCancel ? (
           <Button
             type="button"
             variant="outline"
+            size="compact"
             disabled={saving}
             onClick={onCancel}
-            className="sm:min-w-[7.5rem]"
           >
             Cancel
           </Button>
         ) : null}
         <Button
           type="submit"
+          size="compact"
           disabled={!canSave}
           aria-busy={saving || undefined}
-          className="sm:min-w-[7.5rem]"
           data-testid="display-name-save"
         >
           {saving ? (

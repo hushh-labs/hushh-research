@@ -46,6 +46,7 @@ import {
 import { Button } from "@/lib/morphy-ux/morphy";
 import {
   buildPkmAccessConnections,
+  formatPkmTimestamp as formatTimestamp,
   type PkmDomainPermissionPresentation,
   type PkmAccessConnectionPresentation,
   type PkmDomainPresentation,
@@ -59,23 +60,13 @@ import type {
 import type { PkmVisibilityPosture } from "@/lib/services/personal-knowledge-model-service";
 import { cn } from "@/lib/utils";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
+import { ReviewRowIcon } from "@/components/icons/agents";
+import { HelperText } from "@/components/app-ui/typography";
 
 const listShellClassName = cn(
   "overflow-hidden rounded-[var(--app-card-radius-feature)]",
   "border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)]",
 );
-
-function formatTimestamp(value: string | null | undefined): string {
-  if (!value) return "Unavailable";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Unavailable";
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
 
 function initials(label: string | null | undefined): string {
   return (
@@ -181,7 +172,7 @@ function MemoryBackgroundStatus({
       ) : (
         <RefreshCw className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
       )}
-      <span>{children}</span>
+      <HelperText>{children}</HelperText>
     </div>
   );
 }
@@ -299,27 +290,12 @@ export function PkmDataManagerPanel({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="min-w-0 text-sm text-muted-foreground">
-          {savedDetailsSummary}
-        </p>
-        <div className="flex flex-wrap gap-2">
-          {!needsUnlock ? (
-            <Button type="button" onClick={onOpenSharing}>
-              Manage sharing
-            </Button>
-          ) : null}
-          <Button
-            type="button"
-            variant="none"
-            effect="fade"
-            onClick={onRefresh}
-          >
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Refresh
-          </Button>
-        </div>
-      </div>
+      <SettingsGroup description={savedDetailsSummary}>
+        {!needsUnlock ? <SettingsRow icon={ReviewRowIcon} iconTone="capability"
+          title="Manage sharing" chevron onClick={onOpenSharing} /> : null}
+        <SettingsRow icon={SyncRowIcon} iconTone="capability"
+          title="Refresh" onClick={onRefresh} />
+      </SettingsGroup>
 
       {shouldShowSearch ? (
         <div className="relative">
@@ -365,8 +341,8 @@ export function PkmDataManagerPanel({
                 }
                 description={
                   domains.length === 0
-                    ? "Once One saves your first detail or import, it will appear here for review and sharing."
-                    : "Try a different search term to find saved details."
+                    ? "Details you save will appear here."
+                    : "Try another search."
                 }
               />
             ) : (

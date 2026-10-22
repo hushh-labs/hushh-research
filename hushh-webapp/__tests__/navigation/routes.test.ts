@@ -31,6 +31,7 @@ import {
 } from "@/lib/navigation/routes";
 import {
   buildCanonicalProfileRouteFromLegacyQuery,
+  buildLegacyDocumentPayoutReturnRoute,
   buildProfileRoute,
   resolveProfileRouteState,
 } from "@/lib/navigation/profile-routes";
@@ -40,6 +41,34 @@ import {
 } from "@/lib/navigation/route-scope";
 
 describe("navigation routes", () => {
+  it.each(["payouts", "request-pricing"] as const)("addresses %s independently from Memory", (panel) => {
+    const route = `/one/profile/${panel}`;
+    expect(buildProfileRoute({ panel })).toBe(route);
+    expect(resolveProfileRouteState(route)).toEqual({ panel, detail: null });
+    expect(buildCanonicalProfileRouteFromLegacyQuery("/one/profile", `panel=${panel}`)).toBe(route);
+  });
+
+  it("preserves Stripe callbacks from old Memory links without carrying private query values", () => {
+    expect(buildLegacyDocumentPayoutReturnRoute("/one/profile/my-data", "documentPayouts=refresh&token=secret&from=%2Fone%2Ffeed"))
+      .toBe("/one/profile/payouts?from=%2Fone%2Ffeed&documentPayouts=refresh");
+    expect(buildLegacyDocumentPayoutReturnRoute("/one/profile/my-data?documentPayouts=done"))
+      .toBe("/one/profile/payouts?documentPayouts=done");
+    expect(buildLegacyDocumentPayoutReturnRoute("/one/profile/my-data", "documentPayouts=unknown")).toBeNull();
+    expect(buildLegacyDocumentPayoutReturnRoute("/one/profile/payouts", "documentPayouts=refresh")).toBeNull();
+    expect(buildLegacyDocumentPayoutReturnRoute("/one/profile/my-data")).toBeNull();
+  });
+
+  it("admits only the exact encrypted-file reader anonymously and without analytics", () => {
+    for (const route of ["/wallet/open", "/wallet/open/", "/wallet/open/index.html"]) {
+      expect(isPublicRoute(route)).toBe(true);
+      expect(isAnalyticsExemptRoute(route)).toBe(true);
+      expect(isOnboardingAdmissionExemptRoute(route)).toBe(true);
+    }
+    for (const route of ["/wallet", "/wallet/open/private", "/one/wallet"]) {
+      expect(isPublicRoute(route)).toBe(false);
+      expect(isAnalyticsExemptRoute(route)).toBe(false);
+    }
+  });
   it.each(["/circle/join?code=23456789ABCD", "/one/connect?tab=circles&action=join-circle&code=23456789ABCD", "/one/location/invite/public-token"])("preserves a bounded invite destination through vault/setup: %s", (destination) => {
     expect(normalizeInvitationReturnTo(destination)).toBe(destination);
     expect(resolveOneSetupReturnTo(destination)).toBe(destination);
@@ -135,6 +164,9 @@ describe("navigation routes", () => {
     expect(buildProfileRoute({ panel: "preferences", detail: "voice" })).toBe(
       "/one/profile/preferences/voice",
     );
+    expect(buildProfileRoute({ panel: "preferences", detail: "device" })).toBe("/one/profile/preferences");
+    expect(resolveProfileRouteState("/one/profile/preferences/device")).toEqual({ panel: "preferences", detail: null });
+    expect(buildCanonicalProfileRouteFromLegacyQuery("/one/profile", "panel=preferences&detail=device")).toBe("/one/profile/preferences");
     expect(buildProfileRoute({ panel: "security", detail: "vault" })).toBe(
       "/one/profile/security/vault",
     );

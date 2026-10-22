@@ -1,6 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
+import { webcrypto } from "node:crypto";
+import { IDBFactory } from "fake-indexeddb";
+import fixture from "./fixtures/chat-push-preview.json";
+import { documentRequestSetupHref } from "@/lib/consent/document-request-setup";
+import { sealNotificationPreview } from "@/lib/notifications/chat-preview";
 
 import { describe, expect, it } from "vitest";
 
@@ -28,6 +33,8 @@ function createHarness(options: {
     navigate?: "success" | "failure" | "unavailable";
   }>;
   deliveredTags?: string[];
+  failFirstShow?: boolean;
+  database?: IDBFactory;
 }) {
   const handlers = new Map<string, ServiceWorkerHandler>();
   const shown: Array<{ title: string; options?: Record<string, unknown> }> = [];
@@ -37,6 +44,7 @@ function createHarness(options: {
   const navigatedUrls: string[] = [];
   const closedTags: string[] = [];
   let focusCount = 0;
+  let showAttempts = 0;
   const clientState = options.clientState ?? "visible";
   const definitions =
     options.clients ??
@@ -129,11 +137,12 @@ function createHarness(options: {
         title: string,
         notificationOptions?: Record<string, unknown>,
       ) => {
+        if (options.failFirstShow && showAttempts++ === 0) throw new Error("presentation unavailable");
         shown.push({ title, options: notificationOptions });
       },
-      getNotifications: async ({ tag }: { tag: string }) =>
+      getNotifications: async ({ tag }: { tag?: string } = {}) =>
         (options.deliveredTags || [])
-          .filter((candidate) => candidate === tag)
+          .filter((candidate) => !tag || candidate === tag)
           .map((candidate) => ({
             close: () => closedTags.push(candidate),
           })),
@@ -146,7 +155,8 @@ function createHarness(options: {
     path.join(process.cwd(), "public", "firebase-messaging-sw.js"),
     "utf8",
   );
-  vm.runInNewContext(source, {
+  const database = options.database ?? new IDBFactory();
+  const context = vm.createContext({
     self: serviceWorker,
     setTimeout,
     clearTimeout,
@@ -155,9 +165,44 @@ function createHarness(options: {
     Math,
     Promise,
     encodeURIComponent,
+    indexedDB: database,
+    crypto: webcrypto,
+    TextEncoder,
+    TextDecoder,
+    Uint8Array,
+    ArrayBuffer,
+    atob,
+    btoa,
   });
+  context.importScripts = (name: string) => vm.runInContext(fs.readFileSync(path.join(process.cwd(), "public", name.replace(/^\//u, "")), "utf8"), context);
+  vm.runInContext(source, context);
 
   return {
+    database,
+    hideClients() { clients.forEach(client => { client.visibilityState = "hidden"; client.focused = false; }); },
+    async message(data: Record<string, unknown>) {
+      let pending = Promise.resolve<unknown>(undefined);
+      handlers.get("message")?.({ data, waitUntil: promise => { pending = promise; } });
+      await pending;
+    },
+    async installKey(keyId: string = fixture.keyId) {
+      const decode = (value: string) => Uint8Array.from(Buffer.from(value, "base64url"));
+      const key = await webcrypto.subtle.importKey("pkcs8", decode(fixture.privateKey), { name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = database.open("hussh-chat-preview-v1", 1);
+        request.onupgradeneeded = () => request.result.createObjectStore("keys");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = reject;
+      });
+      await new Promise<void>((resolve, reject) => {
+        const transaction = db.transaction("keys", "readwrite");
+        transaction.objectStore("keys").put({ keyId, privateKey: key }, "active");
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = reject;
+      });
+      db.close();
+    },
+    openPreview: (data: Record<string, unknown>) => (serviceWorker as unknown as { openChatNotificationPreview: (value: Record<string, unknown>) => Promise<unknown> }).openChatNotificationPreview(data),
     shown,
     clientMessages,
     clientMessagesByIndex,
@@ -395,6 +440,36 @@ describe("Firebase messaging service-worker lifecycle ownership", () => {
     expect(harness.shown).toEqual([]);
   });
 
+  it.each(["2000-01-01T00:00:00Z", "invalid"])("silences an expired or invalid SMS deadline: %s", async (expires_at) => {
+    const harness = createHarness({ clientState: "none" });
+    await harness.push("location_share_created", { type: "location_share_created", share_kind: "sos", grant_id: "expired-sms", expires_at });
+    expect(harness.shown).toEqual([]);
+  });
+
+  it("remembers SMS delivery and Stop across worker restarts without swallowing a new grant", async () => {
+    const first = createHarness({ clientState: "none" });
+    const sms = { type: "location_share_created", share_kind: "sos", grant_id: "sms-1", expires_at: new Date(Date.now() + 60_000).toISOString() };
+    await first.push(sms.type, sms);
+    expect(first.shown).toHaveLength(1);
+    const restarted = createHarness({ clientState: "none", database: first.database });
+    await restarted.push(sms.type, sms);
+    expect(restarted.shown).toHaveLength(0);
+    await restarted.push("location_share_revoked", { type: "location_share_revoked", grant_id: "sms-2", notification_presentation: "silent" });
+    const again = createHarness({ clientState: "none", database: first.database });
+    await again.push(sms.type, { ...sms, grant_id: "sms-2" });
+    expect(again.shown).toHaveLength(0);
+    await again.push(sms.type, { ...sms, grant_id: "sms-3" });
+    expect(again.shown).toHaveLength(1);
+  });
+
+  it("retries an SMS after system presentation fails", async () => {
+    const harness = createHarness({ clientState: "none", failFirstShow: true });
+    const sms = { type: "location_share_created", share_kind: "sos", grant_id: "retry-sms" };
+    await expect(harness.push(sms.type, sms)).rejects.toThrow("presentation unavailable");
+    await harness.push(sms.type, sms);
+    expect(harness.shown).toHaveLength(1);
+  });
+
   it("uses a persistent vibrating system alert for background emergency SMS", async () => {
     const harness = createHarness({ clientState: "none" });
     await harness.push("location_share_created", {
@@ -507,6 +582,46 @@ describe("Firebase messaging service-worker lifecycle ownership", () => {
     ]);
   });
 
+  it.each([
+    [
+      "drive",
+      "/one/feed?profile_pane=1&profile_panel=connectors&profile_detail=connector%3Agoogle_drive",
+    ],
+    ["payouts", "/one/profile/payouts?from=%2Fone%2Ffeed"],
+    ["price", "/one/profile/request-pricing?from=%2Fone%2Ffeed"],
+  ] as const)("opens the app's %s setup screen for an owner's request push", async (setup, href) => {
+    // The worker cannot import TypeScript, so its fixed targets must match.
+    expect(documentRequestSetupHref(setup)).toBe(href);
+    const harness = createHarness({ clientState: "none" });
+    await harness.push("document_share_request", {
+      type: "document_share_request",
+      request_id: "11111111-1111-4111-8111-111111111111",
+      setup,
+    });
+    const data = harness.shown[0]?.options?.data as Record<string, unknown>;
+    expect(data).toEqual(expect.objectContaining({ setup, url: href, source_url: href }));
+    await harness.click(data);
+    expect(harness.openedUrls).toEqual([href]);
+  });
+
+  it.each([
+    { type: "document_share_request", setup: "https://evil.example" },
+    { type: "document_share_request", setup: "drive?x=1" },
+    { type: "document_share_review_ready", setup: "drive" },
+  ])("drops setup $setup on $type and keeps the review route", async (fields) => {
+    const review =
+      "/one/consent?tab=pending&requestId=document_share_request%3A11111111-1111-4111-8111-111111111111";
+    const raw = { ...fields, request_id: "11111111-1111-4111-8111-111111111111" };
+    const harness = createHarness({ clientState: "none" });
+    await harness.push(fields.type, raw);
+    const data = harness.shown[0]?.options?.data as Record<string, unknown>;
+    expect(data.setup).toBeUndefined();
+    expect(data.url).toBe(review);
+    // A tap on an unreduced payload falls back the same way.
+    await harness.click(raw);
+    expect(harness.openedUrls).toEqual([review]);
+  });
+
   it("opens the live Feed for payment and drops private push fields", async () => {
     const harness = createHarness({ clientState: "none" });
     await harness.push("document_share_payment_ready", {
@@ -516,7 +631,8 @@ describe("Firebase messaging service-worker lifecycle ownership", () => {
       purpose: "private purpose",
     });
     expect(harness.shown[0]?.title).toBe("Payment needed");
-    expect(harness.shown[0]?.options?.body).toContain("Pay $10");
+    // The owner sets the price, so a push never names a fixed amount.
+    expect(harness.shown[0]?.options?.body).toBe("Pay in One to continue your document request.");
     const data = harness.shown[0]?.options?.data as Record<string, unknown>;
     expect(data.url).toBe("/one/feed");
     expect(JSON.stringify(data)).not.toMatch(/private\.pdf|private purpose/);
@@ -585,4 +701,60 @@ describe("Firebase messaging service-worker lifecycle ownership", () => {
     await harness.click({ type });
     expect(harness.openedUrls).toEqual(["/one/feed"]);
   });
+});
+
+
+it("opens Python and browser previews with the same binding and rejects tampering", async () => {
+  const harness = createHarness({ clientState: "none" });
+  await harness.installKey();
+  const data = { chat_preview: fixture.sealed, preview_context: fixture.context };
+  expect(await harness.openPreview(data)).toEqual(fixture.preview);
+  expect(await harness.openPreview({ ...data, preview_context: fixture.context + "-other" })).toBeNull();
+  const damaged = JSON.parse(fixture.sealed) as string[];
+  damaged[3] = (damaged[3][0] === "A" ? "B" : "A") + damaged[3].slice(1);
+  expect(await harness.openPreview({ ...data, chat_preview: JSON.stringify(damaged) })).toBeNull();
+  Object.defineProperty(globalThis, "crypto", { configurable: true, value: webcrypto });
+  const sealed = await sealNotificationPreview({ userId: "fixture", keyId: fixture.keyId, publicKey: fixture.publicKey }, fixture.context, fixture.preview);
+  expect(await harness.openPreview({ ...data, chat_preview: sealed })).toEqual(fixture.preview);
+});
+
+it("renders sealed authoritative Circle identity and suppresses pushes after account rotation", async () => {
+  const harness = createHarness({ clientState: "none" });
+  await harness.installKey();
+  const data = { type: "location_circle_message", circle_id: "11111111-2222-3333-4444-555555555555", message_id: "fixture-circle-message",
+    recipient_key_id: fixture.keyId, chat_preview: fixture.sealed, chat_identity: fixture.identity, preview_context: fixture.context,
+    chat_expires_at: String(Math.floor(Date.now() / 1000) + 60) };
+  await harness.push(data.type, data);
+  expect(harness.shown).toHaveLength(1);
+  expect(harness.shown[0].title).toBe("Weekend");
+  expect(harness.shown[0].options?.body).toBe("Alice: " + fixture.preview.text);
+  await harness.installKey("new-owner-preview-key");
+  await harness.push(data.type, data);
+  expect(harness.shown).toHaveLength(1);
+  expect(harness.clientMessages).toHaveLength(0);
+});
+
+
+const chatData = (sequence: string, messageId = `m${sequence}`) => ({ type: "location_circle_message",
+  circle_id: "11111111-2222-3333-4444-555555555555", recipient_key_id: fixture.keyId, message_id: messageId,
+  chat_sequence: sequence, chat_expires_at: String(Math.floor(Date.now() / 1000) + 60) });
+it("does not alert an acknowledged message again after its chat hides", async () => {
+  const h = createHarness({ acknowledgeVisibleDelivery: true }); await h.installKey();
+  await h.push("location_circle_message", chatData("10")); h.hideClients();
+  await h.push("location_circle_message", chatData("10")); expect(h.shown).toHaveLength(0);
+  await h.push("location_circle_message", chatData("11")); expect(h.shown).toHaveLength(1);
+});
+it("retries a message whose system presentation failed", async () => {
+  const h = createHarness({ clientState: "none", failFirstShow: true }); await h.installKey();
+  await expect(h.push("location_circle_message", chatData("10"))).rejects.toThrow("presentation unavailable");
+  await h.push("location_circle_message", chatData("10")); expect(h.shown).toHaveLength(1);
+  await h.push("location_circle_message", chatData("10")); expect(h.shown).toHaveLength(1);
+});
+it("keeps read frontiers monotonic and scoped to the active recipient key", async () => {
+  const h = createHarness({ clientState: "none" }); await h.installKey();
+  const read = { type: "hushh:chat_read", keyId: fixture.keyId, threadId: chatData("1").circle_id };
+  await h.message({ ...read, sequence: 10 }); await h.message({ ...read, sequence: 4 });
+  await h.push("location_circle_message", chatData("9")); expect(h.shown).toHaveLength(0);
+  await h.message({ ...read, keyId: "other-owner-key", sequence: 999 });
+  await h.push("location_circle_message", chatData("11")); expect(h.shown).toHaveLength(1);
 });

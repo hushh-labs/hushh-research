@@ -27,7 +27,11 @@ probe_vertex_prediction_access() {
   local model="$3"
   local token
 
-  if ! token="$(gcloud auth application-default print-access-token 2>/dev/null)"; then
+  local credential_args=(auth application-default print-access-token)
+  if [ -n "${HUSHH_LOCAL_GCLOUD_ACCOUNT:-}" ]; then
+    credential_args=(auth print-access-token "--account=${HUSHH_LOCAL_GCLOUD_ACCOUNT}")
+  fi
+  if ! token="$(gcloud "${credential_args[@]}" 2>/dev/null)"; then
     printf '%s\n' "credential_unavailable"
     return
   fi

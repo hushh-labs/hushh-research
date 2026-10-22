@@ -15,7 +15,9 @@ from urllib.parse import urlsplit, urlunsplit
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UPSERT_SECRET_SCRIPT = REPO_ROOT / "scripts" / "ops" / "upsert_gcp_secret.py"
 GMAIL_OAUTH_RETURN_PATH = "/one/profile/gmail/oauth/return"
+CALENDAR_OAUTH_RETURN_PATH = "/one/profile/google/oauth/return"
 LOCAL_PASSKEY_RP_IDS = ("localhost", "127.0.0.1")
+PASSKEY_DOMAIN_ALIASES = REPO_ROOT / "hushh-webapp/lib/vault/passkey-domain-aliases.json"
 CONNECTOR_ROLLOUT_FLAGS = (
     "connections_panel_v2",
     "google_drive_connection",
@@ -23,6 +25,7 @@ CONNECTOR_ROLLOUT_FLAGS = (
     "google_drive_picker",
     "drive_document_indexing",
     "drive_document_sharing",
+    "drive_agent_packages_enabled",
     "gmail_chat_reads",
     "google_drive_chat_reads",
     "curated_mcp_connectors",
@@ -57,6 +60,7 @@ def _run(
         input=input_text,
         text=True,
         capture_output=True,
+        check=False,
     )
     if check and result.returncode != 0:
         sys.stderr.write(result.stderr or result.stdout)
@@ -127,7 +131,7 @@ def _drop_empty(value: dict[str, Any]) -> dict[str, Any]:
     return {key: item for key, item in value.items() if item not in ("", None, [], {})}
 
 
-def _gmail_oauth_redirect_uri(app_frontend_origin: str) -> str:
+def _oauth_redirect_uri(app_frontend_origin: str, return_path: str) -> str:
     parsed = urlsplit(app_frontend_origin.strip())
     if (
         parsed.scheme not in {"http", "https"}
@@ -140,7 +144,22 @@ def _gmail_oauth_redirect_uri(app_frontend_origin: str) -> str:
     ):
         raise ValueError("--app-frontend-origin must be a canonical HTTP(S) origin")
     origin = urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
-    return f"{origin}{GMAIL_OAUTH_RETURN_PATH}"
+    return f"{origin}{return_path}"
+
+
+def _gmail_oauth_redirect_uri(app_frontend_origin: str) -> str:
+    return _oauth_redirect_uri(app_frontend_origin, GMAIL_OAUTH_RETURN_PATH)
+
+
+def _sync_oauth_redirects(project: str, app_frontend_origin: str) -> list[str]:
+    names: list[str] = []
+    for name, path in (
+        ("GMAIL_OAUTH_REDIRECT_URI", GMAIL_OAUTH_RETURN_PATH),
+        ("GOOGLE_OAUTH_REDIRECT_URI", CALENDAR_OAUTH_RETURN_PATH),
+    ):
+        _upsert_secret(project, name, _oauth_redirect_uri(app_frontend_origin, path))
+        names.append(name)
+    return names
 
 
 def _frontend_origin_host(app_frontend_origin: str) -> str:
@@ -162,13 +181,27 @@ def _frontend_origin_host(app_frontend_origin: str) -> str:
 def _canonical_passkey_allowed_rp_ids(app_frontend_origin: str) -> str:
     """Build the exact RP allowlist for the current frontend origin.
 
-    Hosted lanes are isolated by their own browser origin. Localhost remains
+    Hosted lanes allow only their declared old/new spelling pair. Localhost remains
     available for contributor tooling, but a hosted lane must not inherit
     another lane's parent-domain RP as a silent compatibility fallback.
     """
 
+    hosts = _frontend_passkey_hosts(app_frontend_origin)
+    return ",".join(dict.fromkeys((*LOCAL_PASSKEY_RP_IDS, *hosts)))
+
+
+def _frontend_passkey_hosts(app_frontend_origin: str) -> tuple[str, ...]:
     host = _frontend_origin_host(app_frontend_origin)
-    return ",".join(dict.fromkeys((*LOCAL_PASSKEY_RP_IDS, host)))
+    aliases = json.loads(PASSKEY_DOMAIN_ALIASES.read_text())
+    return next((tuple(pair) for pair in aliases.values() if host in pair), (host,))
+
+
+def _cors_with_frontend_aliases(app_frontend_origin: str, configured: str) -> str:
+    origins = [origin.strip() for origin in configured.split(",") if origin.strip()]
+    host = _frontend_origin_host(app_frontend_origin)
+    if f"https://{host}" in origins:
+        origins.extend(f"https://{alias}" for alias in _frontend_passkey_hosts(app_frontend_origin))
+    return ",".join(dict.fromkeys(origins))
 
 
 def _normalize_passkey_rp_ids(value: str) -> tuple[str, ...]:
@@ -239,9 +272,94 @@ def _validate_connector_rollout(args: argparse.Namespace) -> None:
         raise ValueError("Connector cohort must contain at most 25 distinct exact Firebase UIDs")
 
 
+def _retained_referral_config(
+    existing: dict[str, Any], *, project: str, environment: str
+) -> dict[str, Any]:
+    """Retain only an explicitly activated, environment-pinned operator setting."""
+    prefix = "referral_scoring_drain_"
+    keys = (
+        prefix + "enabled",
+        prefix + "scheduler_audience",
+        prefix + "scheduler_project_id",
+        prefix + "scheduler_service_account_email",
+    )
+    if not any(key in existing for key in keys):
+        return {}
+    enabled = str(existing.get(keys[0], "")).lower()
+    if enabled not in {"true", "false"}:
+        raise ValueError("Referral drain activation must be an explicit boolean")
+    if enabled == "false":
+        return {keys[0]: False}
+    lanes = {
+        "uat": ("hushh-pda-uat", "https://api.uat.hushh.ai"),
+        "production": ("hushh-pda", "https://api.hushh.ai"),
+    }
+    expected = lanes.get(environment)
+    if (
+        expected is None
+        or project != expected[0]
+        or existing.get("environment") != environment
+    ):
+        raise ValueError(
+            "Referral drain configuration belongs to a different environment"
+        )
+    expected_values = (
+        expected[1],
+        project,
+        f"referral-scoring-sched@{project}.iam.gserviceaccount.com",
+    )
+    if tuple(existing.get(key) for key in keys[1:]) != expected_values:
+        raise ValueError(
+            "Referral drain scheduler identity does not match its environment"
+        )
+    return {keys[0]: True, **dict(zip(keys[1:], expected_values, strict=True))}
+
+
+def _retained_plg_config(
+    existing: dict[str, Any], *, project: str, environment: str
+) -> dict[str, bool]:
+    """Preserve explicit pilot settings without importing another lane's activation."""
+    retained: dict[str, bool] = {}
+    for key in (
+        "one_plg_export_enabled",
+        "one_plg_activity_enabled",
+        "one_plg_activity_all_registered",
+        "one_plg_audience_enabled",
+    ):
+        if key not in existing:
+            continue
+        value = existing[key]
+        if isinstance(value, bool):
+            retained[key] = value
+        elif isinstance(value, str) and value in {"true", "false"}:
+            retained[key] = value == "true"
+        else:
+            raise ValueError("PLG activation must be an explicit boolean")
+    if any(retained.values()) and (
+        environment != "production"
+        or project != "hushh-pda"
+        or existing.get("environment") != "production"
+        or existing.get("google_cloud_project") != "hushh-pda"
+    ):
+        raise ValueError(
+            "PLG activation belongs only to the production environment and project"
+        )
+    return retained
+
+
 def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
+    if getattr(args, "one_magic_intelligence_phase", "0") == "5" and args.environment != "uat":
+        raise ValueError("Magic Intelligence phase 5 is only admitted for UAT")
     config: dict[str, Any] = {
         "environment": args.environment,
+        "one_plg_export_enabled": False,
+        "one_plg_activity_enabled": False,
+        "one_plg_activity_all_registered": False,
+        "one_plg_audience_enabled": False,
+        "email_auth_enabled": getattr(args, "email_auth_enabled", "false"),
+        "email_auth_risk_manifest": "/app/config/email-auth/risk-manifest.json",
+        "email_auth_mail_api_endpoint": "https://hushh-mail-api-646258530541.us-central1.run.app",
+        "email_auth_mail_from": "one@hushh.ai",
         "hushh_genai_auth_mode": "vertex_adc",
         "google_genai_use_vertexai": True,
         "google_cloud_project": args.project,
@@ -272,6 +390,7 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "google_drive_picker": getattr(args, "google_drive_picker", "false"),
         "drive_document_indexing": getattr(args, "drive_document_indexing", "false"),
         "drive_document_sharing": getattr(args, "drive_document_sharing", "false"),
+        "drive_agent_packages_enabled": getattr(args, "drive_agent_packages_enabled", "false"),
         "gmail_chat_reads": getattr(args, "gmail_chat_reads", "false"),
         "google_drive_chat_reads": getattr(args, "google_drive_chat_reads", "false"),
         "curated_mcp_connectors": getattr(args, "curated_mcp_connectors", "false"),
@@ -321,6 +440,16 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         # mismatch — which reads like an outage, not a config error.
         "nws_nearby_v4_project_id": args.project,
         "one_places_directory_enabled": args.one_places_directory_enabled,
+        "one_business_directory_enabled": getattr(args, "one_business_directory_enabled", "false"),
+        "one_profile_research_enabled": getattr(args, "one_profile_research_enabled", "false"),
+        "one_magic_intelligence_phase": getattr(args, "one_magic_intelligence_phase", "0"),
+        "one_magic_intelligence_inner_team_emails": getattr(
+            args, "one_magic_intelligence_inner_team_emails", ""
+        ),
+        "one_magic_intelligence_senior_team_emails": getattr(
+            args, "one_magic_intelligence_senior_team_emails", ""
+        ),
+        "one_magic_intelligence_qa_emails": getattr(args, "one_magic_intelligence_qa_emails", ""),
     }
     return _drop_empty(config)
 
@@ -404,6 +533,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", required=True)
     parser.add_argument("--environment", required=True)
+    parser.add_argument("--email-auth-enabled", default="false", choices=["true", "false"])
     parser.add_argument("--app-frontend-origin", required=True)
     parser.add_argument("--db-host", required=True)
     parser.add_argument("--db-port", required=True)
@@ -443,6 +573,7 @@ def main() -> int:
     parser.add_argument("--google-drive-picker", default="false", choices=["true", "false"])
     parser.add_argument("--drive-document-indexing", default="false", choices=["true", "false"])
     parser.add_argument("--drive-document-sharing", default="false", choices=["true", "false"])
+    parser.add_argument("--drive-agent-packages-enabled", default="false", choices=["true", "false"])
     parser.add_argument("--gmail-chat-reads", default="false", choices=["true", "false"])
     parser.add_argument("--google-drive-chat-reads", default="false", choices=["true", "false"])
     parser.add_argument("--curated-mcp-connectors", default="false", choices=["true", "false"])
@@ -499,6 +630,16 @@ def main() -> int:
     # key mirrored from the project that owns it.
     parser.add_argument("--insurance-agents-api-base-url", default="")
     parser.add_argument("--one-places-directory-enabled", default="")
+    parser.add_argument(
+        "--one-business-directory-enabled", default="false", choices=["true", "false"]
+    )
+    parser.add_argument(
+        "--one-profile-research-enabled", default="false", choices=["true", "false"]
+    )
+    parser.add_argument("--one-magic-intelligence-phase", default="0", choices=list("012345"))
+    parser.add_argument("--one-magic-intelligence-inner-team-emails", default="")
+    parser.add_argument("--one-magic-intelligence-senior-team-emails", default="")
+    parser.add_argument("--one-magic-intelligence-qa-emails", default="")
     parser.add_argument("--insurance-agents-api-key-source-project", default="hushh-tech-prod")
     parser.add_argument(
         "--insurance-agents-api-key-source-secret", default="insurance-agents-api-key"
@@ -545,9 +686,12 @@ def main() -> int:
     ) != _normalize_passkey_rp_ids(canonical_passkey_rp_ids):
         parser.error(
             "--passkey-allowed-rp-ids must contain only localhost, 127.0.0.1, "
-            "and the APP_FRONTEND_ORIGIN host"
+            "and the APP_FRONTEND_ORIGIN host with its declared same-environment alias"
         )
     args.passkey_allowed_rp_ids = canonical_passkey_rp_ids
+    args.cors_allowed_origins = _cors_with_frontend_aliases(
+        args.app_frontend_origin, args.cors_allowed_origins
+    )
 
     if not str(args.nws_nearby_v4_api_key_source_secret or "").strip():
         args.nws_nearby_v4_api_key_source_secret = _NWS_V4_KEY_SOURCE_BY_PROJECT.get(
@@ -602,15 +746,30 @@ def main() -> int:
     _upsert_secret(args.project, "APP_FRONTEND_ORIGIN", args.app_frontend_origin.strip())
     sync_summary.append("APP_FRONTEND_ORIGIN")
 
-    _upsert_secret(
-        args.project,
-        "GMAIL_OAUTH_REDIRECT_URI",
-        _gmail_oauth_redirect_uri(args.app_frontend_origin),
-    )
-    sync_summary.append("GMAIL_OAUTH_REDIRECT_URI")
+    sync_summary.extend(_sync_oauth_redirects(args.project, args.app_frontend_origin))
 
-    backend_runtime_config, candidate_runtime_config = _split_production_drive_candidate_config(
-        args, _build_backend_runtime_config(args)
+    backend_runtime_config = _build_backend_runtime_config(args)
+    existing_runtime_json = _read_secret(args.project, "BACKEND_RUNTIME_CONFIG_JSON")
+    if existing_runtime_json:
+        existing_runtime_config = json.loads(existing_runtime_json)
+        if not isinstance(existing_runtime_config, dict):
+            raise ValueError("Backend runtime config must be a JSON object")
+        backend_runtime_config.update(
+            _retained_referral_config(
+                existing_runtime_config,
+                project=args.project,
+                environment=args.environment,
+            )
+        )
+        backend_runtime_config.update(
+            _retained_plg_config(
+                existing_runtime_config,
+                project=args.project,
+                environment=args.environment,
+            )
+        )
+    backend_runtime_config, candidate_runtime_config = (
+        _split_production_drive_candidate_config(args, backend_runtime_config)
     )
     if candidate_runtime_config is None:
         _upsert_secret(

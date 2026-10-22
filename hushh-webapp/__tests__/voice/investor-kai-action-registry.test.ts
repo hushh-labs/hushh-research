@@ -8,7 +8,7 @@ import {
   listInvestorKaiActionsForSurface,
   listInvestorKaiActions,
   resolveInvestorKaiActionWiring,
-} from "@/lib/voice/investor-kai-action-registry";
+} from "@/lib/kai/actions/investor-kai-action-registry";
 
 describe("investor-kai-action-registry", () => {
   it("enforces unique action ids", () => {
@@ -51,6 +51,20 @@ describe("investor-kai-action-registry", () => {
       .filter((result) => !result.resolution.resolvable);
 
     expect(unresolvedWired).toEqual([]);
+  });
+
+  it("resolves Calendar reads through the server voice tool registry", () => {
+    const calendarRead = getInvestorKaiActionById("calendar.read");
+    expect(calendarRead?.wiring).toMatchObject({
+      status: "wired",
+      handler: "oneVoiceRuntime",
+      binding: {
+        kind: "server_voice_tool",
+        toolName: "read_calendar",
+        actionId: "calendar.read",
+      },
+    });
+    expect(calendarRead && resolveInvestorKaiActionWiring(calendarRead).resolvable).toBe(true);
   });
 
   it("keeps route actions out of the legacy command binding while resolving generated voice tools", () => {
@@ -123,6 +137,7 @@ describe("investor-kai-action-registry", () => {
     }).map((action) => action.id);
 
     expect(gmailActions).toEqual([
+      "profile.gmail.visit_merchant",
       "route.profile_receipts",
       "route.one_gmail_kyc",
       "profile.gmail.connect",

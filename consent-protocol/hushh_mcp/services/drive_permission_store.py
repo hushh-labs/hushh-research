@@ -16,6 +16,12 @@ from hushh_mcp.services.google_drive_adapter import DriveReadError
 # The serialized queue may dispatch 25 exact-file grants at one job per minute.
 # Keep a finite batch window; every claim still rechecks live owner/source authority.
 GRANT_AUTHORITY_WINDOW_SECONDS = 2 * 60 * 60
+# A create Google answered with invalidSharingRequest whose exact requested
+# grant read-only reconciliation then found. Only this evidence may record
+# success for an operation that is no longer "dispatching".
+RECONCILED_CREATE_PROVENANCE = "reconciled_create_after_complete_absence_check"
+# Waits after each sharingRateLimitExceeded refusal. A fifth refusal settles.
+RATE_LIMIT_DELAYS_SECONDS = (5 * 60, 10 * 60, 20 * 60, 40 * 60)
 
 
 class DrivePermissionStore(DriveSharingStore):
@@ -78,6 +84,7 @@ class DrivePermissionStore(DriveSharingStore):
         now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
         if (
             context["private_request_erased_at"] is not None
+            or request["access_stop_requested_at"] is not None
             or request["status"] not in {"approved", "partial"}
             or request["approval_invalidated_at"] is not None
             or request["revision"] != initial["review_revision"]
@@ -330,6 +337,79 @@ class DrivePermissionStore(DriveSharingStore):
 
         await self._transaction(operation)
 
+    def _open_receipt(self, row) -> dict:
+        if not row.get("receipt_envelope"):
+            return {}
+        return self.sharing_cipher.open(
+            row["receipt_envelope"],
+            user_id=row["user_id"],
+            resource_id=str(row["operation_id"]),
+            purpose="permission-receipt",
+        )
+
+    @staticmethod
+    def _rate_limited_count(receipt: dict) -> int:
+        count = receipt.get("rate_limited")
+        return count if type(count) is int and 0 <= count <= len(RATE_LIMIT_DELAYS_SECONDS) else 0
+
+    async def defer_rate_limited(self, job) -> bool:
+        """Requeue a create Google refused for its sharing rate limit.
+
+        Nothing was shared, so the operation returns to queued behind a timer
+        lease (5, 10, 20, then 40 minutes) and loses its dispatch marker. It
+        also releases its file claim: nothing is in flight, so a confirmed
+        Stop's removal or another grant of the same file never waits on the
+        timer. The next claim takes the file again, rechecks authority and
+        repeats the complete absence check before any POST. False once the
+        waits are used up: the caller settles.
+        """
+
+        def operation(connection):
+            context = self._settlement_gate(connection, job["user_id"], job["request_id"])
+            row = self._permission(connection, job["user_id"], str(job["operation_id"]), lock=True)
+            if not row or row["lease_id"] != job["lease_id"] or row["state"] != "dispatching":
+                raise DriveSharingError("permission_job_superseded")
+            receipt = self._open_receipt(row)
+            count = self._rate_limited_count(receipt)
+            if count >= len(RATE_LIMIT_DELAYS_SECONDS):
+                return False
+            receipt = {**receipt, "rate_limited": count + 1}
+            if context["private_request_erased_at"] is not None:
+                from hushh_mcp.services.drive_sharing_retention import minimal_receipt
+
+                # The erased request cannot keep the counter; its 2-hour grant
+                # authority window still bounds every later attempt.
+                receipt = minimal_receipt(receipt)
+            envelope = self.sharing_cipher.seal(
+                receipt,
+                user_id=job["user_id"],
+                resource_id=str(job["operation_id"]),
+                purpose="permission-receipt",
+            )
+            connection.execute(
+                text("""
+                UPDATE drive_share_permission_operations SET state='queued',dispatched_at=NULL,
+                  lease_id=:lease,
+                  lease_expires_at=clock_timestamp()+(:delay * INTERVAL '1 second'),
+                  safe_error_code='sharing_rate_limited',receipt_envelope=CAST(:receipt AS jsonb),
+                  updated_at=clock_timestamp()
+                WHERE operation_id=:id
+            """),
+                {
+                    "id": job["operation_id"],
+                    "lease": str(uuid4()),
+                    "delay": RATE_LIMIT_DELAYS_SECONDS[count],
+                    "receipt": json.dumps(envelope),
+                },
+            )
+            connection.execute(
+                text("DELETE FROM drive_share_file_claims WHERE operation_id=:id"),
+                {"id": job["operation_id"]},
+            )
+            return True
+
+        return cast(bool, await self._transaction(operation))
+
     async def mark_dispatching(self, job, *, before: list[dict], issuer: dict):
         def operation(connection):
             row = self._current(connection, job)
@@ -337,6 +417,10 @@ class DrivePermissionStore(DriveSharingStore):
                 raise DriveSharingError("permission_job_superseded")
             context = self._management_context(connection, job["user_id"], job["request_id"])
             receipt = {"before": before, "issuer": issuer}
+            # A requeued refusal keeps its count, so the waits stay bounded.
+            rate_limited = self._rate_limited_count(self._open_receipt(row))
+            if rate_limited:
+                receipt["rate_limited"] = rate_limited
             if context["private_request_erased_at"] is not None:
                 from hushh_mcp.services.drive_sharing_retention import minimal_receipt
 
@@ -383,7 +467,12 @@ class DrivePermissionStore(DriveSharingStore):
                 or row["state"] not in {"queued", "dispatching", "unknown"}
             ):
                 raise DriveSharingError("permission_job_superseded")
-            if state == "succeeded" and row["state"] != "dispatching":
+            if state == "succeeded" and not (
+                row["state"] == "dispatching"
+                or row["state"] == "unknown"
+                and evidence.get("provenance") == RECONCILED_CREATE_PROVENANCE
+                and evidence.get("managed") is True
+            ):
                 raise DriveSharingError("invalid_permission_outcome")
             if state == "not_dispatched" and row["state"] != "queued":
                 raise DriveSharingError("invalid_permission_outcome")

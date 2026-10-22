@@ -1,4 +1,5 @@
 "use client";
+import { DirectMessageLink } from "@/components/direct-messages/direct-message-link";
 
 /**
  * `/one/location?action=circle-detail&circle=<id>` — one circle: its name,
@@ -89,7 +90,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { deriveLocationVoiceActions } from "@/lib/voice/location-voice-actions";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 import { circleKindLabel } from "./location-circles";
 
@@ -745,7 +746,7 @@ export function CircleDetail({ circleId }: CircleDetailProps) {
                       member.relationship === "connected" &&
                       member.publicPersonRef ? (
                         <Button asChild size="sm" variant="outline">
-                          <Link
+                          <DirectMessageLink
                             href={buildDirectMessageRoute({
                               personRef: member.publicPersonRef,
                             })}
@@ -753,7 +754,7 @@ export function CircleDetail({ circleId }: CircleDetailProps) {
                           >
                             <MessageCircle className="h-4 w-4" aria-hidden />
                             Message
-                          </Link>
+                          </DirectMessageLink>
                         </Button>
                       ) : null}
                       {canManage && !self && member.role !== "owner" ? (

@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -7,7 +8,13 @@ import {
   DurationPresetPicker,
   compactDurationLabel,
 } from "@/components/one-location/redesign/duration-presets";
-import { DurationSelector } from "@/components/one-location/redesign/selectors";
+import {
+  DurationSelector,
+  ReasonChips,
+  type ReasonValue,
+} from "@/components/one-location/redesign/selectors";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
+import { ROUTES } from "@/lib/navigation/routes";
 
 /** Every cell that currently reads as chosen. */
 function pressedLabels(): string[] {
@@ -224,6 +231,105 @@ describe("DurationSelector button layout", () => {
     for (const option of screen.getAllByRole("radio")) {
       expect(option).toHaveClass("min-h-11", "min-w-0", "px-3");
     }
+  });
+});
+
+describe("ReasonChips inline picker", () => {
+  it("mounts choices only while open and preserves Other as the controlled value", () => {
+    const onChange = vi.fn();
+    function ControlledReason() {
+      const [value, setValue] = useState<ReasonValue>("Safety check-in");
+      return (
+        <ReasonChips
+          value={value}
+          onChange={(next) => {
+            onChange(next);
+            setValue(next);
+          }}
+        />
+      );
+    }
+    const { container } = render(<ControlledReason />);
+    const trigger = screen.getByRole("button", { name: "Reason" });
+
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).toHaveAccessibleDescription("Safety check-in");
+    expect(screen.queryByRole("radiogroup", { name: "Reason" })).toBeNull();
+    expect(container.querySelector('[role="radio"]')).toBeNull();
+
+    fireEvent.click(trigger);
+
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getAllByRole("radio").map((option) => option.textContent)).toEqual([
+      "Safety check-in",
+      "Meeting nearby",
+      "Pick-up",
+      "Other",
+    ]);
+    expect(screen.getByRole("radio", { name: "Safety check-in" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    fireEvent.click(screen.getByRole("radio", { name: "Other" }));
+
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("Other");
+    expect(trigger).toHaveAccessibleDescription("Other");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).toHaveFocus();
+    expect(container.querySelector('[role="radio"]')).toBeNull();
+
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("radio", { name: "Other" }));
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(trigger).toHaveAccessibleDescription("Other");
+  });
+
+  it("opens from the keyboard and dismisses without changing the chosen reason", async () => {
+    const onChange = vi.fn();
+    render(<ReasonChips value="Safety check-in" onChange={onChange} />);
+    const trigger = screen.getByRole("button", { name: "Reason" });
+    trigger.focus();
+
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    const selected = screen.getByRole("radio", { name: "Safety check-in" });
+    expect(selected).toHaveFocus();
+    fireEvent.keyDown(selected, { key: "ArrowRight" });
+    const nextOption = screen.getByRole("radio", { name: "Meeting nearby" });
+    await waitFor(() => expect(nextOption).toHaveFocus());
+    expect(onChange).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(nextOption, { key: "Escape" });
+
+    expect(screen.queryByRole("radiogroup", { name: "Reason" })).toBeNull();
+    expect(trigger).toHaveFocus();
+    expect(trigger).toHaveAccessibleDescription("Safety check-in");
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("limits its Back layer to Ask and removes it after closing or unmounting", () => {
+    const { unmount } = render(<ReasonChips value={null} onChange={vi.fn()} />);
+    const trigger = screen.getByRole("button", { name: "Reason" });
+    fireEvent.click(trigger);
+
+    expect(
+      unwindBackLayer(ROUTES.ONE_LOCATION, new URLSearchParams("action=share")),
+    ).toBe(false);
+    expect(screen.getByRole("radiogroup", { name: "Reason" })).toBeTruthy();
+    act(() => {
+      expect(
+        unwindBackLayer(ROUTES.ONE_LOCATION, new URLSearchParams("action=ask")),
+      ).toBe(true);
+    });
+    expect(trigger).toHaveFocus();
+    expect(
+      unwindBackLayer(ROUTES.ONE_LOCATION, new URLSearchParams("action=ask")),
+    ).toBe(false);
+
+    fireEvent.click(trigger);
+    unmount();
+    expect(
+      unwindBackLayer(ROUTES.ONE_LOCATION, new URLSearchParams("action=ask")),
+    ).toBe(false);
   });
 });
 

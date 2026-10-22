@@ -1,8 +1,16 @@
 import { createRoot } from "react-dom/client";
+import { useState } from "react";
 
 import { AgentMarkdown } from "../../components/agent/agent-markdown";
+import { AgentTurnStreamPanel } from "../../components/agent/agent-turn-stream-panel";
+import { AppStreamSection } from "../../components/app-ui/stream-progress-panel";
+import { PuppyOneSurface } from "../../components/agent/puppy-one-surface";
+import { PUPPY_TYPOGRAPHY_ANSWER } from "./agent-markdown-boundaries";
+import { SoulMemoryDocument } from "../../components/profile/soul-memory-document";
 import {
   CHAT_USER_BUBBLE_CLASSNAME,
+  CHAT_WELCOME_COPY_CLASSNAME,
+  OneChatBubble,
   ONE_CHAT_ASSISTANT_BUBBLE_CLASSNAME,
 } from "../../components/agent/chat-message-styles";
 
@@ -183,4 +191,65 @@ function Transcript() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(<Transcript />);
+function SoulDocument() {
+  return <main className="app-page-shell px-4 py-6" data-testid="transcript">
+    <SoulMemoryDocument markdown={[
+      "# Soul.md", "", "## Facts", "",
+      "- **Alex** studies a synthetic engineering course at Example University.",
+      "- Works with Example Team on an owner-controlled research project.",
+      `- Project reference: https://example.test/${"a".repeat(160)}`,
+      "", "## Preferences", "",
+      "- Prefers concise replies with clear next steps and links to supporting evidence.",
+      "- Likes readable Markdown documents instead of nested record trees.",
+      "", "## Commitments", "",
+      "- Plans to finish the synthetic project by the end of the month.",
+    ].join("\n")} />
+  </main>;
+}
+
+function ActivityTranscript() {
+  const [streaming, setStreaming] = useState(false);
+  return (
+    <main data-one-chat-surface className="min-h-dvh bg-[color:var(--one-chat-canvas)] p-4 text-foreground" data-testid="transcript">
+      <div className="mx-auto max-w-3xl space-y-4">
+        <AgentTurnStreamPanel
+          streamEvents={[{ id: "calendar-step", label: "Calendar", message: streaming ? "Reading calendar events." : "Calendar checked.", status: streaming ? "running" : "done", createdAtMs: Date.now() - 1000 }]}
+          responseText="Your calendar is ready."
+          isStreaming={streaming}
+        />
+        <button type="button" onClick={() => setStreaming(true)}>Start stream</button>
+        <button type="button" onClick={() => setStreaming(false)}>Finish stream</button>
+        <AppStreamSection title="Import progress" items={[]} defaultOpen={false} />
+      </div>
+    </main>
+  );
+}
+
+const documentKind = new URLSearchParams(window.location.search).get("document");
+
+function PuppyTypography() {
+  const [connected, setConnected] = useState(false);
+  return (
+    <main className="bg-background text-foreground" data-testid="transcript">
+      <section data-one-chat-surface data-testid="opening-chat" className="px-4 sm:px-6">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+          <p className={CHAT_WELCOME_COPY_CLASSNAME}>What would you like to do today?</p>
+          <OneChatBubble tone="user" data-testid="opening-user">Compare the chat spacing.</OneChatBubble>
+          <OneChatBubble tone="assistant" data-testid="opening-assistant"><AgentMarkdown text={PUPPY_TYPOGRAPHY_ANSWER} /></OneChatBubble>
+          <textarea aria-label="Opening chat composer" className="agent-chat-composer-field text-[16px]" />
+        </div>
+      </section>
+      <section className="flex h-[650px] flex-col" data-testid="puppy-chat">
+        <PuppyOneSurface key={String(connected)} />
+      </section>
+      <button type="button" onClick={() => {
+        document.body.dataset.puppyConnected = "true";
+        setConnected(true);
+      }}>Connect synthetic Puppy</button>
+    </main>
+  );
+}
+
+createRoot(document.getElementById("root")!).render(
+  documentKind === "soul" ? <SoulDocument /> : documentKind === "activity" ? <ActivityTranscript /> : documentKind === "puppy" ? <PuppyTypography /> : <Transcript />,
+);

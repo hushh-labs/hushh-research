@@ -176,6 +176,11 @@ for (const [width, dark] of [[390, false], [1440, true]] as const)
     await expect(dialog).toContainText("71 of 72 files available");
     await expect(dialog).toContainText("Google Drive was unavailable");
     await expect(dialog.getByRole("button", { name: "Close Drive sharing card" })).toHaveCount(0);
+    // Visibility precedes the enter transform settling from either edge.
+    await expect.poll(async () => {
+      const box = (await dialog.boundingBox())!;
+      return box.x >= 0 && box.x + box.width <= width;
+    }).toBe(true);
     const dialogBox = (await dialog.boundingBox())!;
     expect(dialogBox.x).toBeGreaterThanOrEqual(0);
     expect(dialogBox.x + dialogBox.width).toBeLessThanOrEqual(width);

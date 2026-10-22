@@ -5,6 +5,7 @@ import { Capacitor } from "@capacitor/core";
 import { clearCalendarSetupOAuthReturn } from "@/lib/calendar/calendar-oauth-journey";
 import { HushhAuth } from "@/lib/capacitor";
 import {
+  clearGoogleOAuthAttempt,
   consumeStoredGoogleOAuthPopupSettlement,
   createGoogleOAuthPopupAttempt,
   isGoogleOAuthPopupSettlement,
@@ -252,17 +253,20 @@ export function connectCalendarInPlace(
   input: ConnectControls & {
     owner: InPlaceConnectOwner;
     accessLevel: "read" | "manage";
+    includeCalendarList?: boolean;
   },
 ): InPlaceConnectStart {
-  const { owner, accessLevel } = input;
+  const { owner, accessLevel, includeCalendarList } = input;
   const granted = (status: {
     connected?: boolean;
     status?: string;
     access_level?: string | null;
+    calendar_list_access?: boolean;
   }) =>
     status.connected === true &&
     status.status !== "needs_reauth" &&
-    (accessLevel !== "manage" || status.access_level === "manage");
+    (accessLevel !== "manage" || status.access_level === "manage") &&
+    (!includeCalendarList || status.calendar_list_access === true);
 
   if (Capacitor.isNativePlatform()) {
     return started("native", () =>
@@ -272,11 +276,13 @@ export function connectCalendarInPlace(
         const start = await GoogleCalendarService.startNativeConnect({
           idToken,
           accessLevel,
+          ...(includeCalendarList ? { includeCalendarList: true } : {}),
         });
         if (!current()) return "stale";
         const result = await HushhAuth.connectCalendar({
           serverClientId: start.server_client_id,
           accessLevel: start.access_level,
+          ...(start.include_calendar_list ? { includeCalendarList: true } : {}),
         });
         if (!current()) return "stale";
         const status = await GoogleCalendarService.completeNativeConnect({
@@ -335,6 +341,7 @@ export function connectCalendarInPlace(
         );
         return granted(status) ? "connected" : "not_connected";
       } finally {
+        clearGoogleOAuthAttempt(attempt.attemptId);
         consumeStoredGoogleOAuthPopupSettlement(attempt.attemptId);
       }
     }),
@@ -361,7 +368,7 @@ export function inPlaceConnectCopy(
     },
     calendar: {
       connected: "Google Calendar connected. Ask One again to continue.",
-      not_connected: "Google Calendar was not connected.",
+      not_connected: "The requested Google Calendar permission was not enabled.",
       failed: "Unable to request Google Calendar permission.",
     },
   };

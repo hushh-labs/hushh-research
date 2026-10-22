@@ -37,6 +37,182 @@ Use this pattern for any new Kai, One Voice, Agent Chat, or portfolio-import str
 - Consume streams with `hushh-webapp/lib/streaming/kai-stream-client.ts`.
 - Never add route-specific ad hoc parsers.
 - In Agent Chat, consume the existing AG-UI protocol through `hushh-webapp/lib/services/agent-chat-client.ts`; assistant text deltas are the source of incremental response text, not tool progress or provider payloads.
+- Agent Chat settles a turn from an explicit `RUN_FINISHED` or `RUN_ERROR`. After a clean transport EOF without either event, the client allows 500 ms for already received parser callbacks, then aborts a stuck SDK transport and reports one incomplete result. The workspace reconciles persisted turn history before offering another attempt. An intentional review-card detach remains a separate pending state, not a stream failure. Terminal callbacks are guarded so a late frame cannot create a second completion.
+- A confirmed chat-key refusal may retain one unexecuted request in memory for
+  its requested unlock. The shared composer still clears on lock. Recovery
+  requires the same validated authentication generation and restored conversation;
+  any intervening text/attachment edit or explicit chat selection cancels it.
+  Consume the continuation before dispatch. Calendar recovery rereads current
+  permission and source content; it never restores fetched sources as a draft
+  attachment or automatically captures them into Memory. Stale/exhausted refusals
+  and uncertain transport outcomes do not gain automatic replay authority.
+
+### Personal World Model research
+
+`GET /api/one/world-model/jobs/stream` is an owner-authorized research stream, separate from the Kai envelope above. It sends `progress` with observed counts and source titles, a cumulative `partial` list of checkpointed cited findings, `ping` heartbeats, and a terminal `result`. The client parses complete SSE blocks with the shared parser and validates each payload against the PWM schema. A later `partial` replaces the earlier list, including an empty list after authority or evidence invalidation. Reconnect or a status read restores the current checkpoint; a provider interruption must not erase already validated provisional findings. Provisional findings are read-only until the final offered report passes evidence validation and the owner chooses what to save.
+
+### Live Email and Calendar reads
+
+One Live Voice keeps ordered tool dispatch while its provider/client intake can
+cancel only the active read task. A matching provider `tool_cancel`, new owner
+speech, or new typed input fences its result and isolated narration before queued
+dispatch catches up. Canceled reads publish one metadata-only terminal result:
+`cancelled/provider_cancelled` or `superseded/newer_question`. Effects already
+accepted retain their separate authoritative settlement and are never replayed
+or canceled by this read policy.
+
+Total budgets are 25 seconds for Calendar and 45 seconds for Email, including
+retrieval and interpretation; isolated narration has an 8-second bound inside
+the total. A retrieval deadline returns `rejected/read_timeout`. Narration
+failure preserves a successfully published card and interrupts partial audio.
+Provider receipt delivery and cancellation settlement are bounded to three
+seconds; an unhealthy transport closes within one second and an uncertain
+provider receipt is never retried. Unpublished entity offers are discarded; a late read cannot change which message
+or event an ordinal selects. Cancellation is cooperative: a synchronous read
+already running in a worker thread may finish, but its content cannot publish.
+
+Calendar REST reads additionally have a 12-second provider/connection budget,
+at most one safe transient retry and a 2 MiB streamed response cap. Calendar
+writes do not inherit these retry rules. Google REST responses are JSON pages;
+the app's lifecycle/card/audio frames are distinct from provider token streaming.
+
+### Document request Feed wake-ups
+
+One SSE channel per account wakes the Feed, Profile Payouts and the app badges.
+Its server is `consent-protocol/api/routes/document_feed_stream.py`, reached
+through two entry points:
+
+| Entry point | Who calls it | Owner |
+|---|---|---|
+| `GET /api/consent/document-feed/{user_id}?v=1\|2` (`api/routes/sse.py`) | native apps directly; the web through the same-origin Next proxy `app/api/consent/document-feed/[userId]/route.ts` | Firebase bearer whose uid must equal the path (403 otherwise) |
+| `GET /api/one/feed/events?v=2` (`api/routes/one/feed_events.py`) | the web, at the backend origin | the verified token only |
+
+Three committed producers ring PostgreSQL `one_user_state_changed` with
+metadata only. A `drive_share_events` insert sends the addressed user, the
+opaque request ID and the event UUID. Payout producers send `bank_payout_changed`
+through `consent-protocol/hushh_mcp/services/payout_doorbell.py`: the owner, the
+closed `kinds` (`wallet`, `earnings`, `bank_payouts`, `account`, `balance`) and
+optionally one request ID; the payload is deterministic, so identical doorbells
+in one transaction collapse, and the owner-earning trigger
+(`db/migrations/318_payout_doorbell_kinds.sql`) sends the same bytes. Every
+committed `feed_events` write sends `feed_changed` with only the owner
+(`db/migrations/313_feed_realtime_changes.sql`). Missing or unknown payout kinds
+mean every kind.
+
+Frames with `?v=2`:
+
+| Frame | Data | When |
+|---|---|---|
+| `hello` | `{"v":2,"heartbeat_ms":15000,"max_lifetime_ms":<ms>,"live":bool}` | first |
+| `feed_reset` | `{}` | on connect, after a LISTEN recovery or queue overflow |
+| `feed_changed` | `id: <event UUID>`, `{"request_id":"<UUID>"}` | per Drive doorbell |
+| `feed_changed` | `{}` | per other Feed write |
+| `payout_changed` | `{"kinds":[...],"request_ids":[...]}` | per payout burst |
+| `heartbeat` | `{"ts":<epoch ms>,"live":bool}` | every 15 s, time-based |
+| `reconnect` | `{"after_ms":0..2000}` | just before the server closes |
+
+`: ping` comments still arrive every 15 s. Payout doorbells coalesce per stream
+(500 ms trailing debounce, 2 s maximum wait); `request_ids` holds at most 20 IDs
+and is empty when a burst is not tied to specific requests. `live` is false
+while the worker's LISTEN is down.
+
+Without `v=2` (installed builds) the stream sends `feed_reset`, both
+`feed_changed` forms and `heartbeat` `{"live":bool}` every 30 s. A payout burst
+becomes one `feed_reset`. The stream closes about 500 ms after its first
+post-connect reset or Drive frame (a general `feed_changed` never shortens it),
+so a build that buffers the whole body sees a change within seconds and frees
+its backend slot.
+
+Bounds, per backend worker:
+
+| Bound | Value |
+|---|---|
+| v2 lifetime, direct | 840 s plus or minus 60 s (below the iOS stream plugin's 900 s limit) |
+| v1 lifetime | 110-120 s |
+| lifetime through the Next proxy | 90-110 s, below the web server's request timeout (120 s production, 300 s UAT), so proxied streams rotate cleanly |
+| token re-verification | every 30 s, also before releasing a hint that raced the timer; a refusal closes the stream silently |
+| blocked send | 10 s, then the response ends and frees its subscription and slot |
+| streams | at most 6 per worker and 3 per user; a fourth evicts that user's oldest; a full worker answers 503 with `Retry-After: 60` |
+
+The proxy marks its upstream request with the fixed header
+`X-Hussh-Stream-Via: next-proxy`; the server trusts it only to shorten the
+lifetime. `DOCUMENT_FEED_WEB_STREAM_ENABLED` turns the direct web endpoint on or
+off; unset, it is on everywhere except production, and a disabled endpoint
+answers 404 before reading any token.
+
+`consent-protocol/api/consent_listener.py` probes its LISTEN connection with
+`SELECT 1` (5 s timeout) every 30 s and re-listens when the probe fails. Every
+activation pushes a local resync to each Feed stream on that worker, which sends
+`feed_reset`, because NOTIFYs sent while LISTEN was down are lost. Feed streams
+subscribe with snapshot resets: a full queue is replaced by one resync instead
+of silently dropping hints. Legacy consent SSE queues never receive Feed hints
+or resyncs, so a Feed burst cannot displace consent, message or location events.
+A bank doorbell first invalidates that worker's 30 s account status cache.
+
+The reset is the recovery path when a tab or backend instance missed NOTIFY:
+subscribe first, then tell the client to fetch the authenticated Feed and
+Consent Center snapshots, then drain queued changes. FCM and the visible
+Feed's periodic/focus refresh remain fallbacks. No filenames, request reason,
+amounts, provider identifiers, Stripe data, counterpart identity or secret
+material may enter the stream. Frames never authorize payment, consent, file
+access or a user-facing state label. The legacy consent SSE fallback switch
+does not govern these endpoints.
+
+Client. `hushh-webapp/components/feed/authenticated-feed-stream.tsx`, mounted
+once in `app/providers.tsx`, opens the account's stream for the app's lifetime;
+Feed and Profile calls to `useDocumentFeedStream` join that connection and never
+open another. On web one tab per browser streams (Web Locks elect it; a
+BroadcastChannel relays its frames to other tabs). A hidden tab aborts its
+stream and gives up leadership, so only a visible tab holds a server slot.
+`hushh-webapp/lib/services/document-feed-transport.ts` tries the direct v2
+endpoint first. It falls back, within the same attempt, to the same-origin
+proxy with `?v=2` on a CORS or network failure or no headers in 7 s (direct
+skipped for 5 minutes), a 404 (30 minutes) or a 503 (its `Retry-After`, at
+least 60 s). Both paths use raw `fetch`, so a stream 401 never signs anyone
+out. Native apps use the HushhStream plugin, which really streams and cancels
+when the app goes to the background.
+
+`hushh-webapp/lib/feed/document-feed-stream-manager.ts` is the state machine.
+Each attempt has its own AbortController; the token lookup must settle within
+10 s and the response headers within 15 s, and a 45 s watchdog on received
+bytes (comments count) aborts a silent stream, rereads payout data once and
+reconnects. A late response for an abandoned attempt is cancelled. Failures
+back off 1, 2, 4, 8, 16, then 30 s with 20% jitter, reset after 60 s of healthy
+streaming; after 8 failures the client polls and retries on network, focus or
+visibility, or every 5 minutes. A 503 waits for `Retry-After`. A 401 gets one
+token refresh, then the stream waits for a recovery signal (session verified
+again, a new ID token, network back, or visible 60 s after the last attempt), at
+most 3 times per 15 minutes. Once the validated session owner changes, the old
+stream connects and dispatches nothing. The manager rechecks that owner after
+token acquisition and response headers; a retired attempt stops without retry
+and cancels any late response body, even when the transport ignores abort.
+
+`payout_changed` rings only the payout bus (`hushh-webapp/lib/payouts/payout-events.ts`).
+Feed frames reread the Feed on a burst's first frame and once more after the
+burst settles (1 s quiet, 5 s cap), because a forced reread joins any read
+already in flight. `feed_reset` also rereads every payout kind; a general
+`feed_changed` rereads the Feed without the consent cache cascade. Returning to
+a hidden tab or a backgrounded app repairs the Feed once and reconnects; while
+no healthy stream covers the tab, the Feed is repaired every 45 s.
+The payout store (`hushh-webapp/lib/payouts/payout-live-store.ts`) polls on the
+idle clock while visible: every 45 s, every 15 s for a moving transfer or
+deposit while the stream is not live, and `account` no faster than every
+5 minutes.
+
+`hushh-webapp/app/api/_utils/consent-stream-proxy.ts` is the only proxy for
+these streams (the Feed route and the legacy consent events route). Route
+params arrive decoded, so it refuses `.`, `..`, separators, `%`, `?`, `#`,
+whitespace and control characters before any fetch. It requires a bearer token,
+forwards only `v=1|2`, refuses redirects and non-SSE responses, never reflects
+upstream error bodies, passes on a plain `Retry-After` from a busy backend, and
+answers `private, no-store` with `Content-Encoding: none` so compression cannot
+hold frames back.
+
+The first owner Stop access transition updates the request row rather than
+writing a Drive outbox event. Its transaction sends the same opaque doorbell
+to both participants, using the request UUID as its one-shot event ID. The
+client rereads current access state; later removal outcomes follow the usual
+durable Drive event path.
 
 ### Private connector events
 

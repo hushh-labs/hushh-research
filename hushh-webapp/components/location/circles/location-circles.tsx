@@ -54,7 +54,7 @@ import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { deriveLocationVoiceActions } from "@/lib/voice/location-voice-actions";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 const SCREEN_ID = "one_location_circles";
 const VOICE_ACTIONS = deriveLocationVoiceActions(SCREEN_ID);

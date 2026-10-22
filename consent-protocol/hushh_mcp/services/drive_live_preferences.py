@@ -117,6 +117,23 @@ class DriveLivePreferences(DriveDocumentStore):
                     "enabled": enabled,
                 },
             )
+            # Pause collection jobs with the same account-level background toggle.
+            # The preparation preference remains recorded, including a saved
+            # pause. Enabling background work never overrides that choice.
+            connection.execute(
+                text("""UPDATE drive_collection_sync SET lease_id=NULL,lease_expires_at=NULL,
+              next_at=clock_timestamp()+make_interval(secs=>:delay),updated_at=clock_timestamp()
+              WHERE user_id=:user"""),
+                {"user": user_id, "delay": 0 if enabled else 31536000},
+            )
+            connection.execute(
+                text("""UPDATE connected_documents SET
+              processing_enabled=:enabled AND EXISTS (SELECT 1 FROM drive_collection_sync s WHERE s.user_id=:user AND s.processing_enabled),
+              processing_revision=processing_revision+1,lease_id=NULL,lease_expires_at=NULL,
+              next_attempt_at=clock_timestamp(),updated_at=clock_timestamp()
+              WHERE user_id=:user AND source_profile='live' AND last_error_code IS DISTINCT FROM 'source_unavailable'"""),
+                {"user": user_id, "enabled": enabled},
+            )
             if enabled:
                 # A trusted request paused while background work was OFF can
                 # retry immediately. Only the auto worker writes this code;
@@ -146,4 +163,5 @@ class DriveLivePreferences(DriveDocumentStore):
         result = await self._transaction(operation)
         if enabled:
             await wake_drive_work("suggestions")
+            await wake_drive_work("documents")
         return result

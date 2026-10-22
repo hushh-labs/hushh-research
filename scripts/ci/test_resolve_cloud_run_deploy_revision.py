@@ -35,9 +35,7 @@ def run(tmp_path: Path, revisions: list[dict]) -> subprocess.CompletedProcess[st
     )
 
 
-def revision(
-    name: str, *, sha: str = "abc123", run_id: str = "42", run_attempt: str = "2"
-) -> dict:
+def revision(name: str, *, sha: str = "abc123", run_id: str = "42", run_attempt: str = "2") -> dict:
     return {
         "metadata": {
             "name": name,
@@ -77,3 +75,55 @@ def test_selects_only_the_current_run_attempt(tmp_path: Path) -> None:
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "current-attempt"
+
+
+def test_text_recovery_cannot_run_against_unverified_or_production_service():
+    import copy
+    import importlib.util
+    import pytest
+
+    path = Path(__file__).parents[1] / "ops/run_uat_text_recovery_job.py"
+    spec = importlib.util.spec_from_file_location("uat_text_recovery", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    sha = "a" * 40
+    service = {
+        "status": {
+            "latestReadyRevisionName": "serving",
+            "traffic": [{"percent": 100, "revisionName": "serving"}],
+        },
+        "spec": {
+            "template": {
+                "metadata": {"annotations": {"run.googleapis.com/cloudsql-instances": "uat-sql"}},
+                "spec": {
+                    "serviceAccountName": "consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com",
+                    "containers": [
+                        {
+                            "image": "gcr.io/hushh-pda-uat/consent-protocol@sha256:" + "b" * 64,
+                            "env": [
+                                {"name": "ENVIRONMENT", "value": "uat"},
+                                {"name": "HUSHH_DEPLOY_SHA", "value": sha},
+                            ],
+                        }
+                    ],
+                },
+            }
+        },
+    }
+    job = module.job_spec(service, sha=sha, run_id="123")
+    task = job["spec"]["template"]["spec"]["template"]["spec"]
+    assert task["maxRetries"] == 0
+    assert task["containers"][0]["args"][-1] == "--limit=20"
+    for mutate in (
+        lambda value: value["status"]["traffic"][0].update(percent=50),
+        lambda value: value["spec"]["template"]["spec"]["containers"][0]["env"][0].update(
+            value="production"
+        ),
+        lambda value: value["spec"]["template"]["spec"].update(
+            serviceAccountName="other@example.invalid"
+        ),
+    ):
+        denied = copy.deepcopy(service)
+        mutate(denied)
+        with pytest.raises(ValueError):
+            module.job_spec(denied, sha=sha, run_id="123")

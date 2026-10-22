@@ -72,7 +72,7 @@ import {
  * Run: npx playwright test e2e/agent-surface-model-authority.layout.spec.ts --project=chromium
  */
 
-const WIDTHS = [360, 390, 430, 768, 1024, 1280] as const;
+const WIDTHS = [320, 360, 390, 430, 768, 1024, 1280] as const;
 
 /** A person with a choice of cloud models, so One's picker exists at all. */
 const MODEL_PREFERENCE = {
@@ -97,6 +97,9 @@ const CLOUD_VENDOR = /gemini/i;
 type Mode = "one" | "puppy";
 
 interface Variant {
+  /** Render the empty-chat welcome using production layout classes. */
+  welcomeName?: string;
+  welcomeTheme?: "light" | "dark";
   /** Whether this person has more than one cloud model to choose between. */
   canPickOneModel: boolean;
   /**
@@ -110,10 +113,19 @@ interface Variant {
    * do with the defect it exists to reproduce.
    */
   applyShippedGate: boolean;
+  /** Opt into the actual centered header CSS and NativeChatChrome wrappers. */
+  centeredHeader?: boolean;
+  stackedPhoneCss?: boolean;
+  workingSubtitle?: string;
+  safeTop?: number;
 }
 
-const SHIPPED: Variant = { canPickOneModel: true, applyShippedGate: true };
-const SINGLE_MODEL: Variant = { canPickOneModel: false, applyShippedGate: true };
+const SHIPPED: Variant = { canPickOneModel: true, applyShippedGate: true, centeredHeader: true };
+const SINGLE_MODEL: Variant = {
+  canPickOneModel: false,
+  applyShippedGate: true,
+  centeredHeader: true,
+};
 const AS_REPORTED: Variant = { canPickOneModel: true, applyShippedGate: false };
 
 function escapeHtml(value: string): string {
@@ -129,11 +141,13 @@ function escapeHtml(value: string): string {
  * shipped source is the `AS_REPORTED` one, which reproduces a condition that no
  * longer exists to extract; see `Variant.applyShippedGate`.
  */
-function decide(mode: Mode, variant: Variant) {
+function decide(mode: Mode, variant: Variant, width = 1024) {
   const scope = {
     isPuppySurface: mode === "puppy",
+    oneDisplayName: "One",
     canPickOneModel: variant.canPickOneModel,
     modelPreference: MODEL_PREFERENCE,
+    hasInlineModelPicker: width >= 640,
   };
   const showPicker = variant.applyShippedGate
     ? Boolean(evaluateShippedExpression(SRC.cloudPicker.gateExpression, scope))
@@ -145,7 +159,8 @@ function decide(mode: Mode, variant: Variant) {
     ),
     showPicker,
     oneHidden: String(
-      evaluateShippedExpression(SRC.visibility.oneHiddenExpression, scope) || "",
+      evaluateShippedExpression(SRC.visibility.oneHiddenExpression, scope) ||
+        "",
     ),
     puppyHidden: String(
       evaluateShippedExpression(SRC.visibility.puppyHiddenExpression, scope) ||
@@ -175,8 +190,8 @@ function cloudChipTitle(): string {
   );
 }
 
-function renderScreen(mode: Mode, variant: Variant): string {
-  const plan = decide(mode, variant);
+function renderScreen(mode: Mode, variant: Variant, width: number): string {
+  const plan = decide(mode, variant, width);
 
   const segments = SRC.toggle.options
     .map((option) => {
@@ -184,7 +199,7 @@ function renderScreen(mode: Mode, variant: Variant): string {
       return `<button type="button" role="radio" data-mode="${option.value}"
         aria-checked="${active}" aria-label="${escapeHtml(option.accessibleLabel ?? option.label)}"
         class="${SRC.toggle.segmentClass}${active ? " bg-background text-foreground shadow-sm" : " text-muted-foreground"}"
-      >${option.icon ? `<span aria-hidden="true" class="inline-block ${SRC.toggle.iconClass}"></span>` : ""}<span class="${SRC.toggle.labelClass}">${escapeHtml(option.label)}</span></button>`;
+      >${option.icon ? `<svg aria-hidden="true" class="inline-block ${SRC.toggle.iconClass}" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor"/></svg>` : ""}<span class="${SRC.toggle.labelClass}">${escapeHtml(option.label)}</span></button>`;
     })
     .join("");
 
@@ -194,13 +209,22 @@ function renderScreen(mode: Mode, variant: Variant): string {
          aria-label="${escapeHtml(SRC.cloudPicker.ariaLabel)}"
          title="${escapeHtml(cloudChipTitle())}"
          class="${SRC.cloudPicker.triggerClass} inline-flex items-center"
-       ><span class="truncate">${escapeHtml(cloudChipLabel())}</span></button>`
+       ><svg aria-hidden="true" class="${SRC.cloudPicker.iconClass}" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2" fill="none" stroke="currentColor"/></svg><span class="truncate">${escapeHtml(cloudChipLabel())}</span></button>`
     : "";
 
-  const toggle = `<div role="radiogroup" data-testid="agent-toggle" aria-label="${escapeHtml(SRC.toggle.ariaLabel)}"
-             class="${SRC.toggle.containerClass} w-auto shrink-0">${segments}</div>`;
-  const profile = `<button type="button" data-testid="profile-open-button" aria-label="Open Profile"
+  const toggle = `<div class="${SRC.toggle.frameClass}"><div role="radiogroup" data-testid="agent-toggle" aria-label="${escapeHtml(SRC.toggle.ariaLabel)}"
+             class="${SRC.toggle.containerClass}" style="min-width:${SRC.toggle.minimumWidth}px">${segments}</div></div>`;
+  const profileButton = `<button type="button" data-testid="profile-open-button" aria-label="Open Profile"
              class="inline-flex shrink-0 items-center justify-center rounded-full ${SRC.header.profileClass}"><span data-testid="profile-photo" class="${SRC.header.profilePhotoClass}"></span></button>`;
+  const profile = variant.centeredHeader
+    ? `<span class="relative inline-flex shrink-0 overflow-visible align-middle">${profileButton}</span>`
+    : profileButton;
+  const artwork = SRC.header.centered.artwork;
+  const artworkMarkup = `<div class="${artwork.containerClass}"><img data-testid="one-artwork" alt="" width="64" height="64" class="${artwork.className}"></div>`;
+  const brand = mode === "one"
+    ? `<span class="relative inline-flex shrink-0 overflow-visible align-middle"><button data-agent-chat-one-profile-trigger data-testid="one-profile-button" aria-label="Open One profile" class="inline-flex items-center justify-center rounded-full ${SRC.header.centered.profileTriggerClass}"><span class="inline-flex items-center justify-center">${artworkMarkup}</span></button></span>`
+    : "";
+  const subtitle = variant.workingSubtitle ?? plan.subtitle;
   // Rendered in the shipped source order, so the toggle's anchor is whatever
   // the product anchors it to.
   const actions = SRC.header.actionOrder
@@ -208,16 +232,16 @@ function renderScreen(mode: Mode, variant: Variant): string {
     .join("");
 
   const header = `
-    <div data-testid="agent-header" class="${SRC.header.containerClass}">
-      <button type="button" aria-label="Open chat history" class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full"></button>
-      <div data-testid="agent-identity" class="${SRC.header.identityClass}">
-        <div data-testid="agent-brand-tile" class="${SRC.header.brandTileClass}"></div>
+    <div data-testid="agent-header" data-agent-header-layout="${variant.centeredHeader ? "portrait" : "compact"}" ${variant.centeredHeader && mode === "one" ? 'data-one-centered-header="true"' : ""} class="${SRC.header.containerClass}">
+      <button type="button" data-testid="history-button" aria-label="Open chat history" class="${escapeHtml(SRC.header.historyClass)}"></button>
+      <div data-agent-chat-header-region="identity" data-testid="agent-identity" class="${SRC.header.identityClass}">
+        <div data-agent-chat-brand-tile data-testid="agent-brand-tile" class="${SRC.header.brandTileClass}">${brand}</div>
         <div class="min-w-0">
           <div data-testid="agent-name" class="${SRC.header.nameClass}">${escapeHtml(plan.name)}</div>
-          <p data-testid="agent-subtitle" class="${SRC.header.subtitleClass}">${escapeHtml(plan.subtitle)}</p>
+          ${subtitle ? `<p data-testid="agent-subtitle" class="${SRC.header.subtitleClass}"><span class="block truncate">${escapeHtml(subtitle)}</span></p>` : ""}
         </div>
       </div>
-      <div data-testid="agent-header-cluster" class="${SRC.header.clusterClass}">${actions}</div>
+      <div data-agent-chat-header-region="actions" data-testid="agent-header-cluster" class="${SRC.header.clusterClass}">${actions}</div>
     </div>`;
 
   /*
@@ -253,7 +277,19 @@ function renderScreen(mode: Mode, variant: Variant): string {
    * One's transcript and composer, hidden rather than unmounted, so a cloud
    * turn in flight survives a glance at Puppy. The spec asserts both halves.
    */
-  const oneTranscript = `
+  const oneTranscript = variant.welcomeName !== undefined ? `
+    <div class="${SRC.welcome.viewportClass} ${plan.oneHidden}">
+      <div data-testid="one-transcript" class="${SRC.welcome.scrollClass}">
+        <div class="${SRC.welcome.transcriptColumnClass}">
+          <section data-testid="welcome" class="${SRC.welcome.sectionClass}">
+            <div class="${SRC.welcome.columnClass}">
+              <h2 data-testid="welcome-heading" class="${SRC.welcome.headingClass}">Hi ${escapeHtml(variant.welcomeName)}</h2>
+              <p class="${SRC.welcome.descriptionClass}">What would you like to do today?</p>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>` : `
     <div data-testid="one-transcript"
          class="min-h-0 flex-1 overflow-y-auto px-4 pt-5 pb-6 sm:px-6 ${plan.oneHidden}">
       <div class="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6">
@@ -329,14 +365,14 @@ const fixtureCache = new Map<string, string>();
  * change is a real re-render in a real layout rather than two screenshots of
  * two documents.
  */
-async function buildFixture(variant: Variant): Promise<string> {
-  const key = JSON.stringify(variant);
+async function buildFixture(variant: Variant, width: number): Promise<string> {
+  const key = JSON.stringify([variant, width]);
   const cached = fixtureCache.get(key);
   if (cached) return cached;
 
   const screens: Record<Mode, string> = {
-    one: renderScreen("one", variant),
-    puppy: renderScreen("puppy", variant),
+    one: renderScreen("one", variant, width),
+    puppy: renderScreen("puppy", variant, width),
   };
 
   const used = new Set<string>();
@@ -346,12 +382,25 @@ async function buildFixture(variant: Variant): Promise<string> {
     }
   }
   const css = await compileTailwind(used);
+  const globals = fs.readFileSync(path.join(process.cwd(), "app/globals.css"), "utf8");
+  const geometryStart = globals.indexOf("/* One shared header measure,");
+  if (geometryStart < 0) throw new Error("Missing shared Chat header geometry");
+  let geometry = globals.slice(geometryStart);
+  if (variant.stackedPhoneCss) {
+    // Historical negative control: identity and controls occupy separate rows.
+    geometry += `@media (max-width:767px) {
+      .agent-chat-header[data-one-centered-header="true"] { grid-template-columns:44px minmax(0,1fr); grid-template-rows:88px 44px; height:calc(152px + var(--agent-chat-header-safe-top)); }
+      .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] { position:static; transform:none; grid-column:1 / -1; grid-row:1; }
+      .agent-chat-header[data-one-centered-header="true"] > :first-child, .agent-chat-header[data-one-centered-header="true"] > :last-child { grid-row:2; }
+      .agent-chat-header[data-one-centered-header="true"] > :last-child { grid-column:2; }
+    }`;
+  }
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-surface-"));
   fs.writeFileSync(path.join(dir, "fixture.css"), css);
   fs.writeFileSync(
     path.join(dir, "fixture.html"),
-    `<!doctype html><html><head><meta charset="utf-8">
+    `<!doctype html><html${variant.welcomeTheme ? ` class="${variant.welcomeTheme}"` : ""}><head><meta charset="utf-8">
 <!-- Load-bearing on the mobile projects. A page with no viewport meta gets the
      980px fallback layout viewport under \`isMobile\`, so every width below it
      measures the same 980px-wide header scaled down, and the widths this file
@@ -359,6 +408,8 @@ async function buildFixture(variant: Variant): Promise<string> {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="fixture.css">
 <style>${TOKENS}
+:root { --agent-chat-header-safe-top:${variant.safeTop ?? 0}px; --agent-chat-header-height:calc(60px + var(--agent-chat-header-safe-top)); }
+${geometry}
 ${productFontStyle()}
 </style></head><body>
 <div id="screen"></div>
@@ -383,13 +434,15 @@ ${productFontStyle()}
 
 async function openFixture(page: Page, variant: Variant, width: number) {
   await page.setViewportSize({ width, height: 844 });
-  await page.goto(await buildFixture(variant));
+  await page.goto(await buildFixture(variant, width));
   await awaitProductFont(page);
   await expect(page.getByTestId("agent-toggle")).toBeVisible();
 }
 
 function segment(mode: Mode) {
-  const option = SRC.toggle.options.find((candidate) => candidate.value === mode);
+  const option = SRC.toggle.options.find(
+    (candidate) => candidate.value === mode,
+  );
   if (!option) throw new Error(`no "${mode}" segment in the shipped toggle`);
   return option;
 }
@@ -446,7 +499,7 @@ test.describe("Agent Chat: which agent is answering", () => {
   test("Puppy mode carries exactly one model control, and it is not a cloud one", async ({
     page,
   }) => {
-    await openFixture(page, SHIPPED, 390);
+    await openFixture(page, SHIPPED, 768);
 
     // One first, so the picker is proven to exist before its absence means
     // anything. A gate stuck shut would fail here, not silently pass below.
@@ -492,7 +545,14 @@ test.describe("Agent Chat: which agent is answering", () => {
     expect(puppyName).not.toBe(oneName);
 
     await expect(page.getByTestId("agent-name")).toHaveText(oneName);
-    await expect(page.getByTestId("agent-subtitle")).toBeVisible();
+    if (decide("one", SHIPPED).subtitle) {
+      await expect(page.getByTestId("agent-subtitle")).toHaveText(
+        decide("one", SHIPPED).subtitle,
+      );
+    } else {
+      // ChatAgentSubtitle returns null at rest; no fabricated idle line.
+      await expect(page.getByTestId("agent-subtitle")).toHaveCount(0);
+    }
     await expect(
       page.locator(`[aria-label="${oneOption.accessibleLabel}"]`),
     ).toHaveAttribute("aria-checked", "true");
@@ -502,13 +562,13 @@ test.describe("Agent Chat: which agent is answering", () => {
     // The name is the reader's only guarantee about which agent is answering,
     // so it names the agent on screen, not the workspace.
     await expect(page.getByTestId("agent-name")).toHaveText(puppyName);
+    await expect(page.getByTestId("agent-subtitle")).toHaveCount(0);
     await expect(
       page.locator(`[aria-label="${puppyOption.accessibleLabel}"]`),
     ).toHaveAttribute("aria-checked", "true");
 
-    // The spoken label says what is being chosen; "One" and "Puppy" alone do
-    // not. Both options carry one, and it names the machine for Puppy.
-    expect(puppyOption.accessibleLabel ?? "").toMatch(/on your machine/i);
+    // The selected agent's concise authored name matches native and web.
+    expect(puppyOption.accessibleLabel).toBe("Puppy One");
     expect(oneOption.accessibleLabel ?? "").toMatch(/cloud/i);
 
     // Name and controls moved in the same render: the surface below is Puppy's
@@ -573,6 +633,10 @@ test.describe("Agent Chat: which agent is answering", () => {
 
       const tile = await box(page, "agent-brand-tile");
       const header = await box(page, "agent-header");
+      if (width < 640) {
+        const identity = await box(page, "agent-identity");
+        expect(tile.x).toBeCloseTo(identity.x, 0);
+      }
       expect(tile.width).toBeGreaterThan(0);
       expect(tile.height).toBeGreaterThan(0);
       expect(tile.x).toBeGreaterThanOrEqual(header.x - 0.5);
@@ -611,22 +675,35 @@ test.describe("Agent Chat: which agent is answering", () => {
       // toggle, which is anchored to the profile button at the right edge. Put
       // the picker between them and its exit drags the toggle sideways out
       // from under the thumb that just pressed it.
-      expect(Math.abs(after.toggle.x - before.toggle.x)).toBeLessThanOrEqual(0.5);
-      expect(Math.abs(after.toggle.width - before.toggle.width)).toBeLessThanOrEqual(0.5);
-      expect(Math.abs(after.toggle.y - before.toggle.y)).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(after.toggle.x - before.toggle.x)).toBeLessThanOrEqual(
+        0.5,
+      );
+      expect(
+        Math.abs(after.toggle.width - before.toggle.width),
+      ).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(after.toggle.y - before.toggle.y)).toBeLessThanOrEqual(
+        0.5,
+      );
 
       // The right-hand cluster keeps its right edge (it narrows by exactly the
       // picker it lost), and stays on the page.
       expect(
-        Math.abs(after.cluster.x + after.cluster.width - (before.cluster.x + before.cluster.width)),
+        Math.abs(
+          after.cluster.x +
+            after.cluster.width -
+            (before.cluster.x + before.cluster.width),
+        ),
       ).toBeLessThanOrEqual(0.5);
-      expect(after.cluster.x + after.cluster.width).toBeLessThanOrEqual(width + 0.5);
+      expect(after.cluster.x + after.cluster.width).toBeLessThanOrEqual(
+        width + 0.5,
+      );
       expect(after.cluster.x).toBeGreaterThanOrEqual(-0.5);
 
       // And the header does not grow a line on the longer name: "Puppy One"
       // is three times "One", and the identity block it sits in is the half
       // that is allowed to shrink.
-      expect(Math.abs(after.header.height - before.header.height)).toBeLessThanOrEqual(0.5);
+      expect(after.header.height).toBe(60);
+      expect(before.header.height).toBeGreaterThan(60);
 
       // Nothing slides under a control: the identity region ends before the
       // actions begin, in both modes. This is the 390px defect where the brand
@@ -635,11 +712,34 @@ test.describe("Agent Chat: which agent is answering", () => {
         if (mode === "one") await switchTo(page, "one");
         const identity = await box(page, "agent-identity");
         const cluster = await box(page, "agent-header-cluster");
-        expect(identity.x + identity.width).toBeLessThanOrEqual(cluster.x + 0.5);
+        const disjoint = identity.y + identity.height <= cluster.y + 0.5 || identity.x + identity.width <= cluster.x + 0.5;
+        expect(disjoint, "Identity and actions must occupy separate tracks, never overlap").toBe(true);
+
         expect((await box(page, "agent-name")).width).toBeGreaterThan(0);
+        // Identity and controls are side by side, not two separate app-bar rows.
+        expect((await box(page, "agent-header")).height).toBeGreaterThanOrEqual(60);
+        const name = page.getByTestId("agent-name");
+        expect(await name.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
       }
     });
   }
+
+  test("active tool status cannot overlap the full action cluster at constrained widths", async ({ page }) => {
+    for (const width of [768, 1024, 1280]) {
+      await openFixture(page, SHIPPED, width);
+      // Public synthetic status exercises the streaming state omitted by the
+      // idle fixture. No real prompt or tool payload enters layout artifacts.
+      await page.getByTestId("agent-identity").locator("div.min-w-0").evaluate((element) => {
+        const status = document.createElement("p");
+        status.textContent = "Searching connected information";
+        element.append(status);
+      });
+      const identity = await box(page, "agent-identity");
+      const actions = await box(page, "agent-header-cluster");
+      expect(identity.y + identity.height <= actions.y + 0.5 || identity.x + identity.width <= actions.x + 0.5).toBe(true);
+      expect(actions.x + actions.width).toBeLessThanOrEqual(width + 0.5);
+    }
+  });
 
   test("a person with a single cloud model gets no picker, and the toggle still holds still", async ({
     page,
@@ -668,7 +768,7 @@ test.describe("Agent Chat: which agent is answering", () => {
      * the checks above have stopped being able to see the defect they exist
      * for, and are passing for some other reason.
      */
-    await openFixture(page, AS_REPORTED, 390);
+    await openFixture(page, AS_REPORTED, 768);
     await switchTo(page, "puppy");
 
     await expect(page.getByTestId("agent-name")).toHaveText(
@@ -682,5 +782,201 @@ test.describe("Agent Chat: which agent is answering", () => {
     // A cloud model named on the surface whose whole claim is that the answer
     // was generated on the owner's machine.
     expect(await visibleClaims(page)).toMatch(CLOUD_VENDOR);
+  });
+});
+
+test.describe("Empty One chat: welcome spacing", () => {
+  test("detects the previous viewport-centered gap", async ({ page }) => {
+    await openFixture(page, { ...SINGLE_MODEL, centeredHeader: true, welcomeName: "Smirthika" }, 1920);
+    // Negative control: the reported layout reserved up to 32rem and centered
+    // the welcome inside it, independently of the header directly above it.
+    await page.addStyleTag({ content: '[data-testid="welcome"] { min-height: clamp(18rem, 45vh, 32rem); justify-content: center; padding-block: 2.5rem; }' });
+    const gaps: number[] = [];
+    for (const height of [600, 1080]) {
+      await page.setViewportSize({ width: 1920, height });
+      const identity = await box(page, "agent-identity");
+      const heading = await box(page, "welcome-heading");
+      gaps.push(heading.y - identity.y - identity.height);
+    }
+    expect(gaps[1]).toBeGreaterThan(64);
+    expect(gaps[1] - gaps[0]).toBeGreaterThan(64);
+  });
+
+  test("keeps the greeting close to the identity at every viewport height", async ({ page }) => {
+    for (const width of [390, 1920]) {
+      const gaps: number[] = [];
+      for (const height of [390, 600, 1080]) {
+        await openFixture(page, { ...SINGLE_MODEL, centeredHeader: true, safeTop: width < 768 ? 44 : 0, welcomeName: "Smirthika" }, width);
+        await page.setViewportSize({ width, height });
+        const identity = await box(page, "agent-identity");
+        const heading = await box(page, "welcome-heading");
+        const gap = heading.y - identity.y - identity.height;
+        gaps.push(gap);
+        expect(gap).toBeGreaterThanOrEqual(16);
+        expect(gap).toBeLessThanOrEqual(64);
+        await page.screenshot({ path: test.info().outputPath(`welcome-${width}x${height}px.png`) });
+      }
+      expect(Math.max(...gaps) - Math.min(...gaps)).toBeLessThanOrEqual(1);
+      await test.info().attach(`welcome-gaps-${width}px`, { body: JSON.stringify({ width, heights: [390, 600, 1080], gaps }), contentType: "application/json" });
+    }
+  });
+
+  test("keeps welcome text within the reading column on small and large screens", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    for (const [width, height] of [[320, 568], [390, 844], [844, 390], [768, 1024], [1280, 720], [2560, 1440]]) {
+      for (const [name, welcomeTheme] of [["there", "light"], ["Smirthika", "light"], ["Zoë 🦋", "dark"], ["نور", "dark"], ["A".repeat(64), "light"]] as const) {
+        await openFixture(page, { ...SINGLE_MODEL, centeredHeader: true, safeTop: width < 768 ? 44 : 0, welcomeName: name, welcomeTheme }, width);
+        await page.setViewportSize({ width, height });
+        const geometry = await page.getByTestId("welcome-heading").evaluate(element => {
+          const rect = element.getBoundingClientRect();
+          return { left: rect.left, right: rect.right, top: rect.top, scrollWidth: element.scrollWidth, width: element.clientWidth };
+        });
+        const identity = await box(page, "agent-identity");
+        const gap = geometry.top - identity.y - identity.height;
+        expect(gap).toBeGreaterThanOrEqual(16);
+        expect(gap).toBeLessThanOrEqual(64);
+        expect(geometry.left).toBeGreaterThanOrEqual(0);
+        expect(geometry.right).toBeLessThanOrEqual(width);
+        expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width);
+        const transcript = await page.getByTestId("one-transcript").evaluate(element => ({ scroll: element.scrollWidth, width: element.clientWidth }));
+        expect(transcript.scroll).toBeLessThanOrEqual(transcript.width);
+      }
+    }
+  });
+});
+
+test.describe("One portrait header: responsive restoration", () => {
+  test("retains compact artwork and reservation for coherent native chrome", async ({ page }) => {
+    for (const width of [393, 768]) {
+      await openFixture(page, { ...SHIPPED, centeredHeader: false }, width);
+      expect((await box(page, "agent-header")).height).toBe(60);
+      expect((await box(page, "one-profile-button")).width).toBe(44);
+      expect((await box(page, "one-artwork")).width).toBe(32);
+    }
+  });
+
+  test("keeps the portrait above its name and all controls reachable without overlap", async ({
+    page,
+  }) => {
+    for (const width of [320, 332, 360, 393, 430, 640, 767]) {
+      for (const canPickOneModel of [false, true]) {
+        const safeTop = width === 393 ? 64 : width === 360 ? 0 : 32;
+        const variant = {
+          ...SHIPPED,
+          canPickOneModel,
+          centeredHeader: true,
+          safeTop,
+          workingSubtitle: "Checking your upcoming calendar appointments…",
+        };
+        await openFixture(page, variant, width);
+        const targets = [
+          "history-button",
+          "one-profile-button",
+          ...(decide("one", variant, width).showPicker ? [SRC.cloudPicker.testId] : []),
+          "agent-toggle",
+          "profile-open-button",
+        ];
+        const boxes = await Promise.all(targets.map((id) => box(page, id)));
+        for (const rect of boxes) {
+          expect(rect.width).toBeGreaterThanOrEqual(44);
+          expect(rect.height).toBeGreaterThanOrEqual(44);
+          expect(rect.y).toBe(boxes[0].y);
+          expect(rect.x).toBeGreaterThanOrEqual(0);
+          expect(rect.x + rect.width).toBeLessThanOrEqual(width);
+        }
+        for (let i = 1; i < boxes.length; i++)
+          expect(boxes[i].x).toBeGreaterThanOrEqual(
+            boxes[i - 1].x + boxes[i - 1].width,
+          );
+        for (const radio of await page.getByRole("radio").all()) {
+          const target = await radio.boundingBox();
+          expect(target?.width).toBeGreaterThanOrEqual(44);
+          expect(target?.height).toBeGreaterThanOrEqual(44);
+        }
+        const identity = await box(page, "agent-identity");
+        const avatar = await box(page, "one-profile-button");
+        const name = await box(page, "agent-name");
+        expect(avatar.x).toBeGreaterThanOrEqual(identity.x);
+        expect(name.y).toBeGreaterThanOrEqual(avatar.y + avatar.height);
+        await expect(page.getByTestId("agent-name")).toBeVisible();
+        expect(
+          await page
+            .getByTestId("agent-name")
+            .evaluate((el) => el.scrollWidth <= el.clientWidth),
+        ).toBe(true);
+        const oneTarget = await box(page, "one-profile-button");
+        // WebKit resolves viewport clamps on a 1/64px grid.
+        const expectedArtwork = Math.min(64, Math.max(52, width - 268));
+        expect(oneTarget.width).toBeCloseTo(expectedArtwork, 1);
+        expect(oneTarget.height).toBeCloseTo(expectedArtwork, 1);
+        const artwork = await box(page, "one-artwork");
+        expect(artwork.width).toBeCloseTo(expectedArtwork, 1);
+        expect(artwork.height).toBeCloseTo(expectedArtwork, 1);
+        await expect(page.getByTestId("agent-name")).toHaveText("One");
+        expect(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+          ),
+        ).toBe(true);
+        const header = await box(page, "agent-header");
+        expect(header.height).toBeCloseTo(expectedArtwork + 64 + safeTop, 1);
+        expect(name.y + name.height).toBeLessThanOrEqual(
+          header.y + header.height - 8,
+        );
+        if (decide("one", variant, width).showPicker) {
+          const picker = await box(page, SRC.cloudPicker.testId);
+          expect(picker.y).toBe(boxes[0].y);
+          await expect(
+            page
+              .getByTestId(SRC.cloudPicker.testId)
+              .locator(".agent-chat-model-icon"),
+          ).toBeVisible();
+          expect(picker.height).toBeGreaterThanOrEqual(44);
+          expect(picker.x + picker.width).toBeLessThanOrEqual(width);
+        }
+        await page.getByTestId("agent-name").evaluate(el => { el.textContent = "A much longer saved private agent name"; });
+        const longName = await box(page, "agent-name");
+        expect(longName.x).toBeGreaterThanOrEqual(0);
+        expect(longName.x + longName.width).toBeLessThanOrEqual(width);
+        expect(longName.y).toBe(name.y);
+        expect(longName.height).toBe(name.height);
+      }
+    }
+  });
+
+  test("preserves desktop geometry at the breakpoint and wider screens", async ({
+    page,
+  }) => {
+    for (const width of [768, 1024, 1440]) {
+      const variant = { ...SHIPPED, centeredHeader: true };
+      await openFixture(page, variant, width);
+      const portrait = await box(page, "one-profile-button");
+      expect(portrait.width).toBe(104);
+      expect((await box(page, "one-artwork")).width).toBe(104);
+      expect(portrait.x + portrait.width / 2).toBeCloseTo(width / 2, 0);
+      for (const id of ["history-button", "agent-toggle", "profile-open-button", SRC.cloudPicker.testId]) {
+        const target = await box(page, id);
+        expect(target.width).toBeGreaterThanOrEqual(44);
+        expect(target.height).toBeGreaterThanOrEqual(44);
+        expect(target.x + target.width).toBeLessThanOrEqual(width);
+      }
+      await openFixture(page, { ...variant, workingSubtitle: "Checking your upcoming calendar appointments…" }, width);
+      const activeHeader = await box(page, "agent-header");
+      const subtitle = await box(page, "agent-subtitle");
+      expect(subtitle.y + subtitle.height).toBeLessThanOrEqual(activeHeader.y + activeHeader.height);
+    }
+  });
+
+  test("detects the previous stacked phone header", async ({ page }) => {
+    await openFixture(
+      page,
+      { ...SINGLE_MODEL, centeredHeader: true, stackedPhoneCss: true },
+      393,
+    );
+    const avatar = await box(page, "one-profile-button");
+    const history = await box(page, "history-button");
+    expect(
+      Math.abs(avatar.y + avatar.height / 2 - history.y - history.height / 2),
+    ).toBeGreaterThan(40);
   });
 });

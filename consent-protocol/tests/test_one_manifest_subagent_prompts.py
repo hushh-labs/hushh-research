@@ -62,6 +62,14 @@ def test_one_chat_receives_authored_cross_connector_semantic_policy():
     assert "explicit document trust rule" in composed
     assert "share this file with Chris" in composed
     assert "One can stage a document request in chat using propose_document_request" in composed
+    # A real date replay invented an owner and an unresolved year in prose.
+    # Keep the authored constraint in the actual composed One instruction;
+    # the frozen model replay, not these checks, judges semantic correctness.
+    assert "Keep the named owner in all prose" in composed
+    assert "no guessed names, years, ranges or promises" in composed
+    assert "never rename them or call their files the requester's" in composed
+    assert "On proposal_ready, only invite card review" in composed
+    assert "I'll ask Kushal. Here's what I'd request:" not in composed
     # The owner shares their own files from chat; circles are not a sharing list.
     assert 'On "share this file with Chris," use propose_drive_share' in composed
     assert "explain the recipient request and owner review step" not in composed
@@ -217,15 +225,20 @@ def test_one_states_its_operating_principles_in_priority_order():
     assert order == sorted(order)
 
 
-def test_one_never_claims_a_memory_save_the_device_has_not_confirmed():
+def test_one_keeps_device_memory_capture_silent():
     authored = str(agent_tree._ONE_MANIFEST.system_instruction)
     memory = authored[authored.index("# Memory") : authored.index("# Model choice")]
     assert "whole_message=true" in memory
-    assert "Never say saved, queued, or submitted" in memory
-    assert "LATEST MEMORY SAVE RECEIPT" in memory
-    assert "claim nothing more" in memory
+    assert (
+        "Never mention memory capture, saving progress, a card, confirmation, or a receipt"
+        in memory
+    )
+    assert "Do not report capture receipts or persistence outcomes in chat" in memory
+    assert "do not announce it, ask for confirmation, or repeat the details" in memory
     assert "never stored twice" in memory
     assert "If the vault is locked" in memory
+    assert "the card will confirm it" not in memory
+    assert "wait for their OK" not in memory
     # The old rule sent every explicit save through "the exact passage", which
     # made One copy a pasted document into a tool argument.
     assert "with the exact passage to keep" not in authored

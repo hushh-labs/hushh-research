@@ -15,7 +15,9 @@ import json
 import logging
 import os
 import re
+import time
 import warnings
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -82,6 +84,56 @@ warnings.filterwarnings(
 # turn. Process memory only; bounded.
 _LOGGED_DROPPED_TOOLS: dict[str, tuple[str, ...]] = {}
 _LOGGED_DROPPED_TOOLS_LIMIT = 256
+
+# Validated provider schemas only: never headers, credentials, sessions,
+# approvals, arguments, or results. The full owner-scoped connection binding
+# includes connection/policy generation, so a connector change gets a new key.
+_CATALOG_CACHE: OrderedDict[tuple[Any, ...], tuple[float, list[dict[str, Any]]]] = OrderedDict()
+_CATALOG_CACHE_LIMIT = 256
+
+
+def _catalog_cache_ttl_seconds() -> float:
+    try:
+        value = float(os.getenv("MCP_CATALOG_CACHE_TTL_SECONDS", "300"))
+    except ValueError:
+        return 300.0
+    return value if 30 <= value <= 900 else 300.0
+
+
+def _cached_catalog(
+    key: tuple[Any, ...],
+) -> list[dict[str, Any]] | None:
+    cached = _CATALOG_CACHE.get(key)
+    if cached is None:
+        return None
+    expires_at, catalog = cached
+    if expires_at <= time.monotonic():
+        _CATALOG_CACHE.pop(key, None)
+        return None
+    _CATALOG_CACHE.move_to_end(key)
+    return deepcopy(catalog)
+
+
+def _store_catalog(
+    key: tuple[Any, ...],
+    catalog: list[dict[str, Any]],
+) -> None:
+    _CATALOG_CACHE[key] = (
+        time.monotonic() + _catalog_cache_ttl_seconds(),
+        deepcopy(catalog),
+    )
+    _CATALOG_CACHE.move_to_end(key)
+    while len(_CATALOG_CACHE) > _CATALOG_CACHE_LIMIT:
+        _CATALOG_CACHE.popitem(last=False)
+
+
+def _evict_catalog(key: tuple[Any, ...]) -> None:
+    _CATALOG_CACHE.pop(key, None)
+
+
+def clear_mcp_catalog_cache() -> None:
+    """Drop descriptor-only cache entries (test/operational invalidation seam)."""
+    _CATALOG_CACHE.clear()
 
 
 def mcp_call_timeout_seconds() -> float:
@@ -282,7 +334,9 @@ def _consume_outcome(task: "asyncio.Future[Any]") -> None:
         task.exception()
 
 
-async def _resolve_curated_connection(owner: str, connector: Any) -> ResolvedMcpConnection:
+async def _resolve_curated_connection(
+    owner: str, connector: Any, *, metadata_only: bool = False
+) -> ResolvedMcpConnection:
     """Bind an operator-registered OAuth connector (refreshing if near expiry).
 
     Requires a verified connection whose policy hash still matches the live
@@ -300,15 +354,23 @@ async def _resolve_curated_connection(owner: str, connector: Any) -> ResolvedMcp
     # and the new token being stored, the person would have to sign in again. Run it as
     # its own task so cancelling the caller never abandons it half-done; it is bounded
     # by its own provider timeout, and its outcome is always consumed.
-    refresh = asyncio.ensure_future(
-        adapter.current_credential(
-            connector_id=connector.connector_id, user_id=owner, connector=connector
-        )
-    )
+    refresh = None
     try:
-        row, secret = await asyncio.shield(refresh)
+        if metadata_only:
+            row = await adapter.connection_snapshot(
+                connector_id=connector.connector_id, user_id=owner, connector=connector
+            )
+            secret = {}
+        else:
+            refresh = asyncio.ensure_future(
+                adapter.current_credential(
+                    connector_id=connector.connector_id, user_id=owner, connector=connector
+                )
+            )
+            row, secret = await asyncio.shield(refresh)
     except asyncio.CancelledError:
-        refresh.add_done_callback(_consume_outcome)
+        if refresh is not None:
+            refresh.add_done_callback(_consume_outcome)
         raise
     except CuratedNotConnectedError:
         raise ExternalMcpError("Connect this service first.", code="MCP_NOT_CONNECTED") from None
@@ -343,7 +405,7 @@ async def _resolve_curated_connection(owner: str, connector: Any) -> ResolvedMcp
     ):
         raise ExternalMcpError("Reconnect this service.", code="MCP_CONNECTION_CHANGED")
     token = secret.get("accessToken")
-    if (
+    if not metadata_only and (
         not isinstance(token, str)
         or not token.strip()
         or any(ord(c) < 32 or ord(c) == 127 for c in token)
@@ -373,7 +435,7 @@ async def _resolve_curated_connection(owner: str, connector: Any) -> ResolvedMcp
     free_reads = curated_free_read_tools(connector.connector_id)
     return ResolvedMcpConnection(
         binding,
-        {"Authorization": f"Bearer {token}"},
+        {} if metadata_only else {"Authorization": f"Bearer {token}"},
         catalog_policy=_curated_tool_allowlist(connector),
         review_policy="reviewed_writes" if free_reads else "always",
         free_read_tool_ids=frozenset(
@@ -383,7 +445,7 @@ async def _resolve_curated_connection(owner: str, connector: Any) -> ResolvedMcp
 
 
 async def resolve_registered_connection(
-    context: Any, connector_id: str, *, curated_only: bool = False
+    context: Any, connector_id: str, *, curated_only: bool = False, metadata_only: bool = False
 ) -> ResolvedMcpConnection:
     """Resolve an existing registry credential under current Chat owner authority.
 
@@ -397,16 +459,25 @@ async def resolve_registered_connection(
         not owner
         or owner != state.get("hussh:user_id")
         or state.get("temp:one_execution_surface") != "typed_chat"
-        or not await validate_first_party_owner_token(
-            owner, resolve_request_secret(state.get("hussh:consent_token"))
-        )
     ):
         raise ExternalMcpError(
             "Connector owner authority is unavailable.", code="MCP_OWNER_MISMATCH"
         )
-    connector = await get_external_connector_registry_service().get_connector(
-        connector_id, user_id=None if curated_only else owner
+    # Both are read-only observations for the already-bound request owner.
+    # Overlap their database latency, but never obtain/decrypt a credential or
+    # contact a provider until both authority and registry admission pass.
+    authority, connector = await asyncio.gather(
+        validate_first_party_owner_token(
+            owner, resolve_request_secret(state.get("hussh:consent_token"))
+        ),
+        get_external_connector_registry_service().get_connector(
+            connector_id, user_id=None if curated_only else owner
+        ),
     )
+    if not authority:
+        raise ExternalMcpError(
+            "Connector owner authority is unavailable.", code="MCP_OWNER_MISMATCH"
+        )
     if not native_registration_admitted(connector, owner) or (
         curated_only and connector.owner_user_id is not None
     ):
@@ -420,19 +491,30 @@ async def resolve_registered_connection(
         )
 
         if connector_id == "google_drive":
-            return cast(ResolvedMcpConnection, await resolve_native_drive_connection(context))
+            return cast(
+                ResolvedMcpConnection,
+                await resolve_native_drive_connection(
+                    context, **({"metadata_only": True} if metadata_only else {})
+                ),
+            )
         if connector_id == "google_gmail":
-            resolved = await resolve_native_workspace_connection(context, "gmail")
+            resolved = await resolve_native_workspace_connection(
+                context, "gmail", **({"metadata_only": True} if metadata_only else {})
+            )
         elif connector_id == "google_calendar":
-            resolved = await resolve_native_workspace_connection(context, "calendar")
+            resolved = await resolve_native_workspace_connection(
+                context, "calendar", **({"metadata_only": True} if metadata_only else {})
+            )
         elif is_curated_oauth_connector(connector):
-            return await _resolve_curated_connection(owner, connector)
+            return await _resolve_curated_connection(owner, connector, metadata_only=metadata_only)
         else:
             raise ExternalMcpError("Connector unavailable.", code="MCP_CONNECTION_CHANGED")
         if connector.auth_style != "oauth" or connector.mcp_endpoint != resolved.binding.endpoint:
             raise ExternalMcpError("Connector policy changed.", code="MCP_CONNECTION_CHANGED")
         return cast(ResolvedMcpConnection, resolved)
-    row = await ExternalConnectorLifecycleStore().read(user_id=owner, connector_id=connector_id)
+    row = await ExternalConnectorLifecycleStore().read(
+        user_id=owner, connector_id=connector_id, **({"purge": False} if metadata_only else {})
+    )
     if not row or row.get("status") != "connected" or not row.get("credential_ciphertext"):
         raise ExternalMcpError("Connect this service first.", code="MCP_CONNECTION_CHANGED")
     expiry = row.get("credential_expires_at")
@@ -448,6 +530,8 @@ async def resolve_registered_connection(
         connector.mcp_endpoint,
     )
     validate_mcp_endpoint(binding.endpoint)
+    if metadata_only:
+        return ResolvedMcpConnection(binding, {}, review_policy="credentialed")
     secret = get_external_connector_credentials_service().open_credential(
         user_id=owner, connector_id=connector_id, row=row
     )
@@ -628,6 +712,7 @@ class GovernedMcpToolset(McpToolset):
         binding: McpConnectionBinding,
         resolve_connection: ResolveConnection,
         authorize_call: AuthorizeCall,
+        resolve_catalog_connection: ResolveConnection | None = None,
         timeout_seconds: float | None = None,
         catalog_policy: CatalogPolicy | None = None,
         result_policy: ResultPolicy | None = None,
@@ -654,6 +739,7 @@ class GovernedMcpToolset(McpToolset):
             raise ValueError("Invalid MCP review policy")
         self.binding = binding
         self.resolve_connection = resolve_connection
+        self.resolve_catalog_connection = resolve_catalog_connection
         self.authorize_call = authorize_call
         self.timeout_seconds = timeout_seconds
         # Application-owned provider restrictions, not model/server callbacks.
@@ -682,7 +768,19 @@ class GovernedMcpToolset(McpToolset):
             raise TypeError("Unexpected MCP session manager")
         self._mcp_session_manager.__class__ = _GovernedMcpSessionManager
 
+    def _catalog_cache_key(self) -> tuple[Any, ...]:
+        # Review policy is part of the authority that interprets provider
+        # annotations. Keep differently governed views isolated even when a
+        # caller constructs them over the same connection generation.
+        return (
+            self.binding,
+            self.review_policy,
+            tuple(sorted(self.forced_review_tool_ids)),
+            tuple(sorted(self.free_read_tool_ids)),
+        )
+
     def refresh(self) -> None:
+        _evict_catalog(self._catalog_cache_key())
         self.catalog_epoch += 1
 
     def review_outcome(self, tool_id: str, descriptor: object) -> McpReviewOutcome:
@@ -693,7 +791,7 @@ class GovernedMcpToolset(McpToolset):
             free_read=tool_id in self.free_read_tool_ids,
         )
 
-    async def _current_headers(self, context: Any) -> dict[str, str]:
+    async def _resolved_headers(self, context: Any, resolver: ResolveConnection) -> dict[str, str]:
         # The pinned SDK's HTTP diagnostics can capture custom credentials and
         # private response bodies independently of normal no-content telemetry.
         # Refuse this mode; do not mutate process-wide telemetry configuration.
@@ -703,7 +801,7 @@ class GovernedMcpToolset(McpToolset):
             )
         if context is None or context.user_id != self.binding.owner_id:
             raise ExternalMcpError("Connector owner mismatch.", code="MCP_OWNER_MISMATCH")
-        current = await self.resolve_connection(context)
+        current = await resolver(context)
         if (
             current.binding != self.binding
             or current.review_policy != self.review_policy
@@ -713,34 +811,59 @@ class GovernedMcpToolset(McpToolset):
             raise ExternalMcpError("Connector connection changed.", code="MCP_CONNECTION_CHANGED")
         return dict(current.headers)
 
-    async def get_tools(self, readonly_context=None):
+    async def _current_headers(self, context: Any) -> dict[str, str]:
+        return await self._resolved_headers(context, self.resolve_connection)
+
+    async def get_tools(self, readonly_context=None, *, force_refresh: bool = False):
         self._discovery_sequence += 1
         sequence = self._discovery_sequence
         epoch = self.catalog_epoch
-        manager = self._mcp_session_manager
+        discovered_remotely = False
         try:
             async with asyncio.timeout(self.timeout_seconds):
-                headers = await self._current_headers(readonly_context)
-                session = await manager.create_session(headers=headers)
-                manager._begin_session_use(headers)
-                try:
-                    catalog = await _list_session_tools(session, include_review_hints=True)
-                    discovered = {item["name"]: deepcopy(item) for item in catalog}
-                    if self.catalog_policy is not None:
-                        catalog = self.catalog_policy(deepcopy(catalog))
-                        for item in catalog:
-                            original = discovered.get(item["name"])
-                            if original is None:
-                                raise ExternalMcpError(
-                                    "Invalid connector policy.", code="MCP_CATALOG_CHANGED"
-                                )
-                            # Review hints are only ever the provider's own.
-                            item.pop("annotations", None)
-                            if "annotations" in original:
-                                item["annotations"] = deepcopy(original["annotations"])
-                finally:
-                    manager._end_session_use(headers)
-                await self._current_headers(readonly_context)
+                cache_key = self._catalog_cache_key()
+                if not force_refresh and self.resolve_catalog_connection is not None:
+                    # Fresh owner/configuration metadata can admit descriptors
+                    # without refreshing OAuth or opening a provider session.
+                    await self._resolved_headers(readonly_context, self.resolve_catalog_connection)
+                    cached = _cached_catalog(cache_key)
+                    headers = None
+                else:
+                    headers = await self._current_headers(readonly_context)
+                    cached = None if force_refresh else _cached_catalog(cache_key)
+                if cached is not None:
+                    provider_catalog = cached
+                else:
+                    if headers is None:
+                        headers = await self._current_headers(readonly_context)
+                    discovered_remotely = True
+                    manager = self._mcp_session_manager
+                    session = await manager.create_session(headers=headers)
+                    manager._begin_session_use(headers)
+                    try:
+                        provider_catalog = await _list_session_tools(
+                            session, include_review_hints=True
+                        )
+                    finally:
+                        manager._end_session_use(headers)
+                    # Discovery can outlive a reconnect/revocation. Recheck
+                    # after the provider response before publishing it.
+                    await self._current_headers(readonly_context)
+                discovered = {item["name"]: deepcopy(item) for item in provider_catalog}
+                catalog = deepcopy(provider_catalog)
+                if self.catalog_policy is not None:
+                    catalog = self.catalog_policy(deepcopy(catalog))
+                    for item in catalog:
+                        original = discovered.get(item["name"])
+                        if original is None:
+                            raise ExternalMcpError(
+                                "Invalid connector policy.", code="MCP_CATALOG_CHANGED"
+                            )
+                        # Review hints are only ever the provider's own.
+                        item.pop("annotations", None)
+                        if "annotations" in original:
+                            item["annotations"] = deepcopy(original["annotations"])
+                revision = _digest({"admitted": catalog, "provider": discovered})
         except ExternalMcpError:
             raise
         except Exception as error:
@@ -752,7 +875,6 @@ class GovernedMcpToolset(McpToolset):
             raise ExternalMcpError(
                 "Connector discovery failed.", code="MCP_DISCOVERY_FAILED"
             ) from None
-        revision = _digest({"admitted": catalog, "provider": discovered})
         if epoch != self.catalog_epoch or (
             sequence != self._discovery_sequence and revision != self._catalog_digest
         ):
@@ -764,6 +886,10 @@ class GovernedMcpToolset(McpToolset):
             self.refresh()
         self._catalog_digest = revision
         epoch = self.catalog_epoch
+        if discovered_remotely:
+            # Publish only after the sequence/epoch acceptance checks above;
+            # an older request that finishes late must not poison later turns.
+            _store_catalog(cache_key, provider_catalog)
         return [
             _GovernedMcpTool(
                 toolset=self,
@@ -824,7 +950,10 @@ class _GovernedMcpTool(McpTool):
         owner = self.toolset
         dispatched = False
         try:
-            await owner.get_tools(tool_context)
+            # Execution is a trust boundary: prompt discovery may use a
+            # generation-keyed descriptor cache, but an actual call must
+            # observe the provider's live schema and review hints.
+            await owner.get_tools(tool_context, force_refresh=True)
             if self.epoch != owner.catalog_epoch:
                 raise ExternalMcpError("Connector tools changed.", code="MCP_CATALOG_CHANGED")
             # No coercion or dropped constraints; invalid calls never reach
@@ -851,7 +980,7 @@ class _GovernedMcpTool(McpTool):
                 )
                 if pending is not None:
                     return pending
-            await owner.get_tools(tool_context)
+            await owner.get_tools(tool_context, force_refresh=True)
             if self.epoch != owner.catalog_epoch:
                 return {"error": "MCP_CATALOG_CHANGED"}
             # Call the native implementation exactly once. Bypass its optional

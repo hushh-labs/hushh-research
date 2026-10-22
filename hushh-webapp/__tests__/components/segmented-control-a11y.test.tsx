@@ -3,6 +3,11 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { SegmentedControl } from "@/lib/morphy-ux/ui/segmented-control";
+import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
+import { SegmentedPill } from "@/lib/morphy-ux/ui/segmented-pill";
+import { Switch } from "@/components/ui/switch";
+const feedback = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/capacitor/app-haptics", () => ({ appHaptic: feedback }));
 
 /**
  * The mode switch is a radio group, so it has to behave like one.
@@ -34,6 +39,33 @@ function Harness({ initial = "one" }: { initial?: string }) {
 }
 
 describe("SegmentedControl accessibility", () => {
+  it.each([SegmentedControl, SegmentedTabs, SegmentedPill])("emits only changed authored selections, with an explicit caller-owned opt-out", Component => {
+    feedback.mockClear();
+    const onValueChange = vi.fn();
+    const options = [{ value: "one", label: "One" }, { value: "puppy", label: "Puppy" }];
+    const view = render(<Component ariaLabel="Agent" value="one" options={options} onValueChange={onValueChange} />);
+    fireEvent.click(screen.getByRole(Component === SegmentedTabs ? "tab" : "radio", { name: "One" }));
+    expect(feedback).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole(Component === SegmentedTabs ? "tab" : "radio", { name: "Puppy" }));
+    expect(feedback).toHaveBeenCalledExactlyOnceWith("selection");
+    view.rerender(<Component ariaLabel="Agent" value="one" options={options} onValueChange={onValueChange} hapticFeedback={false} />);
+    fireEvent.click(screen.getByRole(Component === SegmentedTabs ? "tab" : "radio", { name: "Puppy" }));
+    expect(feedback).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves uncontrolled Switch state without cues on disabled or repeated controlled values", () => {
+    feedback.mockClear();
+    const view = render(<Switch aria-label="Preference" defaultChecked={false} />);
+    fireEvent.click(screen.getByRole("switch"));
+    expect(screen.getByRole("switch")).toBeChecked();
+    expect(feedback).toHaveBeenCalledExactlyOnceWith("selection");
+    view.rerender(<Switch aria-label="Preference" checked disabled />);
+    fireEvent.click(screen.getByRole("switch"));
+    expect(feedback).toHaveBeenCalledTimes(1);
+    view.rerender(<Switch aria-label="Preference" checked={false} />);
+    fireEvent.click(screen.getByRole("switch"));
+    expect(feedback).toHaveBeenCalledTimes(1);
+  });
   it("names the group and each agent inside it", () => {
     render(<Harness />);
     const group = screen.getByRole("radiogroup", { name: "Agent" });
@@ -65,6 +97,24 @@ describe("SegmentedControl accessibility", () => {
     render(<Harness initial="neither" />);
     const radios = screen.getAllByRole("radio");
     expect(radios.some((node) => node.getAttribute("tabindex") === "0")).toBe(true);
+  });
+
+  it("does not paint a false sliding selection or dispatch a disabled choice", () => {
+    const onValueChange = vi.fn();
+    const options = [{ value: "one", label: "One" }, { value: "puppy", label: "Puppy" }];
+    const view = render(<SegmentedControl ariaLabel="Agent" variant="sliding" value="missing"
+      options={options} onValueChange={onValueChange} />);
+    expect(view.container.querySelector('[data-slot="segmented-selection"]')).toBeNull();
+    expect(screen.getAllByRole("radio").every(radio => radio.getAttribute("aria-checked") === "false")).toBe(true);
+    view.rerender(<SegmentedControl ariaLabel="Agent" variant="sliding" value="one"
+      options={options} onValueChange={onValueChange} disabled />);
+    for (const radio of screen.getAllByRole("radio")) {
+      expect(radio).toBeDisabled();
+      expect(radio).toHaveAttribute("tabindex", "-1");
+      fireEvent.click(radio);
+      fireEvent.keyDown(radio, { key: "ArrowRight" });
+    }
+    expect(onValueChange).not.toHaveBeenCalled();
   });
 
   it("moves with the arrow keys, and wraps", () => {

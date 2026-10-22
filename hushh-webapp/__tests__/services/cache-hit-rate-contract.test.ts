@@ -1,6 +1,35 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { spawnSync } from "node:child_process";
 
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
+
+describe("cache audit follows the extracted Memory model", () => {
+  it.each([
+    [null, null],
+    ["components/profile/pkm-natural-panel.tsx", "usePkmNaturalModel"],
+    ["components/profile/use-pkm-natural-model.ts", "usePkmDomainChangeRevision"],
+  ])("requires the live panel/model/revision chain (%s)", (target, needle) => {
+    // Mutate only the checker process's source read. Never edit app files or
+    // regenerate a manifest during validation, including these negative cases.
+    const result = spawnSync(process.execPath, ["--input-type=module", "--eval", `
+      import fs from 'node:fs';
+      import { resolve } from 'node:path';
+      import { pathToFileURL } from 'node:url';
+      const target = ${JSON.stringify(target)};
+      const needle = ${JSON.stringify(needle)};
+      const read = fs.readFileSync;
+      fs.readFileSync = (file, ...args) => {
+        const value = read(file, ...args);
+        return target && resolve(String(file)) === resolve(target) && typeof value === 'string'
+          ? value.replaceAll(needle, 'RemovedRevisionLink') : value;
+      };
+      process.argv.push('--check');
+      await import(pathToFileURL(resolve('scripts/architecture/audit-cache-coherence.mjs')));
+    `], { cwd: process.cwd(), encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(target ? 1 : 0);
+    if (target) expect(result.stderr).toContain(`${target} must reference ${needle}`);
+  });
+});
 
 describe("CacheService hit-rate contract", () => {
   let cache: CacheService;

@@ -22,4 +22,12 @@ class TransactionEngine:
         if "SELECT attempt_id FROM google_oauth_attempts" in sql:
             rows = [{"attempt_id": params["attempt_id"]}]
         mapped = SimpleNamespace(first=lambda: rows[0] if rows else None)
-        return SimpleNamespace(first=mapped.first, mappings=lambda: mapped)
+        return SimpleNamespace(
+            first=mapped.first,
+            mappings=lambda: mapped,
+            scalar_one=lambda: (
+                (rows[0][0] if isinstance(rows[0], (tuple, list)) else next(iter(rows[0].values())))
+                if rows
+                else 0
+            ),
+        )

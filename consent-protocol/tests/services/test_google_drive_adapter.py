@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from unittest.mock import AsyncMock
 
@@ -32,6 +33,209 @@ def metadata(**changes):
 @pytest.fixture
 def adapter():
     return drive.GoogleDriveAdapter()
+
+
+@pytest.mark.asyncio
+async def test_only_owner_search_opt_in_can_request_a_thousand_file_metadata_page(adapter):
+    adapter._get = AsyncMock(return_value=b'{"files":[],"nextPageToken":"next"}')
+    with pytest.raises(drive.DriveReadError, match="invalid_argument"):
+        await adapter.list_files(
+            access_token="synthetic-token", query="trashed = false", page_size=1000
+        )
+    page = await adapter.list_files(
+        access_token="synthetic-token",
+        query="trashed = false",
+        page_size=1000,
+        owner_search_page=True,
+    )
+    assert page["nextPageToken"] == "next"
+    assert adapter._get.await_args.kwargs["params"]["pageSize"] == "1000"
+    assert adapter._get.await_args.kwargs["limit"] == drive.OWNER_SEARCH_METADATA_LIMIT
+    assert adapter._get.await_args.kwargs["owner_search_page"] is True
+    with pytest.raises(drive.DriveReadError, match="invalid_argument"):
+        await adapter.list_files(
+            access_token="synthetic-token",
+            query="trashed = false",
+            page_size=1001,
+            owner_search_page=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_rest_fence_never_sends_order_by_with_a_full_text_term(adapter, monkeypatch):
+    # Drive answers 400 "Sorting is not supported for queries with fullText
+    # terms"; a caller that forgot to drop the sort must not reach Google.
+    original = httpx.AsyncClient
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(200, stream=httpx.ByteStream(b'{"files":[]}'))
+
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kw: original(**kw, transport=httpx.MockTransport(handler))
+    )
+    full_text = "(name contains 'notes' or fullText contains 'notes') and trashed = false"
+    with pytest.raises(drive.DriveReadError, match="operation_not_allowed"):
+        await adapter.list_files(
+            access_token="synthetic-token",
+            query=full_text,
+            page_size=100,
+            order_by="modifiedTime desc",
+        )
+    assert seen == []
+    # The same query without a sort, and a sorted query whose quoted value
+    # merely contains the word, are both ordinary list calls.
+    await adapter.list_files(access_token="synthetic-token", query=full_text, page_size=100)
+    await adapter.list_files(
+        access_token="synthetic-token",
+        query="name contains 'fullText notes' and trashed = false",
+        page_size=100,
+        order_by="modifiedTime desc",
+    )
+    assert [request.url.params.get("orderBy") for request in seen] == [None, "modifiedTime desc"]
+
+
+@pytest.mark.asyncio
+async def test_owner_search_large_page_is_scoped_at_private_rest_boundary(adapter, monkeypatch):
+    original = httpx.AsyncClient
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        payload = json.dumps({"files": [], "nextPageToken": "more"}).encode()
+        return httpx.Response(200, stream=httpx.ByteStream(payload))
+
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kw: original(**kw, transport=httpx.MockTransport(handler)),
+    )
+    page = await adapter.list_files(
+        access_token="synthetic-token",
+        query="trashed = false",
+        page_size=1000,
+        page_token="next-25",
+        owner_search_page=True,
+    )
+    assert page["nextPageToken"] == "more"
+    assert len(seen) == 1
+    assert seen[0].url.params["pageSize"] == "1000"
+    assert seen[0].url.params["pageToken"] == "next-25"
+
+    # The same operation cannot become a generic large-page transport.
+    params = {**drive.LIST_FIXED, "q": "trashed = false", "pageSize": "1000"}
+    with pytest.raises(drive.DriveReadError, match="operation_not_allowed"):
+        await adapter._get_private(
+            "/files", access_token="synthetic-token", params=params, limit=drive.METADATA_LIMIT
+        )
+    with pytest.raises(drive.DriveReadError, match="operation_not_allowed"):
+        await adapter._get_private(
+            "/files",
+            access_token="synthetic-token",
+            params=params,
+            limit=drive.METADATA_LIMIT,
+            owner_search_page=True,
+        )
+    with pytest.raises(drive.DriveReadError, match="operation_not_allowed"):
+        await adapter._get_private(
+            "/files",
+            access_token="synthetic-token",
+            params={**params, "pageSize": "1001"},
+            limit=drive.OWNER_SEARCH_METADATA_LIMIT,
+            owner_search_page=True,
+        )
+    assert len(seen) == 1
+
+
+@pytest.mark.asyncio
+async def test_owner_search_large_metadata_response_stops_at_two_mib(adapter, monkeypatch):
+    original = httpx.AsyncClient
+
+    def handler(_request):
+        return httpx.Response(
+            200, stream=httpx.ByteStream(b"x" * (drive.OWNER_SEARCH_METADATA_LIMIT + 1))
+        )
+
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kw: original(**kw, transport=httpx.MockTransport(handler)),
+    )
+    with pytest.raises(drive.DriveReadError, match="file_too_large"):
+        await adapter.list_files(
+            access_token="synthetic-token",
+            query="trashed = false",
+            page_size=1000,
+            owner_search_page=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_search_sessions_reuse_connections_without_cross_task_credentials(
+    adapter, monkeypatch, caplog
+):
+    original = httpx.AsyncClient
+    clients, credentials = [], []
+    caplog.set_level("INFO", logger=drive.__name__)
+
+    def client(**kwargs):
+        own_credentials = []
+        credentials.append(own_credentials)
+
+        def response(request):
+            own_credentials.append(request.headers["Authorization"])
+            return httpx.Response(200, stream=httpx.ByteStream(b'{"files":[]}'))
+
+        result = original(**kwargs, transport=httpx.MockTransport(response))
+        clients.append(result)
+        return result
+
+    monkeypatch.setattr(httpx, "AsyncClient", client)
+    ready = asyncio.Event()
+    entered = 0
+
+    async def search(token):
+        nonlocal entered
+        async with adapter.read_session():
+            entered += 1
+            if entered == 2:
+                ready.set()
+            await ready.wait()
+            for _ in range(2):
+                # Nested scopes borrow the same client without closing it.
+                async with adapter.read_session():
+                    await adapter.list_files(
+                        access_token=token,
+                        query="name = 'private-query'",
+                        page_size=25,
+                        page_token="private-page-token",
+                    )
+
+    await asyncio.gather(search("private-owner-a-token"), search("private-owner-b-token"))
+    assert len(clients) == 2 and all(item.is_closed for item in clients)
+    assert credentials == [
+        ["Bearer private-owner-a-token"] * 2,
+        ["Bearer private-owner-b-token"] * 2,
+    ]
+    await adapter.list_files(
+        access_token="private-third-token", query="trashed = false", page_size=25
+    )
+    assert len(clients) == 3 and clients[-1].is_closed
+    entries = [record.getMessage() for record in caplog.records if record.name == drive.__name__]
+    assert any("headers_ms=" in item and "body_ms=" in item for item in entries)
+    assert all("private-" not in item and "https://" not in item for item in entries)
+
+
+@pytest.mark.asyncio
+async def test_cancelled_search_session_closes_and_resets_client(adapter):
+    client = None
+    with pytest.raises(asyncio.CancelledError):
+        async with adapter.read_session():
+            client = adapter._read_client.get()
+            raise asyncio.CancelledError()
+    assert client.is_closed
+    assert adapter._read_client.get() is None
 
 
 @pytest.mark.parametrize(
@@ -68,7 +272,7 @@ def test_selection_preserves_only_bounded_unique_identifiers():
         ({"size": None}, "provider_response_invalid"),
         ({"size": True}, "provider_response_invalid"),
         ({"version": ""}, "provider_response_invalid"),
-        ({"name": "x" * 1025}, "provider_response_invalid"),
+        ({"name": "x" * (drive.METADATA_LIMIT + 1)}, "provider_response_invalid"),
         ({"md5Checksum": "private-provider-message"}, "provider_response_invalid"),
     ],
 )
@@ -92,6 +296,36 @@ async def test_share_metadata_verifies_exact_video_without_requiring_download(ad
     assert observed.version == "1"
     assert observed.created_time == "2026-09-21T00:00:00Z"
     assert adapter._get.await_args.kwargs["params"]["fields"] == drive.SHARE_METADATA_FIELDS
+
+
+@pytest.mark.asyncio
+async def test_long_provider_name_survives_discovery_read_and_share_rechecks(adapter):
+    from hushh_mcp.services.drive_collection_sync import _metadata
+
+    name = "Synthetic title " + "अ" * 9500
+    payload = metadata(
+        name=name,
+        capabilities={"canShare": True, "canDownload": True, "canAccessViaGenAi": True},
+    )
+    adapter._get = AsyncMock(return_value=json.dumps(payload).encode())
+    listed = _metadata(payload)
+    read = await adapter.get_metadata(
+        file_id="selected-file", access_token="synthetic-token", require_app_authorized=False
+    )
+    share = await adapter.get_share_metadata(
+        file_id="selected-file", access_token="synthetic-token"
+    )
+    assert listed.name == read.name == share.name == name
+    assert listed.version == read.version == share.version == "1"
+
+
+@pytest.mark.parametrize("name", [None, "", "\ud800", "अ" * (drive.METADATA_LIMIT // 3 + 1)])
+def test_provider_name_retains_type_unicode_and_metadata_byte_bounds(name):
+    from hushh_mcp.services.drive_collection_sync import _metadata
+
+    assert not drive.valid_metadata_name(name)
+    with pytest.raises(drive.DriveReadError, match="provider_response_invalid"):
+        _metadata(metadata(name=name))
 
 
 @pytest.mark.asyncio
@@ -409,3 +643,118 @@ async def test_live_metadata_accepts_sheets_without_selected_parser_limit(adapte
         require_genai_eligibility=False,
     )
     assert result.mime_type == "application/vnd.google-apps.spreadsheet"
+
+
+async def test_collection_change_transport_is_fixed_bounded_and_redacted(
+    adapter, monkeypatch, caplog
+):
+    original = httpx.AsyncClient
+    calls = []
+    caplog.set_level("INFO", logger=drive.__name__)
+
+    def response(request):
+        calls.append(request)
+        data = (
+            {"startPageToken": "private-cursor"}
+            if request.url.path.endswith("startPageToken")
+            else {"changes": [], "newStartPageToken": "private-next"}
+        )
+        return httpx.Response(200, stream=httpx.ByteStream(json.dumps(data).encode()))
+
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kw: original(**kw, transport=httpx.MockTransport(response))
+    )
+    assert await adapter.collection_start_token(access_token="synthetic") == "private-cursor"
+    await adapter.collection_changes(access_token="synthetic", page_token="private-cursor")
+    assert calls[1].url.params["includeRemoved"] == "true"
+    assert calls[1].url.params["includeItemsFromAllDrives"] == "true"
+    with pytest.raises(drive.DriveReadError, match="operation_not_allowed"):
+        await adapter._get(
+            "/changes",
+            access_token="synthetic",
+            params={"pageToken": "private-cursor", "fields": "*"},
+            limit=drive.METADATA_LIMIT,
+        )
+    assert len(calls) == 2
+    assert all("private-" not in r.getMessage() for r in caplog.records if r.name == drive.__name__)
+
+
+async def test_collection_download_admits_32mb_without_expanding_preview(adapter, monkeypatch):
+    original = httpx.AsyncClient
+    body = b"x" * (drive.CONTENT_LIMIT + 1)
+
+    def response(request):
+        return httpx.Response(
+            200, headers={"Content-Length": str(len(body))}, stream=httpx.ByteStream(body)
+        )
+
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kw: original(**kw, transport=httpx.MockTransport(response))
+    )
+    with pytest.raises(drive.DriveReadError, match="file_too_large"):
+        await adapter.read_live_bytes(
+            file_id="synthetic", mime_type="application/pdf", access_token="synthetic"
+        )
+    mime, result = await adapter.read_live_bytes(
+        file_id="synthetic",
+        mime_type="application/pdf",
+        access_token="synthetic",
+        max_bytes=drive.LIVE_COLLECTION_CONTENT_LIMIT,
+    )
+    assert mime == "application/pdf" and result == body
+    with pytest.raises(drive.DriveReadError, match="invalid_argument"):
+        await adapter.read_live_bytes(
+            file_id="synthetic",
+            mime_type="application/pdf",
+            access_token="synthetic",
+            max_bytes=drive.LIVE_COLLECTION_CONTENT_LIMIT + 1,
+        )
+
+
+async def test_index_change_page_is_the_one_admitted_owner_delta_shape(
+    adapter, monkeypatch, caplog
+):
+    original = httpx.AsyncClient
+    calls = []
+    caplog.set_level("INFO", logger=drive.__name__)
+
+    def response(request):
+        calls.append(request)
+        body = {"changes": [], "newStartPageToken": "private-next"}
+        return httpx.Response(200, stream=httpx.ByteStream(json.dumps(body).encode()))
+
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kw: original(**kw, transport=httpx.MockTransport(response))
+    )
+    page = await adapter.index_changes(access_token="synthetic", page_token="private-cursor")
+    assert page["newStartPageToken"] == "private-next"
+    sent = calls[0].url.params
+    assert sent["fields"] == drive.INDEX_CHANGES_FIELDS and sent["pageSize"] == "200"
+    assert sent["includeRemoved"] == "true" and sent["spaces"] == "drive"
+    await adapter.index_changes(access_token="synthetic", page_token="private-cursor", page_size=25)
+    assert calls[1].url.params["pageSize"] == "25"
+    with pytest.raises(drive.DriveReadError, match="invalid_argument"):
+        await adapter.index_changes(
+            access_token="synthetic", page_token="private-cursor", page_size=1000
+        )
+    base = {
+        "fields": drive.INDEX_CHANGES_FIELDS,
+        "pageSize": "200",
+        "pageToken": "private-cursor",
+        "supportsAllDrives": "true",
+        "includeItemsFromAllDrives": "true",
+        "includeRemoved": "true",
+        "spaces": "drive",
+    }
+    wider = drive.INDEX_CHANGES_FIELDS.replace("trashed,", "trashed,description,")
+    for params, limit in (
+        ({**base, "pageSize": "1000"}, drive.METADATA_LIMIT),
+        ({**base, "q": "trashed = false"}, drive.METADATA_LIMIT),
+        ({**base, "includeRemoved": "false"}, drive.METADATA_LIMIT),
+        ({**base, "fields": wider}, drive.METADATA_LIMIT),
+        (base, drive.CONTENT_LIMIT),
+    ):
+        with pytest.raises(drive.DriveReadError, match="operation_not_allowed"):
+            await adapter._get("/changes", access_token="synthetic", params=params, limit=limit)
+    assert len(calls) == 2
+    assert all("private-" not in r.getMessage() for r in caplog.records if r.name == drive.__name__)

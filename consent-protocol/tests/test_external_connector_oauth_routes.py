@@ -25,6 +25,71 @@ from hushh_mcp.services.external_connector_registry_service import (
 )
 
 
+def test_feature_readiness_does_not_wait_for_connector_providers(route_client, monkeypatch):
+    client, app, _ = route_client
+    unavailable = Mock(side_effect=RuntimeError("provider unavailable"))
+    monkeypatch.setattr(routes, "get_external_connector_registry_service", unavailable)
+    monkeypatch.setattr(routes, "get_external_connector_credentials_service", unavailable)
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "true")
+    assert client.get("/api/connectors/features").status_code == 401
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner"}
+    response = client.get("/api/connectors/features")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json() == {
+        "features": routes.connector_features("owner"),
+        "driveAgentPackagesEnabled": True,
+    }
+    unavailable.assert_not_called()
+
+
+def test_collection_processing_needs_explicit_owner_permission(route_client, monkeypatch):
+    from hushh_mcp.services import drive_collection_store
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "true")
+    client, app, _ = route_client
+    store = SimpleNamespace(
+        status=AsyncMock(return_value={"state": "not_enabled"}),
+        set_processing=AsyncMock(return_value={"enabled": True}),
+    )
+    monkeypatch.setattr(drive_collection_store, "DriveCollectionStore", lambda: store)
+    base = "/api/connectors/google_drive/collection"
+    body = {"enabled": True, "confirmed": True, "disclosure": "live-drive-collection-v1"}
+    assert client.get(base + "/status").status_code == 401
+    assert client.post(base + "/processing", json=body).status_code == 401
+    assert not store.set_processing.called
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner"}
+    assert client.get(base + "/status").status_code == 200
+    response = client.post(base + "/processing", json=body)
+    assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
+    store.set_processing.assert_awaited_once_with(
+        user_id="owner", enabled=True, disclosure="live-drive-collection-v1"
+    )
+    for patch in (
+        {"confirmed": 1},
+        {"confirmed": False},
+        {"enabled": "true"},
+        {"ownerUserId": "other"},
+        {"disclosure": "selected-files-background-v1"},
+    ):
+        assert client.post(base + "/processing", json=body | patch).status_code == 422
+    assert store.set_processing.await_count == 1
+
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "false")
+    assert client.get(base + "/status").status_code == 403
+    response = client.post(base + "/processing", json=body)
+    assert response.status_code == 403
+    assert store.set_processing.await_count == 1
+    # An owner can still stop processing a historical collection.
+    assert client.post(base + "/processing", json={**body, "enabled": False}).status_code == 200
+    store.set_processing.assert_awaited_with(
+        user_id="owner", enabled=False, disclosure="live-drive-collection-v1"
+    )
+
+
 def test_review_configuration_is_transient_and_rejects_refresh_tokens():
     from pydantic import ValidationError
 
@@ -426,7 +491,11 @@ def test_catalog_is_curated_but_connection_status_and_legacy_key_lookup_are_owne
 
 
 @pytest.mark.parametrize("configured", [False, True])
-def test_drive_catalog_readiness_matches_oauth_configuration(route_client, monkeypatch, configured):
+@pytest.mark.parametrize("packages_enabled", [False, True])
+def test_drive_catalog_readiness_matches_oauth_configuration(
+    route_client, monkeypatch, configured, packages_enabled
+):
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "true" if packages_enabled else "false")
     client, app, drive = route_client
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
     drive.connection_available.return_value = configured
@@ -455,6 +524,7 @@ def test_drive_catalog_readiness_matches_oauth_configuration(route_client, monke
     assert response.status_code == 200
     assert response.json()["connectors"][0]["available"] is configured
     assert response.json()["features"]["google_drive_connection"] is True
+    assert response.json()["driveAgentPackagesEnabled"] is packages_enabled
     drive.connection_available.assert_awaited_once()
 
 

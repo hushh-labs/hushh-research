@@ -1,6 +1,6 @@
 "use client";
 
-import { publishVoiceCard } from "@/lib/voice/voice-action-card";
+import { publishVoiceCard } from "@/lib/kai/actions/voice-action-card";
 
 export type LocationCommandStatusCardV1 = {
   cardId:

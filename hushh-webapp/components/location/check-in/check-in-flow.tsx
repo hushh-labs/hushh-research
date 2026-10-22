@@ -60,7 +60,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { deriveLocationVoiceActions } from "@/lib/voice/location-voice-actions";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 const SCREEN_ID = "one_location_check_in";
 const VOICE_ACTIONS = deriveLocationVoiceActions(SCREEN_ID);
@@ -554,9 +554,7 @@ export function CheckInFlow({
                           </span>
                           {!ready ? (
                             <span className={cn(MUTED_TEXT, "block")}>
-                              {!recipient.phoneVerified
-                                ? "Needs a verified phone"
-                                : "Needs to open Location once"}
+                              Location receiving unavailable
                             </span>
                           ) : null}
                         </span>

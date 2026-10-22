@@ -30,6 +30,7 @@ from ag_ui.core import (
     UserMessage,
 )
 from ag_ui_adk import ADKAgent
+from google.adk.models.llm_response import LlmResponse
 
 from hushh_mcp.one_adk import agui_turn_timing
 from hushh_mcp.one_adk.agui_turn_timing import (
@@ -231,6 +232,7 @@ def test_model_callback_times_provider_and_keeps_prompt_text_out_of_logs(monkeyp
     timing.log()
     line = _timing_lines(caplog)[-1]
     assert "model_calls=1" in line
+    assert "model_inflight_calls=0 model_inflight_ms=0" in line
     assert "model_id=gemini-3.8-flash" in line
     assert "thinking_level=LOW" in line
     assert "private system instruction" not in line
@@ -239,6 +241,38 @@ def test_model_callback_times_provider_and_keeps_prompt_text_out_of_logs(monkeyp
     assert USER_ID not in line
     assert RUN_ID not in line, "only the eight-character run label may appear"
     assert "sealed" not in line, "state values never reach the log"
+
+
+@pytest.mark.asyncio
+async def test_error_retains_elapsed_time_for_unfinished_model_call(monkeypatch, caplog):
+    """An error without an after-model callback must not look like a zero-time call."""
+
+    async def failed_model(self, input):
+        yield RunStartedEvent(thread_id=input.thread_id, run_id=input.run_id)
+        timing = agui_turn_timing._CURRENT_TURN.get()
+        assert timing is not None
+        timing.begin_model_call(
+            SimpleNamespace(model="gemini-3.6-flash", config=None, contents=[MESSAGE_TEXT])
+        )
+        await asyncio.sleep(0.01)
+        yield RunErrorEvent(
+            message="private provider diagnostic", code="BACKGROUND_EXECUTION_ERROR"
+        )
+
+    monkeypatch.setattr(ADKAgent, "run", failed_model)
+    caplog.set_level(logging.INFO, logger=LOGGER_NAME)
+
+    await _drain(_agent())
+
+    line = _timing_lines(caplog)[0]
+    fields = _fields(line)
+    assert fields["outcome"] == OUTCOME_ERROR
+    assert fields["model_calls"] == "1"
+    assert fields["model_call_total_ms"] == "0"
+    assert fields["model_inflight_calls"] == "1"
+    assert 5 <= int(fields["model_inflight_ms"]) <= int(fields["elapsed_ms"])
+    assert MESSAGE_TEXT not in line
+    assert "private provider diagnostic" not in line
 
 
 @pytest.mark.asyncio
@@ -848,6 +882,29 @@ async def test_a_client_that_leaves_after_the_run_settled_is_still_notified():
     assert await asyncio.wait_for(settled.get(), timeout=10) == (USER_ID, THREAD_ID)
 
 
+def test_model_duration_includes_partial_streams_until_the_final_response(monkeypatch):
+    """A partial response must not turn time-to-first-chunk into total model time."""
+    now = [1.0]
+    monkeypatch.setattr(agui_turn_timing.time, "perf_counter", lambda: now[0])
+    timing = agui_turn_timing.TurnTiming(head=HEAD_ONE, run="run", started_at=now[0])
+    token = agui_turn_timing._CURRENT_TURN.set(timing)
+    try:
+        timing.begin_model_call(SimpleNamespace(model="test", config=None, contents=[]))
+        now[0] = 4.0
+        agui_turn_timing.timed_one_after_model(object(), LlmResponse(partial=True))
+        assert timing.model_call_total_ms == 0
+        assert timing.pending_model_call_starts == [1.0]
+        now[0] = 6.0
+        agui_turn_timing.timed_one_after_model(object(), LlmResponse(partial=False))
+        assert timing.model_call_total_ms == 5000
+        assert timing.pending_model_call_starts == []
+        # A duplicate final event cannot count the same provider call twice.
+        agui_turn_timing.timed_one_after_model(object(), LlmResponse(partial=False))
+        assert timing.model_call_total_ms == 5000
+    finally:
+        agui_turn_timing._CURRENT_TURN.reset(token)
+
+
 def test_failed_drive_guard_does_not_count_a_model_call():
     from google.adk.models.llm_request import LlmRequest
 
@@ -886,9 +943,15 @@ async def test_first_model_call_is_split_into_session_and_request_build(monkeypa
     def bridge(*, start_agent: bool):
         async def run(self, input):
             yield RunStartedEvent(thread_id=THREAD_ID, run_id=RUN_ID)
+            agui_turn_timing.record_session_phase("read", 4.4)
+            agui_turn_timing.record_session_phase("decrypt", 2.6)
+            agui_turn_timing.record_session_phase("append", 1.7)
+            agui_turn_timing.record_session_phase("persistence", 3.2)
             await asyncio.sleep(0.02)
             if start_agent:
                 agui_turn_timing.timed_one_before_agent(object())
+                # Post-agent persistence is outside the session startup split.
+                agui_turn_timing.record_session_phase("persistence", 100)
             agui_turn_timing.record_instruction_build(7.4)
             await asyncio.sleep(0.02)
             agui_turn_timing.timed_one_before_model(object(), request)
@@ -916,6 +979,12 @@ async def test_first_model_call_is_split_into_session_and_request_build(monkeypa
         <= 1
     )
     assert split["instruction_ms"] == "7"
+    assert split["session_read_ms"] == "4"
+    assert split["session_decrypt_ms"] == "3"
+    assert split["session_append_ms"] == "2"
+    assert split["session_persistence_ms"] == "3"
+    assert split["session_persistence_count"] == "1"
+    assert int(split["session_other_ms"]) >= 0
     assert split["path_warmed"] == "false"
     assert unsplit["session_ms"] == "None" and unsplit["request_build_ms"] == "None"
     assert unsplit["path_warmed"] == "true"

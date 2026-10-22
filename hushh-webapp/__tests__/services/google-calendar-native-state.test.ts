@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: { apiFetch } }));
-import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
+import { GoogleCalendarError, GoogleCalendarService } from "@/lib/services/google-calendar-service";
 
 describe("native Google attempt state", () => {
   beforeEach(() => apiFetch.mockReset());
@@ -72,4 +72,20 @@ describe("native Google attempt state", () => {
     ).rejects.toThrow("Restart");
     expect(apiFetch).not.toHaveBeenCalled();
   });
+  it.each([
+    ["calendar_not_connected", "connect"],
+    ["calendar_reauthorization_required", "reconnect"],
+    ["calendar_permission_required", "permission"],
+    ["calendar_list_permission_required", "permission"],
+    ["calendar_rate_limited", "retry"],
+    ["calendar_timeout", "retry"],
+    ["unknown_reason", "retry"],
+  ])("preserves the typed reason %s without guessing recovery from prose", async (reason_code, recovery) => {
+    apiFetch.mockResolvedValue(new Response(JSON.stringify({ detail: { message: "Reconnect is mentioned in arbitrary prose", reason_code } }), { status: 403 }));
+    const failure = await GoogleCalendarService.listEvents({ vaultOwnerToken: "token", startAt: "2026-10-09T00:00:00Z", endAt: "2026-10-10T00:00:00Z" }).catch((error) => error);
+    expect(failure).toBeInstanceOf(GoogleCalendarError);
+    expect(failure.reasonCode).toBe(reason_code);
+    expect(failure.recovery).toBe(recovery);
+  });
+
 });

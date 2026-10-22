@@ -8,7 +8,12 @@ import {
   type TopShellBreadcrumbConfig,
 } from "@/lib/navigation/top-shell-breadcrumbs";
 import { isFocusedConnectCircleTask } from "@/lib/navigation/connect-routes";
-import { ROUTES } from "@/lib/navigation/routes";
+import {
+  buildOneSetupRoute,
+  resolveOneSetupReturnTo,
+  ROUTES,
+} from "@/lib/navigation/routes";
+import { dismissTopmostOverlay, unwindBackLayer } from "@/lib/navigation/back-layers";
 
 type SearchParamsLike = { get(name: string): string | null } | null | undefined;
 
@@ -105,8 +110,19 @@ export function resolveTopShellBackAction(params: {
 
   // An open panel or action sheet closes in place. It is a query-only state on
   // the same screen, never a step in the trail, so it must not retrace.
-  if (profilePanelOpen || locationActionOpen || connectCircleFlowOpen) {
+  const sameScreenParent = pathnameOf(breadcrumb.backHref) === params.pathname &&
+    (params.pathname !== ROUTES.CONNECT || connectCircleFlowOpen);
+  if (profilePanelOpen || locationActionOpen || connectCircleFlowOpen || sameScreenParent) {
     return action(breadcrumb.backHref, "replace");
+  }
+
+  // Setup is a step, not a section trail. An edge gesture must use the same
+  // parent and history mode as its visible Back control, including a safe
+  // return target for an invited or deep-linked person.
+  if (params.pathname === ROUTES.ONE_SETUP_CONNECTIONS) {
+    return action(buildOneSetupRoute({
+      returnTo: resolveOneSetupReturnTo(params.searchParams?.get("return_to")),
+    }), "replace");
   }
 
   // Only the section root leaves the section. Everywhere else the declared
@@ -131,6 +147,8 @@ export function navigateTopShellBack(params: {
   sectionOrigin?: string | null;
   navigate: (action: TopShellBackAction) => void;
 }): boolean {
+  if (typeof document !== "undefined" && dismissTopmostOverlay()) return true;
+  if (unwindBackLayer(params.pathname, params.searchParams)) return true;
   const action = resolveTopShellBackAction(params);
   if (!action) return false;
   // Leaving a section spends its origin, so a later return records a fresh

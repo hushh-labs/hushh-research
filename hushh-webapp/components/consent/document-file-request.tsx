@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import Link from "next/link";
 import {
   snapshotVaultSessionEpoch,
@@ -13,21 +13,29 @@ import {
   validDocumentRequestPeriod,
   validDocumentRequestTerms,
 } from "@/lib/services/drive-sharing-service";
+import { DriveRequestRequesterService } from "@/lib/services/drive-request-requester-service";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { CONSENT_ACTION_COMPLETE_EVENT } from "@/lib/consent/consent-events";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button } from "@/lib/morphy-ux/button";
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
+import { SettingsGroup } from "@/components/app-ui/settings-ui";
 import { BodyText, HelperText } from "@/components/app-ui/typography";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { MobileDocumentDateRange } from "@/components/consent/mobile-document-date-range";
+import { IllustratedRequestContent, IllustratedRequestForm, IllustratedRequestBody, IllustratedRequestActions } from "@/components/app-ui/illustrated-request-dialog";
+import {
+  DocumentRequestQuoteNotice,
+  useDocumentRequestQuote,
+} from "@/components/consent/document-request-quote";
+import { IDENTITY_REQUIRED, fileRequestError } from "@/components/consent/file-request-errors";
+import { PacketRow } from "@/components/consent/packets/packet-rows";
+import { dayRangeLabel } from "@/components/consent/packets/packet-copy";
+import type { DriveRequestQuote } from "@/lib/services/drive-request-pricing-service";
 import {
   Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
 
@@ -35,17 +43,21 @@ export type FileRequestTerms = {
   purpose: string;
   periodStart: string | null;
   periodEnd: string | null;
+  accessDays?: number;
+  requesterActorType?: "person" | "ria";
+  reason?: string;
 };
 
 export const FILE_REQUEST_HELPER =
   "You get original Drive links for the files they share with you.";
 
-const IDENTITY_REQUIRED = new Set([
-  "verify_google_identity_required",
-  "google_identity_required",
-]);
-
 export function validFileRequest(terms: FileRequestTerms): boolean {
+  if (terms.accessDays !== undefined &&
+    (!Number.isSafeInteger(terms.accessDays) || terms.accessDays < 1 || terms.accessDays > 90)) return false;
+  if (terms.requesterActorType !== undefined &&
+    terms.requesterActorType !== "person" && terms.requesterActorType !== "ria") return false;
+  if (terms.reason !== undefined && (terms.reason.length > 500 ||
+    (terms.requesterActorType === "ria" && !terms.reason.trim()))) return false;
   return validDocumentRequestTerms(
     terms.purpose,
     terms.periodStart || null,
@@ -53,38 +65,85 @@ export function validFileRequest(terms: FileRequestTerms): boolean {
   );
 }
 
-function fileRequestError(code: string): string {
-  if (IDENTITY_REQUIRED.has(code))
-    return "Add a Google account once to receive original files.";
-  switch (code) {
-    case "identity_link_web_required":
-      return "Open One on the web to add your Google account once.";
-    case "identity_already_linked":
-      return "That Google account belongs to another One account. Choose another.";
-    case "identity_cancelled":
-      return "Google verification was cancelled. No new request was sent.";
-    case "identity_busy":
-      return "Finish the verification already open, then retry.";
-    case "identity_timeout":
-      return "Google verification timed out. Close any open verification window, then retry.";
-    case "identity_mismatch":
-      return "Use the Google account linked to your One account.";
-    case "native_identity_unavailable":
-      return "Update the app to verify your Google account, then retry.";
-    case "identity_popup_blocked":
-      return "Allow the Google verification popup, then retry.";
-    case "sharing_unavailable":
-    case "connector_unavailable":
-      return "File requests aren't available for this connection yet.";
-    case "connection_required":
-      return "You need an active connection with this person.";
-    case "request_changed":
-      return "This request was already sent with different details. Start a new request.";
-    case "date_range_required":
-      return "Choose exact start and end dates before sending this request.";
-    default:
-      return "Couldn't confirm it was sent. Send again. It won't be sent twice.";
-  }
+export type RecipientIdentityPreview = {
+  state: "idle" | "loading" | "ready" | "missing" | "unavailable";
+  email: string | null;
+  refresh: () => void;
+};
+
+/**
+ * The Google account a new request's files would go to, checked by the server
+ * the way sending checks it, never from client providerData. A failed check
+ * only hides the line: sending verifies the account again.
+ */
+export function useRecipientIdentityPreview({
+  active,
+  userId,
+  getToken,
+}: {
+  active: boolean;
+  userId: string;
+  getToken: () => string | null;
+}): RecipientIdentityPreview {
+  const [result, setResult] = useState<Omit<RecipientIdentityPreview, "refresh">>({
+    state: "idle",
+    email: null,
+  });
+  const [reload, setReload] = useState(0);
+  const refresh = useCallback(() => setReload((current) => current + 1), []);
+
+  useEffect(() => {
+    const token = active ? getToken() : null;
+    if (!token) {
+      setResult({ state: "idle", email: null });
+      return;
+    }
+    const epoch = snapshotVaultSessionEpoch();
+    let cancelled = false;
+    const current = () =>
+      !cancelled && isVaultSessionEpochCurrent(epoch) && getToken() === token;
+    const guard = () => {
+      if (!current()) throw new DriveSharingError("session_changed");
+    };
+    setResult((previous) => ({ state: "loading", email: previous.email }));
+    void Promise.resolve()
+      .then(() => AuthService.documentRequestIdentityToken(userId, current))
+      .then((firebaseToken) => {
+        guard();
+        return DriveRequestRequesterService.recipientIdentity(token, firebaseToken, guard);
+      })
+      .then((identity) => {
+        if (current()) setResult({ state: "ready", email: identity.email });
+      })
+      .catch((cause) => {
+        if (!current()) return;
+        const code =
+          cause instanceof DriveSharingError
+            ? cause.code
+            : cause instanceof Error
+              ? cause.message
+              : "";
+        setResult({ state: IDENTITY_REQUIRED.has(code) ? "missing" : "unavailable", email: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [active, userId, getToken, reload]);
+
+  return { ...result, refresh };
+}
+
+/** "Files will be shared with a@gmail.com", or what to add before sending. */
+export function RecipientIdentityNotice({ preview }: { preview: RecipientIdentityPreview }) {
+  if (preview.state === "ready" && preview.email)
+    return (
+      <HelperText className="[overflow-wrap:anywhere]">
+        Files will be shared with {preview.email}
+      </HelperText>
+    );
+  if (preview.state === "missing")
+    return <HelperText role="status">Add a Google account to receive the files.</HelperText>;
+  return null;
 }
 
 /**
@@ -97,23 +156,38 @@ export function useFileRequest({
   personRef,
   getToken,
   initial,
+  onQuoteChanged,
+  identityMissing = false,
+  onIdentityLinked,
+  canRequest = true,
 }: {
   userId: string;
   personRef: string;
   getToken: () => string | null;
   initial?: { terms: FileRequestTerms; clientRequestId: string };
+  onQuoteChanged?: () => void;
+  /** The preview found no linked Google account: sending links one first. */
+  identityMissing?: boolean;
+  /** A Google account was linked while sending; the preview reads it again. */
+  onIdentityLinked?: () => void;
+  canRequest?: boolean;
 }) {
   const [phase, setPhase] = useState<"idle" | "verifying" | "sending">("idle");
   const [error, setError] = useState<string | null>(null);
-  const [needsGoogle, setNeedsGoogle] = useState(false);
+  const [needsGoogleAfterSend, setNeedsGoogle] = useState(false);
+  const [linked, setLinked] = useState(false);
+  const needsGoogle = needsGoogleAfterSend || (identityMissing && !linked);
   const alive = useRef(false);
+  const eligibility = useRef(canRequest);
+  eligibility.current = canRequest;
   const serial = useRef(0);
   const inFlight = useRef(false);
-  const attempt = useRef<{ fingerprint: string; id: string } | null>(
+  const attempt = useRef<{ fingerprint: string; id: string; quoteVersion: number | null } | null>(
     initial
       ? {
           fingerprint: fingerprintOf(personRef, initial.terms),
           id: initial.clientRequestId,
+          quoteVersion: null,
         }
       : null,
   );
@@ -127,8 +201,8 @@ export function useFileRequest({
       inFlight.current = false;
     };
   }, []);
-  const send = async (terms: FileRequestTerms): Promise<string | null> => {
-    if (inFlight.current || !validFileRequest(terms) || !alive.current) return null;
+  const send = async (terms: FileRequestTerms, quote: DriveRequestQuote | null): Promise<string | null> => {
+    if (!eligibility.current || inFlight.current || !validFileRequest(terms) || !quote || !alive.current) return null;
     const token = getToken();
     if (!token) return null;
     const epoch = snapshotVaultSessionEpoch();
@@ -138,13 +212,17 @@ export function useFileRequest({
       serial.current === operation &&
       isVaultSessionEpochCurrent(epoch) &&
       getToken() === token;
-    const guard = () => {
+    const guard = Object.assign(() => {
       if (!current()) throw new DriveSharingError("session_changed");
-    };
+    }, { canDispatch: () => eligibility.current });
     const clean = normalize(terms);
     const fingerprint = fingerprintOf(personRef, clean);
-    if (attempt.current?.fingerprint !== fingerprint)
-      attempt.current = { fingerprint, id: crypto.randomUUID() };
+    if (attempt.current?.fingerprint !== fingerprint ||
+        (attempt.current.quoteVersion !== null && attempt.current.quoteVersion !== quote.version)) {
+      attempt.current = { fingerprint, id: crypto.randomUUID(), quoteVersion: quote.version };
+    } else {
+      attempt.current.quoteVersion = quote.version;
+    }
     const clientRequestId = attempt.current.id;
     const linkGoogle = needsGoogle;
     inFlight.current = true;
@@ -155,12 +233,26 @@ export function useFileRequest({
         ? AuthService.linkGoogleIdentity(userId, current)
         : AuthService.documentRequestIdentityToken(userId, current));
       guard();
-      if (linkGoogle) setNeedsGoogle(false);
+      if (!eligibility.current) {
+        setError("Your connection needs to be confirmed before sending. Your details are kept.");
+        return null;
+      }
+      if (linkGoogle) {
+        setNeedsGoogle(false);
+        setLinked(true);
+        onIdentityLinked?.();
+      }
       setPhase("sending");
       const result = await DriveSharingService.create(
         token,
         firebaseToken,
-        { ownerPersonRef: personRef, clientRequestId, purpose: clean },
+        { ownerPersonRef: personRef, clientRequestId, expectedQuoteVersion: quote.version,
+          ...(clean.accessDays === undefined ? {} : { accessDays: clean.accessDays }),
+          ...(clean.requesterActorType === undefined ? {} : { requesterActorType: clean.requesterActorType }),
+          ...(clean.reason === undefined ? {} : { reason: clean.reason }),
+          purpose: {
+            purpose: clean.purpose, periodStart: clean.periodStart, periodEnd: clean.periodEnd,
+          } },
         guard,
       );
       guard();
@@ -183,6 +275,7 @@ export function useFileRequest({
             : "request_failed";
       if (IDENTITY_REQUIRED.has(code)) setNeedsGoogle(true);
       setError(fileRequestError(code));
+      if (code === "price_changed") onQuoteChanged?.();
       return null;
     } finally {
       if (serial.current === operation) {
@@ -206,6 +299,9 @@ function normalize(terms: FileRequestTerms): FileRequestTerms {
     purpose: terms.purpose.trim(),
     periodStart: terms.periodStart || null,
     periodEnd: terms.periodEnd || null,
+    ...(terms.accessDays === undefined ? {} : { accessDays: terms.accessDays }),
+    ...(terms.requesterActorType === undefined ? {} : { requesterActorType: terms.requesterActorType }),
+    ...(terms.reason === undefined ? {} : { reason: terms.reason.trim() }),
   };
 }
 
@@ -228,19 +324,47 @@ export function RequestFilesButton({
   personRef,
   personName,
   getToken,
+  agentPackagesEnabled = false,
+  renderTrigger,
+  canRequest = true,
+  availabilityNotice,
+  initialOpen = false,
+  showTrigger = true,
+  returnFocusRef,
 }: {
   userId: string;
   personRef: string;
   personName: string;
   getToken: () => string | null;
+  agentPackagesEnabled?: boolean;
+  renderTrigger?: (label: string) => ReactNode;
+  canRequest?: boolean;
+  availabilityNotice?: ReactNode;
+  initialOpen?: boolean;
+  showTrigger?: boolean;
+  returnFocusRef?: RefObject<HTMLButtonElement | null>;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
   const [purpose, setPurpose] = useState("");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
-  const [created, setCreated] = useState<string | null>(null);
-  const request = useFileRequest({ userId, personRef, getToken });
-  const terms = { purpose, periodStart: start || null, periodEnd: end || null };
+  const [accessDays, setAccessDays] = useState(30);
+  const [requesterActorType, setRequesterActorType] = useState<"person" | "ria">("person");
+  const [reason, setReason] = useState("");
+  const [created, setCreated] = useState<{ requestId: string; purpose: string; start: string; end: string } | null>(null);
+  const quote = useDocumentRequestQuote({ active: open && !created && canRequest, ownerPersonRef: personRef, getToken });
+  const identity = useRecipientIdentityPreview({ active: open && !created && canRequest, userId, getToken });
+  const request = useFileRequest({
+    canRequest,
+    userId,
+    personRef,
+    getToken,
+    onQuoteChanged: quote.refresh,
+    identityMissing: identity.state === "missing",
+    onIdentityLinked: identity.refresh,
+  });
+  const terms = { purpose, periodStart: start || null, periodEnd: end || null,
+    ...(agentPackagesEnabled ? { accessDays, requesterActorType, reason } : {}) };
   const valid = validFileRequest(terms);
   const busy = request.phase !== "idle";
   const close = () => {
@@ -250,12 +374,15 @@ export function RequestFilesButton({
     setOpen(false);
   };
   const submit = async () => {
-    const requestId = await request.send(terms);
+    const requestId = await request.send(terms, quote.quote);
     if (!requestId) return;
-    setCreated(requestId);
+    setCreated({ requestId, purpose: purpose.trim(), start, end });
     setPurpose("");
     setStart("");
     setEnd("");
+    setAccessDays(30);
+    setRequesterActorType("person");
+    setReason("");
   };
   return (
     <>
@@ -267,60 +394,82 @@ export function RequestFilesButton({
           else close();
         }}
       >
-        <DialogTrigger asChild>
-          <Button size="standard" variant="none">Request files</Button>
-        </DialogTrigger>
-        <DialogContent
+        {showTrigger ? <DialogTrigger asChild>
+          <Button size="standard" variant="none">{renderTrigger?.("Request files") ?? "Request files"}</Button>
+        </DialogTrigger> : null}
+        <IllustratedRequestContent
+          intent="files"
+          title={created ? "Request sent" : "Request files"}
+          description={`To ${personName}`}
+          success={Boolean(created)}
           data-request-files-dialog
-          // Phone sheet geometry lives in globals.css ([data-request-files-dialog]);
-          // the centering translate is reset here because a CSS `translate`
-          // reset does not survive production minification.
-          className="max-h-[85dvh] overflow-y-auto max-sm:translate-x-0 max-sm:translate-y-0 sm:max-w-md"
-          showCloseButton={Boolean(created)}
+          showCloseButton={request.phase !== "sending"}
           srDescription={`Request files from ${personName}.`}
+          onCloseAutoFocus={(event) => {
+            if (!showTrigger && returnFocusRef?.current) {
+              event.preventDefault();
+              returnFocusRef.current.focus();
+            }
+          }}
         >
-          <DialogHeader>
-            <DialogTitle>Request files</DialogTitle>
-            <HelperText as="p" className="break-words">
-              To {personName}
-            </HelperText>
-          </DialogHeader>
           {created ? (
-            <div className="min-w-0 space-y-4">
+            <>
+              <IllustratedRequestBody>
               <BodyText role="status">Request sent.</BodyText>
-              <Button asChild size="prominent">
-                <Link
-                  href={buildConsentCenterHref("pending", {
-                    requestId: `document_share_request:${created}`,
-                    requestView: "sent",
-                  })}
-                >
-                  View request
-                </Link>
-              </Button>
-              <Button
-                type="button"
-                size="standard"
-                variant="none"
-                onClick={() => {
-                  setCreated(null);
-                  request.reset();
-                }}
-              >
-                Request more files
-              </Button>
-            </div>
+              {agentPackagesEnabled && <SettingsGroup density="compact">
+                <PacketRow item={{
+                  id: created.requestId,
+                  title: created.purpose,
+                  statusLine: [`Waiting for ${personName}`, dayRangeLabel(created.start, created.end)]
+                    .filter(Boolean).join(" · "),
+                  amountCents: null,
+                  tone: "waiting",
+                }} />
+              </SettingsGroup>}
+              </IllustratedRequestBody>
+              <IllustratedRequestActions>
+              <FlowActionGroup
+                primary={
+                  <Button asChild size="prominent">
+                    <Link
+                      href={buildConsentCenterHref("pending", {
+                        requestId: `document_share_request:${created.requestId}`,
+                        requestView: "sent",
+                      })}
+                    >
+                      View request
+                    </Link>
+                  </Button>
+                }
+                secondary={
+                  <Button
+                    type="button"
+                    size="prominent"
+                    variant="none"
+                    disabled={!canRequest}
+                    onClick={() => {
+                      setCreated(null);
+                      request.reset();
+                    }}
+                  >
+                    Request more files
+                  </Button>
+                }
+              />
+              </IllustratedRequestActions>
+            </>
           ) : (
-            <form
-              className="min-w-0 space-y-4"
+            <IllustratedRequestForm
               onSubmit={(event) => {
                 event.preventDefault();
                 void submit();
               }}
             >
+              <IllustratedRequestBody>
+              {availabilityNotice}
               <div className="space-y-2">
                 <Label htmlFor="document-request-purpose">
-                  What do you need?
+                  Which files do you need?
                 </Label>
                 <Textarea
                   id="document-request-purpose"
@@ -329,11 +478,31 @@ export function RequestFilesButton({
                   maxLength={2000}
                   required
                   disabled={busy}
-                  placeholder="Six months of bank statements"
+                  placeholder="Bank statements"
                 />
               </div>
-              <fieldset className="min-w-0" disabled={busy}>
-                <legend className="mb-2">Period (required)</legend>
+              {agentPackagesEnabled && <>
+                <div className="space-y-2">
+                  <Label htmlFor="document-request-role">Requesting as</Label>
+                  <select id="document-request-role" value={requesterActorType}
+                    onChange={event => setRequesterActorType(event.target.value as "person" | "ria")}
+                    disabled={busy}
+                    className="block min-h-11 w-full cursor-pointer rounded-md border border-input bg-background px-3 text-sm font-normal">
+                    <option value="person">Myself</option>
+                    <option value="ria">Verified RIA</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="document-request-reason">Reason{requesterActorType === "ria" ? "" : " (optional)"}</Label>
+                  <Textarea id="document-request-reason" value={reason}
+                    onChange={event => setReason(event.target.value)} maxLength={500}
+                    required={requesterActorType === "ria"} disabled={busy}
+                    placeholder="Why do you need these documents?" />
+                </div>
+              </>}
+              <fieldset className="min-w-0" disabled={busy} aria-describedby="document-period-help">
+                <legend className="mb-2">Dates covered</legend>
+                <span id="document-period-help" className="sr-only">Start and end dates are required.</span>
                 <MobileDocumentDateRange
                   start={start}
                   end={end}
@@ -363,14 +532,23 @@ export function RequestFilesButton({
                   </div>
                 </div>
               </fieldset>
-              {!start || !end ? (
-                <HelperText role="status">
-                  Choose exact start and end dates before sending this request.
-                </HelperText>
+              {agentPackagesEnabled && <div className="space-y-2">
+                <Label htmlFor="document-access-days">Access period</Label>
+                <select id="document-access-days" value={accessDays}
+                  onChange={event => setAccessDays(Number(event.target.value))}
+                  disabled={busy}
+                  className="block min-h-11 w-full cursor-pointer rounded-md border border-input bg-background px-3 text-sm font-normal">
+                  <option value={7}>7 days</option>
+                  <option value={30}>30 days</option>
+                  <option value={90}>90 days</option>
+                </select>
+              </div>}
+              {(start || end) && (!start || !end) ? (
+                <HelperText role="status">Choose a start and end date.</HelperText>
               ) : null}
               {start && end && !validDocumentRequestPeriod(start, end) ? (
                 <HelperText role="status">
-                  Choose both dates, with the end on or after the start.
+                  The end date must be on or after the start date.
                 </HelperText>
               ) : null}
               {request.error ? (
@@ -378,9 +556,14 @@ export function RequestFilesButton({
                   {request.error}
                 </HelperText>
               ) : null}
+              <RecipientIdentityNotice preview={identity} />
+              <DocumentRequestQuoteNotice quote={quote.quote} loading={quote.loading}
+                error={quote.error} onRetry={quote.refresh} personName={personName} />
+              </IllustratedRequestBody>
+              <IllustratedRequestActions>
               <FlowActionGroup
                 primary={
-                  <Button type="submit" size="prominent" disabled={!valid || busy}>
+                  <Button type="submit" size="prominent" disabled={!canRequest || !valid || !quote.quote || busy}>
                     {request.phase !== "idle"
                       ? "Sending…"
                       : request.needsGoogle
@@ -400,9 +583,10 @@ export function RequestFilesButton({
                   </Button>
                 }
               />
-            </form>
+              </IllustratedRequestActions>
+            </IllustratedRequestForm>
           )}
-        </DialogContent>
+        </IllustratedRequestContent>
       </Dialog>
     </>
   );

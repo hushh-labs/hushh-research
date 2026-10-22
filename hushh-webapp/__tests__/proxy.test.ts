@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { proxy } from "@/proxy";
 
@@ -74,4 +74,74 @@ describe("Next proxy root-entry contract", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("location")).toBeNull();
   });
+
+  it.each([
+    ["preferences/kai", "preferences", "kai-preferences"],
+    ["preferences/voice/changelog", "preferences", "voice"],
+    ["preferences/voice/examples", "preferences", "voice"],
+    ["support/routing", "support", "support-routing"],
+    ["support/compose?kind=bug_report", "support", "support-compose:bug_report"],
+    ["security/vault", "security", "vault"],
+    ["gmail/actions", "gmail", "gmail-actions"],
+  ])("keeps authored nested Profile destination %s", (subpath, panel, detail) => {
+    for (const prefix of ["/profile", "/one/profile"]) {
+      const target = new URL(proxy(request(`${prefix}/${subpath}`)).headers.get("location")!);
+      expect(target.pathname).toBe("/one");
+      expect(target.searchParams.get("profile_pane")).toBe("1");
+      expect(target.searchParams.get("profile_panel")).toBe(panel);
+      expect(target.searchParams.get("profile_detail")).toBe(detail);
+    }
+  });
+});
+
+
+afterEach(() => vi.unstubAllEnvs());
+
+it("keeps private responses out of the index without redirecting registered callbacks", () => {
+  vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
+  for (const path of ["/one", "/kai", "/profile", "/people", "/c/shared", "/oauth/authorize", "/api/account", "/one/profile/connectors/oauth/return"]) {
+    expect(proxy(request(path)).headers.get("x-robots-tag")).toBe("noindex, nofollow");
+  }
+  const callback = proxy(request("/one/profile/connectors/oauth/return?code=synthetic&state=synthetic"));
+  expect(callback.headers.get("location")).toBeNull();
+  const publicPage = proxy(request("/welcome?tab=research&utm_source=test"));
+  expect(publicPage.headers.get("x-robots-tag")).toBeNull();
+  expect(publicPage.headers.get("link")).toBe('<https://one.hussh.si/welcome?tab=research>; rel="canonical"');
+  expect(callback.headers.get("link")).toBeNull();
+  for (const path of ["/privacy", "/terms", "/delete-account"]) {
+    expect(proxy(request(path)).headers.get("x-robots-tag")).toBeNull();
+  }
+  vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+  expect(proxy(request("/welcome?tab=research")).headers.get("x-robots-tag")).toBe("noindex, nofollow");
+});
+
+it.each(["/one/profile/world-model", "/one/profile/world-model/"])(
+  "keeps PWM and contact-bound claim links on their dedicated route: %s",
+  (path) => {
+    const response = proxy(request(`${path}?claim=synthetic-opaque-token`));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("location")).toBeNull();
+  },
+);
+
+it.each(["/one/profile/world-model", "/one/profile/world-model/"])("opens an ordinary model link inside Profile: %s", (path) => {
+  const response = proxy(request(`${path}?from=%2Fone%2Ffeed`));
+  const location = new URL(response.headers.get("location")!);
+  expect(location.pathname.replace(/\/$/, "")).toBe("/one");
+  expect(location.searchParams.get("profile_pane")).toBe("1");
+  expect(location.searchParams.get("profile_panel")).toBe("world-model");
+  expect(location.searchParams.get("from")).toBe("/one/feed");
+});
+
+it("keeps a ready draft or invitation handoff when a model link opens in Profile", () => {
+  // The Feed item and the ready email link here; the pane shows the model.
+  const location = new URL(
+    proxy(request("/one/profile/world-model?draft_id=x&handoff=h1")).headers.get("location")!,
+  );
+  expect(location.pathname.replace(/\/$/, "")).toBe("/one");
+  expect(location.searchParams.get("profile_pane")).toBe("1");
+  expect(location.searchParams.get("profile_panel")).toBe("world-model");
+  expect(location.searchParams.get("draft_id")).toBe("x");
+  expect(location.searchParams.get("handoff")).toBe("h1");
+  expect(location.searchParams.has("profile_detail")).toBe(false);
 });

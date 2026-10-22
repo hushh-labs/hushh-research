@@ -66,6 +66,7 @@ LIVE_SCOPES = ("openid", "email", LIVE_DRIVE_SCOPE)
 REGISTRY_SCOPES = (*SCOPES, LIVE_DRIVE_SCOPE)
 DriveProfile = Literal["selected", "live"]
 RESPONSE_LIMIT = 256 * 1024
+RESUME_TIMEOUT_SECONDS = 5
 
 logger = logging.getLogger(__name__)
 
@@ -479,10 +480,12 @@ class ExternalConnectorGoogleOAuth:
         return {"connectorId": CONNECTOR_ID, "status": status}
 
     async def current_credential(
-        self, *, user_id: str, required_profile: DriveProfile | None = None
+        self, *, user_id: str, required_profile: DriveProfile | None = None, refresh: bool = True
     ) -> tuple[dict, dict]:
         """Internal only. Execution additionally enforces policy before/after I/O."""
-        row = await self.lifecycle.read(user_id=user_id, connector_id=CONNECTOR_ID)
+        row = await self.lifecycle.read(
+            user_id=user_id, connector_id=CONNECTOR_ID, **({"purge": False} if not refresh else {})
+        )
         if (
             not row
             or row["status"] not in {"connected", "verifying"}
@@ -510,7 +513,7 @@ class ExternalConnectorGoogleOAuth:
             raise DriveOAuthError("connector_configuration_invalid", status_code=503)
         if credential.get("oauthClientId") != client_id:
             raise DriveOAuthError("reconnect_required", status_code=401)
-        if row["credential_expires_at"] > datetime.now(UTC) + timedelta(seconds=90):
+        if not refresh or row["credential_expires_at"] > datetime.now(UTC) + timedelta(seconds=90):
             return row, credential
         common = dict(
             user_id=user_id,
@@ -581,13 +584,48 @@ class ExternalConnectorGoogleOAuth:
         from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransport
 
         await GoogleDriveRestTransport(oauth=self).probe(access_token=credential["accessToken"])
-        return await self.lifecycle.mark_verified(
+        verified = await self.lifecycle.mark_verified(
             user_id=user_id,
             connector_id=CONNECTOR_ID,
             generation=row["connection_generation"],
             version=row["credential_version"],
             policy_hash=LIVE_POLICY_HASH,
         )
+        if verified:
+            await self._prepare_drive_collection(user_id)
+            await self._resume_drive_requests(user_id)
+        return verified
+
+    async def _prepare_drive_collection(self, user_id: str) -> None:
+        """Start private preparation after verified OAuth; scheduled work recovers."""
+        if os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower() != "true":
+            return
+        if not connector_feature_enabled("drive_document_indexing", user_id):
+            return
+        try:
+            async with asyncio.timeout(RESUME_TIMEOUT_SECONDS):
+                from hushh_mcp.services.drive_collection_store import DriveCollectionStore
+                from hushh_mcp.services.drive_work_wake import wake_drive_work
+
+                await DriveCollectionStore(db=self.lifecycle.db).ensure_default(user_id=user_id)
+                await wake_drive_work("documents")
+        except Exception as error:
+            logger.warning("drive_oauth.collection_default_deferred type=%s", type(error).__name__)
+
+    async def _resume_drive_requests(self, user_id: str) -> None:
+        """Requests waiting on this Drive continue now; scheduled drains also retry.
+
+        The verified connection is already committed, so this never fails or
+        holds the verify response beyond its bound.
+        """
+        try:
+            async with asyncio.timeout(RESUME_TIMEOUT_SECONDS):
+                # Local import avoids a module cycle through the OAuth service.
+                from hushh_mcp.services.drive_sharing_service import DriveSharingService
+
+                await DriveSharingService(oauth=self).resume_owner_drive(user_id=user_id)
+        except Exception as error:
+            logger.warning("drive_oauth.request_resume_deferred type=%s", type(error).__name__)
 
     async def disconnect(self, *, user_id: str) -> dict[str, str]:
         old = await self.lifecycle.disconnect(user_id=user_id, connector_id=CONNECTOR_ID)

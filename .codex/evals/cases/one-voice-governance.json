@@ -18,7 +18,7 @@
     "negative": [
       {
         "prompt": "durable memory is being written to plaintext localStorage, fix the vault encryption boundary",
-        "owner": "vault-pkm-governance"
+        "owner": "security-audit"
       },
       {
         "prompt": "clean up the redundant docs for the voice runtime and decide their documentation home",

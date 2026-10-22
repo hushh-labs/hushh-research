@@ -74,7 +74,51 @@ const receipts: ReceiptListItem[] = [
       : `2026-09-${String(35 - Number(id)).padStart(2, "0")}T12:00:00Z`,
 }));
 
+// Branding review uses synthetic receipt facts, never a signed-in owner's mail.
+const brandingReceipts: ReceiptListItem[] = [
+  ["Plaid", "plaid.com", "Cloud & Infra"],
+  ["Supabase", "supabase.com", "Cloud & Infra"],
+  ["Amazon", "amazon.com", "Shopping"],
+  ["Kyari", "amazon.com", "Shopping"],
+  ["Anthropic", "anthropic.com", "Software & Subscriptions"],
+  ["Google Play", "google.com", "Software & Subscriptions"],
+  ["IndiGo", "goindigo.in", "Travel"],
+  ["Unknown shop", "unknown.example", "Food"],
+  [null, null, null],
+  ["Plaid", "plaid.com.evil.example", "Cloud & Infra"],
+].map(([merchant, domain, category], index) => ({
+  id: index + 101,
+  source_id: `branding-fixture-${index}`,
+  receipt_key: `branding-fixture-${index}`,
+  source_kind: "gmail_live" as const,
+  gmail_message_id: `branding-message-${index}`,
+  from_email: index === 3 ? "ship-confirm@amazon.com" : `billing@${domain || "unknown.example"}`,
+  from_name: index === 3 ? "Amazon Shipping" : merchant,
+  merchant_name: merchant,
+  merchant_domain: domain,
+  category: category as ReceiptListItem["category"],
+  category_confidence: category ? 0.95 : null,
+  currency: index === 0 ? "USD" : "INR",
+  amount: index === 0 ? null : 299 + index,
+  status: index === 0 ? "payment_failed" as const : "paid" as const,
+  attention_state: index === 0 ? "needs_attention" as const : "none" as const,
+  attention_reason: index === 0 ? "payment_failed" as const : null,
+  document_kind: index === 0 ? "invoice" as const : "receipt" as const,
+  recurrence: index === 0 ? "recurring" as const : "one_time" as const,
+  identifier_kind: index === 0 ? "invoice" as const : "receipt" as const,
+  identifier_value: index === 0 ? "PLAID-FIXTURE-2609" : `BRAND-${index}`,
+  short_detail: index === 0 ? "Payment Declined for Invoice ID PLAID-FIXTURE-2609 for Sep 2026" : `Synthetic purchase from ${merchant || "unknown merchant"}`,
+  subject: index === 0 ? "Payment Declined for Invoice ID PLAID-FIXTURE-2609 for Sep 2026" : `Synthetic receipt ${index}`,
+  preview: index === 0 ? "Payment Declined for Sep 2026. On October 11, 2026 we attempted to charge the card on file for the service month of Sep 2026. Update payment information to avoid loss of service." : `Stored email preview for BRAND-${index}`,
+  receipt_date: `2026-10-${String(11 - index).padStart(2, "0")}T12:00:00Z`,
+  gmail_internal_date: index === 0 ? "2026-10-12T02:02:00Z" : null,
+  classification_confidence: 0.95,
+}));
+
 function Fixture() {
+  const branding = new URLSearchParams(location.search).get("branding") === "true";
+  const reference = new URLSearchParams(location.search).get("reference") === "true";
+  const visibleReceipts = branding ? (reference ? [brandingReceipts[0]!] : brandingReceipts) : receipts;
   const [syncStarted, setSyncStarted] = useState(false);
 
   return (
@@ -112,7 +156,7 @@ function Fixture() {
             <GmailRecentReceipts
               accountKey="reviewer@example.com"
               loadReceiptDetail={async (sourceId) => {
-                const item = receipts.find(
+                const item = visibleReceipts.find(
                   (receipt) => receipt.source_id === sourceId,
                 );
                 if (!item) throw new Error("Fixture receipt not found.");
@@ -128,7 +172,7 @@ function Fixture() {
                     : null,
                 };
               }}
-              receipts={receipts}
+              receipts={visibleReceipts}
             />
           </section>
           <output

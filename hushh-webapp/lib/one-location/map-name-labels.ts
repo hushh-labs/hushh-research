@@ -253,12 +253,21 @@ const KIND_PRIORITY: Record<MapNameLabelKind, number> = {
   person: 2,
 };
 
+export interface MapNameLabelReservedMarker {
+  point: MapNameLabelPoint;
+  radiusPx: number;
+  offsetYPx?: number;
+  /** Its own pill sits above the avatar; other pills must avoid its footprint. */
+  key?: string;
+}
+
 export interface MapNameLabelLayoutOptions {
   labels: MapNameLabelCandidate[];
   camera: MapNameLabelCamera;
   viewport: MapNameLabelViewport;
   /** Keep pills clear of an avatar rendered inside the map, below this layer. */
-  reservedMarker?: { point: MapNameLabelPoint; radiusPx: number };
+  reservedMarker?: MapNameLabelReservedMarker;
+  reservedMarkers?: MapNameLabelReservedMarker[];
   /** Raise while the renderer is clustering. */
   minAnchorDistancePx?: number;
   pinOffsetPx?: number;
@@ -317,20 +326,26 @@ export function layoutMapNameLabels(
 
   const placed: PlacedMapNameLabel[] = [];
   const boxes: LabelBox[] = [];
-  if (options.reservedMarker) {
+  const reservedBoxes: { key?: string; box: LabelBox }[] = [];
+  const reservedMarkers = [
+    ...(options.reservedMarker ? [options.reservedMarker] : []),
+    ...(options.reservedMarkers ?? []),
+  ];
+  for (const reserved of reservedMarkers) {
     const anchor = projectToMapBox(
-      options.reservedMarker.point,
+      reserved.point,
       camera,
       viewport,
     );
     if (anchor) {
-      const radius = options.reservedMarker.radiusPx;
-      boxes.push({
+      const radius = reserved.radiusPx;
+      const y = anchor.y + (reserved.offsetYPx ?? 0);
+      reservedBoxes.push({ key: reserved.key, box: {
         left: anchor.x - radius,
         right: anchor.x + radius,
-        top: anchor.y - radius,
-        bottom: anchor.y + radius,
-      });
+        top: y - radius,
+        bottom: y + radius,
+      } });
     }
   }
 
@@ -356,6 +371,7 @@ export function layoutMapNameLabels(
     );
     if (crowded) continue;
     if (boxes.some((other) => overlaps(other, box, gapPx))) continue;
+    if (reservedBoxes.some((other) => other.key !== label.key && overlaps(other.box, box, gapPx))) continue;
 
     boxes.push(box);
     placed.push({ ...label, x: anchor.x, y: anchor.y });

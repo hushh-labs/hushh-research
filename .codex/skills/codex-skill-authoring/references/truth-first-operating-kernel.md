@@ -40,6 +40,17 @@ Prefer evidence in this order:
 
 When sources disagree about implementation, current executable code plus checked contracts beat prose. Source and tests establish behavior for the inspected revision; deployed claims require evidence bound to the actual environment and deployed revision/image. Reconcile Wiki and repo claims by scope, freshness, and verified evidence: either may be stale, and neither automatically overrides a newer explicit founder decision. Update affected documentation within the authorized change; otherwise record the exact drift and proposed correction.
 
+## Provider Parity And Semantic Evidence
+
+1. Separate documented provider behavior, model inference, and measured runtime behavior. Name the evidence source and its limits before explaining a result.
+2. Before claiming native-search parity, run a comparable provider/native UI experiment: same account, query, scope, date semantics, paging, unique file IDs, and permissions. Compare result identities as well as counts; record differences and unavailable controls. If either surface is unavailable, parity remains `needs_verification`.
+3. A metadata-shaped response does not imply metadata-only retrieval. Inspect the provider query and documented search semantics before claiming whether names, indexed content, or another surface was searched.
+4. A synthetic fixture with 46 results proves the fixture behavior; it does not establish 46 observed native matches. Keep synthetic counts, user-reported counts, and runtime measurements distinct.
+5. Semantic prompt changes require real model evaluation using representative requests and paraphrases, including content periods versus file activity, selected date controls, and search concept alternatives. Deterministic fixtures alone do not prove model behavior; record unavailable evaluation as unverified.
+6. Bind evaluation results to the model and prompt revision; bind deployed behavior claims to the environment and deployed revision/image actually exercised. A passing local evaluation does not establish deployed parity.
+7. Invalid dates and selected dates narrowing a broad year do not by themselves establish conflicting intent. Validate dates and show incompatible constraints before calling them a conflict; preserve the selected interval when it validly narrows the request.
+8. Preserve uncertain outcomes: distinguish observed results, inferred causes, and unresolved gaps. Do not turn incomplete pagination, missing native IDs, or an unavailable model run into a success claim. Keep private queries, account details, and file IDs out of tracked fixtures and reports.
+
 ## Founder Wiki North-Star Probe
 
 The founder wiki MCP is a north-star evidence lane, not a current-state implementation source. Use `.codex/skills/codex-skill-authoring/references/founder-wiki-north-star-probe.md` when a task touches product direction, founder language, One/Kai/Nav ontology, PCHP/BYOA/on-device posture, PKM/World Model authority, or material PR governance.

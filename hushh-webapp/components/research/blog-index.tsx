@@ -5,25 +5,23 @@ import {
 } from "@/components/app-ui/app-page-shell";
 
 import { BookOpen } from "@/components/icons";
-import { PageHeader } from "@/components/app-ui/page-sections";
+import { KnowledgeSectionHeader } from "@/components/app-ui/knowledge-section-header";
 import { BlogPostList } from "@/components/research/blog-post-list";
 import { BLOG_POSTS } from "@/lib/research/blog";
 
 export function BlogIndex() {
   return (
-    <AppPageShell width="reading" className="pb-6 pt-0 sm:pb-10">
+    <AppPageShell width="agent" fitContent className="relative isolate">
       <AppPageHeaderRegion>
-        <PageHeader
-          eyebrow="Blog"
+        <KnowledgeSectionHeader
           title="Notes on consent and control"
           description="Product and protocol thinking, written from the person’s point of view."
-          descriptionFullWidth
           icon={BookOpen}
-          accent="research"
+          tone="purple"
         />
       </AppPageHeaderRegion>
 
-      <AppPageContentRegion className="mt-5">
+      <AppPageContentRegion className="mt-4 min-w-0 space-y-4">
         <BlogPostList posts={BLOG_POSTS} />
       </AppPageContentRegion>
     </AppPageShell>

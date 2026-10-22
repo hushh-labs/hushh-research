@@ -146,12 +146,12 @@ async function assertGrid(page: Page, card: Locator, state: State, label: string
     const isButton = await glyph.evaluate((node) => Boolean(node.closest("button")));
     if (!isButton) expect(parentFill, `${label}: bare glyph`).toMatch(/rgba\(0, 0, 0, 0\)|transparent/);
   }
-  // The header glyph is a 20 px duotone, centred on its title line.
+  // The header glyph is a 20 px outline, centred on its title line.
   const headerGlyph = await box(card.locator("header svg"));
   const title = await box(card.locator("header [role='status']"));
   expect(headerGlyph.width).toBeCloseTo(20, 0);
   expect(Math.abs(headerGlyph.y + headerGlyph.height / 2 - (title.y + title.height / 2)), `${label}: glyph centred`).toBeLessThan(0.5);
-  expect(await card.locator("header svg [opacity]").count(), `${label}: duotone`).toBeGreaterThan(0);
+  expect(await card.locator("header svg [opacity]").count(), `${label}: no interior shading`).toBe(0);
 
   if (state === "revealed" || state === "profile") {
     const revealed = card.getByTestId("secret-revealed");

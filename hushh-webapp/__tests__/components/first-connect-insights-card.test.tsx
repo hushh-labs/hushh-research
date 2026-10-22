@@ -31,7 +31,7 @@ vi.mock("@/lib/agent/agent-pkm-context-store", () => ({
   AgentPkmContextStore: { findLocalDuplicate: () => ({ kind: "none" }), load: async () => null },
 }));
 
-import { FirstConnectInsightsCard } from "@/components/agent/first-connect-insights-card";
+import { FirstConnectInsightsCard, type FirstConnectInsightsCardProps } from "@/components/agent/first-connect-insights-card";
 
 const MEETING = "I have a weekly 1:1 with Alex on Mondays";
 const NEWSLETTERS = "I get a lot of newsletters from Substack";
@@ -61,27 +61,59 @@ function preparedCard(sourceText: string, recipients = 0) {
   };
 }
 
-function renderCard() {
+function renderCard(props: Partial<FirstConnectInsightsCardProps> = {}) {
   return render(
-    <FirstConnectInsightsCard ownerId="owner" vaultKey="vault-key" vaultOwnerToken="vault-token" enabled />,
+    <FirstConnectInsightsCard ownerId="owner" vaultKey="vault-key" vaultOwnerToken="vault-token" enabled {...props} />,
   );
 }
 
 describe("FirstConnectInsightsCard", () => {
   beforeEach(() => {
+    delete window.__HUSHH_NATIVE_TEST__;
     publishValidatedAuthSessionOwner("owner");
     mocks.apiFetch.mockReset().mockResolvedValue(new Response(JSON.stringify(offer()), { status: 200 }));
     mocks.prepare.mockReset().mockImplementation(async ({ message }: { message: string }) => preparedCard(message));
     mocks.addToPKM.mockReset().mockResolvedValue({ attempted: 1, saved: 1, failed: 0, domains: ["professional"], results: [] });
     mocks.clearAgentPkmContext.mockReset();
   });
-  afterEach(() => { cleanup(); publishValidatedAuthSessionOwner(null); });
+  afterEach(() => { cleanup(); publishValidatedAuthSessionOwner(null); delete window.__HUSHH_NATIVE_TEST__; });
 
-  it("shows an approval card and saves nothing until Keep; Forget discards", async () => {
-    renderCard();
+  it.each(["read_only", "preparation_only", "bounded_mutation"] as const)(
+    "does not consume an insights offer during %s automation", async (policy) => {
+      window.__HUSHH_NATIVE_TEST__ = {
+        enabled: true,
+        autoReviewerLogin: true,
+        reviewerMutationPolicy: policy,
+      };
+      await act(async () => { renderCard(); });
+      expect(mocks.apiFetch).not.toHaveBeenCalled();
+      expect(mocks.prepare).not.toHaveBeenCalled();
+      expect(mocks.addToPKM).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("first-connect-insights-card")).toBeNull();
+    },
+  );
+
+  it.each([undefined, "mutation_authorized"] as const)("shows an approval card and saves nothing until Keep; Forget discards (%s)", async (policy) => {
+    if (policy) {
+      window.__HUSHH_NATIVE_TEST__ = {
+        enabled: true,
+        autoReviewerLogin: true,
+        reviewerMutationPolicy: policy,
+      };
+    }
+    const onPromptSelect = vi.fn();
+    renderCard({ onPromptSelect });
     expect(await screen.findByTestId("first-connect-insights-card")).toHaveTextContent(
       "Here's what I picked up from Calendar",
     );
+    expect(screen.getByText("Choose what One should remember.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Show my week" })).toBeNull();
+    const keepActions = screen.getAllByRole("button", { name: "Keep", exact: true });
+    const forgetActions = screen.getAllByRole("button", { name: "Forget", exact: true });
+    for (const [index, item] of offer().items.entries()) {
+      expect(keepActions[index]).toHaveAccessibleDescription(item.label);
+      expect(forgetActions[index]).toHaveAccessibleDescription(item.label);
+    }
     // Asked with the chat's own gate: vault-owner token plus chat key.
     const [, init] = mocks.apiFetch.mock.calls[0]!;
     expect(init.method).toBe("POST");
@@ -113,16 +145,68 @@ describe("FirstConnectInsightsCard", () => {
     expect(await screen.findByTestId("first-connect-insights-receipt")).toHaveTextContent(
       "1 detail from Calendar is in your private",
     );
+    expect(onPromptSelect).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Show my week" }));
+    expect(onPromptSelect).toHaveBeenCalledExactlyOnceWith("What's on my calendar this week?");
+    expect(screen.queryByRole("button", { name: "Show my week" })).toBeNull();
+    expect(mocks.addToPKM).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers the week after dismissing everything without claiming a save, and waits until chat is ready", async () => {
+    const onPromptSelect = vi.fn();
+    const root = renderCard({ onPromptSelect, promptDisabled: true });
+    await screen.findByTestId("first-connect-insights-card");
+    for (const action of screen.getAllByTestId("first-connect-insight-forget")) fireEvent.click(action);
+    expect(screen.queryByTestId("first-connect-insights-receipt")).toBeNull();
+    const showWeek = screen.getByRole("button", { name: "Show my week" });
+    expect(showWeek).toBeDisabled();
+    fireEvent.click(showWeek);
+    expect(onPromptSelect).not.toHaveBeenCalled();
+    root.rerender(<FirstConnectInsightsCard ownerId="owner" vaultKey="vault-key" vaultOwnerToken="vault-token" enabled onPromptSelect={onPromptSelect} />);
+    fireEvent.click(screen.getByRole("button", { name: "Show my week" }));
+    expect(onPromptSelect).toHaveBeenCalledExactlyOnceWith("What's on my calendar this week?");
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.addToPKM).not.toHaveBeenCalled();
+  });
+
+  it.each(["gmail", "drive"])("does not offer a Calendar follow-up for %s", async (source) => {
+    mocks.apiFetch.mockResolvedValue(new Response(JSON.stringify({ ...offer(), source, sourceLabel: "Calendar" }), { status: 200 }));
+    const onPromptSelect = vi.fn();
+    const { container } = renderCard({ onPromptSelect });
+    await screen.findByTestId("first-connect-insights-card");
+    expect(screen.getByText("Tap ✓ to keep a detail or × to dismiss it.")).toBeInTheDocument();
+    for (const action of screen.getAllByTestId("first-connect-insight-forget")) fireEvent.click(action);
+    expect(container).toBeEmptyDOMElement();
+    expect(onPromptSelect).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { ownerId: "other-owner", vaultKey: "other-key", vaultOwnerToken: "other-token", enabled: true },
+    { ownerId: "owner", vaultKey: null, vaultOwnerToken: "vault-token", enabled: true },
+    { ownerId: "owner", vaultKey: "vault-key", vaultOwnerToken: "vault-token", enabled: false },
+  ])("hides a completed review when access changes: %j", async (credentials) => {
+    const onPromptSelect = vi.fn();
+    const root = renderCard({ onPromptSelect });
+    await screen.findByTestId("first-connect-insights-card");
+    for (const action of screen.getAllByTestId("first-connect-insight-forget")) fireEvent.click(action);
+    expect(screen.getByRole("button", { name: "Show my week" })).toBeInTheDocument();
+    mocks.apiFetch.mockResolvedValue(new Response(JSON.stringify({ status: "none" }), { status: 200 }));
+    root.rerender(<FirstConnectInsightsCard {...credentials} onPromptSelect={onPromptSelect} />);
+    expect(screen.queryByRole("button", { name: "Show my week" })).toBeNull();
+    expect(onPromptSelect).not.toHaveBeenCalled();
   });
 
   it("asks once more before a Keep that would change what others receive", async () => {
     mocks.prepare.mockImplementation(async ({ message }: { message: string }) => preparedCard(message, 2));
-    renderCard();
+    renderCard({ onPromptSelect: vi.fn() });
+    await screen.findByTestId("first-connect-insights-card");
+    fireEvent.click(screen.getAllByTestId("first-connect-insight-forget")[1]);
     const keep = (await screen.findAllByTestId("first-connect-insight-keep"))[0]!;
     await act(async () => {
       fireEvent.click(keep);
     });
     expect(await screen.findByText(/share with 2 people/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Show my week" })).toBeNull();
     expect(mocks.addToPKM).not.toHaveBeenCalled();
 
     await act(async () => {
@@ -130,6 +214,7 @@ describe("FirstConnectInsightsCard", () => {
     });
     await waitFor(() => expect(mocks.addToPKM).toHaveBeenCalledTimes(1));
     expect(mocks.addToPKM.mock.calls[0]![0].confirmation.sharingImpactAcknowledged).toBe(true);
+    expect(screen.getByRole("button", { name: "Show my week" })).toBeInTheDocument();
   });
 
   it("shows nothing when the server has nothing to offer or the vault is locked", async () => {
@@ -228,10 +313,13 @@ describe("FirstConnectInsightsCard", () => {
 
   it("still reports actual write failure without claiming success", async () => {
     mocks.addToPKM.mockResolvedValue({ attempted: 1, saved: 0, failed: 1, results: [] });
-    renderCard();
+    renderCard({ onPromptSelect: vi.fn() });
+    await screen.findByTestId("first-connect-insights-card");
+    fireEvent.click(screen.getAllByTestId("first-connect-insight-forget")[1]);
     fireEvent.click((await screen.findAllByTestId("first-connect-insight-keep"))[0]);
     expect(await screen.findByRole("alert")).toHaveTextContent("Saving couldn't finish");
     expect(screen.queryByText("Kept privately")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Show my week" })).toBeNull();
   });
 
   it("never writes an incomplete detail or double-counts duplicate coverage", async () => {

@@ -25,8 +25,6 @@ import {
 
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, useSheetDragHandle } from "@/components/ui/sheet";
-import { OnboardingStepper } from "@/components/app-ui/onboarding-stepper";
-import { ONE_LOCATION_ONBOARDING_STEPS } from "@/components/one-location/onboarding/one-location-onboarding-steps";
 import {
   LocationPickerMap,
   type LocationPickerMapHandle,
@@ -54,6 +52,7 @@ import {
   TAKEOVER_SURFACE_Z_CLASSNAME,
 } from "@/components/one-location/onboarding/save-location-sheet-layout";
 import { isNative } from "@/lib/capacitor/platform";
+import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 import { cn } from "@/lib/utils";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 import {
@@ -107,7 +106,7 @@ const controlInputClassName =
  */
 function primaryActionClassName(enabled: boolean): string {
   return cn(
-    "press-scale ui-text-button-label flex h-[50px] min-h-[50px] w-full items-center justify-center gap-2 rounded-full px-6 transition-colors disabled:cursor-not-allowed",
+    "press-scale ui-text-button-label mx-auto flex h-11 min-h-11 w-fit max-w-full items-center justify-center gap-2 rounded-full px-5 transition-colors disabled:cursor-not-allowed",
     enabled
       ? "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
       : "bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-tertiary-label)]",
@@ -115,7 +114,7 @@ function primaryActionClassName(enabled: boolean): string {
 }
 
 const secondaryActionClassName =
-  "ui-text-button-label h-11 min-h-11 w-full rounded-full text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50";
+  "ui-text-button-label mx-auto block h-11 min-h-11 w-fit max-w-full rounded-none px-5 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50";
 
 /**
  * Where you are in the pin-then-details pair, and a way to move without
@@ -546,6 +545,10 @@ export function SaveLocationModal({
   onSave,
   onSkip,
 }: SaveLocationModalProps) {
+  // Native Maps draws below the WebView, so the picker surface is transparent.
+  // Isolate the entire saving task from persistent chrome, including native
+  // controls, and release only this modal's suppression when it closes.
+  useSessionChromeSuppression(open);
   const [category, setCategory] = useState<SavedLocationCategory | null>(null);
   const [customLabel, setCustomLabel] = useState("");
   const [editingPlace, setEditingPlace] = useState(false);
@@ -1029,27 +1032,14 @@ export function SaveLocationModal({
     }
   };
 
-  // Location onboarding is a full-screen takeover at z-560 with an OPAQUE
-  // background. The scrim used to sit at z-559 -- underneath it -- so the dim
-  // and the blur were painted where nothing could see them, and the sheet
-  // landed on a fully lit screen with no separation at all. That is the "it
-  // looks like a patch": not a missing blur, a buried one. Above the takeover,
-  // below the app's sheets/drawers at z-711 -- held at these values in BOTH
-  // presentations, so moving to the shared sheet primitive does not quietly
-  // move this surface to a different layer.
+  // Settings uses the shared sheet/dialog layer and backdrop. Onboarding's
+  // portalled surface must additionally clear the full-screen takeover.
   const surfaceOverlayClassName = cn(
-    takeover || unifiedOnboarding ? TAKEOVER_OVERLAY_Z_CLASSNAME : "z-[600]",
-    nativeMapShowing
-      ? // The native map is not part of the page: @capacitor/google-maps draws
-        // it BELOW the WebView and the WebView is punched through to reveal it.
-        // This overlay is a Radix sibling of the sheet, so the rule that clears
-        // backgrounds inside [data-testid="save-location-modal"] never reached
-        // it -- and a 55% black scrim with a 10px blur sat over the whole
-        // screen, hiding the map while the HTML pin and cards stayed crisp on
-        // top. That is exactly the "no map behind it, just one pin" report: the
-        // map was rendering the whole time, behind the scrim.
-        "bg-transparent backdrop-blur-none [-webkit-backdrop-filter:none]"
-      : "bg-black/55 backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)]",
+    (takeover || unifiedOnboarding) && TAKEOVER_OVERLAY_Z_CLASSNAME,
+    // Clearing the overlay is required as well as the sheet background for
+    // the map below the WebView to remain visible.
+    nativeMapShowing &&
+      "bg-transparent [backdrop-filter:none] [-webkit-backdrop-filter:none]",
   );
 
   // A real edge and a real lift, so the surface reads as a layer above the
@@ -1060,7 +1050,10 @@ export function SaveLocationModal({
     ? "!gap-0 !overflow-hidden !p-0"
     : detailsPaneActive
       ? SHEET_DETAILS_SHELL_CLASSNAME
-      : SHEET_PLAIN_SHELL_CLASSNAME;
+      : cn(
+          SHEET_PLAIN_SHELL_CLASSNAME,
+          flowStep === "map" && canPickOnMap && "overflow-y-hidden",
+        );
   // `!` because the arbitrary shadow does not merge away the primitive's own
   // `shadow-[var(--app-card-shadow-feature)]`: tailwind-merge leaves both
   // classes on the element and the base one wins on stylesheet order, so the
@@ -1089,7 +1082,7 @@ export function SaveLocationModal({
         : SHEET_TAKEOVER_PLAIN_TOP_CLASSNAME
       : undefined;
   const surfaceZClassName =
-    takeover || unifiedOnboarding ? TAKEOVER_SURFACE_Z_CLASSNAME : "z-[601]";
+    takeover || unifiedOnboarding ? TAKEOVER_SURFACE_Z_CLASSNAME : undefined;
 
   const surfaceChildren = (
     <>
@@ -1109,13 +1102,7 @@ export function SaveLocationModal({
             >
               <ArrowLeft className="h-5 w-5" strokeWidth={2.3} aria-hidden />
             </button>
-            <OnboardingStepper
-              steps={ONE_LOCATION_ONBOARDING_STEPS}
-              currentIndex={2}
-              compact
-              ariaLabel="One Location setup progress"
-              className="w-full"
-            />
+            <span className="ui-text-navigation-title text-center">Save a place</span>
             <span className="h-11 w-11 justify-self-end" aria-hidden />
           </header>
 
@@ -1309,7 +1296,7 @@ export function SaveLocationModal({
                         autoComplete={
                           deferredUntilVault ? "off" : "address-line2"
                         }
-                        placeholder="Near the main gate"
+                        placeholder="e.g. Opposite City Hospital"
                         className={controlInputClassName}
                       />
                     </div>
@@ -1342,13 +1329,6 @@ export function SaveLocationModal({
                     </div>
                   ) : null}
 
-                  <p className="flex items-center gap-2 rounded-[14px] bg-[color:var(--app-accent)]/8 px-3.5 py-3 text-[13px] leading-[18px] text-muted-foreground">
-                    <Check
-                      className="h-4 w-4 shrink-0 text-[color:var(--app-accent)]"
-                      aria-hidden
-                    />
-                    Private to you. Nothing is shared until you choose.
-                  </p>
                 </section>
               </div>
             </div>
@@ -1383,7 +1363,10 @@ export function SaveLocationModal({
                 onClick={handleSave}
                 disabled={!unifiedCanSave}
                 aria-busy={saving || unifiedSaveInFlight || undefined}
-                className={primaryActionClassName(unifiedCanSave || saving || unifiedSaveInFlight)}
+                className={cn(
+                  primaryActionClassName(unifiedCanSave || saving || unifiedSaveInFlight),
+                  "mx-auto max-w-[244px]",
+                )}
               >
                 {saving || unifiedSaveInFlight ? (
                   <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
@@ -1402,7 +1385,7 @@ export function SaveLocationModal({
                 disabled={interactionBusy}
                 className={cn(
                   secondaryActionClassName,
-                  "mt-2 border-t border-border/60 pt-2",
+                  "mt-2 pt-2",
                 )}
               >
                 Skip saving this place
@@ -1411,7 +1394,7 @@ export function SaveLocationModal({
           </footer>
         </div>
       ) : flowStep === "map" && canPickOnMap ? (
-        <div {...paneProps}>
+        <div {...paneProps} className={cn(paneProps.className, "flex-1 overflow-hidden")}>
           {/* Top of the pane, the same slot every other pane uses. This rail
                 used to sit at the BOTTOM of this one pane, under the buttons,
                 so advancing a step appeared to move the indicator. On a phone
@@ -1684,7 +1667,7 @@ export function SaveLocationModal({
                   disabled={interactionBusy}
                   maxLength={100}
                   autoComplete={deferredUntilVault ? "off" : "address-line2"}
-                  placeholder="Near the main gate"
+                  placeholder="e.g. Opposite City Hospital"
                   className={controlInputClassName}
                 />
               </div>
@@ -1719,12 +1702,7 @@ export function SaveLocationModal({
 
           </div>
 
-          <div
-            className={cn(
-              SHEET_FOOTER_CLASSNAME,
-              "pb-[max(1.5rem,env(safe-area-inset-bottom))]",
-            )}
-          >
+          <div className={SHEET_FOOTER_CLASSNAME}>
             {/* A disabled primary button with no explanation is the whole of
                   "saving is not working" from the outside. When it is off, say
                   which single thing turns it on. */}
@@ -1738,14 +1716,6 @@ export function SaveLocationModal({
             ) : null}
             <button
               type="button"
-              onClick={onSkip}
-              disabled={interactionBusy}
-              className={secondaryActionClassName}
-            >
-              Skip for now
-            </button>
-            <button
-              type="button"
               onClick={handleSave}
               disabled={!canSave}
               aria-busy={saving || unifiedSaveInFlight || undefined}
@@ -1757,6 +1727,14 @@ export function SaveLocationModal({
                 <Check className="h-5 w-5" strokeWidth={2.6} aria-hidden />
               )}
               {saveLabel}
+            </button>
+            <button
+              type="button"
+              onClick={onSkip}
+              disabled={interactionBusy}
+              className={secondaryActionClassName}
+            >
+              Skip for now
             </button>
           </div>
         </div>
@@ -1984,15 +1962,7 @@ export function SaveLocationModal({
             </div>
           ) : null}
 
-          <div className="mt-1 flex flex-col gap-2.5 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-            <button
-              type="button"
-              onClick={onSkip}
-              disabled={interactionBusy}
-              className={secondaryActionClassName}
-            >
-              Skip for now
-            </button>
+          <div className="mt-1 flex flex-col gap-2.5">
             <button
               type="button"
               onClick={handleSave}
@@ -2006,6 +1976,14 @@ export function SaveLocationModal({
                 <Check className="h-5 w-5" strokeWidth={2.6} aria-hidden />
               )}
               {saveLabel}
+            </button>
+            <button
+              type="button"
+              onClick={onSkip}
+              disabled={interactionBusy}
+              className={secondaryActionClassName}
+            >
+              Skip for now
             </button>
           </div>
         </div>

@@ -61,7 +61,7 @@
     "frontend-cache-coherence",
     "frontend-architecture",
     "frontend-native-surface-mapper",
-    "vault-pkm-governance",
+    "security-audit",
     "quality-contracts"
   ],
   "common_failures": [

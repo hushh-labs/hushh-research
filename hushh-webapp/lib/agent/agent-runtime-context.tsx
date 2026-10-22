@@ -39,7 +39,7 @@ import {
   ROUTES,
 } from "@/lib/navigation/routes";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
+import { deriveVoiceRouteScreen } from "@/lib/kai/actions/route-screen-derivation";
 import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
 import { resolveEffectiveDisabledDomains } from "@/lib/agent/voice-engine-domains";
 import {
@@ -48,12 +48,12 @@ import {
   type OneVoicePreferencesState,
 } from "@/lib/agent/voice-preferences";
 import type { Persona } from "@/lib/services/ria-service";
-import type { AppRuntimeState } from "@/lib/voice/voice-types";
+import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
 import {
   buildOneVoiceContextSnapshot,
   type OneVoiceContextSnapshot,
 } from "@/lib/voice/screen-context-builder";
-import { useVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { useVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import {
   buildMorphyAxSnapshot,
   resolveMorphyAxPresentation,
@@ -66,7 +66,7 @@ import { useLocalOnboardingHandlerRevision } from "@/lib/agent/local-onboarding-
 import {
   deriveVoiceCapabilityState,
   type VoiceCapabilityStateV1,
-} from "@/lib/voice/capability-projection";
+} from "@/lib/kai/actions/capability-projection";
 
 // The access tier the agent should operate at. This is what drives how the
 // bar presents itself and which persona the backend should compose.

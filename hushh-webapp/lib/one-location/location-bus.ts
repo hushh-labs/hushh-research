@@ -395,13 +395,14 @@ export const LocationBus = {
    * Return a position, prompting only if the OS has not decided yet.
    * Reuses a fix younger than `maxAgeMs` and coalesces concurrent callers.
    */
-  async ensure(options?: { maxAgeMs?: number }): Promise<LocationSnapshot | null> {
+  async ensure(options?: { maxAgeMs?: number; requireMeasurement?: boolean }): Promise<LocationSnapshot | null> {
     const maxAgeMs = options?.maxAgeMs ?? DEFAULT_MAX_AGE_MS;
     // Only a fix measured this session short-circuits the GPS. A restored one
     // is there to fill the screen, not to end the attempt — reusing it would
     // mean an app that never refreshes as long as its memory looks recent.
     if (
       !fixInvalidated &&
+      (!options?.requireMeasurement || state.status === "ready") &&
       state.snapshotOrigin === "fresh" &&
       isFresh(state.snapshot, maxAgeMs)
     ) {

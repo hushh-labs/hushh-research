@@ -129,6 +129,7 @@ export type AppStreamSectionProps = {
   emptyLabel?: string;
   className?: string;
   bodyClassName?: string;
+  appearance?: "surface" | "plain";
 };
 
 export function AppStreamSection({
@@ -143,14 +144,15 @@ export function AppStreamSection({
   className,
   bodyClassName,
   content,
+  appearance = "surface",
 }: AppStreamSectionProps) {
   return (
     <Collapsible open={open} defaultOpen={defaultOpen} onOpenChange={onOpenChange}>
-      <div className={cn("rounded-[16px] bg-foreground/[0.035] dark:bg-white/[0.045]", className)}>
+      <div className={cn("rounded-[16px]", appearance === "plain" ? "bg-transparent" : "bg-foreground/[0.035] dark:bg-white/[0.045]", className)}>
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            className="ui-text-section-label group relative flex w-full items-center justify-between gap-3 rounded-[inherit] px-[6px] py-2 text-left transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+            className={cn("ui-text-section-label group relative flex w-full items-center justify-between gap-3 rounded-[inherit] px-[6px] py-2 text-left transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70", appearance === "plain" && "min-h-11")}
           >
             <span className="inline-flex min-w-0 items-center gap-2">
               <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
@@ -192,6 +194,7 @@ export type AppStreamPanelProps = {
   progressIndeterminate?: boolean;
   statusMessage?: string;
   progressItems?: AppStreamProgressItem[];
+  activityAppearance?: AppStreamSectionProps["appearance"];
   thinkingItems?: AppStreamProgressItem[];
   thinkingContent?: ReactNode;
   thinkingTitle?: string;
@@ -222,6 +225,7 @@ export function AppStreamPanel({
   progressIndeterminate = false,
   statusMessage,
   progressItems = [],
+  activityAppearance = "plain",
   thinkingItems = [],
   thinkingContent,
   thinkingTitle = "Reasoning",
@@ -256,8 +260,8 @@ export function AppStreamPanel({
   return (
     <section
       // No card of its own. The answer is the same plain prose whether the
-      // turn used tools or not, live or reopened; only the collapsible
-      // Activity carries a surface. A tinted, shadowed card around the answer
+      // turn used tools or not, live or reopened. The caller selects Activity's
+      // appearance. A tinted, shadowed card around the answer
       // read as a shaded box that disappeared after a reload.
       className={cn("w-full max-w-none", className)}
       aria-label={title}
@@ -283,6 +287,7 @@ export function AppStreamPanel({
               <AppStreamSection
                 key={activityOpen ? "activity-open" : "activity-collapsed"}
                 title="Activity"
+                appearance={activityAppearance}
                 items={progressItems}
                 count={progressItems.length}
                 defaultOpen={activityOpen}

@@ -16,7 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { buildRiaClientWorkspaceRoute } from "@/lib/navigation/routes";
 import { useRiaClientWorkspaceState } from "@/components/ria/use-ria-client-workspace-state";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 function formatStatusLabel(status?: string | null) {
   return String(status || "pending").replaceAll("_", " ");
@@ -144,9 +144,8 @@ export function RiaClientRequestDetail({
         routeId: "/ria/clients/[userId]/requests/[requestId]",
         marker: "native-route-ria-client-request-detail",
         authState: user ? "authenticated" : "pending",
-        dataState: loading ? "loading" : request ? "loaded" : detailError ? "error" : "empty-valid",
+        dataState: loading ? "loading" : detailError ? "error" : request ? "loaded" : "empty-valid",
         errorCode: detailError ? "ria_client_request_detail" : null,
-        errorMessage: detailError,
       }}
     >
       {loading ? (

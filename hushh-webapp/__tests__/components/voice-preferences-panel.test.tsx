@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const {
@@ -37,6 +38,9 @@ vi.mock("@/lib/services/connections-service", () => ({
 
 import { VOICE_ENGINE_DOMAINS } from "@/lib/agent/voice-engine-domains";
 import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-panel";
+import { useVoiceLocationDefaults, useVoiceConnectDefaults } from "@/components/profile/use-voice-preferences-model";
+import { useVoiceCommandPreferences, useVoiceSpeakerphonePreference } from "@/components/profile/use-voice-policy-preferences";
+import { readSpeakerphoneSafePreference } from "@/lib/one-voice/speakerphone-preferences";
 import {
   forgetVoicePreferences,
   readVoicePreferences,
@@ -199,6 +203,86 @@ describe("VoicePreferencesPanel", () => {
         defaultAction: "trigger",
       }),
     );
+  });
+
+  it("writes once under StrictMode and a failed Nearby choice cannot undo a completed SOS choice", async () => {
+    mockGetState.mockResolvedValue({ nearbyCheckInPreferences: { visible: true, allowConnectionRequests: false },
+      sosVoicePreference: { defaultAction: "open" } });
+    let rejectNearby!: () => void;
+    mockUpdateNearbyCheckInPreferences.mockClear().mockImplementation(() => new Promise((_, reject) => {
+      rejectNearby = () => reject(new Error("Synthetic failure"));
+    }));
+    mockUpdateSosVoicePreference.mockClear().mockResolvedValue({ defaultAction: "trigger" });
+    render(<StrictMode><VoicePreferencesPanel userId={userId} vaultOwnerToken="synthetic-owner-token" /></StrictMode>);
+    const nearby = await screen.findByRole("switch", { name: "Allow connection requests" });
+    fireEvent.click(nearby);
+    fireEvent.click(nearby);
+    await waitFor(() => expect(mockUpdateNearbyCheckInPreferences).toHaveBeenCalledTimes(1));
+    expect(nearby).toBeDisabled();
+    fireEvent.click(screen.getByRole("combobox", { name: "In an emergency" }));
+    fireEvent.click(screen.getByRole("option", { name: "Send the alert" }));
+    await waitFor(() => expect(mockUpdateSosVoicePreference).toHaveBeenCalledTimes(1));
+    await act(async () => { rejectNearby(); });
+    expect(nearby).not.toBeChecked();
+    expect(nearby).not.toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "In an emergency" })).toHaveTextContent("Send the alert");
+  });
+
+  it("does not expose old-owner defaults or apply a late failed write to a replacement owner", async () => {
+    mockGetVoicePreferences.mockResolvedValue({ shareScopesFromLastRequest: false });
+    let rejectWrite!: () => void;
+    mockUpdateVoicePreferences.mockClear().mockImplementationOnce(() => new Promise((_, reject) => {
+      rejectWrite = () => reject(new Error("Synthetic failure"));
+    }));
+    const firstToken = async () => "synthetic-first-token";
+    const secondToken = async () => "synthetic-second-token";
+    const view = render(<VoicePreferencesPanel userId={userId} getIdToken={firstToken} />);
+    const first = await screen.findByRole("switch", { name: "Reuse access from last time" });
+    fireEvent.click(first); fireEvent.click(first);
+    await waitFor(() => expect(mockUpdateVoicePreferences).toHaveBeenCalledTimes(1));
+    let resolveRead!: (value: { shareScopesFromLastRequest: boolean }) => void;
+    mockGetVoicePreferences.mockImplementationOnce(() => new Promise(resolve => { resolveRead = resolve; }));
+    view.rerender(<VoicePreferencesPanel userId="synthetic-second-owner" getIdToken={secondToken} />);
+    expect(screen.queryByRole("switch", { name: "Reuse access from last time" })).toBeNull();
+    await waitFor(() => expect(resolveRead).toBeTypeOf("function"));
+    await act(async () => { resolveRead({ shareScopesFromLastRequest: true }); });
+    expect(screen.getByRole("switch", { name: "Reuse access from last time" })).toBeChecked();
+    await act(async () => { rejectWrite(); });
+    expect(screen.getByRole("switch", { name: "Reuse access from last time" })).toBeChecked();
+  });
+
+  it("rejects retained preference commands after replacing their owning account", async () => {
+    mockGetState.mockResolvedValue({ autoApprovePreference: { enabled: false } });
+    mockGetVoicePreferences.mockResolvedValue({ shareScopesFromLastRequest: false });
+    mockUpdateAutoApprovePreference.mockClear(); mockUpdateVoicePreferences.mockClear();
+    const getIdToken = async () => "synthetic-current-token";
+    const view = renderHook(({ owner, token }) => ({
+      location: useVoiceLocationDefaults(owner, token), connect: useVoiceConnectDefaults(owner, getIdToken),
+      commands: useVoiceCommandPreferences(owner), speaker: useVoiceSpeakerphonePreference(owner),
+    }), { initialProps: { owner: "synthetic-first-owner", token: "synthetic-first-token" } });
+    await waitFor(() => expect(view.result.current.location.defaults).not.toBeNull());
+    await waitFor(() => expect(view.result.current.connect.shareScopes).toBe(false));
+    const staleAutoApprove = view.result.current.location.setAutoApprove;
+    const staleConnect = view.result.current.connect.setShareScopes;
+    const staleCommands = view.result.current.commands.change;
+    const staleSpeaker = view.result.current.speaker.change;
+    const firstVoice = view.result.current.commands.state.voiceEnabled;
+    const firstSpeaker = view.result.current.speaker.value;
+    view.rerender({ owner: "synthetic-next-owner", token: "synthetic-next-token" });
+    await waitFor(() => expect(view.result.current.location.defaults).not.toBeNull());
+    await waitFor(() => expect(view.result.current.connect.shareScopes).toBe(false));
+    await act(async () => {
+      expect(await staleAutoApprove(true)).toBe(false);
+      expect(await staleConnect(true)).toBe(false);
+      staleCommands(state => ({ ...state, voiceEnabled: !firstVoice }));
+      staleSpeaker(!firstSpeaker);
+    });
+    expect(mockUpdateAutoApprovePreference).not.toHaveBeenCalled();
+    expect(mockUpdateVoicePreferences).not.toHaveBeenCalled();
+    expect(view.result.current.location.defaults?.autoApproveRequests).toBe(false);
+    expect(view.result.current.connect.shareScopes).toBe(false);
+    expect(readVoicePreferences("synthetic-first-owner").voiceEnabled).toBe(firstVoice);
+    expect(readSpeakerphoneSafePreference("synthetic-first-owner")).toBe(firstSpeaker);
   });
 
   it("Connect agent defaults load from the voice-preferences endpoint and persist on toggle", async () => {

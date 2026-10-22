@@ -220,6 +220,9 @@ class OneChatOnboardingState(BaseModel):
 
 
 class VaultBootstrapStateResponse(BaseModel):
+    initialContactsSource: Literal["google", "device", "none"] | None = None
+    initialContactsWelcomeAcknowledged: bool | None = None
+    initialContactsCircleId: str | None = None
     userId: str
     hasVault: bool
     vaultStatus: str
@@ -267,6 +270,8 @@ class VaultBootstrapStateResponse(BaseModel):
 
 
 class VaultPreStateUpdateRequest(BaseModel):
+    initialContactsSource: Literal["google", "device", "none"] | None = None
+    initialContactsWelcomeAcknowledged: Literal[True] | None = None
     userId: str | None = None
     setupCompleted: bool | None = None
     setupSkipped: bool | None = None
@@ -475,6 +480,9 @@ async def vault_bootstrap_state(
             setupCapabilityIds=state.get("setupCapabilityIds") or [],
             setupCapabilityDeclinedIds=state.get("setupCapabilityDeclinedIds") or [],
             oneChatOnboarding=state.get("oneChatOnboarding"),
+            initialContactsSource=state.get("initialContactsSource"),
+            initialContactsWelcomeAcknowledged=state.get("initialContactsWelcomeAcknowledged"),
+            initialContactsCircleId=state.get("initialContactsCircleId"),
             setupCapabilitiesUpdatedAt=state.get("setupCapabilitiesUpdatedAt"),
             setupStateUpdatedAt=state.get("setupStateUpdatedAt"),
             oneRuntimeSetupChoice=state.get("oneRuntimeSetupChoice"),
@@ -540,6 +548,8 @@ async def vault_pre_vault_state(
             onboarding_callback_attempt_id=request.onboardingCallbackAttemptId,
             expected_onboarding_journey_updated_at=request.expectedOnboardingJourneyUpdatedAt,
             expected_onboarding_callback_attempt_id=request.expectedOnboardingCallbackAttemptId,
+            initial_contacts_source=request.initialContactsSource,
+            initial_contacts_welcome_acknowledged=request.initialContactsWelcomeAcknowledged,
         )
         has_vault = await service.check_vault_exists(user_id, ensure_entry=False)
 
@@ -558,6 +568,9 @@ async def vault_pre_vault_state(
             setupCapabilityIds=state.get("setupCapabilityIds") or [],
             setupCapabilityDeclinedIds=state.get("setupCapabilityDeclinedIds") or [],
             oneChatOnboarding=state.get("oneChatOnboarding"),
+            initialContactsSource=state.get("initialContactsSource"),
+            initialContactsWelcomeAcknowledged=state.get("initialContactsWelcomeAcknowledged"),
+            initialContactsCircleId=state.get("initialContactsCircleId"),
             setupCapabilitiesUpdatedAt=state.get("setupCapabilitiesUpdatedAt"),
             setupStateUpdatedAt=state.get("setupStateUpdatedAt"),
             oneRuntimeSetupChoice=state.get("oneRuntimeSetupChoice"),

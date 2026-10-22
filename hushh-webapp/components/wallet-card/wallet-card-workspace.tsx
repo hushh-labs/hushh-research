@@ -1,17 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Lock, Share2, Wallet } from "@/components/icons";
-import { SuccessRowIcon, WalletAgentIcon } from "@/components/icons/agents";
+import { AppleWalletIcon } from "@/components/wallet/apple-wallet-icon";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ProfilePanePrivacyIcon, ProfilePaneSecurityIcon, ProfilePaneWalletIcon } from "@/components/profile/profile-pane-icons";
+import profileStyles from "@/components/profile/profile-your-account.module.css";
 import { toast } from "sonner";
 
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
-import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
+import { SettingsGroup, SettingsPresentationProvider, SettingsRow } from "@/components/profile/settings-ui";
 import { PkmSettingsShell } from "@/components/profile/pkm-settings-shell";
+import { WalletCardImageShareButton } from "@/components/wallet/wallet-card-image-share-button";
+import { WALLET_DEMO_CARDS, WalletDemoCardFace, type WalletDemoProfile } from "@/components/wallet/wallet-demo-cards";
 import { useAuth } from "@/hooks/use-auth";
 import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
 import { Button } from "@/lib/morphy-ux/morphy";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
+import { useBackLayer } from "@/lib/navigation/back-layers";
+import { ROUTES } from "@/lib/navigation/routes";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   normalizePublicWalletCard,
@@ -40,7 +45,6 @@ import {
   WalletCardManage,
   type WalletCardManageAction,
 } from "@/components/wallet-card/wallet-card-manage";
-import { WalletCardPassPreview } from "@/components/wallet-card/wallet-card-pass-preview";
 import { WalletCardSetup } from "@/components/wallet-card/wallet-card-setup";
 import {
   copyWalletCardLink,
@@ -52,6 +56,7 @@ import {
   WalletCardPayloadError,
   WalletCardService,
   type WalletCardPreferredContact,
+  type WalletPassVariant,
   type WalletCardRecord,
   type WalletCardShareLink,
 } from "@/lib/services/wallet-card-service";
@@ -83,11 +88,32 @@ type VisitorPreviewState =
  * page, and the management surface afterwards. Every network call goes through
  * `WalletCardService` — nothing here talks to the API directly.
  */
-export function WalletCardWorkspace() {
+function WalletProfileShell({ embedded, title, description, children, preview }: {
+  embedded: boolean; title: string; description: string; children: ReactNode; preview?: boolean;
+}) {
+  return <SettingsPresentationProvider separatorInset density="compact">{embedded ? <section aria-label={title} data-wallet-visitor-preview={preview || undefined} className={`${profileStyles.walletContent} space-y-4`}>
+    <div className="space-y-1"><h3 className="text-[13px] font-normal leading-[1.2]">{title}</h3>{description ? <p className="text-xs leading-[1.3] text-muted-foreground">{description}</p> : null}</div>
+    {children}
+  </section> : <PkmSettingsShell title={title} description={description} innerClassName="mx-auto max-w-[580px]">{children}</PkmSettingsShell>}</SettingsPresentationProvider>;
+}
+
+type WalletCardWorkspaceProps = { embedded?: boolean; passVariant?: WalletPassVariant; active?: boolean };
+
+export function WalletCardWorkspace(props: WalletCardWorkspaceProps = {}) {
+  const { user } = useAuth();
+  const { isVaultUnlocked, vaultOwnerToken } = useVault();
+  // Owner changes and vault locks discard all card, draft, and visitor state
+  // during render. Late requests can only update the unmounted owner's tree.
+  const ownerScope = `${user?.uid ?? "anonymous"}:${isVaultUnlocked && vaultOwnerToken ? "ready" : "locked"}`;
+  return <WalletCardOwnerWorkspace key={ownerScope} {...props} />;
+}
+
+function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", active = true }: WalletCardWorkspaceProps) {
   const { user, loading: authLoading, phoneNumber } = useAuth();
   const { isVaultUnlocked, vaultOwnerToken } = useVault();
   const avatarUrl = useEffectiveAvatarUrl();
   const userId = user?.uid ?? null;
+  const loadGeneration = useRef(0);
 
   const [stage, setStage] = useState<WalletCardStage>("loading");
   const [card, setCard] = useState<WalletCardRecord | null>(null);
@@ -110,6 +136,33 @@ export function WalletCardWorkspace() {
   useScrollReset(stage, { enabled: true, behavior: "auto" });
   const [confirm, setConfirm] = useState<ConfirmKind | null>(null);
   const [applePassSupported, setApplePassSupported] = useState(false);
+  const imageShareProfile = useMemo<WalletDemoProfile>(() => ({
+    ownerId: userId ?? undefined,
+    displayName: card?.cardPayload?.full_name?.trim() || card?.displayName || user?.displayName || null,
+    cardPayload: card?.cardPayload ?? null,
+    memberSince: user?.metadata?.creationTime ?? card?.createdAt ?? null,
+    walletId: card?.passSerial ?? null,
+    shareUrl: shareLink?.shareUrl ?? null,
+    shareToken: shareLink?.shareToken ?? null,
+  }), [userId, user?.displayName, user?.metadata?.creationTime, card, shareLink]);
+  const imageShareAction = <WalletCardImageShareButton
+    cardId={passVariant === "nws" ? "agent-one-nws" : "agent-one-profile"}
+    profile={imageShareProfile}
+    disabled={!active || authLoading || !userId || !vaultOwnerToken || !isVaultUnlocked || card?.status !== "active" || !shareLink || saving || busyAction !== null}
+  />;
+
+  const localStageOpen = stage === "edit" || stage === "preview" || stage === "success";
+  const closeLocalStage = useCallback(() => {
+    if (!localStageOpen) return false;
+    if (saving || busyAction) return true;
+    setStage(card ? "manage" : "intro");
+    return true;
+  }, [localStageOpen, saving, busyAction, card]);
+  useBackLayer(
+    embedded ? ROUTES.ONE_WALLET : ROUTES.ONE_WALLET_CARD,
+    active && localStageOpen && isVaultUnlocked && vaultOwnerToken && userId ? 2 : 0,
+    closeLocalStage,
+  );
 
   // Platform capability is read after mount: the user agent is not available
   // during server rendering and would otherwise cause a hydration mismatch.
@@ -130,14 +183,16 @@ export function WalletCardWorkspace() {
   /**
    * Adopt a freshly-loaded card and re-read the device-local share link.
    *
-   * The plaintext token is returned by the backend only at create and rotate,
-   * so this device copy is what lets the QR and the Add-to-Wallet link render
-   * later. `readShareLink` drops it when the stored token version no longer
+   * The device copy lets the QR and Add-to-Wallet link render between owner
+   * reads; authenticated ensure can recover the encrypted token when needed.
+   * `readShareLink` drops it when the stored token version no longer
    * matches the card, which is how a rotation performed on another device
    * stops this one from showing a dead QR.
    */
   const adoptCard = useCallback(
     (next: WalletCardRecord | null) => {
+      const currentLink = userId ? WalletCardService.readShareLink(userId) : null;
+      if (next?.shareTokenVersion != null && currentLink?.version != null && currentLink.version > next.shareTokenVersion) return;
       setCard(next);
       setShareLink(
         userId ? WalletCardService.readShareLink(userId, next) : null,
@@ -148,27 +203,44 @@ export function WalletCardWorkspace() {
 
   const loadCard = useCallback(async () => {
     if (!vaultOwnerToken || !userId) return;
+    const generation = ++loadGeneration.current;
+    const isCurrent = () => generation === loadGeneration.current;
     setStage("loading");
     try {
       const state = await WalletCardService.getCard({
         vaultOwnerToken,
         userId,
       });
+      if (!isCurrent()) return;
       if (!state.enabled) {
         setStage("unavailable");
         return;
       }
-      if (!state.exists || !state.card || state.card.status === "revoked") {
+      if (!state.exists || !state.card) {
+        const result = await WalletCardService.ensureCard({
+          vaultOwnerToken, userId, payload: draftToPayload(smartDefaults), avatarUrl,
+        });
+        if (!isCurrent()) return;
+        adoptCard(result.card);
+        setStage("manage");
+        return;
+      }
+      if (state.card.status === "revoked") {
         adoptCard(null);
         setStage("intro");
         return;
       }
-      adoptCard(state.card);
+      // Ensure also recovers a previously created QR on a new device.
+      if (!WalletCardService.readShareLink(userId, state.card)) {
+        const result = await WalletCardService.ensureCard({ vaultOwnerToken, userId });
+        if (!isCurrent()) return;
+        adoptCard(result.card);
+      } else adoptCard(state.card);
       setStage("manage");
     } catch {
-      setStage("error");
+      if (isCurrent()) setStage("error");
     }
-  }, [adoptCard, userId, vaultOwnerToken]);
+  }, [adoptCard, userId, vaultOwnerToken, smartDefaults, avatarUrl]);
 
   useEffect(() => {
     if (authLoading) {
@@ -180,7 +252,53 @@ export function WalletCardWorkspace() {
       return;
     }
     void loadCard();
+    return () => { loadGeneration.current += 1; };
   }, [authLoading, isVaultUnlocked, vaultOwnerToken, userId, loadCard]);
+
+  // Keep scan totals and other-device edits fresh while preserving an unsaved draft.
+  useEffect(() => {
+    if (!userId || !vaultOwnerToken || stage !== "manage") return;
+    let cancelled = false;
+    let running = false;
+    const recoveryAttempts = new Set<number | null>();
+    const refresh = async () => {
+      if (cancelled || running || document.visibilityState === "hidden") return;
+      running = true;
+      try {
+        const state = await WalletCardService.getCard({ userId, vaultOwnerToken });
+        if (!cancelled && state.card) {
+          adoptCard(state.card.status === "revoked" ? null : state.card);
+          if (state.card.status === "revoked") setStage("intro");
+          else if (!WalletCardService.readShareLink(userId, state.card)) {
+            const version = state.card.shareTokenVersion ?? null;
+            // Legacy rows may have no recoverable envelope. Try each observed
+            // version once, rather than every poll or our own change event.
+            if (!recoveryAttempts.has(version)) {
+              recoveryAttempts.add(version);
+              const recovered = await WalletCardService.ensureCard({ userId, vaultOwnerToken });
+              if (!cancelled) {
+                adoptCard(recovered.card.status === "revoked" ? null : recovered.card);
+                if (recovered.card.status === "revoked") setStage("intro");
+              }
+            }
+          }
+        }
+      } catch { /* Keep the last confirmed state during a transient outage. */ }
+      finally { running = false; }
+    };
+    const unsubscribe = WalletCardService.subscribe(userId, () => void refresh());
+    const visible = () => void refresh();
+    window.addEventListener("focus", visible);
+    document.addEventListener("visibilitychange", visible);
+    const timer = window.setInterval(visible, 15000);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+      window.clearInterval(timer);
+      window.removeEventListener("focus", visible);
+      document.removeEventListener("visibilitychange", visible);
+    };
+  }, [adoptCard, stage, userId, vaultOwnerToken]);
 
   const loadVisitorPreview = useCallback(async () => {
     if (!vaultOwnerToken || !userId) return;
@@ -227,10 +345,11 @@ export function WalletCardWorkspace() {
       ...stored,
       // Fall back to what the product already knows rather than showing a blank.
       fullName: stored.fullName || smartDefaults.fullName,
+      username: stored.username || smartDefaults.username,
     });
     setErrors({});
     setStage("edit");
-  }, [card, smartDefaults.fullName]);
+  }, [card, smartDefaults.fullName, smartDefaults.username]);
 
   const onDraftChange = useCallback(
     (key: keyof WalletCardDraft, value: string) => {
@@ -311,7 +430,7 @@ export function WalletCardWorkspace() {
       // so a missing signing certificate surfaces as product copy here instead
       // of a raw error page in Safari.
       const result = await WalletCardService.addToAppleWallet(
-        shareLink.shareToken,
+        shareLink.shareToken, { variant: passVariant },
       );
       if (result.state === "opened") {
         setStage("success");
@@ -323,7 +442,7 @@ export function WalletCardWorkspace() {
     } finally {
       setBusyAction(null);
     }
-  }, [shareLink]);
+  }, [shareLink, passVariant]);
 
   const shareLinkAction = useCallback(async () => {
     if (!shareLink) return;
@@ -445,8 +564,8 @@ export function WalletCardWorkspace() {
     }
     if (stage === "preview") {
       return {
-        title: WALLET_CARD_OWNER_COPY.previewTitle,
-        description: WALLET_CARD_OWNER_COPY.previewDescription,
+        title: "Preview as visitor",
+        description: "",
       };
     }
     if (stage === "success") {
@@ -469,41 +588,42 @@ export function WalletCardWorkspace() {
             : "empty-valid";
 
   return (
-    <PkmSettingsShell
+    <WalletProfileShell
+      embedded={embedded}
+      preview={stage === "preview"}
       title={header.title}
       description={header.description}
-      innerClassName="mx-auto max-w-[580px]"
     >
-      <NativeTestBeacon
+      {!embedded ? <NativeTestBeacon
         routeId="/one/wallet-card"
         marker="native-route-one-wallet-card"
         authState={
           authLoading ? "pending" : user ? "authenticated" : "anonymous"
         }
         dataState={dataState}
-      />
+      /> : null}
 
       {stage === "loading" ? (
-        <div className="rounded-2xl border p-6 text-center text-sm text-muted-foreground">
+        <div className="rounded-2xl border p-6 text-center text-xs text-muted-foreground">
           Loading your Wallet Profile…
         </div>
       ) : null}
 
       {stage === "locked" ? (
-        <div className="flex items-center gap-2 rounded-2xl border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-          <Lock className="h-4 w-4 shrink-0" aria-hidden />
+        <div className="flex items-center gap-2 rounded-2xl border bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
+          <ProfilePanePrivacyIcon className="h-4 w-4 shrink-0" aria-hidden />
           {WALLET_CARD_OWNER_COPY.vaultLocked}
         </div>
       ) : null}
 
       {stage === "unavailable" ? (
-        <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+        <div className="rounded-2xl border border-dashed p-6 text-center text-xs text-muted-foreground">
           {WALLET_CARD_OWNER_COPY.featureUnavailable}
         </div>
       ) : null}
 
       {stage === "error" ? (
-        <div className="space-y-3 rounded-2xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+        <div className="space-y-3 rounded-2xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-xs text-destructive">
           <p>{WALLET_CARD_OWNER_COPY.loadFailed}</p>
           <Button
             type="button"
@@ -521,7 +641,7 @@ export function WalletCardWorkspace() {
         <div className="space-y-4">
           <SettingsGroup>
             <SettingsRow
-              icon={WalletAgentIcon}
+              icon={ProfilePaneWalletIcon}
               iconTone="capability"
               title={WALLET_CARD_COPY.setupIntro.title}
               description={WALLET_CARD_COPY.setupIntro.description}
@@ -546,61 +666,36 @@ export function WalletCardWorkspace() {
           isEditingExisting={Boolean(card)}
           onChange={onDraftChange}
           onSubmit={() => void submitDraft()}
-          onCancel={() => setStage(card ? "manage" : "intro")}
+          onCancel={closeLocalStage}
         />
       ) : null}
 
       {stage === "preview" ? (
         <div className="space-y-4">
-          <SettingsGroup
-            title={WALLET_CARD_OWNER_COPY.walletPreviewTitle}
-            description={WALLET_CARD_OWNER_COPY.walletPreviewHint}
-          >
-            <div className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-              <WalletCardPassPreview
-                fullName={draft.fullName || card?.displayName || ""}
-                headline={draft.headline || card?.headline || ""}
-                organisation={draft.organisation}
-                locationLabel={draft.locationLabel}
-                avatarUrl={avatarUrl}
-                shareUrl={shareLink?.shareUrl ?? null}
-              />
+          {!embedded ? <div className="mx-auto w-full max-w-[420px]">
+            <WalletDemoCardFace summary={WALLET_DEMO_CARDS.find(item => item.cardId === (passVariant === "nws" ? "agent-one-nws" : "agent-one-profile"))!} profile={imageShareProfile} />
+          </div> : null}
+          {visitorPreview.status === "ready" ? (
+            <PublicWalletCardView card={visitorPreview.card} embedded profileUrl={card?.status === "active" ? shareLink?.shareUrl ?? null : null} />
+          ) : visitorPreview.status === "error" ? (
+            <div className="space-y-3 text-xs text-muted-foreground">
+              <p>{visitorPreview.message}</p>
+              <Button
+                type="button"
+                size="sm"
+                variant="none"
+                effect="fade"
+                onClick={() => void loadVisitorPreview()}
+              >
+                Try again
+              </Button>
             </div>
-          </SettingsGroup>
+          ) : (
+            <PublicWalletCardSkeleton />
+          )}
 
-          <SettingsGroup
-            title={WALLET_CARD_OWNER_COPY.visitorPreviewTitle}
-            description={WALLET_CARD_OWNER_COPY.visitorPreviewHint}
-          >
-            <div className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-              {visitorPreview.status === "ready" ? (
-                <PublicWalletCardView card={visitorPreview.card} />
-              ) : visitorPreview.status === "error" ? (
-                <div className="space-y-3 text-sm text-muted-foreground">
-                  <p>{visitorPreview.message}</p>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="none"
-                    effect="fade"
-                    onClick={() => void loadVisitorPreview()}
-                  >
-                    Try again
-                  </Button>
-                </div>
-              ) : (
-                <PublicWalletCardSkeleton />
-              )}
-            </div>
-          </SettingsGroup>
-
-          <p className="px-1 text-[12px] leading-[1.5] text-muted-foreground">
-            {WALLET_CARD_OWNER_COPY.updatesAutomatically}
-          </p>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {previewOrigin === "setup" ? (
-              <>
+          {previewOrigin === "setup" ? (
+            <div className="flex flex-wrap items-center gap-2">
                 {applePassSupported ? (
                   <Button
                     type="button"
@@ -609,21 +704,10 @@ export function WalletCardWorkspace() {
                     disabled={!shareLink}
                     onClick={() => void addToWallet()}
                   >
-                    <Wallet className="mr-2 h-4 w-4" aria-hidden />
+                    <AppleWalletIcon />
                     {WALLET_CARD_OWNER_COPY.addToWallet}
                   </Button>
-                ) : (
-                  <Button
-                    type="button"
-                    size="sm"
-                    loading={busyAction === "share"}
-                    disabled={!shareLink}
-                    onClick={() => void shareLinkAction()}
-                  >
-                    <Share2 className="mr-2 h-4 w-4" aria-hidden />
-                    {WALLET_CARD_OWNER_COPY.shareLink}
-                  </Button>
-                )}
+                ) : imageShareAction}
                 <Button
                   type="button"
                   size="sm"
@@ -638,24 +722,12 @@ export function WalletCardWorkspace() {
                   size="sm"
                   variant="none"
                   effect="fade"
-                  onClick={() => setStage("manage")}
+                  onClick={closeLocalStage}
                 >
                   Not now
                 </Button>
-              </>
-            ) : (
-              <Button
-                type="button"
-                size="sm"
-                variant="none"
-                effect="fade"
-                onClick={() => setStage("manage")}
-              >
-                <ArrowLeft className="mr-2 h-4 w-4" aria-hidden />
-                Back
-              </Button>
-            )}
-          </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -663,7 +735,7 @@ export function WalletCardWorkspace() {
         <div className="space-y-4">
           <SettingsGroup>
             <SettingsRow
-              icon={SuccessRowIcon}
+              icon={ProfilePaneSecurityIcon}
               iconTone="capability"
               title={WALLET_CARD_COPY.success.title}
               description={WALLET_CARD_COPY.success.description}
@@ -673,7 +745,7 @@ export function WalletCardWorkspace() {
               description={WALLET_CARD_OWNER_COPY.updatesAutomatically}
             />
           </SettingsGroup>
-          <Button type="button" size="sm" onClick={() => setStage("manage")}>
+          <Button type="button" size="sm" onClick={closeLocalStage}>
             {WALLET_CARD_COPY.entryAfterSetup.title}
           </Button>
         </div>
@@ -686,6 +758,7 @@ export function WalletCardWorkspace() {
           applePassSupported={applePassSupported}
           busyAction={busyAction}
           onAction={onManageAction}
+          shareAction={imageShareAction}
         />
       ) : null}
 
@@ -703,6 +776,6 @@ export function WalletCardWorkspace() {
           if (!open) setConfirm(null);
         }}
       />
-    </PkmSettingsShell>
+    </WalletProfileShell>
   );
 }

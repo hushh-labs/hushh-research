@@ -93,9 +93,6 @@ describe("RIA shared header regression contract", () => {
     expect(riaPicks).not.toContain("<PageHeader");
     expect(riaClients).toContain('stackClassName="gap-8"');
     expect(riaPicks).toContain('stackClassName="gap-6"');
-    expect(riaShell).toContain(
-      '<AppPageHeaderRegion className={cn("pt-2 sm:pt-3", headerClassName)}>',
-    );
     expect(riaShell).toContain("<SurfaceStack");
   });
 

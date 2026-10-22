@@ -137,7 +137,7 @@ BACKEND_RUNTIME_REQUIRED = (
     "GOOGLE_GENAI_USE_VERTEXAI",
     "GOOGLE_CLOUD_PROJECT",
     "GENAI_GOOGLE_CLOUD_PROJECT",
-    "GOOGLE_CLOUD_LOCATION",
+    # Hosted text locations belong to the packaged managed AI profile.
     "GOOGLE_MAPS_API_KEY",
     "APP_SIGNING_KEY",
     "VAULT_DATA_KEY",
@@ -218,7 +218,7 @@ def _has_secret(project: str, name: str) -> bool:
     raise CloudReadUnavailable("secret_inventory_unverifiable")
 
 
-def _read_secret_value(project: str, name: str) -> str | None:
+def _read_secret_value(project: str, name: str, version: str = "latest") -> str | None:
     """Read a deploy-time value only for an in-memory boolean contract check.
 
     This helper deliberately never renders the returned value. Reports contain
@@ -231,7 +231,7 @@ def _read_secret_value(project: str, name: str) -> str | None:
             "secrets",
             "versions",
             "access",
-            "latest",
+            version,
             "--secret",
             name,
             "--project",
@@ -304,7 +304,26 @@ def _calendar_redirect_contract(project: str) -> dict[str, str]:
     }
 
 
-def _domain_runtime_contract(project: str) -> dict[str, str]:
+def _read_runtime_value(
+    project: str, env_map: dict[str, dict[str, Any]], key: str
+) -> str | None:
+    """Read only the selected revision's declared source, without fallback."""
+    entry = env_map.get(key, {})
+    if "value" in entry:
+        return str(entry["value"])
+    reference = (entry.get("valueFrom") or {}).get("secretKeyRef")
+    if not isinstance(reference, dict):
+        return None
+    name = str(reference.get("name") or "").strip()
+    version = str(reference.get("key") or "").strip()
+    if not name or not version:
+        return None
+    return _read_secret_value(project, name, version)
+
+
+def _domain_runtime_contract(
+    project: str, env_map: dict[str, dict[str, Any]] | None = None
+) -> dict[str, str]:
     """Validate domain-derived backend config without rendering secret values.
 
     Presence and Cloud Run mount checks cannot prove that the JSON runtime
@@ -312,8 +331,12 @@ def _domain_runtime_contract(project: str) -> dict[str, str]:
     public URL/host relationships in-memory and returns status labels.
     """
 
-    frontend_origin = _read_secret_value(project, "APP_FRONTEND_ORIGIN")
-    runtime_raw = _read_secret_value(project, "BACKEND_RUNTIME_CONFIG_JSON")
+    if env_map is None:
+        frontend_origin = _read_secret_value(project, "APP_FRONTEND_ORIGIN")
+        runtime_raw = _read_secret_value(project, "BACKEND_RUNTIME_CONFIG_JSON")
+    else:
+        frontend_origin = _read_runtime_value(project, env_map, "APP_FRONTEND_ORIGIN")
+        runtime_raw = _read_runtime_value(project, env_map, "BACKEND_RUNTIME_CONFIG_JSON")
     expected_gmail_redirect = _expected_gmail_redirect_uri(frontend_origin)
     if not frontend_origin or not runtime_raw or not expected_gmail_redirect:
         return {
@@ -351,14 +374,21 @@ def _domain_runtime_contract(project: str) -> dict[str, str]:
         if item.strip()
     }
     expected_origin = frontend_origin.rstrip("/")
-    cors_status = "valid" if expected_origin in cors_values else "mismatch"
+    aliases = json.loads(
+        (Path(__file__).resolve().parents[2] / "hushh-webapp/lib/vault/passkey-domain-aliases.json").read_text()
+    )
+    related_hosts = next((set(pair) for pair in aliases.values() if host in pair), {host})
+    expected_cors = {f"https://{related}" for related in related_hosts} if host in {
+        item for pair in aliases.values() for item in pair
+    } else {expected_origin}
+    cors_status = "valid" if expected_cors.issubset(cors_values) else "mismatch"
 
     passkey_hosts = {
         item.strip().lower()
         for item in str(runtime.get("passkey_allowed_rp_ids") or "").split(",")
         if item.strip()
     }
-    expected_passkey_hosts = {"localhost", "127.0.0.1", host}
+    expected_passkey_hosts = {"localhost", "127.0.0.1", *related_hosts}
     passkey_status = "valid" if passkey_hosts == expected_passkey_hosts else "mismatch"
 
     plaid_url = urlsplit(str(runtime.get("plaid_webhook_url") or "").strip())
@@ -994,8 +1024,20 @@ def main() -> int:
         if calendar_redirect_contract["status"] != "valid":
             report["classifications"].append("calendar_oauth_redirect_contract_failed")
 
+    backend_env, backend_revisions = ({}, [])
+    if checks_backend and args.assert_runtime_env_contract:
+        backend_json = (
+            None if args.backend_revision else
+            _describe_run_service(args.project, args.region, args.backend_service)
+        )
+        backend_env, backend_revisions = _selected_container_env_map(
+            args.project, args.region, args.backend_service, backend_json, args.backend_revision
+        )
+
     if checks_backend:
-        domain_runtime_contract = _domain_runtime_contract(args.project)
+        domain_runtime_contract = _domain_runtime_contract(
+            args.project, backend_env if args.assert_runtime_env_contract else None
+        )
         report["domain_runtime_contract"] = domain_runtime_contract
         print(f"Domain runtime contract: {domain_runtime_contract['status']}")
         if domain_runtime_contract["status"] != "valid":
@@ -1017,11 +1059,6 @@ def main() -> int:
             if checks_frontend
             else None
         )
-        backend_json = (
-            _describe_run_service(args.project, args.region, args.backend_service)
-            if checks_backend
-            else None
-        )
         frontend_env, frontend_revisions = ({}, [])
         if checks_frontend:
             frontend_env, frontend_revisions = _selected_container_env_map(
@@ -1031,16 +1068,6 @@ def main() -> int:
                 frontend_json,
                 args.frontend_revision,
             )
-        backend_env, backend_revisions = ({}, [])
-        if checks_backend:
-            backend_env, backend_revisions = _selected_container_env_map(
-                args.project,
-                args.region,
-                args.backend_service,
-                backend_json,
-                args.backend_revision,
-            )
-
         frontend_entries = []
         if checks_frontend:
             frontend_entries = [

@@ -3,6 +3,11 @@
 Status: canonical reference. Source of truth for how setup is structured,
 gated, reset, resumed, and skipped across the app.
 
+The optional [initial Contacts welcome](../../guides/initial-signup-contacts.md)
+is a post-root terminal at `/one/welcome`. It preserves Finance and invitation
+continuations, delays the chat entry welcome until Continue, and leaves existing
+capability setup and Connect/Location contact acquisition unchanged.
+
 > Naming: the account‑level flow and its surfaces are now called **setup**
 > (formerly "onboarding"). The canonical routes are `/one/setup` (hub),
 > `/one/setup/finance` (Finance preferences), and static
@@ -26,16 +31,18 @@ journey's detailed visual map follows the guest invitation contract below.
 ## Guest introduction and invitation continuity
 
 Before sign-in, `/?invite=one`, `/circle/join?code=…`, and
-`/one/location/invite/[token]` share `GuestPreview`: four short screens for
-the original One welcome artwork and privacy assurance, followed by Circles,
-the enabled public agent catalog, and asking One by voice or text. The welcome
-uses the existing light/dark exports and readable, unscaled copy; its icon
-reveal settles once and respects reduced motion. `Create your One` on this
-first screen advances to Circles without signing in.
-Circles and agent selections are examples only. They do not create an account,
-join a Circle, connect a provider, or grant access. Guests advance through all
-four screens before sign-in controls appear; progress dots revisit only seen
-screens. The final account action opens sign-in with the original invitation
+`/one/location/invite/[token]` share `GuestPreview`: the existing welcome,
+followed by the mentor's four V7.2 product stories in order: **Big plans. Less
+busywork.**, **Find answers. Not more tabs.**, **Your people. Right here.**, and
+**Your information. Your call.** `Create your One` opens the first story without
+signing in. The supplied PNG/WebP assets, illustration geometry, Inter tokens,
+copy and responsive layout live in `components/onboarding/mentor-onboarding`
+and `public/onboarding/mentor-v72`.
+These stories are examples only. They do not create an account, join a Circle,
+connect a provider, or grant access. Back and progress sit above the action row;
+Skip stays left and compact Next stays right. Skip or the final Get started
+action opens sign-in. Voice sign-in remains gated to the final story. The host
+preserves the original invitation
 as its internal redirect target. Already-authenticated recipients skip this
 introduction and use the existing invitation confirmation and prerequisites.
 An ordinary signed-out visit to `/` shows the public Claim your One introduction,
@@ -45,11 +52,11 @@ Session-recovery and already-authenticated admission guards remain separate.
 The generic Invite to One share URL carries `invite=one` only as a presentation
 marker; it is not an invite token and grants no connection or Circle authority.
 
-The Circle and agent tours repeat their selections every 2.5 seconds. Hover or
-keyboard focus holds a selection; hidden pages and reduced-motion preferences
-suspend the timers. The chat preview illustrates Calendar free-time lookup and
-two-hour Location sharing with the live chat's presentation components. These
-examples make no connector or sharing requests.
+One story mounts at a time. Its supplied mascot plays one three-second cycle
+and returns to its still image; reduced motion and hidden pages show the still.
+Below 800px the art and copy stack; wider layouts use the supplied two-column
+composition. Effective app safe areas supplement browser insets, and short
+windows or enlarged text can scroll vertically rather than clipping content.
 
 Named Circle previews use the anonymous, rate-limited
 `POST /api/one/location/circle-codes/public-preview` metadata allowlist (Circle
@@ -185,6 +192,15 @@ writes durable setup, consent, connector, or OAuth state. A verified callback
 therefore resumes the existing feature body without replaying the introduction.
 Do not add a second wizard, route-local intro, or durable completion marker for
 presentation alone.
+
+Calendar enters its feature body directly, without a cinematic introduction.
+Its connection illustration appears only during unfinished root onboarding,
+while Calendar is absent from the existing durable `setupCapabilityIds` and
+its verified connection status is `disconnected`. Completed setup, normal
+workspace visits, and reauthorization use the compact Calendar body. A deliberate
+disconnect also keeps that compact body for the remainder of the owner's visit.
+The existing Finish/Skip coordinator remains the completion authority; this
+presentation does not add a persistent shown marker or change OAuth behavior.
 
 ## 1. The hierarchy
 
@@ -465,3 +481,17 @@ When adding a new setup screen or control:
    backend prompt allowlist, not a ranking hint.
 4. Regenerate and verify: `npm run build:voice-gateway && npm run
 verify:voice-gateway`.
+
+## First chat preferences
+
+One's scripted first conversation offers a name, a first capability, and a
+reply tone. “Something else” exits these optional questions immediately and
+focuses ordinary chat. The choice is persisted so no name prompt or preference
+recommendations return on another visit. It does not capture the next message
+as a name or save preferences to memory.
+
+First-capability choices appear in this order: Location, Mail, Calendar,
+Finance, Advisor, Wallet, Consent, Memory, Messages. They reuse existing
+connector and workspace actions without granting access. Phones show three
+rows of three; “Skip for now” sits on a separate row. Names and reply tone
+still require confirmation before encrypted memory storage.

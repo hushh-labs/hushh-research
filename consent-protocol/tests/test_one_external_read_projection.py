@@ -107,6 +107,51 @@ def test_encrypted_roundtrip_redacts_tools_but_preserves_answers_and_continuatio
     assert session.state[STATE_EXTERNAL_READ] == "read-turn"
 
 
+def test_mail_offer_restores_only_inside_owner_encrypted_session():
+    key = "hussh:mail_read_offer"
+    offer = {
+        "owner_id": "owner",
+        "conversation_id": "thread",
+        "account": "private-account",
+        "mailbox": "inbox",
+        "message_ids": ["private-provider-id"],
+        "created_at_ms": 1_800_000_000_000,
+        "selected_ordinal": None,
+    }
+    session = Session(
+        id="thread",
+        app_name="one",
+        user_id="owner",
+        state={key: offer},
+        events=[
+            _event(
+                [
+                    types.Part(
+                        function_response=types.FunctionResponse(
+                            id="call",
+                            name="ask_email_agent",
+                            response={"structured": {"connector": "mail", "status": "ok"}},
+                        )
+                    )
+                ]
+            )
+        ],
+    )
+    service = EncryptedAdkSessionService(static_chat_cipher())
+    encoded = service._encode(session)
+    assert "private-provider-id" not in str(encoded)
+    decoded = service._decode(
+        {f"payload_{key}": value for key, value in encoded.items()},
+        app_name=session.app_name,
+        user_id=session.user_id,
+        session_id=session.id,
+    )
+    assert decoded.state[key] == offer
+    assert "private-provider-id" not in str(
+        decoded.events[0].content.parts[0].function_response.response
+    )
+
+
 @pytest.mark.parametrize(
     "payload", [None, [], {"structured": {"connector": "mail", "extra": "PRIVATE"}}]
 )
@@ -301,3 +346,39 @@ def test_drive_current_evidence_state_is_ephemeral_even_without_read_events():
     projected = durable_external_read_projection(session)
     assert STATE_DRIVE_READ_OUTCOME not in projected.model_dump_json()
     assert session.state[STATE_DRIVE_READ_OUTCOME] == outcome
+
+
+def test_invitation_read_and_client_review_keep_provider_details_out_of_durable_tool_state():
+    directive_key = "hussh:pending_directive:calendar_invitations"
+    session = Session(
+        id="chat",
+        app_name="one",
+        user_id="owner",
+        state={directive_key: {"eventId": "PRIVATE_PROVIDER_ID"}},
+        events=[
+            _event(
+                [
+                    types.Part(
+                        function_response=types.FunctionResponse(
+                            name="calendar_invitations",
+                            response={"events": [{"title": "PRIVATE_TITLE"}]},
+                        )
+                    )
+                ]
+            ),
+            _event(
+                [
+                    types.Part(
+                        function_call=types.FunctionCall(
+                            name="open_calendar_invitation",
+                            args={"ordinal": 1, "decision": "accepted"},
+                        )
+                    )
+                ]
+            ),
+        ],
+    )
+    projected = durable_external_read_projection(session)
+    assert directive_key not in projected.state
+    assert "PRIVATE_" not in projected.model_dump_json()
+    assert projected.events[1].content.parts[0].function_call.args == {}

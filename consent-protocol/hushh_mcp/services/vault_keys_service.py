@@ -40,6 +40,11 @@ ALLOWED_METHODS = {
     "generated_default_native_passkey_prf",
 }
 ONE_RUNTIME_SETUP_CHOICES = {"hushh_managed_vertex", "byok_pending_vault"}
+INITIAL_CONTACTS_COLUMNS = {
+    "initial_contacts_source",
+    "initial_contacts_welcome_acknowledged",
+    "initial_contacts_circle_id",
+}
 
 
 class VaultKeysService:
@@ -56,6 +61,39 @@ class VaultKeysService:
         if self._db is None:
             self._db = get_db()
         return self._db
+
+    def _offline_initial_contacts_columns(self) -> Optional[set[str]]:
+        """Inspect only the optional signup columns in an offline SQLite DB."""
+        if str(os.getenv("DB_OFFLINE", "0")).strip().lower() not in {"1", "true", "yes", "on"}:
+            return None
+        db = self._get_db()
+        dialect_name = getattr(getattr(getattr(db, "engine", None), "dialect", None), "name", None)
+        if dialect_name != "sqlite":
+            return None
+        columns = db.execute_raw('PRAGMA table_info("vault_keys")').data
+        return INITIAL_CONTACTS_COLUMNS.intersection(row["name"] for row in columns)
+
+    def _user_entry_projection(self) -> str:
+        columns = (
+            "user_id,vault_status,first_login_at,last_login_at,login_count,"
+            "setup_completed,setup_skipped,setup_completed_at,"
+            "nav_setup_completed_at,nav_setup_skipped_at,"
+            "setup_capability_ids,setup_capability_declined_ids,setup_capabilities_updated_at,setup_state_updated_at,one_runtime_setup_choice,one_chat_onboarding,"
+            "onboarding_journey_version,onboarding_phase,onboarding_active_capability,"
+            "onboarding_resume_route,onboarding_callback_state,onboarding_callback_attempt_id,onboarding_journey_updated_at,"
+            "initial_contacts_source,initial_contacts_welcome_acknowledged,initial_contacts_circle_id,"
+            "created_at,updated_at"
+        )
+        present = self._offline_initial_contacts_columns()
+        if present is None:
+            return columns
+        # SQLite can interpret a quoted missing column as a string literal.
+        # Omit only absent signup metadata so serialization returns null.
+        return ",".join(
+            column
+            for column in columns.split(",")
+            if column not in INITIAL_CONTACTS_COLUMNS or column in present
+        )
 
     def _get_cached_vault_state(self, user_id: str) -> Optional[Dict[str, Any]]:
         cached = self._vault_state_cache.get(user_id)
@@ -242,6 +280,15 @@ class VaultKeysService:
             ),
             "setupStateUpdatedAt": cls._normalize_int_ms_or_none(row.get("setup_state_updated_at")),
             "oneChatOnboarding": cls._normalize_one_chat_onboarding(row.get("one_chat_onboarding")),
+            "initialContactsSource": row.get("initial_contacts_source")
+            if row.get("initial_contacts_source") in {"google", "device", "none"}
+            else None,
+            "initialContactsWelcomeAcknowledged": cls._normalize_bool_or_none(
+                row.get("initial_contacts_welcome_acknowledged")
+            ),
+            "initialContactsCircleId": str(row["initial_contacts_circle_id"])
+            if row.get("initial_contacts_circle_id")
+            else None,
             "oneRuntimeSetupChoice": cls._normalize_one_runtime_setup_choice(
                 row.get("one_runtime_setup_choice")
             ),
@@ -350,18 +397,11 @@ class VaultKeysService:
 
         db = self._get_db()
         now_ms = self._now_ms()
+        projection = self._user_entry_projection()
 
         existing_response = (
             db.table("vault_keys")
-            .select(
-                "user_id,vault_status,first_login_at,last_login_at,login_count,"
-                "setup_completed,setup_skipped,setup_completed_at,"
-                "nav_setup_completed_at,nav_setup_skipped_at,"
-                "setup_capability_ids,setup_capability_declined_ids,setup_capabilities_updated_at,setup_state_updated_at,one_runtime_setup_choice,one_chat_onboarding,"
-                "onboarding_journey_version,onboarding_phase,onboarding_active_capability,"
-                "onboarding_resume_route,onboarding_callback_state,onboarding_callback_attempt_id,onboarding_journey_updated_at,"
-                "created_at,updated_at"
-            )
+            .select(projection)
             .eq("user_id", user_id_clean)
             .limit(1)
             .execute()
@@ -371,6 +411,9 @@ class VaultKeysService:
             create_payload = {
                 "user_id": user_id_clean,
                 "vault_status": "placeholder",
+                # Only a newly inserted account has an authoritative incomplete
+                # root setup fact. Never backfill legacy nullable rows.
+                "setup_completed": False,
                 "vault_key_hash": None,
                 "primary_method": "passphrase",
                 "primary_wrapper_id": "default",
@@ -402,15 +445,7 @@ class VaultKeysService:
                 # Race-safe fallback if another request inserted concurrently.
                 existing_response = (
                     db.table("vault_keys")
-                    .select(
-                        "user_id,vault_status,first_login_at,last_login_at,login_count,"
-                        "setup_completed,setup_skipped,setup_completed_at,"
-                        "nav_setup_completed_at,nav_setup_skipped_at,"
-                        "setup_capability_ids,setup_capability_declined_ids,setup_capabilities_updated_at,setup_state_updated_at,one_runtime_setup_choice,one_chat_onboarding,"
-                        "onboarding_journey_version,onboarding_phase,onboarding_active_capability,"
-                        "onboarding_resume_route,onboarding_callback_state,onboarding_callback_attempt_id,onboarding_journey_updated_at,"
-                        "created_at,updated_at"
-                    )
+                    .select(projection)
                     .eq("user_id", user_id_clean)
                     .limit(1)
                     .execute()
@@ -441,15 +476,7 @@ class VaultKeysService:
 
         refreshed = (
             db.table("vault_keys")
-            .select(
-                "user_id,vault_status,first_login_at,last_login_at,login_count,"
-                "setup_completed,setup_skipped,setup_completed_at,"
-                "nav_setup_completed_at,nav_setup_skipped_at,"
-                "setup_capability_ids,setup_capability_declined_ids,setup_capabilities_updated_at,setup_state_updated_at,one_runtime_setup_choice,one_chat_onboarding,"
-                "onboarding_journey_version,onboarding_phase,onboarding_active_capability,"
-                "onboarding_resume_route,onboarding_callback_state,onboarding_callback_attempt_id,onboarding_journey_updated_at,"
-                "created_at,updated_at"
-            )
+            .select(projection)
             .eq("user_id", user_id_clean)
             .limit(1)
             .execute()
@@ -483,6 +510,9 @@ class VaultKeysService:
             "setupCapabilitiesUpdatedAt": state["setupCapabilitiesUpdatedAt"],
             "setupStateUpdatedAt": state["setupStateUpdatedAt"],
             "oneChatOnboarding": state["oneChatOnboarding"],
+            "initialContactsSource": state.get("initialContactsSource"),
+            "initialContactsWelcomeAcknowledged": state.get("initialContactsWelcomeAcknowledged"),
+            "initialContactsCircleId": state.get("initialContactsCircleId"),
             "oneRuntimeSetupChoice": state["oneRuntimeSetupChoice"],
             "onboardingJourneyVersion": state["onboardingJourneyVersion"],
             "onboardingPhase": state["onboardingPhase"],
@@ -514,6 +544,8 @@ class VaultKeysService:
         onboarding_callback_attempt_id: Optional[str] = None,
         expected_onboarding_journey_updated_at: Optional[int] = None,
         expected_onboarding_callback_attempt_id: Optional[str] = None,
+        initial_contacts_source: Optional[str] = None,
+        initial_contacts_welcome_acknowledged: Optional[bool] = None,
     ) -> Dict[str, Any]:
         return await run_in_threadpool(
             self._update_pre_vault_state_sync,
@@ -535,6 +567,8 @@ class VaultKeysService:
             onboarding_callback_attempt_id,
             expected_onboarding_journey_updated_at,
             expected_onboarding_callback_attempt_id,
+            initial_contacts_source,
+            initial_contacts_welcome_acknowledged,
         )
 
     def _update_pre_vault_state_sync(
@@ -557,11 +591,19 @@ class VaultKeysService:
         onboarding_callback_attempt_id: Optional[str] = None,
         expected_onboarding_journey_updated_at: Optional[int] = None,
         expected_onboarding_callback_attempt_id: Optional[str] = None,
+        initial_contacts_source: Optional[str] = None,
+        initial_contacts_welcome_acknowledged: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """
         Persist DB-first setup markers (capability setup + nav tour) with basic
         consistency checks.
         """
+        if initial_contacts_source is not None or initial_contacts_welcome_acknowledged is not None:
+            present = self._offline_initial_contacts_columns()
+            if present is not None and present != INITIAL_CONTACTS_COLUMNS:
+                raise ValueError(
+                    "initial contacts unavailable in offline schema; regenerate the offline schema"
+                )
         current = self._ensure_user_entry_sync(user_id)
         user_id_clean = (user_id or "").strip()
         if not user_id_clean:
@@ -605,6 +647,59 @@ class VaultKeysService:
             "setup_state_updated_at": now_ms,
             "updated_at": now_ms,
         }
+        enroll_initial_contacts = False
+        if initial_contacts_source is not None:
+            if initial_contacts_source not in {"google", "device", "none"}:
+                raise ValueError("invalid initial contacts source")
+            # Enrollment is explicitly requested before root completion. It
+            # cannot opt an established account back into automatic onboarding.
+            if current.get("initialContactsWelcomeAcknowledged") is None:
+                if current.get("setupCompleted") is not False:
+                    raise ValueError("initial contacts enrollment is already closed")
+                enroll_initial_contacts = True
+                update_payload["initial_contacts_source"] = initial_contacts_source
+                update_payload["initial_contacts_welcome_acknowledged"] = False
+            elif current.get("initialContactsSource") != initial_contacts_source:
+                raise ValueError("initial contacts source is already selected")
+        if initial_contacts_welcome_acknowledged is not None:
+            if initial_contacts_welcome_acknowledged is not True:
+                raise ValueError("initial welcome acknowledgment is monotonic")
+            if current.get("setupCompleted") is not True or current.get("vaultStatus") != "active":
+                raise ValueError("finish setup before acknowledging the initial welcome")
+            if current.get("initialContactsWelcomeAcknowledged") is not None:
+                update_payload["initial_contacts_welcome_acknowledged"] = True
+        if (
+            initial_contacts_source is not None or initial_contacts_welcome_acknowledged is not None
+        ) and all(
+            value is None
+            for value in (
+                setup_completed,
+                setup_skipped,
+                setup_completed_at,
+                nav_setup_completed_at,
+                nav_setup_skipped_at,
+                setup_capability_ids,
+                setup_capability_declined_ids,
+                one_chat_onboarding,
+                one_runtime_setup_choice,
+                onboarding_journey_version,
+                onboarding_phase,
+                onboarding_active_capability,
+                onboarding_resume_route,
+                onboarding_callback_state,
+                onboarding_callback_attempt_id,
+            )
+        ):
+            # An optional signup callback cannot race Finish and overwrite its
+            # newer root completion with the snapshot read at callback start.
+            for key in (
+                "setup_completed",
+                "setup_skipped",
+                "setup_completed_at",
+                "nav_setup_completed_at",
+                "nav_setup_skipped_at",
+            ):
+                update_payload.pop(key, None)
         # Persist the setup capability set only when the caller supplies one
         # (None leaves the existing value untouched). Normalize to a de-duped,
         # sorted JSON array so the stored shape is stable and tamper-resistant.
@@ -699,6 +794,12 @@ class VaultKeysService:
                 }
             )
         update_query = db.table("vault_keys").update(update_payload).eq("user_id", user_id_clean)
+        if enroll_initial_contacts:
+            update_query = update_query.eq("setup_completed", False).is_(
+                "initial_contacts_welcome_acknowledged", None
+            )
+        elif initial_contacts_welcome_acknowledged is True:
+            update_query = update_query.eq("setup_completed", True).eq("vault_status", "active")
         if expected_onboarding_journey_updated_at is not None:
             update_query = update_query.eq(
                 "onboarding_journey_updated_at",
@@ -711,6 +812,14 @@ class VaultKeysService:
             )
         updated = update_query.execute()
         if not updated.data:
+            if enroll_initial_contacts:
+                latest = self._get_pre_vault_state_sync(user_id_clean)
+                if (
+                    latest.get("initialContactsSource") == initial_contacts_source
+                    and latest.get("initialContactsWelcomeAcknowledged") is False
+                ):
+                    return latest
+                raise ValueError("initial contacts enrollment is already closed")
             if (
                 expected_onboarding_journey_updated_at is not None
                 or expected_onboarding_callback_attempt_id is not None

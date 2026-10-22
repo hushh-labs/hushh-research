@@ -9,6 +9,7 @@ import {
   ListIcon,
   SearchIcon,
 } from "@/components/icons/ui";
+import { OneRosterAgentIcon } from "@/components/icons/agents/one-roster-agent-icon";
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
@@ -26,6 +27,7 @@ import {
   type CapabilityStatusTone,
 } from "@/lib/onboarding/capability-status-display";
 import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
+import { compareOneRosterDisplayOrder } from "@/lib/onboarding/roster-display-order";
 import { buildOneSetupCapabilityRoute, ROUTES } from "@/lib/navigation/routes";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
@@ -37,11 +39,6 @@ import type { CapabilityStatus } from "@/lib/services/capability-setup-state-ser
 import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-knowledge-model-service";
 import type { RiaHomeResponse } from "@/lib/services/ria-service";
 import { cn } from "@/lib/utils";
-import type { AgentProfileIconStyle } from "@/lib/design/agent-theme-registry";
-import {
-  DASHBOARD_AGENT_ICON_STYLE_BY_ID,
-  DEFAULT_DASHBOARD_AGENT_ICON_STYLE,
-} from "@/lib/design/home-icon-palette";
 
 type OneAgentMode = {
   id: string;
@@ -85,12 +82,6 @@ export function hasActiveLocationActivity(
 
 const AGENT_ROSTER_VIEW_STORAGE_KEY = "hushh:one-agent-roster-view";
 
-function dashboardAgentIconStyle(mode: OneAgentMode): AgentProfileIconStyle {
-  const palette: Readonly<Record<string, AgentProfileIconStyle>> =
-    DASHBOARD_AGENT_ICON_STYLE_BY_ID;
-  return palette[mode.id] ?? DEFAULT_DASHBOARD_AGENT_ICON_STYLE;
-}
-
 /**
  * The roster only ever mounts client-side (its `/one` route renders a loader
  * until auth resolves, so it never server-renders with content). Reading the
@@ -100,14 +91,14 @@ function dashboardAgentIconStyle(mode: OneAgentMode): AgentProfileIconStyle {
  * `/one`.
  */
 function readPersistedRosterView(): AgentRosterView {
-  if (typeof window === "undefined") return "list";
+  if (typeof window === "undefined") return "grid";
   try {
     const persisted = window.localStorage.getItem(
       AGENT_ROSTER_VIEW_STORAGE_KEY,
     );
-    return persisted === "grid" ? "grid" : "list";
+    return persisted === "list" ? "list" : "grid";
   } catch {
-    return "list";
+    return "grid";
   }
 }
 
@@ -275,16 +266,13 @@ function useCachedAgentMetrics(
   return resolveCachedAgentMetrics(userId);
 }
 
-const ROSTER_DISPLAY_ORDER: readonly string[] = [
-  "gmail",
-  "calendar",
-  "location",
-  "finance",
-  "ria",
-  "wallet",
-  "pkm",
-  "consent",
-];
+// The welcome illustration shares this roster's outline treatment.
+function rosterIcon(mode: OneAgentMode): OneCapabilityIcon {
+  return {
+    kind: "custom",
+    component: (props) => <OneRosterAgentIcon {...props} agentId={mode.id} />,
+  };
+}
 
 function buildModes(
   statusById: Record<string, CapabilityStatus>,
@@ -350,13 +338,7 @@ function buildModes(
       tone: capability.tone,
       isExploreOnly: capability.isExploreOnly === true,
     };
-  }).sort((a, b) => {
-    const rank = (id: string) => {
-      const index = ROSTER_DISPLAY_ORDER.indexOf(id);
-      return index < 0 ? ROSTER_DISPLAY_ORDER.length : index;
-    };
-    return rank(a.id) - rank(b.id);
-  });
+  }).sort(compareOneRosterDisplayOrder);
 }
 
 /**
@@ -435,10 +417,18 @@ function resolveMetricTone(mode: OneAgentMode): AgentMetricTone {
   return mode.statusTone === "muted" ? "muted" : "default";
 }
 
+/**
+ * The count itself is always primary text unless it is zero or unknown.
+ *
+ * A pending count used to paint its numeral orange (`warning` returned
+ * #FF9500), so Advisor's "1 action" showed a gold 1 beside Calendar's and
+ * Wallet's dark ones. Attention is carried by the number being non-zero and by
+ * the row's own status, not by a one-off numeral colour, so `warning` now reads
+ * like `default` and flips to the light token in dark mode.
+ */
 function metricValueClassName(tone: AgentMetricTone): string {
   if (tone === "positive") return "text-[#34C759]";
   if (tone === "accent") return "text-[color:var(--app-accent-deep)]";
-  if (tone === "warning") return "text-[#FF9500]";
   if (tone === "muted") return "text-[#8E8E93]";
   return "text-[#1D1D1F] dark:text-[#F5F5F7]";
 }
@@ -492,6 +482,7 @@ function AgentMetric({
     >
       <span
         data-ui-role="body-strong"
+        data-profile-role="description"
         className={cn(
           "shrink-0 tabular-nums font-semibold tracking-normal",
           isGrid ? "text-[11px] leading-4" : "text-[15px] leading-5",
@@ -502,6 +493,7 @@ function AgentMetric({
       </span>
       <span
         data-ui-role="trailing-value"
+        data-profile-role="description"
         className={cn(
           "min-w-0 font-normal tracking-normal",
           isGrid ? "truncate text-[11px] leading-4" : "text-[15px] leading-5",
@@ -541,7 +533,7 @@ function AgentGridItem({
     >
       <AgentSectionIcon
         id={mode.id}
-        icon={mode.icon}
+        icon={rosterIcon(mode)}
         tone={mode.tone}
         paletteIndex={mode.paletteIndex}
         // Greyscale-until-onboarded is reverted for now -- see isOnboarded's
@@ -551,12 +543,12 @@ function AgentGridItem({
         treatment="profile"
         glyphContrast="default"
         className="relative z-10"
-        profileStyle={dashboardAgentIconStyle(mode)}
       />
       <span className="relative z-10 flex w-full min-w-0 flex-col items-center gap-[2px] text-center">
         <span
-          className="block w-full truncate text-center text-[14px] font-semibold leading-[18px] tracking-normal text-[#1D1D1F] dark:text-[#F5F5F7]"
+          className="block w-full truncate text-center text-[14px] font-normal leading-[18px] tracking-normal text-[#1D1D1F] dark:text-[#F5F5F7]"
           data-ui-role="body-strong"
+          data-profile-role="label"
         >
           {mode.title}
         </span>
@@ -585,19 +577,19 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       <span className="relative z-10 flex items-center justify-center">
         <AgentSectionIcon
           id={mode.id}
-          icon={mode.icon}
+          icon={rosterIcon(mode)}
           tone={mode.tone}
           paletteIndex={mode.paletteIndex}
           isActive
           size="roster"
           treatment="profile"
           glyphContrast="default"
-          profileStyle={dashboardAgentIconStyle(mode)}
         />
       </span>
       <span className="relative z-10 flex min-w-0 flex-col justify-center">
         <span
           data-ui-role="row-label"
+          data-profile-role="label"
           className="ui-text-row-label min-w-0 truncate"
         >
           {mode.title}
@@ -616,7 +608,7 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       />
       <span
         aria-hidden
-        className="pointer-events-none absolute bottom-0 left-16 right-4 h-px bg-[rgba(60,60,67,.12)] group-last/agent-list:hidden"
+        className="pointer-events-none absolute bottom-0 left-16 right-4 h-px bg-[rgba(60,60,67,.12)] dark:bg-white/[0.09] group-last/agent-row:hidden"
       />
       <MaterialRipple variant="blue" effect="fade" className="z-0" />
     </Link>
@@ -674,9 +666,11 @@ const SHOW_AGENT_SEARCH = false;
 export function OneAgentRoster({
   capabilityStatusById,
   userId,
+  messagesUnreadCount = null,
 }: {
   capabilityStatusById: Record<string, CapabilityStatus>;
   userId?: string | null;
+  messagesUnreadCount?: number | null;
   displayName?: string | null;
 }) {
   const cachedMetrics = useCachedAgentMetrics(userId);
@@ -686,7 +680,12 @@ export function OneAgentRoster({
         PreVaultUserStateService.getCachedBootstrapState(userId)
           ?.setupCompleted === true),
   );
-  const modes = buildModes(capabilityStatusById, cachedMetrics, setupDismissed);
+  const modes = buildModes(capabilityStatusById, {
+    ...cachedMetrics,
+    messages: messagesUnreadCount === null
+      ? { value: "—", label: "checking" }
+      : { value: String(messagesUnreadCount), label: messagesUnreadCount === 1 ? "action" : "actions" },
+  }, setupDismissed);
   const [view, setView] = useState<AgentRosterView>(readPersistedRosterView);
   const [animateViewChange, setAnimateViewChange] = useState(false);
   const [query, setQuery] = useState("");
@@ -726,6 +725,8 @@ export function OneAgentRoster({
     <section
       aria-labelledby="one-agents-heading"
       data-testid="one-agents-section"
+      // Opts this roster in to the Profile type scale (app/globals.css).
+      data-profile-type-scale=""
       // No pb- here. The scroll root already reserves the bottom bars
       // (app/providers.tsx pads it by --app-scroll-bottom-pad, the measured
       // --app-bottom-shell-height), and .app-page-shell adds the 24px reading
@@ -738,6 +739,7 @@ export function OneAgentRoster({
         <PageTitle
           as="h1"
           id="one-agents-heading"
+          data-profile-role="header"
           className="min-w-0 whitespace-nowrap"
         >
           Agents ({modes.length})
@@ -780,7 +782,7 @@ export function OneAgentRoster({
           >
             <div
               data-agent-roster-layout="grouped-icon-grid"
-              className="grid w-full grid-cols-[repeat(3,minmax(84px,1fr))] justify-center gap-x-2 gap-y-5 min-[430px]:grid-cols-[repeat(3,minmax(96px,1fr))] sm:gap-x-3 sm:gap-y-6"
+              className="grid w-full grid-cols-[repeat(3,minmax(80px,1fr))] justify-center gap-x-2 gap-y-5 min-[430px]:grid-cols-[repeat(3,minmax(96px,1fr))] sm:gap-x-3 sm:gap-y-6"
             >
               {visibleModes.map((mode) => (
                 <AgentGridItem key={mode.id} mode={mode} />

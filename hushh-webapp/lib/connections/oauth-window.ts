@@ -11,6 +11,28 @@ export const OAUTH_WINDOW_BLOCKED_COPY =
 export type OAuthWindowMode = "popup" | "tab";
 export type OpenedOAuthWindow = { target: Window; mode: OAuthWindowMode };
 
+/** The provider return must share the originating window's storage partition.
+ * Domain aliases may serve the same app but are not the same browser origin.
+ * Never rewrite a registered provider callback or broaden message trust here. */
+export function assertOAuthReturnOrigin(authorizeUrl: string): void {
+  let callback: URL | null = null;
+  try {
+    const authorization = new URL(authorizeUrl);
+    const returns = authorization.searchParams.getAll("redirect_uri");
+    if (returns.length === 1) callback = new URL(returns[0]!);
+  } catch {
+    // Malformed provider metadata must not navigate the retained popup.
+  }
+  if (
+    !callback || callback.origin !== window.location.origin ||
+    callback.username || callback.password || callback.hash
+  ) {
+    throw new Error(
+      "This connection cannot return to this window. Please try again later.",
+    );
+  }
+}
+
 function tryOpen(name: string, features?: string): Window | null {
   try {
     return window.open("about:blank", name, features) ?? null;

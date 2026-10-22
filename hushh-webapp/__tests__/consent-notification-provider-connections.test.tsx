@@ -1,5 +1,6 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 
 const mocks = vi.hoisted(() => {
   const toast = Object.assign(vi.fn(), { dismiss: vi.fn() });
@@ -65,6 +66,8 @@ vi.mock("@/lib/notifications", () => ({
   clearDeliveredConsentNotifications: vi.fn(),
   FCM_MESSAGE_EVENT: "fcm-message",
 }));
+
+vi.mock("@/lib/notifications/preview-keys", () => ({ activeNotificationKeyId: () => "current-owner-key" }));
 
 vi.mock("@/lib/one-location/service", () => ({
   OneLocationService: { getState: mocks.getState },
@@ -262,7 +265,7 @@ describe("connection-request Feed-first foreground policy", () => {
       source: "fcm",
     });
     expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledWith("arrived");
-    expect(detail.accepted).toBe(true);
+    expect(detail.accepted).toBe(false);
   });
 
   it.each([
@@ -754,4 +757,38 @@ describe("connection-request Feed-first foreground policy", () => {
 
     expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledWith("arrived");
   });
+  it("does not acknowledge or invalidate chat pushes for a previous preview owner", async () => {
+    await renderProvider();
+    for (const type of ["direct_message", "location_circle_message"]) {
+      const detail = { notification: { data: { type, recipient_key_id: "previous-owner-key", conversation_id: "fixture", circle_id: "11111111-2222-3333-4444-555555555555" } }, accepted: false };
+      act(() => window.dispatchEvent(new CustomEvent("fcm-message", { detail })));
+      expect(detail.accepted).toBe(false);
+    }
+    expect(mocks.dispatchDirectMessagesUpdated).not.toHaveBeenCalled();
+    expect(mocks.dispatchFeedStateChanged).not.toHaveBeenCalled();
+    const detail = { notification: { data: { type: "direct_message", recipient_key_id: "current-owner-key", conversation_id: "fixture" } }, accepted: false };
+    act(() => window.dispatchEvent(new CustomEvent("fcm-message", { detail })));
+    expect(detail.accepted).toBe(false);
+    expect(mocks.dispatchDirectMessagesUpdated).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { status: "push_blocked" },
+    { status: "push_active", detail: "native_sound_disabled" },
+  ])("revalidates native permission after Settings resume without prompting", async (initial) => {
+    mocks.platform.native = true;
+    mocks.platform.value = "ios";
+    mocks.initializeFCM.mockResolvedValueOnce(initial).mockResolvedValue({ status: "push_active" });
+    const startedAt = Date.now();
+    const now = vi.spyOn(Date, "now").mockReturnValue(startedAt);
+    try {
+      await renderProvider();
+      act(() => appInteractionCoordinator.handleLifecycle("background"));
+      now.mockReturnValue(startedAt + 2_000);
+      act(() => appInteractionCoordinator.handleLifecycle("active"));
+      await vi.waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalledTimes(2));
+      expect(mocks.initializeFCM.mock.calls[1][2]).toEqual({ requestPermission: false, getIdToken: expect.any(Function) });
+    } finally { now.mockRestore(); }
+  });
+
 });

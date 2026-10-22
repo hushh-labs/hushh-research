@@ -1,9 +1,14 @@
 {
-  "generated_at": "2026-09-20",
-  "total_routes": 125,
-  "native_required_routes": 104,
-  "excluded_routes": 21,
+  "generated_at": "2026-10-15",
+  "total_routes": 135,
+  "native_required_routes": 109,
+  "excluded_routes": 26,
   "routes": [
+    {
+      "route": "/wallet/open",
+      "classification": "excluded-web-only",
+      "reason": "Anonymous browser reader for externally shared encrypted files; no app installation or signed-in native route is required."
+    },
     {
       "route": "/",
       "classification": "native-required-functional",
@@ -38,22 +43,15 @@
       "expectedRoute": "/circle/join",
       "autoReviewerLogin": false,
       "expectedAuth": "anonymous",
-      "allowedDataStates": ["loaded", "unavailable-valid"]
+      "allowedDataStates": [
+        "loaded",
+        "unavailable-valid"
+      ]
     },
     {
       "route": "/connected-systems",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fconnected-systems",
-      "expectedMarker": "native-route-connected-systems",
-      "expectedRoute": "/one/connected-systems",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loading",
-        "loaded",
-        "empty-valid",
-        "unavailable-valid"
-      ],
+      "classification": "excluded-web-only",
+      "reason": "Legacy local CRM alias; requireLocalCrmRoute rejects Capacitor builds and admits only explicitly enabled localhost development.",
       "legacyAlias": true
     },
     {
@@ -364,17 +362,8 @@
     },
     {
       "route": "/one/connected-systems",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Fconnected-systems",
-      "expectedMarker": "native-route-connected-systems",
-      "expectedRoute": "/one/connected-systems",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loaded",
-        "empty-valid",
-        "unavailable-valid"
-      ]
+      "classification": "excluded-web-only",
+      "reason": "Local CRM is explicitly localhost-only development; requireLocalCrmRoute rejects Capacitor builds before reading request headers."
     },
     {
       "route": "/one/consent",
@@ -634,6 +623,35 @@
       ]
     },
     {
+      "route": "/one/messages",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fmessages",
+      "expectedMarker": "native-route-direct-messages",
+      "expectedRoute": "/one/messages",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/todos",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Ftodos",
+      "expectedMarker": "native-route-one-todos",
+      "expectedRoute": "/one/todos",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loading",
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
       "route": "/one/marketplace",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fmarketplace",
@@ -864,6 +882,18 @@
       ]
     },
     {
+      "route": "/one/profile/payouts",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fpayouts",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/one/profile/payouts",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
       "route": "/one/profile/pkm",
       "classification": "native-required-functional",
       "legacyAlias": true,
@@ -983,13 +1013,28 @@
     {
       "route": "/one/profile/referrals",
       "classification": "native-required-functional",
+      "legacyAlias": true,
       "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Freferrals",
-      "expectedMarker": "native-route-profile",
-      "expectedRoute": "/one/profile/referrals",
+      "expectedMarker": "native-route-one-referrals",
+      "expectedRoute": "/one/referrals",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
-        "loaded"
+        "loaded",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/referrals",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Freferrals",
+      "expectedMarker": "native-route-one-referrals",
+      "expectedRoute": "/one/referrals",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "unavailable-valid"
       ]
     },
     {
@@ -998,6 +1043,18 @@
       "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fregulatory",
       "expectedMarker": "native-route-profile",
       "expectedRoute": "/one/profile/regulatory",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/one/profile/request-pricing",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Frequest-pricing",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/one/profile/request-pricing",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -1107,17 +1164,8 @@
     },
     {
       "route": "/one/setup/connected-systems",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fconnected-systems",
-      "expectedMarker": "native-route-connected-systems",
-      "expectedRoute": "/one/connected-systems",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loaded",
-        "empty-valid",
-        "unavailable-valid"
-      ]
+      "classification": "excluded-web-only",
+      "reason": "Local CRM setup is guarded by localhost-only product availability; native UAT/production bundles do not admit this development flow."
     },
     {
       "route": "/one/setup/connections",
@@ -1450,6 +1498,49 @@
       "route": "/welcome",
       "classification": "excluded-web-only",
       "reason": "Pre-authentication landing page. The native app opens at its own launch surface."
+    },
+    {
+      "route": "/one/profile/world-model",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fworld-model",
+      "expectedMarker": "native-route-profile-world-model",
+      "expectedRoute": "/one/profile/world-model",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loading",
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/welcome",
+      "classification": "native-required-functional",
+      "initialRoute": "/one/welcome",
+      "expectedMarker": "native-route-one-welcome",
+      "expectedRoute": "/one/welcome",
+      "autoReviewerLogin": true,
+      "rationale": "Initial signed-in contact welcome uses Google Contacts for Google signup and phone contacts for native Apple signup."
+    },
+    {
+      "route": "/world-model/invite",
+      "classification": "native-required-functional",
+      "initialRoute": "/world-model/invite#claim=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expectedMarker": "native-route-pwm-invite",
+      "expectedRoute": "/world-model/invite",
+      "autoReviewerLogin": false,
+      "expectedAuth": "anonymous",
+      "allowedDataStates": [
+        "loaded",
+        "unavailable-valid"
+      ],
+      "reason": "Public PWM preview and verified-recipient handoff."
+    },
+    {
+      "route": "/calendar/reschedule",
+      "classification": "excluded-web-only",
+      "reason": "External recipients use this anonymous browser capability link; it requires no app install and grants no booking or native workspace authority."
     }
   ]
 }

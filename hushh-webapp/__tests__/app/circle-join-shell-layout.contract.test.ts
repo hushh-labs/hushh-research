@@ -62,7 +62,7 @@ describe("/circle/join shell layout contract", () => {
   it("keeps the invitation at one readable column on a laptop", () => {
     // `.app-page-shell[data-app-shell-width="reading"]` (54rem) outranks any
     // utility class, so a `max-w-*` here is silently dead and the invitation
-    // stretches to 864px. The measure must be an inline style to win.
+    // stretches to 54rem. The measure must be an inline style to win.
     expect(SOURCE).toContain('maxWidth: "30rem"');
     expect(SOURCE).toContain("style={INVITE_MEASURE}");
   });

@@ -107,6 +107,7 @@ export default function CareerPage() {
     <AppPageShell
       as="main"
       width="reading"
+      headerContentSpacing="compact"
       className="pb-8"
       nativeTest={{
         routeId: ROUTES.ONE_CAREER,

@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes.one import location as one_location
+from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.command_checkpoints import CommandCheckpointStore
 from tests.services.test_one_location_agent_service import (
     PUBLIC_LOCATION_SNAPSHOT,
@@ -135,6 +138,156 @@ def test_sms_contacts_api_is_owner_scoped_and_idempotent(monkeypatch) -> None:
     assert removed.json()["smsContactUserIds"] == []
     assert removed_again.json()["smsContactUserIds"] == []
     assert service.connections
+
+
+@pytest.mark.parametrize("legacy_reason", [False, True])
+def test_sms_phone_less_connected_member_receives_encrypted_alert_without_provider_lookup(
+    monkeypatch,
+    legacy_reason,
+) -> None:
+    service = FourUserMemoryService()
+    current_user = {"user_id": "user_a"}
+    client = _client(service, current_user, monkeypatch)
+    _register_key(client, current_user, "user_b")
+    service._seed_connection("user_a", "user_b")
+    service.identities["user_b"]["phone_verified"] = False
+    service.identities["user_b"]["phone_number"] = None
+    current_user["user_id"] = "user_a"
+    repair = AsyncMock(side_effect=TimeoutError("provider unavailable"))
+    monkeypatch.setattr(ActorIdentityService, "sync_verified_phone_from_firebase", repair)
+    provider_refresh = AsyncMock(side_effect=TimeoutError("provider unavailable"))
+    monkeypatch.setattr(ActorIdentityService, "sync_from_firebase", provider_refresh)
+    added = client.post("/api/one/location/sms-contacts", json={"recipientUserId": "user_b"})
+    assert added.status_code == 200
+    roster = client.get("/api/one/location/sms-contacts")
+    assert roster.status_code == 200
+    assert roster.json()["smsContactUserIds"] == ["user_b"]
+    assert roster.json()["recipients"][0]["phoneVerified"] is False
+    payload = {
+        "recipientUserId": "user_b",
+        "recipientKeyId": "key-user_b",
+        "durationHours": 8,
+        "reason": "sos_panic",
+    }
+    if not legacy_reason:
+        payload["shareKind"] = "sos"
+    response = client.post("/api/one/location/grants", json=payload)
+    assert response.status_code == 200
+    grant_id = response.json()["grant"]["id"]
+    published = client.post(
+        f"/api/one/location/grants/{grant_id}/envelopes",
+        json={"envelope": encrypted_envelope("key-user_b")},
+    )
+    assert published.status_code == 200
+    assert published.json()["envelope"]["ciphertext"]
+    assert any(push["user_id"] == "user_b" for push in service.notifications)
+    repair.assert_not_awaited()
+    provider_refresh.assert_not_awaited()
+    assert service.identities["user_b"]["phone_verified"] is False
+    assert service.identities["user_b"]["phone_number"] is None
+
+
+@pytest.mark.parametrize("boundary", ["not_connected", "no_key", "not_selected", "removed"])
+def test_phone_less_sms_still_requires_active_relationship_key_and_selected_roster(
+    monkeypatch,
+    boundary,
+) -> None:
+    service = FourUserMemoryService()
+    current_user = {"user_id": "user_a"}
+    client = _client(service, current_user, monkeypatch)
+    service.identities["user_b"]["phone_verified"] = False
+    if boundary != "no_key":
+        _register_key(client, current_user, "user_b")
+    if boundary != "not_connected":
+        service._seed_connection("user_a", "user_b")
+    current_user["user_id"] = "user_a"
+    if boundary in {"not_connected", "no_key"}:
+        response = client.post("/api/one/location/sms-contacts", json={"recipientUserId": "user_b"})
+        assert response.status_code in {403, 409}
+    else:
+        if boundary == "removed":
+            assert (
+                client.post(
+                    "/api/one/location/sms-contacts", json={"recipientUserId": "user_b"}
+                ).status_code
+                == 200
+            )
+            assert client.delete("/api/one/location/sms-contacts/user_b").status_code == 200
+        response = client.post(
+            "/api/one/location/grants",
+            json={
+                "recipientUserId": "user_b",
+                "recipientKeyId": "key-user_b",
+                "durationHours": 8,
+                "shareKind": "sos",
+            },
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"]["code"] == "LOCATION_SMS_CONTACT_REQUIRED"
+    assert not service.grants
+
+
+@pytest.mark.parametrize("profile_exists", [True, False])
+def test_sms_repairs_missing_identity_only_for_existing_actors_without_fabricating_phone(
+    monkeypatch,
+    profile_exists,
+) -> None:
+    service = FourUserMemoryService()
+    current_user = {"user_id": "user_a"}
+    client = _client(service, current_user, monkeypatch)
+    _register_key(client, current_user, "user_b")
+    service._seed_connection("user_a", "user_b")
+    service.identities["user_b"]["phone_verified"] = False
+    current_user["user_id"] = "user_a"
+    assert (
+        client.post(
+            "/api/one/location/sms-contacts", json={"recipientUserId": "user_b"}
+        ).status_code
+        == 200
+    )
+    identity = service.identities.pop("user_b")
+    admission = AsyncMock(return_value={"user_b"} if profile_exists else set())
+    monkeypatch.setattr(ActorIdentityService, "_known_actor_ids", admission)
+
+    async def hydrate(uid, *, force, require_success):
+        assert force is True and require_success is True
+        service.identities[uid] = identity
+        return identity
+
+    hydration = AsyncMock(side_effect=hydrate)
+    monkeypatch.setattr(ActorIdentityService, "sync_from_firebase", hydration)
+    response = client.get("/api/one/location/sms-contacts")
+    assert response.status_code == 200
+    admission.assert_awaited_once_with(["user_b"])
+    if profile_exists:
+        hydration.assert_awaited_once_with("user_b", force=True, require_success=True)
+        assert response.json()["recipients"][0]["phoneVerified"] is False
+    else:
+        hydration.assert_not_awaited()
+        assert response.json()["recipients"] == []
+        assert "user_b" not in service.identities
+
+
+@pytest.mark.asyncio
+async def test_missing_sms_identity_repair_attempts_all_members_under_one_deadline(monkeypatch):
+    service = FourUserMemoryService()
+    ids = [f"sms-member-{index}" for index in range(8)]
+    monkeypatch.setattr(service, "list_sms_contact_ids", lambda **_: ids)
+    monkeypatch.setattr(service, "_identity_row", lambda _: None)
+    monkeypatch.setattr(ActorIdentityService, "_known_actor_ids", AsyncMock(return_value=set(ids)))
+    attempted = []
+    completed = []
+
+    async def hydrate(uid, **_):
+        attempted.append(uid)
+        if uid in ids[:4]:
+            await asyncio.Event().wait()
+        completed.append(uid)
+
+    monkeypatch.setattr(ActorIdentityService, "sync_from_firebase", AsyncMock(side_effect=hydrate))
+    await one_location.refresh_sms_recipient_identities(service, owner_user_id="user_a")
+    assert set(attempted) == set(ids)
+    assert set(completed) == set(ids[4:])
 
 
 def test_atomic_private_share_route_binds_owner_from_token(monkeypatch) -> None:
@@ -282,7 +435,9 @@ def test_private_share_route_accepts_connected_keyed_user_without_phone_claim(
     assert response.json()["grant"]["recipientUserId"] == "user_b"
 
 
-def test_sos_route_keeps_verified_phone_recipient_requirement(monkeypatch) -> None:
+def test_sos_route_uses_account_relationship_and_key_instead_of_phone(monkeypatch) -> None:
+    monkeypatch.setattr(one_location, "refresh_sms_recipient_identities", AsyncMock())
+
     class SosGrantRouteProbe:
         def __init__(self) -> None:
             self.calls: list[dict] = []
@@ -310,10 +465,12 @@ def test_sos_route_keeps_verified_phone_recipient_requirement(monkeypatch) -> No
     )
 
     assert response.status_code == 200
-    assert service.calls[0]["require_recipient_phone_verified"] is True
+    assert service.calls[0]["require_recipient_phone_verified"] is False
 
 
-def test_legacy_sos_reason_keeps_verified_phone_recipient_requirement(monkeypatch) -> None:
+def test_legacy_sos_reason_uses_the_same_phone_independent_policy(monkeypatch) -> None:
+    monkeypatch.setattr(one_location, "refresh_sms_recipient_identities", AsyncMock())
+
     class LegacySosGrantRouteProbe:
         def __init__(self) -> None:
             self.calls: list[dict] = []
@@ -340,7 +497,7 @@ def test_legacy_sos_reason_keeps_verified_phone_recipient_requirement(monkeypatc
     )
 
     assert response.status_code == 200
-    assert service.calls[0]["require_recipient_phone_verified"] is True
+    assert service.calls[0]["require_recipient_phone_verified"] is False
 
 
 def test_set_grant_duration_route_binds_owner_and_exact_grant(monkeypatch) -> None:

@@ -36,8 +36,8 @@ test.beforeAll(async () => {
         name: "contact-invitation-boundaries",
         load(id) {
           if (id === "\0fixture-invitations-service")
-            return `export const ContactInvitationsService = { canComposeSms: async () => false };
-            export function invitationBody() { return ""; }
+            return `export const ContactInvitationsService = { isNative: () => true, canComposeBatchSms: async () => true, composeBatch: async () => "opened", share: async () => "web-share", copy: async () => "copied" };
+            export function invitationBody(share) { return share.text + "\\n" + share.url; }
             export function assertInvitationShare() {}`;
         },
       },
@@ -65,6 +65,14 @@ test.beforeAll(async () => {
     },
     define: {
       "process.env.NODE_ENV": JSON.stringify("production"),
+      "process.env.NEXT_PUBLIC_FIREBASE_API_KEY":
+        JSON.stringify("fixture-api-key"),
+      "process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN":
+        JSON.stringify("fixture.invalid"),
+      "process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID":
+        JSON.stringify("fixture-project"),
+      "process.env.NEXT_PUBLIC_FIREBASE_APP_ID":
+        JSON.stringify("1:123:web:fixture"),
       "process.env": "{}",
     },
     build: {
@@ -91,7 +99,10 @@ test.beforeAll(async () => {
           id === "tailwindcss"
             ? path.join(root, "node_modules/tailwindcss/index.css")
             : id === "tw-animate-css"
-              ? path.join(root, "node_modules/tw-animate-css/dist/tw-animate.css")
+              ? path.join(
+                  root,
+                  "node_modules/tw-animate-css/dist/tw-animate.css",
+                )
               : path.resolve(base, id);
         return {
           path: file,
@@ -116,7 +127,9 @@ async function mount(page: Page, keyboardPx: number) {
   ).toBeVisible();
   // Measure the settled sheet, not its slide-in frame.
   await page.evaluate(() =>
-    Promise.all(document.getAnimations().map((animation) => animation.finished)),
+    Promise.all(
+      document.getAnimations().map((animation) => animation.finished),
+    ),
   );
   expect(errors).toEqual([]);
 }
@@ -166,9 +179,19 @@ for (const viewport of CASES) {
   test(`contact list stays readable and scrollable: ${viewport.name}`, async ({
     page,
   }) => {
-    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.setViewportSize({
+      width: viewport.width,
+      height: viewport.height,
+    });
     await mount(page, viewport.keyboard);
     const before = await measure(page);
+    expect(
+      await page
+        .locator("[data-contact-invite-list] li")
+        .first()
+        .getByText(/Contact person/)
+        .textContent(),
+    ).toBe("Contact person 1");
 
     // The sheet sits inside the space above the keyboard...
     expect(before.sheetTop).toBeGreaterThanOrEqual(0);
@@ -178,7 +201,8 @@ for (const viewport of CASES) {
     // ...and, with the keyboard up, uses it: it reaches the 1rem top gap. The
     // old `88dvh - keyboard` cap subtracted the keyboard twice and left 68-80px
     // of dead space above the sheet on these phones.
-    if (viewport.keyboard > 0) expect(before.sheetTop).toBeLessThanOrEqual(16.5);
+    if (viewport.keyboard > 0)
+      expect(before.sheetTop).toBeLessThanOrEqual(16.5);
 
     // The rows are their own scroller, never a sliver: at least one full 56px
     // row of height in the worst case (it was 24px), and whole contacts on
@@ -198,5 +222,54 @@ for (const viewport of CASES) {
     expect(after.searchBottom).toBeLessThanOrEqual(
       viewport.height - viewport.keyboard,
     );
+  });
+}
+
+for (const viewport of [CASES[0], CASES[3]]) {
+  test(`batch review and result remain usable: ${viewport.name}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({
+      width: viewport.width,
+      height: viewport.height,
+    });
+    await mount(page, 0);
+    for (let i = 1; i <= 15; i++)
+      await page
+        .getByRole("checkbox", {
+          name: `Select Contact person ${i}`,
+          exact: true,
+        })
+        .click();
+    await page.getByRole("button", { name: "Review 15 invitations" }).click();
+    await expect(
+      page.getByRole("textbox", { name: "Invitation message" }),
+    ).toHaveValue(
+      "Join me on One so we can connect.\nhttps://one.example/r/fixture",
+    );
+    const open = page.getByRole("button", {
+      name: "Open Messages · 15 contacts",
+    });
+    await expect(open).toBeVisible();
+    const dimensions = await page.getByRole("dialog").evaluate((dialog) => {
+      const list = dialog.querySelector<HTMLElement>(
+        "[data-contact-invite-list]",
+      )!;
+      return {
+        horizontalOverflow: dialog.scrollWidth - dialog.clientWidth,
+        listHeight: list.clientHeight,
+        scrollable: list.scrollHeight > list.clientHeight,
+      };
+    });
+    expect(dimensions.horizontalOverflow).toBeLessThanOrEqual(1);
+    expect(dimensions.listHeight).toBeGreaterThan(120);
+    expect(dimensions.scrollable).toBe(true);
+    const box = await open.boundingBox();
+    expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height);
+    await open.click();
+    await expect(
+      page.getByRole("button", { name: "Done", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText("15 selected contacts")).toBeAttached();
   });
 }

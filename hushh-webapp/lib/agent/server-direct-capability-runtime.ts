@@ -7,6 +7,7 @@
 
 import capabilityGraph from "@/contracts/kai/one-capability-graph.v1.json";
 import { ApiService } from "@/lib/services/api-service";
+import { observeDispatch } from "@/lib/observability/product-activity-client";
 
 type CapabilityExecution = {
   mode?: unknown;
@@ -113,13 +114,19 @@ function isServerDirectStatus(value: unknown): value is ServerDirectStatus {
 }
 
 /** Submit a structured system handoff to the only executable runtime. */
-export async function dispatchServerDirectCapability(input: {
+type ServerDirectInput = {
   actionId: string;
   slots: Record<string, unknown>;
   vaultOwnerToken: string | null | undefined;
   invocationId: string;
   signal?: AbortSignal;
-}): Promise<ServerDirectCapabilityDispatchResult> {
+};
+
+export function dispatchServerDirectCapability(input: ServerDirectInput): Promise<ServerDirectCapabilityDispatchResult> {
+  return observeDispatch(input.actionId, dispatchServerDirectCapabilityImpl(input));
+}
+
+async function dispatchServerDirectCapabilityImpl(input: ServerDirectInput): Promise<ServerDirectCapabilityDispatchResult> {
   if (!hasWiredServerDirectTarget(input.actionId)) {
     return failedResult(
       input.actionId,

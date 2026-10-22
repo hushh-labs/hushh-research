@@ -289,6 +289,7 @@ export class ConnectionsService {
     idToken: string;
     lookups: ContactSyncLookup[];
     signal?: AbortSignal;
+    context?: "signup";
   }): Promise<ContactSyncBatchResult> {
     if (opts.lookups.length > 1000) {
       throw new Error("Contact sync accepts at most 1000 lookups per batch.");
@@ -301,6 +302,7 @@ export class ConnectionsService {
         headers: authHeaders(opts.idToken),
         signal: opts.signal,
         body: JSON.stringify({
+          ...(opts.context ? { context: opts.context } : {}),
           lookups: opts.lookups.map((lookup) => ({
             lookup_id: lookup.lookupId,
             hash: lookup.hash,
@@ -371,9 +373,11 @@ export class ConnectionsService {
     page?: number;
     limit?: number;
     audience?: DirectoryAudience;
+    nameOnly?: boolean;
   }): Promise<DirectoryPage> {
     const params = new URLSearchParams();
     if (opts.query) params.set("query", opts.query);
+    if (opts.nameOnly) params.set("name_only", "true");
     params.set("page", String(opts.page ?? 1));
     if (typeof opts.limit === "number") params.set("limit", String(opts.limit));
     // Omitted rather than sent as "all", so the request a pre-split caller
@@ -428,6 +432,8 @@ export class ConnectionsService {
     limit?: number;
     query?: string;
     audience?: ConnectionAudience;
+    /** A complete owner-memory scan must reject malformed 2xx pages, never normalize them to empty. */
+    sourceRead?: boolean;
   }): Promise<ConnectionPage> {
     const params = new URLSearchParams({
       page: String(opts.page ?? 1),
@@ -440,6 +446,13 @@ export class ConnectionsService {
       { method: "GET", headers: authHeaders(opts.idToken) },
     );
     const payload = await jsonOrThrow<Partial<ConnectionPage>>(response);
+    if (opts.sourceRead && (
+      !Array.isArray(payload.items) ||
+      !Number.isSafeInteger(payload.page) || Number(payload.page) < 1 ||
+      typeof payload.hasMore !== "boolean" ||
+      !Number.isSafeInteger(payload.totalCount) || Number(payload.totalCount) < 0 ||
+      payload.audience !== (opts.audience ?? "all")
+    )) throw new Error("Connection source page could not be verified");
     return {
       items: Array.isArray(payload.items) ? payload.items : [],
       page: Math.max(1, Number(payload.page) || opts.page || 1),

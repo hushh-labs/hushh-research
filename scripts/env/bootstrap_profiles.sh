@@ -15,7 +15,6 @@ Options:
   --backend-service <name>           Backend service name (default: consent-protocol)
   --frontend-service <name>          Frontend service name (default: hushh-webapp)
   --uat-project <project-id>         UAT project id (default: hushh-pda-uat)
-  --uat-genai-project <project-id>   UAT managed Vertex project (default: hushh-vertex-personal54)
   --dev-project <project-id>         Dev project id (default: hushh-pda-dev)
   --prod-project <project-id>        Prod project id (default: hushh-pda)
   --force                            Re-copy templates before hydration
@@ -49,7 +48,7 @@ REGION="${REGION:-us-central1}"
 BACKEND_SERVICE="${BACKEND_SERVICE:-consent-protocol}"
 FRONTEND_SERVICE="${FRONTEND_SERVICE:-hushh-webapp}"
 UAT_PROJECT_ID="${UAT_PROJECT_ID:-hushh-pda-uat}"
-UAT_GENAI_PROJECT_ID="${UAT_GENAI_PROJECT_ID:-hushh-vertex-personal54}"
+UAT_GENAI_PROJECT_ID="$(python3 "$REPO_ROOT/scripts/ops/managed_ai_config.py" --environment uat --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["project"])')"
 DEV_PROJECT_ID="${DEV_PROJECT_ID:-hushh-pda-dev}"
 PROD_PROJECT_ID="${PROD_PROJECT_ID:-hushh-pda}"
 FORCE=false
@@ -79,8 +78,8 @@ while [ "$#" -gt 0 ]; do
       shift 2
       ;;
     --uat-genai-project)
-      UAT_GENAI_PROJECT_ID="${2:-}"
-      shift 2
+      echo "Change consent-protocol/config/managed-ai-runtime.json to select the managed project." >&2
+      exit 1
       ;;
     --dev-project)
       DEV_PROJECT_ID="${2:-}"
@@ -405,6 +404,9 @@ PY
 copy_template_if_needed() {
   local template="$1"
   local target="$2"
+  # Retire only the old public rollout key before comparing profile shape, so
+  # cached credentials survive migration to ordinary new-user onboarding.
+  remove_env_keys "$target" NEXT_PUBLIC_INITIAL_CONTACTS_ONBOARDING_ENABLED
   if [ ! -f "$template" ]; then
     echo "Missing template: $template" >&2
     exit 1
@@ -870,17 +872,8 @@ hydrate_backend_cloud_reference() {
     set_if_non_empty "$file" "$key" "$(resolve_cloud_or_cached_env_value "$project" "$BACKEND_SERVICE" "$key" "$cache_file")"
   done
 
-  # UAT owns the managed Vertex routing decision. Read the deployed service
-  # first, then use the approved fallback instead of carrying a stale cached
-  # project through a temporary GCP outage.
-  local managed_vertex_project=""
-  managed_vertex_project="$(run_env_value "$project" "$BACKEND_SERVICE" "GENAI_GOOGLE_CLOUD_PROJECT")"
-  if is_placeholder_value "$managed_vertex_project"; then
-    managed_vertex_project=""
-  fi
-  if [ -z "$managed_vertex_project" ] && [ "$project" = "$UAT_PROJECT_ID" ]; then
-    managed_vertex_project="$UAT_GENAI_PROJECT_ID"
-  fi
+  # Bootstrap the same checked-in profile used by hosted clients.
+  local managed_vertex_project="$UAT_GENAI_PROJECT_ID"
   set_if_non_empty "$file" "GENAI_GOOGLE_CLOUD_PROJECT" "$managed_vertex_project"
 
   if [ -z "$(read_env_value "$file" "CORS_ALLOWED_ORIGINS")" ] && [ -n "$front_secret" ]; then

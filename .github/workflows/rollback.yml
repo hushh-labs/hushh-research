@@ -66,6 +66,7 @@ jobs:
     concurrency:
       group: deploy-uat
       cancel-in-progress: false
+      queue: max
     env:
       GCP_PROJECT_ID: hushh-pda-uat
       GCP_REGION: us-central1
@@ -188,8 +189,9 @@ jobs:
     timeout-minutes: 15
     environment: production
     concurrency:
-      group: deploy-production-${{ github.run_id }}
+      group: deploy-production
       cancel-in-progress: false
+      queue: max
     env:
       GCP_PROJECT_ID: hushh-pda
       GCP_REGION: us-central1

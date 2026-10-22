@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
+import time
+from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import wraps
 from uuid import UUID, uuid4
@@ -11,6 +14,42 @@ from uuid import UUID, uuid4
 from hushh_mcp.consent.audit_logger import get_trace_id
 
 _operation: ContextVar[str | None] = ContextVar("drive_operation_tag", default=None)
+_STAGES = frozenset(
+    {
+        "search_claim",
+        "search_authority",
+        "search_commit",
+        "search_handoff",
+        "credential",
+        "provider",
+        "connection_recheck",
+        "worker_batches",
+        "worker_prepare",
+        "worker_due",
+    }
+)
+
+
+@contextmanager
+def drive_stage(logger: logging.LoggerAdapter, stage: str):
+    """Time a closed stage without logging arguments, exception text or identities."""
+    if stage not in _STAGES:
+        raise ValueError("unknown Drive timing stage")
+    started = time.perf_counter()
+    outcome = "error"
+    try:
+        yield
+        outcome = "ok"
+    except asyncio.CancelledError:
+        outcome = "cancelled"
+        raise
+    finally:
+        logger.info(
+            "drive_stage.timing stage=%s outcome=%s duration_ms=%.2f",
+            stage,
+            outcome,
+            (time.perf_counter() - started) * 1000,
+        )
 
 
 def correlation_tag(value: str) -> str:

@@ -24,8 +24,8 @@ import {
   PreVaultUserStateService,
   type PreVaultUserState,
 } from "@/lib/services/pre-vault-user-state-service";
-import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { deriveVoiceRouteScreen } from "@/lib/kai/actions/route-screen-derivation";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 type Settlement = {
   status: "started" | "succeeded" | "blocked" | "failed";
@@ -45,6 +45,8 @@ type SetupSettlementOptions = {
 
 export type SetupCapabilityCoordinator = {
   isReady: boolean;
+  /** Presentation eligibility from the existing owner-scoped setup record. */
+  isInitialSetup: boolean;
   /** Durable completion detected before the feature-owned setup body mounts. */
   isAlreadyComplete: boolean;
   /** A verified feature result, optionally recovered from a typed callback. */
@@ -248,6 +250,7 @@ export function useSetupCapabilityCoordinator({
   const userId = user?.uid;
   const [isReady, setIsReady] = useState(false);
   const [isSettling, setIsSettling] = useState(false);
+  const [initialSetupKey, setInitialSetupKey] = useState<string | null>(null);
   const [callbackReadiness, setCallbackReadiness] = useState(false);
   const [confirmedCompletionKey, setConfirmedCompletionKey] = useState<
     string | null
@@ -271,6 +274,15 @@ export function useSetupCapabilityCoordinator({
       ? cachedCompletedEntry.target
       : null;
   const completionKey = userId ? `${userId}:${capabilityId}` : null;
+  const isInitialSetup = Boolean(
+    enabled &&
+      !authLoading &&
+      completionKey &&
+      (cachedJourney
+        ? !PreVaultUserStateService.isSetupResolved(cachedJourney) &&
+          !cachedJourney.setupCapabilityIds.includes(capabilityId)
+        : initialSetupKey === completionKey),
+  );
   const isAlreadyComplete =
     cachedCompletedEntry.kind === "acknowledge" ||
     (cachedCompletedEntry.kind === "continue" &&
@@ -346,6 +358,12 @@ export function useSetupCapabilityCoordinator({
           retryConflict: boolean,
         ): Promise<void> => {
           if (cancelled) return;
+          setInitialSetupKey(
+            !PreVaultUserStateService.isSetupResolved(journey) &&
+              !journey.setupCapabilityIds.includes(capabilityId)
+              ? `${userId}:${capabilityId}`
+              : null,
+          );
           const canResumeCallbackReadiness =
             resumeReadinessFromCallback &&
             journey.onboardingActiveCapability === capabilityId &&
@@ -583,7 +601,7 @@ export function useSetupCapabilityCoordinator({
     [settle],
   );
   useLocalOnboardingActionHandler(finishActionId, finish, {
-    prepare: capabilityId === "location" ? () => operationallyReady ? { status: "ready", binding: { userId, capabilityId }, summary: "Finish Location setup." } : { status: "blocked", gate: "permission", summary: "Allow Location access to finish setup." } : undefined,
+    prepare: capabilityId === "location" ? () => operationallyReady ? { status: "ready", binding: { userId, capabilityId }, summary: "Finish Location setup." } : { status: "blocked", gate: "navigation", summary: "Open the Location introduction to finish setup." } : undefined,
     enabled:
       enabled && routeReady && !settlementBlocked && !isAlreadyComplete,
   });
@@ -650,6 +668,7 @@ export function useSetupCapabilityCoordinator({
 
   return {
     isReady: routeReady,
+    isInitialSetup,
     isAlreadyComplete,
     operationallyReady,
     isSettling,

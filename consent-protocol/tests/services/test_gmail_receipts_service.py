@@ -4,8 +4,10 @@ import asyncio
 import threading
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlparse
 
+import httpx
 import pytest
 
 import hushh_mcp.services.gmail_receipts_service as gmail_receipts_service_module
@@ -101,15 +103,63 @@ def test_oauth_redirect_uses_environment_owned_callback(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_default_connect_requests_both_read_and_send_scope(monkeypatch):
-    # No call site anywhere in this codebase (web popup, native, or the
-    # connectors panel) ever passes purpose="send" -- every real connect
-    # defaults to "read". Gating gmail.send behind purpose="read" therefore
-    # made send capability unreachable through any live path, with no
-    # working recovery flow (the app's own "Reconnect Mail" link re-runs the
-    # same read-only connect). Both scopes must be requested regardless of
-    # purpose until a real incremental-consent UI actually calls this with
-    # "send".
+async def test_oauth_alias_preserves_signed_callback_and_rejects_other_environment(monkeypatch):
+    legacy = _configure_gmail_oauth(monkeypatch)
+    alias = legacy.replace("hushh.ai", "hussh.ai")
+    monkeypatch.setenv(
+        "CORS_ALLOWED_ORIGINS",
+        "https://uat.one.hushh.ai,https://uat.one.hussh.ai,https://one.hussh.ai",
+    )
+    service = GmailReceiptsService()
+    state = service._build_state_token(user_id="owner", redirect_uri=alias)
+    complete = AsyncMock(return_value={"connected": True})
+    monkeypatch.setattr(service, "_complete_authorized_connect", complete)
+    assert service._resolve_oauth_redirect_uri(alias) == alias
+    await service.complete_connect(
+        user_id="owner", code="synthetic", state=state, redirect_uri=alias
+    )
+    assert complete.await_args.kwargs["redirect_uri"] == alias
+    complete.reset_mock()
+    for invalid in (legacy, "https://one.hussh.ai/one/profile/gmail/oauth/return"):
+        with pytest.raises(GmailApiError):
+            await service.complete_connect(
+                user_id="owner", code="synthetic", state=state, redirect_uri=invalid
+            )
+    complete.assert_not_awaited()
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://uat.one.hushh.ai")
+    with pytest.raises(GmailApiError):
+        service._resolve_oauth_redirect_uri(alias)
+
+
+@pytest.mark.asyncio
+async def test_older_client_completes_with_original_signed_callback_after_alias_switch(monkeypatch):
+    legacy = _configure_gmail_oauth(monkeypatch)
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://uat.one.hushh.ai,https://uat.one.hussh.ai")
+    service = GmailReceiptsService()
+    state = service._build_state_token(user_id="owner", redirect_uri=legacy)
+    _configure_gmail_oauth(monkeypatch, origin="https://uat.one.hussh.ai")
+    complete = AsyncMock(return_value={"connected": True})
+    monkeypatch.setattr(service, "_complete_authorized_connect", complete)
+    await service.complete_connect(
+        user_id="owner", code="synthetic", state=state, redirect_uri=None
+    )
+    assert complete.await_args.kwargs["redirect_uri"] == legacy
+    complete.reset_mock()
+    for invalid_state in (
+        state + "x",
+        service._build_state_token(
+            user_id="owner", redirect_uri="https://one.hussh.ai/one/profile/gmail/oauth/return"
+        ),
+    ):
+        with pytest.raises(GmailApiError):
+            await service.complete_connect(
+                user_id="owner", code="synthetic", state=invalid_state, redirect_uri=None
+            )
+    complete.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_default_connect_requests_read_scope_without_send(monkeypatch):
     _configure_gmail_oauth(monkeypatch)
     service = GmailReceiptsService()
     monkeypatch.setattr(service, "_build_state_token", lambda **kwargs: "state")
@@ -123,7 +173,7 @@ async def test_default_connect_requests_both_read_and_send_scope(monkeypatch):
 
     scope = parse_qs(urlparse(result["authorize_url"]).query)["scope"][0].split()
     assert "https://www.googleapis.com/auth/gmail.readonly" in scope
-    assert "https://www.googleapis.com/auth/gmail.send" in scope
+    assert "https://www.googleapis.com/auth/gmail.send" not in scope
     # A read-only person is never asked for the restricted mailbox-change scope.
     assert "https://www.googleapis.com/auth/gmail.modify" not in scope
 
@@ -342,6 +392,66 @@ async def test_send_ready_accepts_a_connected_account_with_the_granted_send_scop
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "race",
+    [
+        "none",
+        "token_account",
+        "token_generation",
+        "latest_generation",
+        "send_disabled",
+        "scope_removed",
+    ],
+)
+async def test_send_token_is_bound_to_its_actual_account_and_current_grant(monkeypatch, race):
+    service = GmailReceiptsService()
+    monkeypatch.setattr(service, "is_configured", lambda: True)
+    row = {
+        "status": "connected",
+        "revoked": False,
+        "send_enabled": True,
+        "scope_csv": "https://www.googleapis.com/auth/gmail.send",
+        "google_sub": "reviewed-account",
+        "google_email": "owner@example.com",
+        "send_grant_generation": 4,
+    }
+    token_row, latest = dict(row), dict(row)
+    if race == "token_account":
+        token_row["google_sub"] = "other-account"
+    elif race == "token_generation":
+        token_row["send_grant_generation"] = 5
+    elif race == "latest_generation":
+        latest["send_grant_generation"] = 5
+    elif race == "send_disabled":
+        token_row["send_enabled"] = False
+    elif race == "scope_removed":
+        token_row["scope_csv"] = "https://www.googleapis.com/auth/gmail.readonly"
+    calls = iter([row, latest])
+    monkeypatch.setattr(service, "_fetch_connection_row", lambda **_: next(calls))
+    refresh = AsyncMock(return_value=("private-access-token", token_row))
+    monkeypatch.setattr(service, "_ensure_access_token", refresh)
+    expected = {
+        "google_sub": "reviewed-account",
+        "grant_generation": 4,
+        "account_label": "owner@example.com",
+    }
+    if race == "none":
+        assert (
+            await service.get_send_access_token(user_id="owner", expected_sender=expected)
+            == "private-access-token"
+        )
+    else:
+        with pytest.raises(GmailApiError) as refused:
+            await service.get_send_access_token(user_id="owner", expected_sender=expected)
+        assert refused.value.code in {
+            "GMAIL_SENDER_CHANGED",
+            "GMAIL_SEND_DISABLED",
+            "GMAIL_SEND_PERMISSION_REQUIRED",
+        }
+    refresh.assert_awaited_once_with(user_id="owner")
+
+
+@pytest.mark.asyncio
 async def test_read_token_requires_read_scope_before_token_refresh(monkeypatch):
     service = GmailReceiptsService()
     monkeypatch.setattr(service, "is_configured", lambda: True)
@@ -382,6 +492,103 @@ async def test_read_token_rechecks_scope_after_refresh(monkeypatch):
     with pytest.raises(GmailApiError) as exc_info:
         await service.get_read_access_token(user_id="user_123")
     assert exc_info.value.code == "GMAIL_READ_PERMISSION_REQUIRED"
+
+
+def _expired_token_connection(monkeypatch, service: GmailReceiptsService):
+    row = {
+        "status": "connected",
+        "revoked": False,
+        "access_token_ciphertext": "access-envelope",
+        "refresh_token_ciphertext": "refresh-envelope",
+        "access_token_expires_at": datetime(2020, 1, 1, tzinfo=timezone.utc),
+    }
+    reauth_calls = []
+    monkeypatch.setattr(service, "_fetch_connection_row", lambda **_kwargs: row)
+    monkeypatch.setattr(
+        service,
+        "_decrypt_token",
+        lambda ciphertext, *_args: (
+            "refresh-token" if ciphertext == "refresh-envelope" else "expired-access-token"
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "_mark_connection_needs_reauth",
+        lambda **kwargs: reauth_calls.append(kwargs),
+    )
+    return reauth_calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("provider_status", "provider_error", "expected_code", "reauth_required"),
+    [
+        (429, "rate_limit_exceeded", "GMAIL_PROVIDER_UNAVAILABLE", False),
+        (503, "temporarily_unavailable", "GMAIL_PROVIDER_UNAVAILABLE", False),
+        (401, "invalid_client", "GMAIL_PROVIDER_UNAVAILABLE", False),
+        (400, "invalid_grant", "GMAIL_REAUTH_REQUIRED", True),
+    ],
+)
+async def test_refresh_revokes_only_when_google_invalidates_the_grant(
+    monkeypatch, provider_status, provider_error, expected_code, reauth_required
+):
+    service = GmailReceiptsService()
+    reauth_calls = _expired_token_connection(monkeypatch, service)
+    monkeypatch.setattr(service, "_oauth_client_id", lambda: "test-client")
+    monkeypatch.setattr(service, "_oauth_client_secret", lambda: "test-secret")
+
+    real_async_client = httpx.AsyncClient
+    transport = httpx.MockTransport(
+        lambda _request: httpx.Response(provider_status, json={"error": provider_error})
+    )
+    monkeypatch.setattr(
+        gmail_receipts_service_module.httpx,
+        "AsyncClient",
+        lambda **kwargs: real_async_client(transport=transport, **kwargs),
+    )
+
+    with pytest.raises(GmailApiError) as exc_info:
+        await service._ensure_access_token(user_id="user_123")
+
+    assert exc_info.value.code == expected_code
+    assert exc_info.value.status_code == (401 if reauth_required else 503)
+    assert len(reauth_calls) == int(reauth_required)
+
+
+@pytest.mark.asyncio
+async def test_refresh_transport_timeout_preserves_connected_grant(monkeypatch):
+    service = GmailReceiptsService()
+    reauth_calls = _expired_token_connection(monkeypatch, service)
+
+    async def timeout(*, refresh_token):
+        raise httpx.ConnectTimeout("provider timed out")
+
+    monkeypatch.setattr(service, "_refresh_access_token", timeout)
+
+    with pytest.raises(GmailApiError) as exc_info:
+        await service._ensure_access_token(user_id="user_123")
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.code == "GMAIL_PROVIDER_UNAVAILABLE"
+    assert reauth_calls == []
+
+
+@pytest.mark.asyncio
+async def test_refresh_missing_access_token_preserves_connected_grant(monkeypatch):
+    service = GmailReceiptsService()
+    reauth_calls = _expired_token_connection(monkeypatch, service)
+    monkeypatch.setattr(
+        service,
+        "_refresh_access_token",
+        lambda **_kwargs: asyncio.sleep(0, result={"expires_in": 3600}),
+    )
+
+    with pytest.raises(GmailApiError) as exc_info:
+        await service._ensure_access_token(user_id="user_123")
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.code == "GMAIL_PROVIDER_UNAVAILABLE"
+    assert reauth_calls == []
 
 
 def test_oauth_redirect_rejects_caller_selected_origin(monkeypatch):

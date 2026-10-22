@@ -1,0 +1,110 @@
+{
+  "provenance": "Google APIs Explorer read-only capture 2026-10-15; private IDs and date pseudonymized; public provider holiday ID retained for classification. Separate credentials from One.",
+  "inventory": [
+    {
+      "id": "calendar-1",
+      "name": "Calendar 1",
+      "primary": false,
+      "access_role": "reader",
+      "time_zone": "UTC",
+      "selected": true
+    },
+    {
+      "id": "calendar-2",
+      "name": "Calendar 2",
+      "primary": false,
+      "access_role": "reader",
+      "time_zone": "UTC",
+      "selected": true
+    },
+    {
+      "id": "en.indian#holiday@group.v.calendar.google.com",
+      "name": "Holidays in India",
+      "primary": false,
+      "access_role": "reader",
+      "time_zone": "UTC",
+      "selected": true
+    },
+    {
+      "id": "calendar-4",
+      "name": "Calendar 4",
+      "primary": false,
+      "access_role": "owner",
+      "time_zone": "UTC",
+      "selected": true
+    },
+    {
+      "id": "calendar-5",
+      "name": "Calendar 5",
+      "primary": true,
+      "access_role": "owner",
+      "time_zone": "UTC",
+      "selected": true
+    }
+  ],
+  "request": {
+    "timeMin": "2030-01-17T03:30:00Z",
+    "timeMax": "2030-01-17T11:30:00Z",
+    "items": [
+      {
+        "id": "calendar-1"
+      },
+      {
+        "id": "calendar-2"
+      },
+      {
+        "id": "calendar-4"
+      },
+      {
+        "id": "calendar-5"
+      }
+    ]
+  },
+  "response": {
+    "kind": "calendar#freeBusy",
+    "timeMin": "2030-01-17T03:30:00.000Z",
+    "timeMax": "2030-01-17T11:30:00.000Z",
+    "calendars": {
+      "calendar-1": {
+        "busy": []
+      },
+      "calendar-2": {
+        "busy": []
+      },
+      "calendar-4": {
+        "busy": []
+      },
+      "calendar-5": {
+        "busy": []
+      }
+    }
+  },
+  "before_response": {
+    "kind": "calendar#freeBusy",
+    "timeMin": "2030-01-17T03:30:00.000Z",
+    "timeMax": "2030-01-17T11:30:00.000Z",
+    "calendars": {
+      "calendar-1": {
+        "busy": []
+      },
+      "calendar-2": {
+        "busy": []
+      },
+      "calendar-4": {
+        "busy": []
+      },
+      "calendar-5": {
+        "busy": []
+      },
+      "en.indian#holiday@group.v.calendar.google.com": {
+        "errors": [
+          {
+            "domain": "global",
+            "reason": "notFound"
+          }
+        ],
+        "busy": []
+      }
+    }
+  }
+}

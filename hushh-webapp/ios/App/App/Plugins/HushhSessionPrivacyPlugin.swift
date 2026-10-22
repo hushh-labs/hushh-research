@@ -15,6 +15,17 @@ struct HushhSessionPrivacyState {
     private(set) var generation = 0
     private(set) var cause = "inactive"
     private var inactiveCycleOpen = false
+    private var presentationRetirements = Set<UUID>()
+    var hasPendingPresentationRetirement: Bool { !presentationRetirements.isEmpty }
+    var shouldPublishRetirementCompletion: Bool { shielded }
+    mutating func beginPresentationRetirement() -> UUID {
+        let token = UUID()
+        presentationRetirements.insert(token)
+        return token
+    }
+    mutating func completePresentationRetirement(_ token: UUID) -> Bool {
+        presentationRetirements.remove(token) != nil
+    }
 
     mutating func protectForAppInactive() {
         // UIKit can report more than one inactive/background callback for one
@@ -45,12 +56,19 @@ struct HushhSessionPrivacyState {
         inactiveCycleOpen = false
     }
 
+    mutating func protectForPresentationRecovery() {
+        guard !shielded else { return }
+        protectForAppInactive()
+        markAppActive() // This is an active-app failure, not a fabricated lifecycle event.
+    }
+
     @discardableResult
     mutating func completeSessionValidation(
         generation requestedGeneration: Int,
         appIsActive: Bool
     ) -> Bool {
         guard
+            presentationRetirements.isEmpty,
             appIsActive,
             shielded,
             requestedGeneration > 0,
@@ -85,6 +103,16 @@ struct HushhSessionPrivacyDocumentState {
         observed.contains(documentId) && !retired.contains(documentId)
     }
 }
+
+#if DEBUG
+private final class HushhPrivacyDiagnosticOverlay: UIView {
+    var readStatus: (() -> String?)?
+    override var accessibilityValue: String? {
+        get { readStatus?() }
+        set { /* Diagnostics are a read-only projection, never an unlock port. */ }
+    }
+}
+#endif
 
 /**
  * Native, process-local cover for the WebView while the app returns from the
@@ -178,6 +206,19 @@ final class HushhSessionPrivacyShield: NSObject {
         publishState()
     }
 
+    /// Escalate a stalled native presentation into the existing user-controlled
+    /// recovery surface. Never reload, sign out or replay a feature operation.
+    func protectForPresentationRecovery() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard lifecycleIsActive, UIApplication.shared.applicationState == .active, !state.shielded else { return }
+        state.protectForPresentationRecovery()
+        cancelRecovery()
+        installOverlayIfNeeded() // Cover the actual window before retiring private presenters.
+        recoveryPanel?.isHidden = false
+        publishState()
+        UIAccessibility.post(notification: .screenChanged, argument: recoveryTitle)
+    }
+
     func snapshot() -> Snapshot {
         dispatchPrecondition(condition: .onQueue(.main))
         return Snapshot(shielded: state.shielded, generation: state.generation,
@@ -193,6 +234,26 @@ final class HushhSessionPrivacyShield: NSObject {
     func acceptsDocument(_ documentId: String) -> Bool {
         dispatchPrecondition(condition: .onQueue(.main))
         return documents.accepts(documentId)
+    }
+
+    /// Native presenters above the bridge must be detached before private
+    /// content can be uncovered. This is process-local presentation ownership.
+    func beginPresentationRetirement() -> UUID {
+        dispatchPrecondition(condition: .onQueue(.main))
+        return state.beginPresentationRetirement()
+    }
+
+    func completePresentationRetirement(_ token: UUID) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard state.completePresentationRetirement(token) else { return }
+        // A normal Done/Cancel is not a privacy invalidation. Publishing it
+        // would retire its owning control before the detached popup's choice.
+        if state.shouldPublishRetirementCompletion { publishState() }
+    }
+
+    func reassertCover() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        if state.shielded { installOverlayIfNeeded() }
     }
 
     @discardableResult
@@ -225,7 +286,10 @@ final class HushhSessionPrivacyShield: NSObject {
                 completion: { _ in overlay.removeFromSuperview() }
             )
         }
-        NotificationCenter.default.post(name: Self.presentationDidChange, object: self)
+        // Release is authoritative state for every presentation consumer, not
+        // only the caller awaiting its bridge Promise. Broadcast it through the
+        // same lifecycle owner so a delayed receipt cannot strand JS isolation.
+        publishState()
         return true
     }
 
@@ -282,16 +346,33 @@ final class HushhSessionPrivacyShield: NSObject {
     private func installOverlayIfNeeded() {
         dispatchPrecondition(condition: .onQueue(.main))
         guard let hostView else { return }
+        // The bridge's view does not cover UIKit modals. Use its actual scene
+        // window (never another window/scene), falling back only before attachment.
+        let coverHost: UIView = hostView.window ?? hostView
+        if let overlayView, overlayView.superview !== coverHost {
+            overlayView.removeFromSuperview()
+            self.overlayView = nil
+        }
 
         if let overlayView {
             overlayView.isHidden = false
             overlayView.alpha = 1
-            hostView.bringSubviewToFront(overlayView)
-            hostView.layoutIfNeeded()
+            coverHost.bringSubviewToFront(overlayView)
+            coverHost.layoutIfNeeded()
             return
         }
 
+        #if DEBUG
+        let overlay = HushhPrivacyDiagnosticOverlay(frame: .zero)
+        overlay.readStatus = { [weak self] in
+            guard let self else { return nil }
+            // Read at observation time: a missing foreground callback must not
+            // make an earlier cached application-state value look current.
+            return "NATIVE_PRIVACY_STATE shielded=\(self.state.shielded) lifecycle_active=\(self.lifecycleIsActive) application_active=\(UIApplication.shared.applicationState == .active) recovery_visible=\(self.recoveryPanel?.isHidden == false) recovery_scheduled=\(self.recoveryWorkItem != nil) retirement_pending=\(self.state.hasPendingPresentationRetirement)"
+        }
+        #else
         let overlay = UIView(frame: .zero)
+        #endif
         overlay.translatesAutoresizingMaskIntoConstraints = false
         // Match LaunchScreen.storyboard exactly so the cover reads as the app
         // itself rather than a loading state.
@@ -321,7 +402,7 @@ final class HushhSessionPrivacyShield: NSObject {
 
         let detail = UILabel(frame: .zero)
         detail.translatesAutoresizingMaskIntoConstraints = false
-        detail.text = "Your private information is still hidden. Try again, or restart this session."
+        detail.text = "Your private information is hidden. Try again. Restarting locks the vault and may discard unsent drafts."
         detail.textColor = .secondaryLabel
         detail.font = .preferredFont(forTextStyle: .subheadline)
         detail.adjustsFontForContentSizeCategory = true
@@ -355,14 +436,14 @@ final class HushhSessionPrivacyShield: NSObject {
         recoveryPanel = stack
 
         overlay.addSubview(stack)
-        hostView.addSubview(overlay)
+        coverHost.addSubview(overlay)
         NSLayoutConstraint.activate([
             retry.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
             restart.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
-            overlay.leadingAnchor.constraint(equalTo: hostView.leadingAnchor),
-            overlay.trailingAnchor.constraint(equalTo: hostView.trailingAnchor),
-            overlay.topAnchor.constraint(equalTo: hostView.topAnchor),
-            overlay.bottomAnchor.constraint(equalTo: hostView.bottomAnchor),
+            overlay.leadingAnchor.constraint(equalTo: coverHost.leadingAnchor),
+            overlay.trailingAnchor.constraint(equalTo: coverHost.trailingAnchor),
+            overlay.topAnchor.constraint(equalTo: coverHost.topAnchor),
+            overlay.bottomAnchor.constraint(equalTo: coverHost.bottomAnchor),
             splash.leadingAnchor.constraint(equalTo: overlay.leadingAnchor),
             splash.trailingAnchor.constraint(equalTo: overlay.trailingAnchor),
             splash.topAnchor.constraint(equalTo: overlay.topAnchor),
@@ -374,8 +455,8 @@ final class HushhSessionPrivacyShield: NSObject {
         ])
 
         overlayView = overlay
-        hostView.bringSubviewToFront(overlay)
-        hostView.layoutIfNeeded()
+        coverHost.bringSubviewToFront(overlay)
+        coverHost.layoutIfNeeded()
     }
 }
 

@@ -1,51 +1,151 @@
 "use client";
 
-import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
-import { KycAgentIcon } from "@/components/icons";
+import { SurfaceInset } from "@/components/app-ui/surfaces";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { RefreshCw } from "@/components/icons";
+import { MailActionButton as Button } from "./mail-action-button";
+import type { GmailStatusSummary } from "@/lib/profile/mail-flow";
 
-/**
- * Mail's KYC tab before Gmail is connected. A link that opens the tab directly
- * (`/one/gmail?workspace=kyc`, from a Memory item or a chat offer) lands here
- * instead of on the general Mail status card, so it is never a dead end: the
- * one control starts the same connection the status card would.
- *
- * Same block as Memory's "Open in <app>": the shared compact settings row on a
- * flat Morphy surface with the press ripple, the bare duotone registry glyph,
- * then a note 8 px below on the glyph's column.
- */
-export function MailKycConnectEntry({
-  busy = false,
+/** The same Mail connection card in Overview, KYC, Receipts, and setup. */
+export function MailConnectionStatus({
+  statusSummary,
+  primaryActionLabel,
   onConnect,
+  loadingStatus = false,
+  oauthCompletionPending = false,
+  isConnected = false,
+  busy = false,
+  receiptCount,
+  receiptSyncInProgress = false,
+  isPassiveBackfillState = false,
+  hasStaleBackgroundSync = false,
+  onRetry,
+  connectActionId,
 }: {
-  busy?: boolean;
+  statusSummary: GmailStatusSummary;
+  primaryActionLabel: string;
   onConnect: () => void;
+  loadingStatus?: boolean;
+  oauthCompletionPending?: boolean;
+  isConnected?: boolean;
+  busy?: boolean;
+  receiptCount?: number;
+  receiptSyncInProgress?: boolean;
+  isPassiveBackfillState?: boolean;
+  hasStaleBackgroundSync?: boolean;
+  onRetry?: () => void;
+  connectActionId?: "setup.connect_gmail";
 }) {
-  // One line at phone width, so the row keeps the shared compact geometry. It is
-  // also right for an inbox whose permission was revoked: that reconnects
-  // through the same consent.
-  const title = "Connect Gmail to manage identity";
+  // Loading stays neutral while the authoritative connection status resolves.
+  const statusToneClassName =
+    statusSummary.tone === "success"
+      ? "border-emerald-500/18 bg-emerald-500/[0.05]"
+      : statusSummary.tone === "error"
+        ? "border-rose-500/22 bg-rose-500/[0.06]"
+        : "border-border/60 bg-background/68";
+
   return (
-    <section aria-label="KYC" className="space-y-2" data-testid="mail-kyc-connect">
-      <SettingsGroup separatorInset density="compact" testId="mail-kyc-connect-group">
-        <SettingsRow
-          icon={KycAgentIcon}
-          iconTone="capability"
-          density="compact"
-          title={title}
-          textOverflow="wrap"
-          chevron
-          disabled={busy}
-          onClick={onConnect}
-          testId="mail-kyc-connect-row"
-          voiceControlId="open_gmail_connector"
-          voiceLabel={title}
-          voicePurpose="starts the Gmail connection so the KYC tab can find requests and manage identity details."
-        />
-      </SettingsGroup>
-      <p className="px-4 text-[13px] leading-5 text-muted-foreground" data-testid="mail-kyc-connect-note">
-        KYC requests arrive by email. Once Gmail is connected, One finds them
-        here and drafts each reply from your identity details for you to review.
-      </p>
-    </section>
+    <SurfaceInset
+      data-testid="mail-connection-status"
+      className={`space-y-4 border px-4 py-4 text-sm sm:px-5 sm:py-5 ${statusToneClassName}`}
+    >
+      {loadingStatus ? (
+        <div
+          aria-busy="true"
+          aria-label="Checking your Gmail status"
+          className="space-y-3"
+        >
+          <div className="space-y-1">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+              Gmail
+            </p>
+            <h2 className="text-lg font-semibold tracking-tight text-foreground">
+              {oauthCompletionPending
+                ? "Finishing Gmail connection"
+                : "Checking your Gmail status"}
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              {oauthCompletionPending
+                ? "Your Mail connection is being verified."
+                : "Your Mail connection details will appear here when ready."}
+            </p>
+          </div>
+          <div aria-hidden="true" className="space-y-2 pt-1">
+            <Skeleton className="h-3 w-16" />
+            <Skeleton className="h-4 w-full max-w-md" />
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <h2 className="text-lg font-semibold tracking-tight text-foreground">
+              {statusSummary.title}
+            </h2>
+            {statusSummary.detail &&
+            (!isConnected || !statusSummary.detail.startsWith("Connected to")) ? (
+              <p className="break-words text-sm text-muted-foreground">
+                {statusSummary.detail}
+              </p>
+            ) : null}
+            {statusSummary.helper ? (
+              <p className="break-words text-xs text-muted-foreground">
+                {statusSummary.helper}
+              </p>
+            ) : null}
+          </div>
+          {receiptCount !== undefined ? (
+            <Badge variant="secondary" className="shrink-0">
+              {receiptCount} receipt{receiptCount === 1 ? "" : "s"}
+            </Badge>
+          ) : null}
+        </div>
+      )}
+
+      {receiptSyncInProgress && !isPassiveBackfillState ? (
+        <p className="text-xs text-muted-foreground">
+          Scanning Mail for receipts. Your list will refresh here when it
+          finishes.
+        </p>
+      ) : null}
+      {hasStaleBackgroundSync ? (
+        <p className="text-xs text-amber-600">
+          Mail is still running in the background. This status may lag behind for
+          a bit.
+        </p>
+      ) : null}
+      {!isConnected && !loadingStatus ? (
+        <div className="flex flex-col items-center justify-center gap-2 pt-2 sm:flex-row">
+          <Button
+            onClick={onConnect}
+            disabled={busy}
+            className="h-12 w-full max-w-[244px] justify-center px-8 text-center text-base shadow-lg"
+            data-voice-control-id="open_gmail_connector"
+            data-voice-action-id={
+              connectActionId
+            }
+            data-voice-label={primaryActionLabel}
+            data-voice-purpose="starts Mail connection or reconnection from this receipts page."
+          >
+            {primaryActionLabel}
+          </Button>
+          {onRetry ? (
+            <Button
+              variant="none"
+              effect="fade"
+              onClick={onRetry}
+              disabled={busy || loadingStatus}
+              className="h-12 w-full max-w-[244px] justify-center px-8 text-center text-base"
+              data-voice-control-id="retry_gmail_status"
+              data-voice-label="Retry Mail status"
+              data-voice-purpose="rechecks the Mail connection without opening Google consent."
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Retry Mail status
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </SurfaceInset>
   );
 }

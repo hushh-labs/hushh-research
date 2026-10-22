@@ -1,5 +1,8 @@
 "use client";
 
+import { withDeadline } from "@/lib/utils/with-deadline";
+import mailStyles from "./mail-workspace.module.css";
+
 import {
   useCallback,
   useEffect,
@@ -10,7 +13,7 @@ import {
 } from "react";
 
 import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
-import { Button } from "@/components/ui/button";
+import { MailActionButton as Button } from "./mail-action-button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
@@ -45,6 +48,11 @@ import type {
   ReceiptListItem,
 } from "@/lib/services/gmail-receipts-service";
 import { cn } from "@/lib/utils";
+import { openExternalUrl } from "@/lib/utils/browser-navigation";
+import { getVerifiedReceiptMerchant, resolveVerifiedReceiptMerchantBrand } from "@/lib/mail/receipt-merchant-registry";
+
+const DEFAULT_RECEIPT_LOGO_TEMPLATE = "https://icons.duckduckgo.com/ip3/{domain}.ico";
+const RECEIPT_LOGO_TIMEOUT_MS = 5000;
 
 const CATEGORY_ICONS = {
   Shopping: ShoppingBag,
@@ -98,6 +106,7 @@ export function ReceiptMerchantLogo({
   category?: ReceiptCategory | null;
 }) {
   const [failedLogoUrl, setFailedLogoUrl] = useState<string | null>(null);
+  const [loadedLogoUrl, setLoadedLogoUrl] = useState<string | null>(null);
   const online = useSyncExternalStore(
     subscribeToConnectivity,
     getConnectivitySnapshot,
@@ -105,19 +114,29 @@ export function ReceiptMerchantLogo({
   );
   const configuredTemplate =
     providerUrlTemplate === undefined
-      ? process.env.NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE
+      ? process.env.NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE ?? DEFAULT_RECEIPT_LOGO_TEMPLATE
       : providerUrlTemplate;
   const logoUrl = buildReceiptLogoUrl(configuredTemplate, logoDomain);
-  const showFallback = !online || !logoUrl || failedLogoUrl === logoUrl;
-  const FallbackIcon = category ? CATEGORY_ICONS[category] : Receipt;
+  const requestLogo = online && Boolean(logoUrl) && failedLogoUrl !== logoUrl;
+  const showFallback = !requestLogo || loadedLogoUrl !== logoUrl;
+  // A reviewed brand fallback affects the icon only, never receipt grouping or labels.
+  const fallbackCategory = category && category !== "Other" && category !== "Uncategorized"
+    ? category : (logoDomain ? resolveVerifiedReceiptMerchantBrand({ merchantName, merchantDomain: logoDomain })?.categoryFallback : null) ?? category;
+  const FallbackIcon = fallbackCategory ? CATEGORY_ICONS[fallbackCategory] : Receipt;
+
+  useEffect(() => {
+    if (!requestLogo || loadedLogoUrl === logoUrl) return;
+    const timeout = window.setTimeout(() => setFailedLogoUrl(logoUrl), RECEIPT_LOGO_TIMEOUT_MS);
+    return () => window.clearTimeout(timeout);
+  }, [requestLogo, loadedLogoUrl, logoUrl]);
 
   return (
     <span
       aria-hidden="true"
-      className="inline-flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-[10px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)]"
+      className="relative inline-flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-[10px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)]"
       data-logo-kind={
         showFallback
-          ? category && category !== "Other" && category !== "Uncategorized"
+          ? fallbackCategory && fallbackCategory !== "Other" && fallbackCategory !== "Uncategorized"
             ? "category"
             : "fallback"
           : "brand"
@@ -128,26 +147,56 @@ export function ReceiptMerchantLogo({
     >
       {showFallback ? (
         <FallbackIcon
-          className={`size-[18px] ${CATEGORY_COLORS[category || "Other"]}`}
-          weight="duotone"
+          className={`size-[18px] ${CATEGORY_COLORS[fallbackCategory || "Other"]}`}
+          weight="regular"
         />
-      ) : (
+      ) : null}
+      {requestLogo ? (
         // A repeated merchant uses an identical domain-only URL so the
         // browser/WebView and provider can reuse their normal HTTP caches.
         // eslint-disable-next-line @next/next/no-img-element
         <img
           alt=""
           aria-hidden="true"
-          className="h-full w-full bg-white object-contain p-1.5"
-          crossOrigin="anonymous"
+          className={cn("absolute inset-0 h-full w-full bg-white object-contain p-1.5", showFallback && "opacity-0")}
           decoding="async"
-          loading="lazy"
+          loading="eager"
           onError={() => setFailedLogoUrl(logoUrl)}
+          onLoad={() => setLoadedLogoUrl(logoUrl)}
           referrerPolicy="no-referrer"
-          src={logoUrl}
+          src={logoUrl!}
         />
-      )}
+      ) : null}
     </span>
+  );
+}
+
+function ReceiptMerchantVisit({ homepageUrl }: { homepageUrl: string }) {
+  const [openError, setOpenError] = useState(false);
+  return (
+    <div className="space-y-2">
+      <Button
+        className="min-h-11 w-full"
+        data-voice-control-id="visit_receipt_merchant"
+        type="button"
+        variant="outline"
+        onClick={() => {
+          setOpenError(false);
+          try {
+            openExternalUrl(homepageUrl);
+          } catch {
+            setOpenError(true);
+          }
+        }}
+      >
+        Visit merchant
+      </Button>
+      {openError ? (
+        <p className="text-xs text-muted-foreground" role="status">
+          We couldn’t open the merchant website. Please try again.
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -345,7 +394,7 @@ function ReceiptListRow({
           />
           <span className="min-w-0 flex-1">
             <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-              <span className="min-w-0 truncate text-sm font-semibold text-foreground">
+              <span className="min-w-0 truncate text-sm font-[550] text-foreground">
                 {row.merchantName}
               </span>
               <ReceiptStatusBadge row={row} />
@@ -383,11 +432,15 @@ function receiptTimelineLabel(event: ReceiptTimelineEvent): string {
 export function GmailRecentReceipts({
   accountKey,
   receipts,
+  savedRows,
+  sourceKeyAliases,
   loadReceiptDetail,
   onReceiptDetailLoaded,
 }: {
   accountKey: string | null | undefined;
   receipts: readonly ReceiptListItem[];
+  savedRows?: readonly RecentReceiptRow[];
+  sourceKeyAliases?: Readonly<Record<string, string>>;
   loadReceiptDetail: (
     sourceId: string,
     signal: AbortSignal,
@@ -400,6 +453,7 @@ export function GmailRecentReceipts({
       truncated?: boolean;
     } | null;
     source_evidence?: GmailReceiptSourceEvidence[];
+    live_unavailable?: string;
   }>;
   onReceiptDetailLoaded?: (item: ReceiptListItem) => void;
 }) {
@@ -420,17 +474,18 @@ export function GmailRecentReceipts({
   >([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [liveUnavailable, setLiveUnavailable] = useState<string | null>(null);
   const [detailAttempt, setDetailAttempt] = useState(0);
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<ReceiptFilter>("all");
   const [displayPage, setDisplayPage] = useState(1);
   const rows = useMemo(
-    () => buildRecentReceiptRows(receipts, accountKey),
-    [accountKey, receipts],
+    () => savedRows ?? buildRecentReceiptRows(receipts, accountKey),
+    [accountKey, receipts, savedRows],
   );
   const selectedRow = useMemo(
-    () => rows.find((row) => row.id === selectedRowId || Boolean(selectedReceiptKey && row.sourceReceiptKeys.includes(selectedReceiptKey))) || null,
-    [rows, selectedRowId, selectedReceiptKey],
+    () => rows.find((row) => row.id === selectedRowId || Boolean(selectedReceiptKey && row.sourceReceiptKeys.includes(sourceKeyAliases?.[selectedReceiptKey] ?? selectedReceiptKey))) || null,
+    [rows, selectedRowId, selectedReceiptKey, sourceKeyAliases],
   );
   const filteredRows = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -459,7 +514,12 @@ export function GmailRecentReceipts({
       ) || null,
     [receipts, selectedReceiptKey],
   );
-  const selectedReceiptAvailable = Boolean(selectedListReceipt);
+  const selectedReceiptAvailable = Boolean(selectedListReceipt || (savedRows && selectedRow?.sourceReceiptKeys.includes(selectedReceiptKey ?? "")));
+
+  useEffect(() => {
+    if (selectedRow && selectedReceiptKey && !selectedRow.sourceReceiptKeys.includes(selectedReceiptKey))
+      setSelectedReceiptKey(sourceKeyAliases?.[selectedReceiptKey] && selectedRow.sourceReceiptKeys.includes(sourceKeyAliases[selectedReceiptKey]!) ? sourceKeyAliases[selectedReceiptKey]! : selectedRow.primaryReceiptKey);
+  }, [selectedRow, selectedReceiptKey, sourceKeyAliases]);
 
   useEffect(() => {
     if (displayPage > pageCount) setDisplayPage(pageCount);
@@ -472,6 +532,7 @@ export function GmailRecentReceipts({
       setSourceEvidence([]);
       setDetailLoading(false);
       setDetailError(null);
+      setLiveUnavailable(null);
       return;
     }
 
@@ -480,11 +541,13 @@ export function GmailRecentReceipts({
     setEmailExcerpt(null);
     setSourceEvidence([]);
     setDetailError(null);
+    setLiveUnavailable(null);
     setDetailLoading(true);
-    void loadReceiptDetail(selectedReceiptKey, controller.signal)
+    void withDeadline(loadReceiptDetail(selectedReceiptKey, controller.signal), Date.now() + 30_000)
       .then((detail) => {
         if (controller.signal.aborted) return;
         setReceiptDetail(detail.item);
+        setLiveUnavailable(detail.live_unavailable ?? null);
         onReceiptDetailLoaded?.(detail.item);
         const excerpt = detail.email_excerpt;
         setSourceEvidence(detail.source_evidence || []);
@@ -543,6 +606,11 @@ export function GmailRecentReceipts({
       )
     : null;
   const detailIdentity = receiptDetail ? resolveReceiptMerchant(receiptDetail) : null;
+  // A saved detail has no live sender/domain evidence. Keep its reviewed key
+  // authoritative instead of promoting a formerly rejected label-only match.
+  const detailBrand = liveUnavailable && savedRows
+    ? getVerifiedReceiptMerchant(selectedRow?.brandKey)
+    : detailIdentity;
   const sender = receiptDetail
     ? [receiptDetail.from_name, receiptDetail.from_email]
         .map((value) => String(value || "").trim())
@@ -590,7 +658,7 @@ export function GmailRecentReceipts({
                 key={group.key}
               >
                 <h3
-                  className="px-1 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"
+                  className="receipt-month-heading app-metadata-label px-1 text-xs font-normal uppercase tracking-[0.12em] text-muted-foreground"
                   id={headingId}
                 >
                   {group.label}
@@ -654,7 +722,8 @@ export function GmailRecentReceipts({
       ) : null}
 
       <AdaptiveDetailSurface
-        open={Boolean(selectedRow && selectedListReceipt)}
+        surfaceClassName={`${mailStyles.typography} ${mailStyles.portal}`}
+        open={Boolean(selectedRow && selectedReceiptAvailable)}
         onOpenChange={(open) => {
           if (!open) closeDetail();
         }}
@@ -662,7 +731,7 @@ export function GmailRecentReceipts({
           selectedRow ? (
             <ReceiptMerchantLogo
               merchantName={detailIdentity?.displayName || selectedRow.merchantName}
-              logoDomain={detailIdentity ? detailIdentity.logoDomain : selectedRow.logoDomain}
+              logoDomain={detailIdentity ? detailBrand?.logoDomain ?? null : selectedRow.logoDomain}
               category={detailIdentity?.category || selectedRow.category}
             />
           ) : null
@@ -681,6 +750,7 @@ export function GmailRecentReceipts({
         desktopMaxWidthClassName="sm:!max-w-[520px]"
         bodyClassName="py-3"
       >
+        {liveUnavailable ? <p className="text-sm text-muted-foreground" role="status">{liveUnavailable}</p> : null}
         {detailLoading ? (
           <p className="text-sm text-muted-foreground" role="status">
             Loading receipt details…
@@ -690,7 +760,7 @@ export function GmailRecentReceipts({
           <div className="space-y-3 text-sm">
             <p className="text-destructive">{detailError}</p>
             <button
-              className="font-medium text-primary"
+              className="font-normal text-primary"
               onClick={() => setDetailAttempt((attempt) => attempt + 1)}
               type="button"
             >
@@ -766,7 +836,7 @@ export function GmailRecentReceipts({
 
             {selectedRow && selectedRow.eventTimeline.length > 1 ? (
               <div className="space-y-2 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] px-4 py-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                <p className="app-metadata-label text-xs font-normal uppercase tracking-[0.12em] text-muted-foreground">
                   Activity
                 </p>
                 <ol className="divide-y divide-border/60">
@@ -776,7 +846,7 @@ export function GmailRecentReceipts({
                       key={event.sourceReceiptKey}
                     >
                       <div className="flex items-baseline justify-between gap-3 text-sm">
-                        <span className="font-medium text-foreground">
+                        <span className="font-normal text-foreground">
                           {receiptTimelineLabel(event)}
                         </span>
                         <span className="shrink-0 text-xs text-muted-foreground">
@@ -796,7 +866,7 @@ export function GmailRecentReceipts({
 
             {emailExcerpt ? (
               <div className="space-y-1.5 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] px-4 py-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                <p className="app-metadata-label text-xs font-normal uppercase tracking-[0.12em] text-muted-foreground">
                   {emailExcerpt.label}
                 </p>
                 <p className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
@@ -807,7 +877,7 @@ export function GmailRecentReceipts({
 
             {sourceEvidence.length ? (
               <div className="space-y-2 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] px-4 py-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                <p className="app-metadata-label text-xs font-normal uppercase tracking-[0.12em] text-muted-foreground">
                   Source evidence
                 </p>
                 <ul className="space-y-2">
@@ -816,7 +886,7 @@ export function GmailRecentReceipts({
                       className="text-sm leading-5 text-foreground"
                       key={`${evidence.kind}:${index}`}
                     >
-                      <span className="font-medium capitalize">
+                      <span className="font-normal capitalize">
                         {evidence.kind.replace("_", " ")}
                       </span>
                       <span className="text-muted-foreground"> · </span>
@@ -825,6 +895,9 @@ export function GmailRecentReceipts({
                   ))}
                 </ul>
               </div>
+            ) : null}
+            {detailBrand?.homepageUrl ? (
+              <ReceiptMerchantVisit key={detailBrand.homepageUrl} homepageUrl={detailBrand.homepageUrl} />
             ) : null}
           </div>
         ) : null}
@@ -846,7 +919,7 @@ function ReceiptDetailRow({
   return (
     <div className="grid grid-cols-[minmax(0,0.36fr)_minmax(0,0.64fr)] gap-3 py-3 text-sm">
       <dt className="text-muted-foreground">{label}</dt>
-      <dd className="break-words text-right font-medium text-foreground">
+      <dd className="break-words text-right font-normal text-foreground">
         {normalizedValue}
       </dd>
     </div>

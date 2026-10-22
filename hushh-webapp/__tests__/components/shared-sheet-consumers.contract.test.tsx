@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 
 import { fireEvent, render, screen } from "@testing-library/react";
@@ -41,29 +41,44 @@ function sourceOf(relativePath: string): string {
  * width contract below re-checked at the same time.
  */
 const SHEET_CONSUMERS = [
-  "components/ui/sidebar.tsx",
-  "components/one-location/redesign/circles/circle-grow-actions.tsx",
-  "components/one-location/redesign/circles/named-circle-flows.tsx",
-  "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
-  "components/one-location/onboarding/save-location-modal.tsx",
-  "components/kai/views/analysis-history-dashboard.tsx",
+  "components/agent/agent-get-app-prompt.tsx",
+  "components/agent/agent-text-attachment-editor.tsx",
+  "components/agent/agent-text-attachment-viewer.tsx",
+  "components/agent/drive-background-search.tsx",
+  "components/agent/one-agent-profile-sheet.tsx",
+  "components/agent/puppy-resource-monitor.tsx",
+  "components/app-ui/action-menu.tsx",
+  "components/app-ui/profile-pane.tsx",
+  "components/app-ui/settings-ui.tsx",
+  "components/connect/circles/circle-photo-editor.tsx",
+  "components/connections/contact-invitation-sheet.tsx",
   "components/kai/onboarding/KaiPreferencesSheet.tsx",
   "components/kai/share/portfolio-share-sheet.tsx",
+  "components/kai/views/analysis-history-dashboard.tsx",
+  "components/one-location/contact-sync-results-sheet.tsx",
+  "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
+  "components/one-location/onboarding/save-location-modal.tsx",
+  "components/one-location/redesign/circles/circle-grow-actions.tsx",
+  "components/one-location/redesign/circles/named-circle-flows.tsx",
   "components/profile/profile-avatar-editor.tsx",
-  "components/app-ui/settings-ui.tsx",
-  "components/agent/puppy-resource-monitor.tsx",
-  "components/agent/agent-connections-drawer.tsx",
+  "components/todos/todo-list-page.tsx",
+  "components/ui/sidebar.tsx",
+  "lib/morphy-ux/ui/task-surfaces.tsx",
 ] as const;
 
 describe("the shared bottom sheet stays shared", () => {
   it("still has exactly the consumers this change was checked against", () => {
-    for (const consumer of SHEET_CONSUMERS) {
-      expect(sourceOf(consumer)).toContain('@/components/ui/sheet"');
-    }
+    const discovered = ["app", "components", "lib"].flatMap(root =>
+      readdirSync(path.join(REPO_ROOT, root), { recursive: true, encoding: "utf8" })
+        .filter(file => file.endsWith(".tsx") && !file.includes("__tests__/") && !file.endsWith(".test.tsx"))
+        .map(file => `${root}/${file}`)
+        .filter(file => /from\s+["']@\/components\/ui\/sheet["']/.test(sourceOf(file))),
+    ).sort();
+    expect(discovered).toEqual([...SHEET_CONSUMERS]);
   });
 
   it("leaves body-origin drag dismissal on by default", () => {
-    // Eight of the ten consumers ARE their own scroll box, so the body drag is
+    // Legacy consumers can be their own scroll box, so the body drag is
     // the gesture they rely on. Only a sheet that owns an inner scroller opts
     // out, and it does so explicitly.
     const primitive = sourceOf("components/ui/sheet.tsx");
@@ -82,13 +97,17 @@ describe("the shared bottom sheet stays shared", () => {
     // gesture off AND takes the grab handle with it, leaving a phone bottom
     // sheet with no visible affordance to put it away.
     expect(optOuts).toEqual([
+      "components/agent/agent-text-attachment-editor.tsx",
+      "components/agent/agent-text-attachment-viewer.tsx",
+      "components/agent/drive-background-search.tsx",
+      "components/app-ui/profile-pane.tsx",
+      "components/app-ui/settings-ui.tsx",
       "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
       "components/one-location/onboarding/save-location-modal.tsx",
-      "components/agent/agent-connections-drawer.tsx",
     ]);
   });
 
-  it("caps no bottom sheet below phone width without an sm: prefix", () => {
+  it("rejects new or narrower unprefixed phone-width caps", () => {
     // A bottom sheet spans the bottom of the screen. A cap NARROWER than the
     // widest phone, applied at every width, paints a floating card with dead
     // strips down both sides — the exact defect this change removed from the
@@ -108,7 +127,11 @@ describe("the shared bottom sheet stays shared", () => {
         )) {
           if (match[1]) continue;
           const px = maxWidthPx(match[2]);
-          if (px !== null && px < 640) {
+          // The complete inventory exposes one pre-existing Todo cap. Keep
+          // that measured legacy baseline while blocking narrower/new caps;
+          // its phone/desktop transport is outside this task migration.
+          const legacyMinimum = consumer === "components/todos/todo-list-page.tsx" ? 576 : 640;
+          if (px !== null && px < legacyMinimum) {
             offenders.push(`${consumer} → ${match[0]} (${px}px)`);
           }
         }
@@ -367,6 +390,120 @@ describe("useSheetDragHandle", () => {
     fireEvent.pointerUp(rail, { clientY: 130, pointerId: 1, timeStamp: 5_000 });
 
     expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("cancellation and close/reopen cannot commit an older drag settlement", () => {
+    const close = vi.fn();
+    function Header() {
+      const drag = useSheetDragHandle();
+      return <div data-testid="race-grabber" {...drag}>rail</div>;
+    }
+    const content = (open: boolean) => <Sheet open={open} onOpenChange={close}>
+      <SheetContent side="bottom" showDragHandle={false} contentDragDismiss={false} aria-label="Race">
+        <Header />
+      </SheetContent>
+    </Sheet>;
+    vi.useFakeTimers();
+    const view = render(content(true));
+    const drag = (release: "pointerCancel" | "pointerUp") => {
+      const rail = screen.getByTestId("race-grabber");
+      fireEvent.pointerDown(rail, { clientY: 100, pointerId: 1, button: 0 });
+      fireEvent.pointerMove(rail, { clientY: 260, pointerId: 1 });
+      fireEvent[release](rail, { clientY: 260, pointerId: 1 });
+    };
+    try {
+      drag("pointerCancel");
+      vi.advanceTimersByTime(400);
+      expect(close).not.toHaveBeenCalled();
+      drag("pointerUp");
+      view.rerender(content(false));
+      view.rerender(content(true));
+      vi.advanceTimersByTime(400);
+      expect(close).not.toHaveBeenCalled();
+      drag("pointerUp"); // Negative control: an actual release still closes once.
+      vi.advanceTimersByTime(400);
+      expect(close).toHaveBeenCalledExactlyOnceWith(false);
+    } finally { view.unmount(); vi.useRealTimers(); }
+  });
+
+  it("drags only the sheet a gesture starts in, never the sheet beneath it", () => {
+    // A price sheet opened from inside the Consent Center's request sheet is a
+    // portal out of that sheet's DOM, but React still bubbles its pointer
+    // events up through the outer sheet's handlers. Without an ownership
+    // check, swiping the inner sheet down dismissed the request under it too.
+    const outerOpenChange = vi.fn();
+    const innerOpenChange = vi.fn();
+    render(
+      <Sheet open onOpenChange={outerOpenChange}>
+        <SheetContent side="bottom" aria-label="Request">
+          <p>Request</p>
+          <Sheet open onOpenChange={innerOpenChange}>
+            <SheetContent side="bottom" aria-label="Price">
+              <p data-testid="inner-body">Price</p>
+            </SheetContent>
+          </Sheet>
+        </SheetContent>
+      </Sheet>,
+    );
+    const [outer, inner] = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-slot="sheet-content"]'),
+    );
+    const innerHandle = inner!.querySelector<HTMLElement>(
+      '[data-slot="sheet-drag-handle"]',
+    )!;
+
+    vi.useFakeTimers();
+    try {
+      for (const start of [screen.getByTestId("inner-body"), innerHandle]) {
+        fireEvent.pointerDown(start, { clientY: 100, pointerId: 1 });
+        fireEvent.pointerMove(start, { clientY: 140, pointerId: 1 });
+        fireEvent.pointerMove(start, { clientY: 300, pointerId: 1 });
+        expect(outer!.style.transform).toBe("");
+        fireEvent.pointerUp(start, { clientY: 300, pointerId: 1 });
+        vi.advanceTimersByTime(1_000);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(innerOpenChange).toHaveBeenCalledWith(false);
+    expect(outerOpenChange).not.toHaveBeenCalled();
+    expect(outer!.style.transform).toBe("");
+  });
+
+  it("brings a sheet back when its owner refuses to close it", () => {
+    // A decision in flight refuses dismissal. The swipe has already moved the
+    // surface off-screen, and the controlled `open` never changes, so without
+    // settling back the sheet stays open and invisible behind its scrim.
+    const onOpenChange = vi.fn();
+    render(
+      <Sheet open onOpenChange={onOpenChange}>
+        <SheetContent side="bottom" aria-label="Busy">
+          <p data-testid="busy-body">Allowing…</p>
+        </SheetContent>
+      </Sheet>,
+    );
+    const surface = document.querySelector<HTMLElement>(
+      '[data-slot="sheet-content"]',
+    )!;
+    const body = screen.getByTestId("busy-body");
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.pointerDown(body, { clientY: 100, pointerId: 1 });
+      fireEvent.pointerMove(body, { clientY: 140, pointerId: 1 });
+      fireEvent.pointerMove(body, { clientY: 300, pointerId: 1 });
+      fireEvent.pointerUp(body, { clientY: 300, pointerId: 1 });
+      vi.advanceTimersByTime(150);
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+      expect(surface.style.transform).toBe("translate3d(0, 100%, 0)");
+      vi.advanceTimersByTime(1_000);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(surface).toHaveAttribute("data-state", "open");
+    expect(surface.style.transform).toBe("");
   });
 
   it("closes on the handle's keyboard affordance, as before", () => {

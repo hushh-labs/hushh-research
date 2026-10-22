@@ -64,6 +64,7 @@ Use this section for production-grade rules and contracts that govern:
 9. [Agent Delegation Boundary](./agent-delegation-boundary.md)
 10. [Hermes Trusted-Device Vault Enrollment](./hermes-trusted-device-vault-enrollment.md)
 11. [Gmail Google Verification Readiness](./gmail-google-verification-readiness.md)
+12. [Independent Email Authentication](./independent-email-auth.md)
 
 ## Canonical-Only Policy
 

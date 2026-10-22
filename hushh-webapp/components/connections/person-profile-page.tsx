@@ -11,7 +11,7 @@ import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
-import { CheckCircle2, LockKeyhole, MoreHorizontal, FileText, Share2, Settings, ChevronRight, MapPin, CreditCard, UserRound, ShoppingBag, FolderSimpleIcon, MessageCircle } from "@/components/icons";
+import { CheckCircle2, LockKeyhole, MoreHorizontal, FileText, Share2, Settings, ChevronRight, MapPin, CreditCard, UserRound, ShoppingBag, FolderSimpleIcon, MessageCircle, ShieldCheck, Mail, Phone } from "@/components/icons";
 import { toast } from "sonner";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 
@@ -20,6 +20,7 @@ import styles from "./person-profile-page.module.css";
 import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -30,6 +31,11 @@ import {
 } from "@/components/ui/dialog";
 import { InformationRequestReviewFields } from "@/components/consent/information-request-review-fields";
 import { DocumentRequestButton } from "@/components/consent/document-request-button";
+import { DrivePacketCatalog } from "@/components/consent/drive-packet-catalog";
+import { usePersonConnectorFeatures } from "@/lib/connections/use-person-connector-features";
+import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
+import { RequestScopeButton } from "@/components/consent/request-scope-button";
+import { RequestCardsButton } from "@/components/wallet/request-cards-button";
 import { usePersonInformationRequest } from "@/lib/consent/use-person-information-request";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { FCM_MESSAGE_EVENT } from "@/lib/notifications";
@@ -37,7 +43,8 @@ import {
   SectionCard,
   StatusPill,
 } from "@/lib/morphy-ux/ui/surface-primitives";
-import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
+import { PersonProfileHero, PersonProfileTaskContent, PersonProfileEmptyState } from "./person-profile-hero";
+import { HelperText, RowLabel } from "@/components/app-ui/typography";
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
 import { SharedWithYouCard } from "@/components/agent/consent/shared-with-you-card";
 import { humanSharedLabel, type SharedWithMeCardItem } from "@/lib/agent/agui-structured-experiences";
@@ -50,12 +57,12 @@ import {
   mergePersonScopePage,
   type PublicPersonProfile,
   type ViewerPersonProfile,
+  type PersonRelationship,
   type InformationRequestBundle,
   type PersonInformationRequestHistory,
   type PersonRequestHistoryPage,
 } from "@/lib/services/person-profile-service";
 import {
-  buildDirectMessageRoute,
   resolvePersonRefFromProfilePathname,
   ROUTES,
 } from "@/lib/navigation/routes";
@@ -65,9 +72,10 @@ import {
 } from "@/lib/agent/action-directive-summary";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { oneLocationErrorMessage } from "@/lib/one-location/error-message";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
-import { VOICE_CONFIRM_DATA_KEY } from "@/lib/voice/voice-action-card";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
+import { VOICE_CONFIRM_DATA_KEY } from "@/lib/kai/actions/voice-action-card";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
 
 type Props = { personRef: string; initialProfile: PublicPersonProfile | null };
 
@@ -120,11 +128,22 @@ function historyTitle(
   return `${itemCount} ${itemCount === 1 ? "item" : "items"}`;
 }
 
-export function PersonProfilePage({ personRef, initialProfile }: Props) {
+function actionCardContent(label: string, Icon: typeof FileText, tone: "blue" | "pink" | "lilac" | "amber") {
+  return <PersonProfileTaskContent label={label} Icon={Icon} tone={tone} />;
+}
+
+export function PersonProfilePage(props: Props) {
+  const { user } = useAuth();
+  return <PersonProfileSession key={`${user?.uid ?? "signed-out"}:${getAuthSessionGeneration()}`} {...props} />;
+}
+
+function PersonProfileSession({ personRef, initialProfile }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, loading: authLoading } = useAuth();
   const { vaultOwnerToken, isVaultUnlocked } = useVault();
+  const connectorFeatures = usePersonConnectorFeatures(user?.uid, vaultOwnerToken, isVaultUnlocked);
+  const packetCatalogAvailable = connectorFeatures.availability.status === "ready" && connectorFeatures.availability.agentPackages;
   const resolvedPersonRef = useMemo(() => {
     const isNativeIOS =
       Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios";
@@ -134,10 +153,12 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   const [profileState, setProfileState] = useState<{
     personRef: string;
     profile: PublicPersonProfile | null;
-  }>({ personRef: resolvedPersonRef, profile: initialProfile });
+  }>(() => ({ personRef: resolvedPersonRef, profile: initialProfile ?? PersonProfileService.peekPublic?.(resolvedPersonRef) ?? null }));
   const profile =
-    profileState.personRef === resolvedPersonRef ? profileState.profile : null;
+    profileState.personRef === resolvedPersonRef ? profileState.profile
+      : initialProfile?.personRef === resolvedPersonRef ? initialProfile : null;
   const [publicProfileUnavailable, setPublicProfileUnavailable] = useState(false);
+  const [publicReloadToken, setPublicReloadToken] = useState(0);
   const [viewerLoadError, setViewerLoadError] = useState<{
     personRef: string; viewerUid: string;
   } | null>(null);
@@ -152,16 +173,29 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     viewerProfileState.personRef === resolvedPersonRef && viewerProfileState.viewerUid === user?.uid
       ? viewerProfileState.profile
       : null;
+  const [displayState, setDisplayState] = useState<typeof viewerProfileState>(viewerProfileState);
+  const displayViewerProfile = viewerProfile ?? (displayState.personRef === resolvedPersonRef && displayState.viewerUid === user?.uid ? displayState.profile : null);
+  const displayRef = useRef(displayViewerProfile);
+  displayRef.current = displayViewerProfile;
+  const [relationshipState, setRelationshipState] = useState<{ personRef: string; viewerUid: string; value: PersonRelationship } | null>(null);
+  const relationshipReadGeneration = useRef(0);
+  // The complete response computes relationship last, after its slower reads.
+  // Use the lightweight projection while waiting, then converge on that full
+  // snapshot so independent response timing cannot split badge and contacts.
+  const relationship = viewerProfile?.relationship ?? (relationshipState?.personRef === resolvedPersonRef && relationshipState.viewerUid === user?.uid
+    ? relationshipState.value : undefined);
+  const canRequest = relationship?.status === "connected";
+  const showRequestActions = !relationship || canRequest;
   const recentHistoryGroups = useMemo(() => {
     const groups = new Map<string, { first: PersonInformationRequestHistory; items: PersonInformationRequestHistory[] }>();
-    for (const item of viewerProfile?.requestHistory ?? []) {
+    for (const item of displayViewerProfile?.requestHistory ?? []) {
       const key = item.bundleId || item.requestId;
       const group = groups.get(key);
       if (group) group.items.push(item);
       else groups.set(key, { first: item, items: [item] });
     }
     return [...groups.entries()].map(([bundleId, group]) => ({ bundleId, ...group }));
-  }, [viewerProfile?.requestHistory]);
+  }, [displayViewerProfile?.requestHistory]);
   const [historyPage, setHistoryPage] = useState(1);
   const [historyCursors, setHistoryCursors] = useState<Array<string | null>>([null]);
   const [historyState, setHistoryState] = useState<{
@@ -209,10 +243,13 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   const sharedIntent = searchParams?.get("section") === "shared";
   const availableSectionRef = useRef<HTMLElement | null>(null);
   const sharedSectionRef = useRef<HTMLElement | null>(null);
+  const packetsSectionRef = useRef<HTMLDivElement | null>(null);
+  const requestScopeReturnFocusRef = useRef<HTMLButtonElement | null>(null);
   const [showUnlockDialog, setShowUnlockDialog] = useState(false);
   const request = usePersonInformationRequest(resolvedPersonRef);
   const requesting = request.pending;
   const requestGeneration = useRef(0);
+  const viewerReadGeneration = useRef(0);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState(false);
   const catalogInFlight = useRef(false);
@@ -229,7 +266,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   const [cancellingBundleId, setCancellingBundleId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (profile) return;
+    if (initialProfile?.personRef === resolvedPersonRef && publicReloadToken === 0) return;
     let active = true;
     setPublicProfileUnavailable(false);
     void PersonProfileService.getPublic(resolvedPersonRef)
@@ -244,9 +281,19 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     return () => {
       active = false;
     };
-  }, [resolvedPersonRef, profile]);
+  }, [resolvedPersonRef, publicReloadToken, initialProfile]);
 
   const [viewerReloadToken, setViewerReloadToken] = useState(0);
+  useEffect(() => {
+    if (authLoading || !user) return;
+    let current = true;
+    const generation = ++relationshipReadGeneration.current;
+    setRelationshipState(null);
+    void user.getIdToken().then((token) => PersonProfileService.getRelationship(resolvedPersonRef, token))
+      .then((value) => { if (current && generation === relationshipReadGeneration.current) setRelationshipState({ personRef: resolvedPersonRef, viewerUid: user.uid, value }); })
+      .catch(() => { /* The independent full response may still establish eligibility. */ });
+    return () => { current = false; };
+  }, [authLoading, resolvedPersonRef, user, viewerReloadToken]);
   useEffect(() => {
     if (authLoading || !user) return;
     let active = true;
@@ -268,31 +315,41 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   useEffect(() => {
     if (authLoading || !user) return;
     requestGeneration.current += 1;
+    const generation = ++viewerReadGeneration.current;
     catalogInFlight.current = false;
     setCatalogLoading(false);
     setCatalogError(false);
-    setSelectedScopeRefs(new Set());
-    setReviewOpen(false);
     let active = true;
     setViewerLoadError(null);
     void user
       .getIdToken()
       .then((token) => PersonProfileService.getViewer(resolvedPersonRef, token, { page: 1 }))
       .then((value) => {
-        if (active) {
+        if (active && generation === viewerReadGeneration.current) {
+          const previous = displayRef.current;
+          const sameCatalog = previous?.personRef === value.personRef && previous.scopeCatalog && value.scopeCatalog
+            && previous.scopeCatalog.catalogRevision === value.scopeCatalog.catalogRevision && !value.scopeCatalog.paginationReset;
+          const retainedTail = sameCatalog ? previous.requestableScopes : [];
+          const scopes = new Map(retainedTail.map((scope) => [scope.scopeRef, scope]));
+          value.requestableScopes.forEach((scope) => scopes.set(scope.scopeRef, scope));
+          const next = { ...value, requestableScopes: [...scopes.values()],
+            ...(sameCatalog && previous.scopeCatalog!.page > value.scopeCatalog!.page
+              ? { scopeCatalog: { ...value.scopeCatalog!, page: previous.scopeCatalog!.page, nextPage: previous.scopeCatalog!.nextPage, hasMore: previous.scopeCatalog!.hasMore } } : {}) };
           setViewerProfileState({
             personRef: resolvedPersonRef,
             viewerUid: user.uid,
-            profile: value,
+            profile: next,
           });
+          setDisplayState({ personRef: resolvedPersonRef, viewerUid: user.uid, profile: next });
+          const availableRefs = new Set(next.requestableScopes.map((scope) => scope.scopeRef));
+          setSelectedScopeRefs((selected) => new Set([...selected].filter((ref) => availableRefs.has(ref))));
         }
       })
       .catch(() => {
-        if (active) {
+        if (active && generation === viewerReadGeneration.current) {
           setViewerLoadError({ personRef: resolvedPersonRef, viewerUid: user.uid });
           // Do not present an older eligibility catalog as current authority.
           setViewerProfileState({ personRef: resolvedPersonRef, viewerUid: user.uid, profile: null });
-          setReviewOpen(false);
         }
       });
     return () => {
@@ -308,9 +365,15 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     (tool: string | null, result: ToolResultPublic | null) => {
       if (!isPeopleGraphChange(tool, result)) return;
       if (!voiceRefreshDedupe.current.shouldRefresh(result)) return;
+      requestGeneration.current += 1;
+      viewerReadGeneration.current += 1;
+      relationshipReadGeneration.current += 1;
+      setRelationshipState(null);
+      setViewerProfileState((current) => current.personRef === resolvedPersonRef && current.viewerUid === user?.uid
+        ? { ...current, profile: null } : current);
       setViewerReloadToken((token) => token + 1);
     },
-    [],
+    [resolvedPersonRef, user?.uid],
   );
   useVoiceToolEffects({
     onToolResult: (tool, result) => reloadAfterVoice(tool, result),
@@ -335,10 +398,16 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     if (!user) return;
     const refresh = () => {
       requestGeneration.current += 1;
+      viewerReadGeneration.current += 1;
+      relationshipReadGeneration.current += 1;
+      setRelationshipState(null);
       setViewerProfileState((current) => current.personRef === resolvedPersonRef && current.viewerUid === user.uid
         ? { ...current, profile: null } : current);
       setViewerReloadToken((value) => value + 1);
     };
+    const unsubscribe = subscribeToConnectionGraphChanges(({ userId }) => {
+      if (userId === user.uid) refresh();
+    });
     const onPush = (event: Event) => {
       const detail = (event as CustomEvent<{ data?: { type?: string } }>).detail;
       if (["consent_resolved", "shared_information_updated"].includes(String(detail?.data?.type || ""))) refresh();
@@ -346,6 +415,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     window.addEventListener(CONSENT_STATE_CHANGED_EVENT, refresh);
     window.addEventListener(FCM_MESSAGE_EVENT, onPush);
     return () => {
+      unsubscribe();
       window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, refresh);
       window.removeEventListener(FCM_MESSAGE_EVENT, onPush);
     };
@@ -370,7 +440,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     }
   }, [sharedIntent, viewerProfile, isVaultUnlocked]);
 
-  const allScopes = useMemo(() => viewerProfile?.requestableScopes || [], [viewerProfile]);
+  const allScopes = useMemo(() => displayViewerProfile?.requestableScopes || [], [displayViewerProfile]);
 
   async function loadMoreScopes() {
     const catalog = viewerProfile?.scopeCatalog;
@@ -392,6 +462,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
         setReviewOpen(false);
       }
       setViewerProfileState({ personRef: resolvedPersonRef, viewerUid: user.uid, profile: merged });
+      setDisplayState({ personRef: resolvedPersonRef, viewerUid: user.uid, profile: merged });
     } catch {
       if (generation === requestGeneration.current) setCatalogError(true);
     } finally {
@@ -454,6 +525,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   };
 
   const submitRequest = async () => {
+    if (!viewerProfile) return;
     const sent = await request.submit({ scopeRefs: selectedScopes.map(scope => scope.scopeRef), purpose, durationHours });
     if (sent) {
       setReviewOpen(false);
@@ -507,17 +579,28 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 resolvedPersonRef,
                 idToken,
               );
+      requestGeneration.current += 1;
+      viewerReadGeneration.current += 1;
+      relationshipReadGeneration.current += 1;
+      catalogInFlight.current = false;
+      setCatalogLoading(false);
+      setCatalogError(false);
       if (action === "remove") {
         CacheSyncService.onConnectionGraphMutated(user.uid);
       } else {
         CacheSyncService.onConnectionCapabilityMutated(user.uid);
       }
+      setRelationshipState({ personRef: resolvedPersonRef, viewerUid: user.uid, value: relationship });
       setViewerProfileState((current) =>
         current.personRef === resolvedPersonRef && current.viewerUid === user.uid && current.profile
           ? {
               personRef: resolvedPersonRef,
               viewerUid: user.uid,
-              profile: { ...current.profile, relationship },
+              profile: {
+                ...current.profile,
+                relationship,
+                ...(relationship.status !== "connected" ? { contactEmail: null, contactPhoneNumber: null } : {}),
+              },
             }
           : current,
       );
@@ -625,6 +708,13 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     router.push(ROUTES.CONSENTS);
     return { status: "started", summary: "Opening the Consent Center." };
   }, { enabled: Boolean(viewerProfile) });
+  useLocalOnboardingActionHandler("people.profile.browse_packets", async () => {
+    if (!packetCatalogAvailable || !packetsSectionRef.current || viewerProfile?.relationship.status !== "connected" || !isVaultUnlocked) {
+      return { status: "blocked", summary: "Connect with this person and unlock to view available packets." };
+    }
+    packetsSectionRef.current.scrollIntoView({ block: "start", behavior: "auto" });
+    return { status: "succeeded", summary: "Showing available document packets." };
+  }, { enabled: packetCatalogAvailable && viewerProfile?.relationship.status === "connected" && isVaultUnlocked });
 
   const surfaceActions = useMemo(() => {
     if (!viewerProfile) return [];
@@ -647,10 +737,12 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     } else if (viewerProfile.relationship.status === "pending_outgoing") {
       actions.push({ id: "cancel-connection", label: "Cancel request", actionId: "people.profile.cancel_connection_request", purpose: "Withdraw the pending social connection request." });
     } else if (viewerProfile.relationship.status === "connected") {
+      actions.push({ id: "request-card", label: "Request cards", actionId: "people.profile.request_card", purpose: "Review a request for this person to choose and share a card." });
       actions.push({ id: "remove-connection", label: "Remove connection", actionId: "people.profile.remove_connection", purpose: "End the social connection without silently changing consent." });
+      if (isVaultUnlocked && packetCatalogAvailable) actions.push({ id: "browse-packets", label: "Available packets", actionId: "people.profile.browse_packets", purpose: "View document packets this connection has made available to you." });
     }
     return actions;
-  }, [viewerProfile]);
+  }, [isVaultUnlocked, packetCatalogAvailable, viewerProfile]);
 
   usePublishVoiceSurfaceMetadata(
     viewerProfile
@@ -712,6 +804,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
           <p className="text-sm text-muted-foreground" role={publicProfileUnavailable ? "alert" : undefined}>
             {publicProfileUnavailable ? "This profile is unavailable." : "Loading profile…"}
           </p>
+          {publicProfileUnavailable ? <Button type="button" variant="none" onClick={() => setPublicReloadToken((value) => value + 1)}>Try again</Button> : null}
         </div>
       </AppPageShell>
     );
@@ -720,11 +813,13 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   return (
     <AppPageShell width="agent" fitContent>
       <div className={styles.page} data-native-route="native-route-person-profile">
-        <SectionCard className={styles.hero}>
-          {viewerProfile?.relationship.status === "connected" ? (
+        <PersonProfileHero
+          profile={profile}
+          shareOnly={!viewerProfile}
+          options={viewerProfile?.relationship.status === "connected" ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button type="button" variant="none" effect="fade" className={styles.overflow} aria-label="Profile options">
+                <Button type="button" size="icon-touch" variant="none" effect="fade" className={styles.overflow} aria-label="Profile options">
                   <MoreHorizontal className="h-5 w-5" aria-hidden="true" />
                 </Button>
               </DropdownMenuTrigger>
@@ -735,51 +830,44 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : null}
-          <ConnectionPersonAvatar
-            photoUrl={profile.photoUrl}
-            label={profile.displayName}
-            verified={Boolean(profile.verifiedRole)}
-            size="profile"
-            className={styles.avatar}
-          />
-          <h1 className={styles.name}>
-            {profile.displayName}
-          </h1>
-          {profile.verifiedRole ? (
-            <p className="mt-1.5 flex items-center justify-center gap-1.5 text-sm text-muted-foreground">
-              <CheckCircle2 className="h-4 w-4 text-[var(--app-accent)] shrink-0" />
-              <span>{profile.verifiedRole}</span>
-            </p>
-          ) : null}
-          {viewerProfile ? (
-            <div className="mt-2.5 flex justify-center">
-              <StatusPill tone={viewerProfile.relationship.status === "connected" ? "ready" : "neutral"}>
-                {viewerProfile.relationship.status === "connected" ? <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> : null}
-                {viewerProfile.relationship.status === "connected"
+          status={relationship ? (
+            <>
+              <StatusPill className={styles.status} tone={relationship.status === "connected" ? "ready" : "neutral"}>
+                {relationship.status === "connected" ? <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> : null}
+                {relationship.status === "connected"
                   ? "Connected"
-                  : viewerProfile.relationship.status.startsWith("pending")
+                  : relationship.status.startsWith("pending")
                     ? "Request pending"
                     : "Not connected"}
               </StatusPill>
-            </div>
-          ) : null}
-          {viewerProfile?.relationship.status === "connected" && viewerProfile.contactEmail ? (
-            <a className="mt-2 block break-all text-center text-sm text-muted-foreground hover:underline" href={`mailto:${viewerProfile.contactEmail}`}>
-              {viewerProfile.contactEmail}
+            </>
+          ) : user ? <span role="status" className="text-sm text-muted-foreground">Checking connection…</span> : null}
+          contacts={<>
+            {viewerProfile?.relationship.status === "connected" && viewerProfile.contactEmail ? (
+            <a href={`mailto:${viewerProfile.contactEmail}`}>
+              <Mail aria-hidden="true" /><span dir="auto">{viewerProfile.contactEmail}</span>
             </a>
           ) : null}
-          <div className={styles.actions} aria-label="Relationship actions">
+          {viewerProfile?.relationship.status === "connected" && /^\+[1-9][0-9]{1,14}$/.test(viewerProfile.contactPhoneNumber ?? "") ? (
+            <a href={`tel:${viewerProfile.contactPhoneNumber}`}>
+              <Phone aria-hidden="true" /><span dir="auto">{viewerProfile.contactPhoneNumber}</span>
+            </a>
+          ) : null}
+          </>}
+          primaryActions={<>
             {viewerProfile ? (
-              <Button type="button" variant="blue-gradient" effect="fill" className={styles.request} onClick={() => availableSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
+              <Button type="button" size="compact" variant="blue-gradient" effect="fill" onClick={() => availableSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
                 <FileText className="h-5 w-5" aria-hidden="true" />
                 Request
               </Button>
             ) : null}
             <Button
               type="button"
+              size="compact"
               variant="none"
               effect="fade"
               className={styles.share}
+              ref={requestScopeReturnFocusRef}
               aria-label="Share profile"
               onClick={() => {
                 void navigator.clipboard.writeText(window.location.href);
@@ -791,34 +879,56 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 <span>Share</span>
               </span>
             </Button>
+          </>}
+          tasks={user ? (
+              <>
+                  <DocumentRequestButton
+                    returnFocusRef={requestScopeReturnFocusRef}
+                    key={`files:${user.uid}:${resolvedPersonRef}`}
+                    canRequest={canRequest}
+                    showTrigger={showRequestActions}
+                    availability={connectorFeatures.availability}
+                    onAvailabilityRetry={connectorFeatures.retry}
+                    personRef={resolvedPersonRef}
+                    personName={profile.displayName || "this person"}
+                    renderTrigger={(label) => actionCardContent(label, label === "Request files" ? FileText : MessageCircle, label === "Request files" ? "blue" : "pink")}
+                  />
+                {/* Stay mounted while authority refreshes so accepted confirmation survives. */}
+                <RequestScopeButton
+                  key={`question:${user.uid}:${resolvedPersonRef}`}
+                  personRef={resolvedPersonRef}
+                  personName={profile.displayName || "this person"}
+                  canRequest={canRequest}
+                  showTrigger={showRequestActions}
+                  returnFocusRef={requestScopeReturnFocusRef}
+                  renderTrigger={(label) => actionCardContent(label, ShieldCheck, "lilac")}
+                />
+                  <RequestCardsButton
+                    returnFocusRef={requestScopeReturnFocusRef}
+                    key={`card:${user.uid}:${resolvedPersonRef}`}
+                    personRef={resolvedPersonRef}
+                    personName={profile.displayName || "this person"}
+                    canRequest={canRequest}
+                    showTrigger={showRequestActions}
+                    renderTrigger={(label) => actionCardContent(label, CreditCard, "amber")}
+                  />
+              </>
+            ) : null}
+          footer={<>
+            {viewerProfile?.relationship.status === "connected" && isVaultUnlocked && packetCatalogAvailable ? (
+              <Button type="button" size="compact" variant="none" effect="fade" className={styles.packets} data-voice-control-id="person-profile-browse-packets" onClick={() => packetsSectionRef.current?.scrollIntoView({ block: "start", behavior: "auto" })}>Available packets</Button>
+            ) : null}
             {viewerProfile ? (
               <>
-                {viewerProfile.relationship.status === "connected" ? (
-                  <Button
-                    type="button"
-                    variant="blue-gradient"
-                    effect="fill"
-                    className={styles.message}
-                    onClick={() =>
-                      router.push(
-                        buildDirectMessageRoute({
-                          personRef: resolvedPersonRef,
-                        }),
-                      )
-                    }
-                  >
-                    <MessageCircle className="h-5 w-5" aria-hidden="true" />
-                    Message
-                  </Button>
-                ) : null}
-                <Button type="button" variant="none" effect="fade" className={styles.manage} data-voice-control-id="person-profile-manage-consent" onClick={() => router.push(ROUTES.CONSENTS)}>
+                <Button type="button" size="compact" variant="none" effect="fade" className={styles.manage} data-voice-control-id="person-profile-manage-consent" onClick={() => router.push(ROUTES.CONSENTS)}>
                   <Settings className="h-5 w-5" aria-hidden="true" />
-                  Manage access
+                  <span>Manage access</span>
                   <ChevronRight className="h-4 w-4" aria-hidden="true" />
                 </Button>
                 {viewerProfile.relationship.status === "none" ? (
                   <Button
                     type="button"
+                    size="compact"
                     variant="blue-gradient"
                     effect="fill"
                     disabled={relationshipBusy}
@@ -832,6 +942,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 {viewerProfile.relationship.status === "pending_outgoing" ? (
                   <Button
                     type="button"
+                    size="compact"
                     variant="none"
                     effect="fade"
                     disabled={relationshipBusy}
@@ -842,15 +953,16 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                     Cancel request
                   </Button>
                 ) : null}
-                {viewerProfile.relationship.status === "connected" ? <DocumentRequestButton personRef={resolvedPersonRef} personName={profile.displayName || "this person"} /> : null}
               </>
             ) : null}
+          </>}
+        />
 
-          </div>
-        </SectionCard>
+        {/* Their listed packets read like Payouts history: the list is its own group, not a card in a card. */}
+        {viewerProfile?.relationship.status === "connected" && isVaultUnlocked && packetCatalogAvailable && <div ref={packetsSectionRef}><DrivePacketCatalog ownerPersonRef={resolvedPersonRef} ownerName={profile.displayName || "this person"} /></div>}
 
         {!user && !authLoading ? (
-          <SectionCard>
+          <SectionCard className={styles.signIn}>
             <div className="flex items-center justify-between gap-4">
               <div>
                 <h2 className="font-semibold">Connect through Hussh</h2>
@@ -858,25 +970,34 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                   Sign in to see requestable information and consented access.
                 </p>
               </div>
-              <Button asChild variant="blue-gradient" effect="fill">
+              <Button asChild size="compact" variant="blue-gradient" effect="fill">
                 <Link href="/login">Sign in</Link>
               </Button>
             </div>
           </SectionCard>
         ) : null}
 
-        {viewerProfile ? (
+        {displayViewerProfile && viewerUnavailable ? <div role="status" className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
+          <span>Showing saved details. Some updates could not load.</span>
+          <Button type="button" variant="none" size="compact" onClick={() => setViewerReloadToken((value) => value + 1)}>Try again</Button>
+        </div> : null}
+        {user && !displayViewerProfile && !viewerUnavailable ? <section aria-label="Loading profile details" aria-busy="true" className="space-y-6">
+          {["Shared with you", "Available to request", "Request history"].map((label) => <div key={label} className={styles.section}>
+            <h2 className={styles.heading}>{label}</h2><Skeleton className="h-20 w-full rounded-2xl" />
+          </div>)}
+        </section> : null}
+        {displayViewerProfile ? (
           <>
             <section
               id="shared-with-you"
               aria-labelledby="shared-with-you-heading"
-              className="space-y-4"
+              className={styles.section}
               ref={sharedSectionRef}
             >
               <h2 id="shared-with-you-heading" className={styles.heading}>Shared with you</h2>
               <p className="sr-only">End-to-end encrypted information shared with your account, opened on this device only.</p>
 
-              {sharedCardItems.length ? (
+              {!viewerProfile ? <p role="status" className="text-sm text-muted-foreground">Checking shared information…</p> : sharedCardItems.length ? (
                 <SharedWithYouCard
                   person={{
                     personRef: viewerProfile.personRef,
@@ -887,25 +1008,17 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                   variant="profile"
                 />
               ) : (
-                <SectionCard className={styles.empty}>
-                  <div className="flex flex-col items-center justify-center space-y-2">
-                    <div className={styles.emptyIcon}>
-                      <LockKeyhole className="h-5 w-5" />
-                    </div>
-                    <p className="text-sm font-semibold text-foreground">
-                      Nothing shared yet
-                    </p>
-                    <p className="sr-only">
-                      Information this person shares with you appears here.
-                    </p>
-                  </div>
-                </SectionCard>
+                <PersonProfileEmptyState
+                  icon={<LockKeyhole />}
+                  label="Nothing shared yet"
+                  description="Information this person shares with you appears here."
+                />
               )}
             </section>
 
             <section
               aria-labelledby="available-to-request"
-              className={`space-y-3 ${styles.available}`}
+              className={`${styles.section} ${styles.available}`}
               ref={availableSectionRef}
               data-testid="person-profile-available"
             >
@@ -920,6 +1033,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 catalogue is a set of `attr.<domain>.<path...>` references, so
                 it already knew how to nest; the page just threw the path away.
               */}
+              <fieldset disabled={!viewerProfile} className="min-w-0">
               <ConsentScopeNestedList
                 items={scopeItems}
                 renderDomainLeading={renderCategoryIcon}
@@ -937,10 +1051,11 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                     )),
                 }}
               />
-              {viewerProfile.scopeCatalog?.hasMore ? (
+              </fieldset>
+              {displayViewerProfile.scopeCatalog?.hasMore ? (
                 <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                  <p className="text-muted-foreground">{allScopes.length} of {viewerProfile.scopeCatalog.totalCount} loaded. Search checks loaded information.</p>
-                  <Button type="button" variant="none" effect="fade" disabled={catalogLoading}
+                  <p className="text-muted-foreground">{allScopes.length} of {displayViewerProfile.scopeCatalog.totalCount} loaded. Search checks loaded information.</p>
+                  <Button type="button" size="compact" variant="none" effect="fade" disabled={catalogLoading}
                     onClick={() => void loadMoreScopes()}>
                     {catalogLoading ? "Loading more…" : catalogError ? "Try loading more again" : "Load more information"}
                   </Button>
@@ -948,13 +1063,13 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               ) : null}
             </section>
 
-            <section aria-labelledby="request-history" className="space-y-3">
+            <section aria-labelledby="request-history" className={`${styles.section} ${styles.history}`}>
               <h2 id="request-history" className={styles.heading}>Request history</h2>
               {currentHistory?.failed ? (
                 <p role="status" className="text-sm text-muted-foreground">Older requests could not be loaded. Showing recent activity only.</p>
               ) : null}
               {historyGroups.length ? (
-                <SectionCard>
+                <SectionCard className={styles.historyGroup}>
                   <div className="divide-y divide-border/60">
                     {visibleHistoryGroups.map(({ bundleId, first, items, itemCount, itemLabels, purpose: requestPurpose, createdAt }) => {
                       const details = bundleDetails[bundleId];
@@ -969,23 +1084,24 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                         itemLabels,
                       );
                       return (
-                        <div key={bundleId} className="flex flex-wrap items-start justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                        <div key={bundleId} className={styles.historyRow}>
                           <div className="min-w-0 flex-1">
-                            <p className="text-sm font-semibold">{title}</p>
-                            <p className="mt-1 text-sm text-muted-foreground">{requestPurpose}</p>
+                            <RowLabel as="p" className={`ui-text-row-label-emphasized ${styles.historyTitle}`}>{title}</RowLabel>
+                            <HelperText className={styles.historySupporting}>{requestPurpose}</HelperText>
                             {createdAt ? (
-                              <p className="mt-1 text-xs text-muted-foreground">
+                              <HelperText className={styles.historySupporting}>
                                 {new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(createdAt))}
-                              </p>
+                              </HelperText>
                             ) : null}
                           </div>
-                          <div className="flex shrink-0 flex-wrap items-center gap-2">
+                          <div className={styles.historyActions}>
                             <StatusPill tone={statusItems.length === itemCount && grantedCount === itemCount ? "ready" : "neutral"}>
                               {statusLabel}
                             </StatusPill>
                             {!details ? (
                               <Button
                                 type="button"
+                                size="compact"
                                 variant="none"
                                 effect="fade"
                                 disabled={loadingBundleId === bundleId}
@@ -998,6 +1114,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                             {statusItems.some((item) => item.status === "pending") ? (
                               <Button
                                 type="button"
+                                size="compact"
                                 variant="none"
                                 effect="fade"
                                 disabled={cancellingBundleId === bundleId}
@@ -1020,10 +1137,10 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                     })}
                   </div>
                   {currentHistory?.result?.nextCursor || historyPage > 1 || (!currentHistory?.result && recentHistoryGroups.length > 8) ? (
-                    <div className="mt-3 flex items-center justify-between gap-3 border-t border-border/60 pt-3 text-sm">
-                      <Button type="button" variant="none" effect="fade" disabled={visibleHistoryPage <= 1} onClick={() => setHistoryPage((page) => Math.max(1, page - 1))}>Previous</Button>
+                    <div className={styles.pagination}>
+                      <Button type="button" size="compact" variant="none" effect="fade" disabled={visibleHistoryPage <= 1} onClick={() => setHistoryPage((page) => Math.max(1, page - 1))}>Previous</Button>
                       <span className="text-muted-foreground">{currentHistory?.result ? `Page ${visibleHistoryPage}` : `${visibleHistoryPage} of ${historyPageCount}`}</span>
-                      <Button type="button" variant="none" effect="fade" disabled={currentHistory?.result ? !currentHistory.result.nextCursor : visibleHistoryPage >= historyPageCount} onClick={() => {
+                      <Button type="button" size="compact" variant="none" effect="fade" disabled={currentHistory?.result ? !currentHistory.result.nextCursor : visibleHistoryPage >= historyPageCount} onClick={() => {
                         if (currentHistory?.result?.nextCursor) setHistoryCursors((cursors) => [...cursors.slice(0, historyPage), currentHistory.result!.nextCursor]);
                         setHistoryPage((page) => page + 1);
                       }}>Next</Button>
@@ -1031,19 +1148,17 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                   ) : null}
                 </SectionCard>
               ) : (
-                <SectionCard className={styles.empty}>
-                  <div className={styles.emptyIcon}><FileText className="h-5 w-5" aria-hidden="true" /></div>
-                  <p className="text-sm font-semibold text-muted-foreground">No requests yet</p>
-                </SectionCard>
+                <PersonProfileEmptyState icon={<FileText />} label="No requests yet" />
               )}
             </section>
             {allScopes.length ? (
               <div className={styles.review}>
                 <Button
                   type="button"
+                  size="compact"
                   variant="blue-gradient"
                   effect="fill"
-                  disabled={!selectedScopes.length}
+                  disabled={!viewerProfile || !selectedScopes.length}
                   onClick={openRequestReview}
                   data-voice-control-id="person-profile-review-information"
                 >
@@ -1053,7 +1168,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
             ) : null}
           </>
         ) : viewerUnavailable && user ? (
-          <SectionCard className="py-8 text-center">
+          <SectionCard className={styles.signIn}>
             <div role="alert" className="flex flex-col items-center justify-center space-y-2">
               <p className="text-sm font-semibold text-foreground">
                 We couldn&rsquo;t load your connection with {profile.displayName} right now.
@@ -1063,6 +1178,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               </p>
               <Button
                 type="button"
+                size="compact"
                 variant="none"
                 effect="fade"
                 onClick={() => setViewerReloadToken((token) => token + 1)}
@@ -1087,6 +1203,9 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
             <InformationRequestReviewFields scopes={selectedScopes} purpose={purpose} durationHours={durationHours}
               onPurposeChange={setPurpose} onDurationChange={setDurationHours} disabled={requesting} />
             {request.error ? <p role="alert" className="text-sm text-destructive">{request.error}</p> : null}
+            {!viewerProfile ? <div role="status" className="text-sm text-muted-foreground">
+              {viewerUnavailable ? <>Connection details could not refresh. Your review is kept. <Button type="button" size="compact" variant="none" onClick={() => setViewerReloadToken((value) => value + 1)}>Try again</Button></> : "Checking connection. Your review is kept."}
+            </div> : null}
           </div>
           <DialogFooter className="shrink-0 flex-row items-center justify-end border-t border-border/60 pt-3">
             <Button type="button" variant="none" effect="fade" data-voice-control-id="person-profile-request-cancel" onClick={() => setReviewOpen(false)}>
@@ -1096,7 +1215,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               type="button"
               variant="blue-gradient"
               effect="fill"
-              disabled={requesting || purpose.trim().length < 8 || !selectedScopes.length || selectedScopes.length > 50 || !request.available}
+              disabled={!viewerProfile || requesting || purpose.trim().length < 8 || !selectedScopes.length || selectedScopes.length > 50 || !request.available}
               onClick={() => void submitRequest()}
               data-voice-control-id="person-profile-request-confirm"
             >

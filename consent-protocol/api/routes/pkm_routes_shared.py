@@ -2335,6 +2335,7 @@ async def get_metadata(
         domain_manifests = await pkm_service.get_domain_manifests(
             user_id,
             resolved_index.available_domains if resolved_index else [],
+            raise_on_error=True,
         )
         metadata, upgrade_status_payload = await asyncio.gather(
             pkm_service.get_user_metadata(

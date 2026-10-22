@@ -498,6 +498,27 @@ describe("useConsentActions owner-facing toasts", () => {
     expect(renderSuccess(options, await promise)).toBe("Sharing stopped.");
   });
 
+  it("scopes a vault-owner revoke's lock request to the account that started it", async () => {
+    mocks.revokeConsent.mockResolvedValueOnce(
+      new Response(JSON.stringify({ lockVault: true }), { status: 200 }),
+    );
+    const { result } = renderHook(() => useConsentActions({ userId: "user-1" }));
+
+    const lock = vi.fn();
+    window.addEventListener("vault-lock-requested", lock as EventListener, { once: true });
+    try {
+      await act(async () => {
+        await result.current.handleRevoke("vault.owner");
+      });
+      expect(lock).toHaveBeenCalledTimes(1);
+      expect((lock.mock.calls[0][0] as CustomEvent).detail).toMatchObject({
+        userId: "user-1",
+      });
+    } finally {
+      window.removeEventListener("vault-lock-requested", lock as EventListener);
+    }
+  });
+
   it("never shows the revoke route's nested envelope, nor the backend sentence inside it", async () => {
     // app/api/consent/revoke/route.ts wraps the backend body verbatim as
     // { error: responseText }, and the backend raises HTTPException(detail=...),

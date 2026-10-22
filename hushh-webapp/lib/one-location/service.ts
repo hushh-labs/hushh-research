@@ -392,6 +392,8 @@ export class OneLocationService {
    */
   static async captureCurrentPosition(options?: {
     maxAgeMs?: number;
+    /** Reject a held/restored fix when an action needs a current measurement. */
+    requireMeasurement?: boolean;
     /**
      * "I need a fix that describes where the user is right now" — dropping a
      * pin, saving a place, anchoring a check-in.
@@ -406,22 +408,24 @@ export class OneLocationService {
   }): Promise<PlainLocationPoint> {
     const maxAgeMs =
       options?.maxAgeMs ??
-      (options?.fresh ? CAPTURE_FRESH_MAX_AGE_MS : CAPTURE_DEFAULT_MAX_AGE_MS);
+      (options?.fresh || options?.requireMeasurement ? CAPTURE_FRESH_MAX_AGE_MS : CAPTURE_DEFAULT_MAX_AGE_MS);
 
-    const snapshot = await LocationBus.ensure({ maxAgeMs });
+    const snapshot = await LocationBus.ensure({ maxAgeMs, ...(options?.requireMeasurement ? { requireMeasurement: true } : {}) });
     // Read the state AFTER the await, never a copy taken before it: a watch
     // fix can land while this call is in flight, and the newer answer is the
     // right one to serve.
     const state = LocationBus.getState();
 
-    if (snapshot && state.status === "ready") return toPlainPoint(snapshot);
+    const latestSnapshot = state.status === "ready" ? state.snapshot ?? snapshot : snapshot;
+    if (latestSnapshot && state.status === "ready" &&
+        (!options?.requireMeasurement || withinAge(latestSnapshot.capturedAt, 30_000))) return toPlainPoint(latestSnapshot);
 
     // The device failed and we are holding a position. A failed refresh is not
     // a location we do not have, and until now the two were indistinguishable
     // to every caller on this surface — which is what put "turn on location"
     // in front of people whose location was perfectly well known.
     if (
-      snapshot &&
+      !options?.requireMeasurement && snapshot &&
       withinAge(snapshot.capturedAt, CAPTURE_STALE_FALLBACK_MAX_AGE_MS)
     ) {
       return toPlainPoint(snapshot);
@@ -688,11 +692,25 @@ export class OneLocationService {
   static async listCircles(
     vaultOwnerToken: string,
   ): Promise<OneLocationCircleSummary[]> {
-    const response = await apiJson<{ circles: OneLocationCircleSummary[] }>(
+    return (await this.listCircleWorkspace(vaultOwnerToken)).circles;
+  }
+
+  static async listCircleWorkspace(vaultOwnerToken: string): Promise<{
+    circles: OneLocationCircleSummary[];
+    customTypePolicy?: { version: number; maxTypes: number };
+  }> {
+    const response = await apiJson<{ circles: OneLocationCircleSummary[]; customTypePolicy?: { version: number; maxTypes: number } }>(
       "/api/one/location/circles",
       { headers: authHeaders(vaultOwnerToken) },
     );
-    return response.circles ?? [];
+    return { ...response, circles: response.circles ?? [] };
+  }
+
+  static async deleteCircleType(params: { vaultOwnerToken: string; customTypeLabel: string }): Promise<{ updatedCircleCount: number }> {
+    return apiJson("/api/one/location/circle-types", {
+      method: "DELETE", headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({ customTypeLabel: params.customTypeLabel }),
+    });
   }
 
   static async getCircle(params: {
@@ -782,13 +800,14 @@ export class OneLocationService {
     vaultOwnerToken: string;
     name: string;
     kind: OneLocationCircleKind;
+    customTypeLabel?: string;
   }): Promise<OneLocationCircleDetail> {
     const response = await apiJson<{ circle: OneLocationCircleDetailApiResponse }>(
       "/api/one/location/circles",
       {
         method: "POST",
         headers: jsonAuthHeaders(params.vaultOwnerToken),
-        body: JSON.stringify({ name: params.name, kind: params.kind }),
+        body: JSON.stringify({ name: params.name, kind: params.kind, ...(params.customTypeLabel ? { customTypeLabel: params.customTypeLabel } : {}) }),
       },
     );
     return normalizeCircleDetail(response.circle);
@@ -806,13 +825,14 @@ export class OneLocationService {
   static async bootstrapOnboardingCircle(params: {
     idToken: string;
     name: string;
+    purpose?: "signup_contacts_v1";
   }): Promise<{ circleId: string; circleName: string; code: string }> {
     const response = await apiJson<{
       invite: { circleId: string; circleName: string; code: string };
     }>("/api/one/location/circles/bootstrap", {
       method: "POST",
       headers: jsonAuthHeaders(params.idToken),
-      body: JSON.stringify({ name: params.name }),
+      body: JSON.stringify({ name: params.name, ...(params.purpose ? { purpose: params.purpose } : {}) }),
     });
     return response.invite;
   }
@@ -853,6 +873,7 @@ export class OneLocationService {
     circleId: string;
     name?: string;
     kind?: OneLocationCircleKind;
+    customTypeLabel?: string;
   }): Promise<OneLocationCircleDetail> {
     const response = await apiJson<{ circle: OneLocationCircleDetailApiResponse }>(
       `/api/one/location/circles/${encodeURIComponent(params.circleId)}`,
@@ -862,6 +883,7 @@ export class OneLocationService {
         body: JSON.stringify({
           ...(params.name ? { name: params.name } : {}),
           ...(params.kind ? { kind: params.kind } : {}),
+          ...(params.customTypeLabel ? { customTypeLabel: params.customTypeLabel } : {}),
         }),
       },
     );
@@ -1106,6 +1128,7 @@ export class OneLocationService {
     vaultOwnerToken: string; circleId: string; inviteeUserIds: string[];
     operationId?: string; batchIndex?: number; batchCount?: number;
     commandDirectiveId?: string;
+    context?: "signup";
   }): Promise<{
     added: string[]; skipped: string[]; skippedReasons: Record<string, string>; invited: string[];
   }> {
@@ -1115,7 +1138,7 @@ export class OneLocationService {
     }>("/api/one/location/circle-member-invites", {
       method: "POST", headers: jsonAuthHeaders(params.vaultOwnerToken),
       body: JSON.stringify({ circleId: params.circleId, inviteeUserIds: params.inviteeUserIds,
-        operationId: params.operationId, commandDirectiveId: params.commandDirectiveId, batchIndex: params.batchIndex, batchCount: params.batchCount }),
+        operationId: params.operationId, commandDirectiveId: params.commandDirectiveId, batchIndex: params.batchIndex, batchCount: params.batchCount, context: params.context }),
     });
     const ids = (items: string[] | undefined) => Array.from(new Set((items || []).map((id) => String(id || "").trim()).filter(Boolean)));
     return {
@@ -1223,6 +1246,30 @@ export class OneLocationService {
     const response = await apiJson<{ smsContactUserIds: string[] }>("/api/one/location/sms-contacts", { headers: authHeaders(vaultOwnerToken) });
     if (!Array.isArray(response.smsContactUserIds)) throw new Error("Emergency contacts could not be verified.");
     return response.smsContactUserIds;
+  }
+
+  /** Fresh, roster-scoped identities; never truncate SMS to the directory page. */
+  static async getSmsRecipientRoster(vaultOwnerToken: string): Promise<{
+    smsContactUserIds: string[];
+    recipients: OneLocationRecipient[];
+  }> {
+    const response = await apiJson<{
+      smsContactUserIds: string[];
+      recipients?: OneLocationRecipientApiRow[];
+    }>("/api/one/location/sms-contacts", { headers: authHeaders(vaultOwnerToken) });
+    if (!Array.isArray(response.smsContactUserIds) ||
+        response.smsContactUserIds.some((id) => typeof id !== "string" || !id)) {
+      throw new Error("Emergency contacts could not be verified.");
+    }
+    // Rolling deployments can still return the older IDs-only response.
+    const recipients = response.recipients
+      ? response.recipients.map(normalizeRecipient)
+      : await OneLocationService.listRecipients(vaultOwnerToken);
+    const ids = new Set(response.smsContactUserIds);
+    return {
+      smsContactUserIds: [...ids],
+      recipients: recipients.filter((recipient) => ids.has(recipient.userId)),
+    };
   }
 
   /** Read-only, fresh ciphertext inventory for the immersive Your Map route. */

@@ -4,6 +4,7 @@ import * as React from "react";
 
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { cn } from "@/lib/utils";
+import { appHaptic } from "@/lib/capacitor/app-haptics";
 
 export type SegmentedPillIcon = React.ElementType<
   React.SVGProps<SVGSVGElement> & { size?: number | string }
@@ -41,6 +42,7 @@ type SegmentedPillProps = {
    * switched and lingered (measured on a Galaxy S24 Ultra, 2026-09-22).
    */
   ripple?: boolean;
+  hapticFeedback?: boolean;
   className?: string;
   ariaLabel?: string;
 };
@@ -108,6 +110,7 @@ export const SegmentedPill = React.forwardRef<
       slotCount,
       hitArea = "segment",
       ripple = true,
+      hapticFeedback = true,
       className,
       ariaLabel = "Segmented selector",
     },
@@ -190,6 +193,7 @@ export const SegmentedPill = React.forwardRef<
               onClick={() => {
                 if (isDisabled) return;
                 onValueChange(option.value);
+                if (hapticFeedback && !isActive) appHaptic("selection");
               }}
               className={cn(
                 "relative z-10 flex min-w-0 items-center justify-center overflow-hidden rounded-full text-center transition-[color,opacity] duration-100 ease-[cubic-bezier(0.2,0,0,1)] disabled:cursor-not-allowed",

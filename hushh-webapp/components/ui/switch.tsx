@@ -4,14 +4,22 @@ import * as React from "react"
 import { Switch as SwitchPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
+import { appHaptic } from "@/lib/capacitor/app-haptics"
 
 function Switch({
   className,
   size = "default",
+  hapticFeedback = true,
+  checked,
+  defaultChecked,
+  onCheckedChange,
   ...props
 }: React.ComponentProps<typeof SwitchPrimitive.Root> & {
   size?: "sm" | "default" | "ios"
+  hapticFeedback?: boolean
 }) {
+  const [uncontrolled, setUncontrolled] = React.useState(defaultChecked ?? false)
+  const value = checked ?? uncontrolled
   return (
     <SwitchPrimitive.Root
       data-slot="switch"
@@ -21,6 +29,14 @@ function Switch({
         className
       )}
       {...props}
+      checked={checked}
+      defaultChecked={defaultChecked}
+      onCheckedChange={(next) => {
+        if (props.disabled || next === value || (checked !== undefined && !onCheckedChange)) return
+        if (checked === undefined) setUncontrolled(next)
+        onCheckedChange?.(next)
+        if (hapticFeedback) appHaptic("selection")
+      }}
     >
       <SwitchPrimitive.Thumb
         data-slot="switch-thumb"

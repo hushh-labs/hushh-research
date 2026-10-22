@@ -22,10 +22,12 @@ import {
 import { KAI_MARKET_PATH } from "@/lib/navigation/routes";
 import { KaiPreviewRouter } from "@/components/kai/views/kai-preview-router";
 import { KaiAnalysisPageContent } from "@/app/one/kai/analysis/page";
+import { KaiMarketHomeProvider } from "@/components/kai/shared/kai-market-home-context";
 import { scheduleFinanceWorkspaceWarmup } from "@/lib/kai/finance-workspace-warmup";
 import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
 import { resetKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
+import marketBriefingStyles from "@/components/kai/shared/market-briefing.module.css";
 
 const FINANCE_TAB_DEFINITION = TOP_SHELL_TAB_REGISTRY.finance;
 type PortfolioTab = (typeof FINANCE_TAB_DEFINITION.tabs)[number]["value"];
@@ -108,7 +110,8 @@ export function KaiMarketHubPage() {
       as="div"
       fitContent
       width="agent"
-      className="relative"
+      headerContentSpacing="compact"
+      className={visibleTab === "market" ? `relative ${marketBriefingStyles.typography}` : "relative"}
       data-finance-workspace="true"
       nativeTest={{
         routeId: KAI_MARKET_PATH,
@@ -118,18 +121,18 @@ export function KaiMarketHubPage() {
       }}
     >
       <AppPageHeaderRegion
-        className="space-y-3.5 sm:space-y-3.5"
+        className="space-y-[var(--page-header-section-gap)]"
         data-finance-workspace-header="true"
       >
         <PageHeader
           title="Finance"
           titleRole="agent"
-          className="ms-[var(--page-inline-gutter-standard)]"
         />
         <TopShellTabs
           tabSet={{ ...FINANCE_TAB_DEFINITION, activeValue: visibleTab }}
         />
       </AppPageHeaderRegion>
+      <KaiMarketHomeProvider>
       <SwipeViews
         tabSetId={FINANCE_TAB_DEFINITION.id}
         activeValue={visibleTab}
@@ -140,7 +143,7 @@ export function KaiMarketHubPage() {
         holdHeightDuringTransition={false}
         panelInset="none"
         viewportMinHeight="fill"
-        className="mt-3.5 sm:mt-3.5"
+        className="mt-[var(--page-header-section-gap)]"
       >
         <div className="w-full">
           <AppPageContentRegion>
@@ -163,6 +166,7 @@ export function KaiMarketHubPage() {
           </AppPageContentRegion>
         </div>
       </SwipeViews>
+      </KaiMarketHomeProvider>
     </AppPageShell>
   );
 }

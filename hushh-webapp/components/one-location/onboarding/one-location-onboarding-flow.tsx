@@ -1,5 +1,6 @@
 "use client";
 
+import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 import {
   useCallback,
   useEffect,
@@ -8,14 +9,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { preconnect, preload } from "react-dom";
 import {
   ArrowLeft,
   Check,
   ChevronDown,
   Copy,
   Loader2,
-  MapPin,
   Share2,
   UserPlus,
 } from "@/components/icons";
@@ -38,13 +37,12 @@ import {
 import { resolveOnboardingFinaleMapPoint } from "@/lib/one-location/onboarding-map-point";
 import { normalizeCircleCode } from "@/lib/one-location/pending-circle-join";
 import { useCurrentLocation } from "@/lib/one-location/use-current-location";
-import { useGoogleMaps } from "@/lib/one-location/use-google-maps";
-import type { HushhLocationPermissionState } from "@/lib/capacitor";
 import locationOnboardingContract from "@/lib/onboarding/one-location-onboarding.contract.json";
 import { trackEvent } from "@/lib/observability/client";
 import { trackLocationFunnelStepCompleted } from "@/lib/observability/growth";
 import { resolveRouteId } from "@/lib/observability/route-map";
 import { cn } from "@/lib/utils";
+import { useBackLayer } from "@/lib/navigation/back-layers";
 
 type OnboardingScreen = OneLocationOnboardingScreen;
 
@@ -52,9 +50,8 @@ const LOCATION_SCREEN_TEST_IDS = Object.fromEntries(
   locationOnboardingContract.screens.map(({ key, testId }) => [key, testId]),
 ) as Record<OnboardingScreen, string>;
 
-// "permissions" remains accepted for callers restoring the previous contract.
-// It now opens the consolidated feature screen, which owns permission requests.
-export type OneLocationOnboardingStart = "welcome" | "permissions";
+// Legacy entry names restart at Features without requesting device access.
+export type OneLocationOnboardingStart = "features" | "welcome" | "permissions";
 
 export type ConnectionRequestResult = {
   sentUserIds: string[];
@@ -122,15 +119,11 @@ type OnboardingContactState =
 
 type OneLocationOnboardingFlowProps = {
   startAt: OneLocationOnboardingStart;
-  /** Controlled screen used by the page so the sibling save-place modal can advance the flow. */
+  /** Account-scoped checkpoint for the introduction. */
   activeScreen?: OnboardingScreen;
   onScreenChange?: (screen: OnboardingScreen) => void;
   currentUserName: string;
-  locationPermission: HushhLocationPermissionState | null;
-  locationBusy: boolean;
   nativeTest: React.ComponentProps<typeof NativeTestBeacon>;
-  onRequestLocation: () => Promise<boolean | void>;
-  onLocationReady: () => Promise<boolean>;
   onBack: () => void | Promise<void>;
   onComplete: () => void | Promise<void>;
   onSkip?: () => void | Promise<void>;
@@ -140,6 +133,7 @@ type OneLocationOnboardingFlowProps = {
    * person guessing where the button goes.
    */
   completeLabel?: string;
+  completeControlId?: string;
   /**
    * Whether this device can read an address book at all.
    *
@@ -153,6 +147,15 @@ type OneLocationOnboardingFlowProps = {
    */
   /** Where to centre the finale map. Null renders the stylised fallback. */
   mapPoint?: { lat: number; lng: number } | null;
+  /**
+   * Ask for device location and open the save-a-place surface, which the
+   * parent hosts over this flow. Resolves true once that surface is open, and
+   * false when it could not open (permission refused, no position, a place
+   * already saved this journey). False moves on to Ready: refusing location
+   * must never trap anyone on Features, and the Now tab keeps offering it.
+   * Omitted, the flow goes straight from Features to Ready.
+   */
+  onPreparePlace?: () => Promise<boolean>;
   contactsStepAvailable?: boolean;
   /** Account-backed web fallback versus the device address book. */
   contactsSource?: "device" | "google";
@@ -192,36 +195,6 @@ type OneLocationOnboardingFlowProps = {
   ) => Promise<void> | void;
 };
 
-const WELCOME_ORBIT_ITEMS = [
-  {
-    src: "/one-location/onboarding/orbit-person-1.webp",
-    position: "left-[14%] top-[20%]",
-    imageClassName: "object-cover",
-  },
-  {
-    src: "/one-location/onboarding/orbit-office.webp",
-    position: "right-[8%] top-[10%]",
-    imageClassName: "object-contain",
-  },
-  {
-    src: "/one-location/onboarding/orbit-person-2.webp",
-    position: "right-[8%] top-[56%]",
-    imageClassName: "object-cover",
-  },
-  {
-    src: "/one-location/onboarding/orbit-person-3.webp",
-    position: "bottom-[2%] left-[42%]",
-    imageClassName: "object-cover",
-  },
-  {
-    src: "/one-location/onboarding/orbit-car.webp",
-    position: "bottom-[14%] left-[3%]",
-    imageClassName: "object-contain",
-  },
-] as const;
-
-const ONBOARDING_IMAGE_SOURCES = WELCOME_ORBIT_ITEMS.map(({ src }) => src);
-
 function PrimaryButton({
   children,
   onClick,
@@ -229,8 +202,10 @@ function PrimaryButton({
   busy = false,
   inverse = false,
   className,
+  voiceControlId,
 }: {
   children: ReactNode;
+  voiceControlId?: string;
   onClick: () => void;
   disabled?: boolean;
   busy?: boolean;
@@ -244,8 +219,9 @@ function PrimaryButton({
       onClick={onClick}
       disabled={disabled || busy}
       aria-busy={busy || undefined}
+      data-voice-control-id={voiceControlId}
       className={cn(
-        "w-full disabled:cursor-not-allowed disabled:opacity-50",
+        "mx-auto flex w-full max-w-[244px] disabled:cursor-not-allowed disabled:opacity-50",
         inverse
           ? "bg-white text-[color:var(--app-accent-deep)] hover:bg-white/90 hover:text-[color:var(--app-accent-deep)] dark:bg-white dark:hover:bg-white/90 dark:text-[#07111f] dark:hover:text-[#07111f]"
           : "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]",
@@ -279,7 +255,7 @@ function OnboardingSkipButton({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "min-h-11 rounded-full text-[16px] font-bold disabled:opacity-50",
+        "ui-text-button-label min-h-11 justify-self-end rounded-full disabled:opacity-50",
         plain
           ? "px-2 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]"
           : floating
@@ -368,171 +344,16 @@ function OnboardingNavigation({
   );
 }
 
-function WelcomeRadar() {
-  return (
-    <div
-      className="relative mx-auto aspect-square w-[min(82vw,42dvh,340px)]"
-      data-one-welcome-radar
-      aria-hidden="true"
-    >
-      {["inset-[5%]", "inset-[21%]", "inset-[37%]"].map((position, index) => (
-        <span
-          key={position}
-          data-one-onboarding-motion
-          className={cn(
-            "absolute rounded-full border border-white/30",
-            position,
-            index === 0 && "[animation:oneWelcomeRing_3s_ease-in-out_infinite]",
-          )}
-        />
-      ))}
-      <span className="absolute left-1/2 top-1/2 z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center">
-        <span
-          className="flex h-16 w-16 items-center justify-center rounded-full border border-white/70 bg-white text-[#087ff5] shadow-[0_12px_32px_rgba(0,61,144,0.22)]"
-          data-one-welcome-core
-        >
-          <MapPin
-            className="h-6 w-6 text-[color:var(--app-accent)]"
-            strokeWidth={2.7}
-          />
-        </span>
-        <span className="-mt-1 rounded-full bg-white px-4 py-0.5 text-[14px] font-bold text-[#087ff5] shadow-[0_5px_14px_rgba(0,61,144,0.18)]">
-          You
-        </span>
-      </span>
-      {WELCOME_ORBIT_ITEMS.map((item, index) => (
-        <span
-          key={item.src}
-          data-one-onboarding-motion
-          className={cn(
-            "absolute z-10 [animation:oneOrbitItemIn_.48s_ease-out_both]",
-            item.position,
-          )}
-          style={{ animationDelay: `${120 + index * 90}ms` }}
-        >
-          <span
-            className="block h-[58px] w-[58px] overflow-hidden rounded-[18px] border-[3px] border-white bg-white p-0.5 shadow-[0_12px_28px_rgba(0,40,100,0.28)]"
-            data-one-welcome-orbit-card
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
-            <img
-              src={item.src}
-              alt=""
-              loading="eager"
-              decoding="async"
-              fetchPriority="high"
-              className={cn(
-                "h-full w-full rounded-[13px]",
-                item.imageClassName,
-              )}
-            />
-          </span>
-          <span
-            className="absolute -right-1 -top-1 h-[17px] w-[17px] rounded-full border-[3px] border-white bg-[#31c65b]"
-            data-one-welcome-orbit-status
-          />
-        </span>
-      ))}
-      <style>{`
-        @keyframes oneWelcomeRing { 0%, 100% { opacity: .32; } 50% { opacity: .78; } }
-        @keyframes oneOrbitItemIn { from { opacity: 0; transform: translateY(10px) scale(.92); } to { opacity: 1; transform: translateY(0) scale(1); } }
-        @media (prefers-reduced-motion: reduce) { [data-one-onboarding-motion] { animation: none !important; } }
-      `}</style>
-    </div>
-  );
-}
-
-function WelcomeScreen({
-  onBack,
-  onSkip,
-  onStart,
-  leaving,
-}: {
-  onBack: () => void;
-  onSkip: () => void;
-  onStart: () => void;
-  leaving: boolean;
-}) {
-  const headingRef = useRef<HTMLHeadingElement | null>(null);
-  useEffect(() => {
-    headingRef.current?.focus({ preventScroll: true });
-  }, []);
-
-  return (
-    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#087ff5] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-[max(var(--app-safe-area-top-effective,0px),10px)] text-white dark:bg-[#073d78]">
-      <span className="pointer-events-none absolute -right-24 -top-32 h-72 w-72 rounded-full bg-white/[0.05]" />
-      <span className="pointer-events-none absolute -bottom-28 -left-32 h-72 w-72 rounded-full bg-[#006bd9]/55" />
-      <div className="relative z-10 mx-auto flex min-h-0 w-full max-w-[700px] flex-1 flex-col">
-        <OnboardingNavigation
-          inverse
-          currentStep={0}
-          onBack={onBack}
-          onSkip={onSkip}
-          disabled={leaving}
-          busy={leaving}
-          className="pt-2"
-        />
-        <div className="flex min-h-0 flex-1 flex-col">
-          <div className="shrink-0 text-center">
-            <p className="inline-flex items-center gap-2 text-[17px] font-semibold leading-[22px]">
-              <MapPin
-                className="h-5 w-5"
-                strokeWidth={2.5}
-                data-testid="location-agent-heading-icon"
-              />
-              Location
-            </p>
-            <h1
-              ref={headingRef}
-              tabIndex={-1}
-              className="mx-auto mt-5 max-w-[410px] text-[28px] font-bold leading-[34px] tracking-[-0.015em] outline-none"
-              data-one-welcome-heading
-            >
-              Share your location
-              <br />
-              easily with anyone.
-            </h1>
-          </div>
-          <div className="flex min-h-0 flex-1 items-center justify-center py-4">
-            <WelcomeRadar />
-          </div>
-          {/* Centered measure like the feature-screen CTA below: full-width
-              here stretched edge to edge on desktop and read as a bar. */}
-          <div className="mx-auto w-full max-w-[244px] shrink-0">
-            <PrimaryButton inverse onClick={onStart}>
-              Get started
-            </PrimaryButton>
-          </div>
-        </div>
-      </div>
-      <style>{`
-        @media (max-height: 720px) {
-          [data-one-welcome-heading] { margin-top: 12px; font-size: 28px; line-height: 34px; }
-          [data-one-welcome-radar] { width: min(80vw, 42dvh, 320px); }
-        }
-        @media (max-height: 560px) {
-          [data-one-welcome-heading] { margin-top: 8px; font-size: 26px; line-height: 30px; }
-          [data-one-welcome-radar] { width: min(76vw, 38dvh, 280px); }
-          [data-one-welcome-orbit-card] { width: 52px; height: 52px; }
-          [data-one-welcome-core] { width: 58px; height: 58px; }
-        }
-        @media (max-height: 400px) {
-          [data-one-welcome-radar] { width: min(60vw, 32dvh, 220px); }
-        }
-      `}</style>
-    </div>
-  );
-}
-
 /** Minimal, stylised street-map backdrop used behind the share / check-in art. */
-function MapBackdrop({ tone }: { tone: "share" | "checkin" }) {
-  const park = tone === "checkin" ? "#dcecd8" : "#dfeede";
+function MapBackdrop({ tone }: { tone: "share" | "checkin" | "sms" }) {
+  const park = tone === "sms" ? "#f4dedd" : "#dcecd8";
   return (
     <svg
       viewBox="0 0 200 168"
       preserveAspectRatio="xMidYMid slice"
       className="absolute inset-0 h-full w-full"
       aria-hidden="true"
+      data-one-feature-map={tone}
     >
       <rect
         width="200"
@@ -631,7 +452,7 @@ function FeatureTitle({
       aria-level={2}
       aria-label={lines.join(" ")}
       className={cn(
-        "font-bold leading-[1.13] tracking-[-0.015em] text-[#111823] dark:text-[color:var(--app-label)]",
+        "ui-text-headline text-[#111823] dark:text-[color:var(--app-label)]",
         className,
       )}
       data-one-feature-title
@@ -640,7 +461,7 @@ function FeatureTitle({
         <span
           key={line}
           aria-hidden="true"
-          className="block whitespace-nowrap"
+          className="block"
           data-one-feature-title-line
         >
           {line}
@@ -659,20 +480,19 @@ function ShareLocationFeatureCard() {
       data-one-feature-card="share"
     >
       <MapBackdrop tone="share" />
-      <span className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[color:var(--app-primary-surface)] from-[35%] via-[color:var(--app-primary-surface)] via-[51%] to-transparent" />
-      <div className="relative z-20 w-[56%] px-5 pt-5" data-one-feature-copy>
+      <span className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[color:var(--app-primary-surface)]/95 from-[25%] via-[color:var(--app-primary-surface)]/80 via-[51%] to-transparent" />
+      <div className="relative z-20 w-[56%] px-5 pt-5 md:bg-[color:var(--app-primary-surface)]" data-one-feature-copy>
         <span
-          className="inline-flex rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1 text-[11px] font-bold text-[color:var(--app-accent-deep)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)]"
+          className="inline-flex rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1 ui-text-eyebrow text-[color:var(--app-accent-deep)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)]"
           data-one-use-case-tag
         >
           Share location
         </span>
         <FeatureTitle
           lines={["Can’t explain", "where you are?"]}
-          className="font-[family-name:var(--font-app-display)] text-[21px]"
         />
         <p
-          className="text-[15px] leading-[1.4] text-[#747b86] dark:text-[color:var(--app-secondary-label)]"
+          className="ui-text-page-subtitle text-[#747b86] dark:text-[color:var(--app-secondary-label)]"
           data-one-feature-body
         >
           Share your live location with your Circle in one tap.
@@ -728,27 +548,26 @@ function ShareLocationFeatureCard() {
 function CheckInFeatureCard() {
   return (
     <article
-      className="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[26px] bg-[color:var(--app-primary-surface)] [container-type:inline-size]"
+      className="relative flex aspect-[0.62/1] w-full flex-col overflow-hidden rounded-[26px] bg-[color:var(--app-primary-surface)] [container-type:inline-size]"
       data-testid="location-use-case-checkin"
       data-one-use-case-card
       data-one-feature-card="checkin"
     >
       <div
-        className="relative z-20 bg-gradient-to-b from-[color:var(--app-primary-surface)] via-[color:var(--app-primary-surface)] to-[color:var(--app-primary-surface)]/90 px-4 pb-2 pt-4"
+        className="relative z-20 bg-[color:var(--app-primary-surface)]/90 px-4 pb-2 pt-4"
         data-one-feature-copy
       >
         <span
-          className="inline-flex rounded-full bg-[#dff4e7] px-3 py-1 text-[11px] font-bold text-[#27884f] dark:bg-[color:var(--app-success-surface)] dark:text-[color:var(--app-success-bright)]"
+          className="inline-flex rounded-full bg-[#dff4e7] px-3 py-1 ui-text-eyebrow text-[#27884f] dark:bg-[color:var(--app-success-surface)] dark:text-[color:var(--app-success-bright)]"
           data-one-use-case-tag
         >
           Check in
         </span>
         <FeatureTitle
-          lines={["At the venue,", "but can't find", "each other?"]}
-          className="text-[19px]"
+          lines={["At the venue, but", "can't find each other?"]}
         />
         <p
-          className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[color:var(--app-secondary-label)]"
+          className="ui-text-page-subtitle text-[#747b86] dark:text-[color:var(--app-secondary-label)]"
           data-one-feature-body
         >
           Check in on the spot and notify your circle
@@ -762,7 +581,7 @@ function CheckInFeatureCard() {
         <MapBackdrop tone="checkin" />
       </div>
       <span
-        className="pointer-events-none absolute inset-x-0 top-0 z-10 h-[68%] bg-gradient-to-b from-[color:var(--app-primary-surface)] via-[color:var(--app-primary-surface)] to-transparent"
+        className="pointer-events-none absolute inset-x-0 top-0 z-10 h-[62%] bg-gradient-to-b from-[color:var(--app-primary-surface)]/80 to-transparent"
         aria-hidden="true"
       />
       <div
@@ -770,21 +589,17 @@ function CheckInFeatureCard() {
         data-one-use-case-art
         aria-hidden="true"
       >
-        <span className="pointer-events-none absolute inset-x-0 top-0 h-12 bg-gradient-to-b from-[color:var(--app-primary-surface)] via-[color:var(--app-primary-surface)]/85 to-transparent" />
         <span
           className="absolute bottom-[18%] left-1/2 flex h-[64px] w-[64px] -translate-x-1/2 items-center justify-center rounded-full bg-white/90 shadow-[0_8px_22px_rgba(24,57,91,0.16)] ring-1 ring-white/80 dark:bg-[color:var(--app-secondary-surface)] dark:shadow-none dark:ring-[color:var(--app-separator)]"
           data-one-checkin-destination
         >
-          <MapPin
-            className="h-9 w-9 text-[color:var(--app-accent)]"
-            strokeWidth={2.4}
+          {/* eslint-disable-next-line @next/next/no-img-element -- Local Maps-style artwork must render in Capacitor static export. */}
+          <img
+            src="/one-location/onboarding/check-in-location-pin.svg"
+            alt=""
+            className="h-10 w-10"
+            data-one-checkin-pin
           />
-          <span
-            className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full bg-[color:var(--app-success)] text-white ring-[3px] ring-white dark:ring-[color:var(--app-secondary-surface)]"
-            data-one-checkin-illustration
-          >
-            <Check className="h-3.5 w-3.5" strokeWidth={3.2} />
-          </span>
         </span>
       </div>
     </article>
@@ -794,31 +609,31 @@ function CheckInFeatureCard() {
 function SaveMySoulFeatureCard() {
   return (
     <article
-      className="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[26px] bg-[color:var(--app-primary-surface)] [container-type:inline-size]"
+      className="relative flex w-full flex-col overflow-hidden rounded-[26px] bg-[color:var(--app-primary-surface)] [container-type:inline-size]"
       data-testid="location-use-case-sos"
       data-one-use-case-card
       data-one-feature-card="sms"
     >
-      <div className="relative z-20 px-4 pt-4" data-one-feature-copy>
+      <MapBackdrop tone="sms" />
+      <div className="relative z-20 bg-[color:var(--app-primary-surface)]/90 px-4 pb-2 pt-4" data-one-feature-copy>
         <span
-          className="inline-flex rounded-full bg-[#ffe0df] px-3 py-1 text-[11px] font-bold text-[#d44442] dark:bg-[color:var(--app-destructive-surface)] dark:text-[color:var(--app-destructive-bright)]"
+          className="inline-flex rounded-full bg-[#ffe0df] px-3 py-1 ui-text-eyebrow text-[#d44442] dark:bg-[color:var(--app-destructive-surface)] dark:text-[color:var(--app-destructive-bright)]"
           data-one-use-case-tag
         >
           SMS · Save My Soul
         </span>
         <FeatureTitle
           lines={["Need help but", "can’t talk?"]}
-          className="text-[19px]"
         />
         <p
-          className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[color:var(--app-secondary-label)]"
+          className="ui-text-page-subtitle text-[#747b86] dark:text-[color:var(--app-secondary-label)]"
           data-one-feature-body
         >
           Alert your contacts with your live location.
         </p>
       </div>
       <div
-        className="relative z-10 flex min-h-0 flex-1 items-center justify-center"
+        className="relative z-10 flex min-h-[116px] flex-1 items-center justify-center"
         data-one-feature-art-region
       >
         <div
@@ -833,12 +648,12 @@ function SaveMySoulFeatureCard() {
             <span
               data-one-onboarding-motion
               data-one-sms-radar-ring
-              className="absolute inset-0 rounded-full border-2 border-[#ff3b30]/30 bg-[#ff3b30]/[0.08] [animation:oneSmsRadar_2.4s_ease-out_infinite]"
+              className="absolute inset-0 rounded-full"
             />
             <span
               data-one-onboarding-motion
               data-one-sms-radar-ring
-              className="absolute inset-[10px] rounded-full border-2 border-[#ff3b30]/25 bg-[#ff3b30]/[0.08] [animation:oneSmsRadar_2.4s_ease-out_infinite] [animation-delay:1.2s]"
+              className="absolute inset-0 rounded-full"
             />
             <span
               data-one-sms-core
@@ -856,43 +671,22 @@ function SaveMySoulFeatureCard() {
 }
 
 function FeaturesScreen({
-  locationGranted,
-  locationBlocked,
-  locationBusy,
-  locationPreparationBusy,
-  locationPreparationRetry,
   onBack,
   onSkip,
   leaving,
+  continueBusy = false,
   onContinue,
 }: {
-  locationGranted: boolean;
-  locationBlocked: boolean;
-  locationBusy: boolean;
-  locationPreparationBusy: boolean;
-  locationPreparationRetry: boolean;
   onBack: () => void;
   onSkip: () => void;
   leaving: boolean;
+  continueBusy?: boolean;
   onContinue: () => void;
 }) {
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   useEffect(() => {
     headingRef.current?.focus({ preventScroll: true });
   }, []);
-
-  const permissionBusy = locationBusy || locationPreparationBusy;
-  const status = locationPreparationBusy
-    ? "Finding your location…"
-    : locationBusy
-      ? "Requesting Location…"
-      : locationPreparationRetry
-        ? "We couldn't find your location. Check access and try again."
-        : locationBlocked
-          ? "Location access is off. Turn it on to set up One Location."
-          : locationGranted
-            ? "Location is ready. Your next tap opens the place picker."
-            : "Your location stays private until you share.";
 
   return (
     <div
@@ -901,7 +695,7 @@ function FeaturesScreen({
     >
       <OnboardingNavigation
         plain
-        currentStep={1}
+        currentStep={0}
         onBack={onBack}
         onSkip={onSkip}
         disabled={leaving}
@@ -925,7 +719,7 @@ function FeaturesScreen({
           <h1
             ref={headingRef}
             tabIndex={-1}
-            className="ui-text-agent-title text-[#111823] outline-none dark:!text-[color:var(--app-label)]"
+            className="ui-text-page-title text-[#111823] outline-none dark:!text-[color:var(--app-label)]"
             data-one-feature-heading
           >
             Keep your people updated.
@@ -938,22 +732,13 @@ function FeaturesScreen({
         >
           <ShareLocationFeatureCard />
           <div
-            className="grid grid-cols-2 items-start gap-3"
+            className="grid grid-cols-1 items-stretch gap-3"
             data-one-feature-lower-grid
           >
             <CheckInFeatureCard />
             <SaveMySoulFeatureCard />
           </div>
         </div>
-        <p
-          className="shrink-0 pt-3 text-center text-[12px] font-semibold leading-4 text-[#6f7580] dark:text-[color:var(--app-secondary-label)]"
-          aria-live="polite"
-          role={
-            locationPreparationRetry || locationBlocked ? "alert" : undefined
-          }
-        >
-          {status}
-        </p>
       </div>
       <div
         className="mx-auto w-full max-w-[244px] shrink-0 pt-5"
@@ -961,76 +746,63 @@ function FeaturesScreen({
       >
         <PrimaryButton
           onClick={onContinue}
-          busy={permissionBusy}
-          disabled={permissionBusy}
+          disabled={leaving}
+          busy={continueBusy}
         >
-          {locationPreparationRetry
-            ? "Try again"
-            : locationBlocked
-              ? "Open settings"
-              : "Set up my location"}
+          Continue
         </PrimaryButton>
       </div>
       <style>{`
         @keyframes oneSmsRadar {
-          0% { transform: scale(0.55); opacity: 0.65; }
-          80% { opacity: 0; }
+          0% { transform: scale(0.72); opacity: 0.7; }
           100% { transform: scale(1.35); opacity: 0; }
+        }
+        [data-one-sms-radar-ring] {
+          border: 2px solid #ff3b30;
+          animation: oneSmsRadar 2.4s ease-out infinite;
+        }
+        [data-one-sms-radar-ring]:nth-child(2) {
+          animation-delay: -1.2s;
         }
         @media (prefers-reduced-motion: reduce) {
           [data-one-onboarding-motion] { animation: none !important; }
-        }
-        [data-one-feature-heading] {
-          --type-agent-title-size: 31px;
-          --type-agent-title-line: 1.08;
+          [data-one-sms-radar-ring] { opacity: 0; }
         }
         [data-one-feature-copy] {
-          --one-feature-copy-gap: 10px;
           display: flex;
           flex-direction: column;
           align-items: flex-start;
-          gap: var(--one-feature-copy-gap);
+          gap: 8px;
         }
-        @media (max-width: 430px) {
-          [data-one-feature-screen] { padding-left: 16px; padding-right: 16px; }
-          [data-one-feature-heading] { --type-agent-title-size: 31px; }
-          [data-one-feature-card] { border-radius: 22px; }
+        [data-one-feature-card] {
+          aspect-ratio: auto;
+          min-height: 190px;
+        }
+        [data-one-feature-copy] {
+          width: 62%;
+          padding: 18px 16px;
+        }
+        [data-one-feature-card="share"] [data-one-use-case-art] {
+          width: 40%;
+        }
+        [data-one-feature-card="checkin"] [data-one-use-case-art] {
+          inset: 0 0 0 auto;
+          width: 38%;
+          height: 100%;
+        }
+        [data-one-sms-radar-clearance] { width: 86px; height: 86px; }
+        [data-one-sms-radar] { width: 64px; height: 64px; }
+        [data-one-feature-card="sms"] [data-one-feature-art-region] {
+          position: absolute;
+          inset: 0 0 0 auto;
+          width: 38%;
+          height: 100%;
+          align-items: center;
+          justify-content: center;
         }
         @media (max-width: 380px) {
-          [data-one-feature-screen] { padding-left: 14px; padding-right: 14px; }
-          [data-one-feature-grid] { gap: 10px; }
-          [data-one-feature-lower-grid] { gap: 10px; }
-          [data-one-feature-card="checkin"] [data-one-feature-title],
-          [data-one-feature-card="sms"] [data-one-feature-title] {
-            font-size: 17px;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-body],
-          [data-one-feature-card="sms"] [data-one-feature-body] {
-            font-size: 12.5px;
-            line-height: 1.34;
-          }
-        }
-        @media (max-width: 340px) {
-          [data-one-feature-screen] { padding-left: 12px; padding-right: 12px; }
-          [data-one-feature-heading] { --type-agent-title-size: 29px; }
-          [data-one-feature-grid] { gap: 8px; }
-          [data-one-feature-lower-grid] { gap: 8px; }
-          [data-one-feature-card] { border-radius: 20px; }
-          [data-one-feature-card="share"] [data-one-feature-copy] {
-            width: 60%;
-            padding: 14px 14px 0;
-          }
-          [data-one-feature-card="share"] [data-one-feature-title] { font-size: 18px; }
-          [data-one-feature-card="share"] [data-one-feature-body] { font-size: 12.5px; line-height: 1.34; }
-          [data-one-feature-card="checkin"] [data-one-feature-copy],
-          [data-one-feature-card="sms"] [data-one-feature-copy] { padding: 12px 12px 0; gap: 7px; }
-          [data-one-feature-card="checkin"] [data-one-feature-title],
-          [data-one-feature-card="sms"] [data-one-feature-title] { font-size: 15px; }
-          [data-one-feature-card="checkin"] [data-one-feature-body],
-          [data-one-feature-card="sms"] [data-one-feature-body] { font-size: 11.5px; line-height: 1.3; }
-          [data-one-use-case-tag] { padding: 4px 9px; font-size: 10px; }
-          [data-one-feature-cta] { padding-top: 14px; }
-          [data-one-feature-cta] button { min-height: 50px; height: 50px; }
+          [data-one-feature-screen] { padding-left: 16px; padding-right: 16px; }
+          [data-one-feature-copy] { width: 68%; padding: 16px 14px; }
         }
         @media (max-height: 780px) {
           [data-one-feature-screen] {
@@ -1039,89 +811,28 @@ function FeaturesScreen({
           }
           [data-one-onboarding-navigation] { height: 52px; }
           [data-one-feature-header] { margin-top: 8px; }
-          [data-one-feature-grid] { margin-top: 14px; gap: 10px; }
-          [data-one-feature-lower-grid] { gap: 10px; }
-          [data-one-feature-cta] { padding-top: 14px; }
-          [data-one-feature-cta] button { min-height: 50px; height: 50px; }
+          [data-one-feature-grid] { margin-top: 16px; }
+          [data-one-feature-cta] { padding-top: 16px; }
         }
         @media (min-width: 768px) {
-          [data-one-feature-scroll] {
-            align-items: center;
-            flex: 0 0 auto;
-          }
-          [data-one-feature-header] {
-            max-width: 1040px;
-          }
-          [data-one-feature-heading] {
-            --type-agent-title-size: 34px;
-          }
+          [data-one-feature-scroll] { flex: 0 1 auto; }
+          [data-one-feature-header], [data-one-feature-grid] { max-width: 1040px; }
           [data-one-feature-grid] {
             grid-template-columns: repeat(3, minmax(0, 1fr));
-            grid-template-areas: "share checkin sms";
             align-items: stretch;
-            max-width: 1040px;
-            margin-top: 24px;
             gap: 18px;
           }
-          [data-one-feature-lower-grid] {
-            display: contents;
-          }
-          [data-one-feature-card="share"] {
-            grid-area: share;
-            aspect-ratio: auto;
-            min-height: 390px;
-          }
-          [data-one-feature-card="checkin"] {
-            grid-area: checkin;
-          }
-          [data-one-feature-card="sms"] {
-            grid-area: sms;
-          }
-          [data-one-feature-card="checkin"],
-          [data-one-feature-card="sms"] {
-            aspect-ratio: auto;
-            min-height: 390px;
-          }
-          [data-one-feature-card="share"] [data-one-feature-copy],
-          [data-one-feature-card="checkin"] [data-one-feature-copy],
-          [data-one-feature-card="sms"] [data-one-feature-copy] {
-            width: auto;
-            padding: 20px 18px 0;
-          }
-          [data-one-feature-card="share"] [data-one-use-case-art] {
-            inset: auto 0 42px 0;
-            width: 100%;
-            height: 50%;
-          }
-          [data-one-feature-card="share"] [data-one-feature-title],
-          [data-one-feature-card="checkin"] [data-one-feature-title],
-          [data-one-feature-card="sms"] [data-one-feature-title] {
-            font-size: 20px;
-            line-height: 1.14;
-          }
-          [data-one-feature-card="share"] [data-one-feature-body],
-          [data-one-feature-card="checkin"] [data-one-feature-body],
-          [data-one-feature-card="sms"] [data-one-feature-body] {
-            font-size: 15px;
-            line-height: 1.35;
-          }
-          [data-one-feature-card="checkin"] [data-one-use-case-art] {
-            inset: auto 0 42px 0;
-            width: 100%;
-            height: 54%;
-          }
-          [data-one-feature-card="checkin"] [data-one-checkin-art] {
-            width: 42%;
-          }
+          [data-one-feature-lower-grid] { display: contents; }
+          [data-one-feature-card] { min-height: 350px; }
+          [data-one-feature-copy] { width: 100%; padding: 20px; }
+          [data-one-feature-card="share"] [data-one-use-case-art],
+          [data-one-feature-card="checkin"] [data-one-use-case-art],
           [data-one-feature-card="sms"] [data-one-feature-art-region] {
-            align-items: center;
-            justify-content: center;
+            inset: auto 0 16px 0;
+            width: 100%;
+            height: 46%;
           }
-          [data-one-feature-cta] {
-            max-width: 430px;
-            padding-top: 22px;
-            padding-bottom: 4px;
-          }
+          [data-one-feature-card="checkin"] [data-one-checkin-art] { width: 34%; }
         }
       `}</style>
     </div>
@@ -1142,11 +853,6 @@ function formatCircleCode(code: string): string {
  * can set up their One account and later join the Location Circle with it. The
  * code is member-visible only and is never placed in a URL.
  */
-// Mirrored by contacts_disclosure_message in the Android strings.xml; keep both
-// true to lib/marketplace/contact-matching.ts (hash + last four digits only).
-export const CONTACTS_PRIVACY_DISCLOSURE =
-  "Phone numbers are standardized on your device and turned into one-way codes. Only those codes and the last four digits are checked for matches. One never stores your contacts' names or numbers, and nobody is contacted for you.";
-
 /**
  * Find the people you already know who are already on One.
  *
@@ -1246,7 +952,7 @@ function ContactsScreen({
               </h1>
             </>
           ) : null}
-          <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
+          <p className="ui-text-page-subtitle mt-2 text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
             {primed
               ? "Find people from your contacts already on One. Exact matches connect automatically."
               : state.kind === "matched"
@@ -1272,21 +978,14 @@ function ContactsScreen({
                     <p className="max-w-[320px] text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
                       Connect contacts to see who is already here.
                     </p>
-                    {/* Play prominent disclosure: must render above the button
-                        that raises the OS contacts prompt. */}
-                    <p
-                      className="max-w-[320px] text-[13px] leading-[18px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]"
-                      data-testid="onboarding-contacts-privacy-disclosure"
-                    >
-                      {CONTACTS_PRIVACY_DISCLOSURE}
-                    </p>
-                    <PrimaryButton
-                      className="mx-auto max-w-[360px]"
+                    <button
+                      type="button"
+                      className="min-h-11 px-2 text-[15px] font-semibold text-[color:var(--app-accent-deep)] disabled:opacity-50 dark:text-[color:var(--app-accent-bright)]"
                       onClick={onSync}
                       disabled={leaving}
                     >
                       Check my contacts
-                    </PrimaryButton>
+                    </button>
                   </div>
                 )}
               </div>
@@ -1454,7 +1153,6 @@ function ContactsScreen({
             nobody, or a plugin failure must never be a dead end. */}
           <div className="mx-auto w-full max-w-[520px]">
             <PrimaryButton
-              className={primed && state.kind === "idle" ? "max-w-none" : ""}
               onClick={onContinue}
               disabled={navigationDisabled}
               inverse={primed && state.kind === "idle"}
@@ -1496,6 +1194,7 @@ function ReadyScreen({
   onContinue,
   leaving,
   completeLabel,
+  completeControlId,
   completing,
   settlementRetryCount,
   joinCode,
@@ -1537,6 +1236,7 @@ function ReadyScreen({
   onContinue: () => void;
   leaving: boolean;
   completeLabel: string;
+  completeControlId?: string;
   completing: boolean;
   settlementRetryCount: number;
   joinCode: string;
@@ -1618,6 +1318,7 @@ function ReadyScreen({
         <button
           type="button"
           onClick={onBack}
+          disabled={leaving || completing || joinBusy || contactState.kind === "busy" || addingContactIds.length > 0}
           className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-white/85 text-[#1f2b3d] shadow-[0_2px_10px_rgba(24,57,91,0.14)] backdrop-blur-sm dark:bg-[color:var(--app-glass-surface)] dark:text-[color:var(--app-label)] dark:shadow-[var(--app-glass-shadow)]"
           aria-label="Go back"
         >
@@ -1626,7 +1327,7 @@ function ReadyScreen({
         <span className="rounded-[14px] bg-white/90 px-3 py-2 shadow-[0_2px_10px_rgba(24,57,91,0.14)] backdrop-blur-sm dark:bg-[color:var(--app-glass-surface)] dark:shadow-[var(--app-glass-shadow)]">
           <OnboardingStepper
             steps={ONE_LOCATION_ONBOARDING_STEPS}
-            currentIndex={3}
+            currentIndex={2}
             compact
             ariaLabel="One Location setup progress"
           />
@@ -1647,14 +1348,11 @@ function ReadyScreen({
           <h1
             ref={headingRef}
             tabIndex={-1}
-            className="ui-text-agent-title pb-1 [--type-agent-title-size:var(--type-page-title-size)] text-[#151b26] outline-none dark:!text-[color:var(--app-label)]"
+            className="ui-text-page-title pb-1 text-[#151b26] outline-none dark:!text-[color:var(--app-label)]"
             data-one-ready-title
           >
             {mapPoint ? "You're on the map." : "You're all set."}
           </h1>
-          <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
-            Private until you share.
-          </p>
 
           {/* "Your people show up here once they join." used to sit here, with a
             dashed empty-seat avatar beside it. The map above and the invite
@@ -1937,9 +1635,11 @@ function ReadyScreen({
           ) : null}
           {/* Always the completion CTA. A code that failed to load is not a
               reason to record the whole capability as skipped -- the person
-              granted permission and saved a place, so finishing is the honest
+              finished the introduction, so opening Location is the honest
               outcome. Retrying the code lives inside the card above. */}
           <PrimaryButton
+            voiceControlId={completeControlId}
+            className="mx-auto flex max-w-[244px]"
             onClick={onContinue}
             busy={completing}
             disabled={leaving}
@@ -1970,8 +1670,8 @@ function ReadyScreen({
   );
 }
 
-function initialScreen(startAt: OneLocationOnboardingStart): OnboardingScreen {
-  return startAt === "permissions" ? "features" : "welcome";
+function initialScreen(): OnboardingScreen {
+  return "features";
 }
 
 export function OneLocationOnboardingFlow({
@@ -1979,18 +1679,16 @@ export function OneLocationOnboardingFlow({
   activeScreen,
   onScreenChange,
   currentUserName,
-  locationPermission,
-  locationBusy,
   nativeTest,
-  onRequestLocation,
-  onLocationReady,
   onBack,
   onComplete,
   onSkip = onComplete,
   completeLabel = "Open One Location",
+  completeControlId,
   mapPoint = null,
   contactsStepAvailable = true,
   contactsSource = "device",
+  onPreparePlace,
   onSyncOnboardingContacts,
   contactSyncResult,
   showGoogleAccountSwitcher = false,
@@ -2002,43 +1700,12 @@ export function OneLocationOnboardingFlow({
   onCopyOnboardingCircleCode,
   onShareOnboardingCircleCode,
 }: OneLocationOnboardingFlowProps) {
-  for (const source of ONBOARDING_IMAGE_SOURCES) {
-    preload(source, { as: "image", fetchPriority: "high" });
-  }
+  // Onboarding owns the whole screen: no tab bar, top bar or agent dock under it.
+  useSessionChromeSuppression(true);
 
-  // The finale is a map, and a map that arrives after the screen does reads as
-  // the product being slow at the exact moment it is trying to impress. Warm
-  // the connection from the very first screen so DNS and TLS are already paid
-  // for, then start the Maps script immediately -- the loader is a module-level
-  // singleton, so this is the same request the finale would make, only several
-  // screens earlier and off the critical path.
-  preconnect("https://maps.googleapis.com");
-  preconnect("https://maps.gstatic.com");
-  useGoogleMaps({ enabled: true });
+  // Subscribe to an existing fix without requesting permission or starting GPS.
+  const { snapshot: deviceSnapshot } = useCurrentLocation({ auto: false });
 
-  /**
-   * The account's position, from the one place the whole app already keeps it.
-   *
-   * `auto` resolves a fix on mount ONLY when the OS has already granted
-   * permission; it never triggers a first prompt, which matters more here than
-   * anywhere -- iOS grants exactly one Core Location alert per install, and
-   * this flow's entire second screen exists to spend it deliberately.
-   *
-   * Subscribed here rather than in the Location page because the bus updates
-   * as the device reports, and the page is a very large tree that has no reason
-   * to re-render for a coordinate only the finale reads. The onboarding overlay
-   * is mounted for a minute at most.
-   */
-  const { snapshot: deviceSnapshot } = useCurrentLocation({ auto: true });
-
-  /**
-   * Where the finale's camera actually goes.
-   *
-   * `mapPoint` is the page's answer from the three sources it owns. All three
-   * are empty on ordinary runs -- someone who skipped the save-place step, or
-   * granted Location and walked straight through -- and the screen then drew a
-   * picture of a map the person was not on. The bus is the last resort.
-   */
   const finaleMapPoint = useMemo(
     () =>
       resolveOnboardingFinaleMapPoint({
@@ -2049,7 +1716,7 @@ export function OneLocationOnboardingFlow({
   );
 
   const [internalScreen, setInternalScreen] = useState<OnboardingScreen>(() =>
-    initialScreen(startAt),
+    initialScreen(),
   );
   const screen = activeScreen ?? internalScreen;
   const setScreen = useCallback(
@@ -2100,6 +1767,8 @@ export function OneLocationOnboardingFlow({
   const [joinAccepted, setJoinAccepted] = useState(false);
 
   const [leaving, setLeaving] = useState(false);
+  const [placePreparing, setPlacePreparing] = useState(false);
+  const placePreparingRef = useRef(false);
   const [completionBusy, setCompletionBusy] = useState(false);
   const [settlementRetryCount, setSettlementRetryCount] = useState(0);
   const [activeReadyDisclosure, setActiveReadyDisclosure] = useState<
@@ -2110,64 +1779,11 @@ export function OneLocationOnboardingFlow({
   const codeCopiedRef = useRef(false);
   const outcomeReportedRef = useRef(false);
   const screensSeenRef = useRef<Set<OnboardingScreen>>(new Set());
-  const locationPreparationCompleteRef = useRef(false);
-  const locationPreparationInFlightRef = useRef<Promise<boolean> | null>(null);
   const completionInFlightRef = useRef(false);
-  const [locationPreparationBusy, setLocationPreparationBusy] = useState(false);
-  const [locationPreparationRetry, setLocationPreparationRetry] =
-    useState(false);
-
-  const locationGranted =
-    locationPermission?.state === "granted" &&
-    locationPermission.locationServicesEnabled !== false;
-  /**
-   * The states where asking again cannot help: refused, held by device policy,
-   * or the phone's Location Services switch is off. `prompt` and a null (not
-   * yet read) permission are deliberately NOT blocked -- those are the states
-   * where the answer is still coming.
-   *
-   * Read on the finale only, to name the right reason for an empty map band.
-   */
-  const locationBlocked =
-    locationPermission?.state === "denied" ||
-    locationPermission?.state === "restricted" ||
-    locationPermission?.locationServicesEnabled === false;
-  const prepareSavedLocation = useCallback(
-    (permissionReady = locationGranted): Promise<boolean> => {
-      if (!permissionReady) return Promise.resolve(false);
-      if (locationPreparationCompleteRef.current) {
-        return Promise.resolve(true);
-      }
-      if (locationPreparationInFlightRef.current) {
-        return locationPreparationInFlightRef.current;
-      }
-
-      setLocationPreparationBusy(true);
-      setLocationPreparationRetry(false);
-      const attempt = Promise.resolve(onLocationReady())
-        .then((complete) => {
-          locationPreparationCompleteRef.current = complete;
-          setLocationPreparationRetry(!complete);
-          return complete;
-        })
-        .catch(() => {
-          locationPreparationCompleteRef.current = false;
-          setLocationPreparationRetry(true);
-          return false;
-        })
-        .finally(() => {
-          locationPreparationInFlightRef.current = null;
-          setLocationPreparationBusy(false);
-        });
-      locationPreparationInFlightRef.current = attempt;
-      return attempt;
-    },
-    [locationGranted, onLocationReady],
-  );
 
   useEffect(() => {
     if (activeScreen) return;
-    setInternalScreen(initialScreen(startAt));
+    setInternalScreen(initialScreen());
   }, [activeScreen, startAt]);
 
   const prepareCircleInvite = useCallback(async () => {
@@ -2497,43 +2113,50 @@ export function OneLocationOnboardingFlow({
     }
   };
 
-  const openFeatures = () => {
-    setScreen("features");
-  };
-
-  const backFromFeatures = () => {
-    if (startAt === "permissions") {
-      void runBack();
+  const continueFromFeatures = () => {
+    if (leaving || placePreparingRef.current) return;
+    if (!onPreparePlace) {
+      setScreen("ready");
       return;
     }
-    setScreen("welcome");
-  };
-
-  const continueFromFeatures = () => {
-    if (locationBusy || locationPreparationBusy) return;
-    setLocationPreparationRetry(false);
+    placePreparingRef.current = true;
+    setPlacePreparing(true);
     void (async () => {
-      let permissionReady = locationGranted;
-      if (!permissionReady) {
-        try {
-          permissionReady = (await onRequestLocation()) === true;
-        } catch {
-          permissionReady = false;
-        }
+      let opened = false;
+      try {
+        opened = (await onPreparePlace()) === true;
+      } catch {
+        opened = false;
+      } finally {
+        placePreparingRef.current = false;
+        setPlacePreparing(false);
       }
-      if (!permissionReady) return;
-      const prepared = await prepareSavedLocation(true);
-      if (prepared) setScreen("place");
+      setScreen(opened ? "place" : "ready");
     })();
   };
+
+  // All Back surfaces unwind the same local flow, including native Back and
+  // legacy/controlled entries that start directly on the feature screen.
+  const handleFlowBack = () => {
+    if (leaving || placePreparing || completionBusy || joinBusy || contactState.kind === "busy" || addingContactIds.length > 0) return true;
+    if (screen === "features") {
+      void runBack();
+    } else if (screen === "ready" && activeReadyDisclosure) {
+      setActiveReadyDisclosure(null);
+    } else {
+      setScreen("features");
+    }
+    return true;
+  };
+  useBackLayer(nativeTest.routeId, activeReadyDisclosure ? 2 : 1, handleFlowBack);
 
   return (
     <main
       // Onboarding is modal; nothing from the app shell belongs over it. Keep
       // it above elevated Talk to One / bottom-nav states without touching those
       // global controls.
-      className="fixed inset-0 z-[9000] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[color:var(--app-grouped-background)] text-[#171d28] [--type-agent-title-size:34px] dark:text-[color:var(--app-label)] sm:[--type-agent-title-size:44px]"
-      data-one-onboarding-design="location-agent-v2"
+      className="fixed inset-0 z-[9000] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[color:var(--app-grouped-background)] text-[#171d28] dark:text-[color:var(--app-label)]"
+      data-one-onboarding-design="location-agent-v3"
       data-no-route-swipe
       data-testid="one-location-onboarding"
       data-location-onboarding-screen={screen}
@@ -2542,70 +2165,25 @@ export function OneLocationOnboardingFlow({
       <section
         className={cn(
           "flex h-full min-h-0 w-full flex-col overflow-hidden bg-white dark:bg-[color:var(--app-grouped-background)]",
-          // The welcome and feature screens own the full-bleed desktop canvas,
-          // while their inner content rails keep the designed width. Expanding
-          // the canvas is fine; stretching feature cards is what creates the
-          // broken desktop collisions. Dense later steps keep the phone-width
-          // flow.
-          //
-          // The feature cards style themselves with `@container (max-width:
-          // 420px)`, so the CARD decides its own tier, not the viewport. At a
-          // 480px panel the card measured 432px and fell out of that tier, so
-          // desktop rendered a different pill size, padding and type scale than
-          // the same screen on a phone -- which is the inconsistency, not any
-          // single element being misplaced. 430px puts the card at 382px, in
-          // the same tier a phone lands in, so the two render identically.
-          //
-          // 431px is the phone breakpoint: below it the panel goes full-bleed
-          // rather than leaving side gutters on a device that has none.
+          // Feature content keeps a responsive rail; Ready owns its panel.
           "max-w-none",
         )}
         data-testid={LOCATION_SCREEN_TEST_IDS[screen]}
       >
-        {screen === "welcome" ? (
-          <WelcomeScreen
-            onBack={() => void runBack()}
-            onSkip={() => void runSkip()}
-            onStart={openFeatures}
-            leaving={leaving}
-          />
-        ) : null}
         {screen === "features" ? (
           <FeaturesScreen
-            locationGranted={locationGranted}
-            locationBlocked={locationBlocked}
-            locationBusy={locationBusy}
-            locationPreparationBusy={locationPreparationBusy}
-            locationPreparationRetry={locationPreparationRetry}
-            onBack={backFromFeatures}
+            onBack={handleFlowBack}
             onSkip={() => void runSkip()}
             leaving={leaving}
+            continueBusy={placePreparing}
             onContinue={continueFromFeatures}
-          />
-        ) : null}
-        {/* Tile prewarm. The script being ready is only half of it -- the map
-            still has to fetch imagery for this exact point, and doing that on
-            arrival is what makes the finale look like it is thinking. A
-            full-size instance renders here, invisibly, so the tiles are in the
-            browser cache before the screen that shows them exists. It unmounts
-            as the finale mounts, so there is never a second live map. */}
-        {screen === "place" && finaleMapPoint ? (
-          <OnboardingLiveMap
-            point={finaleMapPoint}
-            className="pointer-events-none absolute inset-0 -z-10 opacity-0"
           />
         ) : null}
         {screen === "ready" ? (
           <ReadyScreen
             currentUserName={currentUserName}
             mapPoint={finaleMapPoint}
-            // Two different reasons produce an empty map band, and only the
-            // caller can tell them apart. "Map unavailable" in front of someone
-            // who refused Location blames the wrong thing and hides the one
-            // thing they could change.
-            mapEmptyLabel={
-              locationBlocked ? "Location is off" : "Map unavailable"
-            }
+            mapEmptyLabel="Turn on Location when you're ready."
             invite={circleInvite}
             loading={circleInviteLoading}
             error={circleInviteError}
@@ -2613,10 +2191,11 @@ export function OneLocationOnboardingFlow({
             onRetry={() => void prepareCircleInvite()}
             onCopy={handleCopyCircleInvite}
             onShare={handleShareCircleInvite}
-            onBack={() => setScreen("place")}
+            onBack={handleFlowBack}
             onContinue={finishFromInvite}
             leaving={leaving}
             completeLabel={completeLabel}
+            completeControlId={completeControlId}
             completing={completionBusy}
             settlementRetryCount={settlementRetryCount}
             joinCode={joinCode}

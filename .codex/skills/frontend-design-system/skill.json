@@ -27,7 +27,8 @@
     "docs/reference/quality/app-surface-design-system.md",
     "docs/reference/quality/frontend-pattern-catalog.md",
     ".codex/skills/frontend-design-system/references/design-review-kernel.md",
-    "docs/reference/mobile/render-performance-charter.md"
+    "docs/reference/mobile/render-performance-charter.md",
+    "hushh-webapp/docs/ios-native-surface-adoption.md"
   ],
   "required_commands": [
     "cd hushh-webapp && npm run verify:design-system",

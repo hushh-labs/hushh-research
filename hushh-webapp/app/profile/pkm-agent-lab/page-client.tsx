@@ -66,7 +66,7 @@ import { useVault } from "@/lib/vault/vault-context";
 import {
   usePublishVoiceSurfaceMetadata,
   useVoiceSurfaceControlTracking,
-} from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/voice-surface-metadata";
 import {
   resolveVaultAvailabilityState,
   resolveVaultCapabilityState,

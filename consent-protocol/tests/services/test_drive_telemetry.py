@@ -14,7 +14,12 @@ import pytest
 from hushh_mcp.consent.audit_logger import audit_context
 from hushh_mcp.services.drive_chat_service import DriveChatService
 from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchService
-from hushh_mcp.services.drive_telemetry import correlation_tag, drive_logger, drive_operation
+from hushh_mcp.services.drive_telemetry import (
+    correlation_tag,
+    drive_logger,
+    drive_operation,
+    drive_stage,
+)
 from hushh_mcp.services.google_drive_adapter import GoogleDriveAdapter
 from mcp_modules.log_redaction import install_sensitive_log_filter
 
@@ -60,7 +65,10 @@ async def test_background_pages_slices_and_rest_keep_same_private_job_tag(caplog
             job["checkpoint"] = {"phase": "user"}
             assert await service.run_one(user_id="private-owner", job_id=job_id) == "completed"
     logs = messages(caplog)
-    assert len(logs) == 6
+    for stage in ("search_claim", "search_authority", "search_commit"):
+        assert sum(f"stage={stage} " in message for message in logs) == 2
+    assert sum("drive_search.page " in message for message in logs) == 2
+    assert sum("drive_search.slice " in message for message in logs) == 2
     assert all(operation(message) == correlation_tag(job_id) for message in logs)
     assert all(
         f"request_tag={correlation_tag('private-request-id')}" in message for message in logs
@@ -162,3 +170,18 @@ async def test_even_numeric_only_tags_survive_global_filter(caplog, monkeypatch)
     with audit_context("synthetic-request"):
         await task()
     assert "drive_op=0000000000000000 request_tag=0000000000000000" in messages(caplog)[0]
+
+
+@pytest.mark.parametrize("failure", [RuntimeError, asyncio.CancelledError])
+def test_stage_failure_logs_only_closed_outcome_and_never_exception_text(caplog, failure):
+    with pytest.raises(failure):
+        with drive_stage(drive_logger("drive_stage_test"), "search_handoff"):
+            raise failure("private-query private-owner private-token")
+    entry = messages(caplog)[-1]
+    assert "stage=search_handoff" in entry and "duration_ms=" in entry
+    assert f"outcome={'cancelled' if failure is asyncio.CancelledError else 'error'}" in entry
+    assert "private-" not in entry
+    with pytest.raises(ValueError, match="unknown Drive timing stage"):
+        with drive_stage(drive_logger("drive_stage_test"), "private-query"):
+            pytest.fail("unbounded stage accepted")
+    assert len(messages(caplog)) == 1

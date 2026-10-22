@@ -3,8 +3,8 @@
 import type { AgentActionRuntimeResult } from "@/lib/agent/agent-action-runtime";
 import { isServerDirectCapability } from "@/lib/agent/server-direct-capability-runtime";
 import type { PendingOneSystemActionInvocation } from "@/lib/capacitor/one-system-action-invocation";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
-import { resolveNavigationJourney } from "@/lib/voice/navigation-journey";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
+import { resolveNavigationJourney } from "@/lib/kai/actions/navigation-journey";
 
 type GoalAuthorization = {
   goalId: string;

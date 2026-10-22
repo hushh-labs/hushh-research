@@ -6,10 +6,7 @@
 import React, { useEffect, useMemo, type CSSProperties } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
-  Compass as PhosphorCompass,
-  Search as MagnifyingGlass,
-  MessageCircle as ChatCircle,
-  Grid2x2 as SquaresFour,
+  BOTTOM_NAVIGATION_ICONS,
   Briefcase,
   BarChart3 as ChartBar,
   ChartColumnIncreasing as ChartLineUp,
@@ -17,14 +14,12 @@ import {
   Mail as EnvelopeSimple,
   FolderSearch as FolderSimple,
   MapPin,
-  Newspaper,
   ShieldCheck,
   Store as Storefront,
   Table,
   UserRound as UserCircle,
   UsersRound as UsersThree,
   Wallet,
-  type CanonicalIconProps as PhosphorIconProps,
 } from "@/components/icons";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -52,28 +47,11 @@ import {
   type AppBottomNavKey,
 } from "@/lib/navigation/app-bottom-nav";
 import { resolveAgentNavigationContextForPath } from "@/lib/navigation/agent-sections";
-import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
 import { useInteractionIntents } from "@/lib/interaction/interaction-intent-coordinator";
 import { useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { useNativeNavigation, NATIVE_NAVIGATION_TABS, type NativeNavigationTab } from "@/lib/capacitor/native-navigation";
 import { useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
-import { useVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
-
-function FilledSquaresFourIcon(props: PhosphorIconProps) {
-  return <SquaresFour {...props} weight="fill" />;
-}
-
-function FilledCompassIcon(props: PhosphorIconProps) {
-  return <PhosphorCompass {...props} weight="fill" />;
-}
-
-function FilledMagnifyingGlassIcon(props: PhosphorIconProps) {
-  return <MagnifyingGlass {...props} weight="fill" />;
-}
-
-function FilledChatCircleIcon(props: PhosphorIconProps) {
-  return <ChatCircle {...props} weight="fill" />;
-}
+import { useVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 const BOTTOM_GAP_PX = 4;
 
@@ -84,15 +62,13 @@ const BOTTOM_NAV_OPTION_META: Record<
   dashboard: {
     value: "dashboard",
     label: "One",
-    icon: SquaresFour,
-    activeIcon: FilledSquaresFourIcon,
+    ...BOTTOM_NAVIGATION_ICONS.dashboard,
     dataTourId: "nav-one-dashboard",
   },
   chat: {
     value: "chat",
     label: "Chat",
-    icon: ChatCircle,
-    activeIcon: FilledChatCircleIcon,
+    ...BOTTOM_NAVIGATION_ICONS.chat,
     dataTourId: "nav-chat",
   },
   finance: {
@@ -116,8 +92,7 @@ const BOTTOM_NAV_OPTION_META: Record<
   connect: {
     value: "connect",
     label: "Connect",
-    icon: PhosphorCompass,
-    activeIcon: FilledCompassIcon,
+    ...BOTTOM_NAVIGATION_ICONS.connect,
     dataTourId: "nav-connect",
   },
   "ria-home": {
@@ -165,7 +140,7 @@ const BOTTOM_NAV_OPTION_META: Record<
   feed: {
     value: "feed",
     label: "Feed",
-    icon: Newspaper,
+    ...BOTTOM_NAVIGATION_ICONS.feed,
     dataTourId: "nav-one-feed",
   },
   pkm: {
@@ -185,13 +160,6 @@ const BOTTOM_NAV_OPTION_META: Record<
     label: "Systems",
     icon: Database,
     dataTourId: "nav-one-systems",
-  },
-  search: {
-    value: "search",
-    label: "Search",
-    icon: MagnifyingGlass,
-    activeIcon: FilledMagnifyingGlassIcon,
-    dataTourId: "nav-search",
   },
   profile: {
     value: "profile",
@@ -462,10 +430,6 @@ export const Navbar = ({
         ? bottomNavScope
         : "one",
     );
-    if (action.type === "command") {
-      openKaiCommandBar();
-      return;
-    }
     if (action.type === "route") {
       const nextAgentContext = resolveAgentNavigationContextForPath(
         action.href,
@@ -484,15 +448,16 @@ export const Navbar = ({
         scroll: false,
         source: "tap",
         transitionMode: "contextual",
+        ...(key !== activeNav ? { feedback: "selection" as const } : {}),
       });
     }
   };
 
   const nativeNavigation = useNativeNavigation({
-    enabled: layout === "slot" && nativeAppearance !== null,
-    visible: isAuthenticated && isVaultUnlocked && !useOnboardingChrome &&
-      !hideNavbar && !shellNavigationHidden && !sessionChromeSuppressed &&
-      !surface?.interactionLayer?.blocksUnderlyingActions,
+    enabled: layout === "slot",
+    visible: nativeAppearance !== null && isAuthenticated && isVaultUnlocked && !useOnboardingChrome &&
+      !hideNavbar && !shellNavigationHidden && !sessionChromeSuppressed,
+    interactionEnabled: !surface?.interactionLayer?.blocksUnderlyingActions,
     selected: NATIVE_NAVIGATION_TABS.includes(activeNav as NativeNavigationTab)
       ? activeNav as NativeNavigationTab : "dashboard",
     feedAttention: (pendingConsents ?? 0) > 0 || (feedUnreadCount ?? 0) > 0,
@@ -522,7 +487,7 @@ export const Navbar = ({
         // No breakpoint gate here. The bottom pill IS the primary navigation on
         // every viewport — there is no desktop/sidebar nav that takes over at
         // `lg`, so hiding it above 1024px leaves signed-in users with no way to
-        // reach One / Connect / Feed / Search at all.
+        // reach One / Connect / Feed at all.
         "pointer-events-none",
       )}
       style={
@@ -551,7 +516,7 @@ export const Navbar = ({
           )}
           ref={pillRef}
         >
-          {nativeNavigation.ready ? (
+          {nativeNavigation.reserved ? (
             <div
               aria-hidden="true"
               data-native-navigation-reservation
@@ -564,6 +529,7 @@ export const Navbar = ({
               layout="stacked"
               hitArea="segment"
               ripple={false}
+              hapticFeedback={false}
               value={activeNav}
               options={navOptions}
               onValueChange={navigateTo}

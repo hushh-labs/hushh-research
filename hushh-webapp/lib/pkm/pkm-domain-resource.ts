@@ -10,11 +10,19 @@ import {
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 import { SecureResourceCacheService } from "@/lib/services/secure-resource-cache-service";
+import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 
 const DEVICE_TTL_MS = 24 * 60 * 60 * 1000;
+// A mutation doorbell mid-flight is expected to need one re-read; a domain
+// under continuous write pressure must not turn that into unbounded recursion.
+const MAX_REFRESH_RETRY_ATTEMPTS = 3;
+const REFRESH_RETRY_BACKOFF_MS = 150;
 const inflightRefreshes = new Map<string, Promise<PkmDomainResourceSnapshot | null>>();
 const domainRevisions = new Map<string, number>();
 const deviceEvictions = new Map<string, Promise<void>>();
+// Serialize persistence and stale-write cleanup per domain, so an old session
+// cannot delete a renewed session's replacement snapshot.
+const deviceWrites = new Map<string, Promise<void>>();
 const blockedDeviceRevisionByDomain = new Map<string, number>();
 
 function domainRevisionKey(userId: string, domain: string): string {
@@ -186,6 +194,7 @@ export class PkmDomainResourceService {
     if (!params.vaultKey) {
       return null;
     }
+    const vaultEpoch = snapshotVaultSessionEpoch();
     const revisionKey = domainRevisionKey(params.userId, params.domain);
     let pendingEviction = deviceEvictions.get(revisionKey);
     while (pendingEviction) {
@@ -203,6 +212,7 @@ export class PkmDomainResourceService {
       resourceKey,
       vaultKey: params.vaultKey,
     });
+    if (!isVaultSessionEpochCurrent(vaultEpoch)) return null;
     if (domainRevision(params.userId, params.domain) !== revision) {
       await SecureResourceCacheService.invalidateResourcePrefix(
         params.userId,
@@ -420,11 +430,30 @@ export class PkmDomainResourceService {
   static async refresh(
     params: PkmDomainResourceParams
   ): Promise<PkmDomainResourceSnapshot | null> {
+    return this.refreshAttempt(params, 0);
+  }
+
+  /**
+   * A mutation doorbell mid-flight re-reads once the dust settles -- correct,
+   * because the stale response must not repopulate the cache. But a domain
+   * under continuous write pressure (another failed writer retrying the same
+   * domain, or simply one that will keep 404ing because it was never
+   * created) bumped the revision again before the re-read landed, and this
+   * recursed with no cap and no backoff: one page load produced well over a
+   * hundred identical network fetches for an address that was never there.
+   * MAX_REFRESH_RETRY_ATTEMPTS bounds that. Exhausted invalidated reads
+   * reject: neither absence nor an obsolete snapshot is authoritative.
+   */
+  private static async refreshAttempt(
+    params: PkmDomainResourceParams,
+    attempt: number,
+  ): Promise<PkmDomainResourceSnapshot | null> {
     if (!params.userId || !params.domain || !params.vaultKey) {
       return null;
     }
 
-    const inflightKey = `${params.userId}:${params.domain}:${segmentSignature(params.segmentIds)}`;
+    const vaultEpoch = snapshotVaultSessionEpoch();
+    const inflightKey = `${params.userId}:${params.domain}:${segmentSignature(params.segmentIds)}:${vaultEpoch}`;
     const existing = inflightRefreshes.get(inflightKey);
     if (existing) {
       logRequest("inflight_dedupe_hit", {
@@ -447,8 +476,12 @@ export class PkmDomainResourceService {
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken || undefined,
       segmentIds: params.segmentIds,
+      // A refresh must reach the server, not relabel a cached ciphertext as
+      // current network evidence. Shared refreshes still single-flight here.
+      forceRefresh: true,
     })
       .then(async ({ data, blob }) => {
+        if (!isVaultSessionEpochCurrent(vaultEpoch)) return null;
         if (domainRevision(params.userId, params.domain) !== startRevision) {
           // This read began before a same-tab, cross-tab, or cross-device
           // mutation doorbell. Let every waiter converge on one post-event
@@ -456,7 +489,12 @@ export class PkmDomainResourceService {
           if (inflightRefreshes.get(inflightKey) === request) {
             inflightRefreshes.delete(inflightKey);
           }
-          return await this.refresh(params);
+          if (attempt >= MAX_REFRESH_RETRY_ATTEMPTS) {
+            throw new Error("Memory changed repeatedly while loading. Try again.");
+          }
+          await new Promise(resolve => setTimeout(resolve, REFRESH_RETRY_BACKOFF_MS * (attempt + 1)));
+          if (!isVaultSessionEpochCurrent(vaultEpoch)) return null;
+          return await this.refreshAttempt(params, attempt + 1);
         }
         if (!data) {
           CacheService.getInstance().invalidate(toCacheKey(params));
@@ -479,13 +517,30 @@ export class PkmDomainResourceService {
           snapshot,
         });
         if (hasUserConsent(params)) {
-          await SecureResourceCacheService.write({
-            userId: params.userId,
-            resourceKey: toDeviceResourceKey(params),
-            value: snapshot,
-            ttlMs: DEVICE_TTL_MS,
-            vaultKey: params.vaultKey!,
+          const writeKey = domainRevisionKey(params.userId, params.domain);
+          const previousWrite = deviceWrites.get(writeKey) || Promise.resolve();
+          const write = previousWrite.catch(() => undefined).then(async () => {
+            if (!isVaultSessionEpochCurrent(vaultEpoch) || domainRevision(params.userId, params.domain) !== startRevision) return;
+            await SecureResourceCacheService.write({
+              userId: params.userId,
+              resourceKey: toDeviceResourceKey(params),
+              value: snapshot,
+              ttlMs: DEVICE_TTL_MS,
+              vaultKey: params.vaultKey!,
+            });
+            if (!isVaultSessionEpochCurrent(vaultEpoch) || domainRevision(params.userId, params.domain) !== startRevision) {
+              await SecureResourceCacheService.invalidateResourcePrefix(
+                params.userId, `pkm_domain:${params.domain}:`,
+              ).catch(() => undefined);
+            }
           });
+          deviceWrites.set(writeKey, write);
+          try {
+            await write;
+          } finally {
+            if (deviceWrites.get(writeKey) === write) deviceWrites.delete(writeKey);
+          }
+          if (!isVaultSessionEpochCurrent(vaultEpoch)) return null;
           if (
             blockedDeviceRevisionByDomain.get(
               domainRevisionKey(params.userId, params.domain),
@@ -496,17 +551,16 @@ export class PkmDomainResourceService {
             );
           }
           if (domainRevision(params.userId, params.domain) !== startRevision) {
-            // A mutation landed while the stale snapshot was being persisted.
-            // Remove that just-written device fallback before joining a fresh
-            // authoritative read; otherwise deletion can resurrect it later.
-            await SecureResourceCacheService.invalidateResourcePrefix(
-              params.userId,
-              `pkm_domain:${params.domain}:`,
-            ).catch(() => undefined);
+            // Serialized persistence already removed the obsolete fallback.
             if (inflightRefreshes.get(inflightKey) === request) {
               inflightRefreshes.delete(inflightKey);
             }
-            return await this.refresh(params);
+            if (attempt >= MAX_REFRESH_RETRY_ATTEMPTS) {
+              throw new Error("Memory changed repeatedly while loading. Try again.");
+            }
+            await new Promise(resolve => setTimeout(resolve, REFRESH_RETRY_BACKOFF_MS * (attempt + 1)));
+            if (!isVaultSessionEpochCurrent(vaultEpoch)) return null;
+            return await this.refreshAttempt(params, attempt + 1);
           }
         }
         return snapshot;
@@ -600,9 +654,10 @@ export function usePkmDomainResource(
     enabled: Boolean(params.enabled ?? true) && Boolean(params.userId && params.domain),
     resourceLabel: `pkm_domain:${params.domain}`,
     refreshKey,
-    load: async () =>
+    load: async (options) =>
       await PkmDomainResourceService.getStaleFirst({
         ...params,
+        forceRefresh: options?.force,
         backgroundRefresh: params.backgroundRefresh,
       }),
   });

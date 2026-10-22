@@ -1,6 +1,12 @@
 import { z } from "zod";
 import type { PkmUserConfirmation } from "@/lib/personal-knowledge-model/mutation-plan";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
+import { subscribeToPkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
+import {
+  isVaultSessionEpochCurrent,
+  snapshotVaultSessionEpoch,
+  subscribeVaultSessionEpoch,
+} from "@/lib/vault/session-epoch";
 import {
   boundedSecret,
   containsVaultOwnerCredential,
@@ -28,12 +34,52 @@ export {
 
 type VaultAccess = { userId: string; vaultKey: string; vaultOwnerToken: string };
 
+type ConnectorSessionCache = {
+  userId: string;
+  vaultEpoch: number;
+  records: Record<string, unknown>;
+};
+
+let connectorSessionCache: ConnectorSessionCache | null = null;
+let connectorReadSequence = 0;
+let connectorReadInFlight: {
+  userId: string;
+  vaultEpoch: number;
+  sequence: number;
+  promise: Promise<Record<string, unknown>>;
+} | null = null;
+let connectorCacheListenersInstalled = false;
+
+function clearConnectorSessionCache(userId?: string): void {
+  if (!userId || connectorSessionCache?.userId === userId) {
+    connectorSessionCache = null;
+  }
+  if (!userId || connectorReadInFlight?.userId === userId) {
+    connectorReadInFlight = null;
+    connectorReadSequence += 1;
+  }
+}
+
+function ensureConnectorCacheListeners(): void {
+  if (typeof window === "undefined" || connectorCacheListenersInstalled) return;
+  subscribeVaultSessionEpoch(() => clearConnectorSessionCache());
+  subscribeToPkmDomainChanges((detail) => {
+    if (detail.domain === "runtime_secrets") {
+      clearConnectorSessionCache(detail.userId);
+    }
+  });
+  connectorCacheListenersInstalled = true;
+}
+
 function reference(connectorId: string): string {
   if (!identifier.safeParse(connectorId).success) throw invalidConfiguration();
   return `pkm:runtime_secrets.connectors.${connectorId}`;
 }
 
-async function storedRecords(access: VaultAccess, force = false): Promise<Record<string, unknown>> {
+async function readStoredRecords(
+  access: VaultAccess,
+  force: boolean,
+): Promise<Record<string, unknown>> {
   const domain = force
     ? (await PersonalKnowledgeModelService.loadDomainSnapshot({ ...access, domain: "runtime_secrets", force: true })).data
     : await PersonalKnowledgeModelService.loadDomainData({ ...access, domain: "runtime_secrets" });
@@ -42,7 +88,46 @@ async function storedRecords(access: VaultAccess, force = false): Promise<Record
   if (domain.connectors === undefined) return {};
   if (!domain.connectors || typeof domain.connectors !== "object" || Array.isArray(domain.connectors)) throw invalidConfiguration();
   if (Object.keys(domain.connectors).length > 32) throw invalidConfiguration();
-  return domain.connectors as Record<string, unknown>;
+  return { ...(domain.connectors as Record<string, unknown>) };
+}
+
+async function storedRecords(access: VaultAccess, force = false): Promise<Record<string, unknown>> {
+  ensureConnectorCacheListeners();
+  const vaultEpoch = snapshotVaultSessionEpoch();
+  if (force) connectorSessionCache = null;
+  if (!force && connectorSessionCache?.userId === access.userId &&
+      connectorSessionCache.vaultEpoch === vaultEpoch) {
+    return { ...connectorSessionCache.records };
+  }
+  if (!force && connectorReadInFlight?.userId === access.userId &&
+      connectorReadInFlight.vaultEpoch === vaultEpoch) {
+    const inFlight = connectorReadInFlight;
+    const records = await inFlight.promise;
+    if (!isVaultSessionEpochCurrent(vaultEpoch)) throw invalidConfiguration();
+    if (inFlight.sequence !== connectorReadSequence) {
+      return storedRecords(access);
+    }
+    return { ...records };
+  }
+
+  const sequence = ++connectorReadSequence;
+  const promise = readStoredRecords(access, force);
+  connectorReadInFlight = { userId: access.userId, vaultEpoch, sequence, promise };
+  try {
+    const records = await promise;
+    if (!isVaultSessionEpochCurrent(vaultEpoch)) throw invalidConfiguration();
+    if (sequence !== connectorReadSequence) {
+      return storedRecords(access);
+    }
+    connectorSessionCache = {
+      userId: access.userId,
+      vaultEpoch,
+      records: { ...records },
+    };
+    return { ...records };
+  } finally {
+    if (connectorReadInFlight?.promise === promise) connectorReadInFlight = null;
+  }
 }
 
 function parseStoredRecord(key: string, serialized: unknown): CustomConnectorConfiguration {
@@ -62,7 +147,7 @@ async function expectedRecord(access: VaultAccess, connectorId: string, expected
   return stored === undefined ? null : stored as string;
 }
 
-/** Caller owns unlocked-session validity; no decrypted configuration is cached here. */
+/** Parsed credentials remain memory-only and are scoped to the current vault epoch. */
 export async function loadCustomConnectorConfigurations(access: VaultAccess, force = false): Promise<CustomConnectorConfiguration[]> {
   return Object.entries(await storedRecords(access, force)).map(([key, value]) => parseStoredRecord(key, value));
 }

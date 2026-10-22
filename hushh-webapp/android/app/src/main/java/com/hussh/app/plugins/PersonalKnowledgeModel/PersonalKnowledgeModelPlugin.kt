@@ -674,6 +674,7 @@ class PersonalKnowledgeModelPlugin : Plugin() {
                         val result = JSObject().apply {
                             put("success", jsonResult.optBoolean("success", true))
                             put("conflict", jsonResult.optBoolean("conflict", false))
+                            put("idempotentReplay", jsonResult.optBoolean("idempotent_replay", false))
                             jsonResult.optString("message")
                                 .takeIf { it.isNotBlank() }
                                 ?.let { put("message", it) }

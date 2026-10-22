@@ -280,27 +280,17 @@ cleanup_proxy_credentials() {
   fi
 }
 
-if [ -n "$INSTANCE" ] && [[ "$DB_HOST" == "127.0.0.1" || "$DB_HOST" == "localhost" ]]; then
-  if python3 - "$PROXY_PORT" <<'PY'
-import socket
-import sys
-port = int(sys.argv[1])
-with socket.socket() as sock:
-    sock.settimeout(0.2)
-    sys.exit(0 if sock.connect_ex(("127.0.0.1", port)) == 0 else 1)
-PY
-  then
-    echo "Assuming an existing DB listener is already running on 127.0.0.1:${PROXY_PORT} for ${INSTANCE}."
-  else
-    if ! command -v cloud-sql-proxy >/dev/null 2>&1; then
-      echo "local requires cloud-sql-proxy to reach the UAT Cloud SQL instance." >&2
-      echo "Install it and rerun, or provide a reachable DB_HOST override in consent-protocol/.env." >&2
-      exit 1
-    fi
-    proxy_cmd=(cloud-sql-proxy --address 127.0.0.1 --port "$PROXY_PORT")
-    if [ -z "$PROXY_CREDENTIALS_FILE" ] && [ -n "$PROXY_CREDENTIALS_JSON" ]; then
-      PROXY_CREDENTIALS_TEMP="$(mktemp /tmp/hushh-cloudsql-creds.XXXXXX)"
-      python3 - "$PROXY_CREDENTIALS_TEMP" "$PROXY_CREDENTIALS_JSON" <<'PY'
+start_cloud_sql_proxy() {
+  if ! command -v cloud-sql-proxy >/dev/null 2>&1; then
+    echo "local requires cloud-sql-proxy to reach the UAT Cloud SQL instance." >&2
+    echo "Install it and rerun, or provide a reachable DB_HOST override in consent-protocol/.env." >&2
+    exit 1
+  fi
+
+  local proxy_credentials_file="$PROXY_CREDENTIALS_FILE"
+  if [ -z "$proxy_credentials_file" ] && [ -n "$PROXY_CREDENTIALS_JSON" ]; then
+    PROXY_CREDENTIALS_TEMP="$(mktemp /tmp/hushh-cloudsql-creds.XXXXXX)"
+    python3 - "$PROXY_CREDENTIALS_TEMP" "$PROXY_CREDENTIALS_JSON" <<'PY'
 import json
 import sys
 
@@ -310,27 +300,41 @@ data = json.loads(raw)
 with open(path, "w", encoding="utf-8") as fh:
     json.dump(data, fh)
 PY
-      chmod 600 "$PROXY_CREDENTIALS_TEMP"
-      PROXY_CREDENTIALS_FILE="$PROXY_CREDENTIALS_TEMP"
-    fi
-    if [ -z "$PROXY_CREDENTIALS_FILE" ]; then
-      echo "local requires Cloud SQL proxy credentials from FIREBASE_ADMIN_CREDENTIALS_JSON or CLOUDSQL_PROXY_CREDENTIALS_FILE." >&2
-      echo "Refusing to fall back to local gcloud/ADC credentials." >&2
-      exit 1
-    fi
-    if [ ! -f "$PROXY_CREDENTIALS_FILE" ]; then
-      echo "Cloud SQL proxy credentials file not found: $PROXY_CREDENTIALS_FILE" >&2
-      exit 1
-    fi
-    proxy_cmd+=(--credentials-file "$PROXY_CREDENTIALS_FILE")
-    echo "Starting Cloud SQL proxy for ${INSTANCE} on 127.0.0.1:${PROXY_PORT} using credentials file ${PROXY_CREDENTIALS_FILE}..."
-    proxy_cmd+=("$INSTANCE")
-    "${proxy_cmd[@]}" >/tmp/hushh-cloud-sql-proxy.log 2>&1 &
-    PROXY_PID=$!
-    if ! wait_for_port 127.0.0.1 "$PROXY_PORT"; then
-      echo "Cloud SQL proxy failed to bind 127.0.0.1:${PROXY_PORT}. See /tmp/hushh-cloud-sql-proxy.log" >&2
-      exit 1
-    fi
+    chmod 600 "$PROXY_CREDENTIALS_TEMP"
+    PROXY_CREDENTIALS_FILE="$PROXY_CREDENTIALS_TEMP"
+    proxy_credentials_file="$PROXY_CREDENTIALS_TEMP"
+  fi
+  if [ -z "$proxy_credentials_file" ]; then
+    echo "local requires Cloud SQL proxy credentials from FIREBASE_ADMIN_CREDENTIALS_JSON or CLOUDSQL_PROXY_CREDENTIALS_FILE." >&2
+    echo "Refusing to fall back to local gcloud/ADC credentials." >&2
+    exit 1
+  fi
+  if [ ! -f "$proxy_credentials_file" ]; then
+    echo "Cloud SQL proxy credentials file not found: $proxy_credentials_file" >&2
+    exit 1
+  fi
+
+  local proxy_cmd=(
+    cloud-sql-proxy
+    --address 127.0.0.1
+    --port "$PROXY_PORT"
+    --credentials-file "$proxy_credentials_file"
+    "$INSTANCE"
+  )
+  echo "Starting Cloud SQL proxy for ${INSTANCE} on 127.0.0.1:${PROXY_PORT} using credentials file ${proxy_credentials_file}..."
+  "${proxy_cmd[@]}" >/tmp/hushh-cloud-sql-proxy.log 2>&1 &
+  PROXY_PID=$!
+  if ! wait_for_port 127.0.0.1 "$PROXY_PORT"; then
+    echo "Cloud SQL proxy failed to bind 127.0.0.1:${PROXY_PORT}. See /tmp/hushh-cloud-sql-proxy.log" >&2
+    exit 1
+  fi
+}
+
+if [ -n "$INSTANCE" ] && [[ "$DB_HOST" == "127.0.0.1" || "$DB_HOST" == "localhost" ]]; then
+  if port_is_listening 127.0.0.1 "$PROXY_PORT"; then
+    echo "Assuming an existing DB listener is already running on 127.0.0.1:${PROXY_PORT} for ${INSTANCE}."
+  else
+    start_cloud_sql_proxy
   fi
 fi
 
@@ -345,6 +349,18 @@ fi
 
 if [ "$SKIP_PREFLIGHT" != "true" ]; then
   run_preflight "$PROFILE"
+fi
+
+# Preflight deliberately stops the old local backend after using the database
+# for readiness checks. That backend may own the listener we just reused; its
+# EXIT trap then removes the proxy during the handoff. Revalidate after the old
+# backend has stopped so the new backend cannot start healthy and immediately
+# lose every account/session database call.
+if [ -n "$INSTANCE" ] && [[ "$DB_HOST" == "127.0.0.1" || "$DB_HOST" == "localhost" ]]; then
+  if ! port_is_listening 127.0.0.1 "$PROXY_PORT"; then
+    echo "The reused DB listener exited during backend handoff; starting a replacement proxy."
+    start_cloud_sql_proxy
+  fi
 fi
 
 if [ "$PREFLIGHT_ONLY" = "true" ]; then

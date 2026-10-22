@@ -2,7 +2,7 @@
  * Region-aware payment-card validation. Pure module: no network, no storage.
  *
  * BYOK means only the browser ever sees the PAN, so this module is the
- * authoritative validator for secrets (Luhn, brand detection, CVV/PIN shape).
+ * local validator for card details (checksum, name and expiry).
  * The server independently re-validates the non-secret envelope (brand, last4,
  * expiry, issuing region) in consent-protocol wallet_card_validation.py -
  * keep the region rules in the two files in sync.
@@ -12,19 +12,21 @@
  * brand for any region would refuse legitimately issued cards.
  */
 
-export type CardBrand =
-  | "visa"
-  | "mastercard"
-  | "amex"
-  | "discover"
-  | "diners"
-  | "jcb"
-  | "unionpay"
-  | "rupay"
-  | "mir"
-  | "elo"
-  | "verve"
-  | "other";
+import { isWalletSecurityCode } from "./card-security-code";
+
+export const CARD_BRANDS = [
+  "visa", "mastercard", "amex", "discover", "diners", "jcb",
+  "unionpay", "rupay", "mir", "elo", "verve", "other",
+] as const;
+
+export type KnownCardBrand = (typeof CARD_BRANDS)[number];
+// The backend owns supported networks. This list only specializes credential
+// validation for networks this client knows; it must not classify a PAN.
+export type CardBrand = string;
+
+export function isCardNetworkId(value: unknown): value is CardBrand {
+  return typeof value === "string" && /^[a-z][a-z0-9_-]{0,39}$/.test(value);
+}
 
 export const REGION_LOCKED_BRANDS: Readonly<Partial<Record<CardBrand, readonly string[]>>> = {
   rupay: ["IN"],
@@ -33,7 +35,7 @@ export const REGION_LOCKED_BRANDS: Readonly<Partial<Record<CardBrand, readonly s
   verve: ["NG", "GH"],
 };
 
-const BRAND_PAN_LENGTHS: Readonly<Record<CardBrand, readonly number[]>> = {
+const BRAND_PAN_LENGTHS: Readonly<Record<KnownCardBrand, readonly number[]>> = {
   visa: [13, 16, 19],
   mastercard: [16],
   amex: [15],
@@ -45,49 +47,14 @@ const BRAND_PAN_LENGTHS: Readonly<Record<CardBrand, readonly number[]>> = {
   mir: [16, 17, 18, 19],
   elo: [16],
   verve: [16, 18, 19],
-  other: [13, 14, 15, 16, 17, 18, 19],
+  other: [12, 13, 14, 15, 16, 17, 18, 19],
 };
 
-/** Numeric prefix ranges per brand; order matters (specific before broad). */
-const BRAND_PREFIX_RANGES: ReadonlyArray<[CardBrand, number, number]> = [
-  // Region-locked and narrow BINs first so broad ranges never shadow them.
-  ["mir", 2200, 2204],
-  ["elo", 401178, 401179],
-  ["elo", 431274, 431274],
-  ["elo", 438935, 438935],
-  ["elo", 451416, 451416],
-  ["elo", 457393, 457393],
-  ["elo", 504175, 504175],
-  ["elo", 506699, 506778],
-  ["elo", 509000, 509999],
-  ["elo", 627780, 627780],
-  ["elo", 636297, 636297],
-  ["elo", 636368, 636368],
-  ["verve", 506099, 506198],
-  ["verve", 650002, 650027],
-  // Discover's specific windows must outrank RuPay's broad 60 and 65-adjacent
-  // prefixes; RuPay's own 6521/6522 window outranks Discover's broad 65.
-  ["rupay", 6521, 6522],
-  ["discover", 6011, 6011],
-  ["discover", 622126, 622925],
-  ["discover", 644, 649],
-  ["discover", 65, 65],
-  ["rupay", 508, 508],
-  ["rupay", 353, 353],
-  ["rupay", 356, 356],
-  ["rupay", 60, 60],
-  ["rupay", 81, 82],
-  ["jcb", 3528, 3589],
-  ["amex", 34, 34],
-  ["amex", 37, 37],
-  ["diners", 300, 305],
-  ["diners", 36, 36],
-  ["diners", 38, 39],
-  ["unionpay", 62, 62],
-  ["mastercard", 2221, 2720],
-  ["mastercard", 51, 55],
-  ["visa", 4, 4],
-];
+/** Validate an already identified/selected network; never infer one from a PAN. */
+export function isCardPanLengthValid(length: number, network: CardBrand): boolean {
+  const credentialBrand = Object.hasOwn(BRAND_PAN_LENGTHS, network) ? network as KnownCardBrand : "other";
+  return BRAND_PAN_LENGTHS[credentialBrand].includes(length);
+}
 
 export function normalizePan(raw: string): string {
   return String(raw ?? "").replace(/[\s-]/g, "");
@@ -110,25 +77,20 @@ export function luhnValid(pan: string): boolean {
   return sum % 10 === 0;
 }
 
-export function detectBrand(pan: string): CardBrand | null {
-  const digits = normalizePan(pan);
-  if (!/^\d{6,19}$/.test(digits)) return null;
-  for (const [brand, lo, hi] of BRAND_PREFIX_RANGES) {
-    const width = String(lo).length;
-    const prefix = Number(digits.slice(0, width));
-    if (prefix >= lo && prefix <= hi) return brand;
-  }
-  return null;
-}
-
 export interface CardValidationInput {
   pan: string;
+  cardholderName: string;
+  /** The owner may select a network for overlapping or newer BIN ranges. */
+  brand?: CardBrand;
+  /** Legacy inputs remain ignored and are never promoted into manual codes. */
   cvv?: string;
   pin?: string;
+  /** Optional manual Wallet entry, separate from ignored legacy CVV inputs. */
+  securityCode?: string;
   expiryMonth: number;
   expiryYear: number;
-  /** ISO-3166 alpha-2, e.g. "IN", "US". */
-  issuingRegion: string;
+  /** Optional ISO-3166 alpha-2, e.g. "IN", "US". */
+  issuingRegion?: string;
   /** Injectable clock for tests. */
   now?: Date;
 }
@@ -143,40 +105,35 @@ export interface CardValidationResult {
 export function validateCardForRegion(input: CardValidationInput): CardValidationResult {
   const errors: string[] = [];
   const digits = normalizePan(input.pan);
-  const brand = detectBrand(digits);
+  const selectedBrand = input.brand;
+  const validSelection = selectedBrand === undefined || isCardNetworkId(selectedBrand);
+  const brand = validSelection ? (selectedBrand ?? "other") : "other";
+  const cardholderName = String(input.cardholderName ?? "").trim();
+  if (input.securityCode !== undefined && input.securityCode !== "" && !isWalletSecurityCode(input.securityCode)) errors.push("security_code_invalid");
+  if (!validSelection) errors.push("brand_invalid");
+  if (!cardholderName) {
+    errors.push("cardholder_name_required");
+  } else if (cardholderName.length > 80 || /[\u0000-\u001f\u007f]/.test(cardholderName)) {
+    errors.push("cardholder_name_invalid");
+  }
   const region = String(input.issuingRegion ?? "").trim().toUpperCase();
 
-  if (!/^\d{13,19}$/.test(digits)) {
+  if (!/^\d{12,19}$/.test(digits)) {
     errors.push("pan_length_invalid");
-  } else if (!luhnValid(digits)) {
+  } else if (/^(\d)\1+$/.test(digits) || (brand !== "unionpay" && !luhnValid(digits))) {
     errors.push("pan_checksum_invalid");
   }
 
-  if (brand === null) {
-    errors.push("brand_unrecognized");
-  } else if (/^\d{13,19}$/.test(digits) && !BRAND_PAN_LENGTHS[brand].includes(digits.length)) {
+  if (/^\d{12,19}$/.test(digits) && !isCardPanLengthValid(digits.length, brand)) {
     errors.push("pan_length_invalid_for_brand");
   }
 
-  if (!/^[A-Z]{2}$/.test(region)) {
+  if (region && !/^[A-Z]{2}$/.test(region)) {
     errors.push("issuing_region_invalid");
-  } else if (brand) {
-    const locked = REGION_LOCKED_BRANDS[brand];
+  } else if (region) {
+    const locked = Object.hasOwn(REGION_LOCKED_BRANDS, brand) ? REGION_LOCKED_BRANDS[brand] : undefined;
     if (locked && !locked.includes(region)) {
       errors.push("brand_region_mismatch");
-    }
-  }
-
-  if (input.cvv !== undefined && input.cvv !== "") {
-    const expectedCvvLength = brand === "amex" ? 4 : 3;
-    if (!new RegExp(`^\\d{${expectedCvvLength}}$`).test(input.cvv)) {
-      errors.push("cvv_invalid");
-    }
-  }
-
-  if (input.pin !== undefined && input.pin !== "") {
-    if (!/^\d{4,6}$/.test(input.pin)) {
-      errors.push("pin_invalid");
     }
   }
 

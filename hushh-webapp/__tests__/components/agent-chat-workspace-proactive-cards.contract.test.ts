@@ -26,12 +26,36 @@ const source = readFileSync(
  * the actual Gmail settings page, untouched.
  */
 describe("Agent One chat workspace wiring contract", () => {
+  it("saves KYC-confirmed chat facts through the same Soul queue, not a structured identity writer", () => {
+    const capture = source.slice(source.indexOf("const captureEligiblePkmFactsInBackground ="), source.indexOf("const runAgentTurn = async ("));
+    expect(capture).toContain("prepareNaturalLanguagePkm({");
+    expect(capture).toContain("stageMarkdownMemoryFacts({");
+    expect(capture).not.toContain("ingestNaturalLanguagePkm(");
+    expect(capture).not.toContain("issuePkmReplyAuthorization(");
+    expect(capture).not.toContain('memoryProfile: "kyc_identity_v1"');
+    const afterCapture = source.slice(source.indexOf("if (options.kycInformationSaveConfirmed) {"), source.indexOf("if (!options.deferPkmContext) {"));
+    expect(afterCapture).toContain("loadAgentPkmContext({");
+    expect(afterCapture).not.toContain("forceRefresh: true");
+  });
+  it("keeps profile research out of chat while preserving explicit onboarding", () => {
+    expect(source).not.toContain("OneBackgroundCards");
+    expect(source).not.toContain("MagicIntelligenceOffer");
+    expect(source).not.toContain("ProfileResearchCard");
+    expect(source).not.toContain("backgroundCardsEnabled");
+    expect(source).not.toContain("backgroundCardTurnAnchor");
+    expect(source).toContain("startSignal: Boolean(user?.uid && pendingEntryWelcome?.userId === user.uid) || Boolean(postSetupWelcomeContext)");
+  });
+
   it("refreshes recent Drive sharing only while chat history is open", () => {
     const sidebar = source.slice(source.indexOf("const renderHistorySidebar ="), source.indexOf("const getEmailDeliveryAuth ="));
     expect(sidebar).toContain('<DriveRecentSharing presentation="sidebar" active={isHistoryDrawerOpen && drawerMode === "chats"} onNeedsReviewChange={onDriveNeedsReviewChange} />');
     expect(source).toContain("open={isHistoryDrawerOpen}");
-    expect(source.match(/<DriveRecentSharing\b/g)).toHaveLength(1);
-    expect(source).toContain('Drive ${driveReviewsPending === 1 ? "review needs" : "reviews need"} you');
+    // Web sidebar and qualified native History page are mutually exclusive.
+    expect(sidebar).toContain('!isPuppySurface && !customNativePresentationEnabled()');
+    expect(source).toContain('customNativePresentationEnabled() && isCanonicalChatRoute && hasChatAccess && !isPuppySurface ? <DriveRecentSharing');
+    // The parent owns the owner-scoped review signal; the actual opener's
+    // accessible copy and native admission are covered in native-chrome.test.
+    expect(source).toMatch(/<NativeHistoryOpener\b[^>]*pendingAttention=\{driveReviewsPending\}/);
   });
 
   it("runs post-setup onboarding as ordinary chat turns, with the tile grid retired", () => {
@@ -49,7 +73,9 @@ describe("Agent One chat workspace wiring contract", () => {
     // Only an explicitly armed name answer is kept from the model; everything
     // else typed in the composer is an ordinary turn.
     const submit = source.slice(
-      source.indexOf("const submitComposerText = async () => {"),
+      // Both the DOM form and native committed snapshot use this guarded
+      // entrypoint. Its optional input must not invalidate onboarding coverage.
+      source.indexOf("const submitComposerText = async ("),
       source.indexOf("const handleSubmit = async"),
     );
     expect(submit).toContain("chatOnboarding.captureComposerText(typedText)");
@@ -72,7 +98,7 @@ describe("Agent One chat workspace wiring contract", () => {
 
   it("keeps the One connector catalog reachable before any provider is connected", () => {
     expect(source).toContain("onOpenConnectors={!isPuppySurface");
-    expect(source).toContain("openConnectorSurface(undefined, trigger)");
+    expect(source).toContain("historyDrawerTriggerRef.current = trigger; openHistoryConnectors();");
     expect(source).not.toContain("connectionsAvailable");
     // The catalog is Connectors in the Profile pane, opened over the chat.
     expect(source).toContain("profileConnectorsLocation(");
@@ -103,6 +129,14 @@ describe("Agent One chat workspace wiring contract", () => {
 });
 
 describe("Agent One proactive Calendar cards wiring contract", () => {
+  it("never starts first-connect memory offers from the general chat workspace", () => {
+    // This global mount could read a newly connected Calendar and append Keep /
+    // Forget boxes during an unrelated conversation or an in-flight response.
+    expect(source).not.toContain("FirstConnectInsightsCard");
+    expect(source).not.toContain("fetchFirstConnectInsights");
+    expect(source).not.toContain("first-connect-insights");
+  });
+
   // Calendar's separate proactive cards were intentionally removed when the
   // shared chat shell was tightened to prevent setup noise and clipping. The
   // connected Calendar capability remains available through explicit chat

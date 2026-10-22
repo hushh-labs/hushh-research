@@ -37,12 +37,51 @@ CASES = (
     ("summarize", "Summarize Read Me", "read", "Read Me"),
     ("content_question", "What does the product document recommend?", "read", None),
     ("topic", "Find documents explaining product decisions", "find", None),
+    ("transaction_latest_100", "Latest 100 documents", "find", None, 100),
+    ("transaction_words_100", "Most recent one hundred documents", "find", None, 100),
+    ("transaction_standup_4", "Last 4 standup notes", "find", None, 4),
+    ("transaction_days", "Standup notes from the last 3 days", "find", None, None),
+    ("transaction_all", "All bank statements", "find", None, None),
+    ("transaction_title_number", "Find the file named Budget 100", "find", "Budget 100", None),
+    (
+        "transaction_brokerage_coverage",
+        "All Schwab brokerage statements from 2026",
+        "find",
+        None,
+        None,
+        {"concepts": ["schwab", "statement"], "time_intent": "document_coverage"},
+    ),
+    (
+        "transaction_brokerage_paraphrase",
+        "Every Charles Schwab account statement for 2026",
+        "find",
+        None,
+        None,
+        {"concepts": ["schwab", "statement"], "time_intent": "document_coverage"},
+    ),
+    (
+        "transaction_invoice_coverage",
+        "All invoices for 2026",
+        "find",
+        None,
+        None,
+        {"concepts": ["invoice"], "time_intent": "document_coverage"},
+    ),
+    (
+        "transaction_statement_activity",
+        "All Schwab statements modified between 1 and 31 March 2026",
+        "find",
+        None,
+        None,
+        {"concepts": ["schwab", "statement"], "time_intent": "file_activity"},
+    ),
 )
 
 
-async def evaluate(reps: int, planner_only: bool) -> int:
+async def evaluate(reps: int, planner_only: bool, case_ids: list[str] | None = None) -> int:
     from hushh_mcp.one_adk import agent_tree
     from hushh_mcp.one_adk.external_read_boundary import STATE_EXECUTION_SURFACE
+    from hushh_mcp.services.drive_owner_search_service import compile_request_queries
     from hushh_mcp.services.drive_suggestion_service import interpret_live_search, plan_live_search
 
     delegate = None
@@ -92,33 +131,113 @@ async def evaluate(reps: int, planner_only: bool) -> int:
                         return request
             raise ValueError("missing_delegation_argument")
 
+    cases = [case for case in CASES if case_ids is None or case[0] in case_ids]
     failures = 0
     completed = 0
-    for case_id, prompt, mode, title in CASES:
+    for case in cases:
+        case_id, prompt, mode, title = case[:4]
+        transaction_search = len(case) >= 5
+        expectations = case[5] if len(case) > 5 else None
         for repetition in range(reps):
             start = time.perf_counter()
             try:
                 request = await delegate(prompt) if delegate else prompt
+                document_request = {"purpose": request}
+                if expectations:
+                    document_request.update(periodStart="2026-03-01", periodEnd="2026-03-31")
                 plan = await plan_live_search(
                     interpret_live_search,
                     prompt=json.dumps(
                         {
-                            "document_request": {"purpose": request},
+                            "document_request": document_request,
                             "previous_answer": "",
                             "current_time_utc": datetime(2026, 9, 27, tzinfo=UTC).isoformat(),
                             "user_timezone": "Asia/Kolkata",
+                            "transaction_search": transaction_search,
                         }
                     ),
                     user_id="drive-search-eval",
                 )
-                passed = plan.mode == mode and (
-                    plan.exact_title.casefold() == title.casefold()
-                    if title and plan.exact_title
-                    else title is None
-                )
+                checks = {
+                    "mode": plan.mode == mode,
+                    "exact_title": (
+                        plan.exact_title.casefold() == title.casefold()
+                        if title and plan.exact_title
+                        else title is None
+                    ),
+                    "subject_complete": plan.subject_complete is True,
+                }
                 # A topic request must not invent a literal filename.
                 if case_id == "topic":
-                    passed = passed and plan.exact_title is None
+                    checks["topic_not_literal_title"] = plan.exact_title is None
+                if transaction_search:
+                    checks["result_limit"] = plan.result_limit == case[4]
+                    if case[4] is not None:
+                        checks["recent_ordering"] = plan.sort == "recent"
+                    if case_id in {"transaction_latest_100", "transaction_words_100"}:
+                        checks["document_listing"] = plan.file_kind == "document" and not plan.terms
+                    if case_id == "transaction_standup_4":
+                        checks["standup_subject"] = plan.terms == ["standup"]
+                else:
+                    checks["result_limit"] = plan.result_limit is None
+                if expectations:
+                    groups = plan.search_term_groups()
+                    variants = [variant.casefold() for group in groups for variant in group]
+                    concept_groups = [
+                        next(
+                            (
+                                index
+                                for index, group in enumerate(groups)
+                                if any(concept in variant.casefold() for variant in group)
+                            ),
+                            None,
+                        )
+                        for concept in expectations["concepts"]
+                    ]
+                    checks.update(
+                        no_literal_title=plan.exact_title is None,
+                        record_mime=plan.file_kind == "document",
+                        time_intent=plan.time_intent == expectations["time_intent"],
+                        specific_subject=plan.subject_scope == "specific_records",
+                        required_concepts=None not in concept_groups,
+                        separate_concepts=(
+                            len(set(concept_groups)) == len(groups) == len(expectations["concepts"])
+                        ),
+                        no_mandatory_content_year=all(
+                            "2026" not in variant for variant in variants
+                        ),
+                    )
+                    if "statement" in expectations["concepts"]:
+                        checks["statement_variants"] = any(
+                            {"statement", "statements"}.issubset(
+                                {variant.casefold() for variant in group}
+                            )
+                            for group in groups
+                        )
+                    if expectations["time_intent"] == "document_coverage":
+                        checks["no_content_file_time_bounds"] = all(
+                            value is None
+                            for value in (plan.relative_days, plan.date_from, plan.date_to)
+                        )
+                    else:
+                        checks["explicit_activity_bounds"] = (
+                            plan.file_time_field == "modifiedTime"
+                            and plan.date_from == "2026-03-01"
+                            and plan.date_to == "2026-03-31"
+                        )
+                    queries, period = compile_request_queries(
+                        plan.model_dump(mode="json"), document_request, "Asia/Kolkata"
+                    )
+                    checks["selected_period"] = period == {
+                        "start": "2026-03-01",
+                        "end": "2026-03-31",
+                        "timezone": "Asia/Kolkata",
+                    }
+                    checks["compiled_subject"] = any(
+                        "fullText contains" in item["arguments"]["query"] for item in queries
+                    )
+                failed_assertions = [name for name, passed in checks.items() if not passed]
+                passed = not failed_assertions
                 failures += int(not passed)
                 completed += 1
                 print(
@@ -127,7 +246,9 @@ async def evaluate(reps: int, planner_only: bool) -> int:
                             "case": case_id,
                             "rep": repetition + 1,
                             "passed": passed,
+                            "failed_assertions": failed_assertions,
                             "mode": plan.mode,
+                            "result_limit": plan.result_limit,
                             "duration_ms": round((time.perf_counter() - start) * 1000),
                         }
                     ),
@@ -145,7 +266,7 @@ async def evaluate(reps: int, planner_only: bool) -> int:
                             and str(error).startswith("wrong_delegation:")
                             else "incomplete",
                             "completed": completed,
-                            "expected": len(CASES) * reps,
+                            "expected": len(cases) * reps,
                         }
                     ),
                     flush=True,
@@ -159,6 +280,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reps", type=int, default=3, choices=range(1, 11))
     parser.add_argument("--planner-only", action="store_true")
+    parser.add_argument("--case", action="append", choices=[case[0] for case in CASES])
     args = parser.parse_args()
     if os.getenv("DRIVE_SEARCH_EVAL_LIVE") != "1":
         parser.error("Set DRIVE_SEARCH_EVAL_LIVE=1 for this bounded real-model evaluation")
@@ -168,7 +290,7 @@ def main() -> int:
     os.environ["TESTING"] = "1"
     os.environ.setdefault("APP_SIGNING_KEY", "synthetic-planner-eval-key-no-authority-0000")
     os.environ.setdefault("VAULT_DATA_KEY", "00" * 32)
-    return asyncio.run(evaluate(args.reps, args.planner_only))
+    return asyncio.run(evaluate(args.reps, args.planner_only, args.case))
 
 
 if __name__ == "__main__":

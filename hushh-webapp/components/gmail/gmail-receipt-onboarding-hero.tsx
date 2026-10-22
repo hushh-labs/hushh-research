@@ -2,12 +2,12 @@ import {
   AirplaneTilt,
   ChevronRight,
   ForkKnife,
-  Loader2,
   ShoppingBag,
   type LucideIcon,
 } from "@/components/icons";
 import { Progress } from "@/components/ui/progress";
-import { Button } from "@/lib/morphy-ux/button";
+import mailStyles from "./mail-workspace.module.css";
+import { MailActionButton as Button } from "./mail-action-button";
 
 type ReceiptCategory = {
   label: string;
@@ -72,16 +72,25 @@ export function GmailReceiptOnboardingHero({
       className="@container w-full"
       data-testid="receipt-sync-hero"
     >
-      <div className="grid w-full grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] items-center gap-3 overflow-hidden rounded-[24px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] bg-[radial-gradient(circle_at_80%_30%,var(--app-accent-tint),transparent_65%)] p-4 shadow-[var(--app-card-shadow-feature)] @md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] @md:gap-8 @md:p-8 @lg:p-10">
+      <div className="grid w-full grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] items-center gap-3 overflow-hidden rounded-[24px] bg-[color:var(--app-card-surface-default-solid)] p-4 @md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] @md:gap-8 @md:p-8 @lg:p-10">
         <div className="min-w-0 @md:py-2">
           <h2
-            className="text-foreground [--foundation-title2-size:clamp(1.75rem,8.2vw,2.125rem)] [--foundation-title3-size:var(--foundation-title2-size)] [--foundation-title2-line:1.08] [--foundation-title3-line:1.08] [--foundation-title2-weight:800] [--foundation-title3-weight:800] sm:[--foundation-title2-size:44px]"
+            // Derived from the page title's own token (not an independent
+            // breakpoint) so this stays smaller than "Mail" at every viewport
+            // by construction, including the transition width between them,
+            // instead of two clamps that happen to agree at today's sampled
+            // widths. Inside .app-page-shell, `h2` itself reads the title3
+            // variables (not title2) for font-size/line/weight, so both
+            // families are set here -- dropping either one lets that more
+            // specific shell rule silently override the other back to the
+            // small default title3 scale.
+            className={mailStyles.sectionTitle}
             id="receipt-sync-hero-title"
           >
             Your receipts
           </h2>
           <p
-            className="mt-3 max-w-[22rem] text-[12px] leading-[17px] text-muted-foreground @md:mt-4 @md:text-[17px] @md:leading-7"
+            className={`${mailStyles.support} mt-3 max-w-[22rem] text-muted-foreground`}
             data-testid="receipt-sync-description"
           >
             Find receipts in your mail.
@@ -98,17 +107,12 @@ export function GmailReceiptOnboardingHero({
               data-voice-label="Start sync"
               data-voice-purpose="starts or refreshes Mail receipt sync."
               disabled={!syncAvailable || syncing}
+              aria-busy={syncing}
               onClick={onStartReceiptSync}
               size="prominent"
               type="button"
             >
-              {syncing ? (
-                <Loader2
-                  aria-hidden="true"
-                  className="mr-0.5 size-2.5 shrink-0 animate-spin motion-reduce:animate-none @xs:mr-1 @xs:size-3 @md:mr-2 @md:size-4"
-                />
-              ) : null}
-              {syncing ? "Scanning" : "Start sync"}
+              Start sync
             </Button>
           </div>
           {statusMessage ? (
@@ -138,7 +142,10 @@ export function GmailReceiptOnboardingHero({
         </div>
 
         <div className="min-w-0 @md:justify-self-end">
-          <div className="mx-auto w-full max-w-none rounded-[20px] border border-border/50 bg-card p-2.5 shadow-[0_20px_40px_-15px_rgba(28,55,90,0.12),0_0_1px_1px_rgba(0,0,0,0.03)] @md:mx-0 @md:max-w-xs @md:rounded-[24px] @md:p-5">
+          {/* No @md max-width: the preview fills its grid column instead of
+              floating at a fixed small width inside the space the equal-width
+              desktop grid already gives it. */}
+          <div className="mx-auto w-full max-w-none rounded-[20px] bg-[color:var(--app-neutral-fill)] p-2.5 @md:mx-0 @md:rounded-[24px] @md:p-6 @lg:rounded-[28px] @lg:p-7">
             <ul
               aria-label="Receipt categories"
               className="divide-y divide-slate-100/80"
@@ -153,27 +160,27 @@ export function GmailReceiptOnboardingHero({
                   progressWidthClassName,
                 }) => (
                   <li
-                    className="flex items-center gap-1.5 py-2.5 first:pt-1 last:pb-1 @md:gap-3.5 @md:py-3 @md:first:pt-1.5 @md:last:pb-1.5"
+                    className="flex items-center gap-1.5 py-2.5 first:pt-1 last:pb-1 @md:gap-4 @md:py-3.5 @md:first:pt-2 @md:last:pb-2"
                     data-testid={`receipt-sync-category-${label.toLowerCase()}`}
                     key={label}
                   >
                     <span
                       aria-hidden="true"
-                      className={`flex size-8 shrink-0 items-center justify-center rounded-xl ${iconClassName} @md:size-11 @md:rounded-2xl`}
+                      className={`flex size-8 shrink-0 items-center justify-center rounded-xl ${iconClassName} @md:size-12 @md:rounded-2xl @lg:size-14`}
                     >
                       <Icon
                         aria-hidden="true"
-                        className="size-4 @md:size-5"
+                        className="size-4 @md:size-6"
                         weight={iconWeight}
                       />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="whitespace-nowrap text-[11px] font-semibold text-foreground @md:text-sm">
+                      <p className="whitespace-nowrap text-[11px] font-semibold text-foreground @md:text-base">
                         {label}
                       </p>
                       <div
                         aria-hidden="true"
-                        className="mt-1 h-1 w-full overflow-hidden rounded-full bg-slate-100 @md:mt-1.5 @md:h-1.5 @md:w-24"
+                        className="mt-1 h-1 w-full overflow-hidden rounded-full bg-slate-100 @md:mt-2 @md:h-2 @md:w-28"
                       >
                         <div
                           className={`h-full rounded-full ${progressClassName} ${progressWidthClassName}`}
@@ -182,7 +189,7 @@ export function GmailReceiptOnboardingHero({
                     </div>
                     <ChevronRight
                       aria-hidden="true"
-                      className="size-3 shrink-0 text-muted-foreground/60 @md:size-4"
+                      className="size-3 shrink-0 text-muted-foreground/60 @md:size-5"
                       weight="regular"
                     />
                   </li>

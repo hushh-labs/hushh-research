@@ -33,7 +33,10 @@ def isolated_postgres():
     # A private short path fits PostgreSQL's Unix socket limit. There is no TCP
     # listener, existing cluster, supplied connection string, or personal record.
     directory = Path(tempfile.mkdtemp(prefix="hussh-pkm-audit-", dir="/tmp"))
-    data = directory / "data"
+    # Socket names stay short while database storage respects TMPDIR. A large
+    # parallel rehearsal must not fill the system disk to preserve that limit.
+    data_directory = Path(tempfile.mkdtemp(prefix="hussh-pkm-audit-data-"))
+    data = data_directory / "data"
     started = False
 
     def run(command, *arguments, check=True):
@@ -82,7 +85,9 @@ def isolated_postgres():
             # A timed-out startup may have created compute before acknowledging.
             run("pg_ctl", "-D", data, "-m", "immediate", "-w", "-t", "20", "stop")
         shutil.rmtree(directory)
+        shutil.rmtree(data_directory)
         assert not directory.exists()
+        assert not data_directory.exists()
 
 
 def test_real_pkm_aggregates_find_synthetic_defects_and_refuse_rls_filtering(isolated_postgres):

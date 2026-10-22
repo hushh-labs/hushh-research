@@ -103,7 +103,13 @@ def test_prepare_rejects_caller_supplied_file_or_recipient_authority(setup, chan
     service.prepare.assert_not_awaited()
 
 
-def test_history_preview_and_approval_keep_owner_scope(setup):
+@pytest.mark.parametrize(
+    ("approval_fields", "expected_access_days"),
+    [({}, None), ({"accessDays": 30}, 30)],
+)
+def test_history_preview_and_approval_keep_owner_scope(
+    setup, approval_fields, expected_access_days
+):
     app, client, service, _ = setup
     unlock(app)
     assert client.get(BASE).status_code == 200
@@ -114,11 +120,15 @@ def test_history_preview_and_approval_keep_owner_scope(setup):
     service.files.assert_awaited_once_with(user_id="owner-a", share_id=SHARE, cursor="opaque")
     response = client.post(
         BASE + f"/{SHARE}/approve",
-        json={"revision": 2, "reviewDigest": "b" * 64, "confirmed": True},
+        json={"revision": 2, "reviewDigest": "b" * 64, "confirmed": True, **approval_fields},
     )
     assert response.status_code == 202
     service.approve.assert_awaited_once_with(
-        user_id="owner-a", share_id=SHARE, revision=2, review_digest="b" * 64
+        user_id="owner-a",
+        share_id=SHARE,
+        revision=2,
+        review_digest="b" * 64,
+        access_days=expected_access_days,
     )
 
 

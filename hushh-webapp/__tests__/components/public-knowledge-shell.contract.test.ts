@@ -40,8 +40,8 @@ describe("public knowledge shell contract", () => {
 
     expect(research).not.toContain("PCHP_SPEC_META");
     expect(research).toContain("items-center");
-    expect(research).toContain("<PageHeader");
-    expect(research).toContain('accent="research"');
+    expect(research).toContain("<KnowledgeSectionHeader");
+    expect(research).toContain('tone="blue"');
     expect(research).toContain("BLOG_POSTS.slice(0, 2)");
     expect(blog).toContain("<SettingsGroup separatorInset");
     expect(blog).toContain("<SettingsRow");

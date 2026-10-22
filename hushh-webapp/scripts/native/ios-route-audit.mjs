@@ -231,9 +231,13 @@ function launchRoute(route) {
   }
   args.push("-UITestAutoReviewerLogin", route.autoReviewerLogin ? "true" : "false");
   args.push("-UITestResetAppState", resetStateRoutes.has(route.route) ? "true" : "false");
-  args.push("-UITestVaultPassphrase", reviewerVaultPassphrase);
   args.push("-UITestExpectedUserId", reviewerUid);
-  run("xcrun", args);
+  run("xcrun", args, {
+    env: {
+      ...process.env,
+      SIMCTL_CHILD_HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE: reviewerVaultPassphrase,
+    },
+  });
 }
 
 function applyEnvValues(values = {}) {

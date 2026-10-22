@@ -33,20 +33,25 @@ flowchart LR
   cold OAuth return therefore requires a fresh vault unlock; the existing
   same-window popup flow preserves the already open session naturally.
 - `/one/email` is a compact handoff surface. A disconnected account is sent to
-  `/one/gmail`; a connected account opens One with the approval-first drafting
-  prompt.
-- One Google OAuth request includes both `gmail.readonly` and `gmail.send`.
+  `/one/gmail`; a connected account opens One with an empty composer, awaiting
+  the owner's request.
+- The initial Gmail OAuth request asks for `gmail.readonly` and `gmail.send`
+  together, so reading and owner-approved delivery are ready after one sign-in.
+  Gmail draft saving and mailbox changes still ask for `gmail.compose` and
+  `gmail.modify` in their own reviewed paths.
   The redirect is environment-derived and must exactly equal
   `APP_FRONTEND_ORIGIN + /one/profile/gmail/oauth/return` in the Google OAuth
   client for each environment.
-- A legacy read-only connection remains usable for receipt sync, but must be
-  reconnected once before an owner can send email from One.
+- A legacy read-only connection remains usable for bounded reads and can be
+  repaired by reconnecting once. The legacy server receipt sync is disabled
+  during its storage cutover; existing receipt rows remain readable.
 
 Provider `gmail.send` allows the delivery boundary to prepare an owner-reviewed
-message after the combined grant. It never lets One or a chat message send
+message after the initial Gmail grant. It never lets One or a chat message send
 mail directly: every email still requires a visible editable draft, review,
-and the owner’s final **Send email** click. Disconnect revokes and clears the
-canonical connection as before.
+and the owner's final **Send email** click or the distinct reviewed One Voice
+confirmation. Disconnect clears the canonical connection and attempts Google
+token revocation.
 
 ## Delivery contract
 
@@ -54,6 +59,16 @@ When a person explicitly asks One to write, draft, or send a personal Gmail
 email, One opens an in-memory editable card containing To, Cc, Bcc, Subject,
 and Message. There is no composer mail shortcut. If the vault is not unlocked,
 the existing vault dialog opens instead.
+
+Asking to share the owner's saved details with an email address follows this
+same drafting path, not a request for another person's information. A supplied
+address is used directly; no platform connection is required. For a named
+circle member, One reads the owner's current active connections and fills the
+unambiguous actual email into the visible draft. Ambiguous people or unavailable
+addresses need clarification, never a guessed or masked recipient. Requested
+facts come only from the supplied Soul.md. Partial recipient/subject prefills
+survive automatic body completion. This never sends mail or creates a consent
+grant; the owner reviews the visible draft and taps Send.
 
 1. One’s explicit request opens the draft and sends only that instruction to
    `POST /api/one/email/draft`, which returns structured draft fields and
@@ -92,6 +107,14 @@ safe error code. It never persists recipients, subject, body, OAuth tokens,
 vault credentials, or PKM values. Provider timeouts or a response without a
 Gmail message ID become `outcome_unknown`; the owner is told to check Sent Mail
 and the action is not blindly retried.
+The owner- and vault-authorized `GET /api/one/email/send/status/{action_id}`
+returns only the action ID, state and unknown-outcome flag. The same authorized
+`POST /api/one/email/send/status/{action_id}` also settles an immediate send
+that has remained `sending` for five minutes to non-retryable
+`outcome_unknown`; it never calls Gmail or repeats a send. The browser uses
+this reconciliation path when recovering a lost response. The browser may keep
+opaque pending action IDs in owner-scoped session storage to recover a lost
+response after reload; it never keeps an envelope or credential there.
 
 ## Explicit boundaries
 

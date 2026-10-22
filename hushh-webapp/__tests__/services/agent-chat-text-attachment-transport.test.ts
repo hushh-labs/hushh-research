@@ -182,7 +182,7 @@ describe("a secret never reaches the chat request or the history it is sealed in
     const chips = [String(restored.content), String(restored.metadata?.attachments?.[0]?.text ?? "")]
       .flatMap((text) => splitSecretPlaceholders(text).filter((part) => part.kind === "secret"));
     expect(chips.map((chip) => (chip.kind === "secret" ? chip.label : ""))).toEqual([
-      "openai API key ending 9f2a", "bank password", "Visa card ending 1111", "Passport ending 4567",
+      "openai API key ending 9f2a", "bank password", "Card ending 1111", "Passport ending 4567",
     ]);
   });
 });

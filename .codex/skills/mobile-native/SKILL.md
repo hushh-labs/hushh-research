@@ -44,12 +44,14 @@ Non-owned surfaces:
 1. `docs/reference/mobile/README.md`
 2. `docs/guides/new-feature.md`
 3. `hushh-webapp/ios/App/CapApp-SPM/README.md`
+4. `hushh-webapp/docs/ios-native-surface-adoption.md`
 
 ## Workflow
 
 1. Decide whether the task is plugin-contract work or parity/audit work.
 2. Keep native registration and service-layer contracts aligned across web, iOS, and Android.
 3. Route trust and consent boundary questions into `security-audit` when native is only one part of the problem.
+4. For native chrome, follow the adoption reference's presentation qualification rules: establish feasible complete composition and one renderer per control lifetime before expanding families. A successful isolated study does not qualify the product's draft, operation or overlapping-presentation owners.
 
 ## Handoff Rules
 

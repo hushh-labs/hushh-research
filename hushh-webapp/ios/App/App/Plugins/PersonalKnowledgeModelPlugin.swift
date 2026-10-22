@@ -465,6 +465,7 @@ public class PersonalKnowledgeModelPlugin: CAPPlugin, CAPBridgedPlugin {
                     var result: [String: Any] = [
                         "success": (json["success"] as? Bool) ?? true,
                         "conflict": (json["conflict"] as? Bool) ?? false,
+                        "idempotentReplay": (json["idempotent_replay"] as? Bool) ?? false,
                     ]
                     if let message = json["message"] as? String {
                         result["message"] = message

@@ -279,14 +279,14 @@ export class VaultBootstrapService {
       return {
         supported: false,
         reason:
-          "Passkey/PRF is unavailable on this browser. Use a passphrase to keep your information encrypted.",
+          "Passkey/PRF is unavailable on this browser. Use a password to keep your information encrypted.",
       };
     }
 
     return {
       supported: false,
       reason:
-        "Biometric protection is unavailable on this device. Use a passphrase to keep your information encrypted.",
+        "Biometric protection is unavailable on this device. Use a password to keep your information encrypted.",
     };
   }
 
@@ -359,7 +359,7 @@ export class VaultBootstrapService {
         });
         params.signal?.throwIfAborted();
         if (recovered.value !== generatedSecret) {
-          throw new Error("Quick unlock could not be verified. Your passphrase still works.");
+          throw new Error("Quick unlock could not be verified. Your password still works.");
         }
         return { mode: support.mode, authMethod: support.mode, wrappingSecret: generatedSecret, wrapperId };
       } catch (error) {
@@ -464,7 +464,7 @@ export class VaultBootstrapService {
       input.signal?.throwIfAborted();
 
       if (!secret.value) {
-        throw Object.assign(new Error("Quick unlock needs to be set up again on this device. Use your passphrase."), {
+        throw Object.assign(new Error("Quick unlock needs to be set up again on this device. Use your password."), {
           code: "VAULT_DEVICE_WRAPPER_UNAVAILABLE",
         });
       }
@@ -483,7 +483,7 @@ export class VaultBootstrapService {
       }
       const auth = await HushhVault.authenticatePasskeyPrf({
         userId: input.userId,
-        rpId: resolveRpId(),
+        rpId: input.passkeyRpId?.trim() || resolveRpId(),
         credentialId: input.passkeyCredentialId ?? undefined,
         prfSalt: input.passkeyPrfSalt,
         requestId: input.requestId,

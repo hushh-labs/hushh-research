@@ -1,14 +1,20 @@
 "use client";
 
+import { LivingMemoryDocument } from "@/components/profile/living-memory-document";
+
+import { useDocumentFeedStream } from "@/lib/feed/use-document-feed-stream";
 import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { backendPhoneIsMissing } from "@/lib/auth/phone-identity";
 import {
   WarningIcon as AlertTriangle,
   BriefcaseIcon as BriefcaseBusiness,
@@ -16,37 +22,36 @@ import {
   ArrowsClockwiseIcon as RefreshCw,
   UserCircleIcon as User,
 } from "@/components/icons";
-import {
-  AccentRowIcon,
-  AccountProfileIcon,
-  AppearanceRowIcon,
-  ConsentAgentIcon,
-  ConnectedSystemsAgentIcon,
-  DeleteRowIcon,
-  DeveloperToolsProfileIcon,
-  DevicesProfileIcon,
-  DisconnectRowIcon,
-  DiscoverableRowIcon,
-  FingerprintProfileIcon,
-  GmailAgentIcon,
-  InboxRowIcon,
-  LocationAgentIcon,
-  MarketplaceAgentIcon,
-  MemoryAgentIcon,
-  PassphraseRowIcon,
-  PhoneRowIcon,
-  PreferencesProfileIcon,
-  InviteFriendsProfileIcon,
-  ResetRowIcon,
-  SecurityProfileIcon,
-  SignOutProfileIcon,
-  SupportProfileIcon,
-  SyncRowIcon,
-  VaultRowIcon,
-  VoiceRowIcon,
-  WalletAgentIcon,
-} from "@/components/icons/agents";
+import { PROFILE_ICONS } from "@/components/icons/profile-icons";
+import accountStyles from "@/components/profile/profile-your-account.module.css";
+import auxiliaryTabStyles from "@/components/profile/profile-auxiliary-tabs.module.css";
+import secondaryTypographyStyles from "@/components/profile/profile-secondary-typography.module.css";
 import { toast } from "sonner";
+import { NativeProfilePresentation } from "./native-profile-menu";
+import { AccountConfirmationPreparation } from "./account-confirmation-preparation";
+import { useNativeProfilePreferences } from "./use-native-profile-preferences";
+import { useNativeVoiceProfile } from "./use-native-voice-profile";
+import { NativeSupportComposer } from "./native-support-composer";
+import { projectNativeProfileLegal } from "./profile-native-legal";
+import type { NativeProfilePage } from "@/lib/capacitor/native-drawers";
+import { PROFILE_LABELS, profileMenuGroups, type ProfileMenuActions } from "./profile-menu-model";
+import { VaultMethodsPanel } from "@/components/profile/vault-methods-panel";
+import { useProfileVaultMethodsModel } from "./use-profile-vault-methods-model";
+import { useNativeVaultMethods } from "./use-native-vault-methods";
+import { NativeVaultPasswordEditor } from "./native-vault-password-editor";
+import { NativeRequestPricingEditor, projectNativeRequestPricing } from "./native-request-pricing";
+import { useNativePayouts } from "./use-native-payouts";
+import { useNativeConnectors } from "./use-native-connectors";
+import { useNativeMemory } from "./use-native-memory";
+import { NativeMemoryEditor } from "./native-memory-editor";
+import { validNativeMemoryDraft, type NativeMemoryDraft } from "@/lib/capacitor/native-profile-memory-scene";
+import { useProfileFinancePreferences } from "./use-profile-finance-preferences";
+import { projectNativeFinancePreferences } from "./native-finance-preferences";
+import { pkmPreviewEntityTarget, validPkmPreviewPath } from "@/lib/profile/pkm-section-preview";
+import { ProfileMemoryOperations } from "./profile-memory-operations";
+import { nativePrivacyObservation } from "@/lib/capacitor/session-privacy";
+import { useDocumentRequestPricingModel } from "@/components/consent/use-document-request-pricing-model";
+import { useNativeProfilePortrait } from "./use-native-profile-portrait";
 
 import {
   SettingsGroup,
@@ -66,7 +71,13 @@ import {
   PkmDomainDetailPanel,
 } from "@/components/profile/pkm-data-manager";
 import { SharedWithYouGroup } from "@/components/profile/shared-with-you-group";
+import { useMemorySharedModel } from "@/components/profile/use-memory-shared-model";
+import { PersonalWorldModelPage, usePersonalWorldModelModel } from "@/components/profile/personal-world-model-page";
+import { useNativeWorldModel } from "@/components/profile/use-native-world-model";
+import { DocumentHashcoinPayouts } from "@/components/consent/document-hashcoins";
+import { DocumentRequestPricingCard } from "@/components/consent/document-request-pricing-card";
 import { SecretsListGroup } from "@/components/secrets/secrets-list-group";
+import { useSecretsListModel } from "@/components/secrets/use-secrets-list-model";
 import {
   ProfileStackNavigator,
   type ProfileStackEntry,
@@ -74,16 +85,19 @@ import {
 import { ProfileKaiPreferencesPanel } from "@/components/profile/profile-kai-preferences-panel";
 import { CommunicationPreferencesSection } from "@/components/profile/communication-preferences-section";
 import { GeminiLogo } from "@/components/brand/gemini-logo";
-import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
+import { GeminiRuntimeSettingsView, useGeminiRuntimeSettingsModel } from "@/components/connections/gemini-runtime-settings-card";
+import { useNativeRuntimeSettings } from "@/components/profile/use-native-runtime-settings";
 import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-panel";
+import { MailActionsGroup } from "@/components/profile/mail-actions-group";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
-import { buildProfileConnectorsStackEntry } from "@/components/profile/profile-connectors-section";
+import { buildProfileConnectorsStackEntry, ProfileConnectorsSection } from "@/components/profile/profile-connectors-section";
+import type { ConnectorsPanelPresentation } from "@/components/agent/connectors-panel";
 import {
   buildProfileLegalStackEntries,
-  ProfileLegalRows,
 } from "@/components/profile/profile-legal-section";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
-import { ThemeToggleLean } from "@/components/theme-toggle";
+import { ProfileAppearanceControls } from "@/components/profile/profile-appearance-controls";
+import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -116,8 +130,8 @@ import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
-import { VOICE_CONFIRM_DATA_KEY } from "@/lib/voice/voice-action-card";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { VOICE_CONFIRM_DATA_KEY } from "@/lib/kai/actions/voice-action-card";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { currentPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
@@ -133,11 +147,16 @@ import {
   revokeVaultBanksBeforeErasure,
 } from "@/lib/flows/delete-account";
 import { buildLoginRouteWithAuthSessionNotice } from "@/lib/auth/session-invalidation";
-import { normalizeInvitationReturnTo, ROUTES } from "@/lib/navigation/routes";
+import {
+  normalizeInternalRouteHref,
+  normalizeInvitationReturnTo,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import { WALLET_CARD_COPY } from "@/components/wallet-card/wallet-card-copy";
 import { isWalletCardEntryEnabled } from "@/components/wallet-card/wallet-card-entry";
 import {
   buildCanonicalProfileRouteFromLegacyQuery,
+  buildLegacyDocumentPayoutReturnRoute,
   buildProfileRoute,
   resolveProfileRouteState,
   type ProfileDetail,
@@ -145,12 +164,16 @@ import {
 } from "@/lib/navigation/profile-routes";
 import {
   popProfilePaneLocation,
+  profileLegalParentForPresentation,
+  profilePanelParentForPresentation,
   pushProfilePaneLocation,
   replaceProfilePaneLocation,
   resolveProfilePaneUrlState,
   stripProfilePaneTransientParams,
   type ProfilePaneLocation,
 } from "@/lib/navigation/profile-pane";
+import { backProfilePane } from "@/lib/navigation/profile-pane-back";
+import { useBackLayer } from "@/lib/navigation/back-layers";
 import {
   resolveGmailConnectionPresentation,
   resolveGmailStatusSummary,
@@ -158,13 +181,16 @@ import {
 } from "@/lib/profile/mail-flow";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { Icon } from "@/lib/morphy-ux/ui";
-import { SegmentedTabs } from "@/lib/morphy-ux/ui";
+import { SegmentedControl } from "@/lib/morphy-ux/ui/segmented-control";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { AppleIcon, GoogleIcon } from "@/lib/morphy-ux/social-icons";
+import { EmailIdentityMark } from "@/components/app-ui/email-identity-mark";
 import { shouldUseGoogleBrandMark } from "@/lib/profile/profile-auth-provider-presentation";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { cn } from "@/lib/utils";
 import { DisplayNameEditor } from "@/components/profile/display-name-editor";
+import { NativeDisplayNameEditor } from "@/components/profile/native-display-name-editor";
+import { NativePhoneVerificationFlow } from "@/components/profile/native-phone-verification-flow";
 import { AccountService } from "@/lib/services/account-service";
 import {
   AccountResetNotConfirmedError,
@@ -196,6 +222,8 @@ import {
 } from "@/lib/services/support-service";
 import { ReferralsPanel } from "@/components/profile/referrals-panel";
 import TrustedDevicesPage from "@/components/profile/trusted-devices-page";
+import { useTrustedDevicesModel } from "./use-trusted-devices-model";
+import { useNativeTrustedDevices } from "./use-native-trusted-devices";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import {
   buildPkmAccessConnections,
@@ -216,15 +244,11 @@ import { formatMaskedPhoneNumber } from "@/lib/services/phone-display";
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { UserLocalStateService } from "@/lib/services/user-local-state-service";
 import { VaultService, type VaultWrapper } from "@/lib/services/vault-service";
-import {
-  VaultMethodService,
-  type VaultCapabilityMatrix,
-  type VaultMethod,
-} from "@/lib/services/vault-method-service";
+import type { VaultMethod } from "@/lib/services/vault-method-service";
 import {
   usePublishVoiceSurfaceMetadata,
   useVoiceSurfaceControlTracking,
-} from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/voice-surface-metadata";
 import {
   PersonalKnowledgeModelService,
   type PersonalKnowledgeModelMetadata,
@@ -240,21 +264,10 @@ import {
 import { useVault } from "@/lib/vault/vault-context";
 import { resolveVaultAvailabilityState } from "@/lib/vault/vault-access-policy";
 import { useConsentActions } from "@/lib/consent";
-import { useAccent, writeAccent, type AppAccent } from "@/lib/theme/accent";
+import { useAccent } from "@/lib/theme/accent";
 
 type FinancialContextCategory =
   "general" | "portfolio" | "risk" | "kyc" | "tax" | "documents";
-
-const PROFILE_LABELS = {
-  account: "Your account",
-  preferences: "Appearance & preferences",
-  security: "Security & privacy",
-  referrals: "Invite friends",
-  support: "Help & feedback",
-  developerTools: "Developer tools",
-  accountAccess: "Account access",
-  setup: "Set up One",
-} as const;
 
 /**
  * Read once at module scope: `NEXT_PUBLIC_*` is inlined at build time, so this
@@ -322,10 +335,9 @@ function buildPkmEntityDeletionCandidate(
   topLevelScopePath: string,
   entityKey: string,
 ): Record<string, unknown> {
-  const segments = topLevelScopePath
-    .split(".")
-    .map((segment) => segment.trim())
-    .filter(Boolean);
+  if (!validPkmPreviewPath(topLevelScopePath) || !validPkmPreviewPath(entityKey) || entityKey.includes("."))
+    throw new Error("This saved entry cannot be addressed safely.");
+  const segments = topLevelScopePath.split(".");
   const root: Record<string, unknown> = {};
   let current = root;
 
@@ -486,16 +498,8 @@ function readableMethod(method: VaultMethod | null): string {
     return "Device biometric";
   if (method === "generated_default_native_passkey_prf") return "Passkey";
   if (method === "generated_default_web_prf") return "Passkey";
-  if (method === "passphrase") return "Passphrase";
+  if (method === "passphrase") return "Password";
   return "Unknown";
-}
-
-function readableQuickMethod(method: VaultMethod | null): string {
-  if (method === "generated_default_native_biometric")
-    return "device biometric";
-  if (method === "generated_default_native_passkey_prf") return "passkey";
-  if (method === "generated_default_web_prf") return "passkey";
-  return "quick unlock";
 }
 
 function isPasskeyVaultMethod(method: VaultMethod | null): boolean {
@@ -503,27 +507,6 @@ function isPasskeyVaultMethod(method: VaultMethod | null): boolean {
     method === "generated_default_web_prf" ||
     method === "generated_default_native_passkey_prf"
   );
-}
-
-const VAULT_INLINE_CONTROL_CLASS =
-  "inline-flex min-h-11 min-w-0 items-center justify-center whitespace-nowrap rounded-full px-3 text-xs font-medium";
-const VAULT_INLINE_BADGE_CLASS =
-  "inline-flex min-w-0 items-center justify-center whitespace-nowrap rounded-full px-3 py-1 text-xs font-medium";
-const VAULT_INLINE_ACTIONS_CLASS =
-  "flex min-w-0 flex-wrap items-center gap-2 sm:justify-end";
-
-function vaultWrapperKey(
-  wrapper: Pick<VaultWrapper, "method" | "wrapperId">,
-): string {
-  return `${wrapper.method}:${wrapper.wrapperId ?? "default"}`;
-}
-
-function formatPasskeyIdentifier(wrapper: VaultWrapper): string {
-  const raw = wrapper.passkeyCredentialId || wrapper.wrapperId || "";
-  if (!raw) return "Identifier unavailable";
-  const compact = raw.replace(/\s+/g, "");
-  if (compact.length <= 10) return `Identifier ${compact}`;
-  return `Identifier ending ${compact.slice(-6)}`;
 }
 
 function formatPasskeyLabel(wrapper: VaultWrapper): string {
@@ -534,10 +517,8 @@ function formatPasskeyLabel(wrapper: VaultWrapper): string {
 }
 
 function describePasskeyWrapper(wrapper: VaultWrapper): string {
-  const parts = [formatPasskeyLabel(wrapper), formatPasskeyIdentifier(wrapper)];
-  return parts.join(" / ");
+  return formatPasskeyLabel(wrapper);
 }
-
 
 function profileRouteRequiresUnlockedVault(
   panel: ProfilePanel | null,
@@ -545,6 +526,9 @@ function profileRouteRequiresUnlockedVault(
 ): boolean {
   if (
     panel === "my-data" ||
+    panel === "payouts" ||
+    panel === "world-model" ||
+    panel === "request-pricing" ||
     panel === "connected-systems" ||
     panel === "connectors" ||
     panel === "gmail"
@@ -564,22 +548,34 @@ function profileRouteNeedsWorkspaceData(panel: ProfilePanel | null): boolean {
   return panel === "my-data";
 }
 
-export type ProfilePagePresentation = "route" | "pane";
+export type ProfilePagePresentation = "route" | "pane" | "native-page";
+
+type ProfilePageProps = {
+  presentation?: ProfilePagePresentation;
+  paneLocation?: ProfilePaneLocation;
+  panePresentation?: import("@/lib/navigation/use-profile-pane-presentation").ProfilePanePresentation;
+  nativeControlsEligible?: boolean;
+  nativeMenuOpen?: boolean;
+  onNativeMenuClose?: () => void;
+};
 
 function ProfilePageContent({
   presentation = "route",
   paneLocation,
-}: {
-  presentation?: ProfilePagePresentation;
-  /** Pane only: the location to show, when the host holds it (see ProfilePane). */
-  paneLocation?: ProfilePaneLocation;
-}) {
-  const isPanePresentation = presentation === "pane";
+  panePresentation,
+  nativeControlsEligible = true,
+  nativeMenuOpen = false,
+  onNativeMenuClose,
+  retainedConnectors,
+}: ProfilePageProps & { retainedConnectors?: ConnectorsPanelPresentation }) {
+  const isPanePresentation = presentation !== "route";
   const [canShowPkmAgentLab, setCanShowPkmAgentLab] = useState(false);
   const appAccent = useAccent();
   const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const routePathname = usePathname();
+  const routeSearchParams = useSearchParams();
+  const pathname = panePresentation?.pathname ?? routePathname;
+  const searchParams = panePresentation?.searchParams ?? routeSearchParams;
   const searchParamsString = searchParams.toString();
 
   useEffect(() => {
@@ -593,14 +589,18 @@ function ProfilePageContent({
     user,
     loading: authLoading,
     phoneNumber,
+    phoneNumberStatus,
+    resolveVerifiedPhoneNumber,
     signOut,
     startPhoneVerification,
     confirmPhoneVerification,
     startPhoneReplacement,
     confirmPhoneReplacement,
   } = useAuth();
+  const nativePortrait = useNativeProfilePortrait(user?.uid ?? null, presentation === "native-page" && nativeMenuOpen);
+  const voiceGetIdToken = useMemo(() => user?.getIdToken ? () => user.getIdToken() : null, [user]);
   const { personaState, refresh: refreshPersonaState } = usePersonaState();
-  const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
+  const { vaultKey, vaultOwnerToken, isVaultUnlocked, getVaultOwnerToken } = useVault();
   const pendingConsents = useConsentPendingSummaryCount();
   const { registerSteps, completeStep, reset } = useStepProgress();
 
@@ -613,7 +613,21 @@ function ProfilePageContent({
   const [isDeleting, setIsDeleting] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const accountPreparation = useRef(new AccountConfirmationPreparation());
+  const dismissAccountConfirmation = useCallback(() => {
+    if (isDeleting || isResetting) return;
+    accountPreparation.current.invalidate();
+    setShowDeleteConfirm(false); setShowResetConfirm(false);
+  }, [isDeleting, isResetting]);
+  const closeNativeProfile = useCallback(() => {
+    if (isDeleting || isResetting) return false;
+    dismissAccountConfirmation(); onNativeMenuClose?.();
+    return true;
+  }, [isDeleting, isResetting, dismissAccountConfirmation, onNativeMenuClose]);
   const [editingDisplayName, setEditingDisplayName] = useState(false);
+  const [nativeNameHost, setNativeNameHost] = useState<HTMLDivElement | null>(null);
+  const [nativePhoneHost, setNativePhoneHost] = useState<HTMLDivElement | null>(null);
+  const [nativeAccountException, setNativeAccountException] = useState<"photo" | "name" | null>(null);
   const [pendingProfileTarget, setPendingProfileTarget] = useState<{
     panel: ProfilePanel;
     detail: ProfileDetail | null;
@@ -668,29 +682,6 @@ function ProfilePageContent({
     null,
   );
   const [initialized, setInitialized] = useState(false);
-  const [vaultMethod, setVaultMethod] = useState<VaultMethod | null>(null);
-  const [capabilityMatrix, setCapabilityMatrix] =
-    useState<VaultCapabilityMatrix | null>(null);
-  const [enrolledVaultWrappers, setEnrolledVaultWrappers] = useState<
-    VaultWrapper[]
-  >([]);
-  const [primaryVaultWrapperId, setPrimaryVaultWrapperId] = useState<
-    string | null
-  >(null);
-  const [availableQuickMethod, setAvailableQuickMethod] =
-    useState<VaultMethod | null>(null);
-  const [availableQuickWrapperId, setAvailableQuickWrapperId] = useState<
-    string | null
-  >(null);
-  const [effectiveVaultMethod, setEffectiveVaultMethod] =
-    useState<VaultMethod | null>(null);
-  const [loadingVaultMethod, setLoadingVaultMethod] = useState(false);
-  const [switchingVaultMethod, setSwitchingVaultMethod] = useState(false);
-  const [passphraseDialogOpen, setPassphraseDialogOpen] = useState(false);
-  const [passkeyRemovalTarget, setPasskeyRemovalTarget] =
-    useState<VaultWrapper | null>(null);
-  const [newPassphrase, setNewPassphrase] = useState("");
-  const [confirmPassphrase, setConfirmPassphrase] = useState("");
   const [marketplaceOptIn, setMarketplaceOptIn] = useState(false);
   const [loadingMarketplaceOptIn, setLoadingMarketplaceOptIn] = useState(true);
   const [savingMarketplaceOptIn, setSavingMarketplaceOptIn] = useState(false);
@@ -708,17 +699,39 @@ function ProfilePageContent({
   );
   const [supportComposerState, setSupportComposerState] =
     useState<SupportComposerState>({ status: "editing" });
+  const pendingSupportSubmission = useRef<symbol | null>(null);
+  const supportDraft = useRef({ kind: supportKind, message: supportMessage, revision: 0 });
+  const changeSupportDraft = useCallback((patch: { kind?: SupportMessageKind; message?: string }) => {
+    const next = { ...supportDraft.current, ...patch, revision: supportDraft.current.revision + 1 };
+    supportDraft.current = next; // Accept and revision edits before React batches a render.
+    setSupportKind(next.kind); setSupportMessage(next.message); setSupportMessageError(null);
+    setSupportComposerState(current => current.status === "error" ? { status: "editing" } : current);
+  }, []);
   const [gmailActionBusy, setGmailActionBusy] = useState<
     "connect" | "disconnect" | "sync" | null
   >(null);
   const [savingFinancialContext, setSavingFinancialContext] = useState(false);
-  const [financialContextText, setFinancialContextText] = useState("");
-  const [financialContextCategory, setFinancialContextCategory] =
+  const financialDraft = useRef({ text: "", category: "general" as FinancialContextCategory, target: null as string | null, revision: 0 });
+  const [financialContextText, renderFinancialContextText] = useState("");
+  const [financialContextCategory, renderFinancialContextCategory] =
     useState<FinancialContextCategory>("general");
-  const [editingFinancialContextId, setEditingFinancialContextId] = useState<
+  const [editingFinancialContextId, renderEditingFinancialContextId] = useState<
     string | null
   >(null);
+  const setFinancialContextText = useCallback((text: string) => {
+    financialDraft.current = { ...financialDraft.current, text, revision: financialDraft.current.revision + 1 }; renderFinancialContextText(text);
+  }, []);
+  const setFinancialContextCategory = useCallback((category: FinancialContextCategory) => {
+    financialDraft.current = { ...financialDraft.current, category, revision: financialDraft.current.revision + 1 }; renderFinancialContextCategory(category);
+  }, []);
+  const setEditingFinancialContextId = useCallback((target: string | null) => {
+    financialDraft.current = { ...financialDraft.current, target, revision: financialDraft.current.revision + 1 }; renderEditingFinancialContextId(target);
+  }, []);
+  const [nativeContextOpen, setNativeContextOpen] = useState(false);
+  const [nativeContextFailed, setNativeContextFailed] = useState(false);
+  const [nativeContextError, setNativeContextError] = useState<string | null>(null);
   const vaultUnlockCompletingRef = useRef(false);
+  const vaultCreationCompletingRef = useRef(false);
   const supportMessageRef = useRef<HTMLTextAreaElement | null>(null);
   const supportSuccessHeadingRef = useRef<HTMLHeadingElement | null>(null);
 
@@ -726,7 +739,8 @@ function ProfilePageContent({
     () =>
       isPanePresentation
         ? null
-        : buildCanonicalProfileRouteFromLegacyQuery(pathname, searchParams),
+        : (buildLegacyDocumentPayoutReturnRoute(pathname, searchParams) ??
+          buildCanonicalProfileRouteFromLegacyQuery(pathname, searchParams)),
     [isPanePresentation, pathname, searchParams],
   );
   const profileRouteState = useMemo(
@@ -742,6 +756,114 @@ function ProfilePageContent({
       ? null
       : profileRouteState.panel;
   const activeDetail = activePanel ? profileRouteState.detail : null;
+  const phoneVaultEpoch = snapshotVaultSessionEpoch();
+  const phoneVisit = useMemo(() => ({ active: false, id: Symbol("phone-visit"), userId: user?.uid, owner: snapshotValidatedAuthSessionOwner(),
+    vaultEpoch: phoneVaultEpoch, enabled: activePanel === "account" && activeDetail === "phone" &&
+      (presentation !== "native-page" || nativeMenuOpen) }),
+  [user?.uid, phoneVaultEpoch, activePanel, activeDetail, presentation, nativeMenuOpen]);
+  useLayoutEffect(() => { phoneVisit.active = true; return () => { phoneVisit.active = false; }; }, [phoneVisit]);
+  const phoneVisitIsCurrent = () => phoneVisit.active && phoneVisit.enabled && !!phoneVisit.owner &&
+    phoneVisit.owner.userId === user?.uid && isValidatedAuthSessionOwnerCurrent(phoneVisit.owner) &&
+    phoneVisit.vaultEpoch === snapshotVaultSessionEpoch();
+  const devicesActive = activePanel === "security" && activeDetail === "trusted-devices";
+  const devicesParent = devicesActive ? profilePanelParentForPresentation("security", panePresentation?.history) : null;
+  const devicesModel = useTrustedDevicesModel(user?.uid ?? null, !!user && !authLoading && isVaultUnlocked &&
+    devicesActive && (presentation !== "native-page" || nativeMenuOpen));
+  const [nativeDevicesAvailable, setNativeDevicesAvailable] = useState(false);
+  const nativeDevices = useNativeTrustedDevices(devicesModel, JSON.stringify([user?.uid, snapshotVaultSessionEpoch()]),
+    presentation === "native-page" && nativeDevicesAvailable);
+  useBackLayer(pathname, devicesActive && devicesModel.confirmation ? 3 : 0, () => {
+    if (!devicesActive || !devicesModel.confirmation) return false;
+    devicesModel.cancel(); return true;
+  }, isPanePresentation ? { profile_pane: "1" } : undefined);
+  const phoneBackStep = useRef<(() => boolean) | null>(null);
+  const bindPhoneBackStep = useCallback((handler: (() => boolean) | null) => {
+    phoneBackStep.current = handler;
+  }, []);
+  useBackLayer(pathname, isVaultUnlocked && activePanel === "account" && activeDetail === "phone" &&
+    (presentation !== "native-page" || nativeMenuOpen) ? 2 : 0,
+  () => phoneBackStep.current?.() ?? false, isPanePresentation ? { profile_pane: "1" } : undefined);
+  useBackLayer(pathname, presentation === "native-page" && nativeMenuOpen && activePanel === "account" &&
+    !activeDetail && (showDeleteConfirm || showResetConfirm) ? 3 : 0, () => {
+      // Global/voice Back observes the same local confirmation boundary as
+      // UIKit Back. Busy operations consume Back without repeating or closing.
+      if (presentation !== "native-page" || !nativeMenuOpen || activePanel !== "account" || activeDetail ||
+          !showDeleteConfirm && !showResetConfirm) return false;
+      dismissAccountConfirmation(); return true;
+    }, { profile_pane: "1" });
+  useLayoutEffect(() => {
+    // The pane remains mounted while closed. External navigation and late
+    // preflight settlement cannot retain an idle confirmation for a new visit.
+    if (presentation === "native-page" && (!nativeMenuOpen || activePanel !== "account" || activeDetail)) {
+      dismissAccountConfirmation();
+    }
+  }, [presentation, nativeMenuOpen, activePanel, activeDetail, showDeleteConfirm, showResetConfirm, dismissAccountConfirmation]);
+  useEffect(() => {
+    if (activePanel !== "account" || activeDetail) {
+      setNativeAccountException(null); setEditingDisplayName(false);
+    }
+  }, [activePanel, activeDetail, user?.uid]);
+  useEffect(() => {
+    if (!editingDisplayName && nativeAccountException === "name") setNativeAccountException(null);
+  }, [editingDisplayName, nativeAccountException]);
+  const nativeDetailOwner = JSON.stringify([user?.uid, snapshotVaultSessionEpoch()]);
+  const memoryOperations = useMemo(() => {
+    const owner = snapshotValidatedAuthSessionOwner();
+    const epoch = snapshotVaultSessionEpoch();
+    return new ProfileMemoryOperations(() => !!owner && owner.userId === user?.uid &&
+      JSON.stringify([owner.userId, snapshotVaultSessionEpoch()]) === nativeDetailOwner &&
+      isValidatedAuthSessionOwnerCurrent(owner) && snapshotVaultSessionEpoch() === epoch);
+  }, [nativeDetailOwner, user?.uid]);
+  useLayoutEffect(() => {
+    memoryOperations.activate();
+    setPendingPermissionToggles({});
+    setPkmMetadata(null); setConsentCenter(null); setDomainManifests({});
+    setPkmError(null); setConsentCenterError(null);
+    setDomainManifestErrors({}); setLoadingDomainManifests({});
+    setSavingFinancialContext(false); setFinancialContextText(""); setEditingFinancialContextId(null); setFinancialContextCategory("general");
+    setNativeContextOpen(false); setNativeContextError(null);
+    setDomainPreview({ open: false, permissionKey: null, domainKey: null, topLevelScopePath: null,
+      title: "", description: "", presentation: null, loading: false, error: null, deletingEntityKey: null });
+    return () => memoryOperations.retire();
+  }, [memoryOperations, setFinancialContextText, setEditingFinancialContextId, setFinancialContextCategory]);
+  useLayoutEffect(() => {
+    memoryOperations.cancelPreview();
+    return () => memoryOperations.cancelPreview();
+  }, [memoryOperations, activePanel, activeDetail, nativeMenuOpen]);
+  const closeDomainPreview = () => {
+    memoryOperations.cancelPreview();
+    setDomainPreview(value => ({ ...value, open: false }));
+  };
+  const accountPreparationOwner = useRef<string | null>(nativeDetailOwner);
+  useLayoutEffect(() => {
+    // A confirmation is not an authorization that survives owner/vault change.
+    const preparation = accountPreparation.current;
+    preparation.invalidate();
+    accountPreparationOwner.current = nativeDetailOwner;
+    setShowDeleteConfirm(false); setShowResetConfirm(false);
+    return () => { preparation.invalidate(); accountPreparationOwner.current = null; };
+  }, [nativeDetailOwner]);
+  const supportOwner = useRef<string | null>(nativeDetailOwner);
+  const supportDraftOwner = useRef(nativeDetailOwner);
+  useLayoutEffect(() => {
+    if (supportDraftOwner.current !== nativeDetailOwner) {
+      supportDraftOwner.current = nativeDetailOwner;
+      changeSupportDraft({ kind: "support_request", message: "" }); setSupportComposerState({ status: "editing" });
+    }
+    supportOwner.current = nativeDetailOwner;
+    return () => { supportOwner.current = null; pendingSupportSubmission.current = null; };
+  }, [nativeDetailOwner, changeSupportDraft]);
+  const [nativeActiveHeading, setNativeActiveHeading] = useState<{ owner: string; title: string } | null>(null);
+  const updateNativeActiveHeading = useCallback((entry: Pick<ProfileStackEntry, "key" | "title"> | null) => {
+    const title = typeof entry?.title === "string" ? entry.title : "Profile";
+    setNativeActiveHeading(previous => previous?.owner === nativeDetailOwner && previous.title === title
+      ? previous : { owner: nativeDetailOwner, title });
+  }, [nativeDetailOwner]);
+  const preferenceChrome = {
+    owner: user?.uid ?? null,
+    context: JSON.stringify([pathname, isPanePresentation, activePanel, activeDetail, snapshotVaultSessionEpoch()]),
+    eligible: nativeControlsEligible && !!user && !authLoading && activePanel === "preferences" && !activeDetail && (!isPanePresentation || isVaultUnlocked),
+  };
   const supportComposeKind =
     activePanel === "support" && activeDetail?.startsWith("support-compose:")
       ? normalizeSupportKind(activeDetail.slice("support-compose:".length))
@@ -753,7 +875,13 @@ function ProfilePageContent({
   const supportRouteKind = supportComposeKind ?? supportQueryKind;
   const sendingSupportMessage = supportComposerState.status === "sending";
   const supportPresentation = SUPPORT_INTENT_PRESENTATION[supportKind];
-  const effectiveReplyEmail = user?.emailVerified ? user.email?.trim() || "" : "";
+  useDocumentFeedStream(
+    activePanel === "payouts" && !authLoading ? user : null,
+  );
+
+  const effectiveReplyEmail = user?.emailVerified
+    ? user.email?.trim() || ""
+    : "";
   const supportReplyLine = effectiveReplyEmail
     ? `Replies go to ${effectiveReplyEmail}`
     : "Verify an account email to receive a reply.";
@@ -792,10 +920,9 @@ function ProfilePageContent({
   }, [legacyProfileRedirectHref, router]);
 
   useEffect(() => {
-    if (!supportRouteKind || supportRouteKind === supportKind) return;
-    setSupportKind(supportRouteKind);
-    setSupportMessageError(null);
-  }, [supportKind, supportRouteKind]);
+    if (!supportRouteKind || supportRouteKind === supportDraft.current.kind) return;
+    changeSupportDraft({ kind: supportRouteKind });
+  }, [supportRouteKind, nativeDetailOwner, changeSupportDraft]);
 
   const legacySupportRouteHref = useMemo(() => {
     if (isPanePresentation || activePanel !== "support") return null;
@@ -814,7 +941,13 @@ function ProfilePageContent({
       });
     }
     return null;
-  }, [activeDetail, activePanel, isPanePresentation, searchParams, supportComposeKind]);
+  }, [
+    activeDetail,
+    activePanel,
+    isPanePresentation,
+    searchParams,
+    supportComposeKind,
+  ]);
 
   useEffect(() => {
     if (!legacySupportRouteHref || isPanePresentation) return;
@@ -862,6 +995,73 @@ function ProfilePageContent({
       vaultOwnerToken,
     ],
   );
+  const vaultMethods = useProfileVaultMethodsModel({ userId: user?.uid ?? null, vaultKey, vaultOwnerToken,
+    hasVault, authLoading, canMutate: vaultAccess.canMutateSecureData,
+    active: activePanel === "security" && activeDetail === "vault" && (presentation !== "native-page" || nativeMenuOpen),
+    displayName: user?.displayName || user?.email || "Hussh User", requestUnlock: () => requestVaultUnlock("profile_data") });
+  const { primaryMethod: vaultMethod, capability: capabilityMatrix, wrappers: enrolledVaultWrappers,
+    primaryWrapperId: primaryVaultWrapperId, effectiveMethod: effectiveVaultMethod, loading: loadingVaultMethod,
+    needsRefresh: vaultMethodsNeedRefresh, owner: vaultMethodsOwner, localBiometricId: localBiometricWrapperId,
+    busy: switchingVaultMethod, passphraseOpen: passphraseDialogOpen, removal: passkeyRemovalTarget,
+    password: newPassphrase, confirmation: confirmPassphrase } = vaultMethods;
+  const [nativeVaultAvailable, setNativeVaultAvailable] = useState(false);
+  const [nativePricingAvailable, setNativePricingAvailable] = useState(false);
+  const [nativePayoutAvailable, setNativePayoutAvailable] = useState(false);
+  const [nativeMemoryAvailable, setNativeMemoryAvailable] = useState(false);
+  const [nativeSharedMemoryAvailable, setNativeSharedMemoryAvailable] = useState(false);
+  const [nativeSecretsAvailable, setNativeSecretsAvailable] = useState(false);
+  const [nativeWorldModelAvailable, setNativeWorldModelAvailable] = useState(false);
+  const [nativeConnectorsAvailable, setNativeConnectorsAvailable] = useState(false);
+  const nativeConnectorsWanted = presentation === "native-page" && nativeMenuOpen && nativeConnectorsAvailable &&
+    activePanel === "connectors" && vaultAccess.canMutateSecureData && retainedConnectors !== undefined;
+  const nativeConnectors = useNativeConnectors(retainedConnectors, nativeDetailOwner, nativeConnectorsWanted);
+  const nativeConnectorsActive = nativeConnectorsWanted && nativeConnectors.mapped && !nativeConnectors.failed;
+  useBackLayer(pathname, nativeConnectorsActive && nativeConnectors.nested ? 3 : 0, nativeConnectors.back, { profile_pane: "1" });
+  const nativeWorldModelActive = presentation === "native-page" && nativeMenuOpen && nativeWorldModelAvailable &&
+    activePanel === "world-model" && vaultAccess.canMutateSecureData;
+  const worldModel = usePersonalWorldModelModel({ embedded: true, enabled: activePanel === "world-model" &&
+    (presentation !== "native-page" || nativeMenuOpen) });
+  const [nativeMemoryWebBody, setNativeMemoryWebBody] = useState(false);
+  const nativeMemoryActive = presentation === "native-page" && nativeMenuOpen && nativeMemoryAvailable &&
+    activePanel === "my-data" && vaultAccess.canMutateSecureData;
+  const contextVisit = useMemo(() => {
+    const visit = { active: false, panel: activePanel, detail: activeDetail, open: nativeMenuOpen,
+      current: () => visit.active && visit.panel === "my-data" && (presentation !== "native-page" || visit.open) && memoryOperations.current() };
+    return visit;
+  }, [memoryOperations, activePanel, activeDetail, nativeMenuOpen, presentation]);
+  useLayoutEffect(() => {
+    contextVisit.active = true;
+    setNativeContextOpen(false); setNativeContextFailed(false); setNativeContextError(null);
+    return () => { contextVisit.active = false; };
+  }, [contextVisit]);
+  useLayoutEffect(() => { setNativeMemoryWebBody(false); }, [activeDetail, nativeMenuOpen, nativeDetailOwner]);
+  const memoryShared = useMemorySharedModel({ owner: nativeDetailOwner, token: vaultOwnerToken, visit: activeDetail,
+    active: activePanel === "my-data" && isVaultUnlocked && (presentation !== "native-page" || nativeMenuOpen && (!nativeMemoryAvailable || nativeSharedMemoryAvailable || nativeMemoryWebBody)),
+    native: nativeMemoryActive && nativeSharedMemoryAvailable && !nativeMemoryWebBody, current: contextVisit.current });
+  const memorySecrets = useSecretsListModel({
+    active: activePanel === "my-data" && isVaultUnlocked && (presentation !== "native-page" || nativeMenuOpen && (!nativeMemoryAvailable || nativeSecretsAvailable || nativeMemoryWebBody)),
+    native: nativeMemoryActive && nativeSecretsAvailable && !nativeMemoryWebBody, current: contextVisit.current });
+  const nativePayoutActive = presentation === "native-page" && nativeMenuOpen && nativePayoutAvailable &&
+    activePanel === "payouts" && !activeDetail && vaultAccess.canMutateSecureData;
+  const nativePayout = useNativePayouts(nativePayoutActive);
+  useBackLayer(pathname, nativePayoutActive && nativePayout.nested ? 3 : 0, nativePayout.back,
+    isPanePresentation ? { profile_pane: "1" } : undefined);
+  const [nativePricingEditorOpen, setNativePricingEditorOpen] = useState(false);
+  const [nativePricingFailed, setNativePricingFailed] = useState(false);
+  const nativePricingActive = presentation === "native-page" && nativeMenuOpen && nativePricingAvailable &&
+    activePanel === "request-pricing" && !activeDetail && vaultAccess.canMutateSecureData && !nativePricingFailed;
+  const nativePricingModel = useDocumentRequestPricingModel({ enabled: presentation === "native-page" && nativeMenuOpen && nativePricingAvailable &&
+    activePanel === "request-pricing" && !activeDetail && vaultAccess.canMutateSecureData });
+  const nativePricing = projectNativeRequestPricing(nativePricingModel, () => setNativePricingEditorOpen(true));
+  useLayoutEffect(() => { if (activePanel !== "request-pricing" || !nativeMenuOpen) { setNativePricingEditorOpen(false); setNativePricingFailed(false); } }, [activePanel, nativeMenuOpen]);
+  const [nativeVaultPasswordFallback, setNativeVaultPasswordFallback] = useState(false);
+  const vaultParent = activePanel === "security" && activeDetail === "vault" ? profilePanelParentForPresentation("security", panePresentation?.history) : null;
+  const vaultNativeActive = presentation === "native-page" && nativeMenuOpen && nativeVaultAvailable &&
+    activePanel === "security" && activeDetail === "vault" && vaultAccess.canMutateSecureData && vaultParent !== null && !nativeVaultPasswordFallback;
+  const nativeVault = useNativeVaultMethods(vaultMethods, vaultNativeActive, vaultAccess.canMutateSecureData);
+  useLayoutEffect(() => { if (!passphraseDialogOpen) setNativeVaultPasswordFallback(false); }, [passphraseDialogOpen]);
+  useBackLayer(pathname, vaultNativeActive && nativeVault.nested ? 3 : 0, nativeVault.back,
+    isPanePresentation ? { profile_pane: "1" } : undefined);
   const routeBlockedByVault =
     hasVault === true &&
     vaultAccess.needsUnlock &&
@@ -1078,6 +1278,83 @@ function ProfilePageContent({
     ],
   );
 
+  const nativeWorldModel = useNativeWorldModel({ active: nativeWorldModelActive, owner: nativeDetailOwner, model: worldModel,
+    onAccount: () => updateProfileView({ panel: "account", detail: null }, "push"),
+    onMemory: () => updateProfileView({ panel: "my-data", detail: null }, "push") });
+  useBackLayer(pathname, nativeWorldModelActive && nativeWorldModel.nested ? 3 : 0, nativeWorldModel.back,
+    isPanePresentation ? { profile_pane: "1" } : undefined);
+  const nativeMemory = useNativeMemory({
+    active: nativeMemoryActive, owner: nativeDetailOwner, detail: activePanel === "my-data" ? activeDetail : null,
+    loading: loadingPkmMetadata || loadingConsentCenter, metadataReady: pkmMetadataReady, sharingReady: consentCenterReady,
+    metadataFailed: !!pkmError, sharingFailed: !!consentCenterError, domains: domainPresentations, connections: accessConnections,
+    selectedDomain, selectedConnection, permissions: selectedDomainPermissions, upgrade: selectedDomainUpgrade,
+    manifestLoading: !!selectedDomain && !!loadingDomainManifests[selectedDomain.key],
+    manifestFailed: !!selectedDomain && !!domainManifestErrors[selectedDomain.key], pendingPermissions: pendingPermissionToggles,
+    preview: domainPreview,
+    shared: nativeSharedMemoryAvailable ? memoryShared : undefined,
+    secrets: nativeSecretsAvailable ? memorySecrets : undefined,
+    openDomain: key => updateProfileView({ panel: "my-data", detail: `domain:${key}` }, "push"),
+    openConnection: id => updateProfileView({ panel: "my-data", detail: `connection:${id}` }, "push"),
+    openSharing: () => updateProfileView({ panel: "my-data", detail: "sharing" }, "push"),
+    openRoot: () => updateProfileView({ panel: "my-data", detail: null }, "replace"),
+    refresh: () => { void refreshPkmMetadata(true); void refreshConsentCenter(true); void refreshVisibleDomainManifests(true); },
+    navigate: href => router.push(href),
+    closePreview: closeDomainPreview,
+    openRetainedDetails: () => setNativeMemoryWebBody(true),
+    openFinancialContext: () => {
+      if (!memoryOperations.current() || memoryOperations.writing("financial")) return;
+      setEditingFinancialContextId(null); setFinancialContextText(""); setFinancialContextCategory("general");
+      setNativeContextError(null); setNativeContextOpen(true);
+    },
+    previewPermission: permission => selectedDomain ? handlePreviewDomainPermission(selectedDomain.key, permission) : Promise.resolve(),
+    setPosture: (permission, posture) => selectedDomain ? handleToggleDomainPermission(selectedDomain.key, permission, posture) : Promise.resolve(),
+    removeEntity: entity => handleDeletePkmPreviewEntity(entity),
+    editEntity: entity => {
+      if (!handleEditFinancialContextEntry(entity)) return;
+      setNativeContextError(null); setNativeContextOpen(true);
+    },
+    revoke: scope => handleRevoke(scope, undefined, { quiet: true }),
+  });
+  useBackLayer(pathname, nativeMemoryActive && !nativeMemoryWebBody && nativeMemory.nested ? 3 : 0, nativeMemory.back,
+    isPanePresentation ? { profile_pane: "1" } : undefined);
+  useBackLayer(pathname, nativeMemoryActive && nativeMemoryWebBody ? 3 : 0, () => {
+    if (savingFinancialContext) return true;
+    setNativeMemoryWebBody(false); return true;
+  }, isPanePresentation ? { profile_pane: "1" } : undefined);
+
+  const nativePreferences = useNativeProfilePreferences({
+    enabled: presentation === "native-page" && nativeMenuOpen && activePanel === "preferences" && !activeDetail && isVaultUnlocked,
+    retainDraft: presentation === "native-page" && nativeMenuOpen && activePanel === "preferences" && isVaultUnlocked,
+    userId: user?.uid ?? null, vaultKey, vaultOwnerToken,
+    onGemini: () => updateProfileView({ panel: "preferences", detail: "gemini" }, "push"),
+    onVoice: () => updateProfileView({ panel: "preferences", detail: "voice" }, "push"),
+  });
+  const [nativeVoiceAvailable, setNativeVoiceAvailable] = useState(false);
+  const voiceParent = profilePanelParentForPresentation("preferences", panePresentation?.history);
+  const [nativeRuntimeAvailable, setNativeRuntimeAvailable] = useState(false);
+  const runtimeSettings = useGeminiRuntimeSettingsModel({ userId: user?.uid, vaultKey, vaultOwnerToken,
+    needsVaultCreation: vaultAccess.needsVaultCreation, needsUnlock: vaultAccess.needsUnlock,
+    onRequestVaultCreation: () => requestVaultUnlock("profile_data"), onRequestVaultUnlock: () => requestVaultUnlock("profile_data"),
+    enabled: activePanel === "preferences" && activeDetail === "gemini" && (presentation !== "native-page" || nativeMenuOpen) });
+  const nativeRuntimeEligible = nativeRuntimeAvailable && voiceParent !== null && presentation === "native-page" && nativeMenuOpen &&
+    activePanel === "preferences" && activeDetail === "gemini" && isVaultUnlocked;
+  const nativeRuntime = useNativeRuntimeSettings(runtimeSettings, nativeDetailOwner, nativeRuntimeEligible);
+  const nativeRuntimeActive = nativeRuntimeEligible && !nativeRuntime.failed;
+  useBackLayer(pathname, nativeRuntimeActive && (runtimeSettings.isSaving || runtimeSettings.isRemoving) ? 3 : 0,
+    () => runtimeSettings.operationPending(), isPanePresentation ? { profile_pane: "1" } : undefined);
+  const [nativeFinanceAvailable, setNativeFinanceAvailable] = useState(false);
+  const nativeFinanceActive = nativeFinanceAvailable && voiceParent !== null && presentation === "native-page" &&
+    nativeMenuOpen && activePanel === "preferences" && activeDetail === "kai-preferences" && isVaultUnlocked && vaultAccess.canMutateSecureData;
+  const financePreferences = useProfileFinancePreferences({ userId: user?.uid ?? null, vaultKey, vaultOwnerToken,
+    canEdit: Boolean(user?.uid && vaultAccess.hasVault && vaultAccess.canMutateSecureData), active: nativeFinanceActive });
+  const nativeFinance = projectNativeFinancePreferences(financePreferences);
+  useBackLayer(pathname, nativeFinanceActive && (financePreferences.wizard.step > 0 || financePreferences.wizard.horizonDialogOpen || nativeFinance.busy) ? 3 : 0,
+    nativeFinance.back, isPanePresentation ? { profile_pane: "1" } : undefined);
+  const nativeVoice = useNativeVoiceProfile({
+    enabled: nativeVoiceAvailable && voiceParent !== null && presentation === "native-page" && nativeMenuOpen && activePanel === "preferences" && activeDetail === "voice" && isVaultUnlocked,
+    userId: user?.uid ?? null, vaultOwnerToken, getIdToken: voiceGetIdToken,
+  });
+
   useEffect(() => {
     let cancelled = false;
 
@@ -1105,68 +1382,6 @@ function ProfilePageContent({
     };
   }, [authLoading, user?.uid]);
 
-  async function refreshVaultMethodState(targetUserId: string) {
-    try {
-      setLoadingVaultMethod(true);
-      const [capability, currentMethod, vaultState] = await Promise.all([
-        VaultMethodService.getCapabilityMatrix(),
-        VaultMethodService.getCurrentMethod(targetUserId),
-        VaultService.getVaultState(targetUserId),
-      ]);
-      const nextRecommendedMethod =
-        capability.recommendedMethod !== "passphrase"
-          ? capability.recommendedMethod
-          : null;
-      const quickWrapper =
-        nextRecommendedMethod !== null
-          ? VaultService.getWrapperByMethod(vaultState, nextRecommendedMethod)
-          : null;
-      const primaryPrefersQuickMethod =
-        vaultState.primaryMethod === "generated_default_native_biometric" ||
-        vaultState.primaryMethod === "generated_default_web_prf" ||
-        vaultState.primaryMethod === "generated_default_native_passkey_prf";
-      const primaryWrapper = VaultService.getPrimaryWrapper(vaultState);
-      const nextEffectiveMethod =
-        primaryPrefersQuickMethod && quickWrapper
-          ? quickWrapper.method
-          : primaryPrefersQuickMethod && !quickWrapper
-            ? "passphrase"
-            : primaryWrapper.method;
-
-      setCapabilityMatrix(capability);
-      setVaultMethod(currentMethod);
-      setEnrolledVaultWrappers(vaultState.wrappers);
-      setPrimaryVaultWrapperId(vaultState.primaryWrapperId ?? "default");
-      setAvailableQuickMethod(quickWrapper?.method ?? null);
-      setAvailableQuickWrapperId(quickWrapper?.wrapperId ?? null);
-      setEffectiveVaultMethod(nextEffectiveMethod);
-    } catch (error) {
-      console.warn("[ProfilePage] Failed to resolve vault method:", error);
-      setVaultMethod(null);
-      setEnrolledVaultWrappers([]);
-      setPrimaryVaultWrapperId(null);
-      setAvailableQuickMethod(null);
-      setAvailableQuickWrapperId(null);
-      setEffectiveVaultMethod(null);
-    } finally {
-      setLoadingVaultMethod(false);
-    }
-  }
-
-  useEffect(() => {
-    if (authLoading || !user?.uid) return;
-    if (hasVault !== true) {
-      setVaultMethod(null);
-      setEnrolledVaultWrappers([]);
-      setPrimaryVaultWrapperId(null);
-      setAvailableQuickMethod(null);
-      setAvailableQuickWrapperId(null);
-      setEffectiveVaultMethod(null);
-      return;
-    }
-
-    void refreshVaultMethodState(user.uid);
-  }, [authLoading, hasVault, user?.uid]);
 
   useEffect(() => {
     if (!user) {
@@ -1213,14 +1428,18 @@ function ProfilePageContent({
 
   const refreshPkmMetadata = useCallback(
     async (force = false) => {
-      if (!user?.uid || hasVault === null) return;
+      if (!user?.uid || hasVault === null || !memoryOperations.current()) return;
+      const request = memoryOperations.beginRead("metadata");
+      setLoadingPkmMetadata(true);
+      try {
       const metadata = await loadProfilePkmMetadataForVaultState({
         userId: user.uid,
         hasVault,
         force,
         vaultOwnerToken,
       });
-      setPkmMetadata(metadata);
+      if (!request.current()) return;
+      setPkmMetadata(previous => request.current() ? metadata : previous);
       setPkmError(null);
       if (!hasVault) {
         setDomainManifests({});
@@ -1228,8 +1447,9 @@ function ProfilePageContent({
         setLoadingDomainManifests({});
       }
       return metadata;
+      } finally { if (request.current()) setLoadingPkmMetadata(false); }
     },
-    [hasVault, user?.uid, vaultOwnerToken],
+    [hasVault, user?.uid, vaultOwnerToken, memoryOperations],
   );
 
   // A domain written on another route (Wallet, Kai import, chat) reaches this
@@ -1256,8 +1476,9 @@ function ProfilePageContent({
   }, [hasVault, refreshPkmMetadata, user?.uid]);
 
   const refreshDomainManifest = useCallback(
-    async (domainKey: string, force = false) => {
-      if (!user?.uid || !vaultOwnerToken) return null;
+    async (domainKey: string, force = false, recoveryIsCurrent?: () => boolean) => {
+      if (!user?.uid || !vaultOwnerToken || !memoryOperations.current()) return null;
+      const request = memoryOperations.beginRead(`manifest:${domainKey}`);
       setLoadingDomainManifests((current) => ({
         ...current,
         [domainKey]: true,
@@ -1269,7 +1490,9 @@ function ProfilePageContent({
           vaultOwnerToken,
           force,
         );
-        setDomainManifests((current) => ({
+        if (!request.current() || recoveryIsCurrent && !recoveryIsCurrent()) return null;
+        setDomainManifests((current) => !request.current() || memoryOperations.writing(domainKey) && !recoveryIsCurrent?.() ||
+          (!manifest && !!current[domainKey]) || manifest && (current[domainKey]?.manifest_version ?? 0) > manifest.manifest_version ? current : ({
           ...current,
           [domainKey]: manifest,
         }));
@@ -1279,6 +1502,7 @@ function ProfilePageContent({
         }));
         return manifest;
       } catch (_error) {
+        if (!request.current()) return null;
         const message = "Couldn't load sharing controls for these details.";
         setDomainManifestErrors((current) => ({
           ...current,
@@ -1286,13 +1510,13 @@ function ProfilePageContent({
         }));
         return null;
       } finally {
-        setLoadingDomainManifests((current) => ({
+        if (request.current()) setLoadingDomainManifests((current) => ({
           ...current,
           [domainKey]: false,
         }));
       }
     },
-    [user?.uid, vaultOwnerToken],
+    [user?.uid, vaultOwnerToken, memoryOperations],
   );
 
   const refreshVisibleDomainManifests = useCallback(
@@ -1370,8 +1594,12 @@ function ProfilePageContent({
 
   const refreshConsentCenter = useCallback(
     async (force = false) => {
-      if (!user?.uid) return;
+      if (!user?.uid || !memoryOperations.current()) return;
+      const request = memoryOperations.beginRead("sharing");
+      setLoadingConsentCenter(true);
+      try {
       const idToken = await user.getIdToken();
+      if (!request.current()) return;
       const nextCenter = await ConsentCenterService.getCenter({
         idToken,
         userId: user.uid,
@@ -1379,10 +1607,12 @@ function ProfilePageContent({
         view: "active",
         force,
       });
-      setConsentCenter(nextCenter);
+      if (!request.current()) return;
+      setConsentCenter(previous => request.current() ? nextCenter : previous);
       setConsentCenterError(null);
+      } finally { if (request.current()) setLoadingConsentCenter(false); }
     },
-    [user],
+    [user, memoryOperations],
   );
 
   const { handleRevoke } = useConsentActions({
@@ -1408,13 +1638,15 @@ function ProfilePageContent({
         setInitialized(true);
       }
 
-      if (!user?.uid || hasVault === null) return;
-
+      if (!user?.uid || hasVault === null || !memoryOperations.current()) return;
+      const metadataRead = memoryOperations.beginRead("metadata");
+      const sharingRead = memoryOperations.beginRead("sharing");
       try {
         setLoadingPkmMetadata(true);
         setLoadingConsentCenter(true);
 
         const idToken = await user.getIdToken();
+        if (cancelled || !memoryOperations.current()) return;
         const [metadata, center] = await Promise.all([
           loadProfilePkmMetadataForVaultState({
             userId: user.uid,
@@ -1430,32 +1662,26 @@ function ProfilePageContent({
             force: false,
           }),
         ]);
-        if (cancelled) return;
-        setPkmMetadata(metadata);
-        setConsentCenter(center);
-        setPkmError(null);
-        setConsentCenterError(null);
+        if (cancelled || !memoryOperations.current()) return;
+        if (metadataRead.current()) { setPkmMetadata(previous => metadataRead.current() ? metadata : previous); setPkmError(null); setLoadingPkmMetadata(false); }
+        if (sharingRead.current()) { setConsentCenter(previous => sharingRead.current() ? center : previous); setConsentCenterError(null); setLoadingConsentCenter(false); }
         if (!hasVault) {
           setDomainManifests({});
           setDomainManifestErrors({});
           setLoadingDomainManifests({});
         }
         completeStep();
-      } catch (error) {
-        console.error("Failed to load profile manager data:", error);
-        if (!cancelled) {
-          const message =
-            error instanceof Error
-              ? error.message
-              : "Failed to load profile knowledge view.";
-          setPkmError(message);
-          setConsentCenterError(message);
+      } catch {
+        if (!cancelled && memoryOperations.current()) {
+          const message = "Couldn't load saved details and access state.";
+          if (metadataRead.current()) setPkmError(message);
+          if (sharingRead.current()) setConsentCenterError(message);
           completeStep();
         }
       } finally {
-        if (!cancelled) {
-          setLoadingPkmMetadata(false);
-          setLoadingConsentCenter(false);
+        if (!cancelled && memoryOperations.current()) {
+          if (metadataRead.current()) setLoadingPkmMetadata(false);
+          if (sharingRead.current()) setLoadingConsentCenter(false);
         }
       }
     }
@@ -1476,6 +1702,7 @@ function ProfilePageContent({
     shouldLoadProfileWorkspaceData,
     user,
     vaultOwnerToken,
+    memoryOperations,
   ]);
 
   useEffect(() => {
@@ -1592,35 +1819,21 @@ function ProfilePageContent({
     }
   };
 
-  const handleDeleteClick = async () => {
-    if (!user) return;
-
-    let nextHasVault = hasVault;
-    if (nextHasVault === null) {
-      try {
-        nextHasVault = await VaultService.checkVault(user.uid);
-        setHasVault(nextHasVault);
-      } catch (error) {
-        console.warn("[ProfilePage] Failed to check vault existence:", error);
-        // Fail closed: an unavailable vault probe must take the existing
-        // unlock path, and the dialog is rendered only once this state is
-        // reflected in the component.
-        setHasVault(true);
-        nextHasVault = true;
-      }
-    }
-
-    if (!nextHasVault) {
-      setShowDeleteConfirm(true);
-      return;
-    }
-
-    if (vaultAccess.canMutateSecureData) {
-      setShowDeleteConfirm(true);
-    } else {
-      requestVaultUnlock("delete_account");
-    }
+  const prepareAccountConfirmation = async (kind: "delete" | "reset") => {
+    if (!user || isDeleting || isResetting) return;
+    const owner = snapshotValidatedAuthSessionOwner();
+    const visitOwner = nativeDetailOwner;
+    const epoch = snapshotVaultSessionEpoch();
+    await accountPreparation.current.request({ hasVault,
+      ownerIsCurrent: () => owner?.userId === user.uid && isValidatedAuthSessionOwnerCurrent(owner) &&
+        accountPreparationOwner.current === visitOwner && snapshotVaultSessionEpoch() === epoch,
+      checkVault: () => VaultService.checkVault(user.uid), vaultKnown: setHasVault,
+      canMutate: () => vaultAccess.canMutateSecureData && !!getVaultOwnerToken(),
+      confirm: () => { setShowDeleteConfirm(kind === "delete"); setShowResetConfirm(kind === "reset"); },
+      unlock: () => requestVaultUnlock(kind === "delete" ? "delete_account" : "reset_account"),
+    });
   };
+  const handleDeleteClick = () => prepareAccountConfirmation("delete");
 
   const handleResetAccount = async (): Promise<
     "reset" | "not_reset" | "unknown" | "needs_unlock" | "auth_failed"
@@ -1682,7 +1895,7 @@ function ProfilePageContent({
             settlement.committed = true;
 
             CacheSyncService.onAccountDeleted(user.uid);
-            await UserLocalStateService.clearForUser(user.uid);
+            await UserLocalStateService.clearForUser(user.uid, { deleteDurableReceipts: true });
             await refreshPersonaState({ force: true });
 
             // Reset returns the account to a fresh, just-onboarded state: keep
@@ -1712,31 +1925,7 @@ function ProfilePageContent({
     }
   };
 
-  const handleResetClick = async () => {
-    if (!user) return;
-
-    let nextHasVault = hasVault;
-    if (nextHasVault === null) {
-      try {
-        nextHasVault = await VaultService.checkVault(user.uid);
-        setHasVault(nextHasVault);
-      } catch (error) {
-        console.warn("[ProfilePage] Failed to check vault existence:", error);
-        nextHasVault = true;
-      }
-    }
-
-    if (!nextHasVault) {
-      setShowResetConfirm(true);
-      return;
-    }
-
-    if (vaultAccess.canMutateSecureData) {
-      setShowResetConfirm(true);
-    } else {
-      requestVaultUnlock("reset_account");
-    }
-  };
+  const handleResetClick = () => prepareAccountConfirmation("reset");
 
   const handleContactDiscoverableToggle = async () => {
     if (!user) return;
@@ -1809,11 +1998,19 @@ function ProfilePageContent({
   function openVaultBackedPanel(
     panel: Extract<
       ProfilePanel,
-      "my-data" | "connected-systems" | "connectors" | "gmail" | "security"
+      | "my-data"
+      | "payouts"
+      | "world-model"
+      | "request-pricing"
+      | "connected-systems"
+      | "connectors"
+      | "gmail"
+      | "security"
     >,
     detail: ProfileDetail | null = null,
   ) {
     if (vaultAccess.needsVaultCreation && panel !== "security") {
+      setPendingProfileTarget({ panel, detail, mode: "push" });
       setShowVaultCreation(true);
       return;
     }
@@ -1829,20 +2026,26 @@ function ProfilePageContent({
     messageOverride?: string,
   ): Promise<SupportSubmitOutcome> {
     if (!user) return { kind: "no_user" };
-    if (sendingSupportMessage) return { kind: "busy" };
+    if (sendingSupportMessage || pendingSupportSubmission.current) return { kind: "busy" };
 
     // Voice dictates the message rather than typing it into the composer, and
     // React state set in the same tick would not be readable here. Every
     // validation below still runs on it -- a dictated message that is too
     // short is refused exactly like a typed one.
-    const trimmedMessage = (messageOverride ?? supportMessage).trim();
-    const presentation = SUPPORT_INTENT_PRESENTATION[supportKind];
+    const submittedDraft = supportDraft.current;
+    const kind = submittedDraft.kind;
+    const trimmedMessage = (messageOverride ?? submittedDraft.message).trim();
+    const presentation = SUPPORT_INTENT_PRESENTATION[kind];
 
     if (trimmedMessage.length < 10) {
-      setSupportMessageError("Add a few more details.");
+      setSupportMessageError("Write at least 10 characters.");
       setSupportComposerState({ status: "editing" });
       supportMessageRef.current?.focus();
       return { kind: "too_short" };
+    }
+    if (trimmedMessage.length > 8000) {
+      setSupportMessageError("Keep your message under 8,000 characters.");
+      return { kind: "rejected" };
     }
 
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
@@ -1854,20 +2057,26 @@ function ProfilePageContent({
     }
 
     setSupportMessageError(null);
+    const submission = Symbol();
+    const owner = nativeDetailOwner;
+    const isCurrent = () => supportOwner.current === owner && pendingSupportSubmission.current === submission;
+    pendingSupportSubmission.current = submission;
     setSupportComposerState({ status: "sending" });
     try {
       const idToken = await user.getIdToken();
+      if (!isCurrent()) return { kind: "no_user" };
       const pageUrl =
         typeof window !== "undefined" ? window.location.href : ROUTES.PROFILE;
       const result = await SupportService.submitMessage({
         idToken,
         userId: user.uid,
-        kind: supportKind,
+        kind,
         subject: presentation.internalSubject,
         message: trimmedMessage,
         persona: personaState?.active_persona || null,
         pageUrl,
       });
+      if (!isCurrent()) return { kind: "no_user" };
 
       if (!result.accepted) {
         setSupportComposerState({
@@ -1877,18 +2086,34 @@ function ProfilePageContent({
         return { kind: "rejected" };
       }
 
-      setSupportComposerState({ status: "sent", kind: supportKind });
-      setSupportMessage("");
+      // A route/voice edit may arrive while delivery is in flight. The accepted
+      // snapshot does not authorize erasing a newer unsent message.
+      if (supportDraft.current.revision === submittedDraft.revision &&
+          (messageOverride === undefined || trimmedMessage === submittedDraft.message.trim())) {
+        setSupportComposerState({ status: "sent", kind });
+        changeSupportDraft({ message: "" });
+      } else {
+        setSupportComposerState({ status: "editing" });
+        toast.success("Message sent");
+      }
       return { kind: "accepted" };
     } catch (error) {
-      console.error("[ProfilePage] Support delivery failed:", error instanceof SupportDeliveryUncertainError ? "uncertain" : "failed");
+      if (!isCurrent()) return { kind: "no_user" };
+      console.error(
+        "[ProfilePage] Support delivery failed:",
+        error instanceof SupportDeliveryUncertainError ? "uncertain" : "failed",
+      );
       setSupportComposerState({
         status: "error",
-        message: error instanceof SupportDeliveryUncertainError
-          ? "We couldn't confirm delivery. Please wait before trying again."
-          : "We couldn't send your message. Try again.",
+        message:
+          error instanceof SupportDeliveryUncertainError
+            ? "We couldn't confirm delivery. Please wait before trying again."
+            : "We couldn't send your message. Try again.",
       });
+      if (error instanceof SupportDeliveryUncertainError) return { kind: "uncertain" };
       return { kind: "failed" };
+    } finally {
+      if (pendingSupportSubmission.current === submission) pendingSupportSubmission.current = null;
     }
   }
 
@@ -1933,188 +2158,6 @@ function ProfilePageContent({
       setGmailActionBusy(null);
     }
   }
-  async function switchToQuickMethod(targetMethod: VaultMethod) {
-    if (!user?.uid) return;
-
-    if (!vaultAccess.canMutateSecureData || !vaultKey) {
-      toast.info("Unlock your vault to change security method.");
-      requestVaultUnlock("profile_data");
-      return;
-    }
-
-    setSwitchingVaultMethod(true);
-    try {
-      const result = await VaultMethodService.switchMethod({
-        userId: user.uid,
-        currentVaultKey: vaultKey,
-        displayName: user.displayName || user.email || "Hussh User",
-        targetMethod,
-      });
-
-      setVaultMethod(result.method);
-      toast.success(
-        `Vault method updated to ${readableMethod(result.method)}.`,
-      );
-      await refreshVaultMethodState(user.uid);
-    } catch (error) {
-      console.error("[ProfilePage] Failed to switch vault method:", error);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "We could not update your unlock preference.",
-      );
-    } finally {
-      setSwitchingVaultMethod(false);
-    }
-  }
-
-  async function setQuickMethodAsDefault(
-    targetMethod: VaultMethod,
-    wrapperId?: string | null,
-  ) {
-    if (!user?.uid) return;
-
-    if (!vaultAccess.canMutateSecureData || !vaultKey) {
-      toast.info("Unlock your vault to change security method.");
-      requestVaultUnlock("profile_data");
-      return;
-    }
-
-    setSwitchingVaultMethod(true);
-    try {
-      await VaultService.setPrimaryVaultMethod(
-        user.uid,
-        targetMethod,
-        wrapperId ?? "default",
-        vaultOwnerToken ?? undefined,
-      );
-      setVaultMethod(targetMethod);
-      toast.success(
-        `Primary unlock updated to ${readableMethod(targetMethod)}.`,
-      );
-      await refreshVaultMethodState(user.uid);
-    } catch (error) {
-      console.error(
-        "[ProfilePage] Failed to set quick unlock as default:",
-        error,
-      );
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "We could not update your preferred unlock method.",
-      );
-    } finally {
-      setSwitchingVaultMethod(false);
-    }
-  }
-
-  async function preferPassphraseUnlock() {
-    if (!user?.uid) return;
-
-    if (!vaultAccess.canMutateSecureData || !vaultKey) {
-      toast.info("Unlock your vault to change security method.");
-      requestVaultUnlock("profile_data");
-      return;
-    }
-
-    setSwitchingVaultMethod(true);
-    try {
-      await VaultService.setPrimaryVaultMethod(
-        user.uid,
-        "passphrase",
-        "default",
-        vaultOwnerToken ?? undefined,
-      );
-      setVaultMethod("passphrase");
-      toast.success("Primary unlock updated to passphrase.");
-      await refreshVaultMethodState(user.uid);
-    } catch (error) {
-      console.error("[ProfilePage] Failed to prefer passphrase unlock:", error);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "We could not update your preferred unlock method.",
-      );
-    } finally {
-      setSwitchingVaultMethod(false);
-    }
-  }
-
-  async function removePasskeyWrapper(wrapper: VaultWrapper) {
-    if (!user?.uid) return;
-
-    if (!vaultAccess.canMutateSecureData || !vaultKey) {
-      toast.info("Unlock your vault to remove a passkey.");
-      requestVaultUnlock("profile_data");
-      return;
-    }
-    if (!vaultOwnerToken) {
-      toast.info("Unlock your vault to remove a passkey.");
-      requestVaultUnlock("profile_data");
-      return;
-    }
-
-    setSwitchingVaultMethod(true);
-    try {
-      const result = await VaultMethodService.removeMethod({
-        userId: user.uid,
-        currentVaultKey: vaultKey,
-        vaultOwnerToken,
-        method: wrapper.method,
-        wrapperId: wrapper.wrapperId ?? "default",
-        fallbackPrimaryMethod: "passphrase",
-        fallbackPrimaryWrapperId: "default",
-      });
-      setVaultMethod(result.primaryMethod);
-      toast.success("Passkey removed. Passphrase unlock is still available.");
-      setPasskeyRemovalTarget(null);
-      await refreshVaultMethodState(user.uid);
-    } catch (error) {
-      console.error("[ProfilePage] Failed to remove passkey wrapper:", error);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "We could not remove this passkey.",
-      );
-    } finally {
-      setSwitchingVaultMethod(false);
-    }
-  }
-
-  async function changePassphrase() {
-    if (!user?.uid) return;
-
-    if (!vaultAccess.canMutateSecureData || !vaultKey) {
-      toast.info("Unlock your vault to change passphrase.");
-      requestVaultUnlock("profile_data");
-      return;
-    }
-
-    setSwitchingVaultMethod(true);
-    try {
-      const result = await VaultMethodService.changePassphrase({
-        userId: user.uid,
-        currentVaultKey: vaultKey,
-        newPassphrase,
-        keepPrimaryMethod: true,
-      });
-      setVaultMethod(result.primaryMethod);
-      toast.success("Passphrase updated successfully.");
-      await refreshVaultMethodState(user.uid);
-      setPassphraseDialogOpen(false);
-      setNewPassphrase("");
-      setConfirmPassphrase("");
-    } catch (error) {
-      console.error("[ProfilePage] Failed to update passphrase:", error);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "We could not update your passphrase.",
-      );
-    } finally {
-      setSwitchingVaultMethod(false);
-    }
-  }
 
   const deleteButtonLabel = vaultAccess.needsUnlock
     ? "Unlock to delete account"
@@ -2145,6 +2188,15 @@ function ProfilePageContent({
     }
   };
 
+  const handleVaultCreationOpenChange = (open: boolean) => {
+    setShowVaultCreation(open);
+    if (open) {
+      vaultCreationCompletingRef.current = false;
+    } else if (!vaultCreationCompletingRef.current) {
+      setPendingProfileTarget(null);
+    }
+  };
+
   const unlockDialogTitle =
     vaultUnlockReason === "delete_account"
       ? "Unlock to delete"
@@ -2164,27 +2216,8 @@ function ProfilePageContent({
     capabilityMatrix.recommendedMethod !== "passphrase"
       ? capabilityMatrix.recommendedMethod
       : null;
-  const quickMethodReadyOnCurrentDevice =
-    vaultMethod === "passphrase" && availableQuickMethod
-      ? availableQuickMethod
-      : null;
   const enrolledPasskeyWrappers = enrolledVaultWrappers.filter((wrapper) =>
     isPasskeyVaultMethod(wrapper.method),
-  );
-  const passphraseWrapper = enrolledVaultWrappers.find(
-    (wrapper) => wrapper.method === "passphrase",
-  );
-  const activePrimaryWrapperId = primaryVaultWrapperId ?? "default";
-  const canSwitchDefaultToPassphrase = Boolean(
-    vaultAccess.canMutateSecureData &&
-    vaultMethod &&
-    vaultMethod !== "passphrase" &&
-    passphraseWrapper,
-  );
-  const canSwitchDefaultToQuick = Boolean(
-    vaultAccess.canMutateSecureData &&
-    vaultMethod === "passphrase" &&
-    quickMethodReadyOnCurrentDevice,
   );
   const canEditKaiPreferences = Boolean(
     user?.uid && vaultAccess.hasVault && vaultAccess.canMutateSecureData,
@@ -2202,7 +2235,30 @@ function ProfilePageContent({
       : "Hidden from contact sync";
   const phoneSummaryText = phoneNumber
     ? formatMaskedPhoneNumber(phoneNumber)
-    : "No phone number yet";
+    : phoneNumberStatus === "missing"
+      ? "No phone number yet"
+      : phoneNumberStatus === "unavailable"
+        ? "Phone number temporarily unavailable"
+        : "Checking phone number…";
+  const phoneLookupPending = !phoneNumber && phoneNumberStatus !== "missing";
+  const retryPhoneLookup = useCallback(async () => {
+    const owner = snapshotValidatedAuthSessionOwner();
+    if (!owner || owner.userId !== user?.uid) {
+      return { status: "blocked" as const, summary: "Sign in to check your phone number." };
+    }
+    try {
+      const phone = await resolveVerifiedPhoneNumber();
+      if (!isValidatedAuthSessionOwnerCurrent(owner)) {
+        return { status: "blocked" as const, summary: "Your account changed. Try again." };
+      }
+      if (phone) return { status: "succeeded" as const, summary: "Your saved phone number is available." };
+      const snapshot = AccountIdentityService.peekCachedIdentity(user?.uid);
+      if (snapshot && !snapshot.isStale && backendPhoneIsMissing(snapshot.data, user?.uid)) {
+        return { status: "succeeded" as const, summary: "You can add a verified phone number." };
+      }
+    } catch { /* Keep an unavailable lookup retryable. */ }
+    return { status: "failed" as const, summary: "Couldn't load your phone number. Try again." };
+  }, [resolveVerifiedPhoneNumber, user?.uid]);
   const emailVerified = Boolean(user?.emailVerified);
 
   const gmailStatusLabel = gmailPresentation.badgeLabel;
@@ -2232,11 +2288,29 @@ function ProfilePageContent({
   const profileVoiceSurfaceMetadata = useMemo(() => {
     const profileHomeControls = [
       {
+        id: "profile_payouts",
+        label: "Payouts",
+        purpose:
+          "opens payout setup, linked bank details, and transaction history.",
+        actionId: "route.profile_payouts",
+        role: "card",
+        voiceAliases: ["payouts", "link my bank", "document earnings"],
+      },
+      {
+        id: "profile_request_pricing",
+        label: "Request pricing",
+        purpose: "opens the default price for document requests.",
+        actionId: "route.profile_request_pricing",
+        role: "card",
+        voiceAliases: ["request pricing", "Drive price", "document price"],
+      },
+      {
         id: "profile_my_data",
         label: "Memory",
-        purpose: "opens your saved details and sharing controls.",
+        purpose: "opens saved details and sharing.",
+        actionId: "route.profile_my_data",
         role: "card",
-        voiceAliases: ["personal knowledge model", "my saved details", "pkm"],
+        voiceAliases: ["my data", "saved details"],
       },
       {
         id: "profile_preferences",
@@ -2281,7 +2355,8 @@ function ProfilePageContent({
       {
         id: "profile_trusted_devices",
         label: "Trusted devices",
-        purpose: "opens devices connected as an extension of your private agent.",
+        purpose:
+          "opens devices connected as an extension of your private agent.",
         actionId: "route.profile_trusted_devices",
         role: "card",
         voiceAliases: ["trusted devices", "connected devices", "devices"],
@@ -2290,7 +2365,7 @@ function ProfilePageContent({
         id: "profile_account",
         label: PROFILE_LABELS.account,
         purpose: "opens account identity, mail, and phone management.",
-        actionId: "route.profile",
+        actionId: "route.profile_account",
         role: "card",
         voiceAliases: ["account", "phone number", "identity"],
       },
@@ -2359,7 +2434,19 @@ function ProfilePageContent({
       },
     ];
     const controls =
-      activePanel === "preferences" ? preferenceControls : profileHomeControls;
+      activePanel === "preferences"
+        ? preferenceControls
+        : activePanel === "account" && phoneLookupPending
+          ? phoneNumberStatus === "unavailable" ? [{
+              id: activeDetail === "phone" ? "profile-phone-detail-retry" : "profile-phone-retry",
+              label: "Retry phone lookup",
+              purpose: "retrieves the saved verified phone without starting OTP verification.",
+              actionId: "profile.retry_phone_lookup",
+              role: "control",
+            }] : []
+        : activePanel === "payouts" || activePanel === "world-model" || activePanel === "request-pricing"
+          ? []
+          : profileHomeControls;
     const activeControl =
       controls.find((control) => control.id === activeVoiceControlId) ||
       controls.find((control) => control.id === lastVoiceControlId) ||
@@ -2368,22 +2455,30 @@ function ProfilePageContent({
       ? [
           activePanel === "account"
             ? PROFILE_LABELS.account
-            : activePanel === "my-data"
-              ? "Memory"
-              : activePanel === "connected-systems"
-                ? "Connected Systems"
-                : activePanel === "preferences"
-                  ? PROFILE_LABELS.preferences
-                  : activePanel === "security"
-                    ? PROFILE_LABELS.security
-                    : activePanel === "gmail"
-                      ? "Mail receipts"
-                      : PROFILE_LABELS.support,
+            : activePanel === "world-model"
+              ? "Personal World Model"
+            : activePanel === "payouts"
+              ? "Payouts"
+              : activePanel === "request-pricing"
+                ? "Request pricing"
+                : activePanel === "my-data"
+                  ? "Memory"
+                  : activePanel === "connected-systems"
+                    ? "Connected Systems"
+                    : activePanel === "preferences"
+                      ? PROFILE_LABELS.preferences
+                      : activePanel === "security"
+                        ? PROFILE_LABELS.security
+                        : activePanel === "gmail"
+                          ? "Mail receipts"
+                          : PROFILE_LABELS.support,
           ...(activeDetail ? [activeDetail] : []),
         ]
       : [
           PROFILE_LABELS.account,
           PROFILE_LABELS.preferences,
+          "Payouts",
+          "Request pricing",
           "Memory",
           "Access & sharing",
           ...(localCrmEnabled ? ["Connected Systems"] : []),
@@ -2395,68 +2490,84 @@ function ProfilePageContent({
           ...(canShowPkmAgentLab ? [PROFILE_LABELS.developerTools] : []),
         ];
     const availableActions =
-      activePanel === "gmail"
-        ? [
-            gmailPresentation.isConnected
-              ? "Sync Mail receipts"
-              : gmailPresentation.state === "needs_reauthentication"
-                ? "Reconnect Mail"
-                : "Connect Mail",
-            "Open receipts",
-            ...(gmailPresentation.isConnected ? ["Disconnect Mail"] : []),
-          ]
-        : activePanel === "support"
+      activePanel === "payouts" || activePanel === "world-model" || activePanel === "request-pricing"
+        ? []
+        : activePanel === "gmail"
           ? [
-              "Choose Problem",
-              "Choose Help",
-              "Choose Feedback",
-              "Send support message",
+              gmailPresentation.isConnected
+                ? "Sync Mail receipts"
+                : gmailPresentation.state === "needs_reauthentication"
+                  ? "Reconnect Mail"
+                  : "Connect Mail",
+              "Open receipts",
+              ...(gmailPresentation.isConnected ? ["Disconnect Mail"] : []),
             ]
-          : activePanel === "connected-systems"
+          : activePanel === "support"
             ? [
-                "Load Salesforce CRM schema",
-                "Read Salesforce CRM record",
-                "Propose Salesforce CRM create",
-                "Propose Salesforce CRM update",
+                "Choose Problem",
+                "Choose Help",
+                "Choose Feedback",
+                "Send support message",
               ]
-            : activePanel === "account"
-              ? [phoneNumber ? "Change phone number" : "Add phone number"]
-              : activePanel === "preferences"
-                ? []
-                : activePanel === "security"
-                  ? [
-                      vaultAccess.needsVaultCreation
-                        ? "Create your vault"
-                        : "Unlock vault",
-                      "Change passphrase",
-                      "Delete account",
-                    ]
-                  : [
-                      "Open your account",
-                      "Open security & privacy",
-                      "Open help & feedback",
-                    ];
+            : activePanel === "connected-systems"
+              ? [
+                  "Load Salesforce CRM schema",
+                  "Read Salesforce CRM record",
+                  "Propose Salesforce CRM create",
+                  "Propose Salesforce CRM update",
+                ]
+              : activePanel === "account"
+                ? phoneNumber ? ["Change phone number"] : phoneNumberStatus === "missing"
+                  ? ["Add phone number"] : phoneNumberStatus === "unavailable" ? ["Retry phone lookup"] : []
+                : activePanel === "preferences"
+                  ? []
+                  : activePanel === "security"
+                    ? [
+                        vaultAccess.needsVaultCreation
+                          ? "Create your vault"
+                          : "Unlock vault",
+                        "Change password",
+                        "Delete account",
+                      ]
+                    : [
+                        "Open your account",
+                        "Open security & privacy",
+                        "Open help & feedback",
+                      ];
 
     return {
       surfaceDefinition: {
-        screenId: activePanel ? `profile_${activePanel}` : "profile_home",
+        screenId:
+          activePanel === "world-model"
+            ? "profile_world_model"
+          : activePanel === "request-pricing"
+            ? "profile_request_pricing"
+            : activePanel
+              ? `profile_${activePanel}`
+              : "profile_home",
         title: activePanel
           ? activePanel === "account"
             ? PROFILE_LABELS.account
-            : activePanel === "my-data"
-              ? "Memory"
-              : activePanel === "connected-systems"
-                ? "Connected Systems"
-                : activePanel === "preferences"
-                  ? PROFILE_LABELS.preferences
-                  : activePanel === "security"
-                    ? PROFILE_LABELS.security
-                    : activePanel === "gmail"
-                      ? "Mail receipts"
-                      : PROFILE_LABELS.support
+            : activePanel === "world-model"
+              ? "Personal World Model"
+            : activePanel === "payouts"
+              ? "Payouts"
+              : activePanel === "request-pricing"
+                ? "Request pricing"
+                : activePanel === "my-data"
+                  ? "Memory"
+                  : activePanel === "connected-systems"
+                    ? "Connected Systems"
+                    : activePanel === "preferences"
+                      ? PROFILE_LABELS.preferences
+                      : activePanel === "security"
+                        ? PROFILE_LABELS.security
+                        : activePanel === "gmail"
+                          ? "Mail receipts"
+                          : PROFILE_LABELS.support
           : "Profile",
         purpose:
-          "This surface manages account details, appearance, help, and vault privacy.",
+          "This surface manages account details, payouts, request pricing, appearance, help, and vault privacy.",
         sections: [
           {
             id: "account",
@@ -2531,6 +2642,7 @@ function ProfilePageContent({
         marketplace_opt_in: marketplaceOptIn,
         security_summary: securitySummaryText,
         phone_verified: Boolean(phoneNumber),
+        phone_lookup_status: phoneNumberStatus,
         email_verified: emailVerified,
         preference_voice_actions_available:
           activePanel === "preferences" ? false : null,
@@ -2551,6 +2663,7 @@ function ProfilePageContent({
         marketplace_opt_in: marketplaceOptIn,
         security_summary: securitySummaryText,
         phone_verified: Boolean(phoneNumber),
+        phone_lookup_status: phoneNumberStatus,
         email_verified: emailVerified,
         pkm_agent_lab_available: canShowPkmAgentLab,
         vault_needs_creation: vaultAccess.needsVaultCreation === true,
@@ -2574,6 +2687,8 @@ function ProfilePageContent({
     passphraseDialogOpen,
     pendingConsents,
     phoneNumber,
+    phoneLookupPending,
+    phoneNumberStatus,
     profileSummary.totalAttributes,
     profileSummary.totalDomains,
     savingMarketplaceOptIn,
@@ -2585,6 +2700,12 @@ function ProfilePageContent({
     vaultAccess.needsVaultCreation,
   ]);
   usePublishVoiceSurfaceMetadata(profileVoiceSurfaceMetadata);
+
+  useLocalOnboardingActionHandler(
+    "profile.retry_phone_lookup",
+    retryPhoneLookup,
+    { enabled: Boolean(user) && activePanel === "account" && phoneLookupPending && phoneNumberStatus === "unavailable" },
+  );
 
   // Profile's three remaining unwired actions. Registered here rather than in
   // the global registrar because each genuinely needs this page's state --
@@ -2714,8 +2835,15 @@ function ProfilePageContent({
         { panel: activePanel, detail: activeDetail },
       );
     } else {
+      // Keep the one-time invitation through unlock; only remove the unlock marker.
+      const claimQuery = activePanel === "world-model" && searchParams.has("claim")
+        ? new URLSearchParams(searchParams.toString())
+        : null;
+      claimQuery?.delete("unlock_vault");
       router.replace(
-        buildProfileRoute({ panel: activePanel, detail: activeDetail }),
+        claimQuery
+          ? `${pathname}?${claimQuery.toString()}`
+          : buildProfileRoute({ panel: activePanel, detail: activeDetail }),
         { scroll: false },
       );
     }
@@ -2738,7 +2866,16 @@ function ProfilePageContent({
     if (!profileRouteRequiresUnlockedVault(activePanel, activeDetail)) {
       return;
     }
-    if (activePanel) {
+    // Stripe returns to Payouts with a short callback marker. Keep that route
+    // while the owner unlocks so an expired Connect link can be refreshed.
+    const documentPayoutReturn = searchParams.get("documentPayouts");
+    const worldModelClaim = activePanel === "world-model" && searchParams.has("claim");
+    if (
+      activePanel &&
+      !worldModelClaim &&
+      documentPayoutReturn !== "refresh" &&
+      documentPayoutReturn !== "done"
+    ) {
       setPendingProfileTarget({
         panel: activePanel,
         detail: activeDetail ?? null,
@@ -2803,6 +2940,12 @@ function ProfilePageContent({
       requestVaultUnlock("profile_data");
       return;
     }
+    if (!memoryOperations.current()) return;
+    const request = memoryOperations.beginPreview();
+    const privacy = nativePrivacyObservation().state;
+    const current = () => memoryOperations.acceptsPreview(request) && (!privacy ||
+      nativePrivacyObservation().state?.generation === privacy.generation && nativePrivacyObservation().state?.appIsActive === true &&
+      nativePrivacyObservation().state?.shielded === false);
 
     setDomainPreview({
       open: true,
@@ -2827,6 +2970,7 @@ function ProfilePageContent({
         vaultOwnerToken,
         segmentIds: [permission.topLevelScopePath],
       });
+      if (!current()) return;
       setDomainPreview((current) => ({
         ...current,
         open: true,
@@ -2850,6 +2994,7 @@ function ProfilePageContent({
         deletingEntityKey: null,
       }));
     } catch (error) {
+      if (!current()) return;
       const message =
         error instanceof Error
           ? error.message
@@ -2874,7 +3019,10 @@ function ProfilePageContent({
 
   const handleDeletePkmPreviewEntity = async (
     entity: PkmSectionPreviewEntity,
-  ) => {
+  ): Promise<boolean> => {
+    const target = pkmPreviewEntityTarget(entity);
+    const reviewed = domainPreview.open && domainPreview.presentation?.groups.some(group => group.kind === "entities" && group.items.includes(entity));
+    if (!target || !reviewed) { toast.error("Reopen this saved entry before removing it."); return false; }
     const domainKey = domainPreview.domainKey || selectedDomain?.key || null;
     const topLevelScopePath = domainPreview.topLevelScopePath;
     if (
@@ -2885,8 +3033,13 @@ function ProfilePageContent({
       !topLevelScopePath
     ) {
       requestVaultUnlock("profile_data");
-      return;
+      return false;
     }
+    const operation = memoryOperations.beginWrite(domainKey);
+    if (!operation) return false;
+    const previewRequest = memoryOperations.beginPreview();
+    const previewIsCurrent = () => operation.current() && memoryOperations.acceptsPreview(previewRequest);
+    let committed = false;
 
     setDomainPreview((current) => ({
       ...current,
@@ -2895,30 +3048,32 @@ function ProfilePageContent({
     }));
 
     try {
-      if (domainKey === "financial" && topLevelScopePath === "context") {
-        const deleted = await handleDeleteFinancialContextEntry(entity.key);
+      if (target.kind === "financial-context") {
+        if (domainKey !== "financial" || topLevelScopePath !== "context") return false;
+        const deleted = await handleDeleteFinancialContextEntry(target.entryId);
         if (!deleted) {
-          setDomainPreview((current) => ({
+          if (previewIsCurrent()) setDomainPreview((current) => ({
             ...current,
             deletingEntityKey: null,
           }));
-          return;
+          return false;
         }
       } else {
+        const parentPath = [topLevelScopePath, ...target.relativePath.slice(0, -2)].join(".");
         await PersonalKnowledgeModelService.storePreparedDomain({
           userId: user.uid,
           vaultKey,
           domain: domainKey,
           domainData: buildPkmEntityDeletionCandidate(
-            topLevelScopePath,
-            entity.key,
+            parentPath,
+            target.entityId,
           ),
           summary: {},
           mergeDecision: {
             merge_mode: "delete_entity",
             target_domain: domainKey,
-            target_entity_id: entity.key,
-            target_entity_path: `${topLevelScopePath}.entities.${entity.key}`,
+            target_entity_id: target.entityId,
+            target_entity_path: `${topLevelScopePath}.${target.relativePath.join(".")}`,
             match_confidence: 1,
             match_reason:
               "User removed this saved PKM entry from the profile interface.",
@@ -2926,6 +3081,8 @@ function ProfilePageContent({
           vaultOwnerToken,
         });
       }
+      committed = true;
+      if (!operation.current()) return true;
 
       const permission = selectedDomainPermissions.find(
         (candidate) => candidate.key === domainPreview.permissionKey,
@@ -2937,7 +3094,7 @@ function ProfilePageContent({
         vaultOwnerToken,
         segmentIds: [topLevelScopePath],
       });
-
+      if (!previewIsCurrent()) return true;
       setDomainPreview((current) => ({
         ...current,
         presentation: buildPkmSectionPreviewPresentation({
@@ -2958,17 +3115,25 @@ function ProfilePageContent({
       void refreshPkmMetadata(true);
       void refreshDomainManifest(domainKey, true);
       toast.success("Saved entry removed.");
+      return true;
     } catch (error) {
+      if (!operation.current()) return committed;
       const message =
         error instanceof Error
           ? error.message
           : "Couldn't remove this saved entry.";
-      setDomainPreview((current) => ({
+      if (previewIsCurrent()) setDomainPreview((current) => ({
         ...current,
-        error: message,
+        error: committed ? "Entry removed. Refresh to load the latest details." : message,
+        presentation: committed ? null : current.presentation,
         deletingEntityKey: null,
       }));
-      toast.error(message);
+      if (committed) toast.success("Entry removed. Refresh to load the latest details.");
+      else toast.error(message);
+      return committed;
+    } finally {
+      if (previewIsCurrent()) setDomainPreview(value => ({ ...value, deletingEntityKey: null }));
+      operation.finish();
     }
   };
 
@@ -2995,6 +3160,9 @@ function ProfilePageContent({
       toast.error("These details are still preparing sharing controls.");
       return;
     }
+    const operation = memoryOperations.beginWrite(domainKey);
+    if (!operation) return;
+    let committed = false;
 
     const optimisticManifest = applyManifestExposureChange(
       previousManifest,
@@ -3030,65 +3198,77 @@ function ProfilePageContent({
         previousManifest,
         vaultOwnerToken,
       });
-
+      committed = true;
+      if (!operation.current()) return;
       setDomainManifests((current) => ({
         ...current,
         [domainKey]: updatedManifest,
       }));
       await Promise.all([refreshConsentCenter(true), refreshPkmMetadata(true)]);
+      if (!operation.current()) return;
       toast.success(
         nextPosture === "private"
           ? "This section is private."
           : "One will ask before sharing this section.",
       );
     } catch (error) {
+      if (!operation.current()) return;
       const message =
         error instanceof Error
           ? error.message
           : "Couldn't update sharing right now.";
-      setDomainManifests((current) => ({
+      if (!committed) setDomainManifests((current) => ({
         ...current,
         [domainKey]: previousManifest,
       }));
 
-      if (error instanceof PkmScopeExposureError && error.status === 409) {
-        await Promise.all([
-          refreshDomainManifest(domainKey, true),
+      if (committed) {
+        toast.success("Sharing updated. Refresh to load the latest access state.");
+      } else if (error instanceof PkmScopeExposureError && error.status === 409) {
+        const [refreshed] = await Promise.all([
+          refreshDomainManifest(domainKey, true, operation.current),
           refreshConsentCenter(true),
           refreshPkmMetadata(true),
         ]);
+        if (!operation.current()) return;
         toast.error(
-          "Sharing changed elsewhere. The latest version has been reloaded.",
+          refreshed ? "Sharing changed elsewhere. The latest version has been reloaded."
+            : "Sharing changed elsewhere. Refresh these details before trying again.",
         );
       } else {
         void refreshDomainManifest(domainKey, true);
         toast.error(message || "Couldn't update sharing right now.");
       }
     } finally {
-      setPendingPermissionToggles((current) => {
+      if (operation.current()) setPendingPermissionToggles((current) => {
         const next = { ...current };
         delete next[permissionKey];
         return next;
       });
+      operation.finish();
     }
   };
 
-  const handleSaveFinancialContext = async () => {
+  const handleSaveFinancialContext = async (): Promise<boolean> => {
     if (!user?.uid || !vaultKey || !vaultOwnerToken) {
       requestVaultUnlock("profile_data");
-      return;
+      return false;
     }
 
-    const contextText = financialContextText.trim();
+    const submitted = { ...financialDraft.current };
+    const contextText = submitted.text.trim();
 
     if (!contextText) {
       toast.error("Add financial context before saving.");
-      return;
+      return false;
     }
+    const operation = memoryOperations.beginWrite("financial");
+    if (!operation) return false;
 
     const updatedAt = new Date().toISOString();
     setSavingFinancialContext(true);
     setPkmError(null);
+    setNativeContextError(null);
 
     try {
       const result = await PkmWriteCoordinator.saveMergedDomain({
@@ -3102,6 +3282,7 @@ function ProfilePageContent({
           source: "profile_financial_context_save",
         },
         build: (context) => {
+          if (!operation.current()) throw new Error("session_changed");
           const current = context.currentDomainData || {};
           const existingContext =
             current.context &&
@@ -3118,16 +3299,17 @@ function ProfilePageContent({
               )
             : [];
           const nextEntry = {
-            id: editingFinancialContextId || `ctx_${Date.parse(updatedAt)}`,
-            category: financialContextCategory,
+            id: submitted.target || `ctx_${Date.parse(updatedAt)}`,
+            category: submitted.category,
             text: contextText,
             status: "active",
             source: "profile_my_data",
             updated_at: updatedAt,
           };
-          const nextEntries = editingFinancialContextId
+          if (submitted.target && !existingEntries.some(entry => entry.id === submitted.target)) throw new Error("This saved entry is no longer available. Go back and refresh.");
+          const nextEntries = submitted.target
             ? existingEntries.map((entry) =>
-                entry.id === editingFinancialContextId
+                entry.id === submitted.target
                   ? { ...entry, ...nextEntry }
                   : entry,
               )
@@ -3162,29 +3344,40 @@ function ProfilePageContent({
       if (!result.success) {
         throw new Error(result.message || "Financial context save failed.");
       }
+      if (!operation.current()) return false;
 
       toast.success(
-        editingFinancialContextId
+        submitted.target
           ? "Financial context updated."
           : "Financial context saved.",
       );
-      setFinancialContextText("");
-      setEditingFinancialContextId(null);
+      if (financialDraft.current.revision === submitted.revision) {
+        setFinancialContextText(""); setEditingFinancialContextId(null);
+      }
       void refreshPkmMetadata(true);
       void refreshDomainManifest("financial", true);
+      return true;
     } catch (error) {
+      if (!operation.current()) return false;
       const message =
         error instanceof Error
           ? error.message
           : "Couldn't save financial context.";
       setPkmError(message);
+      setNativeContextError("Couldn't save financial context. Your text is still here. Try again when ready.");
       toast.error(message);
+      return false;
     } finally {
-      setSavingFinancialContext(false);
+      if (operation.current()) setSavingFinancialContext(false);
+      operation.finish();
     }
   };
 
   const handleEditFinancialContextEntry = (entity: PkmSectionPreviewEntity) => {
+    if (!memoryOperations.current() || memoryOperations.writing("financial")) return false;
+    const target = pkmPreviewEntityTarget(entity);
+    if (target?.kind !== "financial-context" || !domainPreview.open ||
+        !domainPreview.presentation?.groups.some(group => group.kind === "entities" && group.items.includes(entity))) return false;
     const payload = entity.editPayload || {};
     const category =
       typeof payload.category === "string" && payload.category.trim()
@@ -3195,10 +3388,11 @@ function ProfilePageContent({
         ? payload.text.trim()
         : entity.fields.find((field) => field.label === "Context")?.value || "";
 
-    setEditingFinancialContextId(entity.key);
+    setEditingFinancialContextId(target.entryId);
     setFinancialContextCategory(category as FinancialContextCategory);
     setFinancialContextText(text);
-    setDomainPreview((current) => ({ ...current, open: false }));
+    closeDomainPreview();
+    return true;
   };
 
   const handleDeleteFinancialContextEntry = async (entryId: string) => {
@@ -3206,6 +3400,9 @@ function ProfilePageContent({
       requestVaultUnlock("profile_data");
       return false;
     }
+    // Called only by the fenced entity-removal owner, which already holds
+    // the financial-domain writer. Do not acquire the same lock twice.
+    if (!memoryOperations.current() || !memoryOperations.writing("financial")) return false;
 
     const updatedAt = new Date().toISOString();
     try {
@@ -3220,6 +3417,7 @@ function ProfilePageContent({
           source: "profile_financial_context_delete",
         },
         build: (context) => {
+          if (!memoryOperations.current() || !memoryOperations.writing("financial")) throw new Error("session_changed");
           const current = context.currentDomainData || {};
           const existingContext =
             current.context &&
@@ -3269,11 +3467,13 @@ function ProfilePageContent({
       if (!result.success) {
         throw new Error(result.message || "Financial context delete failed.");
       }
+      if (!memoryOperations.current()) return true;
 
       void refreshPkmMetadata(true);
       void refreshDomainManifest("financial", true);
       return true;
     } catch (error) {
+      if (!memoryOperations.current()) return false;
       const message =
         error instanceof Error
           ? error.message
@@ -3285,7 +3485,14 @@ function ProfilePageContent({
   };
 
   const myDataContent = (
-    <div className="space-y-4 sm:space-y-5">
+    <div
+      className={cn(
+        "space-y-4 sm:space-y-5",
+        isPanePresentation && "profile-account-content",
+        isPanePresentation && accountStyles.paneAccountContent,
+        isPanePresentation && accountStyles.managedContent,
+      )}
+    >
       <PkmDataManagerPanel
         signedIn={Boolean(user)}
         loading={profileManagerLoading}
@@ -3318,13 +3525,20 @@ function ProfilePageContent({
           )
         }
       />
-      {isVaultUnlocked ? <SharedWithYouGroup vaultOwnerToken={vaultOwnerToken} /> : null}
-      {isVaultUnlocked ? <SecretsListGroup onUnlock={() => undefined} /> : null}
+      {isVaultUnlocked ? (
+        <SharedWithYouGroup vaultOwnerToken={vaultOwnerToken} model={memoryShared.shared} received={memoryShared.received} />
+      ) : null}
+      {isVaultUnlocked ? <SecretsListGroup onUnlock={() => undefined} model={memorySecrets} /> : null}
     </div>
   );
 
   const accessContent = (
-    <div className="space-y-4 sm:space-y-5">
+    <div
+      className={cn(
+        "space-y-4 sm:space-y-5",
+        isPanePresentation && secondaryTypographyStyles.paneAccess,
+      )}
+    >
       <PkmAccessManagerPanel
         signedIn={Boolean(user)}
         loading={profileManagerLoading}
@@ -3348,7 +3562,7 @@ function ProfilePageContent({
 
       <SettingsGroup>
         <SettingsRow
-          icon={LocationAgentIcon}
+          icon={PROFILE_ICONS.location}
           iconTone="capability"
           title="Location sharing"
           description="Manage live location."
@@ -3358,7 +3572,7 @@ function ProfilePageContent({
           onClick={() => router.push(ROUTES.ONE_LOCATION)}
         />
         <SettingsRow
-          icon={ConsentAgentIcon}
+          icon={PROFILE_ICONS.review}
           iconTone="capability"
           title="Consent center"
           description="Review sharing."
@@ -3368,7 +3582,7 @@ function ProfilePageContent({
           onClick={() => router.push(ROUTES.CONSENTS)}
         />
         <SettingsRow
-          icon={DiscoverableRowIcon}
+          icon={PROFILE_ICONS.people}
           iconTone="capability"
           title="Find and connect me by phone number"
           description={contactDiscoverableStatusText}
@@ -3386,7 +3600,7 @@ function ProfilePageContent({
           }
         />
         <SettingsRow
-          icon={MarketplaceAgentIcon}
+          icon={PROFILE_ICONS.visibility}
           iconTone="capability"
           title="Marketplace visibility"
           description={marketplaceStatusText}
@@ -3411,15 +3625,23 @@ function ProfilePageContent({
     verifiedUser?: typeof user | null,
   ) => {
     const activeUser = verifiedUser ?? user;
+    if (!phoneVisitIsCurrent() || activeUser?.uid !== phoneVisit.owner?.userId) return;
     await AccountIdentityService.syncCurrentUser(activeUser);
+    if (!phoneVisitIsCurrent()) return;
     updateProfileView({ panel: "account", detail: null }, "replace");
   };
 
   const accountContent = (
-    <div className="profile-account-content">
+    <div
+      className={cn(
+        "profile-account-content",
+        isPanePresentation && accountStyles.paneAccountContent,
+      )}
+    >
+      {presentation === "native-page" && nativeAccountException !== "photo" ? <ProfileAvatarEditor /> : null}
       <SettingsGroup title="Identity">
         <SettingsRow
-          icon={AccountProfileIcon}
+          icon={PROFILE_ICONS.name}
           iconTone="capability"
           title="Display name"
           description={user.displayName || "Not available"}
@@ -3432,49 +3654,59 @@ function ProfilePageContent({
         />
         {editingDisplayName ? (
           <div
-            className="px-4 pb-3"
+            className={cn(
+              "px-4 pb-3",
+              isPanePresentation && accountStyles.paneEditor,
+            )}
             data-testid="profile-account-display-name-editor"
           >
-            <DisplayNameEditor
+            {presentation === "native-page" ? <div ref={setNativeNameHost} /> : <DisplayNameEditor
               user={user}
               onSaved={() => setEditingDisplayName(false)}
               onCancel={() => setEditingDisplayName(false)}
-            />
+            />}
           </div>
         ) : null}
         <SettingsRow
-          icon={GmailAgentIcon}
+          icon={PROFILE_ICONS.mail}
           iconTone="capability"
           title="Mail"
           description={user.email || "Not available"}
         />
         <SettingsRow
-          icon={PhoneRowIcon}
+          icon={PROFILE_ICONS.phone}
           iconTone="capability"
           title="Phone number"
           description={phoneSummaryText}
+          voiceControlId={phoneLookupPending ? "profile-phone-retry" : undefined}
+          disabled={!phoneNumber && phoneNumberStatus === "loading"}
           trailing={
             <span className="profile-account-inline-action">
-              {phoneNumber ? "Change" : "Add"}
+              {phoneNumber ? "Change" : phoneLookupPending ? "Retry" : "Add"}
             </span>
           }
           chevron
-          onClick={() =>
-            updateProfileView({ panel: "account", detail: "phone" }, "push")
-          }
+          onClick={() => {
+            if (phoneLookupPending) {
+              void retryPhoneLookup();
+              return;
+            }
+            updateProfileView({ panel: "account", detail: "phone" }, "push");
+          }}
         />
         <SettingsRow
+          iconTone="capability"
           leading={
-            <span className="profile-account-provider-icon inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
-              <ProviderIcon providerId={provider.id} email={user.email} />
-            </span>
+              <span className="profile-account-provider-icon inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
+                <ProviderIcon providerId={provider.id} email={user.email} />
+              </span>
           }
           title="Sign-in provider"
           description={provider.name}
         />
         {walletCardEntryEnabled ? (
           <SettingsRow
-            icon={WalletAgentIcon}
+            icon={PROFILE_ICONS.wallet}
             iconTone="capability"
             className="profile-account-service-row"
             title={WALLET_CARD_COPY.profileEntry.title}
@@ -3486,7 +3718,7 @@ function ProfilePageContent({
       </SettingsGroup>
       <SettingsGroup title="Account actions">
         <SettingsRow
-          icon={ResetRowIcon}
+          icon={PROFILE_ICONS.reset}
           iconTone="capability"
           className="profile-account-reset-row"
           title="Reset account"
@@ -3495,7 +3727,7 @@ function ProfilePageContent({
           onClick={() => void handleResetClick()}
         />
         <SettingsRow
-          icon={DeleteRowIcon}
+          icon={PROFILE_ICONS.delete}
           iconTone="capability"
           className="profile-account-delete-row"
           testId="profile-account-delete-row"
@@ -3509,66 +3741,11 @@ function ProfilePageContent({
     </div>
   );
 
+  const appearanceControls = <ProfileAppearanceControls value={appAccent} nativeContext={preferenceChrome} />;
   const preferencesContent = (
-    <div className="space-y-4">
+    <div className="profile-preferences-content space-y-4">
+      {appearanceControls}
       <SettingsGroup>
-        <SettingsRow
-          icon={AppearanceRowIcon}
-          iconTone="capability"
-          title="Appearance"
-          description="Light, dark, or system."
-          trailing={
-            <ThemeToggleLean
-              size="expanded"
-              className="w-full sm:w-60 min-w-0"
-            />
-          }
-          stackTrailingOnMobile
-        />
-        <SettingsRow
-          icon={AccentRowIcon}
-          iconTone="capability"
-          title="Accent"
-          description="Choose the app accent."
-          trailing={
-            <Select
-              value={appAccent}
-              onValueChange={(value) => {
-                writeAccent(value as AppAccent);
-              }}
-            >
-              <SelectTrigger
-                className="w-full sm:w-60 min-w-[11rem]"
-                aria-label="App accent color"
-              >
-                <SelectValue placeholder="iOS Blue" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="blue">
-                  <span className="flex items-center gap-2">
-                    <span
-                      aria-hidden
-                      className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: "var(--accent-preview-blue)" }}
-                    />
-                    iOS Blue
-                  </span>
-                </SelectItem>
-                <SelectItem value="gold">
-                  <span className="flex items-center gap-2">
-                    <span
-                      aria-hidden
-                      className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: "var(--accent-preview-gold)" }}
-                    />
-                    Molten Gold
-                  </span>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          }
-          stackTrailingOnMobile
-        />
         <SettingsRow
           leading={<GeminiLogo className="h-8 w-8" />}
           title="Gemini"
@@ -3582,7 +3759,7 @@ function ProfilePageContent({
           }
         />
         <SettingsRow
-          icon={VoiceRowIcon}
+          icon={PROFILE_ICONS.voice}
           iconTone="capability"
           title="Voice"
           description="What One's voice can do, and its safety controls."
@@ -3593,6 +3770,7 @@ function ProfilePageContent({
         />
       </SettingsGroup>
       <CommunicationPreferencesSection
+        nativeScene={presentation === "native-page"}
         userId={user?.uid ?? null}
         vaultKey={vaultKey}
         vaultOwnerToken={vaultOwnerToken}
@@ -3605,10 +3783,10 @@ function ProfilePageContent({
     <div className="space-y-4">
       <SettingsGroup>
         <SettingsRow
-          icon={FingerprintProfileIcon}
+          icon={PROFILE_ICONS.vault}
           iconTone="capability"
           title="Vault methods"
-          description="Passphrase, passkey, and unlock method."
+          description="Password, passkey, and unlock method."
           chevron
           onClick={() =>
             updateProfileView({ panel: "security", detail: "vault" }, "push")
@@ -3619,7 +3797,12 @@ function ProfilePageContent({
   );
 
   const supportContent = (
-    <div className="mx-auto flex w-full max-w-[580px] flex-col px-0">
+    <div
+      className={cn(
+        "mx-auto flex w-full max-w-[580px] flex-col px-0",
+        auxiliaryTabStyles.support,
+      )}
+    >
       {supportComposerState.status === "sent" ? (
         <section
           aria-labelledby="support-success-heading"
@@ -3680,20 +3863,18 @@ function ProfilePageContent({
               aria-labelledby="support-intent-label"
               aria-describedby="support-intent-description"
             >
-              <SegmentedTabs
+              <SegmentedControl
+                ariaLabel="Support request type"
                 value={supportKind}
                 onValueChange={(value) => {
                   const nextKind = normalizeSupportKind(value);
                   if (!nextKind) return;
-                  setSupportKind(nextKind);
-                  setSupportMessageError(null);
-                  if (supportComposerState.status === "error") {
-                    setSupportComposerState({ status: "editing" });
-                  }
+                  changeSupportDraft({ kind: nextKind });
                 }}
                 options={SUPPORT_INTENT_OPTIONS}
                 disabled={sendingSupportMessage}
-                className="min-h-11 [&_[data-ui-contract=required-title]]:whitespace-normal"
+                className="min-h-11 w-full"
+                labelClassName="whitespace-normal"
               />
             </div>
             <p id="support-intent-description" className="sr-only">
@@ -3711,14 +3892,11 @@ function ProfilePageContent({
             </label>
             <Textarea
               id="support-message"
+              maxLength={8000}
               ref={supportMessageRef}
               value={supportMessage}
               onChange={(event) => {
-                setSupportMessage(event.target.value);
-                if (supportMessageError) setSupportMessageError(null);
-                if (supportComposerState.status === "error") {
-                  setSupportComposerState({ status: "editing" });
-                }
+                changeSupportDraft({ message: event.target.value });
               }}
               placeholder={supportPresentation.placeholder}
               disabled={sendingSupportMessage}
@@ -3746,7 +3924,8 @@ function ProfilePageContent({
             {supportReplyLine}
           </p>
           <p className="mt-1 text-[13px] leading-[18px] text-muted-foreground">
-            Your message goes to One support, with an internal copy to our support lead. No automatic receipt is sent.
+            Your message goes to One support, with an internal copy to our
+            support lead. No automatic receipt is sent.
           </p>
 
           {supportComposerState.status === "error" ? (
@@ -3783,10 +3962,15 @@ function ProfilePageContent({
   );
 
   const gmailContent = (
-    <div className="space-y-4 sm:space-y-5">
+    <div
+      className={cn(
+        "space-y-4 sm:space-y-5",
+        isPanePresentation && secondaryTypographyStyles.paneGmail,
+      )}
+    >
       <SettingsGroup>
         <SettingsRow
-          icon={GmailAgentIcon}
+          icon={PROFILE_ICONS.mail}
           iconTone="capability"
           title="Connection"
           description={gmailSettingsDescription}
@@ -3801,7 +3985,7 @@ function ProfilePageContent({
           }
         />
         <SettingsRow
-          icon={SyncRowIcon}
+          icon={PROFILE_ICONS.refresh}
           iconTone="capability"
           title="Actions"
           description="Sync, receipts, or disconnect."
@@ -3818,24 +4002,31 @@ function ProfilePageContent({
   );
 
   const connectedSystemsContent = (
-    <ConnectedSystemsPanel
-      cacheUserId={user?.uid}
-      vaultOwnerToken={vaultOwnerToken}
-      onRequestUnlock={() => requestVaultUnlock("profile_data")}
-      profile={{
-        displayName: user?.displayName,
-        email: user?.email,
-        phone: phoneNumber,
-      }}
-    />
+    <div className={auxiliaryTabStyles.connectedSystems}>
+      <ConnectedSystemsPanel
+        cacheUserId={user?.uid}
+        vaultOwnerToken={vaultOwnerToken}
+        onRequestUnlock={() => requestVaultUnlock("profile_data")}
+        profile={{
+          displayName: user?.displayName,
+          email: user?.email,
+          phone: phoneNumber,
+        }}
+      />
+    </div>
   );
 
   const vaultMethodsContent = (
-    <div className="profile-account-content profile-vault-methods-content">
+    <div
+      className={cn(
+        "profile-account-content profile-vault-methods-content",
+        isPanePresentation && secondaryTypographyStyles.paneVaultMethods,
+      )}
+    >
       <SettingsGroup title="Vault">
         {vaultAccess.needsVaultCreation ? (
           <SettingsRow
-            icon={VaultRowIcon}
+            icon={PROFILE_ICONS.security}
             iconTone="capability"
             title="Create your vault"
             description="Secure saved details."
@@ -3853,161 +4044,28 @@ function ProfilePageContent({
 
         {vaultAccess.hasVault && !loadingVaultMethod ? (
           <>
-            {vaultMethod ? (
-              <SettingsRow
-                icon={VaultRowIcon}
-                iconTone="capability"
-                title="Default unlock"
-                trailing={
-                  <div
-                    className={VAULT_INLINE_ACTIONS_CLASS}
-                    data-testid="vault-default-unlock-actions"
-                  >
-                    <Badge
-                      variant="secondary"
-                      className={VAULT_INLINE_BADGE_CLASS}
-                    >
-                      {readableMethod(vaultMethod)}
-                    </Badge>
-                    {canSwitchDefaultToPassphrase ? (
-                      <Button
-                        variant="none"
-                        effect="fade"
-                        size="sm"
-                        className={VAULT_INLINE_CONTROL_CLASS}
-                        disabled={switchingVaultMethod}
-                        onClick={() => void preferPassphraseUnlock()}
-                      >
-                        Passphrase
-                      </Button>
-                    ) : null}
-                    {canSwitchDefaultToQuick &&
-                    quickMethodReadyOnCurrentDevice ? (
-                      <Button
-                        variant="none"
-                        effect="fade"
-                        size="sm"
-                        className={VAULT_INLINE_CONTROL_CLASS}
-                        disabled={switchingVaultMethod}
-                        onClick={() =>
-                          void setQuickMethodAsDefault(
-                            quickMethodReadyOnCurrentDevice,
-                            availableQuickWrapperId,
-                          )
-                        }
-                      >
-                        {readableQuickMethod(quickMethodReadyOnCurrentDevice)}
-                      </Button>
-                    ) : null}
-                  </div>
-                }
-                stackTrailingOnMobile
-              />
-            ) : null}
             {!vaultAccess.canMutateSecureData ? (
               <SettingsRow
-                icon={VaultRowIcon}
+                icon={PROFILE_ICONS.security}
                 iconTone="capability"
                 title="Unlock vault"
-                description="Change methods or passphrase."
+                description="Change methods or password."
                 chevron
                 onClick={() => requestVaultUnlock("profile_data")}
               />
             ) : null}
 
-            {vaultAccess.canMutateSecureData && recommendedQuickMethod ? (
-              <SettingsRow
-                icon={FingerprintProfileIcon}
-                iconTone="capability"
-                title={
-                  enrolledPasskeyWrappers.length > 0
-                    ? `Add another ${readableQuickMethod(recommendedQuickMethod)}`
-                    : `Add ${readableQuickMethod(recommendedQuickMethod)}`
-                }
-                disabled={switchingVaultMethod}
-                chevron
-                onClick={() => void switchToQuickMethod(recommendedQuickMethod)}
-              />
-            ) : null}
-
-            {enrolledPasskeyWrappers.map((wrapper, index) => {
-              const wrapperId = wrapper.wrapperId ?? "default";
-              const isPrimary =
-                vaultMethod === wrapper.method &&
-                activePrimaryWrapperId === wrapperId;
-              return (
-                <SettingsRow
-                  key={vaultWrapperKey(wrapper)}
-                  icon={FingerprintProfileIcon}
-                  iconTone="capability"
-                  title={
-                    enrolledPasskeyWrappers.length > 1
-                      ? `Passkey ${index + 1}`
-                      : "Passkey"
-                  }
-                  description={describePasskeyWrapper(wrapper)}
-                  trailing={
-                    vaultAccess.canMutateSecureData ? (
-                      <div className={VAULT_INLINE_ACTIONS_CLASS}>
-                        {isPrimary ? (
-                          <Badge
-                            variant="secondary"
-                            className={VAULT_INLINE_BADGE_CLASS}
-                          >
-                            Default
-                          </Badge>
-                        ) : (
-                          <Button
-                            variant="none"
-                            effect="fade"
-                            size="sm"
-                            className={VAULT_INLINE_CONTROL_CLASS}
-                            disabled={switchingVaultMethod}
-                            onClick={() =>
-                              void setQuickMethodAsDefault(
-                                wrapper.method,
-                                wrapperId,
-                              )
-                            }
-                          >
-                            Set default
-                          </Button>
-                        )}
-                        <Button
-                          variant="none"
-                          effect="fade"
-                          size="sm"
-                          className={`${VAULT_INLINE_CONTROL_CLASS} text-destructive hover:text-destructive`}
-                          disabled={switchingVaultMethod}
-                          onClick={() => setPasskeyRemovalTarget(wrapper)}
-                        >
-                          Remove
-                        </Button>
-                      </div>
-                    ) : (
-                      <Badge
-                        variant="secondary"
-                        className={VAULT_INLINE_BADGE_CLASS}
-                      >
-                        {isPrimary ? "Default" : "Saved"}
-                      </Badge>
-                    )
-                  }
-                  stackTrailingOnMobile
-                />
-              );
-            })}
-
-            {vaultMethod ? (
-              <SettingsRow
-                icon={PassphraseRowIcon}
-                iconTone="capability"
-                title="Change passphrase"
-                disabled={switchingVaultMethod}
-                chevron
-                onClick={() => setPassphraseDialogOpen(true)}
-              />
-            ) : null}
+            <VaultMethodsPanel key={user?.uid}
+              wrappers={vaultMethodsOwner === user?.uid ? enrolledVaultWrappers : []}
+              primaryMethod={vaultMethodsOwner === user?.uid ? vaultMethod : null} primaryWrapperId={primaryVaultWrapperId}
+              biometricLabel={capabilityMatrix?.biometricLabel} localBiometricId={localBiometricWrapperId}
+              mutable={vaultAccess.canMutateSecureData} busy={switchingVaultMethod} needsRefresh={vaultMethodsNeedRefresh}
+              onSelect={(wrapper) => void vaultMethods.select(wrapper)}
+              onRemove={vaultMethods.requestRemove}
+              onAdd={vaultAccess.canMutateSecureData && recommendedQuickMethod ? () => void vaultMethods.add(recommendedQuickMethod) : undefined}
+              addLabel={recommendedQuickMethod === "generated_default_native_biometric"
+                ? `Add ${capabilityMatrix?.biometricLabel || "biometrics"}` : enrolledPasskeyWrappers.length ? "Add another passkey" : "Add passkey"}
+              onChangePassphrase={vaultMethods.openPassword} onRefresh={() => void vaultMethods.refresh()} />
 
           </>
         ) : null}
@@ -4016,10 +4074,15 @@ function ProfilePageContent({
   );
 
   const gmailConnectionContent = (
-    <div className="space-y-4 sm:space-y-5">
+    <div
+      className={cn(
+        "space-y-4 sm:space-y-5",
+        isPanePresentation && secondaryTypographyStyles.paneGmail,
+      )}
+    >
       <SettingsGroup title="Connection">
         <SettingsRow
-          icon={GmailAgentIcon}
+          icon={PROFILE_ICONS.mail}
           iconTone="capability"
           title="Status"
           description={gmailSettingsDescription}
@@ -4027,7 +4090,7 @@ function ProfilePageContent({
           stackTrailingOnMobile
         />
         <SettingsRow
-          icon={InboxRowIcon}
+          icon={PROFILE_ICONS.inbox}
           iconTone="capability"
           title="Inbox"
           description={
@@ -4039,7 +4102,7 @@ function ProfilePageContent({
           }
         />
         <SettingsRow
-          icon={SyncRowIcon}
+          icon={PROFILE_ICONS.refresh}
           iconTone="capability"
           title="Latest sync"
           description={gmailLastSyncText}
@@ -4062,71 +4125,24 @@ function ProfilePageContent({
   );
 
   const gmailActionsContent = (
-    <SettingsGroup title="Actions">
-      {gmailPresentation.isConnected ? (
-        <SettingsRow
-          icon={SyncRowIcon}
-          iconTone="capability"
-          title="Sync now"
-          description="Fetch new receipt mail messages and refresh extracted records."
-          disabled={gmailActionsBusy || !gmailPresentation.isConnected}
-          chevron
-          onClick={() => void handleSyncGmailNow()}
-        />
-      ) : (
-        <SettingsRow
-          icon={GmailAgentIcon}
-          iconTone="capability"
-          title={
-            gmailPresentation.state === "needs_reauthentication"
-              ? "Reconnect Mail"
-              : "Connect Mail"
-          }
-          description="Review Mail data use, then authorize read-only receipt sync."
-          disabled={gmailActionsBusy || gmail.status?.configured === false}
-          chevron
-          onClick={() => router.push(ROUTES.GMAIL)}
-        />
-      )}
-
-      <SettingsRow
-        icon={SyncRowIcon}
-        iconTone="capability"
-        title="Refresh status"
-        description="Re-check your Mail connection, sync status, and inbox details."
-        disabled={gmailActionsBusy}
-        chevron
-        onClick={() => void gmail.refreshStatus({ force: true })}
-      />
-
-      <SettingsRow
-        icon={MemoryAgentIcon}
-        iconTone="capability"
-        title="Open receipts"
-        description="Review synced receipts, merchants, and extracted totals."
-        chevron
-        onClick={() => router.push(ROUTES.GMAIL)}
-      />
-
-      {gmailPresentation.isConnected ? (
-        <SettingsRow
-          icon={DisconnectRowIcon}
-          iconTone="capability"
-          title="Disconnect Mail"
-          description="Revoke Mail, stop future syncs, and delete Mail receipt data."
-          tone="destructive"
-          disabled={gmailActionsBusy}
-          chevron
-          onClick={() => void handleDisconnectGmail()}
-        />
-      ) : null}
-    </SettingsGroup>
+    <MailActionsGroup
+      connected={gmailPresentation.isConnected}
+      needsReauthentication={gmailPresentation.state === "needs_reauthentication"}
+      configured={gmail.status?.configured !== false}
+      busy={gmailActionsBusy}
+      onSync={() => void handleSyncGmailNow()}
+      onConnect={() => router.push(ROUTES.GMAIL)}
+      onRefresh={() => void gmail.refreshStatus({ force: true })}
+      onOpenReceipts={() => router.push(ROUTES.GMAIL)}
+      onDisconnect={() => void handleDisconnectGmail()}
+    />
   );
 
   const financialContextControls = (
     <div className="space-y-3">
       <Select
         value={financialContextCategory}
+        disabled={savingFinancialContext}
         onValueChange={(value) =>
           setFinancialContextCategory(value as FinancialContextCategory)
         }
@@ -4145,6 +4161,7 @@ function ProfilePageContent({
       </Select>
       <Textarea
         value={financialContextText}
+        disabled={savingFinancialContext}
         onChange={(event) => setFinancialContextText(event.target.value)}
         placeholder="What should Hussh remember?"
         className="min-h-[112px]"
@@ -4197,13 +4214,27 @@ function ProfilePageContent({
     if (activeDetail === "phone") {
       profileStackEntries.push({
         key: "detail:phone",
-        title: phoneNumber ? "Change phone number" : "Add phone number",
+        title: phoneNumber ? "Change phone number" : phoneLookupPending ? "Phone number" : "Add phone number",
         description: phoneNumber
           ? "Verify a new number."
-          : "Add a verified number.",
-        content: (
+          : phoneLookupPending ? undefined : "Add a verified number.",
+        content: phoneLookupPending ? (
+          <div className="flex flex-col gap-4">
+            <p role="status">{phoneSummaryText}</p>
+            <Button
+              data-voice-control-id="profile-phone-detail-retry"
+              onClick={() => void retryPhoneLookup()}
+              disabled={phoneNumberStatus === "loading"}
+            >
+              Try again
+            </Button>
+            <Button variant="none" effect="fade" onClick={popProfileStack}>Cancel</Button>
+          </div>
+        ) : (
           <>
-            <PhoneVerificationFlow
+            {presentation === "native-page" ? <div ref={setNativePhoneHost} /> : <PhoneVerificationFlow
+              ownerKey={phoneVisit.id}
+              isCurrent={phoneVisitIsCurrent}
               mode={phoneNumber ? "replace" : "link"}
               currentPhoneNumber={phoneNumber}
               startVerification={
@@ -4213,26 +4244,109 @@ function ProfilePageContent({
                 phoneNumber ? confirmPhoneReplacement : confirmPhoneVerification
               }
               onCompleted={handleAccountPhoneCompleted}
+              onBackStepChange={bindPhoneBackStep}
               onCancel={popProfileStack}
               confirmLabel="Save phone number"
-              className="gap-5"
+              className={cn(
+                "gap-5",
+                isPanePresentation && accountStyles.phoneDetail,
+              )}
               helperText={
                 phoneNumber
                   ? "Enter the new phone number."
                   : "Enter your phone number."
               }
-            />
+            />}
             <div id="recaptcha-container" className="min-h-0" />
           </>
         ),
       });
     }
+  } else if (!routeBlockedByVault && activePanel === "payouts") {
+    profileStackEntries.push({
+      key: "panel:payouts",
+      title: "Payouts",
+      content: (
+        <div
+          className={cn(
+            "space-y-4",
+            isPanePresentation && "profile-account-content",
+            isPanePresentation && accountStyles.paneAccountContent,
+            isPanePresentation && accountStyles.managedContent,
+          )}
+        >
+          <DocumentHashcoinPayouts />
+        </div>
+      ),
+    });
+  } else if (!routeBlockedByVault && activePanel === "world-model") {
+    // The Profile pane is how /one/profile/world-model is presented (proxy.ts
+    // redirects every Profile path to it), so the model renders here in both
+    // presentations. Research state comes from the app-level store, which the
+    // pane reads even though it is mounted beside the provider.
+    profileStackEntries.push({
+      key: "panel:world-model",
+      title: "Personal World Model",
+      content: (
+        <div
+          className={cn(
+            "space-y-4",
+            isPanePresentation && "profile-account-content",
+            isPanePresentation && accountStyles.paneAccountContent,
+            isPanePresentation && accountStyles.managedContent,
+          )}
+        >
+          <PersonalWorldModelPage
+            embedded
+            model={worldModel}
+            onManageDetails={() => openVaultBackedPanel("my-data")}
+            onOpenAccount={openAccountPanel}
+          />
+        </div>
+      ),
+    });
+  } else if (!routeBlockedByVault && activePanel === "request-pricing") {
+    // Opened from another screen (Feed's "Set price"), a save returns there.
+    // Without a safe origin, and in the pane, the card confirms inline.
+    const pricingReturnTo = isPanePresentation
+      ? null
+      : normalizeInternalRouteHref(searchParams.get("from"));
+    profileStackEntries.push({
+      key: "panel:request-pricing",
+      title: "Request pricing",
+      content: (
+        <div
+          className={cn(
+            isPanePresentation && "profile-account-content",
+            isPanePresentation && accountStyles.paneAccountContent,
+            isPanePresentation && accountStyles.managedContent,
+          )}
+        >
+          <DocumentRequestPricingCard
+            model={presentation === "native-page" && nativePricingAvailable ? nativePricingModel : undefined}
+            onSaved={
+              pricingReturnTo
+                ? () => {
+                    toast.success("Price saved");
+                    router.replace(pricingReturnTo);
+                  }
+                : undefined
+            }
+          />
+        </div>
+      ),
+    });
   } else if (!routeBlockedByVault && activePanel === "my-data") {
     profileStackEntries.push({
       key: "panel:my-data",
       title: "Memory",
       description: "Saved details and sharing.",
-      content: myDataContent,
+      content: (
+        <div className="space-y-4">
+          <LivingMemoryDocument />
+          {myDataContent}
+        </div>
+      ),
     });
     if (selectedDomain) {
       profileStackEntries.push({
@@ -4274,12 +4388,7 @@ function ProfilePageContent({
                 : undefined
             }
             hideHighlights={selectedDomain.key === "financial"}
-            onPreviewOpenChange={(open) =>
-              setDomainPreview((current) => ({
-                ...current,
-                open,
-              }))
-            }
+            onPreviewOpenChange={(open) => { if (!open) closeDomainPreview(); }}
             onPreviewPermission={(permission) =>
               void handlePreviewDomainPermission(selectedDomain.key, permission)
             }
@@ -4314,13 +4423,38 @@ function ProfilePageContent({
         title: selectedConnection.requesterLabel,
         description: "Scopes and access.",
         content: (
-          <PkmAccessConnectionDetailPanel
-            connection={selectedConnection}
-            onRevokeAccess={async (scope) => {
-              await handleRevoke(scope);
-            }}
-          />
+          <div
+            className={
+              isPanePresentation
+                ? secondaryTypographyStyles.paneAccess
+                : undefined
+            }
+          >
+            <PkmAccessConnectionDetailPanel
+              connection={selectedConnection}
+              onRevokeAccess={async (scope) => {
+                await handleRevoke(scope);
+              }}
+            />
+          </div>
         ),
+      });
+    }
+    // A query destination must keep its own body while its record resolves,
+    // and after access disappears. Showing the parent here made navigation
+    // appear not to respond and changed the visible Back depth on refresh.
+    const missingDomain = activeDetail?.startsWith("domain:") && !selectedDomain;
+    const missingConnection = activeDetail?.startsWith("connection:") && !selectedConnection;
+    if (missingDomain || missingConnection) {
+      const pending = profileManagerLoading;
+      const failed = !!pkmError || !!consentCenterError;
+      profileStackEntries.push({
+        key: `detail:${activeDetail}`,
+        title: missingDomain ? "Memory details" : "Connection access",
+        content: <p role="status" className="px-4 py-5 text-sm text-muted-foreground">
+          {pending ? "Loading…" : failed ? "Couldn’t load these details. Go back and try again." :
+            "These details are no longer available. Go back to Memory."}
+        </p>,
       });
     }
   } else if (!routeBlockedByVault && activePanel === "connected-systems") {
@@ -4335,6 +4469,7 @@ function ProfilePageContent({
       buildProfileConnectorsStackEntry({
         detail: activeDetail,
         updateView: updateProfileView,
+        ...(retainedConnectors ? { content: retainedConnectors.webBody } : {}),
       }),
     );
   } else if (activePanel === "legal") {
@@ -4343,6 +4478,7 @@ function ProfilePageContent({
       ...buildProfileLegalStackEntries({
         detail: activeDetail,
         updateView: updateProfileView,
+        paneIcons: isPanePresentation,
       }),
     );
   } else if (!routeBlockedByVault && activePanel === "preferences") {
@@ -4359,6 +4495,7 @@ function ProfilePageContent({
         description: "Investing preferences.",
         content: (
           <ProfileKaiPreferencesPanel
+            model={nativeFinanceActive ? financePreferences : undefined}
             userId={user.uid}
             vaultKey={vaultKey}
             vaultOwnerToken={vaultOwnerToken}
@@ -4373,15 +4510,7 @@ function ProfilePageContent({
         title: "Gemini",
         description: "Gemini access.",
         content: (
-          <GeminiRuntimeSettingsCard
-            userId={user.uid}
-            vaultKey={vaultKey}
-            vaultOwnerToken={vaultOwnerToken}
-            needsVaultCreation={vaultAccess.needsVaultCreation}
-            needsUnlock={vaultAccess.needsUnlock}
-            onRequestVaultCreation={() => requestVaultUnlock("profile_data")}
-            onRequestVaultUnlock={() => requestVaultUnlock("profile_data")}
-          />
+          <GeminiRuntimeSettingsView model={runtimeSettings} />
         ),
       });
     } else if (activeDetail === "voice") {
@@ -4393,7 +4522,7 @@ function ProfilePageContent({
           <VoicePreferencesPanel
             userId={user.uid}
             vaultOwnerToken={vaultOwnerToken}
-            getIdToken={user.getIdToken ? () => user.getIdToken() : null}
+            getIdToken={voiceGetIdToken}
           />
         ),
       });
@@ -4419,7 +4548,7 @@ function ProfilePageContent({
         content: (
           <SettingsGroup title={PROFILE_LABELS.accountAccess}>
             <SettingsRow
-              icon={SignOutProfileIcon}
+              icon={PROFILE_ICONS.signOut}
               iconTone="capability"
               title="Sign out"
               description="Sign out on this device."
@@ -4434,7 +4563,7 @@ function ProfilePageContent({
         key: "detail:trusted-devices",
         title: "Trusted devices",
         description: "Devices connected to your private agent.",
-        content: <TrustedDevicesPage />,
+        content: <TrustedDevicesPage panePresentation={isPanePresentation} model={devicesModel} />,
       });
     }
   } else if (!routeBlockedByVault && activePanel === "gmail") {
@@ -4464,7 +4593,7 @@ function ProfilePageContent({
       key: "panel:referrals",
       title: PROFILE_LABELS.referrals,
       description: "Your link and referrals.",
-      content: <ReferralsPanel />,
+      content: <ReferralsPanel panePresentation={isPanePresentation} />,
     });
   } else if (!routeBlockedByVault && activePanel === "support") {
     profileStackEntries.push({
@@ -4475,6 +4604,24 @@ function ProfilePageContent({
     });
   }
 
+  const menuGroups = profileMenuGroups(canShowPkmAgentLab);
+  const menuActions: ProfileMenuActions = {
+    account: openAccountPanel,
+    payouts: () => openVaultBackedPanel("payouts"),
+    "request-pricing": () => openVaultBackedPanel("request-pricing"),
+    "my-data": () => openVaultBackedPanel("my-data"),
+    "world-model": () => openVaultBackedPanel("world-model"),
+    preferences: openPreferencesPanel,
+    security: openSecurityPanel,
+    devices: () => openVaultBackedPanel("security", "trusted-devices"),
+    connectors: () => openVaultBackedPanel("connectors"),
+    invite: () => router.push(ROUTES.ONE_REFERRALS),
+    support: () => updateProfileView({ panel: "support", detail: null }, "push"),
+    "developer-tools": () => router.push("/one/profile/pkm-agent-lab"),
+    privacy: () => updateProfileView({ panel: "legal", detail: "privacy" }, "push"),
+    terms: () => updateProfileView({ panel: "legal", detail: "terms" }, "push"),
+    "sign-out": handleSignOut,
+  };
   const profileRootContent = (
     <div
       className={cn(
@@ -4497,7 +4644,7 @@ function ProfilePageContent({
               className="profile-home-meta flex w-full min-w-0 items-center justify-start gap-1.5 text-xs font-normal text-muted-foreground"
               title={provider.name}
             >
-              <ProviderIcon providerId={provider.id} email={user.email} />
+              <EmailIdentityMark email={user.email} providerId={provider.id} />
               <span className="[overflow-wrap:anywhere]">
                 {user.email || "Not available"}
               </span>
@@ -4509,108 +4656,18 @@ function ProfilePageContent({
       <AppPageContentRegion>
         <SurfaceStack compact>
           <div className="profile-home-content">
-            <SettingsGroup title="Your settings" separatorInset>
-              <SettingsRow
-                icon={AccountProfileIcon}
-                iconTone="capability"
-                title={PROFILE_LABELS.account}
-                chevron
-                onClick={openAccountPanel}
-              />
-              <SettingsRow
-                icon={PreferencesProfileIcon}
-                iconTone="capability"
-                title={PROFILE_LABELS.preferences}
-                chevron
-                onClick={openPreferencesPanel}
-              />
-              <SettingsRow
-                icon={SecurityProfileIcon}
-                iconTone="capability"
-                title={PROFILE_LABELS.security}
-                chevron
-                voiceControlId="profile_security"
-                voiceActionId="route.profile_security_panel"
-                voiceLabel={PROFILE_LABELS.security}
-                voicePurpose="Opens vault, account access, and account deletion controls."
-                onClick={openSecurityPanel}
-              />
-              <SettingsRow
-                icon={DevicesProfileIcon}
-                iconTone="capability"
-                title="Trusted devices"
-                chevron
-                onClick={() =>
-                  openVaultBackedPanel("security", "trusted-devices")
-                }
-              />
-              <SettingsRow
-                icon={ConnectedSystemsAgentIcon}
-                iconTone="capability"
-                title="Connectors"
-                description="Google Workspace and finance connections"
-                chevron
-                onClick={() => openVaultBackedPanel("connectors")}
-              />
-              <SettingsRow
-                icon={InviteFriendsProfileIcon}
-                iconTone="capability"
-                title={PROFILE_LABELS.referrals}
-                chevron
-                voiceControlId="profile_referrals"
-                voiceActionId="route.profile_referrals_panel"
-                voiceLabel={PROFILE_LABELS.referrals}
-                voicePurpose="Opens your referral link and referral status."
-                onClick={() =>
-                  updateProfileView(
-                    { panel: "referrals", detail: null },
-                    "push",
-                  )
-                }
-              />
-              <SettingsRow
-                icon={SupportProfileIcon}
-                iconTone="capability"
-                title={PROFILE_LABELS.support}
-                chevron
-                onClick={() =>
-                  updateProfileView({ panel: "support", detail: null }, "push")
-                }
-              />
-              {canShowPkmAgentLab ? (
-                <SettingsRow
-                  icon={DeveloperToolsProfileIcon}
-                  iconTone="capability"
-                  title={PROFILE_LABELS.developerTools}
-                  trailing={<Badge variant="secondary">Local</Badge>}
-                  chevron
-                  onClick={() => router.push("/one/profile/pkm-agent-lab")}
-                />
-              ) : null}
-            </SettingsGroup>
-
-            <SettingsGroup title="Legal" separatorInset>
-              {/* Read in place: Profile never leaves the pane for /terms. */}
-              <ProfileLegalRows
-                onOpen={(document) =>
-                  updateProfileView(
-                    { panel: "legal", detail: document },
-                    "push",
-                  )
-                }
-              />
-            </SettingsGroup>
-
-            <SettingsGroup title={PROFILE_LABELS.accountAccess} separatorInset>
-              <SettingsRow
-                icon={SignOutProfileIcon}
-                iconTone="capability"
-                title="Sign out"
-                tone="destructive"
-                chevron
-                onClick={() => void handleSignOut()}
-              />
-            </SettingsGroup>
+            {menuGroups.map(group => <SettingsGroup key={group.id} title={group.title} separatorInset rowSizing="uniform">
+              {group.entries.map(entry => <SettingsRow key={entry.id}
+                icon={entry.icon} iconTone="capability" title={entry.label} chevron
+                tone={"destructive" in entry && entry.destructive ? "destructive" : "default"}
+                trailing={"localOnly" in entry ? <Badge variant="secondary">Local</Badge> : undefined}
+                testId={entry.id === "privacy" || entry.id === "terms" ? `profile-legal-${entry.id}-row` : undefined}
+                voiceControlId={"voiceControlId" in entry ? entry.voiceControlId : entry.id === "security" ? "profile_security" : entry.id === "invite" ? "profile_referrals" : undefined}
+                voiceActionId={"voiceActionId" in entry ? entry.voiceActionId : entry.id === "security" ? "route.profile_security_panel" : entry.id === "invite" ? "route.profile_referrals_panel" : undefined}
+                voiceLabel={"voiceActionId" in entry || entry.id === "security" || entry.id === "invite" ? entry.label : undefined}
+                voicePurpose={"voicePurpose" in entry ? entry.voicePurpose : entry.id === "security" ? "Opens vault, account access, and account deletion controls." : entry.id === "invite" ? "Opens your referral link and referral status." : undefined}
+                onClick={() => { void menuActions[entry.id](); }} />)}
+            </SettingsGroup>)}
           </div>
         </SurfaceStack>
       </AppPageContentRegion>
@@ -4621,13 +4678,116 @@ function ProfilePageContent({
     return null;
   }
 
-  return (
+  const vaultOverlays = <>
+      <Dialog
+        open={passphraseDialogOpen && (!vaultNativeActive || nativeVaultPasswordFallback)}
+        onOpenChange={(open) => { if (!open) vaultMethods.closePassword(); }}
+      >
+        <DialogContent className="w-[calc(100%-1rem)] max-h-[calc(100svh-1rem)] overflow-y-auto sm:max-w-md">
+          <DialogTitle>Change password</DialogTitle>
+          <DialogDescription>
+            Set a new password for Vault unlock. Your passkey and biometric
+            methods stay active.
+          </DialogDescription>
+          <div className="space-y-3 pt-2">
+            <Input
+              type="password"
+              placeholder="New password (min 8 characters)"
+              autoComplete="new-password"
+              value={newPassphrase}
+              onChange={(event) => vaultMethods.editPassword("password", event.target.value)}
+            />
+            <Input
+              type="password"
+              placeholder="Confirm password"
+              autoComplete="new-password"
+              value={confirmPassphrase}
+              onChange={(event) => vaultMethods.editPassword("confirmation", event.target.value)}
+            />
+            <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:items-center sm:justify-end">
+              <Button
+                variant="none"
+                effect="fade"
+                size="default"
+                className="w-full sm:w-auto"
+                onClick={vaultMethods.closePassword}
+                disabled={switchingVaultMethod}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="default"
+                className="w-full sm:w-auto"
+                disabled={
+                  switchingVaultMethod ||
+                  newPassphrase.length < 8 ||
+                  newPassphrase !== confirmPassphrase
+                }
+                onClick={() => void vaultMethods.savePassword()}
+              >
+                {switchingVaultMethod ? "Saving..." : "Save new password"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={Boolean(passkeyRemovalTarget) && !vaultNativeActive}
+        onOpenChange={(open) => {
+          if (!open) vaultMethods.cancelRemove();
+        }}
+      >
+        <AlertDialogContent className="w-[calc(100%-1rem)] sm:max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove passkey?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the saved passkey from One. It may still remain in
+              your password manager, and password unlock will stay available.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {passkeyRemovalTarget ? (
+            <p className="rounded-2xl bg-muted/50 px-4 py-3 text-sm leading-6 text-muted-foreground">
+              {describePasskeyWrapper(passkeyRemovalTarget)}
+            </p>
+          ) : null}
+          <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
+            <AlertDialogCancel
+              className="w-full sm:w-auto"
+              disabled={switchingVaultMethod}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="default"
+              className="app-critical-action w-full opacity-90 transition-opacity hover:opacity-100 sm:w-auto"
+              disabled={switchingVaultMethod || !passkeyRemovalTarget}
+              onClick={(event) => {
+                event.preventDefault();
+                if (passkeyRemovalTarget) {
+                  void vaultMethods.remove();
+                }
+              }}
+            >
+              {switchingVaultMethod ? "Removing..." : "Remove passkey"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+  </>;
+  const page = (
     <AppPageShell
       data-testid="profile-primary"
       as="div"
       width="reading"
       fitContent
-      className={cn("relative isolate", isPanePresentation ? "profile-pane-page" : "pb-3")}
+      className={cn(
+        "relative isolate",
+        isPanePresentation ? "profile-pane-page" : "pb-3",
+        isPanePresentation &&
+          activePanel !== null &&
+          "profile-pane-page--inner",
+      )}
       nativeTest={
         isPanePresentation
           ? undefined
@@ -4644,6 +4804,7 @@ function ProfilePageContent({
           rootContent={profileRootContent}
           entries={profileStackEntries}
           resetScroll={!isPanePresentation}
+          onActiveEntryChange={presentation === "native-page" ? updateNativeActiveHeading : undefined}
         />
       </SettingsPresentationProvider>
 
@@ -4703,127 +4864,57 @@ function ProfilePageContent({
         <VaultUnlockDialog
           user={user}
           open={showVaultCreation}
-          onOpenChange={setShowVaultCreation}
+          onOpenChange={handleVaultCreationOpenChange}
           title="Create your vault"
-          description="Set up a passphrase to secure your saved details."
+          description="Set up a password to secure your saved details."
           onSuccess={() => {
+            vaultCreationCompletingRef.current = true;
             setShowVaultCreation(false);
             setHasVault(true);
             VaultService.setVaultCheckCache(user.uid, true);
             const returnTo = vaultReturnToRef.current;
             if (returnTo) {
               vaultReturnToRef.current = null;
+              setPendingProfileTarget(null);
               router.replace(returnTo);
+            } else if (pendingProfileTarget) {
+              updateProfileView(
+                {
+                  panel: pendingProfileTarget.panel,
+                  detail: pendingProfileTarget.detail,
+                },
+                pendingProfileTarget.mode,
+              );
+              setPendingProfileTarget(null);
             }
             toast.success("Vault created and unlocked.");
+            setTimeout(() => {
+              vaultCreationCompletingRef.current = false;
+            }, 0);
           }}
         />
       )}
 
-      <Dialog
-        open={passphraseDialogOpen}
-        onOpenChange={setPassphraseDialogOpen}
-      >
-        <DialogContent className="w-[calc(100%-1rem)] max-h-[calc(100svh-1rem)] overflow-y-auto sm:max-w-md">
-          <DialogTitle>Change passphrase</DialogTitle>
-          <DialogDescription>
-            Set a new passphrase for Vault unlock. Your passkey and biometric
-            methods stay active.
-          </DialogDescription>
-          <div className="space-y-3 pt-2">
-            <Input
-              type="password"
-              placeholder="New passphrase (min 8 characters)"
-              autoComplete="new-password"
-              value={newPassphrase}
-              onChange={(event) => setNewPassphrase(event.target.value)}
-            />
-            <Input
-              type="password"
-              placeholder="Confirm passphrase"
-              autoComplete="new-password"
-              value={confirmPassphrase}
-              onChange={(event) => setConfirmPassphrase(event.target.value)}
-            />
-            <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:items-center sm:justify-end">
-              <Button
-                variant="none"
-                effect="fade"
-                size="default"
-                className="w-full sm:w-auto"
-                onClick={() => setPassphraseDialogOpen(false)}
-                disabled={switchingVaultMethod}
-              >
-                Cancel
-              </Button>
-              <Button
-                size="default"
-                className="w-full sm:w-auto"
-                disabled={
-                  switchingVaultMethod ||
-                  newPassphrase.length < 8 ||
-                  newPassphrase !== confirmPassphrase
-                }
-                onClick={() => void changePassphrase()}
-              >
-                {switchingVaultMethod ? "Saving..." : "Save new passphrase"}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <AlertDialog
-        open={Boolean(passkeyRemovalTarget)}
-        onOpenChange={(open) => {
-          if (!open) setPasskeyRemovalTarget(null);
-        }}
-      >
-        <AlertDialogContent className="w-[calc(100%-1rem)] sm:max-w-lg">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove passkey?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This removes the saved passkey from One. It may still remain in
-              your password manager, and passphrase unlock will stay available.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {passkeyRemovalTarget ? (
-            <p className="rounded-2xl bg-muted/50 px-4 py-3 text-sm leading-6 text-muted-foreground">
-              {describePasskeyWrapper(passkeyRemovalTarget)}
-            </p>
-          ) : null}
-          <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
-            <AlertDialogCancel
-              className="w-full sm:w-auto"
-              disabled={switchingVaultMethod}
-            >
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              variant="default"
-              className="app-critical-action w-full opacity-90 transition-opacity hover:opacity-100 sm:w-auto"
-              disabled={switchingVaultMethod || !passkeyRemovalTarget}
-              onClick={(event) => {
-                event.preventDefault();
-                if (passkeyRemovalTarget) {
-                  void removePasskeyWrapper(passkeyRemovalTarget);
-                }
-              }}
-            >
-              {switchingVaultMethod ? "Removing..." : "Remove passkey"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {presentation !== "native-page" ? vaultOverlays : null}
 
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-        <AlertDialogContent className="w-[calc(100%-1rem)] sm:max-w-lg">
+        <AlertDialogContent
+          className={cn(
+            "w-[calc(100%-1rem)] sm:max-w-lg",
+            accountStyles.accountDialogCompact,
+            isPanePresentation && accountStyles.accountDialog,
+            isPanePresentation && accountStyles.dangerDialog,
+          )}
+          overlayClassName={
+            isPanePresentation ? accountStyles.accountDialogOverlay : undefined
+          }
+        >
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2 text-[color:var(--app-destructive)]">
               <Icon icon={AlertTriangle} size="md" />
               {deleteDialogTitle}
             </AlertDialogTitle>
-            <AlertDialogDescription>
+            <AlertDialogDescription className={accountStyles.accountDialogDescription}>
               {deleteDialogDescription}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -4850,13 +4941,22 @@ function ProfilePageContent({
       </AlertDialog>
 
       <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
-        <AlertDialogContent className="w-[calc(100%-1rem)] sm:max-w-lg">
+        <AlertDialogContent
+          className={cn(
+            "w-[calc(100%-1rem)] sm:max-w-lg",
+            accountStyles.accountDialogCompact,
+            isPanePresentation && accountStyles.accountDialog,
+          )}
+          overlayClassName={
+            isPanePresentation ? accountStyles.accountDialogOverlay : undefined
+          }
+        >
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
               <Icon icon={RefreshCw} size="md" />
               {resetDialogTitle}
             </AlertDialogTitle>
-            <AlertDialogDescription>
+            <AlertDialogDescription className={accountStyles.accountDialogDescription}>
               {resetDialogDescription}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -4883,23 +4983,214 @@ function ProfilePageContent({
       </AlertDialog>
     </AppPageShell>
   );
+  if (presentation !== "native-page") return page;
+  const legalParent = profileLegalParentForPresentation(panePresentation?.history);
+  const nativeLegal = projectNativeProfileLegal(activeDetail === "privacy" || activeDetail === "terms" ? activeDetail : null,
+    (detail, mode) => updateProfileView({ panel: "legal", detail }, mode), () => router.push(ROUTES.DELETE_ACCOUNT), legalParent === true);
+  const nativeAccountPage: NativeProfilePage = { id: "account", title: PROFILE_LABELS.account, sections: [
+    { id: "account-portrait", rows: [
+      { id: "account-photo", label: user.displayName || "Your account", detail: user.email || undefined, enabled: true, portrait: true,
+        ...(nativePortrait ? { portraitData: nativePortrait } : {}) },
+    ] },
+    { id: "account-identity", title: "Identity", rows: [
+      { id: "account-name", label: "Display name", detail: user.displayName || "Not available", enabled: true, artworkId: "account-name", trailing: "Edit" },
+      { id: "account-mail", label: "Mail", detail: user.email || "Not available", enabled: true, readOnly: true, artworkId: "account-mail" },
+      { id: "account-phone", label: "Phone number", detail: phoneSummaryText, enabled: !!phoneNumber || phoneNumberStatus !== "loading", artworkId: "account-phone", trailing: phoneNumber ? "Change" : phoneLookupPending ? "Retry" : "Add", chevron: true },
+      { id: "account-provider", label: "Sign-in provider", detail: provider.name, enabled: true, readOnly: true },
+      ...(walletCardEntryEnabled ? [{ id: "account-wallet", label: WALLET_CARD_COPY.profileEntry.title,
+        detail: WALLET_CARD_COPY.profileEntry.description, enabled: true, artworkId: "account-wallet", chevron: true }] : []),
+    ] },
+    { id: "account-operations", title: "Account actions", rows: [
+      { id: "account-reset", label: "Reset account", detail: resetRowDescription, enabled: !isResetting, artworkId: "account-reset", chevron: true },
+      { id: "account-delete", label: deleteButtonLabel, detail: deleteRowDescription, enabled: !isDeleting, destructive: true, artworkId: "account-delete", chevron: true },
+    ] },
+  ] };
+  const nativeSecurityPage: NativeProfilePage = { id: "security", title: PROFILE_LABELS.security, sections: [
+    { id: "security-methods", rows: [
+      { id: "security-vault", label: "Vault methods", detail: "Password, passkey, and unlock method.", enabled: true, artworkId: "vault-methods", chevron: true },
+    ] },
+  ] };
+  const nativeSessionPage: NativeProfilePage = { id: "session", title: PROFILE_LABELS.accountAccess, sections: [
+    { id: "security-session", rows: [
+      { id: "security-sign-out", label: "Sign out", detail: "Sign out on this device.", enabled: true, destructive: true, artworkId: "sign-out" },
+    ] },
+  ] };
+  const accountConfirmation: NativeProfilePage | undefined = showDeleteConfirm || showResetConfirm ? {
+    id: showDeleteConfirm ? "account-delete" : "account-reset",
+    title: showDeleteConfirm ? deleteDialogTitle : resetDialogTitle,
+    sections: [{ id: "account-confirmation", rows: [
+      { id: "account-confirmation-description", label: showDeleteConfirm ? deleteDialogDescription : resetDialogDescription,
+        enabled: true, readOnly: true },
+      { id: "account-confirmation-submit", label: showDeleteConfirm ? isDeleting ? "Deleting…" : "Delete account" : isResetting ? "Resetting…" : "Reset account",
+        enabled: !isDeleting && !isResetting, pending: isDeleting || isResetting, destructive: true },
+      { id: "account-confirmation-cancel", label: "Cancel", enabled: !isDeleting && !isResetting },
+    ] }],
+  } : undefined;
+  return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable} onDevicesCapability={setNativeDevicesAvailable} onVaultCapability={setNativeVaultAvailable} onPricingCapability={setNativePricingAvailable} onPayoutCapability={setNativePayoutAvailable} onMemoryCapability={setNativeMemoryAvailable} onSharedMemoryCapability={setNativeSharedMemoryAvailable} onSecretMemoryCapability={setNativeSecretsAvailable} onFinanceCapability={setNativeFinanceAvailable} onWorldModelCapability={setNativeWorldModelAvailable} onRuntimeCapability={setNativeRuntimeAvailable} onConnectorsCapability={setNativeConnectorsAvailable}
+    workspace={activePanel === "connectors" ? { kind: "connectors", active: nativeConnectorsActive && !showVaultUnlock,
+      visitKey: activeDetail ?? "catalog", pages: nativeConnectors.pages, rows: nativeConnectors.rows, editor: nativeConnectors.editor, ancestor: nativeConnectors.ancestor,
+      back: () => { if (nativeConnectors.navigationBlocked()) return false; if (!nativeConnectors.back()) popProfileStack(); return true; },
+      root: () => {
+        if (nativeConnectors.navigationBlocked()) return false;
+        retainedConnectors?.custom?.nativeEditor.cancelEditor(); retainedConnectors?.custom?.cancelRemove(); retainedConnectors?.confirmation?.cancel();
+        updateProfileView({ panel: null, detail: null }, "replace"); return true;
+      }
+    } : activePanel === "world-model" ? { kind: "world-model", active: nativeWorldModelActive && !showVaultUnlock,
+      pages: nativeWorldModel.pages, rows: nativeWorldModel.rows, ancestor: nativeWorldModel.ancestor, editor: nativeWorldModel.editor,
+      back: () => { if (nativeWorldModel.navigationBlocked()) return false; if (!nativeWorldModel.back()) popProfileStack(); return true; },
+      root: () => { if (nativeWorldModel.navigationBlocked()) return false; updateProfileView({ panel: null, detail: null }, "replace"); return true; }
+    } : activePanel === "my-data" ? { kind: "memory", visitKey: activeDetail ?? "root", active: nativeMemoryActive && !showVaultUnlock && !nativeMemoryWebBody,
+      pages: nativeMemory.pages, rows: nativeMemory.rows, ancestor: nativeMemory.ancestor,
+      editor: destinationId => nativeContextOpen && !nativeContextFailed ? <NativeMemoryEditor owner={nativeDetailOwner} destinationId={destinationId}
+        model={{ current: contextVisit.current, draft: { category: financialContextCategory, text: financialContextText },
+          inputRevision: () => financialDraft.current.revision, mutationPending: () => memoryOperations.writing("financial"),
+          busy: savingFinancialContext, error: nativeContextError, canSave: !!financialContextText.trim(),
+          changeDraft: (draft: NativeMemoryDraft, expected) => {
+            if (!contextVisit.current() || memoryOperations.writing("financial") || !validNativeMemoryDraft(draft) || expected !== undefined && expected !== financialDraft.current.revision) return false;
+            financialDraft.current = { ...financialDraft.current, ...draft, revision: financialDraft.current.revision + 1 };
+            renderFinancialContextText(draft.text); renderFinancialContextCategory(draft.category); setNativeContextError(null); return true;
+          }, save: handleSaveFinancialContext }}
+        onClose={() => { setNativeContextOpen(false); setEditingFinancialContextId(null); setFinancialContextText(""); setFinancialContextCategory("general"); }}
+        onSaved={() => setNativeContextOpen(false)} onFallback={() => { setNativeContextFailed(true); setNativeMemoryWebBody(true); }} /> : null,
+      back: () => { if (nativeMemory.navigationBlocked()) return false; if (!nativeMemory.back()) popProfileStack(); return true; },
+      root: () => { if (nativeMemory.navigationBlocked()) return false; updateProfileView({ panel: null, detail: null }, "replace"); return true; }
+    } : activePanel === "payouts" ? { kind: "payouts", active: nativePayoutActive && !showVaultUnlock, pages: nativePayout.pages, rows: nativePayout.rows,
+      onPresented: nativePayout.onPresented,
+      ancestor: nativePayout.ancestor,
+      back: () => { if (!nativePayout.back()) popProfileStack(); },
+      root: () => updateProfileView({ panel: null, detail: null }, "replace") } : { kind: "request-pricing", active: nativePricingActive && !showVaultUnlock, pages: [nativePricing.page], rows: nativePricing.rows,
+      root: () => updateProfileView({ panel: null, detail: null }, "replace"), editor: destinationId => nativePricingEditorOpen ?
+        <NativeRequestPricingEditor userId={user.uid} model={nativePricingModel} destinationId={destinationId}
+          onClose={() => setNativePricingEditorOpen(false)} onFallback={() => { setNativePricingEditorOpen(false); setNativePricingFailed(true); }} /> : null }}
+    detailOverlay={<>{nativeAccountException === "photo" ? <ProfileAvatarEditor openOnMount optionsOnMount
+      onPresentationClose={() => setNativeAccountException(null)} /> : null}{vaultOverlays}</>}
+    phone={{ active: activePanel === "account" && activeDetail === "phone" && !showVaultUnlock && nativeMenuOpen && !phoneLookupPending,
+      editor: options => <NativePhoneVerificationFlow {...options} ownerKey={phoneVisit.id} isCurrent={phoneVisitIsCurrent}
+        webHost={nativePhoneHost} mode={phoneNumber ? "replace" : "link"} currentPhoneNumber={phoneNumber}
+        startVerification={phoneNumber ? startPhoneReplacement : startPhoneVerification}
+        confirmVerification={phoneNumber ? confirmPhoneReplacement : confirmPhoneVerification}
+        onCompleted={handleAccountPhoneCompleted} onBackStepChange={bindPhoneBackStep} onCancel={popProfileStack}
+        confirmLabel="Save phone number" helperText={phoneNumber ? "Enter the new phone number." : "Enter your phone number."}
+        className={cn("gap-5", isPanePresentation && accountStyles.phoneDetail)} /> }}
+    legal={{ active: activePanel === "legal" && (!activeDetail || legalParent !== null) && !showVaultUnlock, ...nativeLegal,
+      root: () => updateProfileView({ panel: null, detail: null }, "replace") }}
+    support={{ active: activePanel === "support" && !showVaultUnlock, editor: (destinationId, onFallback) =>
+      <NativeSupportComposer destinationId={destinationId} onFallback={onFallback} model={{
+        userId: user.uid, ready: isVaultUnlocked, draft: { kind: supportKind, message: supportMessage },
+        busy: sendingSupportMessage, sent: supportComposerState.status === "sent",
+        error: supportMessageError ?? (supportComposerState.status === "error" ? supportComposerState.message : null),
+        replyLine: supportReplyLine, placeholder: supportPresentation.placeholder, submitLabel: supportPresentation.submitLabel,
+        successTitle: supportPresentation.successTitle,
+        successDescription: supportKind === "support_request" && effectiveReplyEmail ? supportReplyLine : supportPresentation.successDescription,
+        change: changeSupportDraft, send: () => submitSupportMessage(), close: () => {
+          setSupportComposerState({ status: "editing" });
+          updateProfileView({ panel: null, detail: null }, "replace");
+        },
+      }} /> }}
+    settings={{ active: !showVaultUnlock && (activePanel === "preferences" && (!activeDetail || activeDetail === "voice" && voiceParent !== null || nativeFinanceActive || nativeRuntimeActive) ||
+        activePanel === "security" && (!activeDetail || activeDetail === "session" || devicesActive && nativeDevicesAvailable && devicesParent !== null ||
+          vaultNativeActive && vaultParent !== null && !nativeVaultPasswordFallback)),
+      requiresVoice: activePanel === "preferences" && activeDetail === "voice",
+      requiresFinance: nativeFinanceActive,
+      requiresRuntime: nativeRuntimeActive,
+      requiresDevices: devicesActive,
+      requiresVault: vaultNativeActive,
+      ...(devicesActive && devicesModel.confirmation ? { back: devicesModel.cancel } : {}),
+      ...(vaultNativeActive && nativeVault.nested ? { back: () => { if (switchingVaultMethod) return false; return nativeVault.back(); } } : {}),
+      ...(nativeFinanceActive ? { back: () => {
+        if (nativeFinance.busy) return false;
+        if (financePreferences.wizard.horizonDialogOpen) { nativeFinance.back(); return true; }
+        if (financePreferences.wizard.step > 0) { nativeFinance.back(); return false; }
+        popProfileStack(); return true;
+      } } : {}),
+      ...(nativeRuntimeActive ? { back: () => { if (runtimeSettings.operationPending()) return false; popProfileStack(); return true; } } : {}),
+      ancestor: choice => {
+        if (choice.rowId === "preferences" && nativeFinanceActive && voiceParent === true) {
+          if (nativeFinance.busy) return false;
+          financePreferences.wizard.cancelHorizon(); popProfilePaneLocation(pathname, searchParams); return true;
+        }
+        if (choice.rowId === "security" && vaultNativeActive && vaultParent === true) {
+          if (switchingVaultMethod) return false;
+          nativeVault.back(); popProfilePaneLocation(pathname, searchParams); return true;
+        }
+        if (choice.rowId !== "security" || !devicesActive || devicesParent !== true || devicesModel.busy) return false;
+        // Consume the local confirmation once, then invoke the existing query
+        // parent directly. Re-entering Back layers would consume that same
+        // not-yet-committed confirmation instead of reaching Security.
+        devicesModel.cancel(); popProfilePaneLocation(pathname, searchParams); return true;
+      },
+      pages: activePanel === "preferences" ? nativeRuntimeActive ? [...(voiceParent === true ? [nativePreferences.page] : []), nativeRuntime.page] : nativeFinanceActive ? [...(voiceParent === true ? [nativePreferences.page] : []), ...nativeFinance.pages] : activeDetail === "voice" ? [...(voiceParent === true ? [nativePreferences.page] : []), nativeVoice.page] : [nativePreferences.page] : devicesActive ? [...(devicesParent === true ? [nativeSecurityPage] : []), ...nativeDevices.pages] : vaultNativeActive ? [...(vaultParent === true ? [nativeSecurityPage] : []), ...nativeVault.pages] : [nativeSecurityPage, ...(activeDetail === "session" ? [nativeSessionPage] : [])],
+      rows: new Map([...nativePreferences.rows, ...nativeVoice.rows, ...nativeDevices.rows, ...nativeVault.rows, ...nativeFinance.rows, ...nativeRuntime.rows,
+        ["security-vault", () => updateProfileView({ panel: "security", detail: "vault" }, "push")] as const,
+        ["security-sign-out", () => handleSignOut()] as const,
+      ]), root: () => { if (switchingVaultMethod || nativeFinanceActive && nativeFinance.busy || nativeRuntimeActive && runtimeSettings.operationPending()) return false; vaultMethods.cancelRemove(); devicesModel.cancel(); updateProfileView({ panel: null, detail: null }, "replace"); return true; },
+      editor: destinationId => <>{nativePreferences.editor(destinationId)}
+        {nativeRuntimeActive ? nativeRuntime.editor(destinationId) : null}
+        {vaultNativeActive && passphraseDialogOpen && destinationId ? <NativeVaultPasswordEditor model={vaultMethods} userId={user.uid}
+          destinationId={destinationId} onFallback={() => setNativeVaultPasswordFallback(true)} /> : null}</> }}
+    account={{ active: activePanel === "account" && (!activeDetail || activeDetail === "phone" && !phoneLookupPending) && !nativeAccountException && !showVaultUnlock,
+      page: nativeAccountPage, confirmation: accountConfirmation,
+      root: () => {
+        if (isDeleting || isResetting) return;
+        dismissAccountConfirmation(); updateProfileView({ panel: null, detail: null }, "replace");
+      },
+      ...(accountConfirmation ? { back: dismissAccountConfirmation } : {}), rows: new Map([
+        ["account-photo", () => setNativeAccountException("photo")],
+        ["account-name", () => setEditingDisplayName(true)],
+        ["account-phone", () => { if (phoneLookupPending) { void retryPhoneLookup(); return; } updateProfileView({ panel: "account", detail: "phone" }, "push"); }],
+        ["account-wallet", () => router.push(ROUTES.ONE_WALLET_CARD)],
+        ["account-reset", handleResetClick],
+        ["account-delete", handleDeleteClick],
+        ["account-confirmation-cancel", dismissAccountConfirmation],
+        ["account-confirmation-submit", async () => {
+          if (isDeleting || isResetting) return;
+          if (showDeleteConfirm) await handleDeleteAccount();
+          else if (showResetConfirm) await handleResetAccount();
+        }],
+      ]), editor: destinationId => editingDisplayName && activePanel === "account" && !activeDetail ?
+        <NativeDisplayNameEditor user={user} destinationId={destinationId} portalFallback webHost={nativeNameHost}
+          onWebFallback={() => setNativeAccountException("name")}
+          onSaved={() => setEditingDisplayName(false)} onCancel={() => setEditingDisplayName(false)} /> : null }}
+    menu={{ owner: user.uid, ready: isVaultUnlocked, open: nativeMenuOpen, surfaceOpen: nativeMenuOpen,
+      ...(nativeConnectorsActive ? { navigationLocked: nativeConnectors.blocking } : nativeWorldModelActive ? { navigationLocked: nativeWorldModel.blocking } : nativeMemoryActive ? { navigationLocked: nativeMemory.busy } : nativeRuntimeActive ? { navigationLocked: runtimeSettings.isSaving || runtimeSettings.isRemoving || runtimeSettings.credentialValidation.status === "checking" } : {}),
+      enabled: !isDeleting && !isResetting && !(devicesActive && devicesModel.busy) && !(nativeFinanceActive && nativeFinance.busy) &&
+        !(vaultNativeActive && switchingVaultMethod && !passphraseDialogOpen) && !(nativePayoutActive && nativePayout.busy),
+      name: user.displayName || "Your account", email: user.email, portrait: nativePortrait,
+      onClose: () => {
+        if (nativeConnectorsActive && nativeConnectors.navigationBlocked() || nativeWorldModelActive && nativeWorldModel.navigationBlocked() ||
+            nativeMemoryActive && nativeMemory.navigationBlocked() || nativeRuntimeActive && runtimeSettings.operationPending()) return false;
+        return closeNativeProfile();
+      },
+      groups: menuGroups, actions: menuActions }}
+    page={{ pane: true, contentInset: "profile", bodyClassName: "profile-pane-scroll-root",
+      title: nativeActiveHeading?.owner === nativeDetailOwner ? nativeActiveHeading.title : typeof profileStackEntries.at(-1)?.title === "string" ? String(profileStackEntries.at(-1)?.title) : "Profile",
+      owner: user.uid, context: JSON.stringify([user.uid, snapshotVaultSessionEpoch(), activePanel, activeDetail]),
+      onClose: closeNativeProfile, onBack: () => backProfilePane(pathname, searchParams) }}>
+    {page}
+  </NativeProfilePresentation>;
 }
 
-export function ProfilePage({
-  presentation = "route",
-  paneLocation,
-}: {
-  presentation?: ProfilePagePresentation;
-  paneLocation?: ProfilePaneLocation;
-}) {
-  return (
-    <Suspense fallback={null}>
-      <ProfilePageContent
-        presentation={presentation}
-        paneLocation={paneLocation}
-      />
-    </Suspense>
-  );
+/** Keep feature controllers above the body renderer. A native presentation may
+ * replace the body, not the catalog/OAuth/editor owner or its query authority. */
+function NativeProfileRetainedConnectors(props: ProfilePageProps) {
+  const routePathname = usePathname(), routeSearch = useSearchParams();
+  const pathname = props.panePresentation?.pathname ?? routePathname;
+  const search = props.panePresentation?.searchParams ?? routeSearch;
+  const location = props.paneLocation ?? resolveProfilePaneUrlState(search).location;
+  const connectorId = location.panel === "connectors" && location.detail?.startsWith("connector:") ? location.detail.slice("connector:".length) : null;
+  const changeConnector = useCallback((next: string | null) => {
+    const destination: ProfilePaneLocation = { panel: "connectors", detail: next ? `connector:${next}` : null };
+    if (next && !connectorId) pushProfilePaneLocation(pathname, search, destination);
+    else replaceProfilePaneLocation(pathname, search, destination);
+  }, [connectorId, pathname, search]);
+  return <ProfileConnectorsSection open={props.nativeMenuOpen === true && location.panel === "connectors"}
+    connectorId={connectorId} onConnectorChange={changeConnector}
+    render={model => <ProfilePageContent {...props} retainedConnectors={model} />} />;
+}
+
+export function ProfilePage(props: ProfilePageProps) {
+  return <Suspense fallback={null}>{props.presentation === "native-page" ?
+    <NativeProfileRetainedConnectors {...props} /> : <ProfilePageContent {...props} />}</Suspense>;
 }
 
 export default ProfilePage;

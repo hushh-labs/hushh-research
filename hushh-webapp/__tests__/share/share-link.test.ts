@@ -44,6 +44,30 @@ afterEach(() => {
 });
 
 describe("shareLink on the installed iOS and Android apps", () => {
+  it("does not open a delayed share after its owning session closes", async () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    let current = true;
+    const pending = shareLink(payload, () => current);
+    current = false;
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(Share.share).not.toHaveBeenCalled();
+    expect(copyToClipboard).not.toHaveBeenCalled();
+  });
+
+  it("rechecks ownership after loading the native share plugin too", async () => {
+    let current = true;
+    vi.mocked(Capacitor.isNativePlatform).mockImplementationOnce(() => {
+      queueMicrotask(() => {
+        current = false;
+      });
+      return true;
+    });
+    await expect(shareLink(payload, () => current)).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    expect(Share.share).not.toHaveBeenCalled();
+  });
+
   it("uses the native sheet and reports it", async () => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
     vi.mocked(Share.share).mockResolvedValue({} as never);
@@ -114,6 +138,7 @@ describe("shareLink on the web", () => {
     // so text alone would put an invite with no way in on the clipboard.
     expect(copyToClipboard).toHaveBeenCalledWith(
       `${payload.text}\n${payload.url}`,
+      expect.any(Function),
     );
   });
 
@@ -122,7 +147,10 @@ describe("shareLink on the web", () => {
     vi.mocked(copyToClipboard).mockResolvedValue(true);
 
     await shareLink({ ...payload, url: undefined });
-    expect(copyToClipboard).toHaveBeenCalledWith(payload.text);
+    expect(copyToClipboard).toHaveBeenCalledWith(
+      payload.text,
+      expect.any(Function),
+    );
   });
 
   it("throws ShareUnavailableError when every rung is missing", async () => {

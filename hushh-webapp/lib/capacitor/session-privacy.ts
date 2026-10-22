@@ -48,6 +48,27 @@ const WEB_STATE: NativeSessionPrivacyState = Object.freeze({
   appIsActive: true,
 });
 
+// Nonsecret admission metadata, not session validation or credential state.
+let observedPrivacy: NativeSessionPrivacyState | undefined;
+let lifecycleEpoch = 0;
+const observationListeners = new Set<() => void>();
+export function subscribeNativePrivacyObservation(listener: () => void) {
+  observationListeners.add(listener);
+  return () => { observationListeners.delete(listener); };
+}
+function samePrivacyState(left: NativeSessionPrivacyState | undefined, right: NativeSessionPrivacyState) {
+  return left?.generation === right.generation && left.shielded === right.shielded &&
+    left.appIsActive === right.appIsActive && left.cause === right.cause;
+}
+function observePrivacy(state: NativeSessionPrivacyState) {
+  const changed = !samePrivacyState(observedPrivacy, state);
+  observedPrivacy = state;
+  if (changed) observationListeners.forEach(listener => listener());
+}
+export function nativePrivacyObservation() {
+  return { state: observedPrivacy, epoch: lifecycleEpoch };
+}
+
 function checkedState<T extends NativeSessionPrivacyState>(state: T): T {
   if (
     typeof state?.shielded !== "boolean" ||
@@ -66,7 +87,15 @@ export async function subscribeNativeSessionPrivacy(
 ): Promise<PluginListenerHandle> {
   if (!Capacitor.isNativePlatform()) return { remove: async () => undefined };
   return HushhSessionPrivacy.addListener("privacyStateChanged", (event) => {
-    try { listener(checkedState(event)); } catch { /* getState catch-up owns recovery */ }
+    try {
+      const state = checkedState(event);
+      // Each feature owns a Capacitor listener, but duplicate delivery of the
+      // same lifecycle state is not a new boundary. Otherwise it can invalidate
+      // the only in-flight release receipt and leave consumers covered forever.
+      if (!samePrivacyState(observedPrivacy, state)) lifecycleEpoch += 1;
+      observePrivacy(state);
+      listener(state);
+    } catch { /* getState catch-up owns recovery */ }
   });
 }
 
@@ -77,7 +106,13 @@ export async function subscribeNativeSessionPrivacy(
  */
 export async function getNativeSessionPrivacyState(): Promise<NativeSessionPrivacyState> {
   if (!Capacitor.isNativePlatform()) return WEB_STATE;
-  return checkedState(await HushhSessionPrivacy.getState({ documentId: privacyDocumentId() }));
+  const epoch = lifecycleEpoch;
+  const state = checkedState(await HushhSessionPrivacy.getState({ documentId: privacyDocumentId() }));
+  // Fence the returned value too: a consumer must not admit an old active
+  // state after a newer inactive event merely because observation was fenced.
+  if (epoch !== lifecycleEpoch && observedPrivacy) return observedPrivacy;
+  observePrivacy(state);
+  return state;
 }
 
 /**
@@ -94,11 +129,19 @@ export async function completeNativeSessionPrivacyValidation(
   if (!Number.isSafeInteger(generation) || generation <= 0) {
     return { ...WEB_STATE, released: false };
   }
+  const epoch = lifecycleEpoch;
   const result = checkedState(await HushhSessionPrivacy.completeSessionValidation({
     generation, documentId: privacyDocumentId(),
   }));
   if (typeof result.released !== "boolean") {
     throw new Error("Native session privacy completion is unavailable.");
+  }
+  // Both native hosts return the release state without requiring a listener
+  // event. Observe that authoritative result, but never replace a newer cycle.
+  // Advancing the epoch also fences reads started before this completion.
+  if (epoch === lifecycleEpoch) {
+    lifecycleEpoch += 1;
+    observePrivacy(result);
   }
   return result;
 }

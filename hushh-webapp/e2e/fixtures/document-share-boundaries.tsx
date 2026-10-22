@@ -55,6 +55,7 @@ export const ApiService = {
 // Popup identity is synthetic here; Firebase's same-user semantics have their
 // own unit tests and live consent remains a separate acceptance requirement.
 export const AuthService = {
+  getIdToken: async () => "synthetic-firebase-proof",
   documentRequestIdentityToken: async (
     _uid: string,
     current: () => boolean,
@@ -64,6 +65,9 @@ export const AuthService = {
   },
 };
 export const CacheSyncService = { onConsentMutated: (_userId: string) => {} };
+// Credential setup has its own acceptance suite. This fixture only controls
+// unlock state and must never initialize live Firebase or enter credential UI.
+export function VaultFlow() { throw new Error("Drive review fixture must not enter vault setup"); }
 export default function FixtureLink(
   props: AnchorHTMLAttributes<HTMLAnchorElement>,
 ) {

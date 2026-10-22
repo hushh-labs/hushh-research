@@ -208,6 +208,7 @@ describe("saved-place onboarding to Settings persistence", () => {
       vaultKey: CONTEXT.vaultKey,
       vaultOwnerToken: CONTEXT.vaultOwnerToken,
       segmentIds: undefined,
+      forceRefresh: true,
     });
   });
 

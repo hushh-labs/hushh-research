@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { matchCircleByName } from "@/app/one/location/page";
 import { normalizeSpokenName } from "@/lib/one-location/resolve-spoken-names";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
 
 /**
  * Circle membership over voice.

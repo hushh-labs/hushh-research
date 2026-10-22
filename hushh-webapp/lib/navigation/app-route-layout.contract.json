@@ -28,10 +28,20 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Chat actions complete only after the correlated browser or capability settlement succeeds.",
+      "completionBoundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model preparation runs in its owner-authorized service after verified onboarding. Google research is disclosed at setup; Azure/Bing research in UAT requires a separate owner opt-in in Personal World Model. Chat does not inject automatic research messages.",
       "nextRoute": "/",
       "returnPolicy": "resolve_root",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/",
+          "expected": null
+        }
+      ],
+      "kind": "root",
+      "reason": "Chat entry is an application root."
     }
   },
   {
@@ -51,7 +61,7 @@
       "playbookId": "route.one.home",
       "purpose": "Help the person understand and use the one screen through its generated controls.",
       "screen": "one_agents",
-      "entryCue": "You can say \u201cOpen Agents\u201d to use the primary control on this screen.",
+      "entryCue": "You can say “Open Agents” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_agents",
       "happyPathActionIds": [
@@ -66,10 +76,20 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "completionBoundary": "Chat actions complete only after correlated browser or capability settlement. Personal World Model preparation runs in its owner-authorized service after verified onboarding. Google research is disclosed at setup; Azure/Bing research in UAT requires a separate owner opt-in in Personal World Model. Chat does not inject automatic research messages.",
       "nextRoute": "/one",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one",
+          "expected": null
+        }
+      ],
+      "kind": "root",
+      "reason": "Agents dashboard is an application root. Query-backed Profile panes own their internal history; Reset/Delete confirmations dismiss before that pane history moves, verified by e2e/profile-confirmation-back.spec.ts."
     }
   },
   {
@@ -97,6 +117,61 @@
       "nextRoute": "/",
       "returnPolicy": "resolve_root",
       "outOfScopeBehavior": "Do not render the removed legacy agent surface."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/agent",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "Compatibility-only redirect to the canonical root Chat workspace."
+    }
+  },
+  {
+    "route": "/one/welcome",
+    "mode": "standard",
+    "persistentChrome": "none",
+    "shellVerification": {
+      "file": "components/onboarding/initial-contacts-welcome.tsx",
+      "includes": [
+        "FullscreenFlowShell",
+        "NativeTestBeacon",
+        "CircleOnboarding"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.welcome",
+      "purpose": "Review confirmed initial contacts, optionally manage circles or invite people, and continue into One.",
+      "screen": "one_welcome",
+      "entryCue": "Your welcome is ready. Review it and continue when you like.",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Keep Continue available; require the existing owner authority for membership changes.",
+        "cancelled": "Respect source cancellation and keep the welcome available.",
+        "failed": "Show only confirmed results and offer explicit retry.",
+        "timeout": "Keep Continue available without claiming empty contacts.",
+        "callbackError": "Ignore late callbacks outside the owner signup session.",
+        "routeMismatch": "Stay within the registered welcome surface."
+      },
+      "completionBoundary": "Continue acknowledges only this welcome and resumes the validated original destination.",
+      "nextRoute": "/",
+      "returnPolicy": "resolve_root",
+      "outOfScopeBehavior": "No persistent agent chrome is mounted before this welcome is acknowledged."
+    },
+    "backVerification": {
+      "kind": "surface-owned",
+      "reason": "Back acknowledges the optional welcome; active selection and roster layers unwind first.",
+      "cases": [
+        {
+          "href": "/one/welcome",
+          "expected": null
+        }
+      ]
     }
   },
   {
@@ -105,17 +180,14 @@
     "shellVerification": {
       "file": "components/onboarding/setup/one-setup-hub.tsx",
       "includes": [
-        "AppPageShell",
-        "AppPageHeaderRegion",
-        "AppPageContentRegion",
-        "PageHeader"
+        "SetupV10Surface"
       ]
     },
     "voicePlaybook": {
       "playbookId": "route.one.setup",
       "purpose": "Help the person choose, resume, skip, or finish one setup capability.",
       "screen": "one_setup_hub",
-      "entryCue": "Choose something to set up, or say \u2018finish setup\u2019 when you are ready.",
+      "entryCue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
       "proactivity": "on_entry",
       "primaryActionId": "setup.open_connections",
       "happyPathActionIds": [
@@ -141,6 +213,16 @@
       "nextRoute": "/one",
       "returnPolicy": "resolve_root",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/setup",
+          "expected": null
+        }
+      ],
+      "kind": "root",
+      "reason": "Setup cannot retrace into completed phone verification."
     }
   },
   {
@@ -168,6 +250,16 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/welcome",
+          "expected": null
+        }
+      ],
+      "kind": "root",
+      "reason": "Foundation public route owns the unified public knowledge workspace and its route-backed tabs."
     }
   },
   {
@@ -195,13 +287,23 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/r/sample",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "Public referral landing route. It records the attribution on the server before anyone signs in, keeps the opaque id it is given, and hands off to the normal sign-in journey; it owns no signed-in app shell of its own and never reveals who the referrer is."
     }
   },
   {
     "route": "/circle/join",
     "mode": "hidden",
     "persistentChrome": "none",
-    "exemptionReason": "Public three-screen Circle invitation preview owns its navigation; account-based joining continues through the protected Connect flow.",
+    "exemptionReason": "Public invitation preview owns its navigation; verified claiming continues through the protected recipient flow.",
     "voicePlaybook": {
       "playbookId": "route.circle.join",
       "purpose": "Help the person understand and use the circle join screen through its generated controls.",
@@ -223,6 +325,16 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/circle/join",
+          "expected": null
+        }
+      ],
+      "kind": "surface-owned",
+      "reason": "Public invitation preview owns its navigation; verified claiming continues through the protected recipient flow."
     }
   },
   {
@@ -250,6 +362,19 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/developers",
+          "expected": {
+            "href": "/",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -264,7 +389,7 @@
       "playbookId": "route.login",
       "purpose": "Let the person choose Google or Apple and begin the matching sign-in flow.",
       "screen": "login",
-      "entryCue": "Say \u2018Continue with Google\u2019 or \u2018Continue with Apple\u2019.",
+      "entryCue": "Say ‘Continue with Google’ or ‘Continue with Apple’.",
       "proactivity": "on_entry",
       "primaryActionId": "auth.sign_in_google",
       "happyPathActionIds": [
@@ -283,6 +408,16 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/login",
+          "expected": null
+        }
+      ],
+      "kind": "surface-owned",
+      "reason": "Auth-only route intentionally bypasses the signed-in app shell."
     }
   },
   {
@@ -310,15 +445,25 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/oauth/authorize",
+          "expected": null
+        }
+      ],
+      "kind": "surface-owned",
+      "reason": "OAuth authorization is a short-lived connector handoff and intentionally bypasses signed-in app chrome."
     }
   },
   {
     "route": "/getting-started",
     "mode": "hidden",
-    "exemptionReason": "Anonymous pre-auth intro route intentionally bypasses the signed-in app shell, matching the root and login entry routes.",
+    "exemptionReason": "Compatibility entry redirects signed-out visitors to sign-in and signed-in people to One; it renders no application shell.",
     "voicePlaybook": {
       "playbookId": "route.getting.started",
-      "purpose": "Help the person understand and use the getting started screen through its generated controls.",
+      "purpose": "Complete the compatibility entry handoff according to the current session; no carousel or local action controls are rendered.",
       "screen": "getting_started",
       "entryCue": "",
       "proactivity": "ambient",
@@ -333,10 +478,20 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
-      "nextRoute": "/getting-started",
+      "completionBoundary": "The signed-out login destination or signed-in One destination has settled.",
+      "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/getting-started",
+          "expected": null
+        }
+      ],
+      "kind": "surface-owned",
+      "reason": "Compatibility entry redirects before application interaction; Back belongs to the settled destination."
     }
   },
   {
@@ -364,6 +519,16 @@
       "nextRoute": "/delete-account",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/delete-account",
+          "expected": null
+        }
+      ],
+      "kind": "surface-owned",
+      "reason": "Public account-deletion request page (Google Play Delete account URL) intentionally bypasses the signed-in app shell so it works without signing in or installing the app."
     }
   },
   {
@@ -400,6 +565,19 @@
       "nextRoute": "/privacy",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/privacy",
+          "expected": {
+            "href": "/login",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -436,6 +614,19 @@
       "nextRoute": "/terms",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/terms",
+          "expected": {
+            "href": "/login",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -471,6 +662,19 @@
       "nextRoute": "/one/career",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/career",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -494,7 +698,7 @@
       "playbookId": "route.one.location",
       "purpose": "Help the person understand and use the location screen through its generated controls.",
       "screen": "one_location",
-      "entryCue": "You can say \u201cOpen Location\u201d to use the primary control on this screen.",
+      "entryCue": "You can say “Open Location” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_location",
       "happyPathActionIds": [
@@ -513,6 +717,516 @@
       "nextRoute": "/one/location",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/location",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/location?action=settings&view=now",
+          "expected": {
+            "href": "/one/location?view=now",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=settings&view=people",
+          "expected": {
+            "href": "/one/location?view=people",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=settings&view=links",
+          "expected": {
+            "href": "/one/location?view=links",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=needs-review&view=now",
+          "expected": {
+            "href": "/one/location?view=now",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=needs-review&view=people",
+          "expected": {
+            "href": "/one/location?view=people",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=needs-review&view=links",
+          "expected": {
+            "href": "/one/location?view=links",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=active-shares&view=now",
+          "expected": {
+            "href": "/one/location?view=now",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=active-shares&view=people",
+          "expected": {
+            "href": "/one/location?view=people",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=active-shares&view=links",
+          "expected": {
+            "href": "/one/location?view=links",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=shared-with-me&view=now",
+          "expected": {
+            "href": "/one/location?view=now",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=shared-with-me&view=people",
+          "expected": {
+            "href": "/one/location?view=people",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=shared-with-me&view=links",
+          "expected": {
+            "href": "/one/location?view=links",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=share&view=now",
+          "expected": {
+            "href": "/one/location?view=now",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=share&view=people",
+          "expected": {
+            "href": "/one/location?view=people",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=share&view=links",
+          "expected": {
+            "href": "/one/location?view=links",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=ask&view=now",
+          "expected": {
+            "href": "/one/location?view=now",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=ask&view=people",
+          "expected": {
+            "href": "/one/location?view=people",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=ask&view=links",
+          "expected": {
+            "href": "/one/location?view=links",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=invite&view=now",
+          "expected": {
+            "href": "/one/location?view=now",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=invite&view=people",
+          "expected": {
+            "href": "/one/location?view=people",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=invite&view=links",
+          "expected": {
+            "href": "/one/location?view=links",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=temp-link&view=now",
+          "expected": {
+            "href": "/one/location?view=now",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=temp-link&view=people",
+          "expected": {
+            "href": "/one/location?view=people",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=temp-link&view=links",
+          "expected": {
+            "href": "/one/location?view=links",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=sos&view=now",
+          "expected": {
+            "href": "/one/location?view=now",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=sos&view=people",
+          "expected": {
+            "href": "/one/location?view=people",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=sos&view=links",
+          "expected": {
+            "href": "/one/location?view=links",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=sms-contacts&view=now",
+          "expected": {
+            "href": "/one/location?action=settings",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=sms-contacts&view=people",
+          "expected": {
+            "href": "/one/location?action=settings",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=sms-contacts&view=links",
+          "expected": {
+            "href": "/one/location?action=settings",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=create-circle&view=now",
+          "expected": {
+            "href": "/one/location?view=now",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=create-circle&view=people",
+          "expected": {
+            "href": "/one/location?view=people",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=create-circle&view=links",
+          "expected": {
+            "href": "/one/location?view=links",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=join-circle&view=now",
+          "expected": {
+            "href": "/one/location?view=now",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=join-circle&view=people",
+          "expected": {
+            "href": "/one/location?view=people",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=join-circle&view=links",
+          "expected": {
+            "href": "/one/location?view=links",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=circle-detail&view=now",
+          "expected": {
+            "href": "/one/location?view=now",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=circle-detail&view=people",
+          "expected": {
+            "href": "/one/location?view=people",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=circle-detail&view=links",
+          "expected": {
+            "href": "/one/location?view=links",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=invite-circle&view=now",
+          "expected": {
+            "href": "/one/location?view=now",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=invite-circle&view=people",
+          "expected": {
+            "href": "/one/location?view=people",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=invite-circle&view=links",
+          "expected": {
+            "href": "/one/location?view=links",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=ratings&view=now",
+          "expected": {
+            "href": "/one/location?view=now",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=ratings&view=people",
+          "expected": {
+            "href": "/one/location?view=people",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=ratings&view=links",
+          "expected": {
+            "href": "/one/location?view=links",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=private-check-in&view=now",
+          "expected": {
+            "href": "/one/location?view=now",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=private-check-in&view=people",
+          "expected": {
+            "href": "/one/location?view=people",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=private-check-in&view=links",
+          "expected": {
+            "href": "/one/location?view=links",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=check-in&view=now",
+          "expected": {
+            "href": "/one/location?view=now",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=check-in&view=people",
+          "expected": {
+            "href": "/one/location?view=people",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=check-in&view=links",
+          "expected": {
+            "href": "/one/location?view=links",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=live-share-duration&view=now",
+          "expected": {
+            "href": "/one/location?view=now",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=live-share-duration&view=people",
+          "expected": {
+            "href": "/one/location?view=people",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=live-share-duration&view=links",
+          "expected": {
+            "href": "/one/location?view=links",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=sms-contacts&source=settings",
+          "expected": {
+            "href": "/one/location?action=settings",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=sms-contacts&source=sos",
+          "expected": {
+            "href": "/one/location?action=sos",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=circle-detail&source=settings&circleId=sample",
+          "expected": {
+            "href": "/one/location?action=settings",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=circle-detail&source=sos&circleId=sample",
+          "expected": {
+            "href": "/one/location?action=sos",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=share&source=circle&circleId=sample",
+          "expected": {
+            "href": "/one/location?action=circle-detail&circleId=sample&view=people",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=ask&source=circle&circleId=sample",
+          "expected": {
+            "href": "/one/location?action=circle-detail&circleId=sample&view=people",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=share&source=circle&circleId=sample&parentSource=settings",
+          "expected": {
+            "href": "/one/location?action=circle-detail&circleId=sample&view=people&source=settings",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/location?action=share&source=circle&circleId=sample&parentSource=sos",
+          "expected": {
+            "href": "/one/location?action=circle-detail&circleId=sample&view=people&source=sos",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        }
+      ],
+      "kind": "parent",
+      "reason": "The Location introduction unwinds optional panels, then Ready or Save a place to Features, then exits to agents home. Pending place-capture, contact, join and completion operations consume Back. Workspace saved-place modals use topmost overlay dismissal before the authored route parent. Circle creation unwinds its contact step before the route parent, retains saved identity and selection, and consumes Back during membership saves. Contact invitation overlay Back unwinds batch result to review to selection, preserving selected recipients; a pending composer consumes Back and explicit Close clears its session."
     }
   },
   {
@@ -543,6 +1257,19 @@
       "nextRoute": "/one/location",
       "returnPolicy": "return_to_hub",
       "outOfScopeBehavior": "Answer naturally without inventing a map control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/location/map",
+          "expected": {
+            "href": "/one/location",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -573,6 +1300,16 @@
       "nextRoute": "/one/location",
       "returnPolicy": "return_to_hub",
       "outOfScopeBehavior": "Answer naturally without inventing a check-in control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/location/check-in",
+          "expected": null
+        }
+      ],
+      "kind": "surface-owned",
+      "reason": "/one/location/check-in owns entry or recovery navigation outside the top shell."
     }
   },
   {
@@ -603,6 +1340,53 @@
       "nextRoute": "/one/location/check-in",
       "returnPolicy": "return_to_hub",
       "outOfScopeBehavior": "Answer naturally without inventing a hotel check-in control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/location/check-in/hotel",
+          "expected": null
+        }
+      ],
+      "kind": "surface-owned",
+      "reason": "/one/location/check-in/hotel owns entry or recovery navigation outside the top shell."
+    }
+  },
+  {
+    "route": "/wallet/open",
+    "mode": "hidden",
+    "exemptionReason": "Anonymous encrypted-file reader outside the signed-in shell; all card decryption stays on the recipient device.",
+    "voicePlaybook": {
+      "playbookId": "route.wallet.encrypted_file.open",
+      "purpose": "Let the recipient choose an encrypted card file and decrypt it locally without an account or upload.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain that the file and its password are required without asking for their contents.",
+        "cancelled": "Respect cancellation and keep decrypted card information hidden.",
+        "failed": "Offer a local retry without claiming the card opened.",
+        "timeout": "Keep the card hidden and offer one safe retry.",
+        "callbackError": "Keep private values out of recovery messages.",
+        "routeMismatch": "Use only the verified encrypted-file reader route."
+      },
+      "completionBoundary": "The card is open only after authenticated decryption completes locally for the current file and password. No recipient delivery is inferred.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Never ask for, interpret, log or transmit the chosen file, password or decrypted card."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/wallet/open",
+          "expected": null
+        }
+      ],
+      "kind": "surface-owned",
+      "reason": "Standalone anonymous file reader has no authenticated app parent; closing the page clears in-memory card information."
     }
   },
   {
@@ -630,6 +1414,16 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/c/sample",
+          "expected": null
+        }
+      ],
+      "kind": "surface-owned",
+      "reason": "Public Wallet Profile route is a standalone unauthenticated scan surface outside the signed-in app shell."
     }
   },
   {
@@ -657,6 +1451,16 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/location/request/sample",
+          "expected": null
+        }
+      ],
+      "kind": "surface-owned",
+      "reason": "Legacy public one-location link path. Forwards to /one/location/view/[token]; kept only so links minted before the rename keep resolving."
     }
   },
   {
@@ -684,6 +1488,16 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/location/view/sample",
+          "expected": null
+        }
+      ],
+      "kind": "surface-owned",
+      "reason": "Public one-location live-location view is a standalone recipient page outside the signed-in app shell."
     }
   },
   {
@@ -712,6 +1526,16 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/location/invite/sample",
+          "expected": null
+        }
+      ],
+      "kind": "surface-owned",
+      "reason": "Public one-location circle invite route is a standalone external-acceptance form outside the signed-in app shell."
     }
   },
   {
@@ -739,6 +1563,16 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/gmail",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "Compatibility redirect route only launches the canonical /one/gmail surface."
     }
   },
   {
@@ -776,6 +1610,19 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/gmail",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -794,7 +1641,7 @@
     "voicePlaybook": {
       "playbookId": "route.one.email",
       "purpose": "Explain Gmail connection and hand the owner to One for approval-gated email drafting.",
-      "screen": "app",
+      "screen": "email_agent",
       "entryCue": "",
       "proactivity": "ambient",
       "primaryActionId": null,
@@ -812,13 +1659,76 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/email",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
     "route": "/one/calendar",
     "mode": "standard",
     "shellVerification": {
-      "file": "components/calendar/calendar-agent-page.tsx",
+      "file": "components/calendar/calendar-connected-workspace.tsx",
+      "includes": [
+        "AppPageShell",
+        "PageHeader",
+        "TopShellTabs",
+        "SurfaceCard"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.calendar",
+      "purpose": "Connect Google Calendar; use Schedule, Invitations and Insights tabs. Invitations lists real upcoming received invitations and supports reviewed RSVP and same-conversation alternate-time Mail. Insights shows live weekly totals and a permission-checked Recordings & Notes library. Meeting context continues the existing conversation without Memory capture.",
+      "screen": "calendar",
+      "entryCue": "Connect Calendar when you want schedule help from One.",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [
+        "calendar.invitation.review"
+      ],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "RSVP changes only the connected attendee on the selected event occurrence after exact confirmation. Alternate-time proposals continue in the existing chat; Mail delivery has a separate outcome, and the organizer must update their meeting. Back closes invitation detail before leaving Calendar, and waits while a confirmed response settles. In Insights, Back unwinds meeting detail to the filtered library, then the overview, before the route parent. Recording and notes content requires independent live provider authorization.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/calendar",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
+    }
+  },
+  {
+    "route": "/one/todos",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/todos/todo-list-page.tsx",
       "includes": [
         "AppPageShell",
         "AppPageHeaderRegion",
@@ -828,10 +1738,10 @@
       ]
     },
     "voicePlaybook": {
-      "playbookId": "route.one.calendar",
-      "purpose": "Connect Google Calendar and use the Calendar Agent for schedule summaries, availability, and confirmed meeting changes.",
-      "screen": "calendar",
-      "entryCue": "Connect Calendar when you want schedule help from One.",
+      "playbookId": "route.one.todos",
+      "purpose": "Review private to-do items and the safe, read-only Calendar agenda. Calendar changes remain in the Calendar agent and owner-added items remain encrypted in the private agent.",
+      "screen": "app",
+      "entryCue": "",
       "proactivity": "ambient",
       "primaryActionId": null,
       "happyPathActionIds": [],
@@ -844,10 +1754,23 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Calendar changes happen only after the person confirms the exact proposal in chat.",
+      "completionBoundary": "Owner-added items are saved only after the owner confirms them; calendar items remain read-only projections of Calendar.",
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/todos",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -875,6 +1798,16 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/pkm",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "Compatibility redirect route only launches the canonical /one/pkm surface."
     }
   },
   {
@@ -892,9 +1825,9 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.pkm",
-      "purpose": "Help the person understand and use the pkm screen through its generated controls.",
+      "purpose": "Memory opens on memory.md, the formatted document One uses in conversations. The owner can edit and save it; Saved, Add, and Sharing retain the specialist memory flows. Back cancels the memory.md editor before leaving Memory, and saving completes only after encrypted persistence succeeds.",
       "screen": "pkm",
-      "entryCue": "You can say \u201cOpen Memory\u201d to use the primary control on this screen.",
+      "entryCue": "You can say “Open Memory” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_pkm",
       "happyPathActionIds": [
@@ -913,6 +1846,19 @@
       "nextRoute": "/one/pkm",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/pkm",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -932,7 +1878,7 @@
       "playbookId": "route.one.pkm.recent",
       "purpose": "Help the person browse the latest memories One has kept, through its generated controls.",
       "screen": "pkm_recent",
-      "entryCue": "You can say \u201cOpen Memory\u201d to return to the Memory home from this list.",
+      "entryCue": "You can say “Open Memory” to return to the Memory home from this list.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_pkm",
       "happyPathActionIds": [
@@ -951,6 +1897,19 @@
       "nextRoute": "/one/pkm/recent",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/pkm/recent",
+          "expected": {
+            "href": "/one/pkm",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -970,7 +1929,7 @@
       "playbookId": "route.one.pkm.location",
       "purpose": "Help the person read saved places and visit details directly in Location memory.",
       "screen": "pkm_location",
-      "entryCue": "You can say \u201cOpen Memory\u201d to return to the Memory home from this list.",
+      "entryCue": "You can say “Open Memory” to return to the Memory home from this list.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_pkm_location_home",
       "happyPathActionIds": [
@@ -989,6 +1948,19 @@
       "nextRoute": "/one/pkm/location",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/pkm/location",
+          "expected": {
+            "href": "/one/pkm",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -1008,7 +1980,7 @@
       "playbookId": "route.one.pkm.location.detail",
       "purpose": "Help the person manage a selected Location memory detail through its verified controls.",
       "screen": "pkm_location_detail",
-      "entryCue": "You can say \u201cOpen Memory\u201d to return to the Memory home from this list.",
+      "entryCue": "You can say “Open Memory” to return to the Memory home from this list.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_pkm_location_home",
       "happyPathActionIds": [
@@ -1027,6 +1999,19 @@
       "nextRoute": "/one/pkm/location/detail",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/pkm/location/detail",
+          "expected": {
+            "href": "/one/pkm/location",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -1063,6 +2048,19 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally without inventing a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/marketplace",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -1081,7 +2079,7 @@
     "voicePlaybook": {
       "playbookId": "route.one.wallet.card",
       "purpose": "Help the owner review, update, pause, rotate or remove what their Wallet profile shares.",
-      "screen": "app",
+      "screen": "one_wallet_card",
       "entryCue": "",
       "proactivity": "ambient",
       "primaryActionId": null,
@@ -1099,6 +2097,19 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally without inventing a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/wallet-card",
+          "expected": {
+            "href": "/one/profile/account",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -1139,6 +2150,28 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally without inventing a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/wallet",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/wallet?card_request=11111111-1111-4111-8111-111111111111",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent",
+      "reason": "Card request query opens an authenticated Dialog overlay. Back dismisses that review first. Add and Sharing unwind through the previous local tab and selected masked card before the authored Wallet parent; Cancel uses the same reset. A pending save consumes Back. Verified in wallet-workspace.layout.spec.ts and wallet-workspace.test.tsx."
     }
   },
   {
@@ -1156,7 +2189,7 @@
     "voicePlaybook": {
       "playbookId": "route.one.puppy",
       "purpose": "Let the owner talk to Puppy One, the agent running on their own machine, and see which local model answered.",
-      "screen": "app",
+      "screen": "puppy_one",
       "entryCue": "",
       "proactivity": "ambient",
       "primaryActionId": null,
@@ -1174,6 +2207,16 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally without inventing a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/puppy",
+          "expected": null
+        }
+      ],
+      "kind": "root",
+      "reason": "Private agent chat is an entry workspace."
     }
   },
   {
@@ -1203,6 +2246,16 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/connected-systems",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "Compatibility redirect route only launches the canonical /one/connected-systems surface."
     }
   },
   {
@@ -1230,6 +2283,16 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/connected-systems/sample",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "Compatibility redirect route only launches the canonical /one/connected-systems/[systemId] surface."
     }
   },
   {
@@ -1249,7 +2312,7 @@
       "playbookId": "route.one.connected.systems",
       "purpose": "Help the person understand and use the connected systems screen through its generated controls.",
       "screen": "connected_systems",
-      "entryCue": "You can say \u201cOpen Connected Systems Panel\u201d to use the primary control on this screen.",
+      "entryCue": "You can say “Open Connected Systems Panel” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.profile_connected_systems",
       "happyPathActionIds": [
@@ -1268,6 +2331,19 @@
       "nextRoute": "/one/connected-systems",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/connected-systems",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -1286,7 +2362,7 @@
     "voicePlaybook": {
       "playbookId": "route.one.connected.systems.systemid",
       "purpose": "Help the person understand and use the connected systems screen through its generated controls.",
-      "screen": "app",
+      "screen": "connected_systems",
       "entryCue": "",
       "proactivity": "ambient",
       "primaryActionId": null,
@@ -1304,6 +2380,19 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/connected-systems/sample",
+          "expected": {
+            "href": "/one/connected-systems",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -1319,7 +2408,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.connect",
-      "purpose": "Find people, review scoped connection requests, and manage connections. The exact-person reviewPerson query sends nothing automatically; a retained Location task rechecks eligibility only after the owner returns with Continue.",
+      "purpose": "Find people opens by default; My connections is an adjacent local view with an independent accepted-roster search. Circles remains a route-backed surface. Review scoped requests only through the exact-person reviewPerson query; a retained Location task rechecks eligibility only after the owner returns with Continue.",
       "screen": "connect",
       "entryCue": "",
       "proactivity": "ambient",
@@ -1338,6 +2427,52 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/connect",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/connect?tab=circles&action=circle-detail&circleId=sample",
+          "expected": {
+            "href": "/one/connect?tab=circles",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/connect?tab=circles&action=create-circle",
+          "expected": {
+            "href": "/one/connect?tab=circles",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/connect?tab=circles&action=join-circle",
+          "expected": {
+            "href": "/one/connect?tab=circles",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/connect?tab=all&view=connections",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent",
+      "reason": "Circle creation unwinds its contact step to retained name/type state through a route-scoped Back layer before the authored route parent. Pending membership saves consume Back. Connect modal Escape uses the same callback. Contact invitation overlay Back unwinds batch result to review to selection, preserving selected recipients; a pending composer consumes Back and explicit Close clears its session. Find people and My connections are sibling local views; switching them does not author browser history. Circle Add people uses the shared modal sheet Back owner, clears its dismissed selection, and consumes dismissal while the existing membership batch settles. List swipe reveals an action only; delete or leave requires the shared confirmation and a fresh server capability read."
     }
   },
   {
@@ -1353,8 +2488,8 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.messages",
-      "purpose": "Read and send private one-to-one messages with accepted connections.",
-      "screen": "app",
+      "purpose": "Read and send private messages with accepted connections and circles you belong to.",
+      "screen": "one_messages",
       "entryCue": "",
       "proactivity": "ambient",
       "primaryActionId": null,
@@ -1368,10 +2503,20 @@
         "callbackError": "Keep the message screen open and explain that the update could not be verified.",
         "routeMismatch": "Use only the verified private message route and its generated controls."
       },
-      "completionBoundary": "A send completes only after the server accepts the message for the active connection.",
+      "completionBoundary": "A send completes only after the server accepts the message for the selected connection or circle.",
       "nextRoute": null,
       "returnPolicy": "stay",
-      "outOfScopeBehavior": "Do not infer a connection or reveal another person's message history."
+      "outOfScopeBehavior": "Do not infer a connection or circle membership or reveal another person's message history."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/messages",
+          "expected": null
+        }
+      ],
+      "kind": "root",
+      "reason": "Messages owns thread-level navigation inside its workspace through route-scoped Back layers."
     }
   },
   {
@@ -1399,6 +2544,19 @@
       "nextRoute": "/one/profile/preferences/gemini",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/connect/settings",
+          "expected": {
+            "href": "/one/connect",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -1413,7 +2571,7 @@
     "exemptionReason": "Mandatory post-login phone verification flow intentionally bypasses the signed-in app shell.",
     "voicePlaybook": {
       "playbookId": "route.register.phone",
-      "purpose": "Verify the signed-in person\u2019s phone before setup continues.",
+      "purpose": "Verify the signed-in person’s phone before setup continues.",
       "screen": "register_phone",
       "entryCue": "Say your phone number including country code, or type it below.",
       "proactivity": "on_entry",
@@ -1436,6 +2594,16 @@
       "nextRoute": "/one/setup",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/register-phone",
+          "expected": null
+        }
+      ],
+      "kind": "surface-owned",
+      "reason": "Mandatory post-login phone verification flow intentionally bypasses the signed-in app shell."
     }
   },
   {
@@ -1463,6 +2631,16 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/logout",
+          "expected": null
+        }
+      ],
+      "kind": "surface-owned",
+      "reason": "Logout route is a transitional auth screen, not a standard content page."
     }
   },
   {
@@ -1482,7 +2660,7 @@
       "playbookId": "route.consents",
       "purpose": "Help the person understand and use the consents screen through its generated controls.",
       "screen": "consents",
-      "entryCue": "You can say \u201cOpen RIA Requests\u201d to use the primary control on this screen.",
+      "entryCue": "You can say “Open RIA Requests” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_requests_compat",
       "happyPathActionIds": [
@@ -1501,6 +2679,19 @@
       "nextRoute": "/one/consent",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/consent",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -1534,6 +2725,19 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/feed",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -1561,6 +2765,19 @@
       "nextRoute": "/one/consent",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/consents",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -1594,6 +2811,16 @@
       "nextRoute": "/one/kai?tab=market",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/kai",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "Compatibility route only redirects to the canonical One-owned Finance Market tab."
     }
   },
   {
@@ -1611,7 +2838,7 @@
       "playbookId": "route.one.kai",
       "purpose": "Help the person understand and use the kai screen through its generated controls.",
       "screen": "kai_market",
-      "entryCue": "Use Market, Portfolio, or Analysis to choose the active finance view.",
+      "entryCue": "Use Market, Portfolio, or Stocks to choose the active finance view.",
       "proactivity": "on_entry",
       "primaryActionId": "route.kai_home",
       "happyPathActionIds": [
@@ -1630,6 +2857,75 @@
       "nextRoute": "/one/kai?tab=market",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/kai",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/kai?tab=analysis",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/kai?tab=analysis&analysis_id=sample",
+          "expected": {
+            "href": "/one/kai?tab=analysis",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/kai?tab=analysis&debate_id=sample",
+          "expected": {
+            "href": "/one/kai?tab=analysis",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/kai?tab=analysis&focus=active",
+          "expected": {
+            "href": "/one/kai?tab=analysis",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/kai?tab=analysis&run_id=sample",
+          "expected": {
+            "href": "/one/kai?tab=analysis",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/kai?tab=analysis&ticker=AAPL",
+          "expected": {
+            "href": "/one/kai?tab=analysis",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/kai?tab=analysis&view=debate",
+          "expected": {
+            "href": "/one/kai?tab=analysis",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -1664,6 +2960,19 @@
       "nextRoute": "/one/kai?tab=market",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/kai/news",
+          "expected": {
+            "href": "/one/kai?tab=market",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -1672,7 +2981,7 @@
     "exemptionReason": "Compatibility route only redirects to the canonical /one/kai Finance Market tab.",
     "voicePlaybook": {
       "playbookId": "route.one.kai.market",
-      "purpose": "Help the person move between Market, Portfolio, and Analysis through the shared Finance workspace.",
+      "purpose": "Help the person move between Market, Portfolio, and Stocks through the shared Finance workspace.",
       "screen": "kai_market",
       "entryCue": "",
       "proactivity": "ambient",
@@ -1691,6 +3000,16 @@
       "nextRoute": "/one/kai?tab=market",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/kai/market",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "Compatibility route only redirects to the canonical /one/kai Finance Market tab."
     }
   },
   {
@@ -1718,6 +3037,16 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/kai/analysis",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "Compatibility redirect route only launches the canonical /one/kai/analysis surface."
     }
   },
   {
@@ -1753,6 +3082,16 @@
       "nextRoute": "/one/kai?tab=analysis",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/kai/analysis",
+          "expected": null
+        }
+      ],
+      "kind": "root",
+      "reason": "Legacy Analysis workspace is embedded by the canonical query-tabbed Finance route."
     }
   },
   {
@@ -1780,6 +3119,16 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/kai/dashboard",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "Compatibility redirect route only launches the canonical portfolio/dashboard entry."
     }
   },
   {
@@ -1813,6 +3162,16 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/kai/dashboard/analysis",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "Compatibility redirect route only launches the canonical analysis entry."
     }
   },
   {
@@ -1840,6 +3199,16 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/kai/import",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "Compatibility redirect route only launches the canonical /one/kai/import flow."
     }
   },
   {
@@ -1857,7 +3226,7 @@
       "playbookId": "route.one.kai.import",
       "purpose": "Help the person understand and use the import screen through its generated controls.",
       "screen": "import",
-      "entryCue": "You can say \u201cOpen Portfolio Import\u201d to use the primary control on this screen.",
+      "entryCue": "You can say “Open Portfolio Import” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.kai_import",
       "happyPathActionIds": [
@@ -1876,6 +3245,19 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/kai/import",
+          "expected": {
+            "href": "/one/setup",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -1903,6 +3285,16 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/kai/investments",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "Retired Investments endpoint redirects to the canonical /one/kai?tab=portfolio workspace."
     }
   },
   {
@@ -1930,6 +3322,16 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/kai/investments",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "Retired Investments endpoint redirects to the canonical /one/kai?tab=portfolio workspace."
     }
   },
   {
@@ -1957,6 +3359,16 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/kai/funding-trade",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "Retired Fund + Trade endpoint redirects to the canonical /one/kai?tab=portfolio workspace."
     }
   },
   {
@@ -1984,6 +3396,16 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/kai/funding-trade",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "Retired Fund + Trade endpoint redirects to the canonical /one/kai?tab=portfolio workspace."
     }
   },
   {
@@ -2011,6 +3433,16 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/kai/onboarding",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "Compatibility redirect route only launches the canonical /one/setup/finance flow."
     }
   },
   {
@@ -2038,6 +3470,16 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/kai/onboarding",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "Compatibility redirect route only launches the canonical /one/setup/finance flow."
     }
   },
   {
@@ -2067,6 +3509,19 @@
       "nextRoute": "/one/setup/finance",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/setup/kai",
+          "expected": {
+            "href": "/one/setup",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -2106,6 +3561,19 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/setup/gmail",
+          "expected": {
+            "href": "/one/setup",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -2146,6 +3614,19 @@
       "nextRoute": "/one/setup",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/setup/calendar",
+          "expected": {
+            "href": "/one/setup",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -2165,28 +3646,42 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.setup.location",
-      "purpose": "Request device location permission, then explicitly finish or skip Location setup.",
+      "purpose": "Introduce Location features and Circle invitations, then finish or skip the two-screen introduction.",
       "screen": "one_setup_location",
-      "entryCue": "Allow Location when you are ready, or say skip Location setup.",
+      "entryCue": "Explore Location features and invite your Circle, or say skip Location setup.",
       "proactivity": "on_entry",
       "primaryActionId": "setup.skip_location",
       "happyPathActionIds": [
         "setup.skip_location",
-        "setup.finish_location"
+        "setup.finish_location_intro"
       ],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
         "cancelled": "Keep Location setup open and preserve the active goal.",
-        "failed": "Explain that permission is still needed before finishing.",
+        "failed": "Keep the introduction open and offer to retry finishing.",
         "timeout": "Retain the goal and offer a safe retry.",
         "callbackError": "Use the verified current route and its generated actions only.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Location setup finishes only after device permission is granted and the hub route settles.",
+      "completionBoundary": "The Location introduction finishes when its completion marker is saved and the setup hub settles. Device location access is requested later from the Location workspace.",
       "nextRoute": "/one/setup",
       "returnPolicy": "return_to_hub",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/setup/location",
+          "expected": {
+            "href": "/one/setup",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent",
+      "reason": "The Location introduction unwinds optional panels, then Ready or Save a place to Features, then exits to agents home. Pending place-capture, contact, join and completion operations consume Back. Workspace saved-place modals use topmost overlay dismissal before the authored route parent."
     }
   },
   {
@@ -2224,6 +3719,19 @@
       "nextRoute": "/one/setup",
       "returnPolicy": "return_to_hub",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/setup/email",
+          "expected": {
+            "href": "/one/setup",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -2265,6 +3773,19 @@
       "nextRoute": "/one/setup/finance/import",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/setup/finance",
+          "expected": {
+            "href": "/one/setup",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -2301,6 +3822,19 @@
       "nextRoute": "/one/setup",
       "returnPolicy": "return_to_hub",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/setup/finance/import",
+          "expected": {
+            "href": "/one/setup",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -2337,6 +3871,19 @@
       "nextRoute": "/one/setup",
       "returnPolicy": "return_to_hub",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/setup/ria",
+          "expected": {
+            "href": "/one/setup",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -2374,6 +3921,19 @@
       "nextRoute": "/one/setup",
       "returnPolicy": "return_to_hub",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/setup/connected-systems",
+          "expected": {
+            "href": "/one/setup",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -2382,6 +3942,7 @@
     "shellVerification": {
       "file": "components/connections/gemini-runtime-configuration-page.tsx",
       "includes": [
+        "SetupV10Surface",
         "AppPageShell",
         "AppPageHeaderRegion",
         "AppPageContentRegion",
@@ -2411,6 +3972,27 @@
       "nextRoute": "/",
       "returnPolicy": "resolve_root",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/setup/connections",
+          "expected": {
+            "href": "/one/setup",
+            "mode": "replace",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/setup/connections?return_to=%2Fone%2Fprofile",
+          "expected": {
+            "href": "/one/setup?return_to=%2Fone%2Fprofile",
+            "mode": "replace",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -2438,6 +4020,19 @@
       "nextRoute": "/one/setup",
       "returnPolicy": "return_to_hub",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/setup/sample",
+          "expected": {
+            "href": "/one/setup",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -2465,6 +4060,16 @@
       "nextRoute": "/one/kai?tab=portfolio",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/kai/optimize",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "Compatibility redirect for the retired Optimize workspace returns to the canonical Portfolio tab."
     }
   },
   {
@@ -2492,6 +4097,16 @@
       "nextRoute": "/one/kai?tab=portfolio",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/kai/optimize",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "One-release compatibility redirect for the retired Optimize workspace."
     }
   },
   {
@@ -2519,6 +4134,16 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/kai/plaid/oauth/return",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "Compatibility redirect route only launches the canonical /one/kai/plaid/oauth/return surface."
     }
   },
   {
@@ -2552,6 +4177,16 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/kai/plaid/oauth/return",
+          "expected": null
+        }
+      ],
+      "kind": "root",
+      "reason": "Provider callback recovery owns its confirmed destination."
     }
   },
   {
@@ -2579,6 +4214,16 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/kai/portfolio",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "Compatibility redirect route only launches the canonical /one/kai/portfolio surface."
     }
   },
   {
@@ -2613,6 +4258,16 @@
       "nextRoute": "/one/kai?tab=portfolio",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/kai/portfolio",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "Compatibility route only redirects to the canonical Finance Portfolio tab."
     }
   },
   {
@@ -2646,6 +4301,19 @@
       "nextRoute": "/one/kai?tab=portfolio",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/kai/portfolio/holdings",
+          "expected": {
+            "href": "/one/kai?tab=portfolio",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -2679,6 +4347,19 @@
       "nextRoute": "/one/kai?tab=portfolio",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/kai/portfolio/allocation",
+          "expected": {
+            "href": "/one/kai?tab=portfolio",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -2712,6 +4393,19 @@
       "nextRoute": "/one/kai?tab=portfolio",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/kai/portfolio/performance",
+          "expected": {
+            "href": "/one/kai?tab=portfolio",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -2745,6 +4439,19 @@
       "nextRoute": "/one/kai?tab=portfolio",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/kai/portfolio/sources",
+          "expected": {
+            "href": "/one/kai?tab=portfolio",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -2780,6 +4487,19 @@
       "nextRoute": "/marketplace",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/marketplace",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -2815,6 +4535,16 @@
       "nextRoute": "/marketplace/ria",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/marketplace/ria",
+          "expected": null
+        }
+      ],
+      "kind": "root",
+      "reason": "Marketplace list is an entry surface."
     }
   },
   {
@@ -2844,6 +4574,19 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/marketplace/connections",
+          "expected": {
+            "href": "/marketplace",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -2871,6 +4614,19 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/marketplace/connections/portfolio",
+          "expected": {
+            "href": "/marketplace/connections",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -2898,6 +4654,16 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/portfolio/shared",
+          "expected": null
+        }
+      ],
+      "kind": "surface-owned",
+      "reason": "Public shared portfolio view uses chrome-free layout for external recipients."
     }
   },
   {
@@ -2917,7 +4683,7 @@
       "playbookId": "route.profile",
       "purpose": "Help the person understand and use the profile screen through its generated controls.",
       "screen": "profile_account",
-      "entryCue": "You can say \u201cOpen Profile\u201d to use the primary control on this screen.",
+      "entryCue": "You can say “Open Profile” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.profile",
       "happyPathActionIds": [
@@ -2936,6 +4702,59 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/profile?panel=security&detail=vault&from=%2Fone%2Flocation",
+          "expected": {
+            "href": "/one/profile/security?from=%2Fone%2Flocation",
+            "mode": "replace",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/profile?panel=security&from=%2Fone%2Flocation",
+          "expected": {
+            "href": "/one/profile?from=%2Fone%2Flocation",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/profile?from=%2Fone%2Flocation",
+          "expected": {
+            "href": "/one/location",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/profile?from=https%3A%2F%2Fevil.test",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/profile?from=%2Fone%2Fprofile",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -2963,6 +4782,16 @@
       "nextRoute": "/ria/profile",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/regulatory",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "Compatibility redirect to the canonical RIA profile."
     }
   },
   {
@@ -2999,6 +4828,19 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/account",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -3035,6 +4877,19 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/account/phone",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -3071,6 +4926,19 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/preferences",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -3107,6 +4975,19 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/preferences/kai",
+          "expected": {
+            "href": "/one/profile/preferences",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -3143,6 +5024,19 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/preferences/gemini",
+          "expected": {
+            "href": "/one/profile/preferences",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -3160,7 +5054,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.profile.preferences.device",
-      "purpose": "Help the person understand and use the device screen through its generated controls.",
+      "purpose": "Compatibility entry for Preferences. The retired device detail has no separate body; use the current Preferences controls.",
       "screen": "profile_preferences",
       "entryCue": "",
       "proactivity": "ambient",
@@ -3179,6 +5073,19 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/preferences/device",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -3215,6 +5122,19 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/preferences/voice",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -3251,6 +5171,19 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/preferences/voice/changelog",
+          "expected": {
+            "href": "/one/profile/preferences",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -3287,6 +5220,19 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/preferences/voice/examples",
+          "expected": {
+            "href": "/one/profile/preferences",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -3306,7 +5252,7 @@
       "playbookId": "route.profile.security",
       "purpose": "Help the person understand and use the security screen through its generated controls.",
       "screen": "profile_security_panel",
-      "entryCue": "You can say \u201cOpen Vault Security Panel\u201d to use the primary control on this screen.",
+      "entryCue": "You can say “Open Vault Security Panel” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.profile_security_panel",
       "happyPathActionIds": [
@@ -3325,6 +5271,27 @@
       "nextRoute": "/one/profile/security",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/security",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/profile/security?from=%2Fone%2Flocation",
+          "expected": {
+            "href": "/one/profile?from=%2Fone%2Flocation",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -3361,6 +5328,27 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/security/vault",
+          "expected": {
+            "href": "/one/profile/security",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/profile/security/vault?from=%2Fone%2Flocation",
+          "expected": {
+            "href": "/one/profile/security?from=%2Fone%2Flocation",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -3397,6 +5385,19 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/security/session",
+          "expected": {
+            "href": "/one/profile/security",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -3424,6 +5425,130 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/security/devices/authorize",
+          "expected": null
+        }
+      ],
+      "kind": "surface-owned",
+      "reason": "Trusted-device authorization is a short-lived browser-to-Hermes handoff and intentionally bypasses the signed-in app chrome."
+    }
+  },
+  {
+    "route": "/one/profile/payouts",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/profile/profile-workspace-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.profile.payouts",
+      "purpose": "Help the person use payouts through its generated controls.",
+      "screen": "profile_payouts",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/payouts",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/profile/payouts?documentPayouts=done",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/profile/payouts?documentPayouts=refresh",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
+    }
+  },
+  {
+    "route": "/one/profile/request-pricing",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/profile/profile-workspace-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.profile.request.pricing",
+      "purpose": "Help the person use request pricing through its generated controls.",
+      "screen": "profile_request_pricing",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/request-pricing",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -3460,6 +5585,35 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/my-data",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/profile/my-data?documentPayouts=done",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/profile/my-data?documentPayouts=refresh",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -3496,6 +5650,19 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/my-data/domain",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -3532,6 +5699,19 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/access",
+          "expected": {
+            "href": "/one/profile/my-data",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -3568,6 +5748,19 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/access/connection",
+          "expected": {
+            "href": "/one/profile/access",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -3604,6 +5797,19 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/connected-systems",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -3631,6 +5837,19 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/connectors",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -3659,6 +5878,16 @@
       "nextRoute": "/",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/connectors/oauth/return",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "OAuth callback completes an external connector's authorization and returns to Connectors in the Profile pane."
     }
   },
   {
@@ -3686,6 +5915,19 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/gmail",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -3713,6 +5955,19 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/gmail/connection",
+          "expected": {
+            "href": "/one/gmail",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -3740,31 +5995,33 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/gmail/actions",
+          "expected": {
+            "href": "/one/gmail",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
     "route": "/one/profile/referrals",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "app/profile/profile-workspace-page.tsx",
-      "includes": [
-        "AppPageShell",
-        "AppPageHeaderRegion",
-        "AppPageContentRegion",
-        "PageHeader",
-        "SurfaceStack"
-      ]
-    },
+    "mode": "redirect",
+    "exemptionReason": "Compatibility-only redirect; Referrals is now a dedicated dashboard at /one/referrals.",
     "voicePlaybook": {
-      "playbookId": "route.profile.support",
-      "purpose": "Help the person understand and use the support screen through its generated controls.",
-      "screen": "profile_referrals_panel",
-      "entryCue": "You can say \u201cOpen Support Panel\u201d to use the primary control on this screen.",
-      "proactivity": "on_entry",
-      "primaryActionId": "route.profile_referrals_panel",
-      "happyPathActionIds": [
-        "route.profile_referrals_panel"
-      ],
+      "playbookId": "route.profile.referrals.redirect",
+      "purpose": "Send the person to the dedicated Referrals dashboard.",
+      "screen": "profile_referrals_redirect",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -3774,10 +6031,75 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
-      "nextRoute": "/one/profile/referrals",
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": "/one/referrals",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/referrals",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
+    }
+  },
+  {
+    "route": "/one/referrals",
+    "mode": "standard",
+    "persistentChrome": "standard",
+    "interactionLayerPolicy": {
+      "allowedFamilies": []
+    },
+    "shellVerification": {
+      "file": "components/referrals/referral-dashboard-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.referrals",
+      "purpose": "Open the referral dashboard directly so the person can share their referral link and read their coins, ranking, and reward progress. Invite opens the device share sheet directly and copies the invite link when sharing is unavailable. Individual and Circle rankings show ten entries per page. How it works shows the coins and rules; Back returns to the previous dashboard section. Viewing the dashboard never grants setup completion or referral credit.",
+      "screen": "one_referrals",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "kind": "parent",
+      "cases": [
+        {
+          "href": "/one/referrals",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ]
     }
   },
   {
@@ -3797,7 +6119,7 @@
       "playbookId": "route.profile.support",
       "purpose": "Help the person understand and use the support screen through its generated controls.",
       "screen": "profile_support_panel",
-      "entryCue": "You can say \u201cOpen Support Panel\u201d to use the primary control on this screen.",
+      "entryCue": "You can say “Open Support Panel” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.profile_support_panel",
       "happyPathActionIds": [
@@ -3816,6 +6138,19 @@
       "nextRoute": "/one/profile/support",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/support",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -3852,6 +6187,19 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/support/routing",
+          "expected": {
+            "href": "/one/profile/support",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -3888,6 +6236,19 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/support/compose",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -3922,6 +6283,16 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/gmail/oauth/return",
+          "expected": null
+        }
+      ],
+      "kind": "root",
+      "reason": "Provider callback recovery owns its confirmed destination."
     }
   },
   {
@@ -3949,6 +6320,16 @@
       "nextRoute": "/one/calendar",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/profile/google/oauth/return",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "Legacy Google Calendar OAuth callback; the canonical callback remains under /one/profile/google/oauth/return."
     }
   },
   {
@@ -3976,6 +6357,16 @@
       "nextRoute": "/one/calendar",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/google/oauth/return",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "OAuth callback completes Calendar authorization and returns to the Calendar agent."
     }
   },
   {
@@ -4003,6 +6394,16 @@
       "nextRoute": "/one/calendar",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/integrations",
+          "expected": null
+        }
+      ],
+      "kind": "redirect",
+      "reason": "Compatibility-only redirect; Calendar is now a first-class One agent at /one/calendar."
     }
   },
   {
@@ -4030,6 +6431,19 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/receipts",
+          "expected": {
+            "href": "/one/gmail",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -4057,6 +6471,19 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/pkm",
+          "expected": {
+            "href": "/one/profile/my-data",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -4093,6 +6520,19 @@
       "nextRoute": "/one/pkm",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/pkm-agent-lab",
+          "expected": {
+            "href": "/one/profile/my-data",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -4120,6 +6560,19 @@
       "nextRoute": "/ria/profile",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Do not render the retired RIA home surface or invent controls on this compatibility route."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/ria",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -4138,7 +6591,7 @@
       "playbookId": "route.ria.clients",
       "purpose": "Help the person understand and use the clients screen through its generated controls.",
       "screen": "ria_clients",
-      "entryCue": "You can say \u201cOpen RIA Clients\u201d to use the primary control on this screen.",
+      "entryCue": "You can say “Open RIA Clients” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_clients",
       "happyPathActionIds": [
@@ -4157,6 +6610,19 @@
       "nextRoute": "/ria/clients",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/ria/clients",
+          "expected": {
+            "href": "/ria/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -4175,7 +6641,7 @@
       "playbookId": "route.ria.clients.userid",
       "purpose": "Help the person understand and use the clients screen through its generated controls.",
       "screen": "ria_client_workspace",
-      "entryCue": "You can say \u201cOpen RIA Client Workspace\u201d to use the primary control on this screen.",
+      "entryCue": "You can say “Open RIA Client Workspace” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_client_workspace",
       "happyPathActionIds": [
@@ -4194,6 +6660,19 @@
       "nextRoute": "/ria/clients/[userId]",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/ria/clients/sample",
+          "expected": {
+            "href": "/ria/clients",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -4212,7 +6691,7 @@
       "playbookId": "route.ria.clients.userid.accounts.accountid",
       "purpose": "Help the person understand and use the accounts screen through its generated controls.",
       "screen": "ria_client_account_detail",
-      "entryCue": "You can say \u201cReturn To Client Information Explorer\u201d to use the primary control on this screen.",
+      "entryCue": "You can say “Return To Client Information Explorer” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "ria.client_account.open_workspace_fallback",
       "happyPathActionIds": [
@@ -4231,6 +6710,19 @@
       "nextRoute": "/ria/clients/[userId]?tab=explorer",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/ria/clients/sample/accounts/sample",
+          "expected": {
+            "href": "/ria/clients/sample",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -4249,7 +6741,7 @@
       "playbookId": "route.ria.clients.userid.requests.requestid",
       "purpose": "Help the person understand and use the requests screen through its generated controls.",
       "screen": "ria_client_request_detail",
-      "entryCue": "You can say \u201cReturn To Client Access\u201d to use the primary control on this screen.",
+      "entryCue": "You can say “Return To Client Access” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "ria.client_request.open_access_fallback",
       "happyPathActionIds": [
@@ -4268,6 +6760,19 @@
       "nextRoute": "/ria/clients/[userId]?tab=access",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/ria/clients/sample/requests/sample",
+          "expected": {
+            "href": "/ria/clients/sample",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -4284,7 +6789,7 @@
       "playbookId": "route.ria.claim",
       "purpose": "Help the person claim their SEC advisor or firm profile with their office number.",
       "screen": "ria_claim",
-      "entryCue": "You can say \u201cClaim RIA Profile\u201d to use the primary control on this screen.",
+      "entryCue": "You can say “Claim RIA Profile” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_claim",
       "happyPathActionIds": [
@@ -4303,6 +6808,19 @@
       "nextRoute": "/ria/claim",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/ria/claim",
+          "expected": {
+            "href": "/ria/onboarding",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -4320,7 +6838,7 @@
       "playbookId": "route.ria.onboarding",
       "purpose": "Help the person understand and use the onboarding screen through its generated controls.",
       "screen": "ria_onboarding",
-      "entryCue": "You can say \u201cOpen RIA Onboarding\u201d to use the primary control on this screen.",
+      "entryCue": "You can say “Open RIA Onboarding” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_onboarding",
       "happyPathActionIds": [
@@ -4339,6 +6857,19 @@
       "nextRoute": "/ria/onboarding",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/ria/onboarding",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -4357,7 +6888,7 @@
       "playbookId": "route.ria.picks",
       "purpose": "Help the person understand and use the picks screen through its generated controls.",
       "screen": "ria_picks",
-      "entryCue": "You can say \u201cOpen RIA Picks\u201d to use the primary control on this screen.",
+      "entryCue": "You can say “Open RIA Picks” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_picks",
       "happyPathActionIds": [
@@ -4376,6 +6907,19 @@
       "nextRoute": "/ria/picks",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/ria/picks",
+          "expected": {
+            "href": "/ria/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -4403,6 +6947,19 @@
       "nextRoute": "/ria/requests",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/ria/requests",
+          "expected": {
+            "href": "/ria/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -4430,6 +6987,19 @@
       "nextRoute": "/ria/settings",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/ria/settings",
+          "expected": {
+            "href": "/ria/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -4457,6 +7027,19 @@
       "nextRoute": "/ria/workspace",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/ria/workspace",
+          "expected": {
+            "href": "/ria/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -4484,6 +7067,19 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/blog",
+          "expected": {
+            "href": "/",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -4511,6 +7107,19 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/blog/sample",
+          "expected": {
+            "href": "/blog",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -4538,6 +7147,19 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/research",
+          "expected": {
+            "href": "/",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -4565,6 +7187,19 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/research/protocol",
+          "expected": {
+            "href": "/",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -4592,6 +7227,16 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/manishhussh",
+          "expected": null
+        }
+      ],
+      "kind": "root",
+      "reason": "Foundation public route intentionally uses the shared ambient public canvas outside the signed-in shell."
     }
   },
   {
@@ -4608,7 +7253,7 @@
       "playbookId": "route.ria.profile",
       "purpose": "Help the advisor view and manage their RIA profile.",
       "screen": "profile_regulatory",
-      "entryCue": "You can say \u201cOpen RIA Profile\u201d to return here.",
+      "entryCue": "You can say “Open RIA Profile” to return here.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_profile",
       "happyPathActionIds": [
@@ -4628,6 +7273,19 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/ria/profile",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
     }
   },
   {
@@ -4649,7 +7307,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.people.person_profile",
-      "purpose": "Help the signed-in viewer understand relationship, requestable information, grants, and request history without exposing private values.",
+      "purpose": "Review a person, request information, browse permitted document packets, and manage existing access.",
       "screen": "one_person_profile",
       "entryCue": "",
       "proactivity": "ambient",
@@ -4659,7 +7317,8 @@
         "people.profile.review_information_request",
         "people.profile.cancel_connection_request",
         "people.profile.remove_connection",
-        "people.profile.manage_consent"
+        "people.profile.manage_consent",
+        "people.profile.browse_packets"
       ],
       "requiredInputs": [],
       "recoveries": {
@@ -4674,6 +7333,24 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never infer or expose private information."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/people/sample",
+          "expected": null
+        },
+        {
+          "href": "/people/sample?from=%2Fone%2Fmessages",
+          "expected": {
+            "href": "/one/messages",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "root",
+      "reason": "Public person deep links have no trusted origin; tagged entries are tested separately."
     }
   },
   {
@@ -4701,6 +7378,153 @@
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/products/hushh-tech/launch",
+          "expected": null
+        }
+      ],
+      "kind": "surface-owned",
+      "reason": "Cross-product sign-in handoff intentionally suppresses the signed-in app shell while it validates and completes the one-time launch."
     }
+  },
+  {
+    "route": "/one/profile/world-model",
+    "mode": "standard",
+    "persistentChrome": "standard",
+    "interactionLayerPolicy": {
+      "allowedFamilies": []
+    },
+    "shellVerification": {
+      "file": "app/profile/profile-workspace-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.profile.world_model",
+      "purpose": "Open the owner Personal World Model. Viewing loads approved encrypted details only. Public research prepares a review draft when the owner's provider-specific setting allows it; Azure/Bing in UAT requires an explicit opt-in. The owner confirms or rejects each detail with its sources before it is saved, and can invite someone once the model is usable. Invitation claiming verifies a contact and grants no sharing.",
+      "screen": "profile_world_model",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Research is a draft. Say saved only after all exact approved mutation receipts commit. Claim success means contact-bound invitation accepted, not research, ownership of a public biography, or sharing.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "kind": "parent",
+      "cases": [
+        {
+          "href": "/one/profile/world-model",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/profile/world-model?from=%2Fone%2Ffeed",
+          "expected": {
+            "href": "/one/profile?from=%2Fone%2Ffeed",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "route": "/world-model/invite",
+    "mode": "hidden",
+    "persistentChrome": "none",
+    "exemptionReason": "Public invitation keeps its claim capability in the browser through authentication and vault setup.",
+    "voicePlaybook": {
+      "playbookId": "route.world_model.invite",
+      "purpose": "Review a public professional preview when supplied, or continue through verified claiming.",
+      "screen": "app",
+      "entryCue": "Check your invitation, then continue when ready.",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Navigation only. Claim requires explicit action by the verified recipient.",
+      "nextRoute": "/one/profile/world-model",
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/world-model/invite",
+          "expected": null
+        }
+      ],
+      "kind": "surface-owned",
+      "reason": "Public invitation owns its navigation; verified claiming continues through the protected recipient flow."
+    }
+  },
+  {
+    "route": "/calendar/reschedule",
+    "mode": "hidden",
+    "exemptionReason": "Standalone recipient capability reader has no signed-in shell or booking authority.",
+    "voicePlaybook": {
+      "playbookId": "route.calendar.reschedule",
+      "purpose": "Review offered alternatives and reply to the sender without login or booking.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain that the offered availability could not be checked.",
+        "cancelled": "Keep the meeting unchanged.",
+        "failed": "Ask the sender for another link without claiming any free time.",
+        "timeout": "Offer to check the same reviewed alternatives again.",
+        "callbackError": "No sign-in callback is required; ask the sender for a valid link.",
+        "routeMismatch": "Use only this capability reader; never open the logged-in Calendar homepage."
+      },
+      "completionBoundary": "The organizer updates the invitation after an email reply; this page never changes a meeting.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/calendar/reschedule",
+          "expected": null
+        }
+      ],
+      "kind": "surface-owned",
+      "reason": "External recipient browser entry owns its own return path."
+    },
+    "persistentChrome": "none"
   }
 ]

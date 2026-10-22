@@ -48,7 +48,7 @@ import type {
   AutoApproveScope,
   OneLocationCircleSummary,
 } from "@/lib/one-location/types";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { useVault } from "@/lib/vault/vault-context";
 
 const GROUP_SHELL = "[--settings-group-radius:16px] shadow-none";

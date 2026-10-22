@@ -104,17 +104,25 @@ def main() -> int:
     parser.add_argument("--web-env", default=DEFAULT_WEBAPP_ENV)
     parser.add_argument("--report-path", required=True)
     parser.add_argument(
+        "--run-live-model-checks",
+        choices=("true", "false"),
+        default="false",
+        help="Opt into the paid live RIA probe selected by the release verification plan.",
+    )
+    parser.add_argument(
         "--include-signed-in-routes",
         action="store_true",
         help="Run the heavy signed-in route browser sweep and include it in the report.",
     )
     args = parser.parse_args()
+    run_live_model_checks = args.run_live_model_checks == "true"
 
     report: dict[str, Any] = {
         "backend_url": args.backend_url,
         "frontend_url": args.frontend_url,
         "checks": [],
         "status": "healthy",
+        "run_live_model_checks": run_live_model_checks,
     }
 
     failures: list[str] = []
@@ -187,45 +195,56 @@ def main() -> int:
         except Exception as exc:  # pragma: no cover - exercised in live verification
             _record_exception(report, failures, name="location_command_recovery", exc=exc)
 
-        try:
-            ria_stage1 = smoke._request(  # noqa: SLF001
-                "POST",
-                "/api/ria/onboarding/verify-name",
-                headers=smoke._firebase_auth_headers(),  # noqa: SLF001
-                json_body={
-                    "query": RIA_STAGE1_SMOKE_QUERY,
-                    "force_live_verification": True,
-                },
-                expected=200,
-            ).json()
-            ria_stage1_ok = (
-                str(ria_stage1.get("status") or "") == "verified"
-                and str(ria_stage1.get("crd_number") or "") == RIA_STAGE1_SMOKE_CRD
-            )
-            report["checks"].append(
-                {
-                    "name": "ria_stage1_query_only",
-                    "ok": ria_stage1_ok,
-                    "status": ria_stage1.get("status"),
-                    "provider": ria_stage1.get("provider"),
-                    "matched_name": ria_stage1.get("matched_name"),
-                    "crd_number": ria_stage1.get("crd_number"),
-                    "reason_code": ria_stage1.get("reason_code"),
-                }
-            )
-            if not ria_stage1_ok:
-                # The backend already distinguishes "the provider is down" from
-                # "this advisor is not verified" -- ria_verification.py emits
-                # provider_unavailable for a 5xx/denied upstream and not_verified
-                # for a genuine negative. Until now that distinction was recorded
-                # in the check and then thrown away here, so an upstream Gemini
-                # outage read as a release regression.
-                if str(ria_stage1.get("status") or "") == "provider_unavailable":
-                    degraded.append("ria_stage1_query_only")
-                else:
-                    failures.append("ria_stage1_query_only")
-        except Exception as exc:  # pragma: no cover - exercised in live verification
-            _record_exception(report, failures, name="ria_stage1_query_only", exc=exc)
+        if run_live_model_checks:
+            try:
+                ria_stage1 = smoke._request(  # noqa: SLF001
+                    "POST",
+                    "/api/ria/onboarding/verify-name",
+                    headers=smoke._firebase_auth_headers(),  # noqa: SLF001
+                    json_body={
+                        "query": RIA_STAGE1_SMOKE_QUERY,
+                        "force_live_verification": True,
+                    },
+                    expected=200,
+                ).json()
+                ria_stage1_ok = (
+                    str(ria_stage1.get("status") or "") == "verified"
+                    and str(ria_stage1.get("crd_number") or "") == RIA_STAGE1_SMOKE_CRD
+                )
+                report["checks"].append(
+                    {
+                        "name": "ria_stage1_query_only",
+                        "ok": ria_stage1_ok,
+                        "status": ria_stage1.get("status"),
+                        "provider": ria_stage1.get("provider"),
+                        "matched_name": ria_stage1.get("matched_name"),
+                        "crd_number": ria_stage1.get("crd_number"),
+                        "reason_code": ria_stage1.get("reason_code"),
+                    }
+                )
+                if not ria_stage1_ok:
+                    # The backend already distinguishes "the provider is down" from
+                    # "this advisor is not verified" -- ria_verification.py emits
+                    # provider_unavailable for a 5xx/denied upstream and not_verified
+                    # for a genuine negative. Until now that distinction was recorded
+                    # in the check and then thrown away here, so an upstream Gemini
+                    # outage read as a release regression.
+                    if str(ria_stage1.get("status") or "") == "provider_unavailable":
+                        degraded.append("ria_stage1_query_only")
+                    else:
+                        failures.append("ria_stage1_query_only")
+            except Exception as exc:  # pragma: no cover - exercised in live verification
+                _record_exception(report, failures, name="ria_stage1_query_only", exc=exc)
+
+    if not run_live_model_checks:
+        report["checks"].append(
+            {
+                "name": "ria_stage1_query_only",
+                "ok": None,
+                "skipped": True,
+                "reason": "live_model_checks_not_requested",
+            }
+        )
 
     if args.include_signed_in_routes:
         route_results = []

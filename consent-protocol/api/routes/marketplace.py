@@ -12,7 +12,10 @@ from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import RateLimits, limiter
-from hushh_mcp.services.actor_identity_service import ActorIdentityService
+from hushh_mcp.services.actor_identity_service import (
+    ActorIdentityService,
+    ActorIdentitySyncUnavailableError,
+)
 from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
 from hushh_mcp.services.ria_iam_service import (
     IAMSchemaNotReadyError,
@@ -193,11 +196,14 @@ async def match_marketplace_contacts(
             # as canonical contact sync. It must share the verified-requester
             # gate and Postgres lookup allowance so changing routes cannot
             # bypass the cross-instance enumeration budget.
-            await ActorIdentityService().sync_from_firebase(firebase_uid, force=False)
+            verified_email = await ActorIdentityService().sync_contact_sync_requester_from_firebase(
+                firebase_uid
+            )
             await run_in_threadpool(
                 ConnectionsService().reserve_contact_sync_lookup_budget,
                 firebase_uid,
                 len(payload.phone_lookups),
+                **({"verified_requester_email": verified_email} if verified_email else {}),
             )
         items = await service.match_marketplace_contacts(
             firebase_uid,
@@ -206,7 +212,7 @@ async def match_marketplace_contacts(
             scope=payload.scope,
         )
         return {"items": items}
-    except ConnectionsError as exc:
+    except (ConnectionsError, ActorIdentitySyncUnavailableError) as exc:
         raise HTTPException(
             status_code=exc.status_code, detail={"code": exc.code, "message": exc.message}
         ) from None

@@ -14,7 +14,7 @@ import type {
 import {
   getInvestorKaiActionByKaiCommand,
   resolveInvestorKaiActionWiring,
-} from "@/lib/voice/investor-kai-action-registry";
+} from "@/lib/kai/actions/investor-kai-action-registry";
 
 type RouterLike = {
   push: (href: string) => void;

@@ -79,7 +79,20 @@ export const HUSHH_AUTH_TOKEN_ERROR_CODE = {
 export type HushhAuthTokenErrorCode =
   (typeof HUSHH_AUTH_TOKEN_ERROR_CODE)[keyof typeof HUSHH_AUTH_TOKEN_ERROR_CODE];
 
+export interface NativeGoogleContactsAuthorization {
+  accessToken: string;
+  googleSubject: string;
+  grantedScopes: string[];
+  authority: "ios-sdk-grant" | "android-contacts-only";
+  expiresAt: number | null;
+}
+
 export interface HushhAuthPlugin {
+  /** One invocation, bound to the selected signup account; no Firebase exchange. */
+  authorizeGoogleContacts(options: {
+    expectedUserId: string;
+    requestMissingScope?: boolean;
+  }): Promise<NativeGoogleContactsAuthorization>;
   /** Fresh Google proof for the current Firebase user; never replaces sign-in. */
   reauthenticateGoogleIdentity(options: {
     expectedUserId: string;
@@ -93,6 +106,7 @@ export interface HushhAuthPlugin {
     idToken: string;
     accessToken: string;
     user: AuthUser;
+    isNewUser?: boolean;
   }>;
 
   /**
@@ -117,6 +131,7 @@ export interface HushhAuthPlugin {
   connectCalendar(options: {
     serverClientId: string;
     accessLevel: "read" | "manage";
+    includeCalendarList?: boolean;
   }): Promise<{
     serverAuthCode: string;
   }>;
@@ -167,6 +182,7 @@ export interface HushhAuthPlugin {
    * Note: Apple may return hidden email (relay address) if user chose to hide it
    */
   signInWithApple(): Promise<{
+    isNewUser?: boolean;
     idToken: string;
     accessToken?: string;
     rawNonce?: string; // iOS only - needed for JS SDK sync if required
@@ -693,6 +709,14 @@ export interface HushhSettingsData {
 }
 
 export interface HushhSettingsPlugin {
+  getFeedbackCapabilities(): Promise<{ interactionFeedback: boolean }>;
+  interactionFeedback(options: {
+    documentId: string;
+    privacyGeneration: number;
+    intentId: string;
+    kind: "light" | "selection";
+    issuedAtMs: number;
+  }): Promise<{ accepted: boolean }>;
   getSettings(): Promise<HushhSettingsData>;
   updateSettings(
     options: Partial<HushhSettingsData>,
@@ -854,6 +878,16 @@ export const HushhSync = registerPlugin<HushhSyncPlugin>("HushhSync", {
 // Push notification token registration (FCM/APNs)
 
 export interface HushhNotificationsPlugin {
+  /** OS presentation settings only; registered tokens do not prove audible alerts. */
+  getNotificationSettings(): Promise<{ alertsEnabled: boolean; soundsEnabled: boolean; emergencySoundEnabled: boolean; chatAlertsEnabled?: boolean; chatSoundsEnabled?: boolean }>;
+  /** Foreground-only, one-shot fallback when Web Audio cannot start. Deadline is in epoch ms. */
+  playEmergencySmsCue(options: { userId: string; grantId: string; expiresAt: number }): Promise<{ played: boolean }>;
+  stopEmergencySmsCue(options: { grantId?: string }): Promise<void>;
+  setActiveChat(options: { tag: string; keyId: string }): Promise<void>;
+  deletePushToken(): Promise<void>;
+  prepareNotificationKey(options: { userId: string; deviceId: string }): Promise<{ deviceId: string; keyId: string; publicKey: string }>;
+  clearNotificationKey(options: { userId: string }): Promise<void>;
+  clearChatNotifications(options: { threadId: string; keyId: string; sequence?: number; before?: number; messageId?: string; badgeCount?: number; badgeVersion?: number }): Promise<void>;
   /**
    * Register push notification token for consent notifications.
    * Next.js source of truth: POST /api/notifications/register
@@ -865,7 +899,10 @@ export interface HushhNotificationsPlugin {
     platform: "web" | "ios" | "android";
     idToken: string; // Firebase ID token
     backendUrl?: string;
-  }): Promise<{ success: boolean }>;
+    deviceId?: string;
+    previewKeyId?: string;
+    previewPublicKey?: string;
+  }): Promise<{ success: boolean; registered?: boolean; degraded?: boolean }>;
 
   /**
    * Unregister push notification token(s).
@@ -877,6 +914,7 @@ export interface HushhNotificationsPlugin {
     idToken: string; // Firebase ID token
     platform?: "web" | "ios" | "android";
     backendUrl?: string;
+    deviceId?: string;
   }): Promise<{ success: boolean }>;
 }
 

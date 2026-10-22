@@ -84,8 +84,19 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
     private var nativeTestStatusLabel: NativeTestStatusLabel?
     private var nativeTestPollTimer: Timer?
     private var nativeTestPollInFlight = false
+    #if DEBUG
+    private var vaultLayoutProbe: NativeVaultLayoutProbe?
+    #endif
+    #if DEBUG || HUSHH_NATIVE_HISTORY_STUDY
+    private var historyQualification: UIViewController?
+    private var historyQualificationAttempted = false
+    private var historyQualificationObserver: NSObjectProtocol?
+    private var historyQualificationLauncher: UIButton?
+    #endif
     private var launchCover: UIView?
     private var launchCoverObservation: NSKeyValueObservation?
+    private var safeAreaObservation: NSKeyValueObservation?
+    private var lastPublishedSafeAreaTop: CGFloat?
     private static let launchCoverSafetyTimeout: TimeInterval = 4
     private static let launchCoverFadeDuration: TimeInterval = 0.12
 
@@ -93,13 +104,48 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         HushhNativeRouter()
     }
 
+    override open func webView(with frame: CGRect, configuration: WKWebViewConfiguration) -> WKWebView {
+        let eligible: Bool
+        if #available(iOS 26.0, *) {
+            eligible = NativeDrawerQualificationPolicy.deviceEligible
+        } else { eligible = false }
+        // Capacitor replaces userContentController after its configuration
+        // hook. Install against the final controller before WK creates the
+        // document. This selects rendering, never operation/information authority.
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: "Object.defineProperty(window, '__HUSHH_NATIVE_DRAWER_BOOTSTRAP__', {value:Object.freeze({contractVersion:1,enabled:\(eligible ? "true" : "false"),coherentShell:\(eligible && NativeDrawerQualificationPolicy.coherentShell ? "true" : "false")})});",
+            injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        return super.webView(with: frame, configuration: configuration)
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        publishSafeAreaTop()
         (bridge?.plugin(withName: "HushhNativeNavigation") as? HushhNativeNavigationPlugin)?.layoutTabBar()
         (bridge?.plugin(withName: "HushhNativeChrome") as? HushhNativeChromePlugin)?.layoutControls()
+        (bridge?.plugin(withName: "HushhNativeDock") as? HushhNativeDockPlugin)?.layoutDock()
+    }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        publishSafeAreaTop()
+    }
+
+    /// Presentation geometry only. UIKit remains authoritative when WebKit's
+    /// CSS env inset is temporarily zero during navigation or keyboard changes.
+    private func publishSafeAreaTop() {
+        guard isViewLoaded, let webView = webView, view.window != nil else { return }
+        let webTop = webView.convert(webView.bounds, to: view).minY
+        let inset = max(0, view.safeAreaInsets.top - webTop)
+        guard inset.isFinite, inset != lastPublishedSafeAreaTop else { return }
+        lastPublishedSafeAreaTop = inset
+        webView.evaluateJavaScript("document.documentElement.style.setProperty('--app-native-safe-area-top', '\(Double(inset))px')", completionHandler: nil)
     }
 
     deinit {
+        #if DEBUG || HUSHH_NATIVE_HISTORY_STUDY
+        if let historyQualificationObserver { NotificationCenter.default.removeObserver(historyQualificationObserver) }
+        #endif
         nativeTestPollTimer?.invalidate()
         nativeTestPollInFlight = false
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: "hushhNativeTest")
@@ -110,6 +156,13 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
 
         if let webView = self.webView {
             installLaunchCover(over: webView)
+            safeAreaObservation = webView.observe(\.isLoading, options: [.new]) { [weak self] webView, _ in
+                guard !webView.isLoading else { return }
+                DispatchQueue.main.async {
+                    self?.lastPublishedSafeAreaTop = nil
+                    self?.publishSafeAreaTop()
+                }
+            }
         }
 
         // A fresh process starts unshielded. After an inactive transition this
@@ -141,6 +194,19 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
                 installNativeTestBridge(on: webView)
                 startNativeTestPolling(on: webView)
             }
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("--hushh-vault-layout-diagnostics") {
+                vaultLayoutProbe = NativeVaultLayoutProbe(host: view, webView: webView)
+            }
+            #endif
+            #if DEBUG || HUSHH_NATIVE_HISTORY_STUDY
+            if ProcessInfo.processInfo.arguments.contains(NativeHistoryQualification.argument) {
+                installHistoryQualificationLauncher()
+                historyQualificationObserver = NotificationCenter.default.addObserver(
+                    forName: HushhSessionPrivacyShield.presentationDidChange, object: nil, queue: .main
+                ) { [weak self] _ in self?.presentHistoryQualificationIfAdmitted() }
+            }
+            #endif
         }
     }
     
@@ -186,12 +252,105 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
             delay: 0,
             options: [.beginFromCurrentState, .curveEaseOut],
             animations: { cover.alpha = 0 },
-            completion: { _ in cover.removeFromSuperview() }
+            completion: { [weak self] _ in
+                cover.removeFromSuperview()
+                #if DEBUG || HUSHH_NATIVE_HISTORY_STUDY
+                self?.presentHistoryQualificationIfAdmitted()
+                #endif
+            }
         )
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        #if DEBUG || HUSHH_NATIVE_HISTORY_STUDY
+        presentHistoryQualificationIfAdmitted()
+        #endif
+    }
+
+    #if DEBUG || HUSHH_NATIVE_HISTORY_STUDY
+    /// Explicit, public-only entry after XCTest preparation or a privacy
+    /// retirement. Never automatically resurrect a retired presentation.
+    private func installHistoryQualificationLauncher() {
+        guard #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom == .phone else { return }
+        // Public recording isolation survives fixture exit and app inactivity.
+        // The existing WebView/session remains underneath; this opt-in study
+        // never reveals its protected content to an artifact on retirement.
+        let landing = UIView(frame: view.bounds)
+        landing.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        landing.backgroundColor = .systemBackground
+        landing.accessibilityIdentifier = "native-history-public-landing"
+        view.addSubview(landing)
+        let button = UIButton(type: .system)
+        button.setTitle("Open native study", for: .normal)
+        button.accessibilityIdentifier = "native-history-qualification-launcher"
+        button.backgroundColor = .secondarySystemBackground
+        button.layer.cornerRadius = 12
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.addTarget(self, action: #selector(openHistoryQualification), for: .touchUpInside)
+        landing.addSubview(button)
+        NSLayoutConstraint.activate([
+            button.centerXAnchor.constraint(equalTo: landing.centerXAnchor),
+            button.centerYAnchor.constraint(equalTo: landing.centerYAnchor),
+            button.widthAnchor.constraint(equalToConstant: 180),
+            button.heightAnchor.constraint(equalToConstant: 44)
+        ])
+        historyQualificationLauncher = button
+    }
+
+    @objc private func openHistoryQualification() {
+        guard historyQualification == nil else { return }
+        historyQualificationAttempted = false
+        presentHistoryQualificationIfAdmitted()
+    }
+
+    private func presentHistoryQualificationIfAdmitted() {
+        guard #available(iOS 26.0, *), !historyQualificationAttempted,
+              NativeHistoryQualification.admits(arguments: ProcessInfo.processInfo.arguments,
+                phone: UIDevice.current.userInterfaceIdiom == .phone, supported: true),
+              view.window != nil, launchCover == nil, webView?.isLoading == false,
+              presentedViewController == nil, UIApplication.shared.applicationState == .active,
+              !HushhSessionPrivacyShield.shared.snapshot().shielded else { return }
+        historyQualificationAttempted = true
+        if let historyQualificationObserver { NotificationCenter.default.removeObserver(historyQualificationObserver) }
+        historyQualificationObserver = nil
+        let fixture = NativeHistoryQualificationController()
+        fixture.onRetired = { [weak self] in
+            self?.historyQualification = nil
+            self?.historyQualificationLauncher?.isHidden = false
+        }
+        historyQualification = fixture
+        historyQualificationLauncher?.isHidden = true
+        view.endEditing(true)
+        present(fixture, animated: false) {
+            let shield = HushhSessionPrivacyShield.shared
+            shield.reassertCover()
+            if shield.snapshot().shielded { fixture.retire() }
+        }
+    }
+    #endif
+
     override open func capacitorDidLoad() {
         super.capacitorDidLoad()
+        #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
+        if #available(iOS 26.0, *), NativeDrawerQualificationPolicy.deviceEligible,
+           let existing = webView, view === existing {
+            view = NativePresentationContainer(webView: existing, basePresentation: .coherentDrawers)
+        }
+        #endif
+        #if DEBUG
+        // Qualification-only; older wrappers and Release retain their current
+        // host until composition, touch and physical frame pacing pass.
+        if #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom == .phone,
+           HushhNativePresentationPolicy.customControlsEnabled,
+           ProcessInfo.processInfo.arguments.contains("--hushh-native-compositor"),
+           let existing = webView, view === existing {
+            let contentBacked = ProcessInfo.processInfo.arguments.contains("--hushh-native-content-backed")
+            view = NativePresentationContainer(webView: existing,
+                basePresentation: contentBacked ? .contentBacked : .underlay,
+                drawerClipping: ProcessInfo.processInfo.arguments.contains("--hushh-native-drawer-clip"))
+        }
+        #endif
         
         print("🔌 [MyViewController] Registering all native plugins...")
         print("🔌 [MyViewController] Bridge available: \(bridge != nil)")
@@ -210,11 +369,14 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         bridge?.registerPluginInstance(HushhNotificationsPlugin())
         bridge?.registerPluginInstance(HushhLocationPlugin())
         bridge?.registerPluginInstance(HushhContactsPlugin())
+        bridge?.registerPluginInstance(HushhCardScannerPlugin())
         bridge?.registerPluginInstance(HushhInvitationsPlugin())
         bridge?.registerPluginInstance(HushhVoiceInvocationPlugin())
         bridge?.registerPluginInstance(HushhSessionPrivacyPlugin())
         bridge?.registerPluginInstance(HushhNativeNavigationPlugin())
         bridge?.registerPluginInstance(HushhNativeChromePlugin())
+        bridge?.registerPluginInstance(HushhNativeDockPlugin())
+        bridge?.registerPluginInstance(HushhNativeDrawersPlugin())
         bridge?.registerPluginInstance(HushhStreamPlugin())
         bridge?.registerPluginInstance(HushhOAuthReturnPlugin())
         bridge?.registerPluginInstance(HushhPlaidLinkPlugin())
@@ -261,6 +423,8 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
             "HushhSessionPrivacy",
             "HushhNativeNavigation",
             "HushhNativeChrome",
+            "HushhNativeDock",
+            "HushhNativeDrawers",
             "HushhStream",
             "HushhOAuthReturn",
             "HushhPlaidLink"

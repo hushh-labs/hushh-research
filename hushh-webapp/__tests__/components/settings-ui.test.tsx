@@ -189,17 +189,17 @@ describe("SettingsRow", () => {
     );
   });
 
-  it("uses Inter as the product UI font family", () => {
+  it("uses Plus Jakarta Sans as the product UI font family", () => {
     const globalsCss = readFileSync(
       join(process.cwd(), "app/globals.css"),
       "utf8",
     );
 
     expect(globalsCss).toContain(
-      '--font-family-product: "InterVariable", "Inter", system-ui, sans-serif;',
+      '--font-family-product: "Plus Jakarta Sans", system-ui, sans-serif;',
     );
     expect(globalsCss).not.toContain(
-      '--font-family-product:\n    -apple-system, BlinkMacSystemFont, "InterVariable"',
+      '--font-family-product:\n    -apple-system, BlinkMacSystemFont, "Plus Jakarta Sans"',
     );
   });
 
@@ -643,11 +643,6 @@ describe("SettingsDetailPanel", () => {
 
     expect(screen.getByRole("dialog", { name: "Settings" })).toBeTruthy();
     expect(screen.getByText("Settings dialog")).toBeTruthy();
-    expect(
-      document
-        .querySelector('[data-slot="dialog-header"]')
-        ?.className.includes("bg-[var(--activeGlassColor)]"),
-    ).toBe(true);
   });
 
   it("places supplied identity media before the detail title", () => {

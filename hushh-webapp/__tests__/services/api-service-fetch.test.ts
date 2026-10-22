@@ -4,6 +4,17 @@ const capacitorMocks = vi.hoisted(() => ({
   isNativePlatform: vi.fn(() => false),
   getPlatform: vi.fn(() => "web"),
   request: vi.fn(),
+  registerNativePush: vi.fn(),
+}));
+
+const nativeStreamFetch = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/services/native-sse-fetch", () => ({ nativeStreamFetch }));
+
+const previewMocks = vi.hoisted(() => ({ prepare: vi.fn(), keyId: "fixture-key" }));
+vi.mock("@/lib/notifications/preview-keys", () => ({
+  prepareNotificationDevice: previewMocks.prepare,
+  activeNotificationKeyId: () => previewMocks.keyId,
+  notificationDeviceId: async () => "388b1e4b-25cf-4c63-aed0-281607f3dd9b",
 }));
 
 const kaiMocks = vi.hoisted(() => ({
@@ -35,7 +46,7 @@ vi.mock("@/lib/capacitor", () => ({
   HushhVault: {},
   HushhAuth: {},
   HushhConsent: {},
-  HushhNotifications: {},
+  HushhNotifications: { registerPushToken: capacitorMocks.registerNativePush },
 }));
 
 vi.mock("@/lib/capacitor/kai", () => ({
@@ -48,6 +59,7 @@ vi.mock("@/lib/services/auth-service", () => ({
   AuthService: {
     getIdToken: vi.fn(),
     getCurrentUser: vi.fn(),
+    isUatPhoneTestVerificationId: (id?: string) => String(id ?? "").startsWith("uat-test-phone:"),
   },
 }));
 
@@ -77,6 +89,7 @@ vi.mock("@/lib/utils/request-timeouts", () => ({
 import { ApiService } from "@/lib/services/api-service";
 import { GoogleConnectionService } from "@/lib/services/google-connection-service";
 import { AuthService } from "@/lib/services/auth-service";
+
 import { REQUEST_TIMESTAMP_HEADER } from "@/lib/observability/request-id";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -122,12 +135,137 @@ function deferred<T>() {
 // ---------------------------------------------------------------------------
 
 describe("ApiService.apiFetch", () => {
+  it("refuses a mismatched Firebase subject before observation admission", async () => {
+    capacitorMocks.isNativePlatform.mockReturnValue(false);
+    vi.mocked(AuthService.getIdToken).mockResolvedValueOnce(makeUnsignedToken({ sub: "owner-b" }));
+    expect(await ApiService.getFirebaseIdTokenForOwner("owner-a")).toBeUndefined();
+    const matching = makeUnsignedToken({ sub: "owner-a" });
+    vi.mocked(AuthService.getIdToken).mockResolvedValueOnce(matching);
+    expect(await ApiService.getFirebaseIdTokenForOwner("owner-a")).toBe(matching);
+  });
+  it("sends explicit phone finalization as an authenticated body while ordinary refresh stays read-only", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ success: true }));
+    await ApiService.refreshAccountIdentityShadow("fixture-token", { requireSuccess: true, verifiedPhoneNumber: "+919000000001" });
+    const [url, init] = mockFetch.mock.calls.at(-1)!;
+    expect(url).not.toContain("9000000001");
+    expect(new Headers(init.headers).get("authorization")).toBe("Bearer fixture-token");
+    expect(JSON.parse(init.body)).toEqual({ verified_phone_number: "+919000000001" });
+    await ApiService.refreshAccountIdentityShadow("fixture-token", { force: true, requireSuccess: true });
+    expect(mockFetch.mock.calls.at(-1)![1].body).toBeUndefined();
+  });
+  it.each(["list", "unlink"] as const)("fences trusted-device %s after asynchronous identity acquisition", async operation => {
+    let active = true;
+    const token = deferred<string | null>();
+    vi.mocked(AuthService.getIdToken).mockReturnValueOnce(token.promise);
+    const request = operation === "list" ? ApiService.listTrustedDevices(() => active) :
+      ApiService.revokeTrustedDevice("synthetic-device", () => active);
+    active = false;
+    token.resolve("synthetic-id-token");
+    expect((await request).status).toBe(409);
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(capacitorMocks.request).not.toHaveBeenCalled();
+    active = true;
+    vi.mocked(AuthService.getIdToken).mockResolvedValueOnce("synthetic-id-token");
+    mockFetch.mockResolvedValueOnce(jsonResponse(operation === "list" ? { devices: [] } : { success: true }));
+    const accepted = operation === "list" ? await ApiService.listTrustedDevices(() => active) :
+      await ApiService.revokeTrustedDevice("synthetic-device", () => active);
+    expect(accepted.status).toBe(200);
+    expect(mockFetch).toHaveBeenCalledOnce();
+  });
+  it.each(["list", "unlink"] as const)("keeps the trusted-device %s guard through final transport dispatch", async operation => {
+    vi.mocked(AuthService.getIdToken).mockResolvedValueOnce("synthetic-id-token");
+    mockFetch.mockResolvedValueOnce(jsonResponse({ success: true }));
+    let active = true;
+    const isCurrent = () => {
+      // Identity acquisition admits the operation; retirement happens before
+      // apiFetch's awaited tracker/dispatch phase completes.
+      queueMicrotask(() => { active = false; });
+      return active;
+    };
+    await expect(operation === "list" ? ApiService.listTrustedDevices(isCurrent) :
+      ApiService.revokeTrustedDevice("synthetic-device", isCurrent)).rejects.toMatchObject({ name: "AbortError" });
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(capacitorMocks.request).not.toHaveBeenCalled();
+  });
+  it.each([false, true])("reports native chat custody readiness separately from token registration: %s", async (ready) => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    capacitorMocks.getPlatform.mockReturnValue("ios");
+    capacitorMocks.registerNativePush.mockResolvedValueOnce({ success: true });
+    if (ready) previewMocks.prepare.mockResolvedValueOnce({ deviceId: "fixture", keyId: previewMocks.keyId, publicKey: "fixture-public" });
+    else previewMocks.prepare.mockRejectedValueOnce(new Error("Unavailable native custody"));
+    const result = await ApiService.registerPushToken("synthetic-owner", "fixture-token", "ios", "fixture-proof", () => true);
+    expect(result.ok).toBe(true);
+    expect(await result.json()).toEqual({ success: true, chatReady: ready });
+    expect(capacitorMocks.registerNativePush).toHaveBeenCalledOnce();
+  });
+  it.each([
+    ["ios", false], ["android", false], ["ios", true], ["android", true],
+  ] as const)("keeps native SSE auth recovery scoped to its initiating session on %s (switch: %s)", async (platform, switchAccount) => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    capacitorMocks.getPlatform.mockReturnValue(platform);
+    vi.stubEnv("NEXT_PUBLIC_BACKEND_URL", "https://uat.example");
+    const originalToken = makeUnsignedToken({ user_id: "account-a", version: 1 });
+    const freshToken = makeUnsignedToken({ user_id: "account-a", version: 2 });
+    const originalUser = { uid: "account-a" };
+    vi.mocked(AuthService.getCurrentUser).mockReturnValue(originalUser as never);
+    const refreshed = deferred<string>();
+    vi.mocked(AuthService.getIdToken).mockReturnValueOnce(refreshed.promise);
+    const streamed = new Response(new ReadableStream<Uint8Array>(), { status: 200 });
+    nativeStreamFetch.mockResolvedValueOnce(jsonResponse({ error: "Unauthorized" }, 401));
+    nativeStreamFetch.mockResolvedValueOnce(streamed);
+    const controller = new AbortController();
+    try {
+      const pending = ApiService.apiFetchStream("/api/one/messages/events", {
+        headers: { Authorization: `Bearer ${originalToken}` },
+        signal: controller.signal,
+      });
+      await vi.waitFor(() => expect(AuthService.getIdToken).toHaveBeenCalledWith(true));
+      if (switchAccount) {
+        vi.mocked(AuthService.getCurrentUser).mockReturnValue({ uid: "account-b" } as never);
+      }
+      refreshed.resolve(freshToken);
+      const response = await pending;
+      expect(nativeStreamFetch).toHaveBeenCalledWith(
+        `${ApiService.getBaseUrl()}/api/one/messages/events`,
+        expect.objectContaining({ signal: controller.signal, headers: expect.objectContaining({ Accept: "text/event-stream", Authorization: `Bearer ${originalToken}` }) }),
+        "caller",
+      );
+      expect(capacitorMocks.request).not.toHaveBeenCalled();
+      expect(mockFetch).not.toHaveBeenCalled();
+      if (switchAccount) {
+        expect(response.status).toBe(401);
+        expect(nativeStreamFetch).toHaveBeenCalledTimes(1);
+      } else {
+        expect(response).toBe(streamed);
+        expect(nativeStreamFetch).toHaveBeenCalledTimes(2);
+        expect(nativeStreamFetch.mock.calls[1][1].headers.Authorization).toBe(`Bearer ${freshToken}`);
+      }
+    } finally {
+      await streamed.body?.cancel();
+      vi.unstubAllEnvs();
+    }
+  });
+  it.each(["ios", "android"])("preserves authenticated attachment bytes on %s and keeps JSON refusals readable", async platform => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    capacitorMocks.getPlatform.mockReturnValue(platform);
+    const bytes = new Uint8Array([0, 255, 137, 80, 78, 71, 13, 10, 128]);
+    capacitorMocks.request.mockResolvedValueOnce({ status: 200, headers: { "content-type": "application/octet-stream" },
+      data: btoa(String.fromCharCode(...bytes)) });
+    const response = await ApiService.apiFetch("/api/one/messages/conversations/c/messages/m/attachment", { responseType: "arraybuffer", headers: { Authorization: "Bearer synthetic-token" } });
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+    expect(capacitorMocks.request).toHaveBeenCalledWith(expect.objectContaining({ responseType: "arraybuffer" }));
+    capacitorMocks.request.mockResolvedValueOnce({ status: 403, headers: { "Content-Type": "application/json" }, data: { detail: { message: "Unavailable" } } });
+    const refused = await ApiService.apiFetch("/api/one/messages/conversations/c/messages/m/attachment", { responseType: "arraybuffer" });
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({ detail: { message: "Unavailable" } });
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mockFetch.mockReset();
     capacitorMocks.isNativePlatform.mockReturnValue(false);
     capacitorMocks.getPlatform.mockReturnValue("web");
     capacitorMocks.request.mockReset();
+    nativeStreamFetch.mockReset();
     vi.mocked(AuthService.getIdToken).mockReset();
     vi.mocked(AuthService.getCurrentUser).mockReset();
     for (const mock of Object.values(kaiMocks)) mock.mockReset();
@@ -180,7 +318,7 @@ describe("ApiService.apiFetch", () => {
       code: "synthetic-code", state: "synthetic-state", isEffectCurrent: () => true,
     });
     expect(result.service).toBe("calendar");
-    expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ user_id: "synthetic-owner", code: "synthetic-code", state: "synthetic-state" });
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ user_id: "synthetic-owner", code: "synthetic-code", state: "synthetic-state", redirect_uri: `${window.location.origin}/one/profile/google/oauth/return` });
     expect(mockFetch.mock.calls[0][1]).not.toHaveProperty("isEffectCurrent");
   });
 
@@ -532,6 +670,8 @@ describe("ApiService.apiFetch", () => {
   it.each([
     ["ios", "/api/one/connections/directory?page=1", 60_000],
     ["android", "/api/one/connections/directory?page=1", 60_000],
+    ["ios", "/api/one/agent-chat/proposals", 150_000],
+    ["android", "/api/one/agent-chat/proposals", 150_000],
     ["ios", "/api/ria/onboarding/verify", 90_000],
     ["android", "/api/ria/onboarding/verify", 90_000],
     ["android", "/api/connectors/google_drive/searches", 180_000],
@@ -1520,6 +1660,23 @@ describe("ApiService.apiFetch", () => {
     });
   });
 
+  it.each([
+    { success: true, reason: "uat_phone_test_not_configured_or_not_allowlisted" },
+    { success: true, eligible: "false", reason: "uat_phone_test_not_configured_or_not_allowlisted" },
+    { success: true, eligible: true, verification_id: " " },
+    { success: true, eligible: true, verification_id: "firebase-session" },
+    { success: false, eligible: true, verification_id: "uat-test-phone:abc123" },
+  ])("rejects malformed phone-test eligibility instead of authorizing fallback: %j", async (body) => {
+    mockFetch.mockResolvedValueOnce(jsonResponse(body));
+    expect(await ApiService.startUatPhoneTestVerification("+16505550101", "firebase-id-token")).toEqual({ success: false, eligible: false, reason: "uat_phone_test_start_invalid_response" });
+  });
+
+  it("retains an explicit successful nonallowlisted phone-test fallback", async () => {
+    const body = { success: true, eligible: false, reason: "uat_phone_test_not_configured_or_not_allowlisted" };
+    mockFetch.mockResolvedValueOnce(jsonResponse(body));
+    expect(await ApiService.startUatPhoneTestVerification("+16505550101", "firebase-id-token")).toMatchObject(body);
+  });
+
   it("confirms UAT phone test verification without a Firebase phone token", async () => {
     mockFetch.mockResolvedValueOnce(
       jsonResponse({
@@ -1559,4 +1716,36 @@ describe("ApiService.apiFetch", () => {
     expect(payload.phone_verified).toBe(true);
     expect(payload.identity?.source).toBe("uat_test_phone_claim");
   });
+  it("preserves generic push registration when optional preview storage fails", async () => {
+    previewMocks.prepare.mockRejectedValueOnce(new Error("Key storage unavailable"));
+    mockFetch.mockResolvedValueOnce(jsonResponse({ registered: true }));
+    const result = await ApiService.registerPushToken("synthetic-owner", "fixture-token", "web", makeUnsignedToken({ sub: "synthetic-owner" }), () => true);
+    expect(result.ok).toBe(true);
+    const body = JSON.parse(String(mockFetch.mock.calls[0][1].body));
+    expect(body.device_id).toBe("388b1e4b-25cf-4c63-aed0-281607f3dd9b");
+    expect(body.preview_public_key).toBeUndefined();
+  });
+
+  it("rechecks account ownership after preview preparation before token registration", async () => {
+    let current = true;
+    const prepared = deferred<{ deviceId: string; keyId: string; publicKey: string }>();
+    previewMocks.prepare.mockReturnValueOnce(prepared.promise);
+    const operation = ApiService.registerPushToken("old-owner", "fixture-token", "web", "fixture-id-token", () => current);
+    const rejected = expect(operation).rejects.toThrow("Notification session changed");
+    await vi.waitFor(() => expect(previewMocks.prepare).toHaveBeenCalled());
+    current = false;
+    prepared.resolve({ deviceId: "fixture", keyId: previewMocks.keyId, publicKey: "fixture" });
+    await rejected;
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+
+  it.each(["capabilities", "request", "verify"] as const)(
+    "rejects malformed successful email-auth %s responses", async (action) => {
+      mockFetch.mockResolvedValueOnce(jsonResponse(null));
+      await expect(ApiService.emailAuthRequest(action, action === "capabilities" ? undefined : {
+        challenge_id: "opaque-challenge-reference", browser_binding: "opaque-browser-reference",
+      })).rejects.toMatchObject({ code: "invalid_auth_response" });
+    },
+  );
 });

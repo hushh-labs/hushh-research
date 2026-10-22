@@ -1,6 +1,7 @@
 # hushh_mcp/services/account_service.py
 """Account deletion orchestration for full-account and persona-scoped cleanup."""
 
+import hashlib
 import logging
 import os
 from collections.abc import Iterable
@@ -19,7 +20,11 @@ from hushh_mcp.services.account_deletion_provider_cleanup import (
     release_provider_grants_after_erasure,
     snapshot_provider_credentials_in_transaction,
 )
-from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
+from hushh_mcp.services.account_export_stream import EXPORT_SECTIONS, AccountExportStream
+from hushh_mcp.services.connection_graph_service import (
+    list_connection_graph_viewer_ids,
+    lock_connection_graph_users,
+)
 from hushh_mcp.services.hushh_tech_uat_database_attestation import (
     UAT_DATABASE_ATTESTATION_SQL,
     UAT_INSTANCE,
@@ -87,6 +92,27 @@ class AccountService:
         self._db = None
         self._table_exists_cache: dict[str, bool] = {}
         self._delete_by_user_queries = {
+            "pwm_research_preferences": text(
+                "DELETE FROM pwm_research_preferences WHERE user_id = :user_id"
+            ),
+            "one_adk_sessions": text("DELETE FROM one_adk_sessions WHERE user_id = :user_id"),
+            "one_product_activity_observations": text(
+                "DELETE FROM one_product_activity_observations WHERE user_id=:user_id"
+            ),
+            "one_product_value_receipts": text(
+                "DELETE FROM one_product_value_receipts WHERE user_id=:user_id"
+            ),
+            "one_product_activity_epochs": text(
+                "DELETE FROM one_product_activity_epochs WHERE user_id=:user_id"
+            ),
+            "email_auth_challenges": text(
+                """DELETE FROM email_auth_challenges WHERE expected_uid=:user_id
+                   OR destination_hash IN (SELECT destination_hash FROM email_auth_enrollments
+                                            WHERE user_id=:user_id)"""
+            ),
+            "email_auth_enrollments": text(
+                "DELETE FROM email_auth_enrollments WHERE user_id=:user_id"
+            ),
             "contact_sync_lookup_budgets": text(
                 "DELETE FROM contact_sync_lookup_budgets WHERE user_id = :user_id"
             ),
@@ -107,6 +133,14 @@ class AccountService:
             # actor_profiles row, so the FK cascade alone would leave them behind.
             "one_mcp_pending_calls": text(
                 "DELETE FROM one_mcp_pending_calls WHERE user_id = :user_id"
+            ),
+            # Reset preserves vault_keys, so its FK cascade cannot clear this
+            # pending hosted-memory review. No reviewed intent survives reset.
+            "live_memory_hosted_source_envelopes": text(
+                "DELETE FROM live_memory_hosted_source_envelopes WHERE user_id = :user_id"
+            ),
+            "live_memory_hosted_pilot_grants": text(
+                "DELETE FROM live_memory_hosted_pilot_grants WHERE user_id = :user_id"
             ),
             "agent_chat_messages": text("DELETE FROM agent_chat_messages WHERE user_id = :user_id"),
             "agent_chat_conversations": text(
@@ -245,6 +279,27 @@ class AccountService:
             "marketplace_recipient_keys": text(
                 "DELETE FROM marketplace_recipient_keys WHERE user_id = :user_id"
             ),
+            "wallet_card_access_audit": text(
+                "DELETE FROM wallet_card_access_audit WHERE actor_user_id = :user_id"
+            ),
+            "wallet_card_requests": text(
+                "DELETE FROM wallet_card_requests WHERE requester_user_id = :user_id OR target_user_id = :user_id"
+            ),
+            "wallet_card_access_grants": text(
+                "DELETE FROM wallet_card_access_grants WHERE owner_user_id = :user_id OR recipient_user_id = :user_id"
+            ),
+            "wallet_profile_access_grants": text(
+                "DELETE FROM wallet_profile_access_grants WHERE owner_user_id = :user_id OR recipient_user_id = :user_id"
+            ),
+            "wallet_profile_share_requests": text(
+                "DELETE FROM wallet_profile_share_requests WHERE owner_user_id = :user_id"
+            ),
+            "wallet_card_share_requests": text(
+                "DELETE FROM wallet_card_share_requests WHERE owner_user_id = :user_id"
+            ),
+            "wallet_card_registrations": text(
+                "DELETE FROM wallet_card_registrations WHERE owner_user_id = :user_id"
+            ),
             "pkm_packets": text("DELETE FROM pkm_packets WHERE owner_user_id = :user_id"),
             # A paid, undelivered packet is money owed back to the buyer: move it
             # to refund_pending (the reconcile refunds it, then removes the row)
@@ -269,6 +324,12 @@ class AccountService:
             "pkm_credit_ledger": text("DELETE FROM pkm_credit_ledger WHERE user_id = :user_id"),
             "pkm_owner_payout_accounts": text(
                 "DELETE FROM pkm_owner_payout_accounts WHERE user_id = :user_id"
+            ),
+            "stripe_owner_payout_accounts": text(
+                "DELETE FROM stripe_owner_payout_accounts WHERE user_id = :user_id"
+            ),
+            "drive_request_owner_pricing": text(
+                "DELETE FROM drive_request_owner_pricing WHERE user_id = :user_id"
             ),
             # The Stripe subscription id moves to an identity-free table so the
             # work drain cancels it at Stripe: a deleted person is never billed.
@@ -612,6 +673,9 @@ class AccountService:
                 """
             ),
             "user_push_tokens": text("DELETE FROM user_push_tokens WHERE user_id = :user_id"),
+            "user_push_installations": text(
+                "DELETE FROM user_push_installations WHERE user_id = :user_id"
+            ),
             "circle_chat_messages": text(
                 "DELETE FROM circle_chat_messages WHERE sender_user_id = :user_id"
             ),
@@ -1401,8 +1465,76 @@ class AccountService:
 
         lock_connection_graph_users(conn, user_ids=[user_id])
         erase_drive_account_in_transaction(conn, user_id=user_id, permanent=permanent)
+        owner_hash = "sha256:" + hashlib.sha256(user_id.encode("utf-8")).hexdigest()
+        # Source deletion may have appended a final hint. Reset erases all
+        # hints but advances the surviving cursor watermark, so pre-reset
+        # clients cannot confuse new sequence values with old ones. Full
+        # erasure removes the watermark too; its tombstone blocks recreation.
+        if conn.execute(
+            text("SELECT to_regclass('public.live_memory_connector_events') IS NOT NULL")
+        ).scalar():
+            conn.execute(
+                text("""DELETE FROM public.live_memory_connector_events
+                        WHERE owner_hash=:owner_hash"""),
+                {"owner_hash": owner_hash},
+            )
+        if conn.execute(
+            text("SELECT to_regclass('public.live_memory_connector_streams') IS NOT NULL")
+        ).scalar():
+            if permanent:
+                conn.execute(
+                    text("""DELETE FROM public.live_memory_connector_streams
+                            WHERE owner_hash=:owner_hash"""),
+                    {"owner_hash": owner_hash},
+                )
+            else:
+                conn.execute(
+                    text("""INSERT INTO public.live_memory_connector_streams
+                            (owner_hash, last_sequence, first_retained_sequence)
+                            VALUES (:owner_hash, 1, 2)
+                            ON CONFLICT (owner_hash) DO UPDATE SET
+                              last_sequence=live_memory_connector_streams.last_sequence+1,
+                              first_retained_sequence=live_memory_connector_streams.last_sequence+2,
+                              updated_at=clock_timestamp()"""),
+                    {"owner_hash": owner_hash},
+                )
+        results["live_memory_connector_journal"] = True
         results["external_connectors"] = True
         results["drive_private_data"] = True
+
+    @staticmethod
+    def _clear_live_memory_source_journal(conn, user_id, results, *, permanent):
+        owner_hash = "sha256:" + hashlib.sha256(user_id.encode("utf-8")).hexdigest()
+        if conn.execute(
+            text("SELECT to_regclass('public.live_memory_source_events') IS NOT NULL")
+        ).scalar():
+            conn.execute(
+                text("DELETE FROM public.live_memory_source_events WHERE owner_hash=:owner_hash"),
+                {"owner_hash": owner_hash},
+            )
+        if conn.execute(
+            text("SELECT to_regclass('public.live_memory_source_streams') IS NOT NULL")
+        ).scalar():
+            if permanent:
+                conn.execute(
+                    text(
+                        "DELETE FROM public.live_memory_source_streams WHERE owner_hash=:owner_hash"
+                    ),
+                    {"owner_hash": owner_hash},
+                )
+            else:
+                # Keep a monotonic watermark so a pre-reset cursor must rebuild.
+                conn.execute(
+                    text("""INSERT INTO public.live_memory_source_streams
+                            (owner_hash,last_sequence,first_retained_sequence)
+                            VALUES (:owner_hash,1,2)
+                            ON CONFLICT (owner_hash) DO UPDATE SET
+                              last_sequence=live_memory_source_streams.last_sequence+1,
+                              first_retained_sequence=live_memory_source_streams.last_sequence+2,
+                              updated_at=clock_timestamp()"""),
+                    {"owner_hash": owner_hash},
+                )
+        results["live_memory_source_journal"] = True
 
     def _clear_user_data_tables(self, conn, user_id: str, results: dict[str, bool]) -> None:
         """Clear all per-user data tables EXCEPT the account spine.
@@ -1414,14 +1546,43 @@ class AccountService:
         One identity and vault survive a reset.
         """
         params = {"user_id": user_id}
+        if self._table_exists(conn, "pwm_claim_invitations"):
+            conn.execute(
+                text(
+                    "DELETE FROM pwm_claim_invitations WHERE inviter_user_id=:user_id OR recipient_user_id=:user_id"
+                ),
+                params,
+            )
+            results["pwm_claim_invitations"] = True
         self._clear_external_connector_data(conn, user_id, results, permanent=False)
+        if self._table_exists(conn, "one_product_activity_epochs"):
+            conn.execute(
+                text(
+                    "UPDATE one_product_activity_epochs SET generation=gen_random_uuid(),started_at=NOW() WHERE user_id=:user_id"
+                ),
+                params,
+            )
+            results["one_product_activity_epochs"] = True
         self._delete_optional_user_tables(
             conn,
             table_names=[
+                "pwm_research_preferences",
+                "one_adk_sessions",
+                "one_product_activity_observations",
+                "one_product_value_receipts",
                 "one_action_directive_ledger",
                 "one_mcp_pending_calls",
+                "live_memory_hosted_source_envelopes",
+                "live_memory_hosted_pilot_grants",
                 "agent_chat_messages",
                 "agent_chat_conversations",
+                "wallet_card_access_audit",
+                "wallet_profile_access_grants",
+                "wallet_card_requests",
+                "wallet_card_access_grants",
+                "wallet_profile_share_requests",
+                "wallet_card_share_requests",
+                "wallet_card_registrations",
                 "messages",
                 "conversations",
                 "direct_message_blocks",
@@ -1460,6 +1621,8 @@ class AccountService:
                 "pkm_credit_ledger",
                 "pkm_credit_subscriptions",
                 "pkm_owner_payout_accounts",
+                "stripe_owner_payout_accounts",
+                "drive_request_owner_pricing",
                 "marketplace_opportunity_signals",
                 "trusted_device_challenges",
                 "trusted_device_authorizations",
@@ -1583,6 +1746,9 @@ class AccountService:
         )
         results["internal_access_events"] = True
         self._delete_user_rows_if_table_exists(conn, table_name="user_push_tokens", params=params)
+        self._delete_user_rows_if_table_exists(
+            conn, table_name="user_push_installations", params=params
+        )
         results["push_tokens"] = True
         self._delete_owned_named_circles(
             conn,
@@ -1736,6 +1902,7 @@ class AccountService:
                     },
                 )
                 results["onboarding_reset"] = True
+                self._clear_live_memory_source_journal(conn, user_id, results, permanent=False)
 
             logger.info("✅ ACCOUNT RESET completed for %s", user_id)
             return {
@@ -1836,9 +2003,14 @@ class AccountService:
             "pkm_credit_ledger": False,
             "pkm_credit_subscriptions": False,
             "pkm_owner_payout_accounts": False,
+            "stripe_owner_payout_accounts": False,
+            "drive_request_owner_pricing": False,
             "marketplace_opportunity_signals": False,
             "one_referral_risk_reviews": False,
             "one_referral_events": False,
+            "one_product_activity_observations": False,
+            "one_product_value_receipts": False,
+            "one_product_activity_epochs": False,
             "one_referral_relationships": False,
             "one_referral_attributions": False,
             "one_referral_codes": False,
@@ -1895,6 +2067,7 @@ class AccountService:
         }
 
         provider_credentials = ProviderCredentialSnapshot(user_id=user_id)
+        graph_viewer_ids: set[str] = set()
         try:
             with get_db_connection() as conn:
                 if backend_only:
@@ -1941,13 +2114,39 @@ class AccountService:
                         table_exists=lambda table_name: self._table_exists(conn, table_name),
                     )
                 self._clear_external_connector_data(conn, user_id, results, permanent=True)
+                # The graph writer barrier is held here. Capture survivors
+                # before deleting edges/memberships, then wake them only after
+                # the erasure transaction has successfully committed.
+                graph_viewer_ids = list_connection_graph_viewer_ids(
+                    conn,
+                    user_id=user_id,
+                    include_pending_requests=True,
+                    table_exists=lambda table_name: self._table_exists(conn, table_name),
+                )
+                self._clear_live_memory_source_journal(conn, user_id, results, permanent=True)
                 self._delete_optional_user_tables(
                     conn,
                     table_names=[
+                        "one_adk_sessions",
+                        "one_product_activity_observations",
+                        "one_product_value_receipts",
+                        "one_product_activity_epochs",
+                        # Remove challenge bindings before their enrollment lookup.
+                        "email_auth_challenges",
+                        "email_auth_enrollments",
                         "one_action_directive_ledger",
                         "one_mcp_pending_calls",
+                        "live_memory_hosted_source_envelopes",
+                        "live_memory_hosted_pilot_grants",
                         "agent_chat_messages",
                         "agent_chat_conversations",
+                        "wallet_card_access_audit",
+                        "wallet_profile_access_grants",
+                        "wallet_card_requests",
+                        "wallet_card_access_grants",
+                        "wallet_profile_share_requests",
+                        "wallet_card_share_requests",
+                        "wallet_card_registrations",
                         "messages",
                         "conversations",
                         "direct_message_blocks",
@@ -1979,6 +2178,8 @@ class AccountService:
                         "pkm_credit_ledger",
                         "pkm_credit_subscriptions",
                         "pkm_owner_payout_accounts",
+                        "stripe_owner_payout_accounts",
+                        "drive_request_owner_pricing",
                         "marketplace_opportunity_signals",
                         "trusted_device_challenges",
                         "trusted_device_authorizations",
@@ -2127,6 +2328,9 @@ class AccountService:
                 self._delete_user_rows_if_table_exists(
                     conn, table_name="user_push_tokens", params=params
                 )
+                self._delete_user_rows_if_table_exists(
+                    conn, table_name="user_push_installations", params=params
+                )
                 results["push_tokens"] = True
                 self._delete_owned_named_circles(
                     conn,
@@ -2241,6 +2445,13 @@ class AccountService:
 
         # Outside the erasure try-block on purpose: the deletion has committed,
         # and releasing provider grants is bounded best effort that never raises.
+        if graph_viewer_ids:
+            try:
+                from hushh_mcp.services.connections_service import _notify_connection_graph_changed
+
+                _notify_connection_graph_changed(user_ids=graph_viewer_ids)
+            except Exception:  # a failed doorbell cannot undo committed erasure
+                logger.warning("account.graph_sync_failed", exc_info=True)
         results["provider_grant_release"] = (
             {"status": "preserved_backend_only"}
             if backend_only
@@ -2564,75 +2775,32 @@ class AccountService:
                 "details": results,
             }
 
+    def prepare_export(self, user_id: str) -> AccountExportStream:
+        """Prepare the HTTP export without collecting its encrypted history in RAM."""
+        return AccountExportStream(
+            user_id=user_id,
+            connection_factory=get_db_connection,
+            table_exists=self._table_exists,
+            queries=self._safe_export_queries,
+        ).prepare()
+
     async def export_data(self, user_id: str) -> Dict[str, Any]:
         """
-        Export all user data.
+        Compatibility dictionary export for internal callers.
 
-        Returns a dictionary containing:
-        - Vault Keys (Encrypted)
-        - PKM Index
-        - PKM Data (Encrypted)
-        - Identity (Encrypted)
+        HTTP downloads use prepare_export so retained ciphertext is not materialized.
         """
         try:
             with get_db_connection() as conn:
                 params = {"user_id": user_id}
-                export_payload = {
-                    "actor_profile": self._fetch_optional_single_row(
-                        conn, table_name="actor_profiles", query_name="actor_profile", params=params
-                    ),
-                    "runtime_persona_state": self._fetch_optional_single_row(
-                        conn,
-                        table_name="runtime_persona_state",
-                        query_name="runtime_persona_state",
-                        params=params,
-                    ),
-                    "verified_email_aliases": self._fetch_optional_many_rows(
-                        conn,
-                        table_name="actor_verified_email_aliases",
-                        query_name="verified_email_aliases",
-                        params=params,
-                    ),
-                    "encrypted_vault_keys": self._fetch_optional_many_rows(
-                        conn,
-                        table_name="vault_keys",
-                        query_name="encrypted_vault_keys",
-                        params=params,
-                    ),
-                    "encrypted_pkm_manifests": self._fetch_optional_many_rows(
-                        conn,
-                        table_name="pkm_manifests",
-                        query_name="encrypted_pkm_manifests",
-                        params=params,
-                    ),
-                    "encrypted_pkm_index": self._fetch_optional_many_rows(
-                        conn,
-                        table_name="pkm_index",
-                        query_name="encrypted_pkm_index",
-                        params=params,
-                    ),
-                    "encrypted_pkm_blobs": self._fetch_optional_many_rows(
-                        conn,
-                        table_name="pkm_blobs",
-                        query_name="encrypted_pkm_blobs",
-                        params=params,
-                    ),
-                    "encrypted_pkm_recovery_revisions": self._fetch_optional_many_rows(
-                        conn,
-                        table_name="pkm_domain_revisions",
-                        query_name="encrypted_pkm_recovery_revisions",
-                        params=params,
-                    ),
-                    "encrypted_pkm_recovery_segments": self._fetch_optional_many_rows(
-                        conn,
-                        table_name="pkm_domain_revision_segments",
-                        query_name="encrypted_pkm_recovery_segments",
-                        params=params,
-                    ),
-                    "consent_audit": self._fetch_optional_many_rows(
-                        conn, table_name="consent_audit", query_name="consent_audit", params=params
-                    ),
-                }
+                export_payload = {}
+                for key, table, many in EXPORT_SECTIONS:
+                    fetch = (
+                        self._fetch_optional_many_rows if many else self._fetch_optional_single_row
+                    )
+                    export_payload[key] = fetch(
+                        conn, table_name=table, query_name=key, params=params
+                    )
             return {
                 "success": True,
                 "requested_target": "account",

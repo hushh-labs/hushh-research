@@ -57,14 +57,21 @@ export function createConnectCircleActions({
   }
 
   return {
-    createCircle: (name: string, kind: OneLocationCircleKind) =>
+    createCircle: (name: string, kind: OneLocationCircleKind, existingCircleId?: string, customTypeLabel?: string) =>
       guard("Could not create the Circle.", async () => {
-        const circle = await OneLocationService.createNamedCircle({
+        const circle = existingCircleId ? await OneLocationService.updateNamedCircle({
+          vaultOwnerToken,
+          circleId: existingCircleId,
+          name,
+          kind,
+          ...(customTypeLabel ? { customTypeLabel } : {}),
+        }) : await OneLocationService.createNamedCircle({
           vaultOwnerToken,
           name,
           kind,
+          ...(customTypeLabel ? { customTypeLabel } : {}),
         });
-        toast.success(`${circle.name} created.`);
+        toast.success(existingCircleId ? "Circle updated." : `${circle.name} created.`);
         return circle;
       }),
 
@@ -158,18 +165,14 @@ export function createConnectCircleActions({
         }),
       ),
 
-    inviteConnections: (circleId: string, inviteeUserIds: string[]) =>
+    inviteConnections: (circleId: string, inviteeUserIds: string[], notify = true) =>
       guard("Could not add those people.", async () => {
         const added = await OneLocationService.createNamedCircleMemberInvites({
           vaultOwnerToken,
           circleId,
           inviteeUserIds,
         });
-        toast.success(
-          inviteeUserIds.length === 1
-            ? "Added to the Circle."
-            : `${inviteeUserIds.length} people added.`,
-        );
+        if (notify) toast.success("Circle members updated.");
         return added;
       }),
 
@@ -191,10 +194,10 @@ export function createConnectCircleActions({
         toast.success("Removed from the Circle.");
       }),
 
-    leaveCircle: (circleId: string) =>
+    leaveCircle: (circleId: string, notify = true) =>
       guard("Could not leave the Circle.", async () => {
         await OneLocationService.leaveNamedCircle({ vaultOwnerToken, circleId });
-        toast.success("You left the Circle.");
+        if (notify) toast.success("You left the Circle.");
       }),
 
     copyCode: async (code: string) => {
@@ -231,13 +234,13 @@ export function createConnectCircleActions({
       }
     },
 
-    deleteCircle: (circleId: string) =>
+    deleteCircle: (circleId: string, notify = true) =>
       guard("Could not delete the Circle.", async () => {
         await OneLocationService.deleteNamedCircle({
           vaultOwnerToken,
           circleId,
         });
-        toast.success("Circle deleted.");
+        if (notify) toast.success("Circle deleted.");
       }),
   };
 }

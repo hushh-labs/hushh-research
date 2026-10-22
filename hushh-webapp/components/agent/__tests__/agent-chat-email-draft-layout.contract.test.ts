@@ -17,8 +17,7 @@ describe("Agent Chat email draft layout contract", () => {
     );
     expect(source).toContain("openGmailEmailDraftFromDirective");
     expect(source).toContain('event.raw.toolName !== "open_gmail_email_draft"');
-    expect(source).toContain("setEmailDraftAutoDraft(!payload.initialDraft);");
-    expect(source).toContain("initialDraft: body");
+    expect(source).toContain("setEmailDraftAutoDraft(!payload.initialDraft?.body);");
     expect(source).toContain("getGmailInformationRequestReplyPayload");
     expect(source).toContain('event.raw.toolName !== "open_gmail_information_request_reply"');
     expect(source).toContain(
@@ -73,9 +72,9 @@ describe("Agent Chat email draft layout contract", () => {
     );
     // Voice turns do not carry the draft, so voice still waits on the card.
     expect(block("const canToggleVoice =", ";")).toContain("!emailDraftOpen");
-    // The follow-up turn carries the draft as it is on screen, edits included.
+    // Ordinary follow-ups carry the current draft; meeting turns must not borrow Mail context.
     expect(source).toContain("onDraftChange={handleEmailDraftChange}");
-    expect(source).toContain("pendingEmailDraft: pendingEmailDraftFrameRef.current");
+    expect(source).toContain("pendingEmailDraft: !options.calendarMeeting && pendingEmailDraftFrameRef.current");
     expect(source).toContain("emailDraftCardValueRef.current,");
     // A revision is not a confirmed KYC save.
     expect(source).toContain(

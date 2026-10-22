@@ -191,3 +191,97 @@ def test_information_scope_catalog_matches_token_scope_grammar():
             "sensitivity": "standard",
         },
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "posture,enabled,state,count,visible,internal,eligible",
+    [
+        ("consent_required", True, "materialized", 1, True, False, True),
+        ("private", True, "materialized", 1, True, False, False),
+        ("consent_required", False, "materialized", 1, True, False, False),
+        ("consent_required", True, "empty", 0, True, False, False),
+        ("consent_required", True, "materialized", 1, False, False, False),
+        ("consent_required", True, "materialized", 1, True, True, False),
+    ],
+)
+async def test_answer_catalog_maps_opaque_registry_authority(
+    monkeypatch, posture, enabled, state, count, visible, internal, eligible
+):
+    from hushh_mcp.consent.answer_scope_resolution import validate_resolved_scopes
+    from hushh_mcp.services import connections_service
+    from hushh_mcp.services.answer_scope_resolver import AnswerScopeResolver
+    from hushh_mcp.services.pkm_answer_request_service import PkmAnswerRequestService
+
+    owner, requester = "synthetic-owner", "synthetic-requester"
+    opaque, scope = "s_0123456789ab", "attr.travel.trips.destination"
+    projection = {
+        "top_level_scope_path": "trips",
+        "materialization_state": state,
+        "materialized_leaf_count": count,
+        "consumer_visible": visible,
+        "internal_only": internal,
+    }
+    generator = DynamicScopeGenerator()
+    generator._db = _FakeDb(
+        {
+            "pkm_index": [{"available_domains": ["travel"]}],
+            "pkm_manifests": [
+                {
+                    "domain": "travel",
+                    "top_level_scope_paths": ["trips"],
+                    "externalizable_paths": ["trips.destination"],
+                    "manifest_version": 2,
+                    "summary_projection": {
+                        "scope_materialization": {
+                            "trips": {"state": state, "materialized_leaf_count": count}
+                        }
+                    },
+                }
+            ],
+            "pkm_manifest_paths": [
+                {
+                    "domain": "travel",
+                    "json_path": "trips.destination",
+                    "path_type": "leaf",
+                    "exposure_eligibility": True,
+                    "segment_id": "trips",
+                    "consent_label": "Destination",
+                    "scope_handle": opaque,
+                }
+            ],
+            "pkm_scope_registry": [
+                {
+                    "domain": "travel",
+                    "scope_handle": opaque,
+                    "scope_label": "Trips",
+                    "exposure_enabled": enabled,
+                    "visibility_posture": posture,
+                    "summary_projection": projection,
+                    "manifest_version": 2,
+                }
+            ],
+        }
+    )
+    entries = await generator.get_available_scope_entries(owner)
+    monkeypatch.setattr(
+        connections_service,
+        "_default_scope_entries_lookup",
+        lambda subject: entries if subject == owner else [],
+    )
+    service = PkmAnswerRequestService(db=object())
+    catalog = await service._catalog(requester, owner)
+    offered = [entry["scope"] for entry in catalog]
+    assert (scope in offered) is eligible
+    assert opaque not in offered
+    assert all(value.startswith("attr.") for value in offered)
+
+    async def runner(_prompt):
+        return {"scopes": [scope]}
+
+    proposed = await AnswerScopeResolver(runner=runner).propose_scopes(
+        question="Where did you travel?", candidate_scopes=offered
+    )
+    assert validate_resolved_scopes(proposed, owner_catalog=offered).accepted == (
+        (scope,) if eligible else ()
+    )

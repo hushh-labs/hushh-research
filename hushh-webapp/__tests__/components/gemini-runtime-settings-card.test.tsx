@@ -1,7 +1,7 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
+import { GeminiRuntimeSettingsCard, useGeminiRuntimeSettingsModel } from "@/components/connections/gemini-runtime-settings-card";
 
 const {
   validateGeminiRuntimeCredentialMock,
@@ -105,6 +105,22 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     await waitFor(() => expect(onCanContinueChange).toHaveBeenLastCalledWith(false));
     expect(screen.getAllByRole("radio")[1].getAttribute("aria-checked")).toBe("true");
     expect(screen.getByLabelText("Gemini API key")).toBeTruthy();
+  });
+
+  it("resumes a saved BYOK setup choice only after reading the encrypted key", async () => {
+    loadRuntimeSecretMock.mockImplementation(async ({ credentialRef }) =>
+      credentialRef.endsWith("credential_mode") ? "byok" :
+      credentialRef.endsWith("gemini_api_key") ? "fixture-key" : null);
+    const onCanContinueChange = vi.fn();
+    render(<GeminiRuntimeSettingsCard userId="fixture" vaultKey="fixture"
+      vaultOwnerToken="fixture" needsVaultCreation={false} needsUnlock={false}
+      onRequestVaultUnlock={vi.fn()} onRequestVaultCreation={vi.fn()}
+      requiresExplicitSelection initiallyConfigured={false}
+      initialSetupChoice="byok_pending_vault"
+      onCanContinueChange={onCanContinueChange} />);
+
+    await waitFor(() => expect(onCanContinueChange).toHaveBeenLastCalledWith(true));
+    expect(screen.getAllByRole("radio")[1]).toHaveAttribute("aria-checked", "true");
   });
 
   it("keeps the radio selection aligned after removing a saved key", async () => {
@@ -344,6 +360,100 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     await waitFor(() => expect(readiness).toHaveBeenLastCalledWith(true));
     fireEvent.change(key, { target: { value: "changed-key" } });
     expect(readiness).toHaveBeenLastCalledWith(false);
+  });
+
+  it("retires the private key draft and pending validation when its owner changes", async () => {
+    let finish!: () => void;
+    validateGeminiRuntimeCredentialMock.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+    const props = { needsVaultCreation: false, needsUnlock: false, onRequestVaultUnlock: vi.fn(), onRequestVaultCreation: vi.fn() };
+    const view = render(<GeminiRuntimeSettingsCard {...props} userId="owner-a" vaultKey="fixture-key-a" vaultOwnerToken="fixture-token-a" />);
+    await act(async () => undefined);
+    fireEvent.click(screen.getByTestId("profile-byok-runtime").querySelector("button")!);
+    fireEvent.change(screen.getByLabelText("Gemini API key"), { target: { value: "synthetic-owner-a-key" } });
+    fireEvent.click(screen.getByRole("button", { name: "Validate key" }));
+    view.rerender(<GeminiRuntimeSettingsCard {...props} userId="owner-a" vaultKey="fixture-key-a" vaultOwnerToken="fixture-token-b" />);
+    await act(async () => undefined);
+    fireEvent.click(screen.getByTestId("profile-byok-runtime").querySelector("button")!);
+    expect(screen.getByLabelText("Gemini API key")).toHaveValue("");
+    await act(async () => { finish(); });
+    expect(screen.queryByRole("button", { name: "Confirm and save" })).toBeNull();
+    expect(storeRuntimeSecretMock).not.toHaveBeenCalled();
+  });
+
+  it("does not continue a multi-write save or publish its outcome after its owner retires", async () => {
+    let finish!: (value: { success: boolean }) => void;
+    storeRuntimeSecretMock.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const props = { needsVaultCreation: false, needsUnlock: false, onRequestVaultUnlock: vi.fn(), onRequestVaultCreation: vi.fn() };
+    const view = render(<GeminiRuntimeSettingsCard {...props} userId="owner-a" vaultKey="fixture-key-a" vaultOwnerToken="fixture-token-a" />);
+    await act(async () => undefined);
+    fireEvent.click(screen.getByTestId("profile-byok-runtime").querySelector("button")!);
+    fireEvent.change(screen.getByLabelText("Gemini API key"), { target: { value: "synthetic-owner-a-key" } });
+    fireEvent.click(screen.getByRole("button", { name: "Validate key" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm and save" }));
+    expect(storeRuntimeSecretMock).toHaveBeenCalledTimes(1);
+    view.rerender(<GeminiRuntimeSettingsCard {...props} userId="owner-b" vaultKey="fixture-key-b" vaultOwnerToken="fixture-token-b" />);
+    await act(async () => { finish({ success: true }); });
+    expect(storeRuntimeSecretMock).toHaveBeenCalledTimes(1);
+    expect(removeRuntimeSecretMock).not.toHaveBeenCalled();
+    expect(toastSuccessMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps a delayed saved configuration from changing the tuple that was just validated", async () => {
+    const props = { userId: "owner-a", vaultKey: "fixture-key", vaultOwnerToken: "fixture-token", needsVaultCreation: false,
+      needsUnlock: false, onRequestVaultUnlock: vi.fn(), onRequestVaultCreation: vi.fn() };
+    const hook = renderHook(() => useGeminiRuntimeSettingsModel(props));
+    await act(async () => undefined);
+    await act(async () => { await hook.result.current.selectByok(); });
+    act(() => hook.result.current.setDraftKey("synthetic-current-key"));
+    let finish!: () => void;
+    const pending = new Promise<void>(resolve => { finish = resolve; });
+    loadRuntimeSecretMock.mockImplementation(async ({ credentialRef }) => { await pending;
+      return credentialRef.endsWith("credential_mode") ? "byok" : credentialRef.endsWith("gemini_transport") ? "vertex_api_key" : "stale-saved-value";
+    });
+    let read!: Promise<void>;
+    act(() => { read = hook.result.current.refresh(); });
+    await act(async () => { expect(await hook.result.current.validateByok()).toBe(true); });
+    await act(async () => { finish(); await read; });
+    expect(hook.result.current.transport).toBe("developer_api");
+    expect(hook.result.current.credentialValidation.status).toBe("ready");
+    expect(storeRuntimeSecretMock).not.toHaveBeenCalled();
+  });
+
+  it("reconciles final native input only into its unchanged original draft", async () => {
+    const props = { userId: "owner-a", vaultKey: "fixture-key", needsVaultCreation: false, needsUnlock: false,
+      onRequestVaultUnlock: vi.fn(), onRequestVaultCreation: vi.fn() };
+    const hook = renderHook(({ token }) => useGeminiRuntimeSettingsModel({ ...props, vaultOwnerToken: token }), { initialProps: { token: "token-a" } });
+    await act(async () => undefined);
+    act(() => hook.result.current.setDraftKey("synthetic-original-key"));
+    const revision = hook.result.current.inputRevision();
+    const final = { credential: "synthetic-final-key", transport: "developer_api" as const, project: "", location: "global" };
+    act(() => { expect(hook.result.current.reconcileFinalDraft(final, revision)).toBe(true); });
+    expect(hook.result.current.draftKey).toBe(final.credential);
+    act(() => hook.result.current.setDraftKey("synthetic-newer-key"));
+    act(() => { expect(hook.result.current.reconcileFinalDraft(final, revision)).toBe(false); });
+    expect(hook.result.current.draftKey).toBe("synthetic-newer-key");
+    const retired = hook.result.current;
+    hook.rerender({ token: "token-b" });
+    act(() => { expect(retired.reconcileFinalDraft(final, retired.inputRevision())).toBe(false); });
+    expect(hook.result.current.draftKey).toBe("");
+    expect(storeRuntimeSecretMock).not.toHaveBeenCalled(); expect(validateGeminiRuntimeCredentialMock).not.toHaveBeenCalled();
+  });
+
+  it("cancels a nonmutating key check without allowing its late result to restore readiness", async () => {
+    let finish!: () => void;
+    validateGeminiRuntimeCredentialMock.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+    const hook = renderHook(() => useGeminiRuntimeSettingsModel({ userId: "owner-a", vaultKey: "fixture-key", vaultOwnerToken: "fixture-token",
+      needsVaultCreation: false, needsUnlock: false, onRequestVaultUnlock: vi.fn(), onRequestVaultCreation: vi.fn() }));
+    await act(async () => undefined);
+    act(() => hook.result.current.setDraftKey("synthetic-key"));
+    let validation!: Promise<boolean>;
+    act(() => { validation = hook.result.current.validateByok(); });
+    expect(hook.result.current.mutationPending()).toBe(false);
+    act(() => hook.result.current.cancelEdit());
+    expect(hook.result.current.draftKey).toBe("");
+    await act(async () => { finish(); expect(await validation).toBe(false); });
+    expect(hook.result.current.credentialValidation.status).toBe("idle");
+    expect(storeRuntimeSecretMock).not.toHaveBeenCalled();
   });
 
 });

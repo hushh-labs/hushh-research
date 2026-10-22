@@ -12,23 +12,42 @@ python3 scripts/ci/verify-protected-pipeline-edits.py
 python3 scripts/ci/verify-protected-pipeline-edits.py --self-test
 python3 scripts/ci/verify-protected-behavior-tests.py
 python3 scripts/ci/verify-protected-behavior-tests.py --self-test
+python3 scripts/ci/live-memory-source-gate.py
+python3 scripts/ci/live-memory-source-gate.py --self-test
 python3 scripts/ci/verify-pr-base-policy.py --self-test
 python3 scripts/ci/verify-queue-entry-reuses-pr-validation.py --self-test
 python3 scripts/ci/verify-branch-governance-doc-consistency.py
 python3 scripts/ci/verify-branch-governance-doc-consistency.py --self-test
 python3 scripts/ci/test_verify_deployment_environment_governance.py
+python3 scripts/ci/test_release_cadence.py
 python3 scripts/ci/test_apply_governance_teams.py
 python3 scripts/ci/test_resolve_deploy_scope.py
+python3 scripts/ci/test_cloudrun_retention.py
+python3 scripts/ci/test_uat_per_revision_drain.py
+python3 scripts/ci/test_pending_uat_retention_state.py
+python3 scripts/ci/test_wait_uat_capacity.py
+python3 scripts/ci/test_runtime_capacity_budget.py
+python3 scripts/ci/test_production_capacity_bridge.py
+python3 scripts/ci/test_verify_passkey_domain_associations.py
 python3 scripts/ci/test_verify_prod_places_readiness.py
 python3 scripts/ci/test_resolve_uat_verification_plan.py
 python3 scripts/ci/test_change_aware_verification_wiring.py
+# Base Freshness Gate is bounded on PRs into main; this proves it still blocks
+# a stale merge-base or a file main changed after the tested base, and that
+# block mode (merge queue, integration/pr-train) still fails any lag.
+python3 scripts/ci/test_check_main_sync.py
 # The web lanes run as matrices (targeted node/browser legs, Vitest shards);
 # this proves the split still runs every pack, shard and verifier exactly once.
+python3 scripts/ci/test_ui_contract_gate.py
 python3 scripts/ci/test_web_ci_lane_partition.py
 python3 scripts/ci/test_pkm_upgrade_gate_scope.py
 python3 scripts/ci/test_private_native_artifact.py
 node --test scripts/release/dispatch-ios-appstore.test.mjs
+node --test scripts/release/dispatch-android-playstore.test.mjs
 python3 scripts/ci/test_resolve_ios_build_number.py
+# PR Validation only restores the Next.js and Swift package caches; main saves
+# them under the keys the PR lanes look up.
+python3 scripts/ci/test_ci_cache_scopes.py
 ./bin/hushh docs verify
 ./bin/hushh codex data-model-audit
 python3 scripts/ops/generate_runtime_topology_index.py --check

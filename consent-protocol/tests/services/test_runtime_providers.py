@@ -9,6 +9,7 @@ path.
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import time
 import types
@@ -19,6 +20,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from hushh_mcp.runtime_providers import (
+    ManagedGeminiRuntimeBinding,
+    bind_managed_vertex_project,
     build_managed_gemini_adk_model,
     build_managed_runtime_client,
     build_runtime_client,
@@ -307,6 +310,81 @@ def test_factory_managed_adc_separates_vertex_project_from_native_project(monkey
     ]
 
 
+def test_factory_chat_vertex_override_keeps_other_managed_callers_on_fleet_project(monkeypatch):
+    from hushh_mcp.runtime_providers import build_managed_regional_gemini_adk_model
+
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", "hushh-vertex-personal54")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
+    monkeypatch.setenv("HUSHH_VERTEX_LOCATIONS", "global")
+
+    chat_model = build_managed_regional_gemini_adk_model(
+        "gemini-default", vertex_project="hussh-511311"
+    )
+    other_model = build_managed_regional_gemini_adk_model("gemini-default")
+
+    assert chat_model.client_kwargs["project"] == "hussh-511311"
+    assert other_model.client_kwargs["project"] == "hushh-vertex-personal54"
+    assert chat_model.client_kwargs["vertexai"] is True
+    assert "api_key" not in chat_model.client_kwargs
+
+
+@pytest.mark.asyncio
+async def test_scoped_managed_vertex_project_is_isolated_across_concurrent_calls(monkeypatch):
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", "hushh-vertex-personal54")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
+
+    async def resolve(project: str) -> str:
+        with bind_managed_vertex_project(project):
+            await asyncio.sleep(0)
+            assert ManagedGeminiRuntimeBinding.from_environment().project == project
+            # An explicit model binding remains authoritative inside the scope.
+            assert (
+                ManagedGeminiRuntimeBinding.from_environment(
+                    vertex_project="explicit-project"
+                ).project
+                == "explicit-project"
+            )
+            await asyncio.sleep(0)
+            return ManagedGeminiRuntimeBinding.from_environment().project
+
+    projects = await asyncio.gather(resolve("hussh-511311"), resolve("second-chat-project"))
+    assert projects == ["hussh-511311", "second-chat-project"]
+    assert ManagedGeminiRuntimeBinding.from_environment().project == "hushh-vertex-personal54"
+
+
+def test_scoped_managed_vertex_project_resets_after_error_and_does_not_change_byok(monkeypatch):
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", "hushh-vertex-personal54")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
+    calls: list[dict] = []
+    monkeypatch.setattr("google.genai.Client", lambda **kwargs: calls.append(kwargs))
+
+    with pytest.raises(RuntimeError, match="synthetic"):
+        with bind_managed_vertex_project("hussh-511311"):
+            build_runtime_client("gemini", "test-byok-key")
+            raise RuntimeError("synthetic")
+
+    assert calls == [{"vertexai": False, "api_key": "test-byok-key"}]
+    assert ManagedGeminiRuntimeBinding.from_environment().project == "hushh-vertex-personal54"
+
+
+def test_factory_chat_vertex_override_rejects_invalid_project_and_developer_mode(monkeypatch):
+    from hushh_mcp.runtime_providers import build_managed_regional_gemini_adk_model
+
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    with pytest.raises(ValueError, match="project override is invalid"):
+        build_managed_regional_gemini_adk_model(
+            "gemini-default", vertex_project="https://wrong.example"
+        )
+
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "developer_api_key")
+    with pytest.raises(RuntimeError, match="requires Vertex ADC"):
+        build_managed_regional_gemini_adk_model("gemini-default", vertex_project="hussh-511311")
+
+
 def test_factory_builds_google_cloud_vertex_api_key_transport(monkeypatch):
     calls: list[dict] = []
 
@@ -588,46 +666,30 @@ def test_factory_developer_api_key_mode_is_explicit_and_local_only(monkeypatch):
     assert calls == [{"vertexai": False, "api_key": "LOCAL_DEVELOPER_KEY"}]
 
 
-def test_factory_rejects_developer_api_key_mode_in_hosted_environment(monkeypatch):
+@pytest.mark.parametrize(
+    "environment,project",
+    [("uat", "hushh-gemini-bridge"), ("production", "hushh-gemini-bridge")],
+)
+def test_hosted_factory_uses_checked_in_profile_even_with_stale_environment(
+    monkeypatch, environment, project
+):
+    calls = []
     monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "developer_api_key")
     monkeypatch.setenv("GOOGLE_API_KEY", "HOSTED_KEY_MUST_NOT_BE_USED")
-    monkeypatch.setenv("ENVIRONMENT", "uat")
-
-    with pytest.raises(RuntimeError, match="Hosted Gemini runtimes must use Vertex ADC"):
-        build_managed_runtime_client("gemini")
-
-
-def test_factory_hosted_adc_requires_explicit_vertex_contract(monkeypatch):
-    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
-    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", "stale-project")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "stale-region")
     monkeypatch.delenv("GOOGLE_GENAI_USE_VERTEXAI", raising=False)
-    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-test")
-    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
+    monkeypatch.setattr("google.genai.Client", lambda **kwargs: calls.append(kwargs) or object())
+    client = build_managed_runtime_client("gemini")
+    if environment == "uat":
+        from hushh_mcp.runtime_providers.managed_azure_text import ManagedAzureTextClient
 
-    with pytest.raises(RuntimeError, match="GOOGLE_GENAI_USE_VERTEXAI=true"):
-        build_managed_runtime_client("gemini")
-
-
-def test_factory_hosted_adc_requires_project_and_location(monkeypatch):
-    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
-    monkeypatch.setenv("ENVIRONMENT", "uat")
-    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
-    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
-    monkeypatch.delenv("GCP_PROJECT", raising=False)
-    monkeypatch.delenv("GOOGLE_PROJECT", raising=False)
-    monkeypatch.delenv("GCLOUD_PROJECT", raising=False)
-    monkeypatch.delenv("VERTEX_PROJECT_ID", raising=False)
-
-    with pytest.raises(RuntimeError, match="GOOGLE_CLOUD_PROJECT"):
-        build_managed_runtime_client("gemini")
-
-    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-test")
-    monkeypatch.delenv("GOOGLE_CLOUD_LOCATION", raising=False)
-    monkeypatch.delenv("GCP_LOCATION", raising=False)
-    monkeypatch.delenv("VERTEX_LOCATION", raising=False)
-
-    with pytest.raises(RuntimeError, match="GOOGLE_CLOUD_LOCATION"):
-        build_managed_runtime_client("gemini")
+        assert isinstance(client, ManagedAzureTextClient)
+        assert calls == []  # Hosted API keys and stale Vertex configuration cannot capture UAT.
+    else:
+        assert calls == [{"vertexai": True, "project": project, "location": "global"}]
 
 
 def test_factory_grok_uses_openai_transport_with_base_url(monkeypatch):

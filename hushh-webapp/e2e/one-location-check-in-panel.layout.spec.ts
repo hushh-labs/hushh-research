@@ -184,15 +184,8 @@ async function buildStylesheet(candidates: string[]): Promise<string> {
 }
 
 async function buildFixture(name: string, body: string, candidates: string[]) {
-  const webappRoot = process.cwd();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
-
-  let css = await buildStylesheet(candidates);
-  const fontSource = path.join(webappRoot, "public/fonts/Inter");
-  if (fs.existsSync(fontSource)) {
-    fs.cpSync(fontSource, path.join(dir, "fonts/Inter"), { recursive: true });
-    css = css.replace(/url\(["']?\/fonts\//g, 'url("./fonts/');
-  }
+  const css = await buildStylesheet(candidates);
 
   fs.writeFileSync(path.join(dir, "fixture.css"), css);
   fs.writeFileSync(
@@ -425,7 +418,7 @@ test.describe("Check-in drawer typography has one semantic ladder", () => {
         };
       });
 
-      expect(type.h1).toMatchObject({ size: 28, line: 34, weight: 700 });
+      expect(type.h1).toMatchObject({ size: 24, line: 30, weight: 600 });
       expect(type.h2).toMatchObject({ size: 20, line: 25, weight: 600 });
       expect(type.h3).toMatchObject({ size: 17, line: 22, weight: 600 });
       expect(type.h1.size).toBeGreaterThan(type.h2.size);

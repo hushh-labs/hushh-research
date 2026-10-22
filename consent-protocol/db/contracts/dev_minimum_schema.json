@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 281,
+  "expected_migration_version": 369,
   "migration_version_policy": "minimum",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -10,7 +10,6 @@
     "resolve_feed_counterpart_user_id",
     "populate_feed_counterpart_identity",
     "merge_pkm_domain_summary",
-    "remove_domain_summary_key",
     "upsert_pkm_data_blob",
     "auto_register_domain",
     "get_user_pkm_metadata",
@@ -36,13 +35,16 @@
     "clear_location_presence_rating_visit",
     "preserve_active_location_rating_visit",
     "require_active_direct_message_connection",
+    "guard_direct_message_attachment_write",
     "guard_direct_message_block_write",
     "guard_direct_message_conversation_write",
     "guard_direct_message_message_write",
+    "guard_direct_message_reaction_write",
     "touch_direct_message_conversation",
     "notify_direct_message_recipient",
     "project_direct_message_feed_event",
     "remove_direct_message_feed_event",
+    "record_circle_chat_membership_event",
     "circle_chat_membership_ended",
     "circle_chat_recipient_deleted",
     "circle_chat_circle_deleted",
@@ -51,7 +53,46 @@
     "feed_from_agent_outcome",
     "feed_from_bulk_share_outcome",
     "pkm_grant_credits",
-    "pkm_spend_credits"
+    "pkm_spend_credits",
+    "bump_gmail_send_grant_generation",
+    "notify_document_request_feed_changed",
+    "queue_direct_message_push",
+    "reconcile_legacy_push_owner",
+    "erase_tombstoned_push_registrations",
+    "restore_legacy_push_projection",
+    "preserve_drive_owner_delivery_basis",
+    "preserve_drive_request_owner_payout",
+    "notify_document_owner_earning_changed",
+    "mirror_drive_request_stripe_mode",
+    "bind_stripe_checkout_mode",
+    "bind_drive_settlement_method",
+    "guard_hashcoin_direct_transfer",
+    "reject_hashcoin_ledger_mutation",
+    "detach_hashcoin_wallet_owner",
+    "guard_hashcoin_redemption",
+    "activate_reserved_wallet_cards",
+    "remove_wallet_card_registrations",
+    "guard_wallet_card_access_grant",
+    "notify_pkm_answer_changed",
+    "notify_feed_changed",
+    "stamp_drive_owner_payout_held_at",
+    "invalidate_drive_collection_sync",
+    "invalidate_drive_packet_sources",
+    "pwm_completion_feed_projection",
+    "append_live_memory_connector_event",
+    "erase_live_memory_connector_journal_on_root_delete",
+    "erase_hosted_source_envelope_on_grant_change",
+    "append_live_memory_source_hint",
+    "capture_live_memory_source_hint",
+    "erase_live_memory_source_journal_on_root_delete",
+    "one_referral_bind_network",
+    "one_referral_record_completed_reply",
+    "one_referral_rebuild_network",
+    "one_referral_record_confirmed_memory_reward",
+    "guard_wallet_card_request",
+    "mirror_drive_request_payment_obligation",
+    "mark_drive_bulk_share_v1_removal_source",
+    "queue_system_push"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -162,6 +203,31 @@
       "created_at",
       "completed_at"
     ],
+    "calendar_attendance_reviews": [
+      "review_id",
+      "user_id",
+      "state",
+      "result_json",
+      "expires_at",
+      "created_at"
+    ],
+    "chat_push_device_deliveries": [
+      "event_id",
+      "device_id",
+      "recipient_user_id",
+      "direct_message_id",
+      "circle_message_id",
+      "accepted_at"
+    ],
+    "circle_chat_membership_events": [
+      "id",
+      "circle_id",
+      "kind",
+      "subject_user_id",
+      "actor_user_id",
+      "batch_id",
+      "created_at"
+    ],
     "circle_chat_messages": [
       "original_recipient_count",
       "id",
@@ -174,12 +240,23 @@
       "image_ciphertext",
       "image_iv",
       "request_digest",
-      "created_at"
+      "created_at",
+      "notification_previews",
+      "reply_to_message_id",
+      "revision",
+      "edited_at",
+      "deleted_for_everyone_at"
     ],
     "circle_chat_preferences": [
       "circle_id",
       "user_id",
       "muted"
+    ],
+    "circle_chat_reactions": [
+      "message_id",
+      "user_id",
+      "emoji",
+      "created_at"
     ],
     "circle_chat_recipients": [
       "message_id",
@@ -191,7 +268,8 @@
       "feed_event_id",
       "push_status",
       "push_attempts",
-      "push_due_at"
+      "push_due_at",
+      "deleted_at"
     ],
     "connected_documents": [
       "document_id",
@@ -215,7 +293,12 @@
       "processing_disclosure_version",
       "processing_accepted_at",
       "processing_revision",
-      "last_checked_at"
+      "last_checked_at",
+      "source_profile",
+      "collection_revision",
+      "collection_seen_epoch",
+      "source_changed_at",
+      "last_index_duration_ms"
     ],
     "connected_system_audit_events": [
       "event_id",
@@ -428,11 +511,33 @@
       "revoked_at",
       "last_used_at"
     ],
+    "direct_message_attachments": [
+      "message_id",
+      "ciphertext",
+      "iv",
+      "content_digest",
+      "size_bytes",
+      "created_at"
+    ],
     "direct_message_blocks": [
       "id",
       "blocker_user_id",
       "blocked_user_id",
       "created_at"
+    ],
+    "direct_message_push_outbox": [
+      "message_id",
+      "recipient_user_id",
+      "status",
+      "attempts",
+      "due_at"
+    ],
+    "direct_message_reactions": [
+      "message_id",
+      "user_id",
+      "emoji",
+      "created_at",
+      "updated_at"
     ],
     "directory_listing_claims": [
       "id",
@@ -516,7 +621,86 @@
       "stopped_at",
       "created_at",
       "updated_at",
-      "expires_at"
+      "expires_at",
+      "v1_statement_search"
+    ],
+    "drive_collection_sync": [
+      "user_id",
+      "connector_id",
+      "connection_generation",
+      "processing_enabled",
+      "disclosure_version",
+      "revision",
+      "phase",
+      "checkpoint_envelope",
+      "lease_id",
+      "lease_expires_at",
+      "next_at",
+      "attempt_count",
+      "last_error_code",
+      "incomplete_search",
+      "initial_started_at",
+      "initial_completed_at",
+      "last_synced_at",
+      "last_indexed_at",
+      "sync_duration_ms",
+      "updated_at",
+      "semantic_initial_completed_at"
+    ],
+    "drive_document_extractions": [
+      "document_id",
+      "user_id",
+      "connection_generation",
+      "source_version",
+      "extraction_version",
+      "extraction_profile",
+      "next_page",
+      "total_pages",
+      "complete",
+      "has_gaps",
+      "unit_kind",
+      "engine_versions",
+      "created_at",
+      "updated_at",
+      "completed_at"
+    ],
+    "drive_document_fact_pages": [
+      "document_id",
+      "user_id",
+      "source_version",
+      "extraction_profile",
+      "facts_profile",
+      "first_page",
+      "last_page",
+      "evidence_envelope"
+    ],
+    "drive_document_facts": [
+      "document_id",
+      "user_id",
+      "connection_generation",
+      "source_version",
+      "extraction_profile",
+      "extraction_version",
+      "facts_profile",
+      "facts_version",
+      "status",
+      "after_page",
+      "facts_envelope",
+      "has_gaps",
+      "lease_id",
+      "lease_expires_at",
+      "attempts",
+      "next_at",
+      "error_code",
+      "created_at",
+      "updated_at",
+      "completed_at"
+    ],
+    "drive_document_pages": [
+      "document_id",
+      "extraction_version",
+      "page_number",
+      "content_envelope"
     ],
     "drive_document_rules": [
       "rule_id",
@@ -600,14 +784,21 @@
       "error_code",
       "created_at",
       "updated_at",
-      "expires_at"
+      "expires_at",
+      "evaluation_status",
+      "evaluation_next_at",
+      "evaluation_attempts",
+      "evaluation_error_code",
+      "v1_statement_search"
     ],
     "drive_owner_search_results": [
       "job_id",
       "user_id",
       "position",
       "file_digest",
-      "metadata_envelope"
+      "metadata_envelope",
+      "evaluation_envelope",
+      "evaluated_at"
     ],
     "drive_owner_shares": [
       "request_id",
@@ -621,6 +812,66 @@
       "created_at",
       "updated_at",
       "expires_at"
+    ],
+    "drive_packet_heads": [
+      "packet_id",
+      "user_id",
+      "connector_id",
+      "connection_generation",
+      "key_fingerprint",
+      "key_envelope",
+      "revision",
+      "current_version",
+      "dirty",
+      "awaiting_collection",
+      "lease_id",
+      "lease_expires_at",
+      "attempts",
+      "next_at",
+      "error_code",
+      "build_envelope",
+      "after_document_id",
+      "build_phase",
+      "created_at",
+      "updated_at"
+    ],
+    "drive_packet_listings": [
+      "packet_id",
+      "version",
+      "user_id",
+      "audience",
+      "revision",
+      "enabled",
+      "price_cents",
+      "disclosure",
+      "created_at",
+      "updated_at"
+    ],
+    "drive_packet_members": [
+      "packet_id",
+      "document_id",
+      "facts_version"
+    ],
+    "drive_packet_version_sources": [
+      "packet_id",
+      "version",
+      "document_id",
+      "source_version",
+      "facts_version"
+    ],
+    "drive_packet_versions": [
+      "packet_id",
+      "version",
+      "user_id",
+      "connection_generation",
+      "digest",
+      "manifest_envelope",
+      "state",
+      "available",
+      "document_count",
+      "price_cents",
+      "policy_version",
+      "verified_at"
     ],
     "drive_picker_sessions": [
       "session_id",
@@ -648,6 +899,76 @@
       "notification_error_code",
       "notification_settled_at"
     ],
+    "drive_request_bulk_removals": [
+      "removal_id",
+      "request_id",
+      "user_id",
+      "share_id",
+      "position",
+      "recipient_user_id",
+      "plan_envelope",
+      "state",
+      "lease_id",
+      "lease_expires_at",
+      "attempts",
+      "next_at",
+      "safe_error_code",
+      "created_at",
+      "updated_at",
+      "v1_statement_search"
+    ],
+    "drive_request_owner_payouts": [
+      "request_id",
+      "gross_amount_cents",
+      "currency",
+      "commission_bps",
+      "status",
+      "expected_files",
+      "confirmed_files",
+      "retained_amount_cents",
+      "refund_amount_cents",
+      "platform_fee_cents",
+      "actual_processing_fee_cents",
+      "allocated_processing_fee_cents",
+      "owner_earning_cents",
+      "finalized_at",
+      "stripe_payment_intent_id",
+      "stripe_charge_id",
+      "stripe_balance_transaction_id",
+      "destination_account_id",
+      "stripe_transfer_id",
+      "transfer_attempt_id",
+      "first_dispatch_at",
+      "lease_expires_at",
+      "next_check_at",
+      "transferred_at",
+      "reversal_amount_cents",
+      "stripe_reversal_id",
+      "reversal_attempt_id",
+      "reversal_first_dispatch_at",
+      "reversal_lease_expires_at",
+      "reversed_at",
+      "erased_at",
+      "eligible_at_erasure",
+      "safe_error_code",
+      "created_at",
+      "updated_at",
+      "stripe_mode",
+      "settlement_method",
+      "wallet_id",
+      "sandbox_wallet_id",
+      "credited_at",
+      "held_at",
+      "v1_statement_search"
+    ],
+    "drive_request_owner_pricing": [
+      "user_id",
+      "enabled",
+      "amount_cents",
+      "version",
+      "created_at",
+      "updated_at"
+    ],
     "drive_request_payment_obligations": [
       "request_id",
       "payer_ref",
@@ -663,7 +984,11 @@
       "delivery_confirmed_at_erasure",
       "delivery_unsettled_at_erasure",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "stripe_mode",
+      "settlement_method",
+      "v1_statement_search",
+      "existing_access_waived_at"
     ],
     "drive_request_payment_orders": [
       "request_id",
@@ -682,11 +1007,14 @@
       "reconciliation_reason",
       "reconciliation_at",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "stripe_mode",
+      "settlement_method"
     ],
     "drive_request_payment_refunds": [
       "request_id",
       "attempt_id",
+      "amount_cents",
       "status",
       "stripe_refund_id",
       "first_dispatch_at",
@@ -786,7 +1114,19 @@
       "bulk_search_started_at",
       "created_at",
       "updated_at",
-      "expires_at"
+      "expires_at",
+      "access_stop_requested_at",
+      "owner_allowed_at",
+      "quoted_amount_cents",
+      "quote_version",
+      "settlement_method",
+      "initial_quote_cents",
+      "review_requested_at",
+      "review_request_count",
+      "agent_package_required",
+      "reusable_packet_id",
+      "reusable_packet_version",
+      "existing_access_waived_at"
     ],
     "drive_share_reviews": [
       "request_id",
@@ -800,6 +1140,60 @@
       "created_at",
       "expires_at",
       "decided_at"
+    ],
+    "email_auth_budgets": [
+      "budget_key",
+      "count",
+      "expires_at"
+    ],
+    "email_auth_challenges": [
+      "challenge_id",
+      "destination_hash",
+      "domain",
+      "decision_generation",
+      "browser_hash",
+      "request_key",
+      "verifier",
+      "verifier_version",
+      "payload",
+      "destination_ciphertext",
+      "payload_version",
+      "expected_uid",
+      "enrollment_ticket_hash",
+      "enrollment_finalized_at",
+      "created_at",
+      "expires_at",
+      "attempts",
+      "consumed_at",
+      "cancelled_at",
+      "delivery_state",
+      "lease_until",
+      "next_attempt_at",
+      "delivery_lease_id"
+    ],
+    "email_auth_domain_decisions": [
+      "domain",
+      "status",
+      "reason",
+      "policy_version",
+      "risk_version",
+      "generation",
+      "certificate_status",
+      "review_id",
+      "lease_until",
+      "checked_at",
+      "expires_at"
+    ],
+    "email_auth_enrollments": [
+      "destination_hash",
+      "user_id",
+      "status",
+      "created_at"
+    ],
+    "email_auth_policy_state": [
+      "singleton",
+      "policy_version",
+      "risk_version"
     ],
     "enterprise_crm_registry": [
       "crm_id",
@@ -956,7 +1350,8 @@
       "candidate_scopes",
       "attachment_review_required",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "reply_send_action_id"
     ],
     "google_calendar_action_proposals": [
       "proposal_id",
@@ -968,6 +1363,26 @@
       "expires_at",
       "executed_at",
       "created_at"
+    ],
+    "google_calendar_additional_accounts": [
+      "user_id",
+      "account_id",
+      "provider_subject",
+      "provider_email",
+      "status",
+      "scope_csv",
+      "access_level",
+      "refresh_token_ciphertext",
+      "refresh_token_iv",
+      "refresh_token_tag",
+      "access_token_ciphertext",
+      "access_token_iv",
+      "access_token_tag",
+      "access_token_expires_at",
+      "connected_at",
+      "revoked_at",
+      "created_at",
+      "updated_at"
     ],
     "google_email_send_actions": [
       "action_id",
@@ -998,7 +1413,9 @@
       "verifier_tag",
       "expires_at",
       "consumed_at",
-      "created_at"
+      "created_at",
+      "calendar_additional",
+      "calendar_account_id"
     ],
     "google_provider_connections": [
       "user_id",
@@ -1031,6 +1448,53 @@
       "created_at",
       "updated_at"
     ],
+    "hashcoin_ledger_entries": [
+      "entry_id",
+      "wallet_id",
+      "entry_kind",
+      "source_ref",
+      "amount_coins",
+      "created_at"
+    ],
+    "hashcoin_redemptions": [
+      "redemption_id",
+      "wallet_id",
+      "request_key",
+      "source_request_id",
+      "source_charge_id",
+      "source_payment_intent_id",
+      "source_gross_cents",
+      "source_refund_cents",
+      "last_provider_checked_at",
+      "provider_review_reason",
+      "provider_reversed_amount_coins",
+      "reversal_status",
+      "stripe_reversal_id",
+      "reversal_attempt_id",
+      "reversal_first_dispatch_at",
+      "reversal_lease_expires_at",
+      "reversal_next_check_at",
+      "reversal_review_reason",
+      "amount_coins",
+      "stripe_mode",
+      "destination_account_id",
+      "status",
+      "stripe_transfer_id",
+      "first_dispatch_at",
+      "lease_expires_at",
+      "attempt_id",
+      "created_at",
+      "updated_at"
+    ],
+    "hashcoin_wallets": [
+      "wallet_id",
+      "user_id",
+      "stripe_mode",
+      "currency",
+      "held",
+      "erased_at",
+      "created_at"
+    ],
     "investor_profiles": [
       "id",
       "name",
@@ -1055,6 +1519,76 @@
       "quality_score",
       "curation_reason",
       "created_at",
+      "updated_at"
+    ],
+    "kai_gmail_connections": [
+      "user_id",
+      "google_sub",
+      "google_email",
+      "scope_csv",
+      "status",
+      "revoked",
+      "send_enabled",
+      "send_grant_generation"
+    ],
+    "live_memory_connector_events": [
+      "owner_hash",
+      "sequence",
+      "event_id",
+      "source_id",
+      "operation",
+      "schema_version",
+      "occurred_at"
+    ],
+    "live_memory_connector_streams": [
+      "owner_hash",
+      "last_sequence",
+      "first_retained_sequence",
+      "updated_at"
+    ],
+    "live_memory_hosted_pilot_grants": [
+      "user_id",
+      "grant_id",
+      "generation",
+      "source_kind",
+      "source_id",
+      "review_version",
+      "status",
+      "created_at",
+      "updated_at",
+      "reviewed_at",
+      "expires_at",
+      "revoked_at"
+    ],
+    "live_memory_hosted_source_envelopes": [
+      "user_id",
+      "grant_id",
+      "grant_generation",
+      "source_id",
+      "scope_code",
+      "envelope_version",
+      "key_id",
+      "owner_revision",
+      "owner_nonce",
+      "owner_ciphertext",
+      "owner_ciphertext_sha256",
+      "owner_aad_sha256",
+      "created_at",
+      "updated_at"
+    ],
+    "live_memory_source_events": [
+      "owner_hash",
+      "sequence",
+      "event_id",
+      "source_kind",
+      "operation",
+      "schema_version",
+      "occurred_at"
+    ],
+    "live_memory_source_streams": [
+      "owner_hash",
+      "last_sequence",
+      "first_retained_sequence",
       "updated_at"
     ],
     "marketplace_investor_actions": [
@@ -1096,7 +1630,13 @@
       "content_iv",
       "content_algorithm",
       "created_at",
-      "read_at"
+      "read_at",
+      "delivered_at",
+      "edited_at",
+      "reply_to_message_id",
+      "deleted_for_sender_at",
+      "deleted_for_recipient_at",
+      "deleted_for_everyone_at"
     ],
     "one_action_directive_ledger": [
       "adk_app_name",
@@ -1421,6 +1961,240 @@
       "created_at",
       "updated_at"
     ],
+    "one_private_text_processing_approvals": [
+      "user_id",
+      "enabled",
+      "disclosure_version",
+      "generation",
+      "accepted_at",
+      "revoked_at",
+      "updated_at"
+    ],
+    "one_product_activity_epochs": [
+      "user_id",
+      "generation",
+      "started_at"
+    ],
+    "one_product_activity_observations": [
+      "event_id",
+      "user_id",
+      "generation",
+      "agent_id",
+      "action_id",
+      "catalog_revision",
+      "source",
+      "phase",
+      "observed_at",
+      "expires_at",
+      "operation_key"
+    ],
+    "one_product_value_receipts": [
+      "effect_id",
+      "user_id",
+      "generation",
+      "agent_id",
+      "proof",
+      "occurred_at",
+      "expires_at"
+    ],
+    "one_referral_activity_days": [
+      "user_id",
+      "activity_date",
+      "timezone",
+      "recorded_at",
+      "dashboard_visited_at"
+    ],
+    "one_referral_circle_contributions": [
+      "relationship_id",
+      "round_id",
+      "selection_id"
+    ],
+    "one_referral_circle_selections": [
+      "id",
+      "user_id",
+      "circle_id",
+      "round_id",
+      "selected_at",
+      "ended_at"
+    ],
+    "one_referral_circle_teams": [
+      "round_id",
+      "circle_id",
+      "team_key"
+    ],
+    "one_referral_events": [
+      "scored_at"
+    ],
+    "one_referral_leaderboard_snapshots": [
+      "source_event_id"
+    ],
+    "one_referral_milestone_entitlements": [
+      "claimed_at"
+    ],
+    "one_referral_network_circles": [
+      "id",
+      "leader_user_id",
+      "created_at"
+    ],
+    "one_referral_network_members": [
+      "user_id",
+      "circle_id",
+      "parent_user_id",
+      "relationship_id",
+      "joined_at"
+    ],
+    "one_referral_policies": [
+      "required_product_event"
+    ],
+    "one_referral_reward_rounds": [
+      "started_at"
+    ],
+    "one_referral_score_events": [
+      "coins"
+    ],
+    "one_referral_scoring_jobs": [
+      "job_id",
+      "circle_selection_id"
+    ],
+    "one_referral_streak_state": [
+      "last_activity_date",
+      "current_streak",
+      "longest_streak",
+      "dashboard_last_activity_date",
+      "dashboard_current_streak",
+      "dashboard_longest_streak"
+    ],
+    "pkm_answer_deliveries": [
+      "request_id",
+      "recipient_key_id",
+      "ciphertext",
+      "iv",
+      "sender_ephemeral_public_key_jwk",
+      "algorithm",
+      "source_revisions",
+      "has_content",
+      "created_at"
+    ],
+    "pkm_answer_owner_payouts": [
+      "request_id",
+      "gross_amount_cents",
+      "currency",
+      "commission_bps",
+      "status",
+      "platform_fee_cents",
+      "owner_earning_cents",
+      "destination_account_id",
+      "stripe_transfer_id",
+      "transfer_attempt_id",
+      "lease_expires_at",
+      "next_check_at",
+      "attempts",
+      "safe_error_code",
+      "finalized_at",
+      "transferred_at",
+      "created_at",
+      "updated_at",
+      "first_dispatch_at"
+    ],
+    "pkm_answer_payment_obligations": [
+      "request_id",
+      "payer_ref",
+      "amount_cents",
+      "currency",
+      "status",
+      "checkout_attempt_id",
+      "stripe_checkout_session_id",
+      "stripe_payment_intent_id",
+      "paid_at",
+      "reconciliation_required",
+      "erased_at",
+      "delivery_confirmed_at_erasure",
+      "delivery_unsettled_at_erasure",
+      "created_at",
+      "updated_at",
+      "stripe_mode"
+    ],
+    "pkm_answer_payment_orders": [
+      "request_id",
+      "owner_user_id",
+      "requester_user_id",
+      "amount_cents",
+      "currency",
+      "terms_digest",
+      "status",
+      "checkout_attempt_id",
+      "stripe_checkout_session_id",
+      "stripe_checkout_url",
+      "stripe_checkout_expires_at",
+      "stripe_payment_intent_id",
+      "stripe_refund_id",
+      "paid_at",
+      "refunded_at",
+      "refund_reason",
+      "reconciliation_required",
+      "reconciliation_reason",
+      "reconciliation_at",
+      "owner_earning_status",
+      "platform_fee_cents",
+      "stripe_transfer_id",
+      "transferred_at",
+      "created_at",
+      "updated_at",
+      "stripe_mode"
+    ],
+    "pkm_answer_payment_refunds": [
+      "request_id",
+      "attempt_id",
+      "reason",
+      "status",
+      "stripe_refund_id",
+      "first_dispatch_at",
+      "lease_expires_at",
+      "next_check_at",
+      "attempts",
+      "safe_error_code",
+      "created_at",
+      "updated_at"
+    ],
+    "pkm_answer_payment_webhook_events": [
+      "stripe_event_id",
+      "stripe_checkout_session_id",
+      "request_id",
+      "created_at"
+    ],
+    "pkm_answer_request_scopes": [
+      "request_id",
+      "scope",
+      "label",
+      "approved"
+    ],
+    "pkm_answer_requests": [
+      "request_id",
+      "owner_user_id",
+      "requester_user_id",
+      "question",
+      "period_start",
+      "period_end",
+      "status",
+      "amount_cents",
+      "currency",
+      "terms_digest",
+      "resolution_mode",
+      "resolution_skipped_reason",
+      "approved_at",
+      "declined_at",
+      "answer_deadline_at",
+      "answered_at",
+      "cancelled_at",
+      "expires_at",
+      "created_at",
+      "updated_at",
+      "composer_consent_at",
+      "composer_consent_version",
+      "composer_consent_digest",
+      "resolution_lease_until",
+      "resolution_attempts"
+    ],
     "pkm_blobs": [
       "user_id",
       "domain",
@@ -1556,7 +2330,8 @@
       "details_submitted",
       "payouts_enabled",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "account_ready"
     ],
     "pkm_packet_orders": [
       "id",
@@ -1581,7 +2356,8 @@
       "credits_spent",
       "owner_earning_status",
       "stripe_transfer_id",
-      "transferred_at"
+      "transferred_at",
+      "stripe_mode"
     ],
     "pkm_packets": [
       "id",
@@ -1670,6 +2446,48 @@
       "last_archived_revision_id",
       "preservation_receipt",
       "created_at",
+      "updated_at"
+    ],
+    "pwm_claim_invitations": [
+      "id",
+      "inviter_user_id",
+      "token_hash",
+      "contact_commitment",
+      "state",
+      "recipient_user_id",
+      "created_at",
+      "expires_at",
+      "claimed_at",
+      "consent_version",
+      "preview_envelope",
+      "preview_version",
+      "recipient_draft_id"
+    ],
+    "pwm_completion_events": [
+      "user_id",
+      "draft_id",
+      "generation",
+      "outcome",
+      "email_state",
+      "email_attempts",
+      "lease_id",
+      "lease_expires_at",
+      "next_attempt_at",
+      "created_at"
+    ],
+    "pwm_provider_budget": [
+      "provider",
+      "month",
+      "credits"
+    ],
+    "pwm_research_preferences": [
+      "user_id",
+      "enabled",
+      "email_enabled",
+      "consent_version",
+      "generation",
+      "auto_started_at",
+      "active_draft_id",
       "updated_at"
     ],
     "relationship_share_events": [
@@ -1778,6 +2596,110 @@
       "last_active_persona",
       "updated_at"
     ],
+    "stripe_connect_balance_snapshots": [
+      "stripe_account_id",
+      "livemode",
+      "currency",
+      "available_cents",
+      "pending_cents",
+      "next_available_on",
+      "next_available_cents",
+      "fetched_at",
+      "refresh_started_at",
+      "refresh_due_at",
+      "updated_at"
+    ],
+    "stripe_connect_balance_transactions": [
+      "stripe_balance_transaction_id",
+      "stripe_account_id",
+      "livemode",
+      "txn_type",
+      "amount_cents",
+      "fee_cents",
+      "net_cents",
+      "status",
+      "available_on",
+      "provider_created_at",
+      "source_id",
+      "source_transfer_id",
+      "source_charge_id",
+      "stripe_payout_id",
+      "observed_at",
+      "updated_at"
+    ],
+    "stripe_connect_bank_payout_events": [
+      "stripe_event_id",
+      "stripe_account_id",
+      "event_type",
+      "stripe_object_id",
+      "livemode",
+      "processed_at"
+    ],
+    "stripe_connect_bank_payouts": [
+      "stripe_payout_id",
+      "stripe_account_id",
+      "livemode",
+      "amount_cents",
+      "currency",
+      "status",
+      "status_rank",
+      "expected_arrival_at",
+      "failure_code",
+      "created_at",
+      "updated_at",
+      "destination_id",
+      "destination_kind",
+      "destination_bank_name",
+      "destination_last4",
+      "payout_method",
+      "automatic",
+      "trace_status",
+      "trace_value",
+      "reconciliation_status",
+      "provider_observed_at",
+      "status_changed_at",
+      "paid_at",
+      "failed_at"
+    ],
+    "stripe_connect_payout_reconciliations": [
+      "stripe_payout_id",
+      "stripe_account_id",
+      "status",
+      "cursor",
+      "scan_started_at",
+      "completed_at",
+      "updated_at"
+    ],
+    "stripe_owner_payout_accounts": [
+      "user_id",
+      "stripe_mode",
+      "stripe_account_id",
+      "details_submitted",
+      "payouts_enabled",
+      "account_ready",
+      "bank_payout_scan_started_at",
+      "bank_payout_scan_cursor",
+      "created_at",
+      "updated_at"
+    ],
+    "system_push_device_deliveries": [
+      "event_id",
+      "device_id",
+      "accepted_at"
+    ],
+    "system_push_outbox": [
+      "id",
+      "source_kind",
+      "source_id",
+      "source_revision",
+      "recipient_user_id",
+      "status",
+      "attempts",
+      "due_at",
+      "expires_at",
+      "lease_id",
+      "created_at"
+    ],
     "trusted_connections": [
       "id",
       "owner_user_id",
@@ -1869,6 +2791,26 @@
       "revocation_outcome",
       "revocation_pending_until"
     ],
+    "user_push_installations": [
+      "id",
+      "user_id",
+      "token",
+      "platform",
+      "device_id",
+      "preview_key_id",
+      "preview_public_key",
+      "created_at",
+      "updated_at"
+    ],
+    "user_push_tokens": [
+      "id",
+      "user_id",
+      "token",
+      "platform",
+      "device_id",
+      "preview_key_id",
+      "preview_public_key"
+    ],
     "vault_keys": [
       "user_id",
       "vault_status",
@@ -1880,8 +2822,72 @@
       "recovery_iv",
       "one_runtime_setup_choice",
       "one_chat_onboarding",
+      "one_business_profile_saved",
+      "one_magic_intelligence_saved",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "initial_contacts_source",
+      "initial_contacts_welcome_acknowledged",
+      "initial_contacts_circle_id"
+    ],
+    "wallet_card_access_audit": [
+      "id",
+      "grant_id",
+      "event_type",
+      "profile_grant_id"
+    ],
+    "wallet_card_access_grants": [
+      "id",
+      "recipient_user_id",
+      "message_id",
+      "revoked_at",
+      "last_accessed_at",
+      "trusted_at_creation",
+      "verification_attempts"
+    ],
+    "wallet_card_registrations": [
+      "owner_user_id",
+      "card_id",
+      "state",
+      "source_commit_id",
+      "source_projection",
+      "source_projection_revision"
+    ],
+    "wallet_card_requests": [
+      "id",
+      "requester_user_id",
+      "target_user_id",
+      "client_request_id",
+      "message_id",
+      "status",
+      "created_at",
+      "expires_at",
+      "resolved_at",
+      "payment_grant_id",
+      "profile_grant_id"
+    ],
+    "wallet_card_share_requests": [
+      "owner_user_id",
+      "request_id",
+      "expires_at"
+    ],
+    "wallet_profile_access_grants": [
+      "id",
+      "owner_user_id",
+      "recipient_user_id",
+      "card_id",
+      "permitted_fields",
+      "trusted_at_creation",
+      "last_accessed_at",
+      "verification_attempts",
+      "revoked_at"
+    ],
+    "wallet_profile_share_requests": [
+      "owner_user_id",
+      "request_id",
+      "card_id",
+      "expires_at",
+      "duration_minutes"
     ]
   }
 }

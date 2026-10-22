@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import { LegalDocumentPage } from "../legal-document-page";
 import { LegalReader } from "../legal-reader";
 import { LEGAL_DOCUMENTS } from "@/lib/legal/legal-documents";
+import { projectNativeLegalDocument, validNativeLegalDocument } from "@/lib/capacitor/native-profile-legal";
+import { projectNativeProfileLegal } from "@/components/profile/profile-native-legal";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ back: vi.fn(), push: vi.fn(), replace: vi.fn() }),
@@ -36,6 +38,53 @@ describe("LegalDocumentPage", { timeout: 30_000 }, () => {
 });
 
 describe("LegalReader", { timeout: 30_000 }, () => {
+  for (const type of ["privacy", "terms"] as const) {
+    for (const kind of ["route", "in-place"] as const) {
+      it(`preserves every word, block and link in ${type} (${kind})`, () => {
+        render(<LegalReader type={type} navigation={kind === "route" ? { kind } : { kind, open: vi.fn() }} />);
+        const body = screen.getByTestId("legal-reader-body");
+        const doc = LEGAL_DOCUMENTS[type];
+        const text = (parts: (string | { text: string })[]) => parts.map(part => typeof part === "string" ? part : part.text).join("");
+        const expectedBlocks = doc.sections.flatMap(section => [
+          { tag: "h2", text: section.title },
+          ...section.blocks.flatMap(block => block.kind === "p" ? [{ tag: "p", text: text(block.text) }]
+            : block.kind === "h" ? [{ tag: "h3", text: block.text }]
+              : block.items.map(item => ({ tag: "li", text: text(item) }))),
+        ]);
+        expect([...body.querySelectorAll("h2, h3, p, li")].map(node => ({
+          tag: node.tagName.toLowerCase(), text: node.textContent,
+        }))).toEqual(expectedBlocks);
+        const expectedLinks = doc.sections.flatMap(section => section.blocks.flatMap(block =>
+          block.kind === "p" ? block.text : block.kind === "list" ? block.items.flat() : [],
+        )).filter(part => typeof part !== "string");
+        expect([...body.querySelectorAll("a")].map(node => ({ text: node.textContent, href: node.getAttribute("href") }))).toEqual(expectedLinks);
+      });
+    }
+  }
+
+  it("preserves every authored block and link in the native reader without transferring executable URLs", () => {
+    for (const type of ["privacy", "terms"] as const) {
+      const { document, links } = projectNativeLegalDocument(type);
+      expect(validNativeLegalDocument(document)).toBe(true);
+      const restore = (parts: { text: string; actionId?: string }[]) => parts.map(part => part.actionId ?
+        { text: part.text, href: links.get(part.actionId) } : part.text);
+      expect(document.sections.map(section => ({ ...section, blocks: section.blocks.map(block =>
+        block.kind === "p" ? { ...block, text: restore(block.text) } : block.kind === "list" ?
+          { ...block, items: block.items.map(restore) } : block) }))).toEqual(LEGAL_DOCUMENTS[type].sections);
+      expect(validNativeLegalDocument({ ...document, url: "https://example.com" } as never)).toBe(false);
+      const duplicate = structuredClone(document);
+      const paragraph = duplicate.sections.flatMap(section => section.blocks).find(block => block.kind === "p")!;
+      if (paragraph.kind === "p") paragraph.text[0].actionId = duplicate.related.actionId;
+      expect(validNativeLegalDocument(duplicate)).toBe(false);
+      const open = vi.fn(), deletion = vi.fn();
+      const projected = projectNativeProfileLegal(type, open, deletion);
+      projected.rows.get(document.related.actionId)!({} as never);
+      expect(open).toHaveBeenCalledWith(type === "privacy" ? "terms" : "privacy", "replace");
+      expect(projected.pages.map(page => page.id)).toEqual(["legal", type]);
+      expect(deletion).not.toHaveBeenCalled();
+      expect(projected.rows.has("invented-link")).toBe(false);
+    }
+  });
   it("uses the app's type roles for every heading and paragraph", () => {
     render(<LegalReader type="terms" navigation={{ kind: "route" }} />);
 

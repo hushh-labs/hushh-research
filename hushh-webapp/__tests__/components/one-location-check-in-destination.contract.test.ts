@@ -60,6 +60,11 @@ describe("nearby check-in destination", () => {
       "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
       "lib/one-location/check-in-navigation.ts",
       "lib/navigation/top-shell-breadcrumbs.ts",
+      // The actual Location breadcrumb/back logic this test cares about now
+      // lives here -- top-shell-breadcrumbs.ts is a thin wrapper that walks
+      // this graph, so checking only the wrapper would silently stop
+      // covering the real source.
+      "lib/navigation/back-navigation-graph.ts",
     ];
     for (const caller of callers) {
       const text = code(caller);

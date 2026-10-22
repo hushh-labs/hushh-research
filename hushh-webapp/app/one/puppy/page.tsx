@@ -35,6 +35,7 @@ export default function PuppyOnePage() {
     <AppPageShell
       as="main"
       width="agent"
+      headerContentSpacing="compact"
       className="flex h-[calc(100dvh-var(--app-top-content-offset,0px)-var(--app-scroll-bottom-pad,var(--app-bottom-content-clearance,0px)))] min-h-[560px] flex-col"
     >
       <AppPageHeaderRegion className="shrink-0">

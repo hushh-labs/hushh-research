@@ -15,12 +15,13 @@ import {
   buildStructuredScreenContext,
   enforceArrayDimensionCap,
 } from "@/lib/voice/screen-context-builder";
-import type { AppRuntimeState } from "@/lib/voice/voice-types";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
+import { getMarketSectorPeriodVoiceInventory } from "@/components/kai/views/kai-market-preview-view";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
 import {
   clearVoiceSurfaceMetadata,
   publishVoiceSurfaceMetadata,
-} from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/voice-surface-metadata";
 
 function makeRuntimeState(
   pathname: string,
@@ -1053,6 +1054,24 @@ describe("buildStructuredScreenContext", () => {
       market_mode: "baseline",
       signal_count: 3,
     });
+  });
+
+  it("offers sector period and list-size commands before interaction, only while the chart is visible", () => {
+    window.history.pushState({}, "", "/one/kai?tab=market");
+    for (const visible of [false, true]) {
+      const inventory = getMarketSectorPeriodVoiceInventory(visible, true);
+      publishVoiceSurfaceMetadata("test_surface", {
+        screenId: "kai_market",
+        actions: [{ id: "kai.market.refresh", label: "Refresh market" }, ...inventory.actions],
+        controls: inventory.controls,
+      });
+      const snapshot = buildOneVoiceContextSnapshot({
+        appRuntimeState: makeRuntimeState("/one/kai", "kai_market"),
+      });
+      for (const action of ["market.sectors.show_day", "market.sectors.show_week", "market.sectors.show_all", "market.sectors.show_highlights"]) {
+        expect(snapshot.executable_action_ids.includes(action)).toBe(visible);
+      }
+    }
   });
 
   // ── Array bounds coverage added below the existing suite ─────────────────

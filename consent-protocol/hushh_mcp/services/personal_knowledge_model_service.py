@@ -371,10 +371,13 @@ class PersonalKnowledgeModelService:
         return canonical_domain
 
     async def _run_rpc(self, function_name: str, params: Optional[dict] = None):
-        call = self.db.rpc(function_name, params or {})
-        if not hasattr(call, "execute"):
-            return call
-        return await asyncio.to_thread(call.execute)
+        def execute_rpc():
+            # The canonical SQL client executes eagerly in rpc(); compatible
+            # lazy clients execute afterward. Both belong off the API loop.
+            call = self.db.rpc(function_name, params or {})
+            return call.execute() if hasattr(call, "execute") else call
+
+        return await asyncio.to_thread(execute_rpc)
 
     @staticmethod
     def _unwrap_rpc_payload(rpc_result: Any, function_name: str) -> Any:
@@ -2126,6 +2129,8 @@ class PersonalKnowledgeModelService:
         self,
         user_id: str,
         domains: list[str],
+        *,
+        raise_on_error: bool = False,
     ) -> dict[str, dict]:
         """Return several domain manifests using one read per manifest table.
 
@@ -2211,6 +2216,8 @@ class PersonalKnowledgeModelService:
             }
         except Exception as exc:
             logger.error("Error getting domain manifests for user=%s: %s", user_id, exc)
+            if raise_on_error:
+                raise
             return {}
 
     async def record_mutation_event(
@@ -2615,6 +2622,12 @@ class PersonalKnowledgeModelService:
         manifest_row["summary_projection"] = self._json_object(
             manifest_row.get("summary_projection")
         )
+        from hushh_mcp.services.wallet_card_access_projection import (
+            fingerprint_manifest,
+            wallet_manifest_source,
+        )
+
+        wallet_source = wallet_manifest_source(user_id, domain, summary, manifest_row)
         path_rows = [
             self._serialize_manifest_path(normalized_manifest, path)
             for path in normalized_manifest.paths
@@ -2800,7 +2813,12 @@ class PersonalKnowledgeModelService:
                     "expected_content_revision": current_version,
                     "next_content_revision": next_version,
                     "segments": normalized_segments,
-                    "manifest": manifest_row,
+                    "manifest": fingerprint_manifest(manifest_row),
+                    **(
+                        {"wallet_card_access_source": wallet_source}
+                        if wallet_source is not None
+                        else {}
+                    ),
                     "paths": path_rows,
                     "scopes": scope_rows,
                     "summary": discovery_summary,
@@ -2823,6 +2841,19 @@ class PersonalKnowledgeModelService:
             if location_finalize_authorization
             else "commit_pkm_domain_mutation_v4"
         )
+        if normalized_mutation_plan:
+            # Add derived observation metadata after the existing fingerprint:
+            # retries of pre-release commits must retain the same request hash.
+            # This does not grant write or marketing authority.
+            for event in event_rows:
+                provenance = event["metadata"].get("provenance")
+                if (
+                    isinstance(provenance, dict)
+                    and provenance.get("mutation_plan_id") == normalized_mutation_plan.plan_id
+                ):
+                    provenance["authorization_mode"] = (
+                        normalized_mutation_plan.confirmation_receipt.authorization_mode
+                    )
         rpc_result = await self._run_rpc(
             rpc_name,
             {

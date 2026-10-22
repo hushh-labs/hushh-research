@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { InformationRequestReviewExperience, ScopeDiscoveryExperience } from "@/lib/agent/agui-structured-experiences";
 import type { ViewerPersonProfile } from "@/lib/services/person-profile-service";
@@ -436,9 +437,9 @@ describe("InformationRequestReviewView with and without progress", () => {
   it("shows Reading… from the doorbell's reading at once, even while its own reads stall", async () => {
     mocks.getInformationRequest.mockResolvedValueOnce(bundle("pending", true));
     let phase: "reading" | null = null;
-    const card = () => (
+    const card = (experience = restored) => (
       <ConsentCardPhaseContext.Provider value={(id) => id === bundleId ? phase : null}>
-        <AgentStructuredExperienceView experience={restored} />
+        <AgentStructuredExperienceView experience={experience} />
       </ConsentCardPhaseContext.Provider>
     );
     const view = render(card());
@@ -446,12 +447,44 @@ describe("InformationRequestReviewView with and without progress", () => {
     // The doorbell reads the approval; every read after it stalls.
     mocks.getInformationRequest.mockResolvedValueOnce(bundle("granted", true));
     mocks.getInformationRequest.mockReturnValue(new Promise(() => undefined));
-    await act(async () => { await readInformationRequest({ bundleId, vaultOwnerToken: "test-owner-token" }); });
-    phase = "reading";
-    view.rerender(card());
+    // Rendering pending does not guarantee its shared read has finished its
+    // finally handler. This post-approval reading must not join that older read.
+    await act(async () => {
+      await readInformationRequest({ bundleId, vaultOwnerToken: "test-owner-token", fresh: true });
+      phase = "reading";
+      // A descriptor refresh can cancel the first publication consumer before
+      // its Promise applies. Commit two equivalent updates without yielding:
+      // the approval must survive, even though all subsequent reads stall.
+      flushSync(() => view.rerender(card({ ...restored, fields: [...restored.fields] })));
+      flushSync(() => view.rerender(card({ ...restored, fields: [...restored.fields] })));
+    });
     const progress = screen.getByTestId("requester-progress");
-    expect(progress).toHaveAttribute("data-outcome", "granted");
-    expect(within(progress).getByRole("status")).toHaveTextContent("Reading what Kushal shared…");
+    // The published approval crosses an effect's Promise before React renders
+    // it. Await that render, while every subsequent ledger read remains stalled.
+    await waitFor(() => {
+      expect(progress).toHaveAttribute("data-outcome", "granted");
+      expect(within(progress).getByRole("status")).toHaveTextContent("Reading what Kushal shared…");
+    });
+  });
+
+  it("requires a new reading after a canceled publication crosses a vault lock", async () => {
+    mocks.getInformationRequest.mockResolvedValueOnce(bundle("pending", true));
+    const view = render(<AgentStructuredExperienceView experience={restored} />);
+    expect(await screen.findByTestId("requester-progress")).toHaveAttribute("data-outcome", "pending");
+    mocks.getInformationRequest.mockResolvedValueOnce(bundle("granted", true));
+    mocks.getInformationRequest.mockReturnValue(new Promise(() => undefined));
+    await act(async () => {
+      await readInformationRequest({ bundleId, vaultOwnerToken: "test-owner-token", fresh: true });
+      flushSync(() => view.rerender(<AgentStructuredExperienceView
+        experience={{ ...restored, fields: [...restored.fields] }} />));
+      mocks.unlocked = false;
+      flushSync(() => view.rerender(<AgentStructuredExperienceView experience={restored} />));
+      mocks.unlocked = true;
+      flushSync(() => view.rerender(<AgentStructuredExperienceView experience={restored} />));
+    });
+    await waitFor(() => expect(mocks.getInformationRequest).toHaveBeenCalledTimes(3));
+    expect(screen.queryByTestId("requester-progress")).toBeNull();
+    expect(screen.queryByText("Food preferences from Kushal Trivedi")).toBeNull();
   });
 
   it("drops revealed values and shows Access ended when the owner revokes", async () => {

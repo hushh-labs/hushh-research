@@ -117,6 +117,24 @@ def test_resolve_redirect_uri_rejects_wrong_path(monkeypatch):
         config.resolve_redirect_uri("https://one.hushh.ai/not-plaid")
 
 
+def test_plaid_alias_keeps_environment_path_and_requires_explicit_admission(monkeypatch):
+    _clear_plaid_env(monkeypatch)
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://one.hushh.ai")
+    monkeypatch.setenv(
+        "CORS_ALLOWED_ORIGINS",
+        "https://one.hushh.ai,https://one.hussh.ai,https://uat.one.hussh.ai",
+    )
+    config = PlaidRuntimeConfig.from_env()
+    assert config.resolve_redirect_uri("https://one.hussh.ai/one/kai/plaid/oauth/return") == (
+        "https://one.hussh.ai/one/kai/plaid/oauth/return"
+    )
+    with pytest.raises(RuntimeError, match="frontend origin"):
+        config.resolve_redirect_uri("https://uat.one.hussh.ai/one/kai/plaid/oauth/return")
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://one.hushh.ai")
+    with pytest.raises(RuntimeError, match="frontend origin"):
+        config.resolve_redirect_uri("https://one.hussh.ai/one/kai/plaid/oauth/return")
+
+
 def test_resolve_redirect_uri_rejects_wrong_origin(monkeypatch):
     _clear_plaid_env(monkeypatch)
     monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://one.hushh.ai")

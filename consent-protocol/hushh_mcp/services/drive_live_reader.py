@@ -16,10 +16,13 @@ from datetime import datetime
 from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
+from hushh_mcp.services.drive_document_pages import MAX_BATCH_PAGES, OCR_IMAGE_MIMES
+from hushh_mcp.services.drive_document_processor import LocalDocumentProcessor
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
 from hushh_mcp.services.google_drive_adapter import (
     FILE_ID,
+    LIVE_COLLECTION_CONTENT_LIMIT,
     LIVE_PARTIAL_EXPORTS,
     LIVE_POLICY_HASH,
     DriveReadError,
@@ -49,10 +52,12 @@ TITLE_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 # A found file that could not be read is reported with exactly one of these.
 UNREADABLE = frozenset({"source_unavailable", "unsupported_format"}) | PARSE_REASONS
 MAX_TITLE_DATES = 3
+MAX_REQUEST_PDF_PAGES = 16
 # Drive MCP: file types belong in mimeType clauses, never title/fullText words.
 MIME_CLAUSES = {
     "document": (
         "(mimeType = 'application/vnd.google-apps.document'"
+        " or mimeType = 'application/pdf'"
         " or mimeType = 'application/msword' or mimeType contains 'wordprocessingml')"
     ),
     "spreadsheet": (
@@ -129,7 +134,9 @@ def _fitted_excerpt(entry: dict, body: str, *, limit: int) -> str:
 
 
 class DriveLiveReader:
-    def __init__(self, *, user_id, require_access, oauth=None, mcp=None, adapter=None):
+    def __init__(
+        self, *, user_id, require_access, oauth=None, mcp=None, adapter=None, page_processor=None
+    ):
         self.user_id = user_id
         self.require_access = require_access
         self.oauth = oauth or get_external_connector_oauth_service().drive()
@@ -137,6 +144,7 @@ class DriveLiveReader:
         # calls for this project. Same tool contract, so nothing else changes.
         self.mcp = mcp or GoogleDriveRestTransport(oauth=self.oauth)
         self.adapter = adapter or GoogleDriveAdapter()
+        self.page_processor = page_processor or LocalDocumentProcessor()
         self._rows: list[dict] = []
         self._generation: int | None = None
 
@@ -289,6 +297,7 @@ class DriveLiveReader:
         self,
         *,
         query: list[str],
+        term_groups: list[list[str]] | None = None,
         time_field: str | None = None,
         start_time: str | None = None,
         end_time: str | None = None,
@@ -302,8 +311,8 @@ class DriveLiveReader:
     ) -> dict:
         """Search bounded file metadata; no content read, selection, or index.
 
-        Terms must all match first (Drive's own multi-word behaviour); any term
-        may match only when that finds nothing. A file type is a mimeType clause.
+        Equivalent variants are OR within a concept, and concepts are AND.
+        Legacy terms remain distinct required concepts. A type is a mime clause.
         """
         date_bounded = time_field is not None or start_time is not None or end_time is not None
         if (
@@ -332,6 +341,22 @@ class DriveLiveReader:
         terms = self._validate_query(
             query, date_bounded=filtered or recent or exact_title is not None
         )
+        groups = [[term] for term in terms]
+        if term_groups is not None:
+            if (
+                not isinstance(term_groups, list)
+                or len(term_groups) > 3
+                or any(
+                    not isinstance(group, list) or not 1 <= len(group) <= 4 for group in term_groups
+                )
+            ):
+                raise DriveReadError("narrow_selection_required")
+            groups = [
+                [self._validate_query([variant])[0] for variant in group] for group in term_groups
+            ]
+            variants = [variant.casefold() for group in groups for variant in group]
+            if [group[0] for group in groups] != terms or len(set(variants)) != len(variants):
+                raise DriveReadError("narrow_selection_required")
         base = [MIME_CLAUSES[file_kind]] if file_kind != "any" else []
         if shared_with_me:
             base.append("sharedWithMe = true")
@@ -345,7 +370,16 @@ class DriveLiveReader:
         term_clauses = (
             [f"name = {quote_literal(exact_title)}"]
             if exact_title is not None
-            else [compile_search_terms([term], title_only=title_only) for term in terms]
+            else [
+                "("
+                + " or ".join(
+                    compile_search_terms([variant], title_only=title_only) for variant in group
+                )
+                + ")"
+                if len(group) > 1
+                else compile_search_terms(group, title_only=title_only)
+                for group in groups
+            ]
         )
         # Metadata-only queries can rank by file time before the page cut.
         # The REST transport leaves full-text searches in provider relevance order.
@@ -360,9 +394,6 @@ class DriveLiveReader:
             requests.append(
                 ("search_files", {"query": " and ".join([*term_clauses, *base]), **order})
             )
-            if len(term_clauses) > 1:
-                either = "(" + " or ".join(term_clauses) + ")"
-                requests.append(("search_files", {"query": " and ".join([either, *base]), **order}))
         elif base:
             requests.append(("search_files", {"query": " and ".join(base), **order}))
         elif recent:
@@ -470,12 +501,11 @@ class DriveLiveReader:
                         "arguments": {**request, "pageToken": page_token},
                     }
                 if pages >= MAX_SEARCH_PAGES or len(matches) >= max_results:
-                    # An unattempted OR fallback is not a complete empty search.
+                    # An unattempted request is not a complete empty search.
                     if not request_has_matches and (tool_name, base_request) != requests[-1]:
                         truncated = True
                     break
                 if request_has_matches:
-                    # All terms matched; the broader any-term search is only a fallback.
                     break
 
         await scan()
@@ -943,6 +973,67 @@ class DriveLiveReader:
         if after != before:
             raise DriveReadError("source_changed")
         return before, body, source_truncated
+
+    async def read_request_visual_pages(self, *, match: dict):
+        """Read original PDF/image bytes and extract bounded, cited OCR pages.
+
+        The page cursor and gap statuses are retained by the caller. Exhausting
+        this request's page budget is an incomplete read, never a complete file.
+        """
+        file_id = match.get("file_id") if isinstance(match, dict) else None
+        name = match.get("name") if isinstance(match, dict) else None
+        if (
+            not isinstance(file_id, str)
+            or not FILE_ID.fullmatch(file_id)
+            or not isinstance(name, str)
+            or not 1 <= len(name) <= 1024
+            or match.get("mime_type") not in {"application/pdf", *OCR_IMAGE_MIMES}
+        ):
+            raise DriveReadError("provider_response_invalid")
+        credential = await self._credential()
+        before = await self.adapter.get_metadata(
+            file_id=file_id,
+            access_token=credential["accessToken"],
+            require_app_authorized=False,
+            require_genai_eligibility=False,
+        )
+        if before.name != name or before.mime_type != match["mime_type"]:
+            raise DriveReadError("source_changed")
+        mime_type, original = await self.adapter.read_live_bytes(
+            file_id=file_id,
+            mime_type=before.mime_type,
+            access_token=credential["accessToken"],
+            max_bytes=LIVE_COLLECTION_CONTENT_LIMIT,
+        )
+        if mime_type != before.mime_type:
+            raise DriveReadError("unsupported_format")
+        fingerprint = hashlib.sha256(original).hexdigest()
+        pages = []
+        cursor = 1
+        has_gaps = False
+        while cursor is not None and cursor <= MAX_REQUEST_PDF_PAGES:
+            await self.require_access()
+            extracted = await self.page_processor.extract_pages(
+                content=original,
+                mime_type=mime_type,
+                start_page=cursor,
+                page_limit=min(MAX_BATCH_PAGES, MAX_REQUEST_PDF_PAGES - cursor + 1),
+            )
+            if not extracted.pages or extracted.pages[0].page_number != cursor:
+                raise DriveReadError("invalid_document")
+            pages.extend(extracted.pages)
+            has_gaps = has_gaps or extracted.has_gaps
+            cursor = extracted.next_page
+        await self.require_access()
+        after = await self.adapter.get_metadata(
+            file_id=file_id,
+            access_token=credential["accessToken"],
+            require_app_authorized=False,
+            require_genai_eligibility=False,
+        )
+        if after != before:
+            raise DriveReadError("source_changed")
+        return before, tuple(pages), bool(cursor is not None or has_gaps), fingerprint
 
     async def require_compilation_source_current(self, *, metadata: object) -> None:
         """Recheck one read source just before releasing compiled plaintext."""

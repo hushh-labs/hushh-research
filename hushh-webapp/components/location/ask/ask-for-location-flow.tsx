@@ -54,7 +54,7 @@ import {
   ConnectionsService,
   type ConnectionRelationship,
 } from "@/lib/services/connections-service";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { cn } from "@/lib/utils";
 
 export type AskPerson = {
@@ -212,7 +212,7 @@ function PersonPicker({
     );
   }
   return (
-    <div className="space-y-2" role="list" aria-label="Choose who to ask">
+    <div className="space-y-2" role="list" aria-label="Choose whom to ask">
       {people.items.map((recipient) => (
         <button
           key={recipient.userId}

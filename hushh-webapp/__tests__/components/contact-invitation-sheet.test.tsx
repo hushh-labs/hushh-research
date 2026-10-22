@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ContactInvitationSheet as InvitationSheet } from "@/components/connections/contact-invitation-sheet";
 import { useInvitationQueue } from "@/lib/contacts/use-invitation-queue";
@@ -6,10 +12,11 @@ import type { ContactInvitationController } from "@/lib/contacts/use-contact-inv
 import type { InviteCandidate } from "@/lib/contacts/invitation-candidates";
 
 const mocks = vi.hoisted(() => ({
-  compose: vi.fn(),
+  composeBatch: vi.fn(),
+  native: true,
   share: vi.fn(),
   copy: vi.fn(),
-  canComposeSms: vi.fn(),
+  canComposeBatchSms: vi.fn(),
   toast: vi.fn(),
 }));
 vi.mock("@/lib/services/contact-invitations-service", () => ({
@@ -17,8 +24,8 @@ vi.mock("@/lib/services/contact-invitations-service", () => ({
     `${share.text}\n${share.url}`,
   ContactInvitationsService: {
     ...mocks,
-    isNative: () => true,
-    canComposeSms: mocks.canComposeSms,
+    isNative: () => mocks.native,
+    canComposeBatchSms: mocks.canComposeBatchSms,
     completesRecipient: (outcome: string) =>
       ["queued_or_sent", "native-share", "web-share"].includes(outcome),
   },
@@ -75,156 +82,203 @@ function controller(candidates: InviteCandidate[]): TestController {
 }
 beforeEach(() => {
   vi.resetAllMocks();
-  mocks.compose.mockResolvedValue("cancelled");
+  mocks.native = true;
+  mocks.composeBatch.mockResolvedValue("cancelled");
   mocks.copy.mockResolvedValue("copied");
   mocks.share.mockResolvedValue("native-share");
-  mocks.canComposeSms.mockResolvedValue(true);
+  mocks.canComposeBatchSms.mockResolvedValue(true);
 });
 
-describe("contact invitation selection", () => {
-  it("starts unselected, requires a destination, deduplicates, and preserves selection across search/review/back", () => {
-    const multi = person("3");
-    multi.destinations.push({ kind: "email", value: "person@example.com" });
+describe("contact invitation batches", () => {
+  it("manually selects at most 15, deduplicates, preserves selection through search and production Back", async () => {
+    const { dismissTopmostOverlay } = await import(
+      "@/lib/navigation/back-layers"
+    );
     render(
       <ContactInvitationSheet
-        controller={controller([
-          person("1"),
-          person("2", person("1").destinations[0]!.value),
-          multi,
-        ])}
+        controller={controller(
+          Array.from({ length: 16 }, (_, i) => person(String(i + 1))).concat(
+            person("duplicate", person("1").destinations[0]!.value),
+          ),
+        )}
         onFinish={vi.fn()}
       />,
     );
-    expect(screen.queryByText(/Select all/i)).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Review 0 invitations" }),
+      screen
+        .getAllByRole("checkbox")
+        .every((box) => box.getAttribute("aria-checked") === "false"),
+    ).toBe(true);
+    for (let i = 1; i <= 15; i++)
+      fireEvent.click(
+        screen.getByRole("checkbox", { name: `Select Person ${i}` }),
+      );
+    expect(
+      screen.getByRole("checkbox", { name: "Select Person 16" }),
     ).toBeDisabled();
     expect(
-      screen.getByRole("checkbox", { name: "Select Person 3" }),
+      screen.getByRole("checkbox", { name: "Select Person duplicate" }),
     ).toBeDisabled();
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select Person 1" }));
+    fireEvent.click(screen.getByText("Person 15"));
     expect(
-      screen.getByRole("checkbox", { name: "Select Person 2" }),
-    ).toBeDisabled();
-    fireEvent.change(
-      screen.getByRole("combobox", { name: "Destination for Person 3" }),
-      { target: { value: "email:person@example.com" } },
-    );
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select Person 3" }));
+      screen.getByRole("checkbox", { name: "Select Person 16" }),
+    ).toBeEnabled();
+    fireEvent.click(screen.getByText("Person 16"));
     fireEvent.change(screen.getByRole("textbox"), {
-      target: { value: "Person 3" },
+      target: { value: "Person 2" },
     });
     fireEvent.click(
-      screen.getByRole("button", { name: "Review 2 invitations" }),
-    );
-    expect(screen.getByText("Person 1")).toBeInTheDocument();
-    expect(
-      screen.getByRole("textbox", { name: "Invitation message for Person 1" }),
-    ).toHaveValue(
-      "Hi Person 1,\n\nJoin me on One.\nhttps://one.example/r/inviter",
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Preview message for Person 3" }),
+      screen.getByRole("button", { name: "Review 15 invitations" }),
     );
     expect(
-      screen.getByRole("textbox", { name: "Invitation message for Person 3" }),
-    ).toHaveValue(
-      "Hi Person 3,\n\nJoin me on One.\nhttps://one.example/r/inviter",
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Back to selection" }));
+      screen.getByRole("textbox", { name: "Invitation message" }),
+    ).toHaveValue("Join me on One.\nhttps://one.example/r/inviter");
+    expect(screen.getByText(/recipients can see each other/)).toBeVisible();
+    dismissTopmostOverlay();
+    await screen.findByRole("textbox", { name: "Search contacts to invite" });
     expect(
-      screen.getByRole("checkbox", { name: "Select Person 3" }),
+      screen.getByRole("checkbox", { name: "Select Person 2" }),
     ).toBeChecked();
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "" } });
     expect(
-      screen.getByRole("checkbox", { name: "Select Person 1" }),
-    ).toBeChecked();
-  });
-
-  it("keeps selections across pages and labels email-only contacts accurately", () => {
-    const rows = Array.from({ length: 51 }, (_, index) =>
-      person(String(index + 1)),
-    );
-    rows[50] = {
-      ...rows[50]!,
-      classification: "email_only",
-      destinations: [{ kind: "email", value: "email@example.com" }],
-    };
-    render(
-      <ContactInvitationSheet
-        controller={controller(rows)}
-        onFinish={vi.fn()}
-      />,
-    );
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select Person 1" }));
-    expect(screen.queryByText("Person 51")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Show more contacts" }));
-    expect(screen.getByText("Not checked—mail only")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select Person 51" }));
-    expect(
-      screen.getByRole("button", { name: "Review 2 invitations" }),
+      screen.getByRole("button", { name: "Review 15 invitations" }),
     ).toBeEnabled();
   });
 
-  it("sends only one chosen recipient to the composer, guards double taps, and never advances on cancellation", async () => {
-    let complete!: (result: string) => void;
-    mocks.compose.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          complete = resolve;
-        }),
+  it("hands the entire common-message batch off once, blocks duplicate taps and busy Back, retains cancellation", async () => {
+    const { dismissTopmostOverlay } = await import(
+      "@/lib/navigation/back-layers"
     );
-    const state = controller([person("1"), person("2")]);
-    const finish = vi.fn();
-    render(<ContactInvitationSheet controller={state} onFinish={finish} />);
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select Person 1" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select Person 2" }));
+    let complete!: (result: string) => void;
+    mocks.composeBatch.mockReturnValue(
+      new Promise((resolve) => {
+        complete = resolve;
+      }),
+    );
+    const rows = Array.from({ length: 15 }, (_, i) => person(String(i + 1)));
+    const state = controller(rows);
+    render(<ContactInvitationSheet controller={state} onFinish={vi.fn()} />);
+    for (let i = 1; i <= 15; i++)
+      fireEvent.click(screen.getByText(`Person ${i}`));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review 15 invitations" }),
+    );
+    const open = await screen.findByRole("button", {
+      name: "Open Messages · 15 contacts",
+    });
+    await waitFor(() => expect(open).toBeEnabled());
+    fireEvent.click(open);
+    fireEvent.click(open);
+    dismissTopmostOverlay();
+    expect(screen.getByText("Your invitation")).toBeVisible();
+    expect(mocks.composeBatch).toHaveBeenCalledTimes(1);
+    expect(mocks.composeBatch).toHaveBeenCalledWith(
+      rows.map((row) => row.destinations[0]),
+      state.share,
+      expect.any(Function),
+    );
+    await act(async () => complete("cancelled"));
+    expect(
+      screen.getByText(/Cancelled. Your selection is saved/),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Back to review" }));
+    expect(screen.getByText("15 selected contacts")).toBeVisible();
+    expect(mocks.composeBatch).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires an explicit destination, preserves recovery when an older binary cannot batch", async () => {
+    mocks.canComposeBatchSms.mockResolvedValue(false);
+    mocks.copy.mockRejectedValue(new Error("clipboard blocked"));
+    const multi = person("1");
+    multi.destinations.push({ kind: "phone", value: "+14155550999" });
+    render(
+      <ContactInvitationSheet
+        controller={controller([multi])}
+        onFinish={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("checkbox")).toBeDisabled();
+    fireEvent.change(screen.getByRole("combobox"), {
+      target: { value: "phone:+14155550999" },
+    });
+    fireEvent.click(screen.getByText("Person 1"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review 1 invitation" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Open Messages/ }),
+      ).toBeDisabled(),
+    );
+    expect(
+      await screen.findByText(/Batch Messages is unavailable/),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Copy invitation" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /Could not open or copy/,
+    );
+    expect(
+      screen.getByRole("textbox", { name: "Invitation message" }),
+    ).toHaveAttribute("readonly");
+    expect(mocks.composeBatch).not.toHaveBeenCalled();
+  });
+
+  it("uses email destinations on web, keeps paging selections and handles phone-only empty results", async () => {
+    mocks.native = false;
+    mocks.composeBatch.mockResolvedValue("launch_requested");
+    const rows: InviteCandidate[] = Array.from({ length: 51 }, (_, i) => ({
+      ...person(String(i + 1)),
+      destinations: [
+        { kind: "email" as const, value: `person${i + 1}@example.com` },
+      ],
+      classification: "email_only" as const,
+    }));
+    rows[0]!.destinations.push({ kind: "phone", value: "+14155550101" });
+    const { unmount } = render(
+      <ContactInvitationSheet
+        controller={controller(rows.concat(person("phone")))}
+        onFinish={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByText("Person 1"));
+    expect(screen.queryByText("Person 51")).not.toBeInTheDocument();
+    expect(screen.queryByText("Person phone")).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show more contacts" }));
+    fireEvent.click(screen.getByText("Person 51"));
     fireEvent.click(
       screen.getByRole("button", { name: "Review 2 invitations" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue with 2 invitations" }),
+      screen.getByRole("button", { name: "Open email · 2 contacts" }),
     );
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: "Open Messages" }),
-      ).toBeEnabled(),
+    await screen.findByText(/Email draft requested/);
+    expect(mocks.composeBatch).toHaveBeenCalledWith(
+      [rows[0]!.destinations[0], rows[50]!.destinations[0]],
+      expect.objectContaining({ text: "Join me on One." }),
+      expect.any(Function),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Open Messages" }));
-    fireEvent.click(screen.getByRole("button", { name: "Open Messages" }));
-    expect(mocks.compose).toHaveBeenCalledTimes(1);
-    expect(mocks.compose).toHaveBeenCalledWith(person("1").destinations[0], {
-      ...state.share,
-      text: "Hi Person 1,\n\nJoin me on One.",
-    });
-    complete("cancelled");
-    await screen.findByText(/Cancelled. You can retry/);
+    expect(screen.getByRole("button", { name: "Done" })).toBeEnabled();
+    unmount();
+    render(
+      <ContactInvitationSheet
+        controller={controller([person("1")])}
+        onFinish={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/No contacts with an email address/)).toBeVisible();
     expect(
-      screen.queryByRole("button", { name: "Next recipient" }),
-    ).not.toBeInTheDocument();
-    expect(mocks.compose).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
-    expect(screen.getByText("Person 2")).toBeInTheDocument();
-    expect(mocks.compose).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
-    expect(state.clear).toHaveBeenCalled();
-    expect(finish).toHaveBeenCalled();
+      screen.getByRole("button", { name: "Review 0 invitations" }),
+    ).toBeDisabled();
   });
 
-  it("offers preparation retry and preserves selected recipients while it recovers", () => {
+  it("recovers invitation preparation with no web email candidates without resync", async () => {
+    mocks.native = false;
     const state = controller([person("1")]);
     state.share = null;
     state.error = "Could not prepare the invitation.";
     const { rerender } = render(
       <ContactInvitationSheet controller={state} onFinish={vi.fn()} />,
     );
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select Person 1" }));
-    fireEvent.click(
-      screen.getByRole("button", { name: "Review 1 invitations" }),
-    );
-    expect(
-      screen.getByRole("button", { name: "Continue with 1 invitations" }),
-    ).toBeDisabled();
     fireEvent.click(
       screen.getByRole("button", { name: "Retry invitation link" }),
     );
@@ -235,71 +289,17 @@ describe("contact invitation selection", () => {
         onFinish={vi.fn()}
       />,
     );
-    expect(
-      screen.getByRole("button", { name: "Continue with 1 invitations" }),
-    ).toBeEnabled();
-  });
-
-  it("keeps manual recovery available when native compose, copy and share are unavailable", async () => {
-    mocks.canComposeSms.mockResolvedValue(false);
-    mocks.copy.mockRejectedValue(new Error("clipboard blocked"));
-    mocks.share.mockRejectedValue(new Error("no share handler"));
-    render(
-      <ContactInvitationSheet
-        controller={controller([person("1"), person("2")])}
-        onFinish={vi.fn()}
-      />,
-    );
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select Person 1" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select Person 2" }));
-    fireEvent.click(
-      screen.getByRole("button", { name: "Review 2 invitations" }),
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue with 2 invitations" }),
-    );
-    expect(
-      screen.getByRole("button", { name: "Open Messages" }),
-    ).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Copy invitation" }));
-    await screen.findByRole("alert");
+    await waitFor(() =>
+      expect(mocks.toast).toHaveBeenCalledWith("Invitation copied"),
+    );
     expect(mocks.copy).toHaveBeenCalledWith(
-      expect.objectContaining({ text: "Hi Person 1,\n\nJoin me on One." }),
+      controller([]).share,
+      expect.any(Function),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Share invitation" }));
-    await screen.findByRole("alert");
-    expect(
-      screen.getByRole("textbox", { name: "Invitation message for Person 1" }),
-    ).toHaveAttribute("readonly");
-    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
-    expect(screen.getByText(/1 skipped/)).toBeInTheDocument();
-    expect(
-      screen.getByRole("textbox", { name: "Invitation message for Person 2" }),
-    ).toHaveValue(
-      "Hi Person 2,\n\nJoin me on One.\nhttps://one.example/r/inviter",
-    );
-    expect(mocks.compose).not.toHaveBeenCalled();
   });
 
-  it("selects and deselects from the contact name and number, with only one toggle per checkbox tap", () => {
-    render(
-      <ContactInvitationSheet
-        controller={controller([person("1")])}
-        onFinish={vi.fn()}
-      />,
-    );
-    const checkbox = screen.getByRole("checkbox", { name: "Select Person 1" });
-    fireEvent.click(screen.getByText("Person 1"));
-    expect(checkbox).toBeChecked();
-    fireEvent.click(screen.getByText(person("1").destinations[0]!.value));
-    expect(checkbox).not.toBeChecked();
-    fireEvent.click(checkbox);
-    expect(checkbox).toBeChecked();
-  });
-
-  it("keeps the sheet open when clipboard fallback moves focus outside and confirms successful copy", async () => {
-    const state = controller([person("1")]);
-    const finish = vi.fn();
+  it("keeps copy feedback and selection when clipboard fallback moves focus outside", async () => {
     mocks.copy.mockImplementation(async () => {
       const textarea = document.createElement("textarea");
       document.body.append(textarea);
@@ -307,13 +307,12 @@ describe("contact invitation selection", () => {
       textarea.remove();
       return "copied";
     });
+    const state = controller([person("1")]);
+    const finish = vi.fn();
     render(<ContactInvitationSheet controller={state} onFinish={finish} />);
     fireEvent.click(screen.getByText("Person 1"));
     fireEvent.click(
-      screen.getByRole("button", { name: "Review 1 invitations" }),
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue with 1 invitations" }),
+      screen.getByRole("button", { name: "Review 1 invitation" }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Copy invitation" }));
     await waitFor(() =>
@@ -321,54 +320,6 @@ describe("contact invitation selection", () => {
     );
     expect(finish).not.toHaveBeenCalled();
     expect(state.clear).not.toHaveBeenCalled();
-    expect(
-      screen.getByRole("textbox", { name: "Invitation message for Person 1" }),
-    ).toBeInTheDocument();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Done with this contact" }),
-    );
-    expect(
-      screen.getByText("Your invitation queue is complete."),
-    ).toBeInTheDocument();
+    expect(screen.getByText("1 selected contact")).toBeVisible();
   });
-
-  it.each(["queued_or_sent", "native-share"])(
-    "advances after %s without automatically opening another composer",
-    async (outcome) => {
-      mocks.compose.mockResolvedValue(outcome);
-      mocks.share.mockResolvedValue(outcome);
-      render(
-        <ContactInvitationSheet
-          controller={controller([person("1"), person("2")])}
-          onFinish={vi.fn()}
-        />,
-      );
-      fireEvent.click(screen.getByText("Person 1"));
-      fireEvent.click(screen.getByText("Person 2"));
-      fireEvent.click(
-        screen.getByRole("button", { name: "Review 2 invitations" }),
-      );
-      fireEvent.click(
-        screen.getByRole("button", { name: "Continue with 2 invitations" }),
-      );
-      await waitFor(() =>
-        expect(
-          screen.getByRole("button", { name: "Open Messages" }),
-        ).toBeEnabled(),
-      );
-      fireEvent.click(
-        screen.getByRole("button", {
-          name:
-            outcome === "native-share" ? "Share invitation" : "Open Messages",
-        }),
-      );
-      await screen.findByRole("textbox", {
-        name: "Invitation message for Person 2",
-      });
-      expect(
-        mocks.compose.mock.calls.length + mocks.share.mock.calls.length,
-      ).toBe(1);
-      expect(screen.getByText(/1 processed/)).toBeInTheDocument();
-    },
-  );
 });

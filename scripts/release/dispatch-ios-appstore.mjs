@@ -17,7 +17,7 @@
  * BACKEND: `--backend uat` (default) ships the same UAT backend + shared Firebase
  * authority (hushh-pda; config stored in hushh-pda-uat) as TestFlight. `--backend
  * production` maps to the workflow's `backend_target=production`: the binary
- * talks to one.hushh.ai and the production API, with the same shared Firebase
+ * talks to one.hussh.ai and the production API, with the same shared Firebase
  * identity.
  *
  * SAFETY / IRREVERSIBILITY
@@ -33,6 +33,7 @@
  *   node scripts/release/dispatch-ios-appstore.mjs --sha <sha>     # pin an explicit green SHA
  *   node scripts/release/dispatch-ios-appstore.mjs --dry-run       # archive+sign only, no upload
  *   node scripts/release/dispatch-ios-appstore.mjs --backend production  # binary talks to production
+ *   node scripts/release/dispatch-ios-appstore.mjs --marketing-version 1.4.1  # packaging version; source SHA stays pinned
  *   node scripts/release/dispatch-ios-appstore.mjs --whats-new "..."  # App Store release notes for this version
  *   node scripts/release/dispatch-ios-appstore.mjs --notes "..."   # annotate the run summary
  *   node scripts/release/dispatch-ios-appstore.mjs --submit --ack-blockers   # IRREVERSIBLE one-click public submit
@@ -62,7 +63,15 @@ function run(cmd, args, { capture = false, input } = {}) {
   return res;
 }
 
-function parseArgs(argv) {
+export function parseMarketingVersion(value) {
+  const version = String(value ?? "").trim();
+  if (!/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(version)) {
+    throw new Error("--marketing-version requires three numeric components, for example 1.4.1.");
+  }
+  return version;
+}
+
+export function parseArgs(argv) {
   const opts = {
     sha: null,
     dryRun: false,
@@ -72,6 +81,7 @@ function parseArgs(argv) {
     whatsNew: "",
     notes: "",
     backend: "uat",
+    marketingVersion: null,
     yes: false,
     watch: true,
   };
@@ -105,6 +115,9 @@ function parseArgs(argv) {
           fail(`--backend must be "uat" or "production", got "${opts.backend}".`);
         }
         break;
+      case "--marketing-version":
+        opts.marketingVersion = parseMarketingVersion(argv[++i]);
+        break;
       case "--yes":
       case "-y":
         opts.yes = true;
@@ -116,7 +129,7 @@ function parseArgs(argv) {
       case "-h":
         console.log(
           "Usage: node scripts/release/dispatch-ios-appstore.mjs " +
-            "[--sha <sha>] [--dry-run] [--backend uat|production] [--whats-new <text>] [--submit --ack-blockers [--release-after-approval]] [--notes <text>] [--yes] [--no-watch]",
+            "[--sha <sha>] [--dry-run] [--backend uat|production] [--marketing-version <x.y.z>] [--whats-new <text>] [--submit --ack-blockers [--release-after-approval]] [--notes <text>] [--yes] [--no-watch]",
         );
         process.exit(0);
         break;
@@ -177,6 +190,17 @@ export function requireCompletedRelease(result, runId) {
   }
 }
 
+export function buildDispatchInputs(opts, sha) {
+  if ((opts.submit || opts.releaseAfterApproval) && opts.backend !== "production") {
+    throw new Error("Public App Store submission requires a production backend; legacy UAT customer transition must be verified before publication.");
+  }
+  const inputs = { sha, backend_target: opts.backend, dry_run: String(opts.dryRun), submit_for_review: String(opts.submit), release_after_approval: String(opts.releaseAfterApproval) };
+  if (opts.marketingVersion) inputs.marketing_version = parseMarketingVersion(opts.marketingVersion);
+  if (opts.whatsNew) inputs.whats_new = opts.whatsNew;
+  if (opts.notes) inputs.notes = opts.notes;
+  return inputs;
+}
+
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
 
@@ -206,8 +230,9 @@ async function main() {
   console.log(`  Workflow  : ${WORKFLOW}`);
   console.log(`  Ref       : ${REF}`);
   console.log(`  SHA       : ${sha}`);
+  console.log(`  Version   : ${opts.marketingVersion || "from the exact source project"}`);
   console.log(
-    `  Backend   : ${opts.backend === "production" ? "PRODUCTION (hushh-pda, one.hushh.ai)" : "UAT (hushh-pda-uat), same as TestFlight"}`,
+    `  Backend   : ${opts.backend === "production" ? "PRODUCTION (hushh-pda, one.hussh.ai)" : "UAT (hushh-pda-uat), same as TestFlight"}`,
   );
   console.log(`  Mode      : ${mode}`);
   console.log(`  Publication: ${opts.releaseAfterApproval ? "automatic after Apple approval" : "manual; submission alone does not publish"}`);
@@ -232,9 +257,7 @@ async function main() {
   const repo = run("gh", ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], { capture: true });
   const repository = repo.stdout.trim();
   if (repo.status !== 0 || !/^[\w.-]+\/[\w.-]+$/.test(repository)) fail("Could not resolve the target repository.");
-  const inputs = { sha, backend_target: opts.backend, dry_run: String(opts.dryRun), submit_for_review: String(opts.submit), release_after_approval: String(opts.releaseAfterApproval) };
-  if (opts.whatsNew) inputs.whats_new = opts.whatsNew;
-  if (opts.notes) inputs.notes = opts.notes;
+  const inputs = buildDispatchInputs(opts, sha);
   // The versioned dispatch API returns this dispatch's run ID. Never guess from
   // a latest-run list: concurrent operators can otherwise watch the wrong release.
   const dispatch = run("gh", ["api", "--method", "POST",

@@ -8,10 +8,8 @@ parses the filter the way GitHub does (dorny/paths-filter, whose globs and
 `pathspec`'s gitignore rules agree for every slash-anchored pattern) and checks
 it against the files the CI-run test actually touches.
 
-The filter excludes `components/onboarding/setup/**`, the post-sign-in setup
-screens, which alone used to schedule the lane. That exclusion is only safe
-while nothing the XCUITest renders imports them, so the render path's
-transitive imports are traced and checked for exactly that.
+The login route now imports post-sign-in setup screens. The render path's
+transitive imports are traced so the iOS filter covers those screens too.
 
 It also pins the checkout depth and base-ref env of every lane that reaches
 the capability graph check (`generate_capability_graph.py --check`), which
@@ -21,11 +19,20 @@ base is not in the clone: `protocol-check` and `web-full-suite-check` (whose
 pass-through that reuses the PR Validation result and runs no lane, so it has
 no base ref to resolve; that is pinned here too, so a lane re-added there
 cannot silently skip the graph check.
+
+The macOS editor latency lane (`web-editor-performance-check`) gets the same
+guard from its own `editor:` filter, which replaced scheduling it on every
+frontend change. Its inputs are derived from the job itself: the npm script it
+runs, the specs that script names, their transitive imports, and the fixture,
+stylesheet and font the spec reads from disk. Its nightly backstop on main
+(.github/workflows/editor-performance-nightly.yml) is pinned to the same steps.
 """
 
 from __future__ import annotations
 
+import json
 import re
+from functools import cache
 from pathlib import Path
 
 import pathspec
@@ -70,12 +77,44 @@ CI_RUN_XCUITEST_RENDERS = (
     "hushh-webapp/components/one-location/onboarding/location-picker-map.tsx",
 )
 
+# The macOS editor latency lane (`web-editor-performance-check`) is scheduled
+# by the `editor:` filter alone. Its inputs are derived, not listed: the npm
+# scripts the job runs (and those they run), the specs they name, those specs'
+# transitive imports (CSS `@import` included), and every webapp file the code
+# reads through `path.join(<dir>, "<literal>"...)`, such as the fixture the
+# spec bundles, the stylesheet it compiles and the font it inlines.
+EDITOR_JOB = "web-editor-performance-check"
+NIGHTLY_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "editor-performance-nightly.yml"
+NPM_RUN_RE = re.compile(r"\bnpm run ([\w:.-]+)")
+SPEC_RE = re.compile(r"\b(e2e/[\w./-]+\.spec\.ts)\b")
+PATH_JOIN_RE = re.compile(
+    r"""path\.(?:join|resolve)\(\s*[\w.]+(?:\(\))?\s*,((?:\s*["'][^"']+["']\s*,?)+)\s*\)"""
+)
+STRING_LITERAL_RE = re.compile(r"""["']([^"']+)["']""")
+CSS_IMPORT_RE = re.compile(r"""@import\s+(?:url\(\s*)?["']([^"']+)["']""")
+# What the lane reads without naming it in code: the configs that transpile,
+# bundle and run the spec, the lockfile behind every bare import, and the
+# workflow that defines the job.
+EDITOR_LANE_CONFIG_INPUTS = (
+    "hushh-webapp/package.json",
+    "hushh-webapp/package-lock.json",
+    "hushh-webapp/playwright.config.ts",
+    "hushh-webapp/tsconfig.json",
+    "hushh-webapp/e2e/tsconfig.json",
+    "hushh-webapp/postcss.config.mjs",
+    "hushh-webapp/tailwind.config.ts",
+    ".github/workflows/ci.yml",
+)
+
 MARKER_RE = re.compile(r"native-route-[a-z0-9-]+")
 ONLY_TESTING_RE = re.compile(r"-only-testing:AppUITests/AppUITests/(\w+)")
 SWIFT_FUNC_BOUNDARY_RE = re.compile(r"\n    (?:private |fileprivate )?func ")
 GLOB_CHARS = set("*?[")
 IMPORT_RE = re.compile(
     r"""(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+|\brequire\s*\(\s*)["']([^"']+)["']"""
+)
+EDITOR_TYPE_DECLARATION_RE = re.compile(
+    r"""\b(?:import\s+type\s+(?:\{[^}]*\}|\*\s+as\s+\w+|\w+)|export\s+type\s+(?:\{[^}]*\}|\*(?:\s+as\s+\w+)?))\s+from\s*["'][^"']+["']\s*;?"""
 )
 CODE_SUFFIXES = {".ts", ".tsx", ".js", ".jsx", ".mjs"}
 RESOLVE_SUFFIXES = ("", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".css", ".json")
@@ -112,12 +151,16 @@ def _paths_filter_step() -> dict:
     raise AssertionError("The paths job no longer uses dorny/paths-filter")
 
 
-def _ios_filter_patterns() -> list[str]:
+def _filter_patterns(name: str) -> list[str]:
     filters = yaml.safe_load(_paths_filter_step()["with"]["filters"])
-    assert "ios" in filters, "The paths filter has no ios: list"
-    patterns = filters["ios"]
+    assert name in filters, f"The paths filter has no {name}: list"
+    patterns = filters[name]
     assert isinstance(patterns, list) and patterns
     return [str(pattern) for pattern in patterns]
+
+
+def _ios_filter_patterns() -> list[str]:
+    return _filter_patterns("ios")
 
 
 def _ios_spec() -> _Filter:
@@ -252,18 +295,30 @@ def test_ios_filter_matches_direct_native_helpers_only() -> None:
     assert not spec.match_file("hushh-webapp/components/app-ui/nested/native-thing.tsx")
 
 
-def test_nothing_the_ci_run_xcuitest_renders_imports_the_onboarding_setup_screens() -> None:
-    # The ios: filter excludes components/onboarding/setup/**. The moment a
-    # render-path file imports from there, a setup-only change can break the
-    # XCUITest without scheduling it, so the exclusion must go.
+@pytest.mark.parametrize(
+    "path",
+    (
+        "hushh-webapp/hooks/use-owner-presentation-state.ts",
+        "hushh-webapp/components/connections/gemini-runtime-settings-card.tsx",
+        "hushh-webapp/components/profile/world-model-provider.tsx",
+    ),
+)
+def test_ios_filter_covers_shared_profile_inputs_in_the_render_path(path: str) -> None:
+    # Shared controller-only changes must not skip the native export/build lane.
+    # Check the actual import closure, not an invented native-only entrypoint.
+    assert path in _ci_run_xcuitest_render_closure(), f"No longer a rendered input: {path}"
+    assert _ios_spec().match_file(path), f"The ios: filter skips a rendered shared input: {path}"
+
+
+def test_ios_filter_schedules_setup_screens_rendered_by_xcuitest() -> None:
     closure = _ci_run_xcuitest_render_closure()
     assert "hushh-webapp/components/onboarding/AuthStep.tsx" in closure
     assert len(closure) > len(CI_RUN_XCUITEST_RENDERS), "the import trace found nothing"
     reached = sorted(path for path in closure if path.startswith(ONBOARDING_SETUP_DIR))
-    assert not reached, (
-        "The CI-run XCUITest now renders onboarding setup files; remove the "
-        f"'!{ONBOARDING_SETUP_DIR}**' exclusion from the ios: filter: {reached}"
-    )
+    assert f"{ONBOARDING_SETUP_DIR}setup-v10-surface.tsx" in reached
+    assert f"{ONBOARDING_SETUP_DIR}setup-v10-surface.module.css" in reached
+    unmatched = [path for path in reached if not _ios_spec().match_file(path)]
+    assert not unmatched, f"The ios: filter no longer schedules rendered setup files: {unmatched}"
 
 
 def test_ios_filter_covers_every_onboarding_file_the_xcuitest_renders() -> None:
@@ -272,7 +327,7 @@ def test_ios_filter_covers_every_onboarding_file_the_xcuitest_renders() -> None:
     assert rendered, "the import trace reached no onboarding file"
     unmatched = [path for path in rendered if not spec.match_file(path)]
     assert not unmatched, f"The ios: filter no longer schedules rendered files: {unmatched}"
-    assert not spec.match_file(f"{ONBOARDING_SETUP_DIR}one-setup-hub.tsx")
+    assert spec.match_file(f"{ONBOARDING_SETUP_DIR}one-setup-hub.tsx")
 
 
 def test_every_marker_the_ci_run_xcuitest_expects_is_rendered_by_a_filtered_file() -> None:
@@ -334,3 +389,164 @@ def test_queue_validation_is_a_pass_through_that_runs_no_lane() -> None:
         "${{ github.event.merge_group.head_sha }}"
     )
     assert "orchestrate.sh" not in QUEUE_WORKFLOW_PATH.read_text(encoding="utf-8")
+
+
+def _editor_specs() -> list[Path]:
+    """The specs named by every npm script the editor lane's job runs, transitively."""
+    scripts = json.loads((WEBAPP_DIR / "package.json").read_text(encoding="utf-8"))["scripts"]
+    pending = [
+        name
+        for step in _steps(_load_workflow(MONO_WORKFLOW_PATH), EDITOR_JOB)
+        for name in NPM_RUN_RE.findall(str(step.get("run") or ""))
+    ]
+    assert pending, f"{EDITOR_JOB} runs no npm script"
+    seen: set[str] = set()
+    specs: set[str] = set()
+    while pending:
+        name = pending.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        assert name in scripts, f"package.json has no {name} script"
+        specs.update(SPEC_RE.findall(scripts[name]))
+        pending.extend(NPM_RUN_RE.findall(scripts[name]))
+    assert specs, f"npm scripts {sorted(seen)} name no e2e spec"
+    return sorted((WEBAPP_DIR / spec).resolve() for spec in specs)
+
+
+@cache
+def _editor_lane_closure() -> frozenset[str]:
+    """Every repo file the editor lane imports or reads, from its specs down."""
+    pending = _editor_specs()
+    seen: set[Path] = set()
+    while pending:
+        path = pending.pop()
+        if path in seen:
+            continue
+        seen.add(path)
+        if path.suffix in CODE_SUFFIXES:
+            text = path.read_text(encoding="utf-8")
+            found = [
+                _resolve_import(path, specifier) for specifier in _editor_runtime_imports(text)
+            ]
+            # Read, not imported: a joined path that names a webapp file. The
+            # lockfile pins node_modules, and a directory is a base, not a read.
+            for arguments in PATH_JOIN_RE.findall(text):
+                relative = "/".join(STRING_LITERAL_RE.findall(arguments))
+                if not relative.startswith("node_modules/") and (WEBAPP_DIR / relative).is_file():
+                    found.append((WEBAPP_DIR / relative).resolve())
+        elif path.suffix == ".css":
+            found = [
+                (path.parent / specifier).resolve()
+                for specifier in CSS_IMPORT_RE.findall(path.read_text(encoding="utf-8"))
+                if specifier.startswith(".") and (path.parent / specifier).is_file()
+            ]
+        else:
+            continue
+        pending.extend(found_path for found_path in found if found_path is not None)
+    return frozenset(path.relative_to(ROOT.resolve()).as_posix() for path in seen)
+
+
+def _editor_runtime_imports(text: str) -> list[str]:
+    # Vite/Oxc erases explicit type declarations before resolving dependencies.
+    # Keep mixed declarations conservatively, and leave the iOS graph unchanged.
+    return IMPORT_RE.findall(EDITOR_TYPE_DECLARATION_RE.sub("", text))
+
+
+def test_editor_dependency_graph_excludes_only_erased_type_declarations() -> None:
+    imports = _editor_runtime_imports("""
+        import type { Settings } from "./type-only";
+        import type Default from "./default-type";
+        export type { Settings } from "./export-type";
+        export type * from "./export-all-types";
+        import { Settings } from "./runtime";
+        import { type Settings, create } from "./mixed";
+        import "./side-effect";
+        const lazy = import("./dynamic");
+        const legacy = require("./required");
+    """)
+    assert imports == ["./runtime", "./mixed", "./side-effect", "./dynamic", "./required"]
+    # Negative control: the same edge must become required when it is a value.
+    assert _editor_runtime_imports('import { Settings } from "./type-only";') == ["./type-only"]
+
+
+def _editor_uncovered(patterns: list[str]) -> list[str]:
+    spec = _Filter(patterns)
+    inputs = {*_editor_lane_closure(), *EDITOR_LANE_CONFIG_INPUTS}
+    return sorted(path for path in inputs if not spec.match_file(path))
+
+
+def test_editor_filter_schedules_the_macos_lane_for_every_file_it_builds_or_reads() -> None:
+    workflow = _load_workflow(MONO_WORKFLOW_PATH)
+    jobs = workflow["jobs"]
+    assert "outputs.editor == 'true'" in jobs[EDITOR_JOB]["if"]
+    assert "steps.resolve.outputs.editor" in jobs["paths"]["outputs"]["editor"]
+    assert "needs.paths.outputs.editor" in jobs["preflight-gate"]["outputs"]["editor"]
+    patterns = _filter_patterns("editor")
+    # An exact file path and `<dir>/**` match the same files under gitignore
+    # rules (this test) and picomatch (dorny/paths-filter), so a green here is
+    # a green on GitHub. A single-star glob would not be: gitignore also
+    # matches everything under a directory the star happens to name.
+    for pattern in (p.removeprefix("!") for p in patterns):
+        anchor = pattern.removesuffix("/**")
+        assert not GLOB_CHARS & set(anchor), f"editor pattern {pattern} is not a file or <dir>/**"
+        exists = (ROOT / anchor).is_dir() if anchor != pattern else (ROOT / anchor).is_file()
+        assert exists, f"editor pattern {pattern} points at nothing"
+    closure = _editor_lane_closure()
+    # The two inputs only a read reaches; without them the trace is the imports alone.
+    assert "hushh-webapp/e2e/fixtures/text-attachment-viewer.tsx" in closure
+    assert "hushh-webapp/app/globals.css" in closure
+    assert len(closure) > 20, f"the trace found only {sorted(closure)}"
+    missing = [path for path in EDITOR_LANE_CONFIG_INPUTS if not (ROOT / path).is_file()]
+    assert not missing, f"Config inputs that no longer exist: {missing}"
+    uncovered = _editor_uncovered(patterns)
+    assert not uncovered, (
+        "The editor: path filter does not schedule the macOS editor lane for files "
+        f"it builds or reads; grow the filter to cover: {uncovered}"
+    )
+
+
+def test_negative_control_the_editor_check_names_a_dropped_input() -> None:
+    patterns = _filter_patterns("editor")
+    assert not _editor_uncovered(patterns)
+    # One input reached through a read and a directory reached through imports.
+    for dropped, reported in (
+        ("hushh-webapp/app/globals.css", "hushh-webapp/app/globals.css"),
+        (
+            "hushh-webapp/components/agent/agent-connections-drawer.tsx",
+            "hushh-webapp/components/agent/agent-connections-drawer.tsx",
+        ),
+        ("hushh-webapp/lib/morphy-ux/**", "hushh-webapp/lib/morphy-ux/"),
+    ):
+        assert dropped in patterns, f"pick another negative control; {dropped} left the filter"
+        uncovered = _editor_uncovered([p for p in patterns if p != dropped])
+        assert any(path.startswith(reported) for path in uncovered), (dropped, uncovered)
+
+
+def test_editor_nightly_runs_the_pr_lane_steps_on_main() -> None:
+    # Path-scoping the PR lane is safe only while the nightly backstop runs the
+    # same lane on main, so the two must not drift apart.
+    ci = _load_workflow(MONO_WORKFLOW_PATH)
+    nightly = _load_workflow(NIGHTLY_WORKFLOW_PATH)
+    triggers = nightly.get("on") or nightly.get(True)  # PyYAML reads `on:` as True
+    assert triggers.get("schedule"), "the nightly backstop has no schedule"
+    lane = ci["jobs"][EDITOR_JOB]
+    runs = [job for job in nightly["jobs"].values() if job.get("runs-on") == lane["runs-on"]]
+    assert len(runs) == 1, f"exactly one nightly job must run on {lane['runs-on']}"
+    assert nightly["env"]["NODE_VERSION"] == ci["env"]["NODE_VERSION"]
+
+    def comparable(steps: list[dict], *, pinned_ref: str | None) -> list[tuple]:
+        result = []
+        for step in steps:
+            if step.get("id") == "tested" and pinned_ref:
+                continue  # the nightly records the commit for its issue
+            settings = dict(step.get("with") or {})
+            if str(step.get("uses") or "").startswith("actions/checkout"):
+                assert settings.pop("ref", None) == pinned_ref
+            uses, run, cwd = step.get("uses"), step.get("run"), step.get("working-directory")
+            result.append((uses, run, cwd, sorted(settings.items())))
+        return result
+
+    assert comparable(runs[0]["steps"], pinned_ref="main") == comparable(
+        lane["steps"], pinned_ref=None
+    )

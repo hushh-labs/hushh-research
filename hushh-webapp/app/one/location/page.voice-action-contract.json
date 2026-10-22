@@ -20,6 +20,22 @@
   },
   "actions": [
     {
+      "action_id": "location.review_notifications",
+      "label": "Check Location notification settings",
+      "meaning": "Review Location alerts.",
+      "aliases": ["location notifications", "SMS alert sound", "Save My Soul notifications"],
+      "search_keywords": ["notifications", "sound", "alerts", "SMS", "push"],
+      "reachability": {"routes": ["/one/location"], "screens": ["one_location"], "hidden_navigable": false, "navigation_prerequisites": []},
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "execution_target": {"status": "wired", "path": "route", "target": "/one/location?action=settings"},
+      "control_ids": ["one-location-notification-recovery"],
+      "state_exposure": ["device notification registration", "device alert and sound settings"]
+    },
+    {
       "action_id": "location.open_now",
       "label": "Open Location overview",
       "meaning": "Opens the Overview tab of Location, which shows current sharing status and the quick actions.",
@@ -705,7 +721,7 @@
     {
       "action_id": "location.open_sms_contacts",
       "label": "Open emergency contacts",
-      "meaning": "Opens the Save My Soul contacts screen, where you choose who is alerted when you raise an SOS. SMS is short for Save My Soul; no text message is sent -- contacts get a push notification, an email fallback, and a live location share.",
+      "meaning": "Opens Save My Soul contacts to choose SOS recipients. SMS means Save My Soul: push, email fallback and live location, without carrier texts.",
       "aliases": [
         "emergency contacts",
         "sms contacts",
@@ -1691,7 +1707,7 @@
     {
       "action_id": "location.stop_sos",
       "label": "Stop the active SOS",
-      "meaning": "Ends the Save My Soul alert that is currently running and revokes the live SOS location shares it created. It does not tell anyone you are safe and does not change ordinary location sharing. In One Voice it shows a tap-confirmation card naming the shares it will end; shares that cannot be verified as ended are reported as still possibly live.",
+      "meaning": "Stops the active Save My Soul alert and revokes its SOS shares. Does not announce safety or change ordinary sharing. One Voice requires a tap-confirmation card naming the shares; unverified endings remain possibly live.",
       "aliases": [
         "stop sos",
         "cancel sos",
@@ -1847,7 +1863,7 @@
     {
       "action_id": "location.add_emergency_contact",
       "label": "Add an emergency contact",
-      "meaning": "Adds one person to the list who are alerted and receive your live location if you trigger an SOS. Only people who have finished Location setup can be added.",
+      "meaning": "Adds an eligible connected person with a receiving key to your SOS contacts for alerts and live location. Phone and Location onboarding are optional.",
       "aliases": [
         "add emergency contact",
         "make them an emergency contact",
@@ -3241,7 +3257,7 @@
     {
       "action_id": "location.trigger_sos",
       "label": "Send an SOS alert",
-      "meaning": "Sends a Save My Soul alert to the emergency contacts: one 8-hour precise-location share per contact who can receive it. From a typed command this opens the authored review screen and cannot report an alert as sent. In One Voice it shows a tap-confirmation card naming exactly who will be alerted; the tap arms the shares, the device publishes the encrypted position, and the server verifies delivery before anything is reported as sent. It does not call emergency services.",
+      "meaning": "Creates an 8-hour precise-location SOS share per ready emergency contact. Typed commands only open review and cannot report sent. One Voice requires a tap-confirmation card naming the exact audience, device publication of encrypted location and server delivery verification before reporting sent. Does not call emergency services.",
       "aliases": [
         "send an sos",
         "trigger sos",
@@ -3950,5 +3966,63 @@
         "review_route": "/one/setup/location"
       }
     }
-  ]
+  ],
+  "search": {
+    "subview_action_boost": {
+      "": [
+        "location.pause_updates",
+        "location.resume_updates",
+        "location.stop_share",
+        "location.approve_request",
+        "location.decline_request",
+        "location.refresh"
+      ],
+      "create-circle": [
+        "location.create_circle"
+      ],
+      "share": [
+        "location.select_share_recipient",
+        "location.share_selected",
+        "location.change_share_duration",
+        "location.set_auto_share"
+      ],
+      "ask": [
+        "location.select_ask_recipient",
+        "location.send_request"
+      ],
+      "active-shares": [
+        "location.stop_share",
+        "location.change_share_duration"
+      ],
+      "needs-review": [
+        "location.approve_request",
+        "location.decline_request"
+      ],
+      "shared-with-me": [
+        "location.change_share_duration"
+      ],
+      "settings": [
+        "location.review_notifications",
+        "location.pause_updates",
+        "location.resume_updates",
+        "location.set_auto_share",
+        "location.add_emergency_contact",
+        "location.remove_emergency_contact"
+      ],
+      "sos": [
+        "location.trigger_sos",
+        "location.stop_sos",
+        "location.sos_default"
+      ],
+      "people": [
+        "location.add_to_circle",
+        "location.remove_from_circle",
+        "location.rename_circle",
+        "location.leave_circle",
+        "location.delete_circle",
+        "location.accept_circle_invite",
+        "location.decline_circle_invite"
+      ]
+    }
+  }
 }

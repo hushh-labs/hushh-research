@@ -3,15 +3,14 @@
  *
  * No React, no I/O: `reduceChatOnboarding` takes an event and returns the next
  * state plus the side effects the host must run. That keeps the ordering
- * guarantees (one question per turn, save only on confirm, typed text is an
- * answer only after an explicit "Something else") provable in unit tests.
+ * guarantees (one question per turn, save only on confirm, explicit dismissal
+ * without capturing ordinary chat text) provable in unit tests.
  */
 import {
   CHAT_ONBOARDING_FOCUS_PLAN,
   CHAT_ONBOARDING_QUESTIONS,
   CHAT_ONBOARDING_TONE_LABEL,
   DONE_TEXT,
-  NAME_TYPING_HINT,
   NOT_SAVED_TEXT,
   SAVED_TEXT,
   SAVE_FAILED_TEXT,
@@ -21,7 +20,6 @@ import {
   focusLabel,
   focusQuestionText,
   nameChips,
-  normalizePreferredName,
   resumeQuestionText,
   toneChips,
   toneQuestionText,
@@ -53,6 +51,8 @@ export type ChatOnboardingProgress = {
 export type ChatOnboardingStep =
   | "name"
   | "name_typing"
+  | "saving_name"
+  | "name_save_failed"
   | "focus"
   | "tone"
   | "confirm"
@@ -99,8 +99,10 @@ export type ChatOnboardingEvent =
       today: string;
     }
   | { type: "chip"; chipId: ChatOnboardingChipId; anchor: string | null; today: string; firstName: string | null }
-  | { type: "typed_answer"; text: string; anchor: string | null }
-  | { type: "save_result"; ok: boolean; anchor: string | null; today: string };
+  | { type: "typed_answer"; text: string; anchor: string | null; today: string }
+  | { type: "name_assessment"; decision: "name" | "skip" | "clarify" | "other"; name?: string; anchor: string | null; today: string }
+  | { type: "save_result"; ok: boolean; anchor: string | null; today: string }
+  | { type: "preferred_name_chosen"; name: string };
 
 export type ChatOnboardingResult = {
   state: ChatOnboardingState;
@@ -131,6 +133,20 @@ export function firstPendingQuestion(
 /** The step a person is waiting on. `name_typing` counts as the name question. */
 export function isAwaitingTypedName(state: ChatOnboardingState | null): boolean {
   return state?.step === "name_typing";
+}
+
+/** Steps where a picked name is the person's live choice, not yet in memory. */
+const PICKED_NAME_STEPS: ReadonlySet<ChatOnboardingStep> = new Set(["focus", "tone", "confirm", "saving"]);
+
+/**
+ * The name the person picked that memory does not hold yet, so One's label can
+ * use it at once instead of saying "One" until the last question is confirmed.
+ * Display only: the value stays a session draft. A name being saved, or one
+ * that failed to save, is not returned, because the label follows what memory
+ * actually holds.
+ */
+export function pickedPreferredName(state: ChatOnboardingState | null): string | null {
+  return state && PICKED_NAME_STEPS.has(state.step) ? state.draft.name : null;
 }
 
 function emptyState(progress: ChatOnboardingProgress): ChatOnboardingState {
@@ -261,34 +277,52 @@ export function reduceChatOnboarding(
 
   if (!state) return { state: emptyState(newChatOnboardingProgress()), effects: [] };
 
+  if (event.type === "preferred_name_chosen") {
+    // A newer explicit chat choice supersedes the pending setup draft. This
+    // remains a display draft until either writer confirms persistence.
+    if (!state.draft.name || state.step === "done" || state.step === "saving" || state.step === "saving_name")
+      return { state, effects: [] };
+    const draft = { ...state.draft, name: event.name };
+    const lastTurnIndex = state.turns.length - 1;
+    return { state: { ...state, draft, turns: state.step === "confirm"
+      ? state.turns.map((turn, index) => index === lastTurnIndex
+        ? { ...turn, text: confirmText(draft) } : turn)
+      : state.turns }, effects: [] };
+  }
+
   if (event.type === "typed_answer") {
-    if (state.step !== "name_typing") return { state, effects: [], consumed: false };
-    const name = normalizePreferredName(event.text);
-    if (!name) {
-      // Not name-shaped (format validation only, never a meaning guess):
-      // One answers it as an ordinary message and the name question waits.
-      return { state: { ...state, step: "name" }, effects: [], consumed: false };
+    // The text goes to One. The host may only apply its bound assessment.
+    return { state, effects: [], consumed: false };
+  }
+
+  if (event.type === "name_assessment") {
+    if (state.step !== "name_typing") return { state, effects: [] };
+    if (event.decision === "skip") {
+      return answerQuestion(state, "name", "skipped", "Skip for now", event.anchor, event.today, null);
     }
-    const answered = answerQuestion(
-      { ...state, draft: { ...state.draft, name } },
-      "name",
-      "answered",
-      name,
-      event.anchor,
-      "",
-      null,
-    );
-    return { ...answered, consumed: true };
+    if (event.decision !== "name" || !event.name) return { state, effects: [] };
+    return {
+      state: pushTurn(
+        { ...state, step: "saving_name", draft: { name: event.name, tone: null } },
+        { role: "assistant", text: "Saving your name…", anchor: event.anchor },
+      ),
+      effects: [{ type: "save_preferences", name: event.name, tone: null }],
+    };
   }
 
   if (event.type === "save_result") {
-    if (state.step !== "saving") return { state, effects: [] };
+    if (state.step !== "saving" && state.step !== "saving_name") return { state, effects: [] };
+    // Replace the temporary saving turn with the outcome, rather than leaving
+    // a stale progress message in the transcript.
+    if (state.step === "saving_name") state = { ...state, turns: state.turns.slice(0, -1) };
     if (!event.ok) {
       const next = pushTurn(
-        { ...state, step: "save_failed" },
+        { ...state, step: state.step === "saving_name" ? "name_save_failed" : "save_failed" },
         {
           role: "assistant",
-          text: SAVE_FAILED_TEXT,
+          text: state.step === "saving_name"
+            ? "I couldn't confirm your name was saved. Try again, or tell me later."
+            : SAVE_FAILED_TEXT,
           anchor: event.anchor,
           chips: [
             { id: "retry_save", label: "Try again" },
@@ -297,6 +331,14 @@ export function reduceChatOnboarding(
         },
       );
       return { state: next, effects: [] };
+    }
+    if (state.step === "saving_name") {
+      const progress = mark(state.progress, "name", "answered");
+      const next = askQuestion(
+        { ...state, progress, draft: { name: null, tone: null } },
+        "focus", focusQuestionText(state.draft.name, false), event.anchor, null,
+      );
+      return { state: next, effects: [{ type: "persist_progress", progress }] };
     }
     const progress = complete(state.progress, event.today);
     const next = pushTurn(
@@ -336,12 +378,12 @@ export function reduceChatOnboarding(
       );
     }
     if (chipId === "name_other") {
-      if (current === "name_typing") {
-        return { state, effects: [{ type: "focus_composer" }] };
-      }
       const next = pushTurn(
-        { ...state, step: "name_typing" },
-        { role: "assistant", text: NAME_TYPING_HINT, anchor, chips: nameChips(firstName) },
+        pushTurn(
+          { ...state, step: "name_typing", draft: { name: null, tone: null } },
+          { role: "user", text: "Something else", anchor },
+        ),
+        { role: "assistant", text: "Okay. What should I call you?", anchor, chips: [{ id: "skip", label: "Skip for now" }] },
       );
       return { state: next, effects: [{ type: "focus_composer" }] };
     }
@@ -349,7 +391,7 @@ export function reduceChatOnboarding(
   }
 
   if (current === "focus" && chipId.startsWith("focus_")) {
-    const focus = chipId.slice("focus_".length) as ChatOnboardingFocus;
+    const focus = chipId.slice("focus_".length) as ChatOnboardingFocus | "chat";
     const plan = CHAT_ONBOARDING_FOCUS_PLAN[focus];
     if (!plan) return { state, effects: [] };
     const progress = mark(state.progress, "focus", "answered");
@@ -378,11 +420,16 @@ export function reduceChatOnboarding(
     );
   }
 
-  if ((current === "confirm" && chipId === "save") || (current === "save_failed" && chipId === "retry_save")) {
-    const next = pushTurn(
-      { ...state, step: "saving" },
+  if (current === "name_save_failed" && chipId === "dont_save") {
+    return answerQuestion({ ...state, draft: { name: null, tone: null } }, "name", "skipped", "Not now", anchor, today, firstName);
+  }
+  if ((current === "confirm" && chipId === "save") || ((current === "save_failed" || current === "name_save_failed") && chipId === "retry_save")) {
+    let next = pushTurn(
+      { ...state, step: current === "name_save_failed" ? "saving_name" : "saving" },
       { role: "user", text: chipId === "save" ? "Save to memory" : "Try again", anchor },
     );
+    if (current === "name_save_failed")
+      next = pushTurn(next, { role: "assistant", text: "Saving your name…", anchor });
     return {
       state: next,
       effects: [{ type: "save_preferences", name: state.draft.name, tone: state.draft.tone }],
@@ -406,6 +453,6 @@ export function reduceChatOnboarding(
 export function activeChipTurnId(state: ChatOnboardingState | null): string | null {
   const last = state?.turns.at(-1);
   if (!last || last.role !== "assistant" || !last.chips?.length) return null;
-  if (state?.step === "done" || state?.step === "saving") return null;
+  if (state?.step === "done" || state?.step === "saving" || state?.step === "saving_name") return null;
   return last.id;
 }

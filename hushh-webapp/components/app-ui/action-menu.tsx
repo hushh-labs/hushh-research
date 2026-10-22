@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { NativeChatChrome } from "@/components/app-ui/native-chat-chrome";
 import type { ReactNode } from "react";
 import type { LucideIcon } from "@/components/icons";
 
@@ -50,6 +51,7 @@ export type ActionMenuItem = {
   id: string;
   label: ReactNode;
   icon?: LucideIcon;
+  iconClassName?: string;
   onSelect: () => void;
   disabled?: boolean;
   /** Marks the row busy without unmounting it, so a repeat tap is refused
@@ -71,6 +73,8 @@ export function ActionMenu({
   trigger: customTrigger,
   testId,
   contentClassName,
+  profileTypeScale,
+  nativePresentation,
 }: {
   /** The trigger's accessible name, e.g. "Add Circle". */
   label: string;
@@ -84,7 +88,13 @@ export function ActionMenu({
   trigger?: ReactNode;
   testId?: string;
   contentClassName?: string;
+  /** Explicit typography scope for portaled controls. */
+  profileTypeScale?: string;
+  /** Explicit author admission: only stationary public labels, never a person,
+   * protected record, credential, or arbitrary rich React label. */
+  nativePresentation?: { owner: string | null; context: string };
 }) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
   // Frozen for the lifetime of one opening. See the note above.
@@ -95,6 +105,7 @@ export function ActionMenu({
 
   const trigger = customTrigger ?? (
     <Button
+      ref={triggerRef}
       type="button"
       size="icon"
       variant="ghost"
@@ -109,13 +120,22 @@ export function ActionMenu({
       )}
     </Button>
   );
+  const publicOptions = items.every((item) => typeof item.label === "string")
+    ? items.map((item) => ({ value: item.id, label: item.label as string, disabled: item.disabled || item.busy })) : null;
+  const presentedTrigger = sheetPresentation && nativePresentation && !customTrigger && publicOptions ?
+    <NativeChatChrome kind="more" owner={nativePresentation.owner} context={nativePresentation.context}
+      label={title ?? label} eligible={!open} options={publicOptions} focusRef={triggerRef}
+      className="relative flex size-11 items-center justify-center" onValueChange={(id) => {
+        const item = items.find((candidate) => candidate.id === id);
+        if (item && !item.disabled && !item.busy) item.onSelect();
+      }}>{trigger}</NativeChatChrome> : trigger;
 
   if (sheetPresentation) {
     return (
       <>
-        <span onClick={() => setOpen(true)}>{trigger}</span>
+        <span onClick={() => setOpen(true)}>{presentedTrigger}</span>
         <Sheet open={open} onOpenChange={setOpen} modal>
-          <SheetContent
+          <SheetContent data-profile-type-scale={profileTypeScale}
             side="bottom"
             showCloseButton={false}
             data-testid={testId ? `${testId}-sheet` : undefined}
@@ -158,7 +178,7 @@ export function ActionMenu({
                   >
                     {Icon ? (
                       <Icon
-                        className="h-4 w-4 shrink-0 text-[color:var(--app-secondary-label)]"
+                        className={cn("h-4 w-4 shrink-0 text-[color:var(--app-secondary-label)]", item.iconClassName)}
                         aria-hidden="true"
                       />
                     ) : null}
@@ -189,8 +209,8 @@ export function ActionMenu({
     // that presses Enter and reads the menu on the next line then fails under
     // load while passing in isolation -- which is exactly what it did.
     <DropdownMenu onOpenChange={setOpen}>
-      <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-      <DropdownMenuContent
+      <DropdownMenuTrigger asChild>{presentedTrigger}</DropdownMenuTrigger>
+      <DropdownMenuContent data-profile-type-scale={profileTypeScale}
         align="end"
         forceMount
         data-testid={testId ? `${testId}-menu` : undefined}
@@ -220,7 +240,7 @@ export function ActionMenu({
             >
               {Icon ? (
                 <Icon
-                  className="h-4 w-4 shrink-0 text-[color:var(--app-secondary-label)]"
+                  className={cn("h-4 w-4 shrink-0 text-[color:var(--app-secondary-label)]", item.iconClassName)}
                   aria-hidden="true"
                 />
               ) : null}

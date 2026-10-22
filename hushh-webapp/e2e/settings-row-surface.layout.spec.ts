@@ -345,6 +345,244 @@ for (const width of [393, 1440]) {
   });
 }
 
+for (const width of [320, 393, 834, 1440]) {
+  test(`Profile menu legal rows share semantic sizing at ${width}px`, async ({ page }) => {
+    await openFixture(page, width);
+    const group = page.getByTestId("profile-menu-sizing");
+    const rows = group.locator("[data-row-layout]");
+    const heights = await rows.evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().height));
+    expect(heights).toHaveLength(3);
+    expect(Math.min(...heights)).toBeGreaterThanOrEqual(56);
+    expect(Math.max(...heights) - Math.min(...heights)).toBeLessThanOrEqual(1);
+    for (const row of await rows.all()) expect(await contract(row)).toEqual([]);
+  });
+  test(`navigation siblings preserve uniform readable full-row surfaces at ${width}px`, async ({ page }) => {
+    await openFixture(page, width);
+    const group = page.getByTestId("uniform-navigation");
+    const rows = group.getByTestId("settings-row");
+    const measure = () => rows.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height));
+    const spread = (heights: number[]) => Math.max(...heights) - Math.min(...heights);
+    expect(spread(await measure())).toBeLessThanOrEqual(1);
+    for (const row of await rows.all()) expect(await contract(row)).toEqual([]);
+    const originalHeight = (await measure())[0]!;
+    const walletGroups = ["active", "paused"].map((status) => page.getByTestId(`consumer-wallet-${status}`)
+      .getByTestId("settings-group").filter({ hasText: "Sharing controls" }));
+    const voiceGroup = page.getByTestId("voice-control-domains");
+    const titleOnlyGroup = page.getByTestId("uniform-title-only-navigation");
+    const mailGroups = ["connected", "reconnect", "unavailable", "busy", "connected-busy"].map((state) =>
+      page.getByTestId(`consumer-mail-${state}`).getByTestId("mail-actions-group"));
+    const boundedGroups = [
+      ...["portfolio-source-add-group", "portfolio-import-source-options"].map((id) => page.getByTestId(id)),
+      ...walletGroups,
+      voiceGroup,
+      ...mailGroups,
+    ];
+    async function verifyBoundedConsumers() {
+      const titleOnlyRows = titleOnlyGroup.locator("[data-row-layout]");
+      expect(await titleOnlyRows.count()).toBe(2);
+      expect(await titleOnlyGroup.locator('[data-slot="settings-row-description"]').count()).toBe(0);
+      for (const row of await titleOnlyRows.all()) {
+        expect(await contract(row)).toEqual([]);
+        expect(await row.evaluate((node) => {
+          const center = (selector: string) => {
+            const box = node.querySelector(selector)!.getBoundingClientRect();
+            return box.top + box.height / 2;
+          };
+          const title = center('[data-slot="settings-row-title"]');
+          return Math.abs(title - center('[data-slot="settings-row-icon"]')) <= 1 &&
+            Math.abs(title - center('[data-slot="settings-row-chevron"]')) <= 1;
+        }), "title-only rows retain centered title, icon and chevron").toBe(true);
+      }
+      for (const source of boundedGroups) {
+        const siblings = source.locator("[data-row-layout]");
+        const heights = await siblings.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height));
+        expect(heights.length).toBeGreaterThan(1); // Real consumers, not an empty fixture.
+        expect(spread(heights)).toBeLessThanOrEqual(1);
+        const titleOffsets = await siblings.evaluateAll((nodes) => nodes.map((node) => {
+          const title = node.querySelector('[data-slot="settings-row-title"]')!;
+          return title.getBoundingClientRect().top - node.getBoundingClientRect().top;
+        }));
+        expect(spread(titleOffsets), `${await source.getAttribute("data-testid")}: uniform siblings retain a shared title start when supporting copy wraps`).toBeLessThanOrEqual(1);
+        for (const row of await siblings.all()) {
+          // Voice rows intentionally have only a trailing switch or a passive
+          // Coming soon badge; they are not full-row navigation actions.
+          if (source !== voiceGroup) expect(await contract(row)).toEqual([]);
+          expect(await row.evaluate((node) => {
+            const bounds = node.getBoundingClientRect();
+            return [...node.querySelectorAll('[data-slot="settings-row-title"],[data-slot="settings-row-description"]')]
+              .every((text) => {
+                const box = text.getBoundingClientRect();
+                return box.left >= bounds.left - 1 && box.right <= bounds.right + 1 &&
+                  box.top >= bounds.top - 1 && box.bottom <= bounds.bottom + 1 && text.scrollHeight <= text.clientHeight + 1;
+              });
+          })).toBe(true);
+        }
+      }
+      for (const wallet of walletGroups) {
+        const descriptions = await wallet.locator('[data-slot="settings-row-description"]').allTextContents();
+        // Supporting copy is optional. The geometry check above covers both
+        // title-only and described rows without requiring redundant copy.
+        expect(descriptions.every((text) => text.trim().length > 0)).toBe(true);
+      }
+      expect(await voiceGroup.locator("[data-row-layout]").count()).toBe(8);
+      expect(await voiceGroup.locator('[data-slot="settings-row-action"]').count()).toBe(0);
+      for (const [index, mail] of mailGroups.entries()) {
+        expect(await mail.locator("[data-row-layout]").count()).toBe(index === 0 || index === 4 ? 4 : 3);
+      }
+      for (const source of [voiceGroup, ...mailGroups]) {
+        const descriptions = source.locator('[data-slot="settings-row-description"]');
+        expect(await descriptions.count()).toBe(await source.locator("[data-row-layout]").count());
+        expect((await descriptions.allTextContents()).every((text) => text.trim().length > 0)).toBe(true);
+      }
+    }
+    await verifyBoundedConsumers();
+    // Enlarged text makes two-line support copy grow rather than disappear.
+    await page.addStyleTag({ content: '[data-testid$="navigation"], [data-testid="portfolio-source-add-group"], [data-testid="portfolio-import-source-options"], [data-testid^="consumer-wallet-"], [data-testid="voice-control-domains"], [data-testid="mail-actions-group"] { max-width: 300px; --type-row-label-size: 24px; --type-row-label-line: 32px; --type-row-label-compact-size: 24px; --type-row-label-compact-line: 32px; --type-row-description-size: 24px; --type-row-description-line: 32px; }' });
+    await verifyBoundedConsumers();
+    expect(spread(await measure())).toBeLessThanOrEqual(1);
+    expect((await measure())[0]!).toBeGreaterThan(originalHeight);
+    for (const row of await rows.all()) expect(await contract(row)).toEqual([]);
+    const description = group.locator('[data-slot="settings-row-description"]').last();
+    expect(await titleOnlyGroup.locator('[data-slot="settings-row-title"]').evaluateAll((nodes) =>
+      nodes.length === 2 && nodes.every((node) => getComputedStyle(node).fontSize === "24px" &&
+        getComputedStyle(node).lineHeight === "32px"))).toBe(true);
+    expect(await description.evaluate((node) => getComputedStyle(node).fontSize)).toBe("24px");
+    expect(await description.evaluate((node) => getComputedStyle(node).lineHeight)).toBe("32px");
+    expect(await description.evaluate((node) => node.scrollHeight <= node.clientHeight + 1)).toBe(true);
+    for (const wallet of walletGroups) {
+      expect(await wallet.locator('[data-slot="settings-row-description"]').first().evaluate((node) => {
+        const style = getComputedStyle(node);
+        return { fontSize: style.fontSize, lineHeight: style.lineHeight };
+      })).toEqual({ fontSize: "24px", lineHeight: "32px" });
+    }
+    for (const source of [voiceGroup, ...mailGroups]) {
+      expect(await source.locator('[data-slot="settings-row-description"]').evaluateAll((nodes) =>
+        nodes.every((node) => getComputedStyle(node).fontSize === "24px" &&
+          getComputedStyle(node).lineHeight === "32px"))).toBe(true);
+    }
+    for (const row of await rows.all()) {
+      expect(await row.evaluate((node) => {
+        const bounds = node.getBoundingClientRect();
+        return [...node.querySelectorAll('[data-slot="settings-row-title"],[data-slot="settings-row-description"]')]
+          .every((text) => {
+            const box = text.getBoundingClientRect();
+            return box.left >= bounds.left - 1 && box.right <= bounds.right + 1 &&
+              box.top >= bounds.top - 1 && box.bottom <= bounds.bottom + 1;
+          });
+      }), "readable text remains inside its row, not clipped by an ancestor").toBe(true);
+    }
+    // The same mixed-content group without uniform sizing detects the defect.
+    const contentHeights = await page.getByTestId("content-navigation").getByTestId("settings-row")
+      .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height));
+    expect(spread(contentHeights)).toBeGreaterThan(1);
+    await clearEvents(page);
+    await clickAt(page, rows.first(), "trailing");
+    expect(await events(page)).toEqual(["uniform:account"]);
+    for (const document of ["privacy", "terms"]) {
+      await clearEvents(page);
+      await clickAt(page, titleOnlyGroup.getByTestId(`profile-legal-${document}-row`), "trailing");
+      expect(await events(page)).toEqual([`legal:${document}`]);
+    }
+    await clearEvents(page);
+    await group.getByRole("switch", { name: "Synthetic security switch" }).click();
+    expect(await events(page)).toEqual(["uniform:switch"]);
+    for (const [index, status] of ["active", "paused"].entries()) {
+      const walletRows = walletGroups[index]!.locator("[data-row-layout]");
+      for (const [row, action] of ["preview", "edit", status === "active" ? "pause" : "resume", "remove"].entries()) {
+        await clearEvents(page);
+        await clickAt(page, walletRows.nth(row), "trailing");
+        expect(await events(page)).toEqual([`wallet:${status}:${action}`]);
+      }
+    }
+    await clearEvents(page);
+    await voiceGroup.getByRole("switch", { name: "Location", exact: true }).click();
+    expect(await events(page)).toEqual(["voice:location:false"]);
+    for (const [index, state] of ["connected", "reconnect", "unavailable", "busy", "connected-busy"].entries()) {
+      await clearEvents(page);
+      await clickAt(page, mailGroups[index]!.locator("[data-row-layout]").first(), "trailing");
+      expect(await events(page)).toEqual(index < 2 ? [`mail:${state}:${index === 0 ? "sync" : "connect"}`] : []);
+    }
+    await clearEvents(page);
+    await clickAt(page, mailGroups[4]!.locator("[data-row-layout]").last(), "trailing");
+    expect(await events(page)).toEqual([]); // A busy disconnect cannot be replayed.
+  });
+}
+
+for (const width of [393, 834, 1440]) {
+  test(`detail Close has a reachable 44px target at ${width}px`, async ({ page }) => {
+    await openFixture(page, width);
+    await page.getByRole("button", { name: "Open detail target" }).click();
+    const close = page.getByRole("button", { name: "Close detail panel", exact: true });
+    await expect(close).toBeVisible();
+    // Wait for the shared entrance, not a guessed sleep or hidden duplicate.
+    await close.click({ trial: true });
+    const box = (await close.boundingBox())!;
+    expect(box.width).toBeGreaterThanOrEqual(44);
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    const heading = page.getByRole("heading", { name: "Request details", exact: true });
+    const titleBox = (await heading.boundingBox())!;
+    expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(box.x + 1);
+    // The extra hit area must reach the real close handler, not just measure larger.
+    await page.mouse.click(box.x + box.width - 2, box.y + box.height / 2);
+    await expect(close).toBeHidden();
+    await expect(heading).toBeHidden();
+  });
+}
+for (const width of [393, 1440])
+  for (const theme of ["light", "dark"] as const)
+    for (const motion of ["no-preference", "reduce"] as const)
+      test(`Profile tap feedback stays rounded at ${width}px ${theme} ${motion}`, async ({ page }, info) => {
+        await page.emulateMedia({ reducedMotion: motion });
+        await openFixture(page, width, theme);
+        await clearEvents(page);
+        for (const id of ["pane-connectors", "pane-notifications", "pane-help"]) {
+          const row = page.getByTestId(id);
+          await row.scrollIntoViewIfNeeded();
+          const surface = row.locator(":scope > button, :scope > a").first();
+          const box = (await surface.boundingBox())!;
+          await page.mouse.move(box.x + 10, box.y + box.height / 2);
+          await page.mouse.down();
+          const geometry = await row.evaluate((element) => {
+            const corners = (style: CSSStyleDeclaration) => [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomRightRadius, style.borderBottomLeftRadius];
+            const action = element.querySelector(":scope > button, :scope > a")!;
+            const feedback = element.querySelector(":scope > span[aria-hidden]");
+            const ripple = element.querySelector(".morphy-ripple-host")!;
+            const paneHighlight = getComputedStyle(element, "::before");
+            return {
+              row: corners(getComputedStyle(element)),
+              action: corners(getComputedStyle(action)),
+              feedback: feedback ? corners(getComputedStyle(feedback)) : null,
+              ripple: corners(getComputedStyle(ripple)),
+              paneHighlight: paneHighlight.content === "none" ? null : corners(paneHighlight),
+              clip: getComputedStyle(ripple).overflow,
+            };
+          });
+          expect(geometry.row, id).toEqual(["12px", "12px", "12px", "12px"]);
+          expect(geometry.action, id).toEqual(geometry.row);
+          expect(geometry.ripple, id).toEqual(geometry.row);
+          if (geometry.paneHighlight) expect(geometry.paneHighlight, id).toEqual(geometry.row);
+          expect(geometry.clip, id).toBe("hidden");
+          if (geometry.feedback) expect(geometry.feedback, id).toEqual(geometry.row);
+          if (motion === "reduce") {
+            const flatPress = row.locator("[data-ripple-flat]");
+            await expect(flatPress).toHaveAttribute("data-pressed", "true");
+            await expect(flatPress).toHaveCSS("border-radius", "12px");
+          }
+          if (id === "pane-connectors") {
+            await page.getByTestId("consumer-profile-pane").screenshot({
+              path: info.outputPath("profile-pressed.png"), animations: "disabled",
+            });
+          }
+          await page.mouse.up();
+          await page.keyboard.press("Tab");
+          await surface.focus();
+          expect(await surface.evaluate((element) => element.matches(":focus-visible")), id).toBe(true);
+          expect(await surface.evaluate((element) => getComputedStyle(element).boxShadow), id).toContain("inset");
+          await surface.blur();
+        }
+        expect(await events(page)).toEqual(["pane:connectors", "pane:notifications", "pane:help"]);
+      });
+
 /**
  * Evidence captures, not assertions. Run with ROW_SHOTS_DIR and ROW_SHOTS_PHASE
  * to write the before/after screenshots the change was reviewed against.
@@ -361,6 +599,8 @@ for (const width of [393, 1440])
         "profile-settings": "consumer-profile-settings",
         "consent-center": "consumer-consent-center",
         "chat-card": "consumer-chat-card",
+        "wallet-active": "consumer-wallet-active",
+        "wallet-paused": "consumer-wallet-paused",
       };
       for (const [name, testId] of Object.entries(consumers)) {
         await page.getByTestId(testId).screenshot({

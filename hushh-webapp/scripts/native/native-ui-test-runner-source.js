@@ -117,7 +117,7 @@
 
   function dismissBlockingScreens() {
     var exactLabels = [
-      "not now, continue with passphrase",
+      "not now, continue with password",
       "not now",
       "skip tour",
       "got it",
@@ -855,14 +855,6 @@
     }
   }
 
-  async function openCommandPalette(timeoutMs) {
-    window.dispatchEvent(new CustomEvent("kai:command-bar:open"));
-    await waitForVoiceControl(
-      "one_voice_command_palette_toggle",
-      timeoutMs || 30000,
-    );
-  }
-
   async function attemptNativePersonaSwitch(persona) {
     var bridge = nativeTestBridge();
     if (
@@ -1219,9 +1211,6 @@
         return;
       case "assert_voice_control_visible":
         await waitForVoiceControl(step.controlId, step.timeoutMs);
-        return;
-      case "open_command_palette":
-        await openCommandPalette(step.timeoutMs);
         return;
       case "click_voice_control":
         var voiceTarget = findVoiceControl(step.controlId);

@@ -30,8 +30,20 @@ import { appendFileSync } from "node:fs";
 import { assertDeployable, reconcileUatTarget } from "./uat-target-selection.mjs";
 
 const GATE_NAME = "Main Post-Merge Smoke";
+const GATE_CHECK_NAME = `${GATE_NAME} Gate`;
 const REPO = process.env.GITHUB_REPOSITORY || "hushh-labs/hushh-research";
 const TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
+const CHAT_ONLY_WORKFLOW = ".github/workflows/deploy-uat-one-chat.yml";
+const FULL_UAT_WORKFLOW = ".github/workflows/deploy-uat.yml";
+// Older native jobs created environment records just to read UAT secrets.
+// They never move the hosted services. Unknown mutation/rehearsal records
+// retain the existing fail-closed baseline behavior.
+const NATIVE_WORKFLOWS = new Set([
+  ".github/workflows/ship-ios-testflight.yml",
+  ".github/workflows/resume-ios-testflight.yml",
+  ".github/workflows/ios-voice-device.yml",
+  ".github/workflows/ship-android-playstore-v1.yml",
+]);
 
 const args = process.argv.slice(2);
 const limit = Number(valueOf("--limit") || 20);
@@ -70,10 +82,13 @@ async function api(path) {
 
 /** That commit's own gate — never a branch status, never a PR check. */
 async function gateFor(sha) {
-  const payload = await api(`/commits/${sha}/check-runs?per_page=100`);
-  const runs = (payload.check_runs || []).filter((run) =>
-    String(run.name || "").includes(GATE_NAME),
+  // Ask GitHub for the gate by name. The unfiltered list is newest first and
+  // never de-duplicated across workflow runs, so on an idle main head the
+  // hourly capacity clock's checks fill its first page and hide the gate.
+  const payload = await api(
+    `/commits/${sha}/check-runs?check_name=${encodeURIComponent(GATE_CHECK_NAME)}&per_page=100`,
   );
+  const runs = (payload.check_runs || []).filter((run) => run.name === GATE_CHECK_NAME);
   if (!runs.length) return "absent";
   if (runs.some((r) => r.status === "completed" && r.conclusion === "success")) {
     return "success";
@@ -85,22 +100,49 @@ async function gateFor(sha) {
   return "unknown";
 }
 
+function workflowFile(run) {
+  // The Actions API includes a ref suffix, for example workflow.yml@main.
+  return String(run?.path || "").split("@", 1)[0];
+}
+
 async function uatActualSha() {
-  const deployments = await api("/deployments?environment=uat&per_page=10");
-  for (const deployment of deployments) {
-    const statuses = await api(`/deployments/${deployment.id}/statuses?per_page=10`);
-    if (statuses.some((s) => s.state === "success")) {
-      // Keep the historical baseline for forward-selection compatibility,
-      // but a no-op requires the newest deployment's current status.
-      return { sha: deployment.sha,
-        verified: deployment.id === deployments[0]?.id && statuses[0]?.state === "success",
-        runUrl: statuses[0]?.log_url };
+  let newestFullDeploymentId = null;
+  let sawDeployment = false;
+  for (let page = 1; page <= 10; page += 1) {
+    const deployments = await api(`/deployments?environment=uat&per_page=100&page=${page}`);
+    sawDeployment ||= deployments.length > 0;
+    for (const deployment of deployments) {
+      const statuses = await api(`/deployments/${deployment.id}/statuses?per_page=10`);
+      const statusUrl = statuses[0]?.log_url;
+      if (statusUrl) {
+        let runId;
+        try {
+          const url = new URL(statusUrl);
+          const prefix = `/${REPO}/actions/runs/`;
+          if (url.origin === "https://github.com" && url.pathname.startsWith(prefix)) {
+            runId = url.pathname.slice(prefix.length).match(/^(\d+)(?:\/job\/\d+)?$/)?.[1];
+          }
+        } catch {
+          // An unknown deployment stays in the full-release baseline.
+        }
+        if (runId) {
+          const run = await api(`/actions/runs/${runId}`);
+          if (workflowFile(run) === CHAT_ONLY_WORKFLOW || NATIVE_WORKFLOWS.has(workflowFile(run))) continue;
+        }
+      }
+      newestFullDeploymentId ??= deployment.id;
+      if (statuses.some((s) => s.state === "success")) {
+        // Service-only Chat releases are partial; a full UAT no-op still needs
+        // the newest full deployment's current healthy release receipt.
+        return { sha: deployment.sha,
+          verified: deployment.id === newestFullDeploymentId && statuses[0]?.state === "success",
+          runUrl: statuses[0]?.log_url };
+      }
     }
+    if (deployments.length < 100) break;
   }
-  // Fall back to the newest record. Better a slightly conservative baseline
-  // than none: an over-cautious `uat_actual` can only make the selector refuse
-  // to move, never make it move somewhere unproven.
-  return { sha: deployments[0]?.sha ?? null, verified: false };
+  if (sawDeployment) throw new Error("No successful full UAT deployment found in 1,000 records.");
+  return { sha: null, verified: false };
 }
 
 /** Environment records use workflow SHA, including for rollback/rehearsal jobs.
@@ -124,7 +166,7 @@ async function hasExactReleaseReceipt(state) {
     !receipt.some(line => /^backend_revision: \S+$/.test(line)) ||
     !receipt.some(line => /^frontend_revision: \S+$/.test(line))) return false;
   const run = await api(`/actions/runs/${runId}`);
-  return run.path === ".github/workflows/deploy-uat.yml" &&
+  return workflowFile(run) === FULL_UAT_WORKFLOW &&
     run.event === "workflow_dispatch" && run.head_sha === state.sha &&
     run.status === "completed" && run.conclusion === "success";
 }

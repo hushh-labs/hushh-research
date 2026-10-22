@@ -47,9 +47,23 @@ _DRIVE_CONNECTION_ANSWERS = {
 MAIL_TOOL = "ask_email_agent"
 READ_TOOLS = {
     MAIL_TOOL: "gmail_chat_reads",
+    # Resolves bounded Gmail metadata into an owner-confirmation card. It is
+    # still a connector read, so no later tool in this model turn can act on
+    # the selected email text.
+    "propose_gmail_todo": "gmail_chat_reads",
     "ask_documents_agent": "google_drive_chat_reads",
     "read_selected_drive_search_result": "google_drive_chat_reads",
     "inspect_selected_drive_files": "google_drive_chat_reads",
+    # Calendar event fields are provider-authored text. A Calendar read ends
+    # this invocation's action authority just like a Mail or Drive read, and
+    # its arguments/results must be removed from durable ADK history.
+    "calendar_summary": None,
+    "calendar_invitations": None,
+    "calendar_calendars": None,
+    "calendar_events": None,
+    "calendar_event_detail": None,
+    "calendar_availability": None,
+    "calendar_free_slots": None,
     # Per-provider admission and owner authority are checked inside the tool.
     # Establish the content barrier before dispatch, regardless of provider.
     "read_workspace_tool": None,
@@ -78,8 +92,20 @@ def _reviewed_mcp_tool(tool: Any) -> bool:
 
 
 def _reviewable_draft_tool(tool: Any) -> bool:
-    # This is a client-only draft, not a provider send. Admit the exact local
-    # function, never a provider tool or another callable with the same name.
+    # These exact application-owned functions only prepare owner review.
+    # They never execute a Calendar mutation; confirmation retains its own
+    # owner/grant-bound proposal and single-claim provider-write boundary.
+    if getattr(tool, "name", None) in {
+        "open_calendar_invitation",
+        "propose_calendar_event",
+        "propose_calendar_reschedule",
+        "propose_calendar_cancellation",
+    }:
+        from google.adk.tools import FunctionTool
+
+        from hushh_mcp.agents.calendar import tools as calendar_tools
+
+        return type(tool) is FunctionTool and tool.func is getattr(calendar_tools, tool.name)
     if getattr(tool, "name", None) != "open_gmail_email_draft":
         return False
     from google.adk.tools import FunctionTool
@@ -238,12 +264,28 @@ def before_external_read_model(callback_context: Any, llm_request: Any) -> LlmRe
         and outcome.get("invocation") == invocation
         and outcome.get("outcome") in _DRIVE_CONNECTION_ANSWERS
     ):
-        # End this answer without asking the model to reinterpret old history
-        # as new evidence. No generated text has been streamed for this step.
-        answer = _DRIVE_CONNECTION_ANSWERS[outcome["outcome"]]
-        return LlmResponse(
-            content=types.Content(role="model", parts=[types.Part(text=answer)]),
-            turn_complete=True,
+        from hushh_mcp.one_adk.agent_tree import STATE_PKM_CONTEXT
+        from hushh_mcp.one_adk.request_secrets import resolve_request_secret
+
+        memory = resolve_request_secret(callback_context.state.get(STATE_PKM_CONTEXT))
+        if not memory:
+            # Without another authorized source, never reinterpret old filenames
+            # as fresh Drive evidence.
+            answer = _DRIVE_CONNECTION_ANSWERS[outcome["outcome"]]
+            return LlmResponse(
+                content=types.Content(role="model", parts=[types.Part(text=answer)]),
+                turn_complete=True,
+            )
+        llm_request.append_instructions(
+            [
+                "CURRENT DRIVE READ DID NOT PROVIDE FILE EVIDENCE: " + outcome["outcome"] + ". "
+                "Answer personal recall from CONSENTED TURN INFORMATION when it contains "
+                "the requested facts. A missing personal detail is unknown; do not require "
+                "Drive to answer a memory question. For an explicit Drive request, explain "
+                "the current connection or read failure. Never claim a fresh file check, "
+                "reuse earlier filenames or links as current results, or execute another "
+                "action. The external-read authority boundary remains in effect."
+            ]
         )
     if external_read_active(callback_context):
         # This callback runs only after the read's tool result has returned to

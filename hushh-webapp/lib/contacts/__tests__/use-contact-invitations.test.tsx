@@ -168,7 +168,7 @@ it("invalidates captured toast actions after session changes and unmount", () =>
 it.each([
   { url: "javascript:alert(1)", text: "Join me" },
   { url: "not a link", text: "Join me" },
-  { url: "https://one.example", text: "x".repeat(1980) },
+  { url: "https://one.example", text: "x".repeat(2000) },
 ])(
   "rejects unusable prepared messages before enabling the queue: $url",
   async ({ url, text }) => {

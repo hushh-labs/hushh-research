@@ -138,6 +138,7 @@ function flagsForSource(source) {
       source.includes("AgentRealtimeClient") ||
       source.includes("streamAgent") ||
       source.includes("apiFetchStream") ||
+      source.includes("useReferralStream") ||
       source.includes("streamPortfolio"),
     native_beacon:
       source.includes("NativeRouteMarker") ||
@@ -152,6 +153,10 @@ function isConsentCenterRoute(route) {
 
 function isFeedRoute(route) {
   return route === "/one/feed";
+}
+
+function isTodoListRoute(route) {
+  return route === "/one/todos";
 }
 
 function isConnectedSystemsRoute(route) {
@@ -195,12 +200,13 @@ function screenClassForRoute(route, mode, flags) {
     route === "/pkm" ||
     route === "/gmail" ||
     isConnectedSystemsRoute(route) ||
-    route.startsWith("/one/profile/pkm") ||
+    (route.startsWith("/one/profile/pkm") || route === "/one/profile/world-model") ||
     route === "/one/profile/receipts"
   ) {
     return "PKM-secure";
   }
   if (route.startsWith("/one/kai")) return "vault-backed";
+  if (isTodoListRoute(route)) return "PKM-secure";
   if (route === "/one/profile" || isConsentCenterRoute(route))
     return "vault-backed";
   return mode === "hidden" ? "hidden flow" : "vault-backed";
@@ -231,6 +237,8 @@ function cachePolicyFor(route, screenClass, flags) {
 }
 
 function routeCacheKeys(route) {
+  if (route === "/one/messages") return ["DIRECT_MESSAGE_THREADS", "DIRECT_MESSAGE_ROUTES", "DIRECT_MESSAGE_SESSION"];
+  if (route === "/one/referrals") return ["referral_dashboard_{user}_{resource}"];
   if (isFeedRoute(route)) {
     return [
       "FEED_LIST",
@@ -245,6 +253,9 @@ function routeCacheKeys(route) {
     return ["CONSENT_CENTER_SUMMARY", "CONSENT_CENTER_LIST"];
   if (route === "/one/kyc")
     return ["PKM_DOMAIN_RESOURCE", "KYC workflow client state"];
+  if (isTodoListRoute(route)) {
+    return ["PKM_DOMAIN_RESOURCE(one_todos)", "Calendar event projection (memory-only)"];
+  }
   if (route === "/one/profile")
     return ["KAI_PROFILE", "PKM_METADATA", "VAULT_STATUS"];
   if (route === "/pkm")
@@ -287,6 +298,7 @@ function routeCacheKeys(route) {
 }
 
 function resourceClassesFor(route, screenClass) {
+  if (route === "/one/referrals") return ["user_metadata", "realtime_stream"];
   if (screenClass === "public/static") return ["public_static"];
   if (screenClass === "public/auth-split") {
     return ["realtime_stream", "pkm_metadata"];
@@ -302,6 +314,7 @@ function resourceClassesFor(route, screenClass) {
     ];
   }
   if (route === "/one/kyc") return ["pkm_projection", "consent_list"];
+  if (isTodoListRoute(route)) return ["pkm_projection", "calendar_events"];
   if (route === "/one/profile") return ["vault_metadata", "pkm_metadata"];
   if (isConnectedSystemsRoute(route)) {
     return ["crm_registry_metadata", "crm_schema_metadata"];
@@ -309,7 +322,7 @@ function resourceClassesFor(route, screenClass) {
   if (
     route === "/pkm" ||
     route === "/gmail" ||
-    route.startsWith("/one/profile/pkm") ||
+    (route.startsWith("/one/profile/pkm") || route === "/one/profile/world-model") ||
     route === "/one/profile/receipts"
   ) {
     return ["pkm_metadata", "pkm_projection"];
@@ -335,7 +348,8 @@ function sensitivityClassFor(screenClass, resourceClasses) {
   }
   if (
     resourceClasses.includes("vault_metadata") ||
-    resourceClasses.includes("pkm_metadata")
+    resourceClasses.includes("pkm_metadata") ||
+    resourceClasses.includes("user_metadata")
   ) {
     return "user-metadata";
   }
@@ -399,6 +413,8 @@ function readinessKpisFor(route, screenClass, cachePolicy) {
 }
 
 function ttlClassFor(route, screenClass) {
+  if (route === "/one/messages") return "5 minutes per memory snapshot; always revalidate message access on entry";
+  if (route === "/one/referrals") return "0ms; retain memory while revalidating on navigation and signals";
   if (screenClass === "redirect/alias" || screenClass === "public/static")
     return "none";
   if (screenClass === "public/auth-split")
@@ -419,6 +435,7 @@ function ttlClassFor(route, screenClass) {
 }
 
 function warmSourceFor(route, screenClass) {
+  if (route === "/one/messages") return "DirectMessagesResourceService owner-scoped memory snapshots";
   if (screenClass === "public/static" || screenClass === "redirect/alias")
     return "none";
   if (screenClass === "public/auth-split")
@@ -471,11 +488,13 @@ function isPkmEpochRoute(route) {
     route === "/one/pkm/location" ||
     route === "/one/pkm/location/detail" ||
     route === "/one/profile/my-data" ||
+    route === "/one/profile/world-model" ||
     route === "/one/wallet"
   );
 }
 
 function invalidatorFor(route, screenClass) {
+  if (route === "/one/messages") return "CacheSyncService message-change, connection and user/session invalidation";
   if (screenClass === "redirect/alias" || screenClass === "public/static")
     return "none";
   if (screenClass === "public/auth-split")
@@ -494,7 +513,8 @@ function invalidatorFor(route, screenClass) {
     isPkmEpochRoute(route) ||
     route === "/gmail" ||
     route === "/one/profile/receipts" ||
-    route === "/one/kyc"
+    route === "/one/kyc" ||
+    isTodoListRoute(route)
   ) {
     return "CacheSyncService PKM/portfolio/write-through hooks";
   }
@@ -749,12 +769,13 @@ function linkageInvariants() {
   const epochLinks = [
     ["lib/cache/cache-sync-service.ts", "bumpPkmInvalidationEpoch"],
     ["lib/pkm/use-pkm-domain-change-revision.ts", "currentPkmInvalidationEpoch"],
-    ["components/profile/pkm-natural-panel.tsx", "usePkmDomainChangeRevision"],
+    ["components/profile/pkm-natural-panel.tsx", "usePkmNaturalModel"],
+    ["components/profile/use-pkm-natural-model.ts", "usePkmDomainChangeRevision"],
     ["components/profile/profile-workspace-page.tsx", "currentPkmInvalidationEpoch"],
   ];
   for (const [relPath, needle] of epochLinks) {
     const source = readSource(relPath);
-    if (source && !source.includes(needle)) {
+    if (!source.includes(needle)) {
       violations.push(
         `${relPath} must reference ${needle} so a PKM write on another route forces a fresh read on mount`,
       );

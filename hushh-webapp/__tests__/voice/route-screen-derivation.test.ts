@@ -1,8 +1,25 @@
 import { describe, expect, it } from "vitest";
 
-import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
+import { deriveVoiceRouteScreen } from "@/lib/kai/actions/route-screen-derivation";
 
 describe("deriveVoiceRouteScreen", () => {
+  it.each([
+    ["/one/welcome", "one_welcome"],
+    ["/one/messages", "one_messages"],
+    ["/one/wallet-card", "one_wallet_card"],
+    ["/one/connected-systems/customer-crm", "connected_systems"],
+    ["/one/email", "email_agent"],
+    ["/one/puppy", "puppy_one"],
+  ])("recognizes current interactive screen %s", (route, screen) => {
+    expect(deriveVoiceRouteScreen(route).screen).toBe(screen);
+  });
+
+  it.each(["payouts", "request-pricing"])("derives the %s screen without claiming Memory controls", (panel) => {
+    const expected = { screen: `profile_${panel.replace(/-/g, "_")}`, subview: null };
+    expect(deriveVoiceRouteScreen(`/one/profile/${panel}`)).toEqual(expected);
+    expect(deriveVoiceRouteScreen("/one/profile", `panel=${panel}`)).toEqual(expected);
+  });
+
   it("keeps the public One introduction distinct from authenticated One", () => {
     expect(deriveVoiceRouteScreen("/")).toEqual({
       screen: "one_intro",
@@ -82,7 +99,7 @@ describe("deriveVoiceRouteScreen", () => {
       subview: null,
     });
     expect(deriveVoiceRouteScreen("/one/email", "panel=aliases")).toEqual({
-      screen: "app",
+      screen: "email_agent",
       subview: null,
     });
   });

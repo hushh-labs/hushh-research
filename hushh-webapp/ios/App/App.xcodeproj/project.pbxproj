@@ -16,6 +16,27 @@
 		5E5510A10000000000000002 /* HushhSessionPrivacyPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A10000000000000001 /* HushhSessionPrivacyPlugin.swift */; };
 		5E5510A10000000000000004 /* HushhNativeNavigationPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A10000000000000003 /* HushhNativeNavigationPlugin.swift */; };
 		5E5510A10000000000000006 /* HushhNativeChromePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A10000000000000005 /* HushhNativeChromePlugin.swift */; };
+		5E5510A10000000000000008 /* HushhNativeChromePresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A10000000000000007 /* HushhNativeChromePresenter.swift */; };
+		5E5510A1000000000000000A /* HushhNativeDockPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A10000000000000009 /* HushhNativeDockPlugin.swift */; };
+		5E5510A1000000000000000C /* NativePresentationContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A1000000000000000B /* NativePresentationContainer.swift */; };
+		5E5510B10000000000000002 /* NativeHistoryQualification.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510B10000000000000001 /* NativeHistoryQualification.swift */; };
+		5E5510C10000000000000002 /* NativeDrawerState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000001 /* NativeDrawerState.swift */; };
+		5E5510C10000000000000008 /* NativeProfileArtwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000007 /* NativeProfileArtwork.swift */; };
+		5E5510C1000000000000000A /* NativeProfileNameScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000009 /* NativeProfileNameScene.swift */; };
+		5E5510C100000000000000D1 /* NativeProfileWorldModelScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C100000000000000D0 /* NativeProfileWorldModelScene.swift */; };
+		5E5510C100000000000000D3 /* NativeProfileRuntimeScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C100000000000000D2 /* NativeProfileRuntimeScene.swift */; };
+		5E5510C100000000000000D5 /* NativeProfileConnectorScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C100000000000000D4 /* NativeProfileConnectorScene.swift */; };
+		5E5510C100000000000000D7 /* NativeProfileMemoryScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C100000000000000D6 /* NativeProfileMemoryScene.swift */; };
+		5E5510C100000000000000D9 /* NativeWorkspacePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C100000000000000D8 /* NativeWorkspacePresentation.swift */; };
+		5E5510C1000000000000000C /* NativeProfileOwnedSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C1000000000000000B /* NativeProfileOwnedSheet.swift */; };
+		5E5510C1000000000000000E /* NativeProfileStyleScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C1000000000000000D /* NativeProfileStyleScene.swift */; };
+		5E5510C10000000000000010 /* NativeProfileSupportScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C1000000000000000F /* NativeProfileSupportScene.swift */; };
+		5E5510C10000000000000012 /* NativeProfileLegal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000011 /* NativeProfileLegal.swift */; };
+		5E5510C10000000000000014 /* NativeProfilePhoneScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000013 /* NativeProfilePhoneScene.swift */; };
+		5E5510C10000000000000016 /* NativeProfilePasswordScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000015 /* NativeProfilePasswordScene.swift */; };
+		5E5510C10000000000000018 /* NativeProfilePricingScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000017 /* NativeProfilePricingScene.swift */; };
+		5E5510C10000000000000004 /* NativeDrawerPresentationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000003 /* NativeDrawerPresentationController.swift */; };
+		5E5510C10000000000000006 /* HushhNativeDrawersPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000005 /* HushhNativeDrawersPlugin.swift */; };
 		5E5510A20000000000000002 /* HushhStreamPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A20000000000000001 /* HushhStreamPlugin.swift */; };
 		5E5510A30000000000000002 /* HushhOAuthReturnPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A30000000000000001 /* HushhOAuthReturnPlugin.swift */; };
 		5E5510A50000000000000002 /* HushhPlaidLinkPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A50000000000000001 /* HushhPlaidLinkPlugin.swift */; };
@@ -40,6 +61,7 @@
 		A11C0A710000000000000072 /* LocationEnvelopeCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A710000000000000071 /* LocationEnvelopeCrypto.swift */; };
 		A11C0A710000000000000082 /* BackgroundLocationPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A710000000000000081 /* BackgroundLocationPublisher.swift */; };
 		A11C0A720000000000000062 /* HushhContactsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A720000000000000061 /* HushhContactsPlugin.swift */; };
+		A11C0A720000000000000092 /* HushhCardScannerPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A720000000000000091 /* HushhCardScannerPlugin.swift */; };
 		A11C0A780000000000000062 /* HushhInvitationsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A780000000000000061 /* HushhInvitationsPlugin.swift */; };
 		A11C0A730000000000000011 /* OneVoiceAppIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A740000000000000001 /* OneVoiceAppIntent.swift */; };
 		A11C0A730000000000000012 /* OneVoiceInvocationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A730000000000000002 /* OneVoiceInvocationCoordinator.swift */; };
@@ -65,6 +87,10 @@
 		FC968756EFA54153BC098D3D /* HushhVaultPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB0840347A0D3490156D1D16 /* HushhVaultPlugin.swift */; };
 		FEBC1F9C14F1FB5C3D876D51 /* NativeSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 844A95957616D891DBC4D212 /* NativeSupportTests.swift */; };
 		A11C0A710000000000000092 /* LocationEnvelopeCryptoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A710000000000000091 /* LocationEnvelopeCryptoTests.swift */; };
+		C4A7B9010000000000000002 = {isa = PBXBuildFile; fileRef = C4A7B9010000000000000001; };
+        C4A7B9010000000000000003 = {isa = PBXBuildFile; fileRef = C4A7B9010000000000000001; };
+        C4A7B9010000000000000005 = {isa = PBXBuildFile; fileRef = C4A7B9010000000000000004; };
+        C4A7B9010000000000000007 = {isa = PBXBuildFile; fileRef = C4A7B9010000000000000006; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -82,6 +108,7 @@
 			remoteGlobalIDString = 504EC3031FED79650016851F;
 			remoteInfo = App;
 		};
+        C4A7B901000000000000000E = {isa = PBXContainerItemProxy; containerPortal = 504EC2FC1FED79650016851F; proxyType = 1; remoteGlobalIDString = C4A7B9010000000000000009; remoteInfo = ChatNotificationService; };
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
@@ -105,6 +132,27 @@
 		5E5510A10000000000000001 /* HushhSessionPrivacyPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhSessionPrivacyPlugin.swift; path = Plugins/HushhSessionPrivacyPlugin.swift; sourceTree = "<group>"; };
 		5E5510A10000000000000003 /* HushhNativeNavigationPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhNativeNavigationPlugin.swift; path = Plugins/HushhNativeNavigationPlugin.swift; sourceTree = "<group>"; };
 		5E5510A10000000000000005 /* HushhNativeChromePlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhNativeChromePlugin.swift; path = Plugins/HushhNativeChromePlugin.swift; sourceTree = "<group>"; };
+		5E5510A10000000000000007 /* HushhNativeChromePresenter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhNativeChromePresenter.swift; path = Plugins/HushhNativeChromePresenter.swift; sourceTree = "<group>"; };
+		5E5510A10000000000000009 /* HushhNativeDockPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhNativeDockPlugin.swift; path = Plugins/HushhNativeDockPlugin.swift; sourceTree = "<group>"; };
+		5E5510A1000000000000000B /* NativePresentationContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativePresentationContainer.swift; path = Plugins/NativePresentationContainer.swift; sourceTree = "<group>"; };
+		5E5510B10000000000000001 /* NativeHistoryQualification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeHistoryQualification.swift; sourceTree = "<group>"; };
+		5E5510C10000000000000001 /* NativeDrawerState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeDrawerState.swift; path = Plugins/NativeDrawerState.swift; sourceTree = "<group>"; };
+		5E5510C10000000000000009 /* NativeProfileNameScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileNameScene.swift; path = Plugins/NativeProfileNameScene.swift; sourceTree = "<group>"; };
+		5E5510C100000000000000D0 /* NativeProfileWorldModelScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileWorldModelScene.swift; path = Plugins/NativeProfileWorldModelScene.swift; sourceTree = "<group>"; };
+		5E5510C100000000000000D2 /* NativeProfileRuntimeScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileRuntimeScene.swift; path = Plugins/NativeProfileRuntimeScene.swift; sourceTree = "<group>"; };
+		5E5510C100000000000000D4 /* NativeProfileConnectorScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileConnectorScene.swift; path = Plugins/NativeProfileConnectorScene.swift; sourceTree = "<group>"; };
+		5E5510C100000000000000D6 /* NativeProfileMemoryScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileMemoryScene.swift; path = Plugins/NativeProfileMemoryScene.swift; sourceTree = "<group>"; };
+		5E5510C100000000000000D8 /* NativeWorkspacePresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeWorkspacePresentation.swift; path = Plugins/NativeWorkspacePresentation.swift; sourceTree = "<group>"; };
+		5E5510C1000000000000000B /* NativeProfileOwnedSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileOwnedSheet.swift; path = Plugins/NativeProfileOwnedSheet.swift; sourceTree = "<group>"; };
+		5E5510C1000000000000000D /* NativeProfileStyleScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileStyleScene.swift; path = Plugins/NativeProfileStyleScene.swift; sourceTree = "<group>"; };
+		5E5510C1000000000000000F /* NativeProfileSupportScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileSupportScene.swift; path = Plugins/NativeProfileSupportScene.swift; sourceTree = "<group>"; };
+		5E5510C10000000000000011 /* NativeProfileLegal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileLegal.swift; path = Plugins/NativeProfileLegal.swift; sourceTree = "<group>"; };
+		5E5510C10000000000000013 /* NativeProfilePhoneScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfilePhoneScene.swift; path = Plugins/NativeProfilePhoneScene.swift; sourceTree = "<group>"; };
+		5E5510C10000000000000015 /* NativeProfilePasswordScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfilePasswordScene.swift; path = Plugins/NativeProfilePasswordScene.swift; sourceTree = "<group>"; };
+		5E5510C10000000000000017 /* NativeProfilePricingScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfilePricingScene.swift; path = Plugins/NativeProfilePricingScene.swift; sourceTree = "<group>"; };
+		5E5510C10000000000000007 /* NativeProfileArtwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileArtwork.swift; path = Plugins/NativeProfileArtwork.swift; sourceTree = "<group>"; };
+		5E5510C10000000000000003 /* NativeDrawerPresentationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeDrawerPresentationController.swift; path = Plugins/NativeDrawerPresentationController.swift; sourceTree = "<group>"; };
+		5E5510C10000000000000005 /* HushhNativeDrawersPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = HushhNativeDrawersPlugin.swift; path = Plugins/HushhNativeDrawersPlugin.swift; sourceTree = "<group>"; };
 		5E5510A20000000000000001 /* HushhStreamPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhStreamPlugin.swift; path = Plugins/HushhStreamPlugin.swift; sourceTree = "<group>"; };
 		5E5510A30000000000000001 /* HushhOAuthReturnPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhOAuthReturnPlugin.swift; path = Plugins/HushhOAuthReturnPlugin.swift; sourceTree = "<group>"; };
 		5E5510A50000000000000001 /* HushhPlaidLinkPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhPlaidLinkPlugin.swift; path = Plugins/HushhPlaidLinkPlugin.swift; sourceTree = "<group>"; };
@@ -125,6 +173,7 @@
 		A11C0A710000000000000071 /* LocationEnvelopeCrypto.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LocationEnvelopeCrypto.swift; path = Plugins/LocationEnvelopeCrypto.swift; sourceTree = "<group>"; };
 		A11C0A710000000000000081 /* BackgroundLocationPublisher.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BackgroundLocationPublisher.swift; path = Plugins/BackgroundLocationPublisher.swift; sourceTree = "<group>"; };
 		A11C0A720000000000000061 /* HushhContactsPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhContactsPlugin.swift; path = Plugins/HushhContactsPlugin.swift; sourceTree = "<group>"; };
+		A11C0A720000000000000091 /* HushhCardScannerPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhCardScannerPlugin.swift; path = Plugins/HushhCardScannerPlugin.swift; sourceTree = "<group>"; };
 		A11C0A780000000000000061 /* HushhInvitationsPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhInvitationsPlugin.swift; path = Plugins/HushhInvitationsPlugin.swift; sourceTree = "<group>"; };
 		A11C0A740000000000000001 /* OneVoiceAppIntent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OneVoiceAppIntent.swift; sourceTree = "<group>"; };
 		A11C0A730000000000000002 /* OneVoiceInvocationCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OneVoiceInvocationCoordinator.swift; sourceTree = "<group>"; };
@@ -147,6 +196,9 @@
 		EE27DFB8DCD94B9C5C0516DD /* HushhSyncPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhSyncPlugin.swift; path = Plugins/HushhSyncPlugin.swift; sourceTree = "<group>"; };
 		FACADE000000000000000001 /* HushhAccountPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhAccountPlugin.swift; path = Plugins/HushhAccountPlugin.swift; sourceTree = "<group>"; };
 		FACADE000000000000000004 /* HushhNotificationsPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhNotificationsPlugin.swift; path = Plugins/HushhNotificationsPlugin.swift; sourceTree = "<group>"; };
+        C4A7B9010000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatPreviewKeys.swift; path = App/Plugins/ChatPreviewKeys.swift; sourceTree = SOURCE_ROOT; };
+        C4A7B9010000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+        C4A7B9010000000000000006 = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; path = ChatNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -175,7 +227,12 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+        C4A7B901000000000000000B = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+        C4A7B901000000000000000D = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = ""; dstSubfolderSpec = 13; files = (C4A7B9010000000000000007, ); name = "Embed App Extensions"; runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXGroup section */
 		48256E6A000C130E82C635C2 /* AppUITests */ = {
@@ -193,6 +250,7 @@
 		504EC2FB1FED79650016851F = {
 			isa = PBXGroup;
 			children = (
+                C4A7B9010000000000000008,
 				958DCC722DB07C7200EA8C5F /* debug.xcconfig */,
 				958DCC732DB07C7200EA8C5F /* release.xcconfig */,
 				504EC3061FED79650016851F /* App */,
@@ -206,6 +264,7 @@
 		504EC3051FED79650016851F /* Products */ = {
 			isa = PBXGroup;
 			children = (
+                C4A7B9010000000000000006,
 				504EC3041FED79650016851F /* App.app */,
 				E3671E80C56D2FAC01466C11 /* AppTests.xctest */,
 				21773A44233202A79EA4E97B /* AppUITests.xctest */,
@@ -216,6 +275,7 @@
 		504EC3061FED79650016851F /* App */ = {
 			isa = PBXGroup;
 			children = (
+                C4A7B9010000000000000001,
 				A280438C2F21B1FC005B42F3 /* App.entitlements */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
@@ -237,6 +297,7 @@
 				23A8EB24F6FE1F57B965FEB1 /* MyViewController.swift */,
 				E01327B97C0E35A824E086A8 /* Plugins */,
 				0E424BC311E720A549078D16 /* NativeTestSupport.swift */,
+				5E5510B10000000000000001 /* NativeHistoryQualification.swift */,
 				71A2B3C49D8E7F6012345679 /* NativeUiTestRunnerScript.swift */,
 			);
 			path = App;
@@ -273,6 +334,26 @@
 				5E5510A10000000000000001 /* HushhSessionPrivacyPlugin.swift */,
 				5E5510A10000000000000003 /* HushhNativeNavigationPlugin.swift */,
 				5E5510A10000000000000005 /* HushhNativeChromePlugin.swift */,
+				5E5510A10000000000000007 /* HushhNativeChromePresenter.swift */,
+				5E5510A10000000000000009 /* HushhNativeDockPlugin.swift */,
+				5E5510C10000000000000001 /* NativeDrawerState.swift */,
+				5E5510C10000000000000009 /* NativeProfileNameScene.swift */,
+				5E5510C100000000000000D0 /* NativeProfileWorldModelScene.swift */,
+				5E5510C100000000000000D2 /* NativeProfileRuntimeScene.swift */,
+				5E5510C100000000000000D4 /* NativeProfileConnectorScene.swift */,
+				5E5510C100000000000000D6 /* NativeProfileMemoryScene.swift */,
+				5E5510C100000000000000D8 /* NativeWorkspacePresentation.swift */,
+				5E5510C1000000000000000B /* NativeProfileOwnedSheet.swift */,
+				5E5510C1000000000000000D /* NativeProfileStyleScene.swift */,
+				5E5510C1000000000000000F /* NativeProfileSupportScene.swift */,
+				5E5510C10000000000000011 /* NativeProfileLegal.swift */,
+				5E5510C10000000000000013 /* NativeProfilePhoneScene.swift */,
+				5E5510C10000000000000015 /* NativeProfilePasswordScene.swift */,
+				5E5510C10000000000000017 /* NativeProfilePricingScene.swift */,
+				5E5510C10000000000000007 /* NativeProfileArtwork.swift */,
+				5E5510C10000000000000003 /* NativeDrawerPresentationController.swift */,
+				5E5510C10000000000000005 /* HushhNativeDrawersPlugin.swift */,
+				5E5510A1000000000000000B /* NativePresentationContainer.swift */,
 				5E5510A20000000000000001 /* HushhStreamPlugin.swift */,
 				5E5510A30000000000000001 /* HushhOAuthReturnPlugin.swift */,
 				5E5510A50000000000000001 /* HushhPlaidLinkPlugin.swift */,
@@ -287,6 +368,7 @@
 				A11C0A710000000000000071 /* LocationEnvelopeCrypto.swift */,
 				A11C0A710000000000000081 /* BackgroundLocationPublisher.swift */,
 				A11C0A720000000000000061 /* HushhContactsPlugin.swift */,
+				A11C0A720000000000000091 /* HushhCardScannerPlugin.swift */,
 				A11C0A780000000000000061 /* HushhInvitationsPlugin.swift */,
 				A11C0A730000000000000003 /* HushhVoiceInvocationPlugin.swift */,
 				A11C0A730000000000000032 /* OneVoiceMicrophoneCapture.swift */,
@@ -302,6 +384,7 @@
 			name = iOS;
 			sourceTree = "<group>";
 		};
+        C4A7B9010000000000000008 = {isa = PBXGroup; children = (C4A7B9010000000000000004, ); path = ChatNotificationService; sourceTree = "<group>"; };
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -327,6 +410,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 504EC3161FED79650016851F /* Build configuration list for PBXNativeTarget "App" */;
 			buildPhases = (
+                C4A7B901000000000000000D,
 				504EC3001FED79650016851F /* Sources */,
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
@@ -335,6 +419,7 @@
 			buildRules = (
 			);
 			dependencies = (
+                C4A7B901000000000000000F,
 			);
 			name = App;
 			packageProductDependencies = (
@@ -363,6 +448,7 @@
 			productReference = E3671E80C56D2FAC01466C11 /* AppTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+        C4A7B9010000000000000009 = {isa = PBXNativeTarget; buildConfigurationList = C4A7B9010000000000000012; buildPhases = (C4A7B901000000000000000A, C4A7B901000000000000000B, C4A7B901000000000000000C, ); buildRules = (); dependencies = (); name = ChatNotificationService; productName = ChatNotificationService; productReference = C4A7B9010000000000000006; productType = "com.apple.product-type.app-extension"; };
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -404,6 +490,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+                C4A7B9010000000000000009,
 				504EC3031FED79650016851F /* App */,
 				E3C407F7719D0DC2DBB7AE31 /* AppTests */,
 				3658203A687146DA8239820C /* AppUITests */,
@@ -443,6 +530,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+        C4A7B901000000000000000C = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
@@ -486,6 +574,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+                C4A7B9010000000000000002,
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				A11C0A730000000000000011 /* OneVoiceAppIntent.swift in Sources */,
 				5CE2E0D1A0C0000000000002 /* SceneDelegate.swift in Sources */,
@@ -503,6 +592,27 @@
 				5E5510A10000000000000002 /* HushhSessionPrivacyPlugin.swift in Sources */,
 				5E5510A10000000000000004 /* HushhNativeNavigationPlugin.swift in Sources */,
 				5E5510A10000000000000006 /* HushhNativeChromePlugin.swift in Sources */,
+				5E5510A10000000000000008 /* HushhNativeChromePresenter.swift in Sources */,
+				5E5510A1000000000000000A /* HushhNativeDockPlugin.swift in Sources */,
+				5E5510A1000000000000000C /* NativePresentationContainer.swift in Sources */,
+				5E5510B10000000000000002 /* NativeHistoryQualification.swift in Sources */,
+				5E5510C10000000000000002 /* NativeDrawerState.swift in Sources */,
+				5E5510C1000000000000000A /* NativeProfileNameScene.swift in Sources */,
+				5E5510C100000000000000D1 /* NativeProfileWorldModelScene.swift in Sources */,
+				5E5510C100000000000000D3 /* NativeProfileRuntimeScene.swift in Sources */,
+				5E5510C100000000000000D5 /* NativeProfileConnectorScene.swift in Sources */,
+				5E5510C100000000000000D7 /* NativeProfileMemoryScene.swift in Sources */,
+				5E5510C100000000000000D9 /* NativeWorkspacePresentation.swift in Sources */,
+				5E5510C1000000000000000C /* NativeProfileOwnedSheet.swift in Sources */,
+				5E5510C1000000000000000E /* NativeProfileStyleScene.swift in Sources */,
+				5E5510C10000000000000010 /* NativeProfileSupportScene.swift in Sources */,
+				5E5510C10000000000000012 /* NativeProfileLegal.swift in Sources */,
+				5E5510C10000000000000014 /* NativeProfilePhoneScene.swift in Sources */,
+				5E5510C10000000000000016 /* NativeProfilePasswordScene.swift in Sources */,
+				5E5510C10000000000000018 /* NativeProfilePricingScene.swift in Sources */,
+				5E5510C10000000000000008 /* NativeProfileArtwork.swift in Sources */,
+				5E5510C10000000000000004 /* NativeDrawerPresentationController.swift in Sources */,
+				5E5510C10000000000000006 /* HushhNativeDrawersPlugin.swift in Sources */,
 				5E5510A20000000000000002 /* HushhStreamPlugin.swift in Sources */,
 				5E5510A30000000000000002 /* HushhOAuthReturnPlugin.swift in Sources */,
 				5E5510A50000000000000002 /* HushhPlaidLinkPlugin.swift in Sources */,
@@ -517,6 +627,7 @@
 				A11C0A710000000000000072 /* LocationEnvelopeCrypto.swift in Sources */,
 				A11C0A710000000000000082 /* BackgroundLocationPublisher.swift in Sources */,
 				A11C0A720000000000000062 /* HushhContactsPlugin.swift in Sources */,
+				A11C0A720000000000000092 /* HushhCardScannerPlugin.swift in Sources */,
 				A11C0A780000000000000062 /* HushhInvitationsPlugin.swift in Sources */,
 				6146083798073DA5027983D9 /* NativeTestSupport.swift in Sources */,
 				71A2B3C49D8E7F6012345678 /* NativeUiTestRunnerScript.swift in Sources */,
@@ -535,6 +646,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+        C4A7B901000000000000000A = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (C4A7B9010000000000000003, C4A7B9010000000000000005, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -550,6 +662,7 @@
 			target = 504EC3031FED79650016851F /* App */;
 			targetProxy = C88238685A567E8796AE7460 /* PBXContainerItemProxy */;
 		};
+        C4A7B901000000000000000F = {isa = PBXTargetDependency; target = C4A7B9010000000000000009; targetProxy = C4A7B901000000000000000E; };
 /* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
@@ -688,11 +801,13 @@
 			baseConfigurationReference = 958DCC722DB07C7200EA8C5F /* debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
+				HUSSH_APP_ENTITLEMENTS = App/App.entitlements;
+                CODE_SIGN_ENTITLEMENTS = "$(HUSSH_APP_ENTITLEMENTS)";
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 69;
 				DEVELOPMENT_TEAM = WVDK9JW99C;
+				ENABLE_DEBUG_DYLIB = NO;
 				INFOPLIST_FILE = App/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -700,7 +815,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.4.0;
+				MARKETING_VERSION = 1.4.1;
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-D\" \"COCOAPODS\" \"-DDEBUG\"";
 				PRODUCT_BUNDLE_IDENTIFIER = com.hushh.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -717,7 +832,8 @@
 			baseConfigurationReference = 958DCC732DB07C7200EA8C5F /* release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
+				HUSSH_APP_ENTITLEMENTS = App/App.entitlements;
+                CODE_SIGN_ENTITLEMENTS = "$(HUSSH_APP_ENTITLEMENTS)";
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 69;
@@ -729,7 +845,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.4.0;
+				MARKETING_VERSION = 1.4.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.hushh.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -844,6 +960,8 @@
 			};
 			name = Debug;
 		};
+        C4A7B9010000000000000010 = {isa = XCBuildConfiguration; buildSettings = {APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_ENTITLEMENTS = ChatNotificationService/ChatNotificationService.entitlements; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 69; DEVELOPMENT_TEAM = WVDK9JW99C; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_FILE = ChatNotificationService/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MARKETING_VERSION = 1.4.1; PRODUCT_BUNDLE_IDENTIFIER = com.hushh.app.ChatNotificationService; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = iphoneos; SKIP_INSTALL = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Debug; };
+        C4A7B9010000000000000011 = {isa = XCBuildConfiguration; buildSettings = {APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_ENTITLEMENTS = ChatNotificationService/ChatNotificationService.entitlements; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 69; DEVELOPMENT_TEAM = WVDK9JW99C; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_FILE = ChatNotificationService/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MARKETING_VERSION = 1.4.1; PRODUCT_BUNDLE_IDENTIFIER = com.hushh.app.ChatNotificationService; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = iphoneos; SKIP_INSTALL = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Release; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -883,6 +1001,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+        C4A7B9010000000000000012 = {isa = XCConfigurationList; buildConfigurations = (C4A7B9010000000000000010, C4A7B9010000000000000011, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */

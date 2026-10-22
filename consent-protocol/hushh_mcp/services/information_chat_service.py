@@ -18,13 +18,14 @@ from __future__ import annotations
 
 import logging
 import re
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-from hushh_mcp.agents.personal_information.agent import (
-    build_personal_information_agent,
-    get_personal_information_chat_agent,
-)
+from hushh_mcp.agents.personal_information.agent import build_personal_information_agent
+from hushh_mcp.agents.personal_information.tools import PERSONAL_INFORMATION_CHAT_TOOLS
 from hushh_mcp.hushh_adk.context import HushhContext
+from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.hushh_adk.turn import SpecialistAdkTurnError, run_specialist_adk_turn
 from hushh_mcp.services.agent_chat_service import get_agent_chat_service
 from hushh_mcp.services.marketplace_information_service import (
@@ -32,6 +33,16 @@ from hushh_mcp.services.marketplace_information_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _information_instruction() -> str:
+    """Cache project-neutral prompt data, never a project-bound ADK model."""
+    manifest_path = (
+        Path(__file__).resolve().parents[1] / "agents" / "personal_information" / "agent.yaml"
+    )
+    return ManifestLoader.load(str(manifest_path)).system_instruction
+
 
 # Deterministic publish-card trigger: the model is unreliable at calling
 # propose_publish, so when the user's message is clearly a publish/monetize intent
@@ -271,16 +282,19 @@ class InformationChatService:
 
             self._model_call = _default_call
 
-        need_agent = system_prompt is None or tools is None or self._use_adk
-        agent = get_personal_information_chat_agent() if need_agent else None
+        # The A2A bridge can retain this service across requests. Hold no
+        # project-bound model: resolve it when each ADK turn is built instead.
         self._system_prompt = (
-            system_prompt if system_prompt is not None else agent.manifest.system_instruction
+            system_prompt if system_prompt is not None else _information_instruction()
         )
-        tool_list = tools if tools is not None else agent.hushh_tools
+        tool_list = tools if tools is not None else PERSONAL_INFORMATION_CHAT_TOOLS
         self._dispatch = {getattr(t, "_name", getattr(t, "__name__", "")): t for t in tool_list}
         self._adk_tools = self._build_adk_tools(tool_list) if self._use_adk else []
-        if self._use_adk and self._adk_model is None and agent is not None:
-            self._adk_model = agent.model
+
+    def _build_adk_agent(self):
+        # Build under the current request scope; a cached service must not pin
+        # the model to the project of its first caller.
+        return build_personal_information_agent(tools=self._adk_tools, model=self._adk_model)
 
     @staticmethod
     def _build_adk_tools(tool_list: list[Any]) -> list[Any]:
@@ -396,9 +410,7 @@ class InformationChatService:
         """Execute Memory/marketplace through the shared ADK runner."""
         try:
             turn = await run_specialist_adk_turn(
-                agent=build_personal_information_agent(
-                    tools=self._adk_tools, model=self._adk_model
-                ),
+                agent=self._build_adk_agent(),
                 app_name="hushh_memory",
                 user_id=user_id,
                 consent_token=consent_token,

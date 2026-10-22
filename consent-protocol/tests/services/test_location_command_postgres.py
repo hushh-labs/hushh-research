@@ -854,6 +854,7 @@ def sms_schema(db):
         "134_one_location_named_circles.sql",
         "135_one_location_circle_connection_origins.sql",
         "136_one_location_circle_member_invites.sql",
+        "138_circle_member_connection_origin.sql",
         "160_one_location_system_circles.sql",
         "163_one_location_system_circle_kinds.sql",
     ):
@@ -861,6 +862,97 @@ def sms_schema(db):
             conn.exec_driver_sql(
                 (migrations / name).read_text(), execution_options={"no_parameters": True}
             )
+
+
+def test_sms_circle_allows_ten_contacts_plus_owner_and_preserves_them_on_rollback(db):
+    from hushh_mcp.services.one_location_circle_service import (
+        OneLocationCircleError,
+        OneLocationCircleService,
+    )
+
+    sms_schema(db)
+    service = OneLocationCircleService(db=db)
+    circle_id = str(uuid4())
+    db.execute_raw(
+        """INSERT INTO one_location_circles
+             (id,owner_user_id,name,kind,member_limit,is_system,system_kind)
+           VALUES(CAST(:circle AS UUID),'owner','SMS Circle','other',10,TRUE,'sms');
+           INSERT INTO one_location_circle_memberships(circle_id,user_id,role,status)
+           VALUES(CAST(:circle AS UUID),'owner','owner','active')""",
+        {"circle": circle_id},
+    )
+    other_circle = str(uuid4())
+    db.execute_raw(
+        """INSERT INTO one_location_circles(id,owner_user_id,name,kind,member_limit)
+           VALUES(CAST(:id AS UUID),'owner','Ordinary','other',10)""",
+        {"id": other_circle},
+    )
+    migrations = Path(__file__).resolve().parents[2] / "db/migrations"
+    for _ in range(2):
+        db.execute_raw((migrations / "363_sms_circle_ten_contacts.sql").read_text())
+    assert db.execute_raw(
+        "SELECT member_limit FROM one_location_circles WHERE id=CAST(:id AS UUID)",
+        {"id": circle_id},
+    ).data == [{"member_limit": 11}]
+    assert db.execute_raw(
+        "SELECT member_limit FROM one_location_circles WHERE id=CAST(:id AS UUID)",
+        {"id": other_circle},
+    ).data == [{"member_limit": 10}]
+
+    for index in range(11):
+        person = f"sms-contact-{index + 1}"
+        db.execute_raw("INSERT INTO actor_profiles(user_id) VALUES(:person)", {"person": person})
+        db.execute_raw(
+            "INSERT INTO actor_identity_cache(user_id,display_name) VALUES(:person,:person)",
+            {"person": person},
+        )
+        connection = db.execute_raw(
+            """INSERT INTO connections(user_a_id,user_b_id,status,source)
+               VALUES('owner',:person,'active','request') RETURNING id""",
+            {"person": person},
+        ).data[0]["id"]
+        db.execute_raw(
+            """INSERT INTO connection_origins(connection_id,origin_kind,origin_key)
+               VALUES(CAST(:connection AS UUID),'direct_request','direct_request')""",
+            {"connection": connection},
+        )
+
+    for index in range(10):
+        assert service.set_sms_contact(
+            owner_user_id="owner",
+            contact_user_id=f"sms-contact-{index + 1}",
+            added=True,
+        )["changed"]
+    assert service.get_remaining_invite_capacity(actor_user_id="owner", circle_id=circle_id) == 0
+    assert db.execute_raw(
+        """SELECT count(*) AS members FROM one_location_circle_memberships
+           WHERE circle_id=CAST(:circle AS UUID) AND status='active'""",
+        {"circle": circle_id},
+    ).data == [{"members": 11}]
+    with pytest.raises(OneLocationCircleError) as full:
+        service.set_sms_contact(
+            owner_user_id="owner",
+            contact_user_id="sms-contact-11",
+            added=True,
+        )
+    assert full.value.code == "LOCATION_CIRCLE_INVITE_CAPACITY_REACHED"
+    assert (
+        db.execute_raw(
+            "SELECT contact_user_id FROM one_location_sms_contacts WHERE contact_user_id='sms-contact-11'"
+        ).data
+        == []
+    )
+
+    db.execute_raw((migrations / "rollback/363_sms_circle_ten_contacts.rollback.sql").read_text())
+    assert db.execute_raw(
+        "SELECT member_limit FROM one_location_circles WHERE id=CAST(:id AS UUID)",
+        {"id": circle_id},
+    ).data == [{"member_limit": 10}]
+    assert db.execute_raw(
+        """SELECT count(*) AS members FROM one_location_circle_memberships
+           WHERE circle_id=CAST(:circle AS UUID) AND status='active'""",
+        {"circle": circle_id},
+    ).data == [{"members": 11}]
 
 
 @pytest.mark.asyncio
@@ -1363,3 +1455,54 @@ async def test_sos_incident_guard_serialises_concurrent_arming_to_one_incident(d
         == 2
     )
     assert agents.OneLocationAgentService is Service
+
+
+async def test_checkpoint_expiry_preserves_fresh_legacy_and_other_namespace_rows(db):
+    """Execute canonical checkpoint retention SQL in the serial isolated DB lane."""
+    import asyncpg
+
+    from hushh_mcp.services.chat_key import CHAT_CIPHERTEXT_PREFIX
+    from hushh_mcp.services.profile_research_jobs import (
+        NAMESPACE,
+        SESSION,
+        ProfileResearchJobStore,
+    )
+
+    schema = db.execute_raw("SELECT current_schema() AS schema").data[0]["schema"]
+    assert schema.startswith("command_test_")
+    dsn = db.engine.url.set(drivername="postgresql").render_as_string(hide_password=False)
+    async with asyncpg.create_pool(
+        dsn=dsn, min_size=1, max_size=2, server_settings={"search_path": schema}
+    ) as pool:
+
+        async def checkpoint_pool():
+            return pool
+
+        store = ProfileResearchJobStore(
+            pool_provider=checkpoint_pool, cipher=static_chat_cipher("12" * 32)
+        )
+        state = {"status": "offered", "result": {"status": "no_match", "pkm_written": False}}
+        await store.write("owner", state, None)
+        await store.write("other", state, None)
+        db.execute_raw(
+            "UPDATE one_adk_sessions SET updated_at=NOW()-INTERVAL '25 hours' WHERE user_id='owner'"
+        )
+        db.execute_raw("INSERT INTO actor_profiles(user_id) VALUES('legacy')")
+        db.execute_raw(
+            """INSERT INTO one_adk_sessions
+               (app_name,user_id,session_id,payload_ciphertext,payload_iv,payload_tag,updated_at)
+               VALUES (:app,'owner','other-session',:marked,'iv','tag',NOW()-INTERVAL '25 hours'),
+                      ('hussh_one','owner','chat',:marked,'iv','tag',NOW()-INTERVAL '25 hours'),
+                      (:app,'legacy',:session,'legacy-row','iv','tag',NOW()-INTERVAL '25 hours')""",
+            {"app": NAMESPACE, "session": SESSION, "marked": CHAT_CIPHERTEXT_PREFIX + "fixture"},
+        )
+        await store.purge_expired()
+        rows = db.execute_raw("SELECT app_name,user_id,session_id FROM one_adk_sessions").data
+        assert {(row["app_name"], row["user_id"], row["session_id"]) for row in rows} == {
+            (NAMESPACE, "other", SESSION),
+            (NAMESPACE, "owner", "other-session"),
+            ("hussh_one", "owner", "chat"),
+            (NAMESPACE, "legacy", SESSION),
+        }
+        assert await store.get("owner") is None
+        assert (await store.get("other"))["result"] == state["result"]

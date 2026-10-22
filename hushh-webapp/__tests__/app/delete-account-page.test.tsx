@@ -5,7 +5,6 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import DeleteAccountPage from "@/app/delete-account/page";
-import { CONTACTS_PRIVACY_DISCLOSURE } from "@/components/one-location/onboarding/one-location-onboarding-flow";
 import {
   ROUTES,
   isOnboardingAdmissionExemptRoute,
@@ -27,14 +26,14 @@ describe("Public account deletion page (Google Play Delete account URL)", () => 
     expect(
       screen.getByRole("heading", { level: 1, name: "Delete your account" }),
     ).toBeTruthy();
-    expect(screen.getByText(/Tap Delete account/)).toBeTruthy();
+    expect(screen.getByText(/Delete account and start fresh on the locked-vault screen/)).toBeTruthy();
 
     const request = screen.getByRole("link", { name: "support@hushh.ai" });
     expect(request.getAttribute("href")).toBe(
       "mailto:support@hushh.ai?subject=Delete%20my%20Hussh%20One%20account",
     );
     expect(screen.getByText(/we confirm the request came from the account owner/)).toBeTruthy();
-    expect(screen.getByText(/never ask for your password, your vault passphrase/)).toBeTruthy();
+    expect(screen.getByText(/never ask for your sign-in password, your vault password/)).toBeTruthy();
     expect(screen.getByRole("heading", { name: "What we may keep" })).toBeTruthy();
 
     // No self-service deletion without authentication.
@@ -43,7 +42,7 @@ describe("Public account deletion page (Google Play Delete account URL)", () => 
 });
 
 describe("Android contacts disclosure", () => {
-  it("shows the same privacy statement natively as in onboarding", () => {
+  it("explains contact handling before the native permission request", () => {
     const strings = readFileSync(
       path.join(REPO, "android/app/src/main/res/values/strings.xml"),
       "utf8",
@@ -51,7 +50,9 @@ describe("Android contacts disclosure", () => {
     const message = strings.match(
       /<string name="contacts_disclosure_message">([\s\S]*?)<\/string>/,
     )?.[1];
-    expect(message?.replace(/\\'/g, "'")).toContain(CONTACTS_PRIVACY_DISCLOSURE);
+    expect(message?.replace(/\\'/g, "'")).toContain(
+      "Phone numbers are standardized on your device and turned into one-way codes. Only those codes and the last four digits are checked for matches. One never stores your contacts' names or numbers, and nobody is contacted for you.",
+    );
 
     const plugin = readFileSync(
       path.join(

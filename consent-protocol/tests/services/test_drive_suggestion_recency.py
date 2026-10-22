@@ -30,6 +30,103 @@ def test_live_search_plan_accepts_bounded_date_only_and_uses_one_utc_instant():
         plan.time_bounds(datetime(2026, 9, 24))
 
 
+def test_search_concepts_preserve_legacy_terms_and_bound_equivalent_variants():
+    legacy = LiveSearchPlan(terms=["Schwab", "statement"])
+    assert legacy.search_term_groups() == [["Schwab"], ["statement"]]
+    assert LiveSearchPlan(file_kind="document").search_term_groups() == []
+    groups = [["Schwab", "Charles Schwab"], ["statement", "statements", "e-statement", "e-stmt"]]
+    plan = LiveSearchPlan(terms=["Schwab", "statement"], term_groups=groups)
+    assert plan.search_term_groups() == groups
+    assert LiveSearchPlan.model_validate(plan.model_dump()).search_term_groups() == groups
+    returned = plan.search_term_groups()
+    returned[0].append("unrelated institution")
+    assert plan.search_term_groups() == groups
+
+
+def test_semantic_discovery_clues_are_bounded_hints_not_legacy_requirements():
+    from hushh_mcp.services.drive_suggestion_service import LiveSearchModelPlan
+
+    legacy = LiveSearchPlan(terms=["statement"])
+    assert legacy.semantic_intent is None
+    assert legacy.discovery_clues == []
+    assert legacy.expected_document_anatomy is None
+    model_plan = {
+        "terms": ["Schwab", "statement"],
+        "term_groups": [["Schwab", "Charles Schwab"], ["statement", "eStmt"]],
+        "subject_scope": "specific_records",
+        "subject_complete": True,
+        "semantic_intent": "institutional_statement",
+        "discovery_clues": ["Schwab", "eStmt", "brokerage", "holdings", "portfolio"],
+        "required_entities": ["Schwab"],
+        "expected_document_anatomy": "Issuer, account, statement period and holdings.",
+    }
+    parsed = LiveSearchModelPlan.model_validate(model_plan)
+    assert parsed.search_term_groups() == model_plan["term_groups"]
+    assert parsed.discovery_clues == model_plan["discovery_clues"]
+    assert parsed.time_intent == "document_coverage"
+    assert parsed.date_from is None and parsed.date_to is None
+    for invalid in (
+        {"discovery_clues": []},
+        {"discovery_clues": ["Schwab", "schwab"]},
+        {"discovery_clues": ["bad\nclue"]},
+        {"discovery_clues": ["x" * 51]},
+        {"discovery_clues": [str(index) for index in range(13)]},
+        {"semantic_intent": "uncalibrated_guess"},
+        {"expected_document_anatomy": " \n "},
+    ):
+        with pytest.raises(ValidationError):
+            LiveSearchModelPlan.model_validate({**model_plan, **invalid})
+
+
+def test_documents_manifest_separates_broad_discovery_from_content_evidence():
+    from pathlib import Path
+
+    from hushh_mcp.hushh_adk.manifest import ManifestLoader
+
+    path = Path(module.__file__).resolve().parents[1] / "agents/documents/agent.yaml"
+    manifest = ManifestLoader.load(str(path))
+    planner = next(
+        child for child in manifest.subagents if child.id == "agent_documents_live_search"
+    )
+    assessor = next(
+        child for child in manifest.subagents if child.id == "agent_documents_suggestions"
+    )
+    assert "finacial staements" in planner.system_instruction
+    assert "discovery_clues" in planner.system_instruction
+    assert "never as proof of a document's content period" in planner.system_instruction
+    assert "weightage_out_of_10" in assessor.system_instruction
+    assert "Confidence is your assessment" in assessor.system_instruction
+
+
+@pytest.mark.parametrize(
+    "terms,groups",
+    [
+        (["statement"], [[]]),
+        (["statement"], [["statement", "a", "b", "c", "d"]]),
+        (["statement"], [["statement"], ["bank"]]),
+        (["statement"], [["Statement"]]),
+        (["statement"], [["statement", "STATEMENT"]]),
+        (["statement", "bank"], [["statement", "report"], ["bank", "REPORT"]]),
+        (["statement"], [["statement", "\nstatements"]]),
+        (["statement"], [["statement", "\x7f"]]),
+        (["statement"], [["statement", " " * 3]]),
+        (["statement"], [["statement", "x" * 51]]),
+        (["statement"], ["statement"]),
+        (["statement"], [["statement", 1]]),
+        (["one", "two", "three"], [["one"], ["two"], ["three"], ["four"]]),
+    ],
+)
+def test_search_concepts_reject_malformed_or_ambiguous_group_contract(terms, groups):
+    with pytest.raises(ValidationError):
+        LiveSearchPlan.model_validate({"terms": terms, "term_groups": groups})
+
+
+@pytest.mark.parametrize("terms", [["statement", "STATEMENT"], ["bad\nterm"], [" "], ["x" * 51]])
+def test_legacy_plan_terms_use_the_same_literal_validation(terms):
+    with pytest.raises(ValidationError):
+        LiveSearchPlan.model_validate({"terms": terms})
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("foreground", [False, True])
 async def test_recent_file_request_skips_planner_and_binds_metadata(monkeypatch, foreground):
@@ -123,7 +220,13 @@ async def test_recent_file_request_with_separate_card_dates_keeps_planner(foregr
         bind_matches=AsyncMock(return_value={"untrusted_external_content": [], "truncated": False}),
     )
     planner = AsyncMock(
-        return_value={"mode": "find", "relative_days": 2, "time_intent": "file_activity"}
+        return_value={
+            "mode": "find",
+            "relative_days": 2,
+            "time_intent": "file_activity",
+            "subject_scope": "metadata_listing",
+            "subject_complete": True,
+        }
     )
     service = DriveSuggestionService(
         oauth=SimpleNamespace(),
@@ -226,6 +329,8 @@ async def test_b_recency_prepares_private_metadata_review_without_content_or_ind
             "mode": "find",
             "file_time_field": time_field,
             "time_intent": "file_activity",
+            "subject_scope": "metadata_listing",
+            "subject_complete": True,
         }
     )
     monkeypatch.setattr(module, "wake_drive_work", AsyncMock())
@@ -369,14 +474,24 @@ async def test_content_request_calls_the_real_reader_signature():
     service = DriveSuggestionService(
         oauth=SimpleNamespace(),
         store=store,
-        search_planner=AsyncMock(return_value={"terms": ["tax return"], "file_kind": "pdf"}),
+        search_planner=AsyncMock(
+            return_value={
+                "terms": ["tax return"],
+                "term_groups": [["tax return", "tax returns"]],
+                "file_kind": "pdf",
+            }
+        ),
         reader_factory=lambda **_: reader,
         require_owner=AsyncMock(),
         candidate_selector=selector,
     )
     assert await service.run_one(user_id="owner", request_id=request_id) == "no_ready_files"
     reader.find.assert_awaited_once_with(
-        query=["tax return"], file_kind="pdf", shared_with_me=False, recent=False
+        query=["tax return"],
+        term_groups=[["tax return", "tax returns"]],
+        file_kind="pdf",
+        shared_with_me=False,
+        recent=False,
     )
     selector.assert_awaited_once()
     reader.read_matches.assert_awaited_once_with(matches=[match], truncated=False)
@@ -747,6 +862,58 @@ async def test_an_invalid_plan_is_asked_once_more_then_stands():
     planner = AsyncMock(return_value={"terms": ["statement"]})
     await plan_live_search(planner, prompt="{}", user_id="owner")
     assert planner.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_empty_subject_needs_an_explicit_complete_metadata_listing_audit():
+    from hushh_mcp.services.drive_suggestion_service import LiveSearchModelPlan, plan_live_search
+    from hushh_mcp.services.google_drive_adapter import DriveReadError
+
+    bad = {"file_kind": "document", "time_intent": "document_coverage"}
+    prompt = json.dumps({"document_request": {"purpose": "All invoices for 2026"}})
+    planner = AsyncMock(return_value=bad)
+    with pytest.raises(DriveReadError, match="narrow_selection_required"):
+        await plan_live_search(planner, prompt=prompt, user_id="owner")
+    assert planner.await_count == 2
+    correction = planner.await_args.kwargs["prompt"]
+    assert correction.startswith(prompt)
+    assert "invalid_plan_or_missing_subject_audit" in correction
+    # The provider contract catches incomplete answers before they reach callers.
+    with pytest.raises(ValidationError):
+        LiveSearchModelPlan.model_validate(bad)
+    with pytest.raises(ValidationError):
+        LiveSearchModelPlan.model_validate(
+            {**bad, "subject_scope": "specific_records", "subject_complete": True}
+        )
+    with pytest.raises(ValidationError):
+        LiveSearchModelPlan.model_validate(
+            {**bad, "subject_scope": "metadata_listing", "subject_complete": False}
+        )
+    audited = {**bad, "subject_scope": "metadata_listing", "subject_complete": True}
+    planner = AsyncMock(return_value=audited)
+    plan = await plan_live_search(planner, prompt="All documents", user_id="owner")
+    assert plan.terms == [] and planner.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_subject_correction_preserves_model_concepts_without_inventing_terms():
+    from hushh_mcp.services.drive_suggestion_service import plan_live_search
+
+    planner = AsyncMock(
+        side_effect=[
+            {"file_kind": "document"},
+            {
+                "terms": ["invoice"],
+                "term_groups": [["invoice", "invoices"]],
+                "file_kind": "document",
+                "subject_scope": "specific_records",
+                "subject_complete": True,
+            },
+        ]
+    )
+    plan = await plan_live_search(planner, prompt="All invoices for 2026", user_id="owner")
+    assert plan.search_term_groups() == [["invoice", "invoices"]]
+    assert planner.await_count == 2
 
 
 @pytest.mark.asyncio

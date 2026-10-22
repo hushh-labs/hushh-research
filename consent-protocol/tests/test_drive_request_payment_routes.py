@@ -46,3 +46,13 @@ def test_payment_routes_use_authenticated_requester(monkeypatch):
     )
     assert denied.status_code == 401
     service.checkout.assert_awaited_once()
+
+
+def test_preexisting_access_errors_are_actionable_and_uncached():
+    from hushh_mcp.services.drive_sharing_contract import DriveSharingError
+
+    for code in ("request_already_accessible", "package_existing_access_requires_review"):
+        error = routes._http(DriveSharingError(code))
+        assert error.status_code == 409
+        assert error.detail == {"code": code}
+        assert error.headers["Cache-Control"] == "no-store"

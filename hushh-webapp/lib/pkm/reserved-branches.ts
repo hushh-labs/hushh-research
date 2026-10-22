@@ -207,6 +207,13 @@ export function isReservedPath(
   return reservedEntryFor(domain, path) !== null;
 }
 
+/** Private card pixels belong in Wallet, including for the owner's Memory view.
+ * Other model-excluded branches retain their existing owner-visible behavior. */
+export function isPrivateWalletArtworkBranch(domain: string, path: string): boolean {
+  const entry = reservedEntryFor(domain, path);
+  return entry?.domain === "wallet" && entry.branchPrefix === "artwork";
+}
+
 function branchLabel(entry: ReservedEntry, path: string): string {
   if (entry.branchPrefix !== WILDCARD_BRANCH) return entry.branchPrefix;
   return path.split(".", 1)[0] || WILDCARD_BRANCH;

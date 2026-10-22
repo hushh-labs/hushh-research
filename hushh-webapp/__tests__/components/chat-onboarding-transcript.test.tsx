@@ -6,9 +6,12 @@ import { ChatOnboardingTurns } from "@/components/agent/chat-onboarding/chat-onb
 import {
   useChatOnboarding,
   useChatOnboardingSession,
+  beginChatOnboardingNameTurn,
+  runChatOnboardingEvent,
 } from "@/lib/agent/chat-onboarding/use-chat-onboarding";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { clearConnectorStatus, primeConnectorStatus, useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 vi.mock("@/lib/services/gmail-receipts-service", () => ({
   GmailReceiptsService: { getStatus: vi.fn(async () => ({
@@ -31,15 +34,15 @@ const onConnect = vi.fn();
 /** Every (turn id, status) the transcript hands to the real assistant bubble. */
 const bubbleCalls: { id: string; status: string; role: string }[] = [];
 
-function Harness({ messages = [] as { id: string }[] }) {
+function Harness({ messages = [] as { id: string }[], startSignal = true, userId = "u1" }) {
   const gmail = useGmailConnectorStatus({ userId: "u1", enabled: false });
   const controller = useChatOnboarding({
-    userId: "u1",
+    userId,
     displayName: "Kushal",
     vaultKey: "vault-key",
     vaultOwnerToken: "owner-token",
     isVaultUnlocked: true,
-    startSignal: true,
+    startSignal,
     messages,
     conversationId: null,
     onFocusComposer: () => undefined,
@@ -57,7 +60,15 @@ function Harness({ messages = [] as { id: string }[] }) {
         onConnect={onConnect}
         gmailConnected={Boolean(gmail.status?.connected && !gmail.status.revoked && !gmail.status.needs_reauth)}
       />
+      <ChatOnboardingTurns
+        controller={controller}
+        slot={{ kind: "end", visibleMessageIds: messages.map((message) => message.id) }}
+        renderBubble={(message) => <AgentBubble message={message} />}
+        onConnect={onConnect}
+        gmailConnected={Boolean(gmail.status?.connected && !gmail.status.revoked && !gmail.status.needs_reauth)}
+      />
       <output data-testid="capture">{String(controller.composerPlaceholder)}</output>
+      <output data-testid="onboarding-resolved">{String(controller.resolved)}</output>
       <button type="button" onClick={() => controller.captureComposerText("What's on my calendar?")}>
         type-unrelated
       </button>
@@ -94,7 +105,7 @@ beforeEach(() => {
   vi.mocked(PreVaultUserStateService.syncOneChatOnboarding).mockResolvedValue(
     {} as Awaited<ReturnType<typeof PreVaultUserStateService.syncOneChatOnboarding>>,
   );
-  vi.mocked(PkmWriteCoordinator.saveMergedDomain).mockResolvedValue({
+  vi.mocked(PkmWriteCoordinator.saveMergedDomain).mockReset().mockResolvedValue({
     saveState: "saved",
     success: true,
     fullBlob: {},
@@ -154,12 +165,62 @@ describe("first onboarding message", () => {
 });
 
 describe("onboarding conversation", () => {
+  it("recovers a failed progress read on reconnect without assuming onboarding is complete", async () => {
+    vi.mocked(PreVaultUserStateService.bootstrapState).mockRejectedValueOnce(new Error("Temporary bootstrap failure"));
+    render(<Harness startSignal={false} />);
+    await waitFor(() => expect(PreVaultUserStateService.bootstrapState).toHaveBeenCalledOnce());
+    expect(screen.getByTestId("onboarding-resolved")).toHaveTextContent("false");
+    await act(async () => { window.dispatchEvent(new Event("online")); });
+    await waitFor(() => expect(screen.getByTestId("onboarding-resolved")).toHaveTextContent("true"));
+    expect(PkmWriteCoordinator.saveMergedDomain).not.toHaveBeenCalled();
+  });
+  it("holds profile discovery through questions, confirmation, saving and failure, then releases after success", async () => {
+    setReducedMotion(true);
+    let finishSave!: (value: { saveState: string; success: boolean; fullBlob: object }) => void;
+    vi.mocked(PkmWriteCoordinator.saveMergedDomain).mockImplementationOnce(() => new Promise(resolve => { finishSave = resolve; }));
+    render(<Harness messages={[{ id: "ordinary-question" }]} />);
+    const resolved = () => screen.getByTestId("onboarding-resolved").textContent;
+    expect(resolved()).toBe("false");
+    fireEvent.click(await screen.findByRole("button", { name: "Call me Kushal" }));
+    expect(resolved()).toBe("false");
+    fireEvent.click(await screen.findByRole("button", { name: "Mail" }));
+    expect(resolved()).toBe("false");
+    fireEvent.click(await screen.findByRole("button", { name: "Short and direct" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save to memory" }));
+    await waitFor(() => expect(finishSave).toBeTypeOf("function"));
+    expect(resolved()).toBe("false");
+    await act(async () => finishSave({ saveState: "failed", success: false, fullBlob: {} }));
+    await screen.findByRole("button", { name: "Try again" });
+    expect(resolved()).toBe("false");
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(resolved()).toBe("true"));
+  });
+  it("releases profile discovery only after the whole optional conversation is skipped", async () => {
+    setReducedMotion(true);
+    render(<Harness />);
+    for (let question = 0; question < 3; question++) {
+      expect(screen.getByTestId("onboarding-resolved")).toHaveTextContent("false");
+      fireEvent.click(await screen.findByRole("button", { name: "Skip for now" }));
+    }
+    await waitFor(() => expect(screen.getByTestId("onboarding-resolved")).toHaveTextContent("true"));
+    expect(PkmWriteCoordinator.saveMergedDomain).not.toHaveBeenCalled();
+  });
+  it("waits for owner progress and does not inherit another owner's completed onboarding", async () => {
+    let finishLoad!: (value: Awaited<ReturnType<typeof PreVaultUserStateService.bootstrapState>>) => void;
+    vi.mocked(PreVaultUserStateService.bootstrapState).mockImplementationOnce(() => new Promise(resolve => { finishLoad = resolve; }));
+    const root = render(<Harness startSignal={false} />);
+    expect(screen.getByTestId("onboarding-resolved")).toHaveTextContent("false");
+    await act(async () => finishLoad({ oneChatOnboarding: null } as Awaited<ReturnType<typeof PreVaultUserStateService.bootstrapState>>));
+    await waitFor(() => expect(screen.getByTestId("onboarding-resolved")).toHaveTextContent("true"));
+    root.rerender(<Harness userId="new-owner" startSignal />);
+    expect(screen.getByTestId("onboarding-resolved")).toHaveTextContent("false");
+  });
   it("asks each question in turn, connects read-first, and saves only on confirmation", async () => {
     setReducedMotion(true);
     render(<Harness />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Call me Kushal" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Email" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Mail" }));
 
     const connect = await screen.findByTestId("chat-onboarding-connect");
     expect(connect.textContent).toContain("Connect Gmail");
@@ -206,7 +267,7 @@ describe("onboarding conversation", () => {
     });
   });
 
-  it("lets unrelated typing through, and only an explicit choice arms the name field", async () => {
+  it("Something else opens an explicit name question and leaves interpretation to One", async () => {
     setReducedMotion(true);
     render(<Harness />);
     await screen.findByRole("button", { name: "Call me Kushal" });
@@ -216,10 +277,12 @@ describe("onboarding conversation", () => {
     await waitFor(() =>
       expect(screen.getByTestId("capture").textContent).toBe("Type what I should call you"),
     );
-    // A question is not a name: it goes to One, and the name question waits.
+    expect(await screen.findByText("Okay. What should I call you?")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "type-unrelated" }));
-    await waitFor(() => expect(screen.getByTestId("capture").textContent).toBe("null"));
-    expect(screen.getAllByRole("button", { name: "Call me Kushal" }).length).toBeGreaterThan(0);
+    await waitFor(() => expect(screen.getByTestId("capture").textContent).toBe("Type what I should call you"));
+    expect(screen.queryByRole("button", { name: "Call me Kushal" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Skip for now" })).toBeInTheDocument();
+    expect(PkmWriteCoordinator.saveMergedDomain).not.toHaveBeenCalled();
   });
 
   it("moves between chips with the arrow keys", async () => {
@@ -231,5 +294,102 @@ describe("onboarding conversation", () => {
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Something else" }));
     fireEvent.keyDown(document.activeElement!, { key: "End" });
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Skip for now" }));
+  });
+});
+
+describe("semantic name assessment and encrypted write boundary", () => {
+  const host = {
+    anchor: () => "answer",
+    vault: () => ({ vaultKey: "vault-key", vaultOwnerToken: "owner-token" }),
+    focusComposer: () => undefined,
+  };
+  function pending() {
+    useChatOnboardingSession.getState().reset("u1");
+    runChatOnboardingEvent({ type: "start", displayName: "Owner", firstName: "Owner", anchor: null }, host);
+    runChatOnboardingEvent({ type: "chip", chipId: "name_other", firstName: "Owner", anchor: null, today: "2026-10-16" }, host);
+    return beginChatOnboardingNameTurn(host)!;
+  }
+  function answer(turn: ReturnType<typeof pending>, extra: Record<string, unknown> = {}) {
+    return { status: "onboarding_name_assessed", request_id: turn.screenState.onboarding_name_request,
+      decision: "name", preferred_name: "Roopmann", ...extra };
+  }
+
+  it.each(["Roopmann", "Love", "Zoë 🦋", "نور", "李 小龍", "A".repeat(64)])("saves %s only after a successful turn, then advances", async name => {
+    const turn = pending();
+    turn.stage(JSON.stringify(answer(turn, { preferred_name: name })), "call");
+    expect(PkmWriteCoordinator.saveMergedDomain).not.toHaveBeenCalled();
+    turn.finish(true);
+    turn.finish(true);
+    await waitFor(() => expect(useChatOnboardingSession.getState().machine?.step).toBe("focus"));
+    expect(PkmWriteCoordinator.saveMergedDomain).toHaveBeenCalledOnce();
+    const write = vi.mocked(PkmWriteCoordinator.saveMergedDomain).mock.calls[0][0];
+    expect(write).toMatchObject({ userId: "u1", domain: "identity", confirmation: { source: "one_chat_onboarding" } });
+    const built = await write.build({ currentDomainData: { communication_preferences: { tone: "warm" }, untouched: true } } as never);
+    expect(built.domainData).toMatchObject({ untouched: true, communication_preferences: { preferred_name: name, tone: "warm" } });
+    expect(JSON.stringify(built.summary)).not.toContain(name);
+    expect(JSON.stringify(vi.mocked(PreVaultUserStateService.syncOneChatOnboarding).mock.calls)).not.toContain(name);
+  });
+
+  it.each([
+    null, { status: "invalid" }, { preferred_name: "" }, { preferred_name: "A".repeat(65) },
+    { preferred_name: " Kay " }, { preferred_name: "K\u0000ay" },
+    { request_id: "stale" }, { decision: "guessed" }, { decision: "skip" },
+  ])("never saves malformed or mismatched model output: %j", async invalid => {
+    const turn = pending();
+    turn.stage(invalid === null ? null : answer(turn, invalid), "call");
+    turn.finish(true);
+    await Promise.resolve();
+    expect(PkmWriteCoordinator.saveMergedDomain).not.toHaveBeenCalled();
+    expect(useChatOnboardingSession.getState().machine?.step).toBe("name_typing");
+  });
+
+  it.each(["error", "missing", "skip", "owner", "epoch", "new answer", "conflict", "question changed"])("rejects an obsolete answer after %s", async reason => {
+    const turn = pending();
+    if (reason !== "missing") turn.stage(answer(turn), "call");
+    if (reason === "owner") useChatOnboardingSession.getState().reset("u2");
+    if (reason === "epoch") advanceVaultSessionEpoch();
+    if (reason === "new answer") beginChatOnboardingNameTurn(host);
+    if (reason === "conflict") turn.stage(answer(turn, { preferred_name: "Other" }), "second-call");
+    if (reason === "skip" || reason === "question changed")
+      runChatOnboardingEvent({ type: "chip", chipId: "skip", firstName: "Owner", anchor: null, today: "2026-10-16" }, host);
+    turn.finish(reason !== "error");
+    await Promise.resolve();
+    expect(PkmWriteCoordinator.saveMergedDomain).not.toHaveBeenCalled();
+  });
+
+  it("deduplicates a repeated result and rejects a write if the vault changes before dispatch", async () => {
+    const turn = pending();
+    turn.stage(answer(turn), "call");
+    turn.stage(answer(turn), "call");
+    vi.mocked(PkmWriteCoordinator.saveMergedDomain).mockImplementationOnce(async params => {
+      advanceVaultSessionEpoch();
+      await params.beforeEffect?.();
+      throw new Error("must not reach storage");
+    });
+    turn.finish(true);
+    await waitFor(() => expect(useChatOnboardingSession.getState().machine?.step).toBe("name_save_failed"));
+    runChatOnboardingEvent({ type: "chip", chipId: "retry_save", firstName: "Owner", anchor: null, today: "2026-10-16" }, host);
+    await waitFor(() => expect(useChatOnboardingSession.getState().machine?.step).toBe("focus"));
+    expect(PkmWriteCoordinator.saveMergedDomain).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not claim nothing was stored when navigation changes after dispatch", async () => {
+    pending();
+    let current = true;
+    let finishWrite!: (value: never) => void;
+    vi.mocked(PkmWriteCoordinator.saveMergedDomain).mockImplementationOnce(async params => {
+      await params.beforeEffect?.();
+      return new Promise(resolve => { finishWrite = resolve; });
+    });
+    const turn = beginChatOnboardingNameTurn({ ...host, isCurrent: () => current })!;
+    turn.stage(answer(turn), "call");
+    turn.finish(true);
+    await waitFor(() => expect(finishWrite).toBeTypeOf("function"));
+    current = false;
+    finishWrite({ success: true, saveState: "saved", fullBlob: {} } as never);
+    await waitFor(() => expect(useChatOnboardingSession.getState().machine?.step).toBe("name_save_failed"));
+    const text = useChatOnboardingSession.getState().machine!.turns.at(-1)!.text;
+    expect(text).toContain("couldn't confirm");
+    expect(text).not.toContain("nothing was stored");
   });
 });

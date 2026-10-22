@@ -40,6 +40,7 @@ vi.mock("@/lib/services/google-calendar-service", () => ({
 }));
 
 import {
+  inPlaceConnectCopy,
   connectCalendarInPlace,
   connectGmailInPlace,
 } from "@/lib/connections/google-connect-in-place";
@@ -47,7 +48,9 @@ import {
 const GMAIL_ATTEMPT_KEY = "one_gmail_oauth_popup_attempt_v1";
 const GOOGLE_ATTEMPT_KEY = "one_google_oauth_popup_attempt_v1";
 const GMAIL_SETTLEMENT_KEY = "one_gmail_oauth_popup_settlement_v1";
-const AUTHORIZE = "https://accounts.google.com/o/oauth2/v2/auth?synthetic=1";
+const authorize = (callback: string) => `https://accounts.google.com/o/oauth2/v2/auth?redirect_uri=${encodeURIComponent(new URL(callback, window.location.origin).href)}`;
+const GMAIL_AUTHORIZE = authorize("/one/profile/gmail/oauth/return");
+const CALENDAR_AUTHORIZE = authorize("/one/profile/google/oauth/return");
 
 type FakeWindow = Window & {
   close: ReturnType<typeof vi.fn>;
@@ -104,7 +107,7 @@ describe("connectGmailInPlace (web)", () => {
     vi.spyOn(window, "open").mockReturnValue(popup);
     mocks.gmailStartConnect.mockReset().mockResolvedValue({
       configured: true,
-      authorize_url: AUTHORIZE,
+      authorize_url: GMAIL_AUTHORIZE,
       expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
     });
     mocks.gmailGetStatus.mockReset();
@@ -128,7 +131,7 @@ describe("connectGmailInPlace (web)", () => {
   it("settles only the exact attempt from the exact window and origin, then trusts server status", async () => {
     mocks.gmailGetStatus.mockResolvedValue({ connected: true, send_permission_granted: true });
     const start = connectGmailInPlace({ owner, purpose: "send" });
-    await vi.waitFor(() => expect(popup.location.replace).toHaveBeenCalledWith(AUTHORIZE));
+    await vi.waitFor(() => expect(popup.location.replace).toHaveBeenCalledWith(GMAIL_AUTHORIZE));
     expect(mocks.gmailStartConnect).toHaveBeenCalledWith(
       expect.objectContaining({ purpose: "send", includeGrantedScopes: true, loginHint: "owner@synthetic.invalid" }),
     );
@@ -166,7 +169,6 @@ describe("connectGmailInPlace (web)", () => {
     window.dispatchEvent(new StorageEvent("storage", {
       key: GMAIL_SETTLEMENT_KEY,
       newValue: JSON.stringify({ ...gmailSettlement(attemptId), sentAt: Date.now() }),
-      storageArea: window.localStorage,
     }));
     await expect(start.result).resolves.toBe("connected");
   });
@@ -260,7 +262,7 @@ describe("connectCalendarInPlace", () => {
     popup = fakeWindow();
     vi.spyOn(window, "open").mockReturnValue(popup);
     mocks.calendarStartConnect.mockReset().mockResolvedValue({
-      authorize_url: AUTHORIZE,
+      authorize_url: CALENDAR_AUTHORIZE,
       expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
     });
     mocks.calendarStatus.mockReset();
@@ -280,6 +282,29 @@ describe("connectCalendarInPlace", () => {
     expect(mocks.calendarStatus).not.toHaveBeenCalled();
     post(calendarSettlement(attemptId), popup);
     await expect(start.result).resolves.toBe("not_connected");
+    expect(inPlaceConnectCopy("calendar", "not_connected")).toBe(
+      "The requested Google Calendar permission was not enabled.",
+    );
+  });
+
+  it.each([
+    [{ connected: true, status: "connected", access_level: "manage" }, "connected"],
+    [{ connected: false, status: "needs_reauth", access_level: "manage" }, "not_connected"],
+  ] as const)("uses the server-verified Calendar grant after consent (%s)", async (status, expected) => {
+    mocks.calendarStatus.mockResolvedValue(status);
+    const start = connectCalendarInPlace({ owner, accessLevel: "manage" });
+    await vi.waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
+    const { attemptId } = attemptIn(popup, GOOGLE_ATTEMPT_KEY);
+    post(calendarSettlement(attemptId), popup);
+    await expect(start.result).resolves.toBe(expected);
+  });
+
+  it("does not report connected after denied Calendar consent", async () => {
+    const start = connectCalendarInPlace({ owner, accessLevel: "manage" });
+    await vi.waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
+    const { attemptId } = attemptIn(popup, GOOGLE_ATTEMPT_KEY);
+    post(calendarSettlement(attemptId, "cancelled"), popup);
+    await expect(start.result).resolves.not.toBe("connected");
   });
 
   it("connects natively through the platform sheet", async () => {
@@ -295,4 +320,16 @@ describe("connectCalendarInPlace", () => {
       expect.objectContaining({ accessLevel: "manage", state: "signed-state" }),
     );
   });
+});
+
+// Invitations enumerate accessible calendars and request that scope only on recovery.
+it("preserves Calendar List permission through native in-chat recovery", async () => {
+  mocks.native = true;
+  mocks.calendarStartNative.mockResolvedValue({ server_client_id: "native-client", access_level: "read", state: "signed-state", include_calendar_list: true });
+  mocks.connectCalendar.mockResolvedValue({ serverAuthCode: "synthetic-auth-code" });
+  mocks.calendarCompleteNative.mockResolvedValue({ connected: true, status: "connected", access_level: "read", calendar_list_access: false });
+  const start = connectCalendarInPlace({ owner, accessLevel: "read", includeCalendarList: true });
+  await expect(start.result).resolves.toBe("not_connected");
+  expect(mocks.calendarStartNative).toHaveBeenCalledWith(expect.objectContaining({ includeCalendarList: true }));
+  expect(mocks.connectCalendar).toHaveBeenCalledWith(expect.objectContaining({ includeCalendarList: true }));
 });

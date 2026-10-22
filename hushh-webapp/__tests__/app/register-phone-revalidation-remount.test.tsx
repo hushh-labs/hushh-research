@@ -108,7 +108,7 @@ vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
 vi.mock("@/lib/services/phone-mandate-service", () => ({
   shouldBypassPhoneMandateForLocalhost: () => false,
 }));
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
   usePublishVoiceSurfaceMetadata: vi.fn(),
 }));
 vi.mock("@/lib/onboarding/onboarding-journey-phase", () => ({

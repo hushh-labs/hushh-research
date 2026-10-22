@@ -85,17 +85,17 @@ export const WALLET_CARD_OWNER_COPY = {
   pauseSharing: "Pause sharing",
   resumeSharing: "Resume sharing",
   rotateAccess: "Rotate QR access",
+  revokeAccess: "Revoke access",
   removeProfile: "Remove Wallet profile",
-  updatesAutomatically:
-    "Your shared profile updates automatically. You never need to add the pass again after changing what you share.",
+  updatesAutomatically: "Updates automatically.",
   statusActive: "Sharing is on",
   statusPaused: "Sharing is paused",
-  statusPausedDetail: "A scan shows nothing until you resume.",
+  statusPausedDetail: "Hidden until you resume.",
   lastUpdatedLabel: "Last updated",
   scanCountLabel: "Scans",
   lastScannedLabel: "Last scan",
   noLinkOnThisDevice:
-    "Your share link isn't stored on this device, so the QR can't be shown here. Rotate QR access to create a new link — the current QR stops working.",
+    "Revoke access to create a QR on this device.",
   vaultLocked: "Unlock your vault to set up your Wallet Profile.",
   featureUnavailable: "Wallet Profile isn't available on this account yet.",
   loadFailed:
@@ -107,7 +107,7 @@ export const WALLET_CARD_OWNER_COPY = {
   saved: "Saved.",
   paused: "Sharing paused.",
   resumed: "Sharing resumed.",
-  rotated: "New QR access created. Add your pass again to pick up the new QR.",
+  rotated: "Old QR access revoked. Scans reset for your new QR. Add your pass again to update it.",
   removed: "Wallet profile removed.",
 } as const;
 
@@ -115,7 +115,7 @@ export const WALLET_CARD_OWNER_COPY = {
 export const WALLET_CARD_CONFIRMATIONS = {
   pause: {
     title: "Pause sharing?",
-    body: "Anyone who scans your pass will see nothing at all — the page behaves as if the profile does not exist. Your pass stays in Apple Wallet and you can resume sharing at any time.",
+    body: "Hide your profile until you resume sharing.",
     confirmLabel: "Pause sharing",
   },
   resume: {
@@ -124,13 +124,13 @@ export const WALLET_CARD_CONFIRMATIONS = {
     confirmLabel: "Resume sharing",
   },
   rotate: {
-    title: "Rotate QR access?",
-    body: "The current QR stops working immediately, so anyone holding the old link loses access. A new link is created and you will need to add the pass to Apple Wallet again to pick up the new QR.",
-    confirmLabel: "Rotate QR access",
+    title: "Revoke QR access?",
+    body: "Replace shared QR links and reset scans for Profile and NWS.",
+    confirmLabel: "Revoke access",
   },
   remove: {
     title: "Remove Wallet profile?",
-    body: "Sharing stops immediately and anyone who scans sees that this profile is no longer shared. The pass in Apple Wallet stops resolving. This cannot be undone — you would need to set the Wallet Profile up again.",
-    confirmLabel: "Remove Wallet profile",
+    body: "Permanently remove this profile and stop sharing.",
+    confirmLabel: "Remove profile",
   },
 } as const;

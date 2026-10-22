@@ -12,7 +12,10 @@ readonly SCHEDULER_AUDIENCE="https://api.hushh.ai"
 readonly SCHEDULER_ID="drive-work-drain-sched@hushh-pda.iam.gserviceaccount.com"
 # Managed Gemini bills to the same dedicated Vertex project as the API
 # (deploy-production.yml _GENAI_PROJECT_ID); Cloud Run, SQL and secrets stay here.
-readonly GENAI_PROJECT_ID="hushh-vertex-personal54"
+managed_ai_profile="$(python3 scripts/ops/managed_ai_config.py --environment production --format json)"
+GENAI_PROJECT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["project"])' <<< "${managed_ai_profile}")"
+MANAGED_TEXT_MODEL="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["text_model"])' <<< "${managed_ai_profile}")"
+readonly GENAI_PROJECT_ID MANAGED_TEXT_MODEL
 readonly CLAMAV_IMAGE="clamav/clamav@sha256:0e31ce089574268aefa0b543767d66b70240ab51ed49eec53e07f18d5629d817"
 # The pinned OCI index above contains this Linux/AMD64 child manifest. Cloud
 # Run's registry mirror records the child digest in the deployed revision.
@@ -214,7 +217,7 @@ gcloud --quiet run deploy "${SERVICE}" \
   --args=server_drive_worker:app,-w,1,-k,uvicorn.workers.UvicornWorker,--timeout,220,--worker-tmp-dir,/tmp,-b,0.0.0.0:8080 \
   --depends-on=clamav \
   --startup-probe=httpGet.port=8080,httpGet.path=/ready,periodSeconds=10,timeoutSeconds=5,failureThreshold=24 \
-  --set-env-vars="^|^ENVIRONMENT=production|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GENAI_GOOGLE_CLOUD_PROJECT=${GENAI_PROJECT_ID}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|HUSSH_GEMINI_TEXT_MODEL=gemini-3.7-flash|DRIVE_WORKER_MODE=true|DRIVE_WORK_DRAIN_ENABLED=true|DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=${PROJECT_ID}|DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=${SCHEDULER_ID}|DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=${SCHEDULER_AUDIENCE}|DB_POOL_MIN_SIZE=0|DB_POOL_MAX_SIZE=2|DB_SQLALCHEMY_POOL_SIZE=1|DB_SQLALCHEMY_MAX_OVERFLOW=0" \
+  --set-env-vars="^|^ENVIRONMENT=production|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GENAI_GOOGLE_CLOUD_PROJECT=${GENAI_PROJECT_ID}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|HUSSH_GEMINI_TEXT_MODEL=${MANAGED_TEXT_MODEL}|DRIVE_WORKER_MODE=true|DRIVE_WORK_DRAIN_ENABLED=true|DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED=false|DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=${PROJECT_ID}|DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=${SCHEDULER_ID}|DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=${SCHEDULER_AUDIENCE}|DB_POOL_MIN_SIZE=0|DB_POOL_MAX_SIZE=2|DB_SQLALCHEMY_POOL_SIZE=1|DB_SQLALCHEMY_MAX_OVERFLOW=0" \
   --set-secrets="BACKEND_RUNTIME_CONFIG_JSON=${DRIVE_RUNTIME_CONFIG_SECRET}:latest,DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest,APP_SIGNING_KEY=APP_SIGNING_KEY:latest,VAULT_DATA_KEY=VAULT_DATA_KEY:latest,GOOGLE_DRIVE_OAUTH_CLIENT_ID=GOOGLE_DRIVE_OAUTH_CLIENT_ID:latest,GOOGLE_DRIVE_OAUTH_CLIENT_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_SECRET:latest,EXTERNAL_CONNECTOR_CREDENTIAL_KEY=EXTERNAL_CONNECTOR_CREDENTIAL_KEY:latest,DRIVE_DOCUMENT_KEY_V1=DRIVE_DOCUMENT_KEY_V1:latest,DRIVE_SHARING_KEY_V1=DRIVE_SHARING_KEY_V1:latest,FIREBASE_ADMIN_CREDENTIALS_JSON=FIREBASE_ADMIN_CREDENTIALS_JSON:latest${payment_secret_bindings}" \
   --container=clamav \
   --image="${CLAMAV_IMAGE}" --cpu=2 --memory=4Gi \
@@ -271,7 +274,7 @@ retargeted=true
 for fixed_job in drive-work-drain-prod drive-work-suggestions-prod drive-work-sharing-prod; do
   case "${fixed_job}" in
     drive-work-drain-prod) fixed_stage=documents; fixed_cron='*/4 * * * *' ;;
-    drive-work-suggestions-prod) fixed_stage=suggestions; fixed_cron='2-59/4 * * * *' ;;
+    drive-work-suggestions-prod) fixed_stage=suggestions; fixed_cron='* * * * *' ;;
     drive-work-sharing-prod) fixed_stage=sharing; fixed_cron='* * * * *' ;;
   esac
   JOB_NAME="${fixed_job}" STAGE="${fixed_stage}" CRON="${fixed_cron}" \

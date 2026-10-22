@@ -8,11 +8,13 @@ import { Button } from "@/components/ui/button";
 import { ClarificationCard } from "@/components/one-location/redesign/clarification-card";
 import type { ClientPrompt } from "@/lib/one-location/types";
 import { formatLocalDateTime } from "@/lib/utils/local-date-time";
+import { ConnectorBrandMark, type ConnectorBrand } from "@/components/agent/connector-brand-mark";
 
 // ─── Action mode (existing contract, unchanged) ───────────────────────────────
 
 export type SpecialistCardProps = {
   summary: string;
+  brand?: ConnectorBrand;
   /** Exact reviewed terms, one labelled line each, shown under the summary. */
   details?: { label: string; value: string }[];
   /** Exact items the action touches (e.g. one line per email), shown for review. */
@@ -29,6 +31,7 @@ export type SpecialistCardProps = {
 
 export function SpecialistDirectiveCard({
   summary,
+  brand,
   details,
   items,
   confirmLabel,
@@ -43,7 +46,10 @@ export function SpecialistDirectiveCard({
       className="rounded-2xl border border-primary/20 bg-primary/5 p-3"
       data-testid="specialist-directive-card"
     >
-      <p className="text-sm font-medium text-foreground/90">{summary}</p>
+      <div className="flex items-center gap-3">
+        {brand ? <ConnectorBrandMark brand={brand} /> : null}
+        <p className="min-w-0 text-sm font-medium text-foreground/90">{summary}</p>
+      </div>
       {details && details.length > 0 ? (
         <dl className="mt-2 space-y-1 text-sm" data-testid="specialist-directive-details">
           {details.map((line) => (

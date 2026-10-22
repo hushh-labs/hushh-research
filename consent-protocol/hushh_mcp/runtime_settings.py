@@ -71,6 +71,23 @@ _WALLET_API_BASE_URL_DEFAULT = "https://hushh-wallet-api-fro3hygenq-uc.a.run.app
 BACKEND_RUNTIME_CONFIG_JSON_ENV = "BACKEND_RUNTIME_CONFIG_JSON"
 
 _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
+    "one_plg_export_enabled": "ONE_PLG_EXPORT_ENABLED",
+    "one_plg_activity_enabled": "ONE_PLG_ACTIVITY_ENABLED",
+    "one_plg_activity_all_registered": "ONE_PLG_ACTIVITY_ALL_REGISTERED",
+    "one_plg_audience_enabled": "ONE_PLG_AUDIENCE_ENABLED",
+    "email_auth_enabled": "EMAIL_AUTH_ENABLED",
+    "email_auth_risk_manifest": "EMAIL_AUTH_RISK_MANIFEST",
+    "email_auth_mail_api_endpoint": "EMAIL_AUTH_MAIL_API_ENDPOINT",
+    "email_auth_mail_from": "EMAIL_AUTH_MAIL_FROM",
+    "wallet_artwork_providers_enabled": "HUSHH_WALLET_ARTWORK_PROVIDERS_ENABLED",
+    "wallet_artwork_providers_path": "HUSHH_WALLET_ARTWORK_PROVIDERS_PATH",
+    "wallet_artwork_catalog_path": "HUSHH_WALLET_ARTWORK_CATALOG_PATH",
+    "pkm_answer_requests_enabled": "PKM_ANSWER_REQUESTS_ENABLED",
+    "pkm_answer_payments_enabled": "PKM_ANSWER_PAYMENTS_ENABLED",
+    "pkm_answer_composer_enabled": "PKM_ANSWER_COMPOSER_ENABLED",
+    "pkm_answer_stripe_mode": "PKM_ANSWER_STRIPE_MODE",
+    "answer_work_drain_enabled": "ANSWER_WORK_DRAIN_ENABLED",
+    "answer_work_drain_audience": "ANSWER_WORK_DRAIN_AUDIENCE",
     "environment": "ENVIRONMENT",
     "hushh_genai_auth_mode": "HUSHH_GENAI_AUTH_MODE",
     "google_genai_use_vertexai": "GOOGLE_GENAI_USE_VERTEXAI",
@@ -85,6 +102,10 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "cloudsql_proxy_port": "CLOUDSQL_PROXY_PORT",
     "consent_sse_enabled": "CONSENT_SSE_ENABLED",
     "sync_remote_enabled": "SYNC_REMOTE_ENABLED",
+    "referral_scoring_drain_enabled": "REFERRAL_SCORING_DRAIN_ENABLED",
+    "referral_scoring_drain_scheduler_audience": "REFERRAL_SCORING_DRAIN_SCHEDULER_AUDIENCE",
+    "referral_scoring_drain_scheduler_project_id": "REFERRAL_SCORING_DRAIN_SCHEDULER_PROJECT_ID",
+    "referral_scoring_drain_scheduler_service_account_email": "REFERRAL_SCORING_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL",
     "developer_api_enabled": "DEVELOPER_API_ENABLED",
     "remote_mcp_enabled": "REMOTE_MCP_ENABLED",
     "cors_allowed_origins": "CORS_ALLOWED_ORIGINS",
@@ -104,6 +125,7 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "google_drive_picker": "GOOGLE_DRIVE_PICKER",
     "drive_document_indexing": "DRIVE_DOCUMENT_INDEXING",
     "drive_document_sharing": "DRIVE_DOCUMENT_SHARING",
+    "drive_agent_packages_enabled": "DRIVE_AGENT_PACKAGES_ENABLED",
     "gmail_chat_reads": "GMAIL_CHAT_READS",
     "google_drive_chat_reads": "GOOGLE_DRIVE_CHAT_READS",
     "curated_mcp_connectors": "CURATED_MCP_CONNECTORS",
@@ -133,6 +155,7 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "hushh_tech_proxy_audience": "HUSSH_TECH_PROXY_AUDIENCE",
     "hushh_tech_trusted_proxy_service_accounts": ("HUSSH_TECH_TRUSTED_PROXY_SERVICE_ACCOUNTS"),
     "one_wallet_card_enabled": "ONE_WALLET_CARD_ENABLED",
+    "workos_sso_enabled": "WORKOS_SSO_ENABLED",
     "one_career_enabled": "ONE_CAREER_ENABLED",
     "wallet_pass_team_identifier": "WALLET_PASS_TEAM_IDENTIFIER",
     "wallet_pass_type_identifier": "WALLET_PASS_TYPE_IDENTIFIER",
@@ -162,6 +185,12 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     # nearby-presence mode: that flag governs co-presence, and closing
     # co-presence in production must not also close a business directory.
     "one_places_directory_enabled": "ONE_PLACES_DIRECTORY_ENABLED",
+    "one_business_directory_enabled": "ONE_BUSINESS_DIRECTORY_ENABLED",
+    "one_profile_research_enabled": "ONE_PROFILE_RESEARCH_ENABLED",
+    "one_magic_intelligence_phase": "ONE_MAGIC_INTELLIGENCE_PHASE",
+    "one_magic_intelligence_inner_team_emails": "ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS",
+    "one_magic_intelligence_senior_team_emails": "ONE_MAGIC_INTELLIGENCE_SENIOR_TEAM_EMAILS",
+    "one_magic_intelligence_qa_emails": "ONE_MAGIC_INTELLIGENCE_QA_EMAILS",
     # Withdraws One Live Voice mail reads and nothing else. Its own key rather
     # than GMAIL_CHAT_READS, which is owner-available by construction and so has
     # no runtime effect; making that one effective would close typed-chat mail
@@ -282,6 +311,7 @@ class FirebaseCredentialSettings:
 class AppRuntimeSettings:
     environment: str
     app_frontend_origin: str
+    runtime_profile: str = ""
 
 
 @dataclass(frozen=True)
@@ -470,11 +500,70 @@ def one_wallet_card_enabled() -> bool:
     return _bool_from_value(_clean_env("ONE_WALLET_CARD_ENABLED"), default=False)
 
 
+def workos_sso_enabled() -> bool:
+    """Feature flag: WorkOS enterprise SSO (``/api/auth/sso/*`` and
+    ``/api/webhooks/workos``). Defaults off; while off every one of those routes
+    answers as if it did not exist, and Firebase sign-in is untouched."""
+    return _bool_from_value(_clean_env("WORKOS_SSO_ENABLED"), default=False)
+
+
 def one_career_enabled() -> bool:
     """Feature flag: the Career Agent's resume parsing route
     (``/api/one/career/resume/parse``). Defaults off; while off the route answers
     as if it did not exist."""
     return _bool_from_value(_clean_env("ONE_CAREER_ENABLED"), default=False)
+
+
+def one_business_directory_enabled() -> bool:
+    """Real read-only suggestions have an independent default-off rollout gate."""
+    return _clean_env("ONE_BUSINESS_DIRECTORY_ENABLED").lower() == "true"
+
+
+def one_profile_research_enabled() -> bool:
+    """Default-off rollout for One's reviewed public-profile card."""
+    return _clean_env("ONE_PROFILE_RESEARCH_ENABLED").lower() == "true"
+
+
+def one_magic_intelligence_phase() -> int:
+    """Explicit revision rollout: 0/off, 1–4/cohorts, 5/all verified-email UAT owners."""
+    raw = _clean_env("ONE_MAGIC_INTELLIGENCE_PHASE", "0")
+    return int(raw) if raw in {"0", "1", "2", "3", "4", "5"} else 0
+
+
+def one_magic_intelligence_all_uat_enabled() -> bool:
+    """General admission needs matching runtime and revision UAT provenance."""
+    return (
+        one_magic_intelligence_phase() == 5
+        and _clean_env("ENVIRONMENT").lower() == "uat"
+        and _clean_env("HUSHH_DEPLOY_ENV").lower() == "uat"
+    )
+
+
+def one_magic_intelligence_cohorts() -> tuple[tuple[str, ...], ...]:
+    """Exact primary emails, read afresh; no client or token-claim roster."""
+    return tuple(
+        _csv_list(_clean_env(f"ONE_MAGIC_INTELLIGENCE_{cohort}_EMAILS"))
+        for cohort in ("INNER_TEAM", "SENIOR_TEAM", "QA")
+    )
+
+
+def one_business_local_rehearsal_enabled(user_id: str, *, loopback: bool) -> bool:
+    """Default-off localhost exception for the canonical UAT reviewer only."""
+    return (
+        loopback
+        and _clean_env("ONE_BUSINESS_LOCAL_REHEARSAL_ENABLED").lower() == "true"
+        and _clean_env("APP_REVIEW_MODE").lower() == "true"
+        and _clean_env("ENVIRONMENT").lower() == "development"
+        and _clean_env("APP_RUNTIME_PROFILE").lower() == "local"
+        and not _clean_env("HUSHH_DEPLOY_ENV")
+        and not _clean_env("K_SERVICE")
+        and _clean_env("GOOGLE_CLOUD_PROJECT") == "hushh-pda-uat"
+        and _clean_env("CLOUDSQL_INSTANCE_CONNECTION_NAME")
+        == "hushh-pda-uat:us-central1:hushh-uat-pg"
+        and _clean_env("DB_HOST") in {"localhost", "127.0.0.1"}
+        and bool(user_id)
+        and user_id == _clean_env("REVIEWER_UID")
+    )
 
 
 def get_wallet_pass_settings() -> WalletPassSettings:
@@ -497,6 +586,33 @@ def get_wallet_pass_settings() -> WalletPassSettings:
         api_base_url=_clean_env(WALLET_API_BASE_URL_ENV) or _WALLET_API_BASE_URL_DEFAULT,
         api_key=_clean_env(WALLET_API_KEY_ENV) or "",
     )
+
+
+def wallet_artwork_provider_settings() -> tuple[bool, str]:
+    """Non-secret, default-off provider policy; separate from signing settings."""
+    return (
+        _clean_env("HUSHH_WALLET_ARTWORK_PROVIDERS_ENABLED").lower() == "true",
+        _clean_env("HUSHH_WALLET_ARTWORK_PROVIDERS_PATH"),
+    )
+
+
+def wallet_artwork_provider_credential(provider_id: str) -> str:
+    """Read uncached server secret bindings; never merge them into public config."""
+    raw = _clean_env("WALLET_ARTWORK_PROVIDER_CREDENTIALS_JSON")
+    if len(raw) > 64 * 1024:
+        raise ValueError("artwork_credentials_invalid")
+    try:
+        values = json.loads(raw or "{}")
+        value = values.get(provider_id) if isinstance(values, dict) else None
+    except (ValueError, TypeError):
+        raise ValueError("artwork_credentials_invalid") from None
+    if (
+        not isinstance(value, str)
+        or not 1 <= len(value) <= 4096
+        or any(not 33 <= ord(char) <= 126 for char in value)
+    ):
+        raise ValueError("artwork_credentials_unavailable")
+    return value
 
 
 @lru_cache(maxsize=1)
@@ -545,6 +661,7 @@ def get_app_runtime_settings() -> AppRuntimeSettings:
     return AppRuntimeSettings(
         environment=_clean_env("ENVIRONMENT", "development").lower() or "development",
         app_frontend_origin=_normalize_origin(_clean_env(APP_FRONTEND_ORIGIN_ENV)),
+        runtime_profile=_clean_env("APP_RUNTIME_PROFILE").lower(),
     )
 
 
@@ -555,3 +672,65 @@ def clear_runtime_settings_caches() -> None:
 
 
 hydrate_runtime_environment()
+
+
+@dataclass(frozen=True)
+class ManagedAISettings:
+    project: str
+    auth_mode: str
+    text_model: str
+    text_locations: tuple[str, ...]
+    live_model: str
+    live_location: str
+    embedding_model: str
+    config_hash: str
+
+
+def managed_ai_settings() -> ManagedAISettings:
+    """Single managed AI contract. Infrastructure GOOGLE_CLOUD_PROJECT stays separate.
+
+    Hosted revisions use the checked-in profile. Local development retains explicit
+    environment overrides; surface-specific overrides cannot split hosted clients.
+    """
+    from hushh_mcp.managed_ai_config import load_profile, profile_hash, validate_profile
+
+    hydrate_runtime_environment()
+    env = (os.getenv("HUSHH_DEPLOY_ENV") or os.getenv("ENVIRONMENT") or "local").strip().lower()
+    env = {"prod": "production", "staging": "uat", "development": "local", "test": "local"}.get(
+        env, env
+    )
+    value = load_profile(env, _REPO_ROOT / "config" / "managed-ai-runtime.json")
+    if env == "local":
+        overrides = {
+            "project": "GENAI_GOOGLE_CLOUD_PROJECT",
+            "auth_mode": "HUSHH_GENAI_AUTH_MODE",
+            "text_model": "HUSSH_GEMINI_TEXT_MODEL",
+            "live_model": "VERTEX_LIVE_MODEL_ID",
+            "live_location": "VERTEX_LIVE_LOCATION",
+        }
+        for key, variable in overrides.items():
+            if str(os.getenv(variable) or "").strip():
+                value[key] = os.environ[variable].strip()
+        if not os.getenv("GENAI_GOOGLE_CLOUD_PROJECT"):
+            for variable in (
+                "GOOGLE_CLOUD_PROJECT",
+                "GCP_PROJECT",
+                "GOOGLE_PROJECT",
+                "GCLOUD_PROJECT",
+                "VERTEX_PROJECT_ID",
+            ):
+                if os.getenv(variable):
+                    value["project"] = os.environ[variable].strip()
+                    break
+        locations = os.getenv("HUSHH_VERTEX_LOCATIONS")
+        primary = os.getenv("GOOGLE_CLOUD_LOCATION")
+        if locations or primary:
+            value["text_locations"] = list(
+                dict.fromkeys(filter(None, [primary, *(locations or "").split(",")]))
+            )
+    value["live_location"] = value["live_location"].lower()
+    validate_profile(value, local=env == "local")
+    digest = profile_hash(value)
+    return ManagedAISettings(
+        **{**value, "text_locations": tuple(value["text_locations"])}, config_hash=digest
+    )

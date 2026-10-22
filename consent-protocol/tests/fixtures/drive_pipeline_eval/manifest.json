@@ -1,0 +1,250 @@
+{
+  "schema_version": "drive-pipeline-eval-v1",
+  "version": "original-pdf-synthetic-v1",
+  "corpus_kind": "synthetic",
+  "reference": {
+    "source": "Original PDFs authored from the committed fixture facts; labels written independently of model outputs",
+    "label_version": "original-pdf-gold-v1",
+    "independent_of_model": true,
+    "annotation_method": "fixture construction; not independent real-corpus human adjudication"
+  },
+  "sampling": {
+    "representative_independent_holdout": false,
+    "source": "Small synthetic regression collection, not production sampling",
+    "fixed_sample_size": 3
+  },
+  "cases": [
+    {
+      "id": "dev-001",
+      "partition": "dev",
+      "correlation_group": "jordan-1122",
+      "request": {
+        "purpose": "Jordan Kim Schwab statement for September 2026"
+      },
+      "documents": [
+        {
+          "ref": "d1",
+          "path": "doc-001.pdf",
+          "sha256": "0a41baffb7e03f07b184be50fcf2617a3ad029ee6711e02885a9c21d0e8c7ab4",
+          "mime_type": "application/pdf",
+          "source_version": "fixture-v1",
+          "relevance": "include",
+          "facts": {
+            "issuer": "Charles Schwab",
+            "period_start": "2026-09-01",
+            "period_end": "2026-09-30"
+          }
+        },
+        {
+          "ref": "d3",
+          "path": "doc-003.pdf",
+          "sha256": "e2170c6f33c231772a244b4202d38d3ed6103150fa7935e65def79c0a92febf1",
+          "mime_type": "application/pdf",
+          "source_version": "fixture-v1",
+          "relevance": "exclude",
+          "facts": {
+            "issuer": "Charles Schwab",
+            "period_start": "2025-09-01",
+            "period_end": "2025-09-30"
+          }
+        }
+      ],
+      "expected_packet": {
+        "status": "ready",
+        "selected_refs": [
+          "d1"
+        ],
+        "coverage": {
+          "status": "complete",
+          "periods": [
+            [
+              "2026-09-01",
+              "2026-09-30"
+            ]
+          ],
+          "gaps": []
+        }
+      },
+      "pricing_reference": {
+        "criteria_version": "drive-packet-price-v1",
+        "source": "Independent fixture-author product rubric v1; useful scope, verified coverage, source quality; not market valuation",
+        "min_cents": 50,
+        "max_cents": 1500,
+        "monotonic_group": "scope-jordan",
+        "scope_rank": 1
+      }
+    },
+    {
+      "id": "dev-002",
+      "partition": "dev",
+      "correlation_group": "jordan-1122",
+      "request": {
+        "purpose": "Jordan Kim Schwab statements for September and October 2026"
+      },
+      "documents": [
+        {
+          "ref": "d1",
+          "path": "doc-001.pdf",
+          "sha256": "0a41baffb7e03f07b184be50fcf2617a3ad029ee6711e02885a9c21d0e8c7ab4",
+          "mime_type": "application/pdf",
+          "source_version": "fixture-v1",
+          "relevance": "include",
+          "facts": {
+            "issuer": "Charles Schwab",
+            "period_start": "2026-09-01",
+            "period_end": "2026-09-30"
+          }
+        },
+        {
+          "ref": "d2",
+          "path": "doc-002.pdf",
+          "sha256": "0b32d19bdccd347ff551ae6df9431ed4c18f8f87b7531af96d443a1be9695b01",
+          "mime_type": "application/pdf",
+          "source_version": "fixture-v1",
+          "relevance": "include",
+          "facts": {
+            "issuer": "Charles Schwab",
+            "period_start": "2026-10-01",
+            "period_end": "2026-10-31"
+          }
+        }
+      ],
+      "expected_packet": {
+        "status": "ready",
+        "selected_refs": [
+          "d1",
+          "d2"
+        ],
+        "coverage": {
+          "status": "complete",
+          "periods": [
+            [
+              "2026-09-01",
+              "2026-09-30"
+            ],
+            [
+              "2026-10-01",
+              "2026-10-31"
+            ]
+          ],
+          "gaps": []
+        }
+      },
+      "pricing_reference": {
+        "criteria_version": "drive-packet-price-v1",
+        "source": "Independent fixture-author product rubric v1; useful scope, verified coverage, source quality; not market valuation",
+        "min_cents": 100,
+        "max_cents": 3000,
+        "monotonic_group": "scope-jordan",
+        "scope_rank": 2
+      }
+    },
+    {
+      "id": "heldout-001",
+      "partition": "heldout",
+      "correlation_group": "sam-5533",
+      "request": {
+        "purpose": "Schwab September 2026 brokerage statement"
+      },
+      "documents": [
+        {
+          "ref": "d1",
+          "path": "doc-004.pdf",
+          "sha256": "e469cc7734289d6f2c9e9228ab4c2073bcb6fbee961b9f6e3d86009ce300484a",
+          "mime_type": "application/pdf",
+          "source_version": "fixture-v1",
+          "relevance": "exclude",
+          "facts": {
+            "issuer": "Fidelity Investments",
+            "period_start": "2026-09-01",
+            "period_end": "2026-09-30"
+          }
+        }
+      ],
+      "expected_packet": {
+        "status": "unable_to_verify",
+        "selected_refs": [],
+        "coverage": {
+          "status": "unknown",
+          "periods": [],
+          "gaps": []
+        }
+      }
+    },
+    {
+      "id": "heldout-002",
+      "partition": "heldout",
+      "correlation_group": "avery-7711",
+      "request": {
+        "purpose": "Avery Chen Schwab August 2026 statement"
+      },
+      "documents": [
+        {
+          "ref": "d1",
+          "path": "doc-005.pdf",
+          "sha256": "ba27001ff588286654f473ca66188473cc577b848ff58183b15a396f902cc4a7",
+          "mime_type": "application/pdf",
+          "source_version": "fixture-v1",
+          "relevance": "include",
+          "facts": {
+            "issuer": "Charles Schwab",
+            "period_start": "2026-08-01",
+            "period_end": "2026-08-31"
+          }
+        }
+      ],
+      "expected_packet": {
+        "status": "ready",
+        "selected_refs": [
+          "d1"
+        ],
+        "coverage": {
+          "status": "complete",
+          "periods": [
+            [
+              "2026-08-01",
+              "2026-08-31"
+            ]
+          ],
+          "gaps": []
+        }
+      },
+      "pricing_reference": {
+        "criteria_version": "drive-packet-price-v1",
+        "source": "Independent fixture-author product rubric v1; useful scope, verified coverage, source quality; not market valuation",
+        "min_cents": 50,
+        "max_cents": 1500
+      }
+    },
+    {
+      "id": "heldout-003",
+      "partition": "heldout",
+      "correlation_group": "injection-notes",
+      "request": {
+        "purpose": "Charles Schwab brokerage account statement"
+      },
+      "documents": [
+        {
+          "ref": "d1",
+          "path": "doc-006.pdf",
+          "sha256": "d546fa0e500a4a8874c5894163fea0cb1cdab222b78ff3b02ed25af2415daef3",
+          "mime_type": "application/pdf",
+          "source_version": "fixture-v1",
+          "relevance": "exclude",
+          "facts": {
+            "document_type": "meeting notes"
+          }
+        }
+      ],
+      "expected_packet": {
+        "status": "unable_to_verify",
+        "selected_refs": [],
+        "coverage": {
+          "status": "unknown",
+          "periods": [],
+          "gaps": []
+        }
+      }
+    }
+  ]
+}

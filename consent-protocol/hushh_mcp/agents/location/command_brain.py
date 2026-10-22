@@ -21,11 +21,19 @@ from hushh_mcp.operons.location.plan import (
     LocationStepDependency,
     LocationStepReference,
 )
-from hushh_mcp.runtime_providers.gemini_config import build_generate_content_config
+from hushh_mcp.runtime_providers.gemini_config import (
+    build_generate_content_config,
+    thinking_config_for,
+)
 
 _LOCATION_MANIFEST_PATH = Path(__file__).with_name("agent.yaml")
 _TRANSCRIBER_GENE_ID = "agent_location_transcriber"
 _LOCATION_CONSENT_SCOPE = "location.transcribe"
+_SEMANTIC_PROVIDER_TIMEOUT_MS = 60_000
+# A read-tool turn can require a second managed model call. Keep a bounded
+# assessment above two provider deadlines; the proxy and clients wait longer.
+_SEMANTIC_ASSESS_TIMEOUT_SECONDS = 130
+
 _TRANSCRIPTION_SCHEMA: dict[str, object] = {
     "type": "OBJECT",
     "properties": {"transcript": {"type": "STRING"}},
@@ -142,8 +150,10 @@ class LocationCommandBrain:
         from hushh_mcp.hushh_adk.manifest import ManifestLoader
         from hushh_mcp.runtime_providers import build_managed_runtime_client
         from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+        from hushh_mcp.runtime_providers.managed_azure_text import ManagedAzureTextClient
 
         self.manifest = manifest or ManifestLoader.load(str(Path(__file__).with_name("agent.yaml")))
+        self._managed_client = client is None or isinstance(client, ManagedAzureTextClient)
         self.client = client or build_managed_runtime_client(runtime_provider="gemini")
         self.model = resolve_fleet_model_name(self.manifest.model_config_for_runtime().name)
         self.adk_model = adk_model
@@ -174,6 +184,27 @@ class LocationCommandBrain:
         if not any(pcm):
             return ""
 
+        if self._managed_client:
+            from hushh_mcp.runtime_providers.managed_azure import (
+                ManagedAzureBinding,
+                transcribe_wav,
+            )
+
+            binding = ManagedAzureBinding.from_environment()
+            if binding is not None:
+                gene = _load_transcriber_gene()
+                try:
+                    return await transcribe_wav(
+                        binding,
+                        audio,
+                        instruction=gene.system_instruction,
+                        timeout=30,
+                    )
+                except Exception as exc:
+                    raise TimeoutError(
+                        "Location transcription is temporarily unavailable."
+                    ) from exc
+
         # Production managed clients use the manifest-owned single-turn gene.
         # Lightweight test clients retain the direct seam and never acquire
         # credentials or network access.
@@ -189,7 +220,7 @@ class LocationCommandBrain:
                 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 
                 gene = _load_transcriber_gene()
-                model_name = resolve_fleet_model_name(gene.model_config_for_runtime().name)
+                model_name = resolve_fleet_model_name(gene.model.name)
                 agent = build_single_turn_agent(
                     gene,
                     output_schema=_TRANSCRIPTION_SCHEMA,
@@ -257,7 +288,14 @@ class LocationCommandBrain:
         agent = LlmAgent(
             name="location_command",
             mode="single_turn",
-            model=self.adk_model or build_managed_gemini_adk_model(self.model),
+            model=self.adk_model
+            or build_managed_gemini_adk_model(
+                self.model,
+                http_options=types.HttpOptions(
+                    timeout=_SEMANTIC_PROVIDER_TIMEOUT_MS,
+                    retry_options=types.HttpRetryOptions(attempts=1),
+                ),
+            ),
             instruction=self.manifest.capabilities["command_instruction"],
             tools=read_tools or [],
             output_schema=SemanticAssessment.provider_schema(),
@@ -265,7 +303,11 @@ class LocationCommandBrain:
             disallow_transfer_to_parent=True,
             disallow_transfer_to_peers=True,
             generate_content_config=build_generate_content_config(
-                types, self.model, temperature=0, max_output_tokens=4096
+                types,
+                self.model,
+                temperature=0,
+                max_output_tokens=4096,
+                thinking_config=thinking_config_for(self.model, "low", types),
             ),
         )
         sessions = InMemorySessionService()
@@ -278,8 +320,11 @@ class LocationCommandBrain:
         )
         # ADK permits single_turn nodes inside a workflow; a root LlmAgent is
         # chat-only. This one-node container adds no model/router or tools.
+        from hushh_mcp.hushh_adk.product_activity import product_activity_plugins
+
         runner = Runner(
             app_name=app_name,
+            plugins=product_activity_plugins("agent_location"),
             agent=SequentialAgent(name="location_command_turn", sub_agents=[agent]),
             session_service=sessions,
             auto_create_session=False,
@@ -301,7 +346,7 @@ class LocationCommandBrain:
             ],
         )
         try:
-            async with asyncio.timeout(30):
+            async with asyncio.timeout(_SEMANTIC_ASSESS_TIMEOUT_SECONDS):
                 async for _event in runner.run_async(
                     user_id=transient_user,
                     session_id=session_id,

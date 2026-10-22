@@ -9,7 +9,7 @@ from google.adk.models.llm_response import LlmResponse
 from google.adk.tools import ToolContext
 from google.adk.tools.agent_tool import AgentTool
 from google.genai import types
-from pydantic import PrivateAttr
+from pydantic import BaseModel, PrivateAttr
 
 from hushh_mcp.hushh_adk.context import HushhContext
 from hushh_mcp.hushh_adk.events import AdkEventCleanupError, bounded_adk_events
@@ -86,6 +86,35 @@ async def test_real_runner_executes_tool_with_context_and_preserves_state():
     assert result.tool_results[0].response == {"ok": True}
     assert initial == {"nested": {"keep": True}}
     assert HushhContext.current() is None
+
+
+@pytest.mark.asyncio
+async def test_task_output_is_not_confused_with_interim_text_or_nested_outputs():
+    class Report(BaseModel):
+        value: str
+
+    model = ScriptedLlm(
+        [
+            LlmResponse(
+                content=types.Content(
+                    role="model",
+                    parts=[
+                        types.Part(
+                            function_call=types.FunctionCall(
+                                name="finish_task", args={"value": "done"}
+                            )
+                        )
+                    ],
+                )
+            )
+        ]
+    )
+    result = await run(agent(model, mode="task", output_schema=Report))
+    assert result.structured_output == {"value": "done"}
+    assert result.final_text == ""
+    assert result.tool_calls[-1].name == "finish_task"
+    chat = await run(agent(ScriptedLlm([response(text="Chat answer")]), mode="chat"))
+    assert chat.final_text == "Chat answer" and chat.structured_output is None
 
 
 @pytest.mark.asyncio
@@ -463,9 +492,12 @@ async def test_real_nested_agent_progress_prevents_false_idle_timeout(monkeypatc
     )
     pending = run(
         built,
-        first_event_timeout_s=1.0,
+        # ADK can import and initialize tool schemas before its first event.
+        # Keep startup outside the tight idle-progress regression boundary:
+        # each child operation is 0.25s, but their combined hidden work > 0.4s.
+        first_event_timeout_s=20.0,
         between_event_timeout_s=0.4,
-        total_timeout_s=3.0,
+        total_timeout_s=30.0,
     )
     if not track_progress:
         with pytest.raises(SpecialistAdkTurnError) as failure:

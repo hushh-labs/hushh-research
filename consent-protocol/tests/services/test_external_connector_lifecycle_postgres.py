@@ -84,7 +84,10 @@ def connector_postgres_url():
     if not all((bindir / tool).is_file() for tool in ("initdb", "pg_ctl")):
         pytest.fail("Connector concurrency acceptance requires server, not client-only PostgreSQL")
     directory = Path(tempfile.mkdtemp(prefix="one-connector-pg-", dir="/tmp"))
-    data = directory / "data"
+    # Only the Unix socket needs a short path. Keep the much larger database
+    # files under the caller's temporary storage (for example an external disk).
+    data_directory = Path(tempfile.mkdtemp(prefix="one-connector-pgdata-"))
+    data = data_directory / "data"
     started = False
 
     def run(tool, *arguments, check=True):
@@ -133,6 +136,7 @@ def connector_postgres_url():
             run("pg_ctl", "-D", data, "-m", "immediate", "-w", "-t", "20", "stop")
             assert run("pg_ctl", "-D", data, "status", check=False).returncode == 3
         shutil.rmtree(directory)
+        shutil.rmtree(data_directory)
 
 
 @pytest.fixture
@@ -156,8 +160,13 @@ def lifecycle(connector_postgres_url):
                 "229_drive_document_chunks.sql",
                 "230_drive_processing_consent.sql",
                 "236_drive_native_picker_attempts.sql",
+                "332_drive_collection_sync.sql",
+                "333_drive_document_pages.sql",
+                "335_drive_collection_defaults.sql",
             ):
-                connection.exec_driver_sql((MIGRATIONS / filename).read_text())
+                connection.exec_driver_sql(
+                    (MIGRATIONS / filename).read_text(), execution_options={"no_parameters": True}
+                )
             # Release migrations are replayable, including after constraints exist.
             connection.exec_driver_sql(
                 (MIGRATIONS / "227_external_connector_lifecycle.sql").read_text()

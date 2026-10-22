@@ -133,6 +133,7 @@ bypass_team_slugs = sorted(
 merge_queue_bypass = []
 merge_queue_bypass_team_names = []
 merge_queue_bypass_team_slugs = []
+expected_queue_team_members = set()
 for ruleset in ruleset_list:
     if ruleset.get("target") != "branch" or ruleset.get("enforcement") != "active":
         continue
@@ -172,16 +173,22 @@ for ruleset in ruleset_list:
                 if team_slug:
                     memberships = json.loads(
                         subprocess.run(
-                            ["gh", "api", f"organizations/140115870/team/{actor_id}/members"],
+                            ["gh", "api", "--paginate", "--slurp", f"organizations/140115870/team/{actor_id}/members"],
                             check=True,
                             capture_output=True,
                             text=True,
                         ).stdout
                     )
-                    for member in memberships:
-                        member_login = str(member.get("login") or "").strip()
-                        if member_login:
+                    for page in memberships:
+                        if not isinstance(page, list):
+                            raise ValueError("Invalid paginated team membership response")
+                        for member in page:
+                            member_login = str(member.get("login") or "").strip()
+                            if not member_login:
+                                raise ValueError("Team member has no login")
                             merge_queue_bypass.append(member_login)
+                            if team_slug == expected_queue_bypass_team_slug:
+                                expected_queue_team_members.add(member_login)
         else:
             actor_info = actor.get("actor") or {}
             if isinstance(actor_info, dict):
@@ -211,6 +218,33 @@ merge_queue_bypass_team_names = sorted(set(merge_queue_bypass_team_names))
 merge_queue_bypass_team_slugs = sorted(set(merge_queue_bypass_team_slugs))
 
 errors = []
+pending_queue_bypass = []
+missing_queue_bypass = sorted(set(expected_queue_bypass) - set(merge_queue_bypass))
+if missing_queue_bypass and expected_queue_bypass_team_slug in merge_queue_bypass_team_slugs:
+    # An approved invitation is not active authority. Only an already-active
+    # governed operator may classify somebody else's confirmed pending/member
+    # state as advisory. Missing, inaccessible or inconsistent membership still
+    # fails, as do every extra actor and all other protection checks below.
+    actor = json.loads(subprocess.run(
+        ["gh", "api", "user"], check=True, capture_output=True, text=True,
+    ).stdout).get("login")
+    if actor not in expected_queue_bypass or actor not in expected_queue_team_members:
+        errors.append("authenticated operator is not an active governed queue-team member")
+    else:
+        organization = repo.split("/", 1)[0]
+        for login in missing_queue_bypass:
+            result = subprocess.run(
+                ["gh", "api", f"orgs/{organization}/teams/{expected_queue_bypass_team_slug}/memberships/{login}"],
+                capture_output=True, text=True,
+            )
+            if result.returncode != 0:
+                continue
+            try:
+                membership = json.loads(result.stdout)
+            except (ValueError, TypeError):
+                continue
+            if isinstance(membership, dict) and membership.get("state") == "pending" and membership.get("role") == "member":
+                pending_queue_bypass.append(login)
 if expected_allow_auto_merge is not None and allow_auto_merge != bool(expected_allow_auto_merge):
     errors.append(
         f"repository allow_auto_merge drifted: expected {bool(expected_allow_auto_merge)}, got {allow_auto_merge}"
@@ -238,7 +272,7 @@ if expected_bypass_team_slug and bypass_team_slugs != [expected_bypass_team_slug
     errors.append(
         f"review bypass team drifted: expected {[expected_bypass_team_slug]}, got {bypass_team_slugs}"
     )
-if merge_queue_bypass != expected_queue_bypass:
+if sorted(set(merge_queue_bypass) | set(pending_queue_bypass)) != expected_queue_bypass:
     errors.append(
         f"merge queue bypass actors drifted: expected {expected_queue_bypass}, got {merge_queue_bypass}"
     )
@@ -261,6 +295,10 @@ print(f"Branch protection summary ({branch}): allow_auto_merge={allow_auto_merge
       f"merge_queue_bypass={merge_queue_bypass}, "
       f"merge_queue_bypass_team_names={merge_queue_bypass_team_names}, "
       f"merge_queue_bypass_team_slugs={merge_queue_bypass_team_slugs}")
+
+if pending_queue_bypass:
+    print(f"ADVISORY: approved queue-team invitations await activation: {pending_queue_bypass}; "
+          "these users have no active team authority")
 
 if errors:
     for error in errors:

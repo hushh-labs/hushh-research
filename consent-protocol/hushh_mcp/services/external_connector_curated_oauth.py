@@ -34,6 +34,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import secrets
 from datetime import UTC, datetime, timedelta
 from os import getenv
@@ -238,9 +239,15 @@ class ExternalConnectorCuratedOAuth:
         if connector is None or not is_curated_oauth_connector(connector):
             raise CuratedConnectorOAuthError("connector_unavailable", status_code=503)
         manifest = get_manifest(connector.connector_id)
+        runtime_environment = os.getenv("ENVIRONMENT", "").strip().lower()
+        manifest_environment = (
+            "uat"
+            if runtime_environment in {"development", "local", "test"}
+            else runtime_environment
+        )
         # Check the raw row before `registered_redirect_uris()` adds the one
         # development-loopback callback. An operator may not widen callbacks;
-        # only a reviewed manifest environment can seed the shared row.
+        # only this runtime's reviewed manifest environment can seed the row.
         if (
             manifest is None
             or (
@@ -253,7 +260,7 @@ class ExternalConnectorCuratedOAuth:
             )
             != manifest.pin()
             or tuple(connector.registered_redirect_uris or ())
-            not in manifest.redirect_uris.values()
+            != manifest.redirect_uris.get(manifest_environment)
         ):
             raise CuratedConnectorOAuthError("connector_configuration_invalid", status_code=503)
         # A descriptor is checked on apply, but registry rows can predate that
@@ -510,16 +517,14 @@ class ExternalConnectorCuratedOAuth:
             logger.warning("curated_connector_oauth.verify_failed code=%s", error)
         return {"connectorId": attempt["connector_id"], "status": status}
 
-    async def current_credential(
+    async def _validated_connection(
         self,
         *,
         connector_id: str,
         user_id: str,
         connector: ExternalMcpConnectorDefinition | None = None,
-    ) -> tuple[dict, dict]:
-        """Internal only. Execution additionally enforces chat admission and
-        the review policy before/after any tool call. `connector` is the live
-        registry row when the caller already holds it."""
+    ) -> tuple[dict, ExternalMcpConnectorDefinition, str, str | None]:
+        """Read current connection/configuration without decrypting or refreshing."""
         row = await self.lifecycle.read(user_id=user_id, connector_id=connector_id, purge=False)
         if not row or row["status"] == "revoked":
             # Never connected, or the person disconnected it: nothing to report.
@@ -535,6 +540,31 @@ class ExternalConnectorCuratedOAuth:
         # refresh token or access token to a changed target.
         if row.get("verified_policy_hash") not in (None, curated_policy_hash(connector)):
             raise CuratedConnectorOAuthError("reconnect_required", status_code=401)
+        return row, connector, client_id, client_secret
+
+    async def connection_snapshot(
+        self,
+        *,
+        connector_id: str,
+        user_id: str,
+        connector: ExternalMcpConnectorDefinition | None = None,
+    ) -> dict:
+        row, _, _, _ = await self._validated_connection(
+            connector_id=connector_id, user_id=user_id, connector=connector
+        )
+        return row
+
+    async def current_credential(
+        self,
+        *,
+        connector_id: str,
+        user_id: str,
+        connector: ExternalMcpConnectorDefinition | None = None,
+    ) -> tuple[dict, dict]:
+        """Execution credentials; refresh only for a cold catalog or actual call."""
+        row, connector, client_id, client_secret = await self._validated_connection(
+            connector_id=connector_id, user_id=user_id, connector=connector
+        )
         credential = self.credentials.open_credential(
             user_id=user_id, connector_id=connector_id, row=row
         )

@@ -1,3 +1,4 @@
+import { advanceMailKycDisplayVersion } from "@/lib/gmail/mail-kyc-display-version";
 import type { PortfolioData } from "@/lib/cache/cache-context";
 import {
   CacheService,
@@ -7,7 +8,7 @@ import {
 import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
 import { RiaOnboardingStatusLocalService } from "@/lib/services/ria-onboarding-status-local-service";
 import { bumpRiaInvalidationEpoch } from "@/lib/cache/ria-invalidation-epoch";
-import { bumpFeedInvalidationEpoch } from "@/lib/cache/feed-invalidation-epoch";
+import { bumpFeedInvalidationEpoch, bumpFeedPresentationRevision } from "@/lib/cache/feed-invalidation-epoch";
 import { bumpPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
 import { noteConsentMutated } from "@/lib/cache/consent-read-after-write";
 import {
@@ -381,7 +382,7 @@ export class CacheSyncService {
         ...(options?.eventId ? { eventId: options.eventId } : null),
       });
     };
-    bumpPkmInvalidationEpoch(userId);
+    bumpPkmInvalidationEpoch(userId, domain);
     const cache = CacheService.getInstance();
     const writeThroughMetadata = options?.writeThroughMetadata !== false;
     cache.invalidate(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId));
@@ -484,7 +485,7 @@ export class CacheSyncService {
       cache.invalidate(CACHE_KEYS.PORTFOLIO_DATA(userId));
       this.invalidateKaiFinancialResource(userId);
     }
-    bumpPkmInvalidationEpoch(userId);
+    bumpPkmInvalidationEpoch(userId, domain);
     if (options?.emitEvent !== false) {
       dispatchPkmDomainChanged({
         userId,
@@ -550,7 +551,7 @@ export class CacheSyncService {
       this.invalidateKaiFinancialResource(userId, { includeDevice: true });
       this.onKaiMarketContextChanged(userId);
     }
-    bumpPkmInvalidationEpoch(userId);
+    bumpPkmInvalidationEpoch(userId, domain);
     if (options?.emitEvent !== false) {
       dispatchPkmDomainChanged({
         userId,
@@ -664,6 +665,7 @@ export class CacheSyncService {
     // Reads right after this change must not take the web proxy's hot copy
     // from before it (see consent-read-after-write.ts).
     noteConsentMutated(userId);
+    this.onFeedChanged(userId);
     // Consent changes alter which lifecycle cards and safe descriptors are
     // authoritative. The Chat-history owner clears its own snapshot without
     // making this cache owner import native-capacitor modules.
@@ -750,12 +752,26 @@ export class CacheSyncService {
     this.onFeedReadFailed(userId);
   }
 
+  /** Server activity invalidates both projections and fences older in-flight reads. */
+  static onFeedChanged(userId: string): void {
+    this.onFeedReadFailed(userId);
+  }
+
+  /** Removed history must not return through saved pages or a later unmount. */
+  static onFeedHistoryMutated(userId: string): void {
+    if (!userId) return;
+    bumpFeedPresentationRevision(userId);
+    CacheService.getInstance().invalidate(CACHE_KEYS.FEED_PRESENTATION(userId));
+    this.onFeedChanged(userId);
+  }
+
   /**
    * One-to-One requests can add, revoke, or leave capabilities unchanged.
    * Keep every affected surface on the same invalidation contract rather than
    * letting each request UI guess which RIA/Market resources it owns.
    */
   static onConnectionCapabilityMutated(userId: string): void {
+    this.onDirectMessagesMutated(userId);
     this.onConsentMutated(userId);
     // Accepting or declining a request also settles the incoming-request list,
     // which is a connections cache rather than a consent one and so survives
@@ -940,6 +956,21 @@ export class CacheSyncService {
     if (ticker) {
       cache.invalidate(CACHE_KEYS.STOCK_CONTEXT(userId, ticker.toUpperCase()));
     }
+  }
+
+  /** Mail display metadata never grants submission authority. */
+  static onMailKycChanged(userId: string | null): void {
+    if (userId) {
+      advanceMailKycDisplayVersion(userId);
+      CacheService.getInstance().invalidatePattern(`mail_kyc_display_${userId}_`);
+    }
+  }
+
+  /** Message events invalidate inactive snapshots; the active view reconciles in place. */
+  static onDirectMessagesMutated(userId: string): void {
+    CacheService.getInstance().invalidateMany([
+      CACHE_KEYS.DIRECT_MESSAGE_THREADS(userId), CACHE_KEYS.DIRECT_MESSAGE_SESSION(userId),
+    ]);
   }
 
   static onAuthSignedOut(userId?: string | null): void {

@@ -6,8 +6,94 @@ import {
   navigateTopShellBack,
   resolveTopShellBackAction,
 } from "@/lib/navigation/top-shell-back";
+import { registerBackLayer } from "@/lib/navigation/back-layers";
+import { ROUTES } from "@/lib/navigation/routes";
 
 describe("top shell back action", () => {
+  it("returns a person profile opened from Messages to Messages", () => {
+    expect(resolveTopShellBackAction({
+      pathname: "/people/person-maya",
+      searchParams: new URLSearchParams({ from: ROUTES.ONE_MESSAGES }),
+      sectionOrigin: null,
+    })?.href).toBe(ROUTES.ONE_MESSAGES);
+  });
+
+  it("returns from AI setup by replacement and keeps a safe deep-link target", () => {
+    expect(resolveTopShellBackAction({
+      pathname: ROUTES.ONE_SETUP_CONNECTIONS,
+      searchParams: new URLSearchParams("return_to=%2Fone%2Fprofile"),
+    })).toEqual({
+      href: "/one/setup?return_to=%2Fone%2Fprofile",
+      mode: "replace",
+      transitionMode: "full",
+    });
+  });
+  it.each(["payouts", "request-pricing", "world-model"])("returns %s to Profile while retaining its Feed origin", (panel) => {
+    expect(resolveTopShellBackAction({
+      pathname: `/one/profile/${panel}`,
+      searchParams: new URLSearchParams("from=%2Fone%2Ffeed&documentPayouts=done"),
+      sectionOrigin: null,
+    })?.href).toBe("/one/profile?from=%2Fone%2Ffeed");
+  });
+
+  it("keeps the original request when a setup panel returns through Profile", () => {
+    const origin = "/one/consent?tab=pending&requestId=document_share_request%3A11111111-1111-4111-8111-111111111111&requestView=received";
+    let href = `/one/profile/payouts?${new URLSearchParams({ from: origin })}`;
+    for (let i = 0; i < 2; i++) {
+      const url = new URL(href, "https://app.test");
+      href = resolveTopShellBackAction({ pathname: url.pathname, searchParams: url.searchParams, sectionOrigin: null })!.href;
+    }
+    expect(href).toBe(origin);
+  });
+
+  it("consumes a non-dismissible top overlay before any feature or route parent", () => {
+    const overlay = document.createElement("div");
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("data-state", "open");
+    overlay.addEventListener("keydown", event => event.preventDefault());
+    document.body.appendChild(overlay);
+    const feature = vi.fn(() => true);
+    const release = registerBackLayer({ pathname: "/one/pkm", depth: 2, back: feature });
+    const navigate = vi.fn();
+    try {
+      expect(navigateTopShellBack({ pathname: "/one/pkm", navigate })).toBe(true);
+      expect(feature).not.toHaveBeenCalled();
+      expect(navigate).not.toHaveBeenCalled();
+    } finally { overlay.remove(); release(); }
+  });
+
+  it("unwinds the deepest current layer once and ignores other routes and stale query states", () => {
+    const shallow = vi.fn(() => true);
+    const deep = vi.fn(() => true);
+    const stale = vi.fn(() => true);
+    const releases = [
+      registerBackLayer({ pathname: "/one/pkm", depth: 1, back: shallow }),
+      registerBackLayer({ pathname: "/one/pkm", depth: 3, back: deep }),
+      registerBackLayer({ pathname: "/one/location", depth: 100, back: stale }),
+      registerBackLayer({ pathname: "/one/pkm", depth: 100, query: { action: "old" }, back: stale }),
+    ];
+    const navigate = vi.fn();
+    try {
+      navigateTopShellBack({ pathname: "/one/pkm", navigate });
+      expect(deep).toHaveBeenCalledOnce();
+      expect(shallow).not.toHaveBeenCalled();
+      expect(stale).not.toHaveBeenCalled();
+      expect(navigate).not.toHaveBeenCalled();
+    } finally { releases.forEach(release => release()); }
+    navigateTopShellBack({ pathname: "/one/pkm", navigate });
+    expect(navigate).toHaveBeenCalledOnce();
+  });
+
+  it("preserves Profile origin through detail, panel, and root", () => {
+    let href = "/one/profile/security/vault?from=%2Fone%2Flocation";
+    const parents: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const url = new URL(href, "https://app.test");
+      href = resolveTopShellBackAction({ pathname: url.pathname, searchParams: url.searchParams, sectionOrigin: null })!.href;
+      parents.push(href);
+    }
+    expect(parents).toEqual(["/one/profile/security?from=%2Fone%2Flocation", "/one/profile?from=%2Fone%2Flocation", "/one/location"]);
+  });
   it("uses the authored route parent instead of browser history", () => {
     expect(resolveTopShellBackAction({ pathname: "/ria/onboarding" })).toEqual({
       href: "/one",
@@ -62,6 +148,20 @@ describe("top shell back action", () => {
       mode: "push",
       transitionMode: "full",
     });
+  });
+
+  it("returns a chat-opened person profile to Messages with the correct breadcrumb", () => {
+    const pathname = "/people/person-ref-scoped";
+    const searchParams = new URLSearchParams({ from: ROUTES.ONE_MESSAGES });
+    expect(resolveTopShellBackAction({ pathname, searchParams })).toEqual({
+      href: ROUTES.ONE_MESSAGES,
+      mode: "push",
+      transitionMode: "full",
+    });
+    expect(resolveTopShellBreadcrumb(pathname, searchParams)?.items).toEqual([
+      { label: "Messages", href: ROUTES.ONE_MESSAGES },
+      { label: "Profile" },
+    ]);
   });
 
   it("returns the resolved action to the shared transition owner", () => {

@@ -280,6 +280,11 @@ class _FakeQuery:
         self._filters[key] = value
         return self
 
+    def is_(self, key, value):
+        # The real table query uses IS NULL for atomic initial enrollment.
+        assert value is None
+        return self.eq(key, value)
+
     def limit(self, _count):
         return self
 
@@ -1336,3 +1341,80 @@ async def test_get_vault_state_returns_none_for_placeholder():
 
     result = await service.get_vault_state("user-ghost")
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_initial_contacts_enrollment_and_ack_are_bounded_and_monotonic():
+    fake = _FakeDb()
+    service = VaultKeysService()
+    service._db = fake
+    initial = await service.get_pre_vault_state("initial-owner")
+    assert initial["initialContactsWelcomeAcknowledged"] is None
+    enrolled = await service.update_pre_vault_state(
+        user_id="initial-owner", initial_contacts_source="device"
+    )
+    assert enrolled["initialContactsSource"] == "device"
+    assert enrolled["initialContactsWelcomeAcknowledged"] is False
+    with pytest.raises(ValueError, match="finish setup"):
+        await service.update_pre_vault_state(
+            user_id="initial-owner", initial_contacts_welcome_acknowledged=True
+        )
+    row = next(row for row in fake.db["vault_keys"] if row["user_id"] == "initial-owner")
+    row.update(
+        {
+            "vault_status": "active",
+            "initial_contacts_circle_id": "00000000-0000-0000-0000-000000000001",
+        }
+    )
+    await service.update_pre_vault_state(user_id="initial-owner", setup_completed=True)
+    ack = await service.update_pre_vault_state(
+        user_id="initial-owner", initial_contacts_welcome_acknowledged=True
+    )
+    assert ack["initialContactsWelcomeAcknowledged"] is True
+    assert ack["initialContactsCircleId"] == row["initial_contacts_circle_id"]
+    replay = await service.update_pre_vault_state(
+        user_id="initial-owner", initial_contacts_source="device"
+    )
+    assert replay["initialContactsWelcomeAcknowledged"] is True
+    assert replay["setupCompleted"] is True
+    with pytest.raises(ValueError, match="monotonic"):
+        await service.update_pre_vault_state(
+            user_id="initial-owner", initial_contacts_welcome_acknowledged=False
+        )
+
+
+@pytest.mark.asyncio
+async def test_initial_contacts_cannot_enroll_a_completed_legacy_account():
+    fake = _FakeDb()
+    service = VaultKeysService()
+    service._db = fake
+    await service.get_pre_vault_state("legacy-owner")
+    await service.update_pre_vault_state(user_id="legacy-owner", setup_completed=True)
+    with pytest.raises(ValueError, match="enrollment is already closed"):
+        await service.update_pre_vault_state(
+            user_id="legacy-owner", initial_contacts_source="google"
+        )
+    state = await service.get_pre_vault_state("legacy-owner")
+    assert state["initialContactsWelcomeAcknowledged"] is None
+
+
+@pytest.mark.asyncio
+async def test_initial_contacts_enrollment_cannot_race_root_completion(monkeypatch):
+    fake = _FakeDb()
+    service = VaultKeysService()
+    service._db = fake
+    await service.get_pre_vault_state("race-owner")
+    original = _FakeQuery.execute
+
+    def race(query):
+        if query._op == "update" and "initial_contacts_source" in (query._update_data or {}):
+            row = next(row for row in fake.db["vault_keys"] if row["user_id"] == "race-owner")
+            row["setup_completed"] = True
+        return original(query)
+
+    monkeypatch.setattr(_FakeQuery, "execute", race)
+    with pytest.raises(ValueError, match="enrollment is already closed"):
+        await service.update_pre_vault_state(user_id="race-owner", initial_contacts_source="google")
+    row = next(row for row in fake.db["vault_keys"] if row["user_id"] == "race-owner")
+    assert row["setup_completed"] is True
+    assert row.get("initial_contacts_welcome_acknowledged") is None

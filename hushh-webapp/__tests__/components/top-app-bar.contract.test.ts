@@ -121,19 +121,7 @@ describe("Top app bar responsive contract", () => {
     expect(topShellMount).toBeLessThan(
       providers.indexOf("<Suspense", topShellMount),
     );
-    expect(
-      providers.match(/<KaiCommandBarGlobal \/>/g),
-    ).toHaveLength(1);
-    // Physical iPhone regression: native Search dispatched its event, but
-    // Chat excluded the only receiver. Idle top chrome must stay separate
-    // from mounting the closed, request-driven palette.
-    const paletteHostGuard = providers.match(
-      /\{([^{}]+)\?\s*\(\s*<KaiCommandBarGlobal \/>/,
-    )?.[1];
-    expect(paletteHostGuard).toBeDefined();
-    expect(paletteHostGuard).toContain("!hidesPersistentChrome");
-    expect(paletteHostGuard).toContain("!effectiveHideCommandBar");
-    expect(paletteHostGuard).not.toContain("isCanonicalChatRoute");
+    expect(providers).not.toContain("KaiCommandBarGlobal");
     expect(providers).toContain("const topShellScrollResetKey =");
     expect(providers).toContain("topShellModel.tabs.activeValue");
     expect(providers).toContain("useScrollReset(topShellScrollResetKey");
@@ -141,7 +129,7 @@ describe("Top app bar responsive contract", () => {
     expect(providers).not.toContain("<TopAppBar />");
   });
 
-  it("renders every signed-in hub tab set as the one segmented strip", () => {
+  it("renders signed-in hubs and public knowledge tabs as one segmented strip", () => {
     // Finance used to take the underline arm while Connect and Consent took
     // the segmented pill; one signed-in shell, one tab style.
     const tabs = read("components/app-ui/top-shell-tabs.tsx");
@@ -149,10 +137,9 @@ describe("Top app bar responsive contract", () => {
       tabs.indexOf("const usesModuleSegmentedTabs ="),
       tabs.indexOf("const usesCompactLabels"),
     );
-    for (const id of ["location", "connect", "consent", "finance", "ria"]) {
+    for (const id of ["location", "connect", "consent", "finance", "ria", "public"]) {
       expect(branch).toContain(`tabSet.id === "${id}"`);
     }
-    expect(branch).not.toContain('tabSet.id === "public"');
   });
 
   it("keeps the top-shell scroll lifecycle stable across route swaps", () => {
@@ -194,7 +181,7 @@ describe("Top app bar responsive contract", () => {
     // An open panel or Location action closes in place; everything else is a
     // step in the trail and retraces.
     expect(back).toContain(
-      "if (profilePanelOpen || locationActionOpen || connectCircleFlowOpen)",
+      "if (profilePanelOpen || locationActionOpen || connectCircleFlowOpen || sameScreenParent)",
     );
     expect(back).toContain('return action(breadcrumb.backHref, "replace")');
     expect(back).toContain("params.navigate(action);");
@@ -213,11 +200,9 @@ describe("Top app bar responsive contract", () => {
   it("never clips the back button's circle at the header's left edge", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 
-    // The back button's 44px box is pulled left (-ml-3.5) so its glyph sits on
-    // the content column; its pressed/focus circle therefore extends past the
-    // header's left edge. The header must clip only vertically (for the
-    // max-height collapse), never horizontally.
-    expect(read("components/app-ui/native-shell-back.tsx")).toContain('className="pointer-events-auto -ml-3.5 flex h-11 w-11');
+    // The entire target stays inside the authored content frame. Collapse
+    // clips vertically only, preserving focus/pressed paint at its edge.
+    expect(read("components/app-ui/native-shell-back.tsx")).not.toContain("-ml-3.5");
     const headerStart = source.indexOf('data-testid="top-app-bar-header"');
     const headerOpen = source.slice(headerStart, source.indexOf(">", source.indexOf("}}", headerStart)));
     expect(headerOpen).toContain('overflowX: "visible"');
@@ -259,7 +244,7 @@ describe("Top app bar responsive contract", () => {
 
     expect(source).not.toContain("WorkspaceTopTabs");
     expect(source).toContain('aria-label="Open Profile"');
-    expect(source).toContain('requestProfilePaneOpen("tap")');
+    expect(source).toContain('requestProfilePaneOpen("tap", event.currentTarget)');
     // The avatar opens the shared right-side pane. The dedicated Profile route
     // remains available for deep links and nested settings, but shell entry is
     // an in-place presentation so the owner can return with the same gesture.
@@ -334,7 +319,7 @@ describe("Top app bar responsive contract", () => {
     expect(scrolledTitles).not.toContain("FolderSearch");
   });
 
-  it("keeps Memory's visible heading in its agent-width page body", () => {
+  it("keeps Memory's body heading and Mail's shared-shell workspace title", () => {
     expect(read("app/one/pkm/page.tsx")).toContain(
       '<PkmSettingsShell title="Memory" titleRole="agent" shellWidth="agent">',
     );
@@ -351,7 +336,7 @@ describe("Top app bar responsive contract", () => {
     expect(gmailSource).toContain(
       'titleRole={journeyVariant === "workspace" ? "agent" : "page"}',
     );
-    expect(gmailSource).not.toContain(
+    expect(gmailSource).toContain(
       'titleVisuallyHidden={journeyVariant === "workspace"}',
     );
     for (const file of ["app/one/gmail/page.tsx", "app/one/gmail/gmail-page-client.tsx"]) {
@@ -365,7 +350,7 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("showVaultUnlockAction");
     expect(source).toContain("VaultService.checkVault(user.uid)");
     expect(source).toContain('aria-label="Unlock vault"');
-    expect(source).toContain("<KeyRound");
+    expect(source).toContain("<AccentedKeyIcon");
     expect(source).not.toContain(
       "Notifications unavailable until your vault is unlocked",
     );
@@ -407,15 +392,15 @@ describe("Top app bar responsive contract", () => {
     expect(deleteItemSource).toContain("cursor-pointer");
     expect(deleteItemSource).toContain("rounded-[10px]");
     expect(deleteItemSource).toContain(
-      "hover:!bg-[color:var(--app-destructive)]",
+      "hover:!bg-[color:var(--app-destructive-tint)]",
     );
     expect(deleteItemSource).toContain(
-      "hover:!text-[color:var(--app-destructive-fg)]",
+      "hover:!text-destructive",
     );
-    expect(deleteItemSource).toContain(
+    expect(deleteItemSource).not.toContain(
       "hover:[&_svg]:!stroke-[color:var(--app-destructive-fg)]",
     );
-    expect(deleteItemSource).toContain(
+    expect(deleteItemSource).not.toContain(
       "hover:[&_svg]:!text-[color:var(--app-destructive-fg)]",
     );
     expect(deleteItemSource).not.toContain(
@@ -433,6 +418,10 @@ describe("Top app bar responsive contract", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
     const back = read("lib/navigation/top-shell-back.ts");
     const breadcrumbs = read("lib/navigation/top-shell-breadcrumbs.ts");
+    // The per-route Back resolution (including Location's no-action breadcrumb
+    // below) lives in the declarative graph top-shell-breadcrumbs.ts walks,
+    // not in top-shell-breadcrumbs.ts itself.
+    const backGraph = read("lib/navigation/back-navigation-graph.ts");
 
     expect(source).toContain("breadcrumb: topShellBreadcrumb");
     // The bar trims the trail through the title-slot resolver, which is the
@@ -444,7 +433,7 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("navigateTopShellBack({");
     expect(back).toContain("navigate: (action: TopShellBackAction) => void;");
     expect(back).toContain("params.navigate(action);");
-    expect(breadcrumbs).toContain(
+    expect(backGraph).toContain(
       'items: [{ label: fromProfile ? "Profile" : "One" }],',
     );
     expect(source).not.toContain("history.back()");
@@ -575,7 +564,7 @@ describe("Top app bar responsive contract", () => {
     // longer the element under its own coordinates, and at full collapse the
     // row sits behind `overflow: hidden` at opacity 0. A screen whose only way
     // back is this arrow must therefore not collapse at all.
-    expect(update).toContain("if (hasBackControlRef.current)");
+    expect(update).toContain("hasBackControlRef.current ||");
     expect(update).toContain("topChromeProgress = 0;");
 
     expect(update).toContain(

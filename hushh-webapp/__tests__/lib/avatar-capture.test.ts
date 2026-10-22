@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Blob as NodeBlob } from "node:buffer";
+import { prepareProfilePortrait } from "@/lib/services/profile-portrait-service";
 
 const mocks = vi.hoisted(() => ({
   native: true,
@@ -53,5 +55,32 @@ describe("isCameraCancellation", () => {
     expect(isCameraCancellation(new Error("permission denied"))).toBe(false);
     expect(isCameraCancellation(null)).toBe(false);
     expect(isCameraCancellation(undefined)).toBe(false);
+  });
+});
+
+describe("private portrait media budget", () => {
+  afterEach(() => { Reflect.deleteProperty(window, "CapacitorWebFetch"); vi.unstubAllGlobals(); });
+  it("refuses oversized bytes and compressed oversized dimensions before browser image decoding", async () => {
+    vi.stubGlobal("Blob", NodeBlob);
+    const decode = vi.fn();
+    vi.stubGlobal("Image", decode);
+    const header = new Uint8Array(24);
+    header.set([137, 80, 78, 71]);
+    const view = new DataView(header.buffer);
+    view.setUint32(16, 6000); view.setUint32(20, 6000);
+    const fetchMedia = vi.fn();
+    const patchedFetch = vi.fn();
+    vi.stubGlobal("fetch", patchedFetch);
+    Object.defineProperty(window, "CapacitorWebFetch", { configurable: true, value: fetchMedia });
+    for (const bytes of [new Uint8Array(512 * 1024 + 1), header]) {
+      fetchMedia.mockResolvedValueOnce(new Response(bytes, { headers: { "content-type": "image/png" } }));
+      await expect(prepareProfilePortrait("https://lh3.googleusercontent.com/a/public-fixture=s768", new AbortController().signal)).rejects.toThrow();
+    }
+    expect(decode).not.toHaveBeenCalled();
+    expect(patchedFetch).not.toHaveBeenCalled();
+    expect(fetchMedia).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ credentials: "omit", cache: "no-store", redirect: "error" }));
+    Reflect.deleteProperty(window, "CapacitorWebFetch");
+    await expect(prepareProfilePortrait("https://lh3.googleusercontent.com/a/public-fixture=s768", new AbortController().signal)).rejects.toThrow();
+    expect(patchedFetch).not.toHaveBeenCalled();
   });
 });

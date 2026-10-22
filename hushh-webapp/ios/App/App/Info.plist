@@ -57,7 +57,7 @@
 		<true/>
 	</dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Hussh One uses the microphone only while you are talking to One.</string>
+	<string>Hussh One uses the microphone when you record a voice message or talk to One.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Hussh One uses Face ID only when you choose to unlock your Vault on this device.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
@@ -117,5 +117,11 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NotificationKeychainGroup</key>
+	<string>$(AppIdentifierPrefix)com.hussh.app.chatnotifications</string>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>INSendMessageIntent</string>
+	</array>
 </dict>
 </plist>

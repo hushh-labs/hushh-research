@@ -14,12 +14,13 @@ vi.mock("@/lib/services/auth-service", () => ({
   AuthService: { getCurrentUser: vi.fn(() => ({ uid: "owner-uid" })) },
 }));
 
-import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
+import { GmailReceiptsService, GmailReceiptRequestError, isRetryableReceiptScanPageError, isReceiptScanInProgressError } from "@/lib/services/gmail-receipts-service";
 import { GMAIL_RECEIPTS_API_TEMPLATES } from "@/lib/services/kai-profile-api-paths";
 
 const liveItem = {
   id: -101,
   source_id: "gmail_live_bXNnLTE.signature",
+  durable_source_ref: "grs1_" + "a".repeat(39),
   receipt_key: "gmail_live_bXNnLTE.signature",
   source_kind: "gmail_live",
   gmail_message_id: "msg-1",
@@ -31,6 +32,7 @@ const liveItem = {
   from_email: "ship-confirm@myntra.com",
   order_id: "ORDER-1",
   amount: 2499,
+  amount_decimal: "2499.00",
   currency: "INR",
   receipt_date: "2026-10-04T04:00:00+00:00",
   gmail_internal_date: "2026-10-04T04:00:00+00:00",
@@ -92,6 +94,31 @@ function scanPayload(overrides: Record<string, unknown> = {}) {
 }
 
 describe("GmailReceiptsService live backend receipt contract", () => {
+  it.each(["GMAIL_RECEIPT_EXTRACTION_INVALID", "GMAIL_RECEIPT_EXTRACTION_UNVERIFIED",
+    "GMAIL_RECEIPT_CONTRACT_MISMATCH"])("never retries permanent error %s", code => {
+    expect(isRetryableReceiptScanPageError(new GmailReceiptRequestError("invalid", 500, code, true))).toBe(false);
+  });
+
+  it("honors the server's retryability veto and types malformed responses", async () => {
+    expect(isReceiptScanInProgressError(new GmailReceiptRequestError("busy", 409, "GMAIL_RECEIPT_SCAN_IN_PROGRESS"))).toBe(true);
+    expect(isReceiptScanInProgressError(new GmailReceiptRequestError("busy", 409, "GMAIL_RECEIPT_SCAN_IN_PROGRESS", false))).toBe(false);
+    apiFetchMock.mockResolvedValueOnce(jsonResponse({ detail: {
+      code: "GMAIL_PROVIDER_UNAVAILABLE", message: "temporarily unavailable", retryable: false,
+    } }, 503));
+    const request = { idToken: "synthetic", vaultOwnerToken: "synthetic", userId: "owner-uid" };
+    const error = await GmailReceiptsService.scanReceipts(request).catch(error => error);
+    expect(error).toBeInstanceOf(GmailReceiptRequestError);
+    expect(isRetryableReceiptScanPageError(error)).toBe(false);
+    apiFetchMock.mockResolvedValueOnce(jsonResponse(scanPayload({ returned_count: 99 })));
+    await expect(GmailReceiptsService.scanReceipts(request)).rejects.toMatchObject({
+      code: "GMAIL_RECEIPT_INVALID_RESPONSE", retryable: false,
+    });
+    apiFetchMock.mockResolvedValueOnce(new Response("invalid JSON", { status: 200 }));
+    await expect(GmailReceiptsService.scanReceipts(request)).rejects.toMatchObject({
+      code: "GMAIL_RECEIPT_INVALID_RESPONSE", retryable: false,
+    });
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -108,6 +135,7 @@ describe("GmailReceiptsService live backend receipt contract", () => {
               category: "Food",
               category_confidence: 0.95,
               amount: null,
+              amount_decimal: null,
               currency: null,
             },
           ],
@@ -125,6 +153,8 @@ describe("GmailReceiptsService live backend receipt contract", () => {
 
     expect(result.items[0]).toMatchObject({
       source_id: liveItem.source_id,
+      durable_source_ref: liveItem.durable_source_ref,
+      amount_decimal: null,
       merchant_name: null,
       category: "Food",
       category_confidence: 0.95,
@@ -307,5 +337,7 @@ describe("GmailReceiptsService live backend receipt contract", () => {
 
     expect(result.has_more).toBe(false);
     expect(result.coverage.reached_limit).toBe(true);
+    expect(result.items[0]?.durable_source_ref).toBe(liveItem.durable_source_ref);
+    expect(result.items[0]?.amount_decimal).toBe(liveItem.amount_decimal);
   });
 });

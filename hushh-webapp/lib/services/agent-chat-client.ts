@@ -1,4 +1,4 @@
-import { ApiService } from "@/lib/services/api-service";
+import { ApiService, type ApiFetchOptions } from "@/lib/services/api-service";
 import { assertNoUnguardedSecrets } from "@/lib/pkm/secret-span-guard";
 import { serverNow } from "@/lib/agent/server-clock";
 import { projectCustomConnectorTurnConfigurations, type CustomConnectorConfiguration } from "@/lib/connections/custom-connector-schema";
@@ -11,13 +11,14 @@ import {
 import { HttpAgent, type AgentSubscriber, type InputContent, type Tool, type UserMessage } from "@ag-ui/client";
 import { Capacitor } from "@capacitor/core";
 import { applyPatch, type Operation } from "fast-json-patch";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
 import { describeDirectiveForOwner } from "@/lib/agent/action-directive-summary";
 import { parseMcpCallReview, type McpCallApproval, type McpCallReviewReference } from "@/lib/agent/mcp-call-review";
 import { REACTION_TOOL_NAME, parseMessageReaction, type MessageReactionResult } from "@/lib/agent/agent-message-reaction";
 import { FOLLOW_UP_TOOL_NAME, parseFollowUpSuggestions } from "@/lib/agent/follow-up-suggestions";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
+import { subscribeDurableOwnerReset } from "@/lib/services/secure-durable-resource-service";
 import { resolveTurnLocation } from "@/lib/agent/turn-location";
 import {
   QUEUED_INPUT_EVENT,
@@ -53,6 +54,9 @@ import {
   type AgentStructuredExperience,
 } from "@/lib/agent/agui-structured-experiences";
 import { ownerStyleRequestField, type OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
+import type { ReceiptCanonicalIndex } from "@/lib/profile/gmail-receipt-memory-index";
+import { RECEIPT_FUNCTIONS, RECEIPT_TOOL_DECLARATIONS, parseReceiptAnalysisRequest, unavailableReceiptAnalysis, type ReceiptFunction } from "@/lib/mail/receipt-analysis";
+import { runReceiptFunction } from "@/lib/mail/receipt-store";
 
 export type AgentChatMessage = {
   id: string;
@@ -214,6 +218,8 @@ export type AgentSource = {
 };
 
 export type AgentChatStreamHandlers = {
+  /** Receipt detail/answer is current-turn only, excluded from replay and PKM. */
+  onReceiptPrivate?: () => void;
   /** Ephemeral native review: never append its references or receipt to history/debug events. */
   onMcpReview?: (review: {
     reference: McpCallReviewReference;
@@ -402,19 +408,43 @@ const AGENT_CHAT_STREAM_WATCHDOG_TICK_MS = 5_000;
  * completes such a run quietly. `fetch` is the HttpAgent transport with every
  * body chunk noted; `start` arms the silence watchdog for one run.
  */
-function createAgentStreamLiveness(onSilent: () => void, onBytes: () => void = () => undefined) {
+function createAgentStreamLiveness(
+  onSilent: () => void,
+  onBytes: () => void = () => undefined,
+  onCleanEof: () => void = onSilent,
+  transport: Pick<ApiFetchOptions, "beforeDispatch" | "isEffectCurrent"> & {
+    onHeaders?: () => void;
+  } = {},
+) {
   let lastBytesAtMs = Date.now();
   let timer: ReturnType<typeof setInterval> | null = null;
+  let eofTimer: ReturnType<typeof setTimeout> | null = null;
   const touch = () => {
     lastBytesAtMs = Date.now();
   };
   const stop = () => {
     if (timer !== null) clearInterval(timer);
     timer = null;
+    if (eofTimer !== null) clearTimeout(eofTimer);
+    eofTimer = null;
   };
   return {
     fetch: async (init: RequestInit | undefined): Promise<Response> => {
-      const response = await nativeStreamFetch("/api/one/agent-chat", init);
+      const caller = init as ApiFetchOptions | undefined;
+      const response = await nativeStreamFetch("/api/one/agent-chat", {
+        ...init,
+        ...(transport.beforeDispatch ? {
+          beforeDispatch: async () => {
+            await caller?.beforeDispatch?.();
+            await transport.beforeDispatch?.();
+          },
+        } : {}),
+        ...(transport.isEffectCurrent ? {
+          isEffectCurrent: () => (!caller?.isEffectCurrent || caller.isEffectCurrent() === true) &&
+            transport.isEffectCurrent?.() === true,
+        } : {}),
+      });
+      transport.onHeaders?.();
       touch();
       onBytes();
       if (!response.ok || !response.body) return response;
@@ -423,6 +453,11 @@ function createAgentStreamLiveness(onSilent: () => void, onBytes: () => void = (
           touch();
           onBytes();
           controller.enqueue(chunk);
+        },
+        flush() {
+          // Let the AG-UI parser consume the final frame first. Some SDK
+          // paths wait for a terminal event forever after a clean body EOF.
+          eofTimer = setTimeout(onCleanEof, 500);
         },
       }));
       return new Response(body, {
@@ -463,13 +498,19 @@ function parseStateActionDirective(
   const actionId = String(payload?.actionId || "").trim();
   const slots = asRecord(payload?.slots);
   const action = getKaiActionById(actionId);
-  if (!actionId || !slots || !action) return null;
+  // `pkm.add` is a private-memory tool owned by the chat workspace, not a
+  // navigable Kai action. It intentionally is not generated into the route
+  // gateway, but its parked directive must still reach the local executor.
+  const localMemoryAction = actionId === "pkm.add";
+  if (!actionId || !slots || (!action && !localMemoryAction)) return null;
+
+  const label = action?.label ?? "Add to Memory";
 
   const needsConfirmation =
-    payload?.needsConfirmation === true || action.execution_policy === "confirm_required";
+    payload?.needsConfirmation === true || action?.execution_policy === "confirm_required";
   const trustedActivationRequired =
     payload?.trustedActivationRequired === true ||
-    action.activation_policy === "trusted_activation_required";
+    action?.activation_policy === "trusted_activation_required";
   const directiveId = path.slice("/".length);
   const callId = `${threadId}:state:${directiveId}`;
   return {
@@ -479,10 +520,10 @@ function parseStateActionDirective(
     contextRevision: null,
     expiresAt: null,
     actionId,
-    label: action.label,
+    label,
     execution: "frontend",
     slots,
-    message: describeDirectiveForOwner(actionId, action.label, slots, {
+    message: describeDirectiveForOwner(actionId, label, slots, {
       requiresConfirmation: needsConfirmation || trustedActivationRequired,
     }),
     requiresConfirmation: needsConfirmation,
@@ -749,6 +790,16 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Preparing a writing style change for you to review in Settings.",
     activity: "Preparing a style change",
   },
+  calendar_invitations: {
+    label: "Google Calendar",
+    message: "Reading your received invitations.",
+    activity: "Reading invitations",
+  },
+  open_calendar_invitation: {
+    label: "Google Calendar",
+    message: "Preparing your invitation review.",
+    activity: "Reviewing an invitation",
+  },
   calendar_summary: {
     label: "Google Calendar",
     message: "Summarizing your calendar.",
@@ -758,6 +809,16 @@ const SERVER_TOOL_PRESENTATION: Record<
     label: "Google Calendar",
     message: "Reading your calendar events.",
     activity: "Reading your Calendar",
+  },
+  calendar_calendars: {
+    label: "Google Calendar",
+    message: "Finding your calendars.",
+    activity: "Reading your calendars",
+  },
+  calendar_event_detail: {
+    label: "Google Calendar",
+    message: "Reading the event details.",
+    activity: "Reading an event",
   },
   calendar_availability: {
     label: "Google Calendar",
@@ -798,6 +859,11 @@ const SERVER_TOOL_PRESENTATION: Record<
     label: "Gmail",
     message: "Preparing a mailbox change for your confirmation.",
     activity: "Preparing a mailbox change",
+  },
+  propose_gmail_todo: {
+    label: "Gmail",
+    message: "Preparing email follow-ups for your confirmation.",
+    activity: "Preparing follow-ups",
   },
   propose_drive_share: {
     label: "Google Drive",
@@ -1147,6 +1213,41 @@ export type PendingEmailDraftContext = {
   sourceBound: boolean;
 };
 
+/** Start the first catalog read beside memory preparation, without adding a cache. */
+export function prepareAgentChatConnectorConfigurations(input: {
+  userId: string;
+  loadConnectorConfigurations: () => Promise<CustomConnectorConfiguration[]>;
+  signal?: AbortSignal;
+}): () => Promise<CustomConnectorConfiguration[]> {
+  const owner = snapshotValidatedAuthSessionOwner();
+  const vaultEpoch = snapshotVaultSessionEpoch();
+  const assertCurrent = () => {
+    input.signal?.throwIfAborted();
+    if (!owner || owner.userId !== input.userId ||
+        !isValidatedAuthSessionOwnerCurrent(owner) || !isVaultSessionEpochCurrent(vaultEpoch)) {
+      throw new Error("Your vault session changed. Unlock and try again.");
+    }
+  };
+  const load = async () => {
+    assertCurrent();
+    const configurations = await input.loadConnectorConfigurations();
+    assertCurrent();
+    return configurations;
+  };
+  const preparation = load();
+  // Required memory preparation may fail first. Retain this rejection for its
+  // eventual consumer without creating an unhandled background rejection.
+  void preparation.catch(() => undefined);
+  return async () => {
+    assertCurrent();
+    await preparation;
+    assertCurrent();
+    // Re-enter the existing session cache: settings may have invalidated it
+    // while required memory was preparing. Unchanged records need no new read.
+    return load();
+  };
+}
+
 export async function streamAgentChat(input: {
   userId: string;
   message: string;
@@ -1182,6 +1283,11 @@ export async function streamAgentChat(input: {
   /** One saved Drive result, checked against the current owner and live Drive before use. */
   driveSearchSelection?: { jobId: string; position: number };
   pendingEmailDraft?: PendingEmailDraftContext | null;
+  /**
+   * Deprecated compatibility input. Ignored: receipt detail is admitted only
+   * through a current owner-authorized dedicated function continuation.
+   */
+  receiptMemory?: ReceiptCanonicalIndex | null;
   screenContext?: Record<string, unknown> | null;
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
@@ -1200,6 +1306,15 @@ export async function streamAgentChat(input: {
   // Secrets and left only its placeholder (lib/pkm/secret-span-guard.ts);
   // a turn that still carries a raw one is refused before any request exists.
   assertNoUnguardedSecrets([input.message, ...(input.attachments ?? []).map((attachment) => attachment.text)]);
+  const timingPhases = ["wire-start", "response-headers", "first-text"] as const;
+  for (const phase of timingPhases) performance.clearMarks(`hushh:agent-chat:${phase}`);
+  const recordedTimings = new Set<typeof timingPhases[number]>();
+  const markTiming = (phase: typeof timingPhases[number]) => {
+    if (recordedTimings.has(phase)) return;
+    recordedTimings.add(phase);
+    // Fixed names only: no prompt, owner, conversation, key or connector detail.
+    performance.mark(`hushh:agent-chat:${phase}`);
+  };
   const timezone = resolveBrowserTimeZone();
   // Closed to the server's schema here, so a stale branch never refuses the turn.
   const communicationPreferences = ownerStyleRequestField(input.communicationPreferences);
@@ -1212,6 +1327,14 @@ export async function streamAgentChat(input: {
     isValidatedAuthSessionOwnerCurrent(mcpOwner) &&
     isVaultSessionEpochCurrent(mcpVaultEpoch) && !input.signal?.aborted,
   );
+  const turnSessionCurrent = () => isVaultSessionEpochCurrent(mcpVaultEpoch) && !input.signal?.aborted &&
+    (!mcpOwner || (mcpOwner.userId === input.userId && isValidatedAuthSessionOwnerCurrent(mcpOwner)));
+  const assertTurnSessionCurrent = () => {
+    input.signal?.throwIfAborted();
+    if (!turnSessionCurrent()) {
+      throw new Error("Your vault session changed. Unlock and try again.");
+    }
+  };
   // Owner-authored names from the owner's own vault, keyed by opaque id. The
   // provider-authored tool name never labels a step: a server can write anything.
   const connectorNames = new Map<string, string>();
@@ -1225,6 +1348,10 @@ export async function streamAgentChat(input: {
     for (const item of mcpConfigurations) connectorNames.set(item.connectorId, item.displayName);
     return { mcpConfigurations };
   };
+  // Callers may have started their catalog read beside Soul preparation. For
+  // other callers, overlap it with the derived key and optional location read.
+  const initialConnectorProjection = connectorProjection();
+  void initialConnectorProjection.catch(() => undefined);
   const availableActionIds = (() => {
     const screen = input.screenContext || {};
     const nested = asRecord(screen.one_voice_context);
@@ -1255,6 +1382,7 @@ export async function streamAgentChat(input: {
       metadata: { actionId },
     }];
   });
+  tools.push(...RECEIPT_TOOL_DECLARATIONS);
   // Chat history is sealed with a key derived from the vault key; the server
   // refuses the turn without it and holds it for this request only.
   // The coarse position is resolved beside the key so it adds no serial wait.
@@ -1264,6 +1392,7 @@ export async function streamAgentChat(input: {
     [chatKeyHeaders, turnLocation] = await Promise.all([
       oneChatKeyHeaders(input.vaultKey),
       resolveTurnLocation(),
+      initialConnectorProjection,
     ]);
   } catch (error) {
     // A vault-owner token without a vault key is not an unlocked chat. Nothing
@@ -1274,10 +1403,28 @@ export async function streamAgentChat(input: {
     throw error;
   }
   const chatKey = Object.values(chatKeyHeaders)[0] ?? "";
-  const liveness = createAgentStreamLiveness(() => {
+  const onLostTransport = () => {
+    if (runTerminal || streamLost || failure || intentionallyStoppedAtConfirmation ||
+        detached || input.signal?.aborted) return;
     loseStream();
     agent.abortRun();
-  }, () => handlers.onStreamHealth?.({ kind: "bytes" }));
+  };
+  const liveness = createAgentStreamLiveness(
+    onLostTransport,
+    () => handlers.onStreamHealth?.({ kind: "bytes" }),
+    onLostTransport,
+    {
+      beforeDispatch: async () => {
+        assertTurnSessionCurrent();
+      },
+      isEffectCurrent: () => {
+        if (!turnSessionCurrent()) return false;
+        markTiming("wire-start");
+        return true;
+      },
+      onHeaders: () => markTiming("response-headers"),
+    },
+  );
   const agent = new HttpAgent({
     url: "/api/one/agent-chat",
     threadId,
@@ -1325,6 +1472,7 @@ export async function streamAgentChat(input: {
     finishTerminalRun();
   };
   const runUntilTerminal = async (parameters: Parameters<HttpAgent["runAgent"]>[0]) => {
+    assertTurnSessionCurrent();
     runTerminal = false;
     streamLost = false;
     liveness.start();
@@ -1347,6 +1495,10 @@ export async function streamAgentChat(input: {
     agent.abortRun();
   };
   const toolNames = new Map<string, string>();
+  const receiptCalls = new Map<string, Promise<{ toolCallId: string; toolName: ReceiptFunction; request: ReturnType<typeof parseReceiptAnalysisRequest>; result: unknown }>>();
+  let receiptPrivate = false;
+  let receiptReset = false;
+  const receiptSessionCurrent = () => !receiptReset && mcpSessionCurrent();
   let reactionShown = false;
   const toolArgs = new Map<string, Record<string, unknown>>();
   const interruptsByToolCall = new Map<string, string>();
@@ -1360,6 +1512,7 @@ export async function streamAgentChat(input: {
   // appends the streamed delta onto the snapshot's copy, which no longer parses.
   // Parse the confirmation from its own streamed deltas instead.
   const confirmationArgs = new Map<string, string>();
+  const receiptArgs = new Map<string, string>();
   const publishedMcpReviews = new Set<string>();
   const emittedStateDirectivePaths = new Set<string>();
   const toolPayload = (callId: string, name: string, args: Record<string, unknown> = {}): AgentChatToolEvent => {
@@ -1429,11 +1582,42 @@ export async function streamAgentChat(input: {
       },
     };
   };
+  const startReceiptCall = (toolCallId: string, operation: ReceiptFunction, args: unknown) => {
+    if (receiptCalls.has(toolCallId)) return;
+    receiptPrivate = true;
+    handlers.onReceiptPrivate?.();
+    let request;
+    try {
+      const streamed = receiptArgs.get(toolCallId);
+      receiptArgs.delete(toolCallId);
+      request = parseReceiptAnalysisRequest(operation, streamed ? JSON.parse(streamed) : args);
+      if (request.timezone !== timezone || !receiptSessionCurrent() || receiptCalls.size >= 4)
+        throw new Error("Invalid receipt authority.");
+    } catch {
+      failure = new Error("Receipt request doesn't match this owner turn. Ask again.");
+      handlers.onError?.(failure.message);
+      agent.abortRun(); finishTerminalRun(); return;
+    }
+    receiptCalls.set(toolCallId, runReceiptFunction({ userId: input.userId, vaultKey: input.vaultKey,
+      vaultOwnerToken: input.vaultOwnerToken, isCurrent: receiptSessionCurrent }, operation, request)
+      .catch(() => unavailableReceiptAnalysis(operation, request))
+      .then(result => ({ toolCallId, toolName: operation, request, result })));
+  };
   const subscriber: AgentSubscriber = {
     ...publicOutputSubscriber,
     onEvent: ({ event }) => {
       serverEvents += 1;
       if (event.type === "RUN_FINISHED" || event.type === "RUN_ERROR") serverTerminal = true;
+      if (event.type === "TOOL_CALL_END") {
+        const id = event.toolCallId;
+        const name = typeof id === "string" ? toolNames.get(id) : undefined;
+        if (typeof id === "string" && RECEIPT_FUNCTIONS.includes(name as ReceiptFunction)) {
+          // Native snapshots redact arguments and may replace streamed IDs.
+          // Consume the bounded streamed call before the SDK's message lookup.
+          startReceiptCall(id, name as ReceiptFunction, {});
+          return { stopPropagation: true };
+        }
+      }
       if (isVisibleWorkEvent(String(event.type))) handlers.onStreamHealth?.({ kind: "activity" });
       if (event.type === "REASONING_MESSAGE_CONTENT") {
         const delta = (event as { delta?: unknown }).delta;
@@ -1458,6 +1642,7 @@ export async function streamAgentChat(input: {
       return publicOutputSubscriber.onMessagesSnapshotEvent?.(snapshot);
     },
     onTextMessageContentEvent: ({ event }) => {
+      if (event.delta.length > 0) markTiming("first-text");
       text += event.delta;
       handlers.onToken?.(event.delta);
     },
@@ -1471,9 +1656,16 @@ export async function streamAgentChat(input: {
       // Follow-ups are chips under the answer, not a step the person waits on.
       if (event.toolCallName === FOLLOW_UP_TOOL_NAME || event.toolCallName === REACTION_TOOL_NAME) return;
       if (event.toolCallName === "adk_request_confirmation") confirmationArgs.set(event.toolCallId, "");
+      if (RECEIPT_FUNCTIONS.includes(event.toolCallName as ReceiptFunction)) receiptArgs.set(event.toolCallId, "");
       handlers.onToolStart?.(toolPayload(event.toolCallId, event.toolCallName));
     },
     onToolCallArgsEvent: ({ event }) => {
+      const receiptBuffered = receiptArgs.get(event.toolCallId);
+      if (receiptBuffered !== undefined) {
+        const next = receiptBuffered + (event.delta ?? "");
+        receiptArgs.set(event.toolCallId, next.length <= 4096 ? next : "!");
+        return;
+      }
       const buffered = confirmationArgs.get(event.toolCallId);
       if (buffered === undefined) return;
       // Bounded like the server projection; an oversized review fails closed.
@@ -1482,6 +1674,10 @@ export async function streamAgentChat(input: {
       else confirmationArgs.set(event.toolCallId, next);
     },
     onToolCallEndEvent: ({ event, toolCallName, toolCallArgs }) => {
+      if (RECEIPT_FUNCTIONS.includes(toolCallName as ReceiptFunction)) {
+        startReceiptCall(event.toolCallId, toolCallName as ReceiptFunction, toolCallArgs);
+        return;
+      }
       if (toolCallName === FOLLOW_UP_TOOL_NAME || toolCallName === REACTION_TOOL_NAME) return;
       if (toolCallName === "adk_request_confirmation") {
         const streamed = confirmationArgs.get(event.toolCallId);
@@ -1533,6 +1729,13 @@ export async function streamAgentChat(input: {
     },
     onToolCallResultEvent: ({ event }) => {
       const toolName = toolNames.get(event.toolCallId) || "";
+      if (RECEIPT_FUNCTIONS.includes(toolName as ReceiptFunction)) {
+        const payload = toolPayload(event.toolCallId, toolName);
+        payload.raw = { protocol: "ag-ui", toolName };
+        payload.message = "Receipt function finished for this turn.";
+        handlers.onToolResult?.(payload);
+        return;
+      }
       if (toolName === REACTION_TOOL_NAME) {
         const result = parseMessageReaction(event.content);
         if (result && !reactionShown) {
@@ -1822,7 +2025,14 @@ export async function streamAgentChat(input: {
       }
     },
     onRunFinishedEvent: (params) => {
+      if (runTerminal || streamLost || failure || intentionallyStoppedAtConfirmation || detached) return;
       runTerminal = true;
+      if (receiptCalls.size) {
+        // Native long-running calls are persisted before RUN_FINISHED. The
+        // outer loop alone submits their value-free replies and resumes.
+        finishTerminalRun();
+        return;
+      }
       if (params.outcome === "interrupt") {
         for (const interrupt of params.interrupts) {
           if (interrupt.toolCallId) interruptsByToolCall.set(interrupt.toolCallId, interrupt.id);
@@ -1903,6 +2113,7 @@ export async function streamAgentChat(input: {
       finishTerminalRun();
     },
     onRunErrorEvent: ({ event }) => {
+      if (runTerminal || streamLost || failure || detached) return;
       runTerminal = true;
       if (intentionallyStoppedAtConfirmation) {
         finishTerminalRun();
@@ -1921,7 +2132,7 @@ export async function streamAgentChat(input: {
       // Our own abort of a detached stream is not a failure of the turn, which
       // is still running server-side. A stream this client already gave up on
       // was reported once; its abort must not replace that with a second error.
-      if (intentionallyStoppedAtConfirmation || detached || streamLost) {
+      if (runTerminal || failure || intentionallyStoppedAtConfirmation || detached || streamLost) {
         finishTerminalRun();
         return;
       }
@@ -1955,12 +2166,13 @@ export async function streamAgentChat(input: {
       finishTerminalRun();
     },
   });
+  const unsubscribeReceiptReset = subscribeDurableOwnerReset(owner => { if (owner === input.userId) receiptReset = true; });
   try {
     await runUntilTerminal({
       tools,
       context: [],
       forwardedProps: {
-        ...await connectorProjection(),
+        ...await initialConnectorProjection,
         timezone,
         turnLocation,
         pkmContext: input.pkmContext,
@@ -1977,6 +2189,18 @@ export async function streamAgentChat(input: {
         notifyOnDetach: Capacitor.isNativePlatform(),
       },
     });
+    if (receiptCalls.size && !failure && !detached && !input.signal?.aborted) {
+      const receiptToolResults = await Promise.all(receiptCalls.values());
+      receiptCalls.clear();
+      if (mcpReviews.size) throw new Error("Receipt analysis must complete in its own authorized turn. Ask again.");
+      if (!receiptSessionCurrent()) throw new Error("Receipt authority changed. Unlock and ask again.");
+      for (const item of receiptToolResults) agent.addMessage({ id: crypto.randomUUID(), role: "tool", toolCallId: item.toolCallId,
+        content: JSON.stringify({ schema: "receipt_result.v1", operation: item.toolName, ephemeral_result: true }) });
+      await runUntilTerminal({ tools, context: [], forwardedProps: {
+        timezone, screenContext: input.screenContext, communicationPreferences, receiptToolResults,
+      } });
+      if (!receiptSessionCurrent()) throw new Error("Receipt authority changed. Ask again.");
+    }
     await terminalRun;
   } catch (error) {
     // AG-UI reports a failed request to the subscriber, then rejects with the
@@ -1985,6 +2209,8 @@ export async function streamAgentChat(input: {
     // the turn itself is still running server-side and is reported as detached.
     if (!failure && !detached) throw error;
   } finally {
+    unsubscribeReceiptReset();
+    if (receiptPrivate) agent.setMessages([]);
     input.signal?.removeEventListener("abort", abort);
     unregisterAttached();
   }
@@ -2025,10 +2251,12 @@ export async function streamAgentIntro(input: {
     failure = new Error(AGENT_CHAT_STREAM_LOST_ERROR);
     handlers.onError?.(failure.message);
   };
-  const liveness = createAgentStreamLiveness(() => {
+  const onLostTransport = () => {
+    if (runTerminal || streamLost || failure || input.signal?.aborted) return;
     loseStream();
     agent.abortRun();
-  });
+  };
+  const liveness = createAgentStreamLiveness(onLostTransport);
   const agent = new HttpAgent({
     url: "/api/one/agent-chat",
     threadId,
@@ -2049,16 +2277,18 @@ export async function streamAgentIntro(input: {
       handlers.onToken?.(event.delta);
     },
     onRunFinishedEvent: () => {
+      if (runTerminal || streamLost || failure) return;
       runTerminal = true;
       handlers.onComplete?.({ conversationId: threadId });
     },
     onRunErrorEvent: ({ event }) => {
+      if (runTerminal || streamLost || failure) return;
       runTerminal = true;
       failure = new Error(formatAgentChatErrorMessage(event.message || "", event.code || undefined));
       handlers.onError?.(failure.message);
     },
     onRunFailed: ({ error }) => {
-      if (streamLost) return;
+      if (runTerminal || streamLost || failure) return;
       failure = new Error(formatAgentChatErrorMessage(error.message || ""));
       handlers.onError?.(failure.message);
     },

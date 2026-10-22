@@ -17,19 +17,33 @@ type Message = {
 
 const FOLLOW_UPS = ["Find a free hour after 2pm", "Move standup to 9:30"];
 
-/** The workspace's wiring: chips under each bubble, a tap fills the composer. */
-function Transcript({ messages, busy = false }: { messages: Message[]; busy?: boolean }) {
-  const [draft, setDraft] = useState("");
+/** Chips below each bubble invoke turn submission into chat directly. */
+function Transcript({
+  messages,
+  busy = false,
+  disabled = false,
+  onSend,
+}: {
+  messages: Message[];
+  busy?: boolean;
+  disabled?: boolean;
+  onSend?: (text: string) => void;
+}) {
+  const [chatLog, setChatLog] = useState<string[]>([]);
   return (
     <>
       {messages.map((message) => (
         <AgentFollowUpSuggestions
           key={message.id}
           suggestions={visibleFollowUps(message, messages.at(-1)?.id, busy)}
-          onSelect={setDraft}
+          disabled={disabled}
+          onSelect={(suggestion) => {
+            setChatLog((prev) => [...prev, suggestion]);
+            onSend?.(suggestion);
+          }}
         />
       ))}
-      <textarea aria-label="Message" value={draft} readOnly />
+      <div data-testid="chat-turns">{chatLog.join(",")}</div>
     </>
   );
 }
@@ -40,6 +54,13 @@ const answered: Message[] = [
 ];
 
 describe("smart follow-ups", () => {
+  it.each(["Other", "Others", "Something else"])("keeps %s on the ordinary follow-up path", (choice) => {
+    const select = vi.fn();
+    render(<AgentFollowUpSuggestions suggestions={[choice]} onSelect={select} />);
+    fireEvent.click(screen.getByRole("button", { name: choice }));
+    expect(select).toHaveBeenCalledExactlyOnceWith(choice);
+  });
+
   it("does not accept a starter while disabled and resumes after the owner enables it", () => {
     const select = vi.fn();
     const props = {
@@ -61,13 +82,25 @@ describe("smart follow-ups", () => {
     expect(select).toHaveBeenCalledExactlyOnceWith(FOLLOW_UPS[0]);
   });
 
-  it("renders the latest answer's chips and a tap fills the composer", () => {
-    render(<Transcript messages={answered} />);
+  it("renders the latest answer's chips and submits a selected recommendation directly into the chat", () => {
+    const onSend = vi.fn();
+    render(<Transcript messages={answered} onSend={onSend} />);
     const group = screen.getByRole("group", { name: "Suggested follow-ups" });
     expect(Array.from(group.querySelectorAll("button"), (button) => button.textContent)).toEqual(FOLLOW_UPS);
 
     fireEvent.click(screen.getByRole("button", { name: "Move standup to 9:30" }));
-    expect(screen.getByRole("textbox", { name: "Message" })).toHaveValue("Move standup to 9:30");
+    expect(onSend).toHaveBeenCalledExactlyOnceWith("Move standup to 9:30");
+    expect(screen.getByTestId("chat-turns")).toHaveTextContent("Move standup to 9:30");
+  });
+
+  it("does not submit recommendation when AgentFollowUpSuggestions is disabled", () => {
+    const onSend = vi.fn();
+    render(<Transcript messages={answered} disabled onSend={onSend} />);
+    const button = screen.getByRole("button", { name: FOLLOW_UPS[0] });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(onSend).not.toHaveBeenCalled();
+    expect(screen.getByTestId("chat-turns")).toBeEmptyDOMElement();
   });
 
   it("hides the chips once the next turn starts", () => {
@@ -93,5 +126,21 @@ describe("smart follow-ups", () => {
     expect(visibleFollowUps({ id: "a-1", role: "assistant", status: "done" }, "a-1", false)).toEqual([]);
     render(<Transcript messages={[answered[0], { id: "a-1", role: "assistant", status: "done" }]} />);
     expect(screen.queryByTestId("agent-follow-up-suggestions")).toBeNull();
+  });
+
+  it("handles empty lists, single items, special characters, and long text", () => {
+    const onSend = vi.fn();
+    const { rerender } = render(<AgentFollowUpSuggestions suggestions={[]} onSelect={onSend} />);
+    expect(screen.queryByTestId("agent-follow-up-suggestions")).toBeNull();
+
+    const complexPrompts = [
+      "Can you verify my 💳 card & email? ✉️",
+      "A very long prompt that describes a detailed query with many instructions to ensure wrapping works cleanly without throwing or breaking targets",
+    ];
+    rerender(<AgentFollowUpSuggestions suggestions={complexPrompts} onSelect={onSend} />);
+    const buttons = screen.getAllByRole("button");
+    expect(buttons).toHaveLength(2);
+    fireEvent.click(buttons[0]);
+    expect(onSend).toHaveBeenCalledWith(complexPrompts[0]);
   });
 });

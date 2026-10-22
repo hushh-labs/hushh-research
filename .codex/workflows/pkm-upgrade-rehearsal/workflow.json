@@ -52,7 +52,7 @@
     "security-audit",
     "pkm-upgrade-rehearsal",
     "reviewer-app-testing",
-    "vault-pkm-governance",
+    "security-audit",
     "uat-scoped-deploy"
   ],
   "common_failures": [

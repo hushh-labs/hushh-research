@@ -21,8 +21,11 @@ Read alongside `docs/guides/mobile/release-ios-appstore.md` (the full runbook).
   entitlements. Record the selected backend and its serving SHA; never infer one from the
   workflow's name or the Firebase secret project.
 - **Bundle** `com.hushh.app`; App Store Connect app id `6757718917`; team `WVDK9JW99C`;
-  marketing version comes from `MARKETING_VERSION` in
+  marketing version defaults to `MARKETING_VERSION` in
   `hushh-webapp/ios/App/App.xcodeproj/project.pbxproj` (App target, Debug + Release).
+  An explicit `--marketing-version` overrides only packaging metadata while preserving the
+  exact source SHA and backend provenance. The workflow verifies app and extension versions
+  from the archive and uses the effective version in Apple preparation and both receipts.
 
 ## Two gates — never collapse them into one
 
@@ -70,8 +73,10 @@ point to the runbook — do not work around it.
    "Invalid Pre-Release Train ... is closed for new build submissions" / "must contain a higher
    version than the previously approved version". The build-number resolver
    (`scripts/ci/resolve-ios-build-number.py`) only bumps `CFBundleVersion` (the build number), not
-   the marketing version. Fix: bump `MARKETING_VERSION` (both App-target configs) to the next
-   patch, land on `main`, re-release. A `--dry-run` will NOT catch this — dry-run skips the
+   the marketing version. Fix: choose the next explicit `--marketing-version` with the same
+   deployed source, or land a committed version bump and verify its matching deployment.
+   An approved-but-unreleased App Store version remains a separate Apple-state blocker;
+   do not publish or withdraw it incidentally. A `--dry-run` will NOT catch this — dry-run skips the
    upload/ASC-validation leg.
 2. **ASC key role too low.** Archive creates a dev asset and export creates a distribution asset,
    both via `-allowProvisioningUpdates`. The API key must be **Admin** (App Manager is not enough

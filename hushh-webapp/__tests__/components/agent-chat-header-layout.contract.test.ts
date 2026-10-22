@@ -98,20 +98,26 @@ describe("agent chat header layout", () => {
     // Keep the mark visible at phone widths and allow the text slot to absorb
     // pressure before it can overlap the trailing controls.
     expect(openingTag(header, "data-agent-chat-brand-tile")).toContain(
-      "h-8 w-8 shrink-0 place-items-center",
+      "h-11 w-11 shrink-0 place-items-center",
     );
     expect(openingTag(header, "data-agent-chat-brand-tile")).not.toContain(
       "max-sm:hidden",
     );
   });
 
-  it("matches the canonical One header mark size", () => {
+  it("keeps portrait sizing behind the ordinary One gate and preserves native compact sizing", () => {
     const header = headerBlock();
-    expect(header).toContain("<HushhMark");
+    expect(header).toContain("<OnePresenceAvatar");
     expect(header).toContain(
-      'className="h-7 w-7 items-center justify-center overflow-visible"',
+      'className="size-[var(--one-header-artwork-size,32px)] shrink-0"',
     );
-    expect(header).toContain('imageClassName="!h-[23px] !w-[23px]"');
+    expect(header).toContain('className="inline-flex size-[var(--one-header-artwork-size,44px)]');
+    expect(workspace).toContain('data-one-centered-header={!isPuppySurface && !customNativePresentationEnabled() ? "true" : undefined}');
     expect(header).not.toContain("🤫");
+  });
+
+  it("binds the History renderer to the active Chat owner, not merely an unlocked vault", () => {
+    const history = headerBlock().match(/<NativeHistoryOpener[\s\S]*?\/>/)?.[0];
+    expect(history).toContain("eligible={isCanonicalChatRoute && hasChatAccess && isVaultUnlocked}");
   });
 });

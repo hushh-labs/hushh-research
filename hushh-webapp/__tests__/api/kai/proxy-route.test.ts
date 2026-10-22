@@ -23,6 +23,53 @@ function createRequest(url: string, init: RequestInit): NextRequest {
 }
 
 describe("/api/kai/[...path] proxy", () => {
+  it.each([
+    ["GMAIL_RECEIPT_CONTRACT_MISMATCH", true, false],
+    ["GMAIL_PROVIDER_UNAVAILABLE", false, false],
+    ["GMAIL_PROVIDER_UNAVAILABLE", undefined, true],
+  ])("sanitizes receipt %s and preserves retry policy", async (code, retryable, expected) => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      detail: { code, retryable, message: "private receipt content", errors: [{ input: "private" }] },
+    }), { status: 500, headers: { "Content-Type": "application/json" } }));
+    const response = await kaiRoute.POST(createRequest("http://localhost:3000/api/kai/gmail/receipts/scan", {
+      method: "POST", headers: { "X-Request-ID": "receipt-contract-test", "Content-Type": "application/json" }, body: "{}",
+    }), { params: Promise.resolve({ path: ["gmail", "receipts", "scan"] }) });
+    expect(response.headers.get("x-request-id")).toBe("receipt-contract-test");
+    const body = await response.json();
+    expect(body.detail).toMatchObject({ code, retryable: expected });
+    expect(JSON.stringify(body)).not.toContain("private");
+  });
+
+  it("returns a safe typed receipt transport error with correlation", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("private provider token"));
+    const response = await kaiRoute.POST(createRequest("http://localhost:3000/api/kai/gmail/receipts/scan", {
+      method: "POST", headers: { "X-Request-ID": "receipt-transport-test", "Content-Type": "application/json" }, body: "{}",
+    }), { params: Promise.resolve({ path: ["gmail", "receipts", "scan"] }) });
+    expect(response.status).toBe(502);
+    expect(response.headers.get("x-request-id")).toBe("receipt-transport-test");
+    expect(await response.json()).toEqual({ detail: {
+      code: "GMAIL_RECEIPT_UNAVAILABLE", message: "Receipts are temporarily unavailable. Please try again.", retryable: false,
+    } });
+  });
+
+  it.each([200, 400])("does not cache Plaid vault responses or record provider error bodies (%s)", async (status) => {
+    const logger = vi.spyOn(console, "error").mockImplementation(() => {});
+    const privateMarker = "synthetic-private-provider-payload";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ detail: privateMarker }), {
+      status, headers: { "Content-Type": "application/json" },
+    }));
+    const response = await kaiRoute.POST(createRequest("http://localhost:3000/api/kai/plaid/vault/link-token", {
+      method: "POST", headers: { Authorization: "Bearer synthetic-owner", "Content-Type": "application/json" }, body: "{}",
+    }), { params: Promise.resolve({ path: ["plaid", "vault", "link-token"] }) });
+    expect(response.status).toBe(status);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0");
+    expect(response.headers.get("Pragma")).toBe("no-cache");
+    expect(JSON.stringify(logger.mock.calls)).not.toContain(privateMarker);
+    if (status >= 400) expect(logger).toHaveBeenCalled();
+  });
+
   it("forwards both receipt auth planes and makes live scan responses no-store", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
@@ -94,6 +141,8 @@ describe("/api/kai/[...path] proxy", () => {
           Authorization: "Bearer firebase-id-token",
           "X-Hushh-Consent": "Bearer vault-owner-token",
           "Content-Type": "application/json",
+          // A random correlation ID can contain the fixture's private amount.
+          "X-Request-ID": "f5bdeb51-4bc4-4567-8bac-cb64b5d1df2a",
         },
         body: JSON.stringify({
           user_id: "owner-uid",
@@ -158,6 +207,7 @@ describe("/api/kai/[...path] proxy", () => {
       detail: {
         code: "GMAIL_RECEIPT_NOT_FOUND",
         message: "The selected receipt is not available.",
+        retryable: false,
       },
     });
   });

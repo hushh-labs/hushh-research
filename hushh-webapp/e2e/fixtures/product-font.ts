@@ -7,7 +7,7 @@ import path from "node:path";
  * Every layout-contract fixture used to declare `-apple-system, system-ui,
  * sans-serif`, which resolves to whatever the machine happens to have: SF Pro
  * on a Mac, DejaVu Sans on an Ubuntu CI runner. The product ships neither — it
- * ships InterVariable (`app/globals.css`, `--font-family-product`).
+ * ships Plus Jakarta Sans (`app/globals.css`, `--font-family-product`).
  *
  * That went unnoticed for as long as these specs only ever ran on the author's
  * laptop. The first CI run of the pack failed 10 tests on font metrics alone:
@@ -29,14 +29,14 @@ let cachedCss: string | null = null;
 /**
  * Remove the app's own `@font-face` rules from a compiled `globals.css`.
  *
- * They point at `/fonts/Inter/InterVariable.woff2`, an absolute path that a
+ * They point at `/fonts/PlusJakartaSans/*.woff2`, an absolute path that a
  * fixture loaded over `file://` resolves against the filesystem root. It never
  * resolves, and it fails silently.
  *
  * That matters beyond one dead request: those broken faces register under the
  * SAME family as the working one this module inlines, and a family with an
  * unloadable face in it does not satisfy `document.fonts.check`. The fixture
- * then quietly renders in the machine's fallback while three "InterVariable"
+ * then quietly renders in the machine's fallback while unloaded Jakarta
  * faces sit in `document.fonts` looking like success.
  *
  * Call this on any stylesheet built from `app/globals.css`.
@@ -53,27 +53,26 @@ export function productFontStyle(): string {
   if (cachedCss) return cachedCss;
 
   // Playwright runs from the webapp root (its config lives there).
-  const file = path.join(
-    process.cwd(),
-    "public/fonts/Inter/InterVariable.woff2",
-  );
-  const base64 = fs.readFileSync(file).toString("base64");
-
-  cachedCss = `
-@font-face {
-  font-family: "InterVariable";
+  const fontFaces = ([400, 600, 700] as const).map((weight) => {
+    const file = path.join(
+      process.cwd(),
+      `public/fonts/PlusJakartaSans/plus-jakarta-sans-latin-${weight}-normal.woff2`,
+    );
+    const base64 = fs.readFileSync(file).toString("base64");
+    return `@font-face {
+  font-family: "Plus Jakarta Sans";
   src: url("data:font/woff2;base64,${base64}") format("woff2");
-  /* block, not the app's swap: a fixture that starts measuring during the swap
-     period measures the fallback face and reports numbers from a font the
-     product does not use. */
+  /* Block until the exact shipped face is ready for geometry assertions. */
   font-display: block;
   font-style: normal;
-  font-weight: 100 900;
-}
+  font-weight: ${weight};
+}`;
+  });
+
+  cachedCss = `${fontFaces.join("\n")}
 body {
-  font-family: "InterVariable", "Inter", system-ui, sans-serif;
-}
-`;
+  font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+}`;
   return cachedCss;
 }
 
@@ -98,17 +97,23 @@ export async function awaitProductFont(page: {
   const state = await page.evaluate(async () => {
     // A client-rendered fixture may still have an empty root. `ready` alone
     // does not load a registered face until some rendered text needs it.
-    await document.fonts.load('16px "InterVariable"');
+    await Promise.all(
+      [400, 600, 700].map((weight) =>
+        document.fonts.load(`${weight} 16px "Plus Jakarta Sans"`),
+      ),
+    );
     await document.fonts.ready;
     const probe = document.createElement("span");
     probe.style.cssText =
-      "position:absolute;visibility:hidden;font:400 16px InterVariable";
+      'position:absolute;visibility:hidden;font:400 16px "Plus Jakarta Sans"';
     probe.textContent = "0123456789";
     document.body.appendChild(probe);
     const usedFamily = getComputedStyle(document.body).fontFamily;
     probe.remove();
     return {
-      loaded: document.fonts.check('16px "InterVariable"'),
+      loaded: [400, 600, 700].every((weight) =>
+        document.fonts.check(`${weight} 16px "Plus Jakarta Sans"`),
+      ),
       faces: [...document.fonts].map((f) => f.family),
       usedFamily,
     };

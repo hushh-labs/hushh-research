@@ -18,7 +18,7 @@
     "negative": [
       {
         "prompt": "change the vault encryption wrapper and ordinary PKM persistence service",
-        "owner": "vault-pkm-governance"
+        "owner": "security-audit"
       },
       {
         "prompt": "prove a PKM v7 transform preserves every occurrence and rolls back",

@@ -302,6 +302,7 @@ async def run_email_gene(
     consent_token: str,
     output_schema: Any = dict,
     timeout_seconds: float | None = None,
+    retry_on_failure: bool = True,
 ) -> dict[str, Any]:
     """Run one owner-authorized, schema-constrained Email model call."""
 
@@ -320,7 +321,8 @@ async def run_email_gene(
         if timeout_seconds is not None
         else max(30.0, gene.performance.latency_p95_ms / 1000)
     )
-    for attempt in range(2):
+    # Receipt scans own their bounded transient retry budget in the service.
+    for attempt in range(2 if retry_on_failure else 1):
         try:
             result = await run_single_turn(
                 agent,
@@ -331,7 +333,7 @@ async def run_email_gene(
             )
             break
         except Exception as exc:
-            if attempt or not _is_retryable_email_gene_error(exc):
+            if not retry_on_failure or attempt or not _is_retryable_email_gene_error(exc):
                 raise
             # Email genes are schema-only and have no tools or side effects, so
             # replaying a transient provider failure is safe.

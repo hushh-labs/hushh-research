@@ -156,6 +156,45 @@ def test_disconnect_preserves_unrelated_rosters_in_real_sql(db, monkeypatch):
         )
 
 
+@pytest.mark.parametrize("reverse_status", [None, "removed", "left", "active"])
+def test_trusted_removal_only_ends_an_active_reverse_membership(db, monkeypatch, reverse_status):
+    service, binding = circle_fixture(db, monkeypatch, "remove_from_circle")
+    circle_id = binding["circleId"]
+    db.execute_raw("UPDATE one_location_circles SET system_kind='trusted'")
+    with db.engine.begin() as conn:
+        counterpart = service.create_circle_in_transaction(
+            conn, owner_user_id="other", name="Other circle"
+        )
+        conn.execute(
+            text("""UPDATE one_location_circles SET system_kind='trusted'
+                    WHERE id=CAST(:circle AS UUID)"""),
+            {"circle": counterpart},
+        )
+        if reverse_status is not None:
+            conn.execute(
+                text("""INSERT INTO one_location_circle_memberships(circle_id,user_id,role,status)
+                  VALUES(CAST(:circle AS UUID),'owner','member',:status)"""),
+                {"circle": counterpart, "status": reverse_status},
+            )
+
+    service.remove_member(owner_user_id="owner", circle_id=circle_id, member_user_id="other")
+
+    rows = db.execute_raw(
+        "SELECT circle_id,user_id,status FROM one_location_circle_memberships"
+    ).data
+    statuses = {(str(row["circle_id"]), row["user_id"]): row["status"] for row in rows}
+    assert statuses[(circle_id, "other")] == "removed"
+    assert statuses[(circle_id, "owner")] == "active"
+    assert statuses[(counterpart, "other")] == "active"
+    expected_reverse = "removed" if reverse_status == "active" else reverse_status
+    assert statuses.get((counterpart, "owner")) == expected_reverse
+    # A reverse no-op must not relax the primary membership boundary.
+    with pytest.raises(OneLocationCircleError) as error:
+        service.remove_member(owner_user_id="owner", circle_id=circle_id, member_user_id="missing")
+    assert error.value.code == "LOCATION_CIRCLE_MEMBER_NOT_FOUND"
+    assert db.execute_raw("SELECT status FROM connections").data[0]["status"] == "active"
+
+
 def circle_fixture(db, monkeypatch, action):
     sms_schema(db)
     db.execute_raw("""

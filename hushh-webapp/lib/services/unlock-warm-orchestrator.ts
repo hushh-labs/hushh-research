@@ -23,9 +23,16 @@ import { warmGeminiRuntimeConnection } from "@/lib/connections/gemini-runtime-co
 
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { KaiFinancialResourceService } from "@/lib/kai/kai-financial-resource";
-import { loadFinancialForVault, refreshVaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
+import {
+  loadFinancialForVault,
+  refreshVaultConnections,
+} from "@/lib/kai/plaid-vault/vault-sync";
 import { recoverPendingSeals } from "@/lib/kai/plaid-vault/pending-seal";
-import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import {
+  isVaultSessionEpochCurrent,
+  snapshotVaultSessionEpoch,
+  subscribeVaultSessionEpoch,
+} from "@/lib/vault/session-epoch";
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
 import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
@@ -218,34 +225,44 @@ export class UnlockWarmOrchestrator {
     { completedAt: number; result: UnlockWarmResult }
   >();
 
-  private static locationKeyBootstrappedByUser = new Set<string>();
+  private static locationKeyBootstrappedByUser = new Map<string, number>();
 
   // Eagerly provision the One Location recipient key right after vault unlock so
   // EVERY signed-in user (new or returning) can receive and request location
-  // without ever opening the One Location page first. The key is an ECDH P-256
-  // keypair held on-device; this only registers the public half. Idempotent:
-  // ensureLocationRecipientKey reuses the device key and the backend upserts on
-  // (user_id, key_id), so it is safe to attempt once per session.
-  private static queueLocationRecipientKeyBootstrap(params: {
+  // without ever opening the One Location page first. Recover the account's
+  // vault-encrypted key before registering; transient reads must never rotate
+  // an existing key. This grants no GPS permission or location-sharing consent.
+  static queueLocationRecipientKeyBootstrap(params: {
     userId: string;
     vaultOwnerToken: string;
     vaultKey: string;
   }): void {
     if (shouldSkipReviewerBackgroundWritesForAutomation()) return;
-    if (this.locationKeyBootstrappedByUser.has(params.userId)) return;
-    this.locationKeyBootstrappedByUser.add(params.userId);
-    void bootstrapCurrentUserLocationRecipientKey({
-      userId: params.userId,
-      vaultOwnerToken: params.vaultOwnerToken,
-      vaultKey: params.vaultKey,
-    }).catch((error) => {
-      // Never block unlock warming; allow a later retry this session.
-      this.locationKeyBootstrappedByUser.delete(params.userId);
-      console.warn(
-        "[UnlockWarmOrchestrator] One Location recipient key bootstrap failed:",
-        error,
-      );
+    const epoch = snapshotVaultSessionEpoch();
+    if (this.locationKeyBootstrappedByUser.get(params.userId) === epoch) return;
+    this.locationKeyBootstrappedByUser.set(params.userId, epoch);
+    const retryDelays = [1_000, 3_000, 10_000];
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const release = subscribeVaultSessionEpoch(() => {
+      if (isVaultSessionEpochCurrent(epoch)) return;
+      clearTimeout(retryTimer);
+      if (this.locationKeyBootstrappedByUser.get(params.userId) === epoch) this.locationKeyBootstrappedByUser.delete(params.userId);
+      release();
     });
+    const attempt = (index: number) => {
+      if (!isVaultSessionEpochCurrent(epoch)) return;
+      void bootstrapCurrentUserLocationRecipientKey({ ...params, strictRecovery: true }).then(() => release()).catch((error) => {
+        if (this.locationKeyBootstrappedByUser.get(params.userId) !== epoch) return;
+        if (isVaultSessionEpochCurrent(epoch) && index < retryDelays.length) {
+          retryTimer = setTimeout(() => attempt(index + 1), retryDelays[index]);
+          return;
+        }
+        this.locationKeyBootstrappedByUser.delete(params.userId);
+        release();
+        console.warn("[UnlockWarmOrchestrator] One Location recipient key bootstrap failed:", error);
+      });
+    };
+    attempt(0);
   }
 
   private static marketplaceKeyBootstrappedByUser = new Set<string>();
@@ -321,20 +338,26 @@ export class UnlockWarmOrchestrator {
   }): void {
     if (shouldSkipReviewerBackgroundWritesForAutomation()) return;
     const vaultEpoch = snapshotVaultSessionEpoch();
-    if (this.vaultPlaidRefreshedByUser.get(params.userId) === vaultEpoch) return;
+    if (this.vaultPlaidRefreshedByUser.get(params.userId) === vaultEpoch)
+      return;
     this.vaultPlaidRefreshedByUser.set(params.userId, vaultEpoch);
     void loadFinancialForVault(params)
       .then(async (financial) => {
         // Fail closed: without a vault read we cannot tell a sealed link from
         // an orphan, so pending links wait for the next unlock.
         if (!financial || !isVaultSessionEpochCurrent(vaultEpoch)) return null;
-        const sealed = (financial.connections_v1 ?? {}) as Record<string, unknown>;
+        const sealed = (financial.connections_v1 ?? {}) as Record<
+          string,
+          unknown
+        >;
         // Links that never reached the vault (app closed mid-link) are
         // disconnected at Plaid before anything else reads the connections.
-        await recoverPendingSeals({ ...params, sealedItemIds: new Set(Object.keys(sealed)) }).catch(
-          () => undefined,
-        );
-        return isVaultSessionEpochCurrent(vaultEpoch) && Object.keys(sealed).length > 0
+        await recoverPendingSeals({
+          ...params,
+          sealedItemIds: new Set(Object.keys(sealed)),
+        }).catch(() => undefined);
+        return isVaultSessionEpochCurrent(vaultEpoch) &&
+          Object.keys(sealed).length > 0
           ? refreshVaultConnections({ ...params, financial })
           : null;
       })
@@ -343,7 +366,10 @@ export class UnlockWarmOrchestrator {
         if (this.vaultPlaidRefreshedByUser.get(params.userId) === vaultEpoch) {
           this.vaultPlaidRefreshedByUser.delete(params.userId);
         }
-        console.warn("[UnlockWarmOrchestrator] Vault Plaid refresh failed:", error);
+        console.warn(
+          "[UnlockWarmOrchestrator] Vault Plaid refresh failed:",
+          error,
+        );
       });
   }
 
@@ -401,6 +427,8 @@ export class UnlockWarmOrchestrator {
     routePath?: string;
     firebaseIdToken?: string;
   }): Promise<UnlockWarmResult> {
+    // Readiness must start before unrelated warm tasks and cached warm returns.
+    this.queueLocationRecipientKeyBootstrap(params);
     const warmPriority = resolveWarmPriority(params.routePath);
     const tokenSignature = params.vaultOwnerToken.slice(0, 24);
     const signature = `${params.userId}:${tokenSignature}:${warmPriority}`;
@@ -562,7 +590,8 @@ export class UnlockWarmOrchestrator {
       let prewarmedFinancialDomain: Record<string, unknown> | null = null;
       let financialHydrated = false;
 
-      const skipBackgroundWrites = shouldSkipReviewerBackgroundWritesForAutomation();
+      const skipBackgroundWrites =
+        shouldSkipReviewerBackgroundWritesForAutomation();
       const shouldSyncProfile =
         warmPriority === "profile" ||
         warmPriority === "dashboard" ||
@@ -570,15 +599,17 @@ export class UnlockWarmOrchestrator {
         warmPriority === "default";
       const syncPromise =
         shouldSyncProfile && shouldWarmMetadata && !skipBackgroundWrites
-        ? KaiProfileSyncService.syncPendingToVault({
-            userId: params.userId,
-            vaultKey: params.vaultKey,
-            vaultOwnerToken: params.vaultOwnerToken,
-          })
-        : Promise.resolve({
-            synced: false,
-            reason: skipBackgroundWrites ? "skipped_for_reviewer_policy" : "skipped_for_route",
-          } as const);
+          ? KaiProfileSyncService.syncPendingToVault({
+              userId: params.userId,
+              vaultKey: params.vaultKey,
+              vaultOwnerToken: params.vaultOwnerToken,
+            })
+          : Promise.resolve({
+              synced: false,
+              reason: skipBackgroundWrites
+                ? "skipped_for_reviewer_policy"
+                : "skipped_for_route",
+            } as const);
 
       if (shouldWarmFinancial || shouldHydrateFinancialCacheOnly) {
         const hydratedFinancial =
@@ -704,7 +735,10 @@ export class UnlockWarmOrchestrator {
       result.metadataWarmed =
         shouldWarmMetadata && metadataResult.status === "fulfilled";
 
-      if (shouldWarmLocationState && locationStateResult.status === "fulfilled") {
+      if (
+        shouldWarmLocationState &&
+        locationStateResult.status === "fulfilled"
+      ) {
         result.locationStateWarmed = true;
       }
 
@@ -869,11 +903,6 @@ export class UnlockWarmOrchestrator {
       // Provision the One Location recipient key for every user on every unlock,
       // regardless of which route they unlocked on, so receiving/requesting
       // location never requires visiting the One Location page first.
-      this.queueLocationRecipientKeyBootstrap({
-        userId: params.userId,
-        vaultOwnerToken: params.vaultOwnerToken,
-        vaultKey: params.vaultKey,
-      });
       // Same rationale for the marketplace: every user auto-publishes a recipient
       // key on unlock so a seller can deliver a slice to them at approve time.
       this.queueMarketplaceRecipientKeyBootstrap({
@@ -886,6 +915,7 @@ export class UnlockWarmOrchestrator {
         vaultKey: params.vaultKey,
         vaultOwnerToken: params.vaultOwnerToken,
       });
+      // Written answers are fulfilled only by the owner's explicit action.
       this.queueVaultPlaidRefresh({
         userId: params.userId,
         vaultKey: params.vaultKey,

@@ -45,7 +45,7 @@
     "backend",
     "puppy-one-harness",
     "backend-runtime-governance",
-    "vault-pkm-governance",
+    "security-audit",
     "quality-contracts"
   ],
   "common_failures": [

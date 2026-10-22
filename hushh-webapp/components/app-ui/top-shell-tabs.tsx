@@ -10,6 +10,7 @@ import {
   type CSSProperties,
 } from "react";
 import { useRouter } from "next/navigation";
+import { appHaptic } from "@/lib/capacitor/app-haptics";
 
 import type { TopShellTabSet } from "@/lib/navigation/top-shell-tabs";
 import {
@@ -95,7 +96,9 @@ export function TopShellTabs({
   // (founder directive, 2026-09-22: Finance joined Connect and Consent). The
   // underline arm remains for the public knowledge tab sets only.
   const usesModuleSegmentedTabs =
+    tabSet.id === "public" ||
     tabSet.id === "wallet" ||
+    tabSet.id === "calendar" ||
     tabSet.id === "location" ||
     tabSet.id === "connect" ||
     tabSet.id === "consent" ||
@@ -146,10 +149,6 @@ export function TopShellTabs({
       if (!tab || disabled) return;
       if (focus) tabRefs.current[index]?.focus();
       if (tab.value === selectedValue) return;
-      if (onValueChange) {
-        onValueChange(tab.value);
-        return;
-      }
 
       // Move the shared compositor indicator at pointer/keyboard time. The
       // query-backed route remains the semantic authority, but it must not
@@ -167,6 +166,13 @@ export function TopShellTabs({
         setTopShellTabSwipeState(tabSet.id, index, false);
       }
       requestTopShellTabSelection(tabSet.id, tab.value);
+      if (onValueChange) {
+        // Local workspaces keep route authority, but use the same immediate
+        // pager/indicator handoff as routed taps before publishing selection.
+        onValueChange(tab.value);
+        appHaptic("selection");
+        return;
+      }
       beginRouteTransition(
         tab.href,
         () => {
@@ -188,6 +194,7 @@ export function TopShellTabs({
         },
         "tap",
         transitionMode,
+        "selection",
       );
     },
     [
@@ -273,6 +280,7 @@ export function TopShellTabs({
               className={cn(
                 "relative z-10 flex h-full flex-1 items-center justify-center px-3 outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-inset",
                 usesCompactLabels && "min-w-0 px-0.5 sm:px-3",
+                tabSet.id === "calendar" && "min-w-0 px-1 sm:px-3",
               )}
               onClick={() => selectIndex(index, false)}
               onKeyDown={(event) => {

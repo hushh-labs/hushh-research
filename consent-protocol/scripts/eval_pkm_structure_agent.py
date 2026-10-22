@@ -30,6 +30,7 @@ MONOREPO_ROOT = CONSENT_PROTOCOL_ROOT.parent
 if str(CONSENT_PROTOCOL_ROOT) not in sys.path:
     sys.path.insert(0, str(CONSENT_PROTOCOL_ROOT))
 
+from hushh_mcp.constants import fleet_text_model_from_env  # noqa: E402
 from hushh_mcp.services import pkm_agent_lab_service as pkm_agent_lab_module  # noqa: E402
 from hushh_mcp.services.domain_contracts import CANONICAL_DOMAIN_REGISTRY  # noqa: E402
 from hushh_mcp.services.personal_knowledge_model_service import (  # noqa: E402
@@ -41,7 +42,7 @@ from scripts import pkm_eval_integrity as integrity  # noqa: E402
 
 DEFAULT_ENV_FILE = CONSENT_PROTOCOL_ROOT / ".env"
 DEFAULT_REPORT_PATH = CONSENT_PROTOCOL_ROOT / "artifacts" / "pkm_structure_agent_eval_latest.json"
-DEFAULT_PRIMARY_MODEL = "gemini-3.7-flash"
+DEFAULT_PRIMARY_MODEL = fleet_text_model_from_env()
 DEFAULT_SECONDARY_MODEL = ""
 DEFAULT_REFERENCE_MODEL = ""
 # Outlive the runtime deadline to capture its result; accuracy/latency gates
@@ -686,7 +687,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--model",
-        default=DEFAULT_PRIMARY_MODEL,
+        default=fleet_text_model_from_env(),
         help="Primary PKM classifier candidate model.",
     )
     parser.add_argument(

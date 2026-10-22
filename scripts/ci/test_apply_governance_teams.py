@@ -197,6 +197,105 @@ def test_review_team_drift_is_repaired_without_changing_other_settings(module) -
         assert write.call_count == 1
 
 
+def test_live_verifier_distinguishes_pending_activation_without_granting_authority(module) -> None:
+    """Exercise the real verifier; pending never conceals protection/actor drift."""
+    import copy
+    import os
+    import subprocess
+    import tempfile
+
+    policy = _policy()
+    policy["main"] = {
+        **policy["main"],
+        "review_bypass_users": ["operator", "invitee"],
+        "merge_queue_bypass_users": ["operator", "invitee"],
+        "review_bypass_team_slug": "maintainers",
+        "merge_queue_bypass_team_slug": "maintainers",
+        "merge_queue_bypass_team_name": "Maintainers",
+        "merge_queue_ruleset_name": "Queue",
+    }
+    team = "organizations/140115870/team/42"
+    membership = "orgs/synthetic-org/teams/maintainers/memberships/invitee"
+    base = {
+        "user": {"login": "operator"},
+        "repos/synthetic-org/repo": {"allow_auto_merge": True},
+        "repos/synthetic-org/repo/branches/main/protection": {
+            "required_status_checks": {"contexts": ["CI Status Gate"], "strict": True},
+            "required_pull_request_reviews": {
+                "required_approving_review_count": 1, "require_last_push_approval": True,
+                "bypass_pull_request_allowances": {
+                    "users": [{"login": "invitee"}, {"login": "operator"}],
+                    "teams": [{"slug": "maintainers"}],
+                },
+            },
+            "required_conversation_resolution": {"enabled": True},
+            "enforce_admins": {"enabled": True},
+        },
+        "repos/synthetic-org/repo/rules/branches/main": [{"type": "merge_queue", "parameters": {"group": 1}}],
+        "repos/synthetic-org/repo/rulesets?includes_parents=true": [{"id": 7, "target": "branch", "enforcement": "active"}],
+        "repos/synthetic-org/repo/rulesets/7": {"name": "Queue", "bypass_actors": [{"actor_type": "Team", "actor_id": 42}]},
+        team: {"slug": "maintainers", "name": "Maintainers"},
+        f"{team}/members": [[{"login": "operator"}], []],
+        membership: {"state": "pending", "role": "member"},
+    }
+    with tempfile.TemporaryDirectory(prefix="hushh-governance-verifier-") as scratch:
+        directory = Path(scratch)
+        executable = directory / "gh"
+        executable.write_text("""#!/usr/bin/env python3
+import json, os, sys
+if sys.argv[1:3] == ['auth', 'status']: sys.exit(0)
+endpoint = sys.argv[-1]
+if endpoint.endswith('/members') and not {'--paginate', '--slurp'} <= set(sys.argv): sys.exit(2)
+response = json.loads(os.environ['SYNTHETIC_GITHUB_RESPONSES']).get(endpoint, {'_error': 404})
+if isinstance(response, dict) and '_error' in response: sys.exit(1)
+if isinstance(response, dict) and '_raw' in response: print(response['_raw'])
+else: print(json.dumps(response))
+""", encoding="utf-8")
+        executable.chmod(0o700)
+        policy_file = directory / "policy.json"
+        policy_file.write_text(json.dumps(policy), encoding="utf-8")
+        environment = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_")}
+        environment.update(PATH=f"{directory}{os.pathsep}{environment['PATH']}",
+                           GITHUB_REPO="synthetic-org/repo", GITHUB_BRANCH="main",
+                           GITHUB_CI_GOVERNANCE_FILE=str(policy_file))
+
+        def run(responses):
+            return subprocess.run(
+                ["bash", "scripts/ci/verify-main-branch-protection.sh"], cwd=REPO_ROOT,
+                env={**environment, "SYNTHETIC_GITHUB_RESPONSES": json.dumps(responses)},
+                capture_output=True, text=True, check=False,
+            )
+
+        accepted = run(base)
+        assert accepted.returncode == 0, accepted.stdout + accepted.stderr
+        assert "ADVISORY: approved queue-team invitations await activation" in accepted.stdout
+        assert "merge_queue_bypass=['operator']" in accepted.stdout
+
+        # Negative controls: no blanket allowance for missing users or drift.
+        cases = []
+        for response in ({"_error": 404}, {"_raw": "{"}, {},
+                         {"state": "pending", "role": "maintainer"},
+                         {"state": "active", "role": "member"}):
+            sample = copy.deepcopy(base)
+            sample[membership] = response
+            cases.append(sample)
+        pending_actor = copy.deepcopy(base)
+        pending_actor["user"] = {"login": "invitee"}
+        cases.append(pending_actor)
+        extra_on_second_page = copy.deepcopy(base)
+        extra_on_second_page[f"{team}/members"][1] = [{"login": "unauthorized"}]
+        cases.append(extra_on_second_page)
+        wrong_team = copy.deepcopy(base)
+        wrong_team[team]["slug"] = "other-team"
+        cases.append(wrong_team)
+        missing_check = copy.deepcopy(base)
+        missing_check["repos/synthetic-org/repo/branches/main/protection"]["required_status_checks"]["contexts"] = []
+        cases.append(missing_check)
+        for sample in cases:
+            rejected = run(sample)
+            assert rejected.returncode != 0, "Pending activation concealed an authority/protection failure"
+
+
 def main() -> int:
     module = _module()
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

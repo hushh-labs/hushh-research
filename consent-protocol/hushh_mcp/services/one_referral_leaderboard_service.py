@@ -3,20 +3,18 @@
 Reads the LATEST published leaderboard snapshot (migration 271) rather than
 aggregating `one_referral_score_events` live on every request -- "use shared
 snapshots, bounded refresh, and suitable invalidation" is a product
-requirement, not an optimization afterthought. Every row is resolved through
-`one_referral_display_handle_service`, never `actor_identity_cache`.
+requirement, not an optimization afterthought. Public aliases retain priority;
+other profile names are resolved through the viewer-permitted directory.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import text
 
 from db.db_client import get_db_connection
 from hushh_mcp.operons.referral_scoring.points import (
-    current_streak_progress,
     is_within_a_flash_window,
 )
 from hushh_mcp.services.one_referral_circle_service import get_team_rankings
@@ -24,7 +22,11 @@ from hushh_mcp.services.one_referral_display_handle_service import (
     ANONYMOUS_PLACEHOLDER,
     get_display_handles,
 )
-from hushh_mcp.services.one_referral_rewards_service import lifetime_qualified_count
+from hushh_mcp.services.one_referral_identity_service import get_leaderboard_profiles
+from hushh_mcp.services.one_referral_rewards_service import (
+    lifetime_joined_count,
+    lifetime_qualified_count,
+)
 
 
 def _latest_snapshot(connection) -> tuple[str, datetime] | None:
@@ -46,13 +48,32 @@ def _handle_or_placeholder(handles: dict, user_id: str) -> str:
 
 
 def get_individual_leaderboard(
-    *, limit: int = 20, after_rank: int = 0, viewer_user_id: str | None = None
+    *,
+    limit: int = 20,
+    after_rank: int = 0,
+    viewer_user_id: str | None = None,
+    snapshot_id: str | None = None,
 ) -> dict:
     """One page of the latest snapshot, plus the viewer's own row if it is
     not already on the page -- "the current user's row remains discoverable
     outside the top ten" is a hard requirement, not a nice-to-have."""
+    if snapshot_id is None:
+        # Live standings must also work before the first scheduler publication.
+        # Publication is shared, serialized and reuses an unchanged snapshot.
+        from hushh_mcp.services.one_referral_scoring_service import publish_leaderboard_snapshot
+
+        publish_leaderboard_snapshot()
     with get_db_connection() as connection:
-        latest = _latest_snapshot(connection)
+        if snapshot_id:
+            selected = connection.execute(
+                text(
+                    "SELECT snapshot_id,generated_at FROM one_referral_leaderboard_snapshots WHERE snapshot_id=CAST(:sid AS UUID)"
+                ),
+                {"sid": snapshot_id},
+            ).fetchone()
+            latest = (str(selected.snapshot_id), selected.generated_at) if selected else None
+        else:
+            latest = _latest_snapshot(connection)
         if latest is None:
             return {
                 "snapshot_generated_at": None,
@@ -93,10 +114,16 @@ def get_individual_leaderboard(
             page_user_ids.append(viewer_row.user_id)
         handles = get_display_handles(page_user_ids)
 
+    profiles = get_leaderboard_profiles(
+        [uid for uid in page_user_ids if not handles.get(uid)],
+        viewer_user_id=viewer_user_id,
+    )
     entries = [
         {
             "rank": row.rank,
             "handle": _handle_or_placeholder(handles, row.user_id),
+            "display_name": profiles.get(row.user_id, {}).get("display_name"),
+            "photo_url": profiles.get(row.user_id, {}).get("photo_url"),
             "points": row.cumulative_points,
             "is_viewer": row.user_id == viewer_user_id,
         }
@@ -106,6 +133,8 @@ def get_individual_leaderboard(
         {
             "rank": viewer_row.rank,
             "handle": _handle_or_placeholder(handles, viewer_row.user_id),
+            "display_name": profiles.get(viewer_row.user_id, {}).get("display_name"),
+            "photo_url": profiles.get(viewer_row.user_id, {}).get("photo_url"),
             "points": viewer_row.cumulative_points,
             "is_viewer": True,
         }
@@ -114,10 +143,12 @@ def get_individual_leaderboard(
     )
 
     return {
+        "snapshot_id": snapshot_id,
+        "next_after_rank": entries[-1]["rank"] if len(entries) == limit else None,
         "snapshot_generated_at": generated_at.isoformat(),
         "entries": entries,
         "viewer": viewer,
-        "stale": False,
+        "stale": (datetime.now(timezone.utc) - generated_at).total_seconds() > 300,
     }
 
 
@@ -131,36 +162,40 @@ def get_milestone_progress(user_id: str, *, settings_milestones: list) -> dict:
     without a matching entitlement row -- this reads
     one_referral_milestone_entitlements, it does not recompute eligibility."""
     with get_db_connection() as connection:
-        lifetime_count = lifetime_qualified_count(connection, user_id)
+        lifetime_count = lifetime_joined_count(connection, user_id)
+        qualified_count = lifetime_qualified_count(connection, user_id)
         earned_rows = connection.execute(
             text(
                 """
-                SELECT milestone_key, reward, earned_at
-                  FROM one_referral_milestone_entitlements
-                 WHERE user_id = :uid
-                 ORDER BY earned_at
+                SELECT e.milestone_key, e.reward, e.earned_at, e.claimed_at, f.status AS fulfillment_status
+                  FROM one_referral_milestone_entitlements e
+                  LEFT JOIN one_referral_fulfillment_records f ON f.entitlement_id=e.id
+                 WHERE e.user_id = :uid
+                 ORDER BY e.earned_at
                 """
             ),
             {"uid": user_id},
         ).fetchall()
 
-    earned_keys = frozenset(row.milestone_key for row in earned_rows)
     earned = [
         {
             "milestone_key": row.milestone_key,
             "reward": row.reward,
             "earned_at": row.earned_at.isoformat(),
+            "claimed_at": row.claimed_at.isoformat() if row.claimed_at else None,
+            "fulfillment_status": row.fulfillment_status,
         }
         for row in earned_rows
     ]
 
+    earned_keys = frozenset(row.milestone_key for row in earned_rows)
     next_milestone = None
     for entry in settings_milestones or []:
         if not isinstance(entry, dict):
             continue
         key = entry.get("milestone_key")
         threshold = entry.get("threshold")
-        if key in earned_keys or not isinstance(threshold, int):
+        if key in earned_keys or not isinstance(threshold, int) or threshold <= lifetime_count:
             continue
         if next_milestone is None or threshold < next_milestone["threshold"]:
             next_milestone = {
@@ -171,7 +206,9 @@ def get_milestone_progress(user_id: str, *, settings_milestones: list) -> dict:
             }
 
     return {
-        "lifetime_qualified_count": lifetime_count,
+        "joined_referral_count": lifetime_count,
+        "lifetime_qualified_count": qualified_count,
+        "progress_basis": "joined_referrals",
         "earned": earned,
         "next_milestone": next_milestone,
     }
@@ -194,45 +231,26 @@ def _soonest_ending_active_window(now: datetime, flash_windows: list) -> datetim
     return soonest
 
 
-def get_engagement_status(user_id: str, *, flash_windows: list, program_timezone: str) -> dict:
+def get_engagement_status(
+    user_id: str, *, flash_windows: list, program_timezone: str, run_length_days: int = 3
+) -> dict:
     """Streak progress and active flash-window status for the dashboard banner.
 
-    Display-only: never used to decide an award, which stays the worker's
-    own job. A referrer with a dead streak (a gap since their last qualifying
-    day) sees 0 here even though their already-paid history is untouched.
+    Display-only: the authenticated app-open writer owns streak awards.
+    A missed attendance day displays zero without changing earned history.
     """
-    with get_db_connection() as connection:
-        rows = connection.execute(
-            text(
-                """
-                SELECT DISTINCT (qualified_at AT TIME ZONE :tz)::date AS qualifying_date
-                  FROM one_referral_relationships
-                 WHERE referrer_user_id = :uid
-                   AND status = 'qualified'
-                   AND qualified_at IS NOT NULL
-                """
-            ),
-            {"uid": user_id, "tz": program_timezone},
-        ).fetchall()
+    from hushh_mcp.services.one_referral_activity_service import get_daily_streak
 
     now = datetime.now(timezone.utc)
-    qualifying_dates = [row.qualifying_date for row in rows]
-    try:
-        today = now.astimezone(ZoneInfo(program_timezone)).date()
-    except (ZoneInfoNotFoundError, ValueError):
-        today = now.date()
-
     return {
         "streak": {
-            "current_run_days": current_streak_progress(qualifying_dates, today),
-            "run_length_days": 3,
+            **get_daily_streak(user_id, program_timezone),
+            "run_length_days": run_length_days,
         },
         "flash": {
             "active": is_within_a_flash_window(now, flash_windows),
-            "ends_at": (
-                end.isoformat()
-                if (end := _soonest_ending_active_window(now, flash_windows))
-                else None
-            ),
+            "ends_at": end.isoformat()
+            if (end := _soonest_ending_active_window(now, flash_windows))
+            else None,
         },
     }

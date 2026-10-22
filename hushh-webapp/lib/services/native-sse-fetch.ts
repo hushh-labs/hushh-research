@@ -16,7 +16,7 @@
 
 import { Capacitor } from "@capacitor/core";
 
-import { ApiService } from "@/lib/services/api-service";
+import { ApiService, type ApiFetchOptions } from "@/lib/services/api-service";
 import {
   HUSHH_STREAM_EVENT,
   HushhStream,
@@ -98,6 +98,32 @@ function payloadCarriesCode(payload: unknown, code: string, depth = 0): boolean 
   return values.slice(0, 64).some((value) => payloadCarriesCode(value, code, depth + 1));
 }
 
+/**
+ * Response text fragments that mean the vault-owner token itself is invalid,
+ * mirroring `classifyVaultOwnerAuthFailure` in `api-service.ts`. A bare
+ * 401/403 without an explicit `AUTH_VAULT_OWNER_INVALID` code or one of these
+ * markers is an ordinary feature/permission refusal after a valid owner
+ * check (e.g. a disabled connector) and must not clear vault custody.
+ */
+const VAULT_OWNER_INVALID_TEXT_MARKERS = [
+  "token has been revoked",
+  "invalid token",
+  "token validation failed",
+];
+
+function vaultOwnerInvalidTextMarkerPresent(payload: unknown, rawBody: string): boolean {
+  let reason: string | null = null;
+  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+    const record = payload as Record<string, unknown>;
+    reason =
+      (typeof record.error === "string" ? record.error : null) ??
+      (typeof record.detail === "string" ? record.detail : null) ??
+      (typeof record.details === "string" ? record.details : null);
+  }
+  const text = (reason ?? rawBody ?? "").toLowerCase();
+  return VAULT_OWNER_INVALID_TEXT_MARKERS.some((marker) => text.includes(marker));
+}
+
 function snapshotStreamOwner(): StreamOwner {
   const owner = snapshotValidatedAuthSessionOwner();
   return owner ? { ...owner, vaultEpoch: snapshotVaultSessionEpoch() } : null;
@@ -131,7 +157,15 @@ export function streamBridgeErrorCode(status: number, body: string): string {
   // (at most one forced unlock); locking here too would bypass that bound.
   const chatKeyCode = payload ? chatKeyRefusalCode(payload) : null;
   if (chatKeyCode) return chatKeyCode;
-  if (status === 401 || status === 403) return "AUTH_VAULT_OWNER_INVALID";
+  if (status === 401 || status === 403) {
+    if (payload && payloadCarriesCode(payload, "AUTH_VAULT_OWNER_INVALID")) {
+      return "AUTH_VAULT_OWNER_INVALID";
+    }
+    if (vaultOwnerInvalidTextMarkerPresent(payload, body)) {
+      return "AUTH_VAULT_OWNER_INVALID";
+    }
+    return `HUSHH_HTTP_${status}`;
+  }
   return `HUSHH_HTTP_${status}`;
 }
 
@@ -186,7 +220,11 @@ async function readAll(stream: ReadableStream<Uint8Array>): Promise<string> {
  * or absolute; `init` is what a caller would hand to `fetch`, including the
  * `signal` that cancels the native request.
  */
-export async function nativeStreamFetch(path: string, init: RequestInit = {}): Promise<Response> {
+export async function nativeStreamFetch(
+  path: string,
+  init: ApiFetchOptions = {},
+  authFailureHandling: "transport" | "caller" = "transport",
+): Promise<Response> {
   if (!Capacitor.isNativePlatform()) {
     return ApiService.apiFetchStream(path, init);
   }
@@ -268,10 +306,16 @@ export async function nativeStreamFetch(path: string, init: RequestInit = {}): P
 
   let opened: { status: number; headers: Record<string, string> };
   try {
+    if (init.beforeDispatch) await init.beforeDispatch();
+    if (init.isEffectCurrent && init.isEffectCurrent() !== true) {
+      throw new DOMException("The effect session changed.", "AbortError");
+    }
+    signal?.throwIfAborted();
     opened = await HushhStream.open({ streamId, path, method, headers, body });
   } catch (error) {
-    finish(error instanceof Error ? error : new Error(String(error)));
-    throw error instanceof Error ? error : new Error(String(error));
+    const failure = error instanceof Error || error instanceof DOMException ? error : new Error(String(error));
+    finish(failure);
+    throw failure;
   }
 
   const responseHeaders = new Headers();
@@ -285,6 +329,10 @@ export async function nativeStreamFetch(path: string, init: RequestInit = {}): P
   // An error response is small and JSON; drain it so the caller gets the
   // body `fetch` would have given it, and settle the session the same way.
   const text = await readAll(stream).catch(() => "");
-  settleStreamAuthFailure(path, opened.status, text, requestOwner);
+  // ApiService owns both Firebase recovery and vault lifecycle settlement when
+  // it uses this transport. Direct callers retain the transport's HCT handling.
+  if (authFailureHandling === "transport") {
+    settleStreamAuthFailure(path, opened.status, text, requestOwner);
+  }
   return new Response(text, { status: opened.status, headers: responseHeaders });
 }

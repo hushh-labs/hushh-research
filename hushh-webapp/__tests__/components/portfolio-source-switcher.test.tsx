@@ -21,7 +21,7 @@ describe("PortfolioSourceSwitcher", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("tab", { name: "Brokerage" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Brokerage" }));
     expect(onSourceChange).toHaveBeenCalledWith("plaid");
 
     rerender(
@@ -39,8 +39,8 @@ describe("PortfolioSourceSwitcher", () => {
       "aria-busy",
       "true",
     );
-    expect(screen.getByRole("tab", { name: "Statement" })).toBeDisabled();
-    expect(screen.getByRole("tab", { name: "Brokerage" })).toBeDisabled();
+    expect(screen.getByRole("radio", { name: "Statement" })).toBeDisabled();
+    expect(screen.getByRole("radio", { name: "Brokerage" })).toBeDisabled();
 
     rerender(
       <PortfolioSourceSwitcher
@@ -53,9 +53,9 @@ describe("PortfolioSourceSwitcher", () => {
     );
 
     expect(screen.queryByRole("button", { name: "Brokerage" })).toBeNull();
-    // With one viable source there is nothing to switch, so no tabs at all;
+    // With one viable source there is nothing to switch, so no radios at all;
     // the row still names what is in use.
-    expect(screen.queryByRole("tab", { name: "Statement" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: "Statement" })).toBeNull();
     expect(screen.getAllByText("Demo Brokerage · Jul 17").length).toBeGreaterThan(0);
   });
 
@@ -104,7 +104,7 @@ describe("PortfolioSourceSwitcher", () => {
       />,
     );
 
-    expect(screen.getByRole("tab", { name: "Brokerage" })).toBeDisabled();
+    expect(screen.getByRole("radio", { name: "Brokerage" })).toBeDisabled();
     expect(
       screen.getByText("Unlock your Vault to change the active portfolio."),
     ).toBeTruthy();

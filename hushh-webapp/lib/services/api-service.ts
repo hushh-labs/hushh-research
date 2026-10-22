@@ -56,6 +56,7 @@ import type {
 } from "@/lib/observability/events";
 import { resolveRouteId } from "@/lib/observability/route-map";
 import { resolveAppEnvironment } from "@/lib/app-env";
+import { EnterpriseSsoRequestError } from "@/lib/auth/enterprise-sso";
 import { resolveRuntimeBackendUrl } from "@/lib/runtime/settings";
 import { shouldSkipFirstWelcomeForAutomation } from "@/lib/testing/native-test";
 import { sanitizeErrorMessage } from "@/lib/services/error-sanitizer";
@@ -491,6 +492,9 @@ async function classifyVaultOwnerAuthFailure(
  * this only ever bounds a request the proxy itself could not bound.
  */
 const WEB_FETCH_TIMEOUT_MS = 60_000;
+// The Location proposal proxy can take up to 140 s; let its structured
+// response arrive before the browser or native transport gives up.
+const LOCATION_COMMAND_PROPOSAL_FETCH_TIMEOUT_MS = 150_000;
 const KYC_SCAN_WEB_FETCH_TIMEOUT_MS = 95_000;
 const LIVE_GMAIL_RECEIPT_FETCH_TIMEOUT_MS = 80_000;
 
@@ -526,8 +530,11 @@ const ACCOUNT_DELETE_WEB_FETCH_TIMEOUT_MS = 180_000;
 
 export function webFetchTimeoutMsForPath(path: string): number {
   const pathname = path.split("?", 1)[0];
-  if (isLongDriveSharingPath(path)) return 180_000;
-  if (pathname === "/api/account/delete") return ACCOUNT_DELETE_WEB_FETCH_TIMEOUT_MS;
+  if (pathname === "/api/one/agent-chat/proposals") return LOCATION_COMMAND_PROPOSAL_FETCH_TIMEOUT_MS;
+  if (isLongDriveSharingPath(path) || pathname === "/api/one/world-model/source-reviews") return 180_000;
+  if (pathname === "/api/account/delete" || pathname === "/api/account/delete-lost-vault") {
+    return ACCOUNT_DELETE_WEB_FETCH_TIMEOUT_MS;
+  }
   if (isLiveGmailReceiptPath(path)) return LIVE_GMAIL_RECEIPT_FETCH_TIMEOUT_MS;
   return pathname === "/api/one/email/information-requests/scan"
     ? KYC_SCAN_WEB_FETCH_TIMEOUT_MS
@@ -578,17 +585,35 @@ export async function fetchWithWebTimeout(
 }
 
 export type ApiFetchOptions = RequestInit & {
+  /** Native HTTP returns binary bodies as base64; decode them before blob(). */
+  responseType?: "arraybuffer";
   /** Revalidate effect authority after async transport setup, including retries. */
   beforeDispatch?: () => Promise<void>;
   /** Synchronous final check: no await may separate authority from dispatch. */
   isEffectCurrent?: () => boolean;
 };
 
+/** Parse an SSO endpoint response; refusals carry a stable code and a fixed message. */
+async function readEnterpriseSsoResponse<T>(response: Response): Promise<T> {
+  const body = (await response.json().catch(() => null)) as
+    | (T & { detail?: { code?: unknown; message?: unknown } | string })
+    | null;
+  if (response.ok && body) return body;
+  const detail = body && typeof body.detail === "object" ? body.detail : undefined;
+  throw new EnterpriseSsoRequestError(
+    typeof detail?.code === "string" ? detail.code : "sso_unavailable",
+    typeof detail?.message === "string"
+      ? detail.message
+      : "Single sign-on is temporarily unavailable.",
+  );
+}
+
 async function apiFetch(
   path: string,
   options: ApiFetchOptions = {},
+  streaming = false,
 ): Promise<Response> {
-  const { beforeDispatch, isEffectCurrent, ...fetchOptions } = options;
+  const { beforeDispatch, isEffectCurrent, responseType, ...fetchOptions } = options;
   const assertEffectCurrent = () => {
     if (isEffectCurrent && isEffectCurrent() !== true) {
       throw new DOMException("The effect session changed.", "AbortError");
@@ -797,7 +822,7 @@ async function apiFetch(
       return apiFetch(path, {
         ...options,
         headers: retryHeaders,
-      });
+      }, streaming);
     } catch (error) {
       console.warn("[ApiService] Firebase auth refresh failed:", error);
       const code = authSessionInvalidationCodeFromFirebaseError(error);
@@ -897,6 +922,19 @@ async function apiFetch(
         throw new Error("Request aborted");
       }
 
+      if (streaming) {
+        // CapacitorHttp returns a completed body. Keep the shared auth/retry
+        // boundary while the native byte bridge delivers events as they arrive.
+        const { nativeStreamFetch } = await import("./native-sse-fetch");
+        await beforeDispatch?.();
+        assertEffectCurrent();
+        const response = await nativeStreamFetch(url, {
+          ...fetchOptions,
+          headers: mergedHeaders,
+        }, "caller");
+        return await settleAuthenticatedResponse(response);
+      }
+
       const method = (options.method || "GET").toUpperCase();
       // CapacitorHttp has no per-request AbortSignal or default timeout, so a
       // slow backend hangs the native request indefinitely (the web path has
@@ -911,8 +949,10 @@ async function apiFetch(
       // unbounded — keep legitimately-slow uploads/downloads working).
       // Synchronous Drive work, document preparation included, waits as long
       // natively as on the web (webFetchTimeoutMsForPath).
-      const readTimeoutMs = isLongDriveSharingPath(path)
+      const readTimeoutMs = isLongDriveSharingPath(path) || path.split("?", 1)[0] === "/api/one/world-model/source-reviews"
           ? 180_000
+          : path.split("?", 1)[0] === "/api/one/agent-chat/proposals"
+            ? LOCATION_COMMAND_PROPOSAL_FETCH_TIMEOUT_MS
           : isLiveGmailReceiptPath(path)
             ? LIVE_GMAIL_RECEIPT_FETCH_TIMEOUT_MS
           : isLongRunningRoute
@@ -925,6 +965,7 @@ async function apiFetch(
         data?: unknown;
         connectTimeout?: number;
         readTimeout?: number;
+        responseType?: "arraybuffer";
       } = {
         url,
         method,
@@ -934,6 +975,7 @@ async function apiFetch(
         // iOS; Android supports a separate connection timeout.
         connectTimeout: Capacitor.getPlatform() === "ios" ? readTimeoutMs : 15_000,
         readTimeout: readTimeoutMs,
+        ...(responseType ? { responseType } : {}),
       };
 
       if (
@@ -984,10 +1026,10 @@ async function apiFetch(
             responseHeaders.set(key, String(value));
           }
         });
-        const responseBody =
-          typeof nativeResponse.data === "string"
-            ? nativeResponse.data
-            : JSON.stringify(nativeResponse.data ?? null);
+        // Both native adapters parse JSON error bodies before responseType.
+        const responseBody = responseType === "arraybuffer" && typeof nativeResponse.data === "string" && !responseHeaders.get("content-type")?.includes("json")
+          ? Uint8Array.from(atob(nativeResponse.data), char => char.charCodeAt(0))
+          : typeof nativeResponse.data === "string" ? nativeResponse.data : JSON.stringify(nativeResponse.data ?? null);
         return new Response(responseBody, {
           status: nativeResponse.status,
           headers: responseHeaders,
@@ -1083,6 +1125,22 @@ export interface KaiHomeWatchlistItem {
   as_of: string | null;
 }
 
+export interface KaiMarketCompanyFacts {
+  symbol: string;
+  market_cap?: number | null;
+  pe_ratio?: number | null;
+  pb_ratio?: number | null;
+  /** Total debt / equity as a multiple, not a percentage. */
+  debt_to_equity?: number | null;
+  summary?: string | null;
+  financial_period_end?: string | null;
+  ratio_basis?: string | null;
+  source?: string | null;
+  retrieved_at?: string | null;
+  stale?: boolean;
+  unavailable?: boolean;
+}
+
 export interface KaiHomeRenaissanceItem {
   symbol: string;
   input_symbol?: string | null;
@@ -1095,6 +1153,7 @@ export interface KaiHomeRenaissanceItem {
   recommendation_bias?: string | null;
   investment_thesis?: string | null;
   fcf_billions?: number | null;
+  company_facts?: KaiMarketCompanyFacts;
   price: number | null;
   change_pct: number | null;
   volume: number | null;
@@ -1203,6 +1262,11 @@ export interface KaiHomeMovers {
 export interface KaiHomeSectorItem {
   sector: string;
   change_pct: number | null;
+  change_1w_pct?: number | null;
+  period_start_1d?: string | null;
+  period_start_1w?: string | null;
+  period_end?: string | null;
+  basis?: string | null;
   as_of: string | null;
   source_tags: string[];
   degraded: boolean;
@@ -1212,6 +1276,8 @@ export interface KaiHomeNewsItem {
   symbol: string;
   title: string;
   summary?: string | null;
+  image_url?: string | null;
+  image_thumbnail_url?: string | null;
   url: string;
   published_at: string;
   source_name: string;
@@ -1249,10 +1315,16 @@ export interface KaiHomeSignal {
 }
 
 export interface KaiHomeOverviewItem {
+  symbol?: string;
   label: string;
   value: string | number | null;
   delta_pct: number | null;
   as_of: string | null;
+  /** Provider quote time is as_of; retrieval time does not establish freshness. */
+  retrieved_at?: string | null;
+  is_delayed?: boolean;
+  quote_delay_minutes?: number | null;
+  market_state?: "open" | "closed" | null;
   source: string;
   degraded: boolean;
   /**
@@ -1484,7 +1556,7 @@ export class ApiService {
         ...options.headers,
         Accept: "text/event-stream",
       },
-    });
+    }, true);
   }
 
   /**
@@ -1551,7 +1623,7 @@ export class ApiService {
     try {
       const authToken = await this.getFirebaseToken();
       if (!authToken) return closed;
-      const response = await apiFetch("/api/one/voice/readiness", {
+      const response = await apiFetch("/api/one/voice/readiness?playback=1", {
         method: "GET",
         cache: "no-store",
         headers: { Authorization: `Bearer ${authToken}` },
@@ -1649,8 +1721,9 @@ export class ApiService {
     );
   }
 
-  static async listTrustedDevices(): Promise<Response> {
+  static async listTrustedDevices(isCurrentOwner?: () => boolean): Promise<Response> {
     const authToken = await this.getFirebaseToken();
+    if (isCurrentOwner && !isCurrentOwner()) return new Response(null, { status: 409 });
     if (!authToken) {
       return new Response(
         JSON.stringify({ error: "Missing Firebase ID token" }),
@@ -1661,13 +1734,15 @@ export class ApiService {
     }
     return apiFetch("/api/account/trusted-devices", {
       method: "GET",
+      isEffectCurrent: isCurrentOwner,
       headers: { Authorization: `Bearer ${authToken}` },
       cache: "no-store",
     });
   }
 
-  static async revokeTrustedDevice(deviceId: string): Promise<Response> {
+  static async revokeTrustedDevice(deviceId: string, isCurrentOwner?: () => boolean): Promise<Response> {
     const authToken = await this.getFirebaseToken();
+    if (isCurrentOwner && !isCurrentOwner()) return new Response(null, { status: 409 });
     if (!authToken) {
       return new Response(
         JSON.stringify({ error: "Missing Firebase ID token" }),
@@ -1680,6 +1755,7 @@ export class ApiService {
       `/api/account/trusted-devices/${encodeURIComponent(deviceId)}`,
       {
         method: "DELETE",
+        isEffectCurrent: isCurrentOwner,
         headers: { Authorization: `Bearer ${authToken}` },
       },
     );
@@ -1750,6 +1826,43 @@ export class ApiService {
 
   // ==================== Auth ====================
 
+  /** Email login is web-only until native transport/return paths are accepted. */
+  static async emailAuthRequest<T>(action: "capabilities" | "request" | "verify",
+    body?: Record<string, string>): Promise<T> {
+    if (Capacitor.isNativePlatform()) {
+      throw new Error("Email sign-in is currently available in the web app.");
+    }
+    const response = await apiFetch(`/api/auth/email/${action}`, {
+      method: action === "capabilities" ? "GET" : "POST",
+      cache: "no-store",
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    const parsed = await response.json().catch(() => ({}));
+    const payload = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    if (!response.ok || response.status === 202) {
+      const { EmailAuthRequestError } = await import("@/lib/auth/email-auth-contracts");
+      throw new EmailAuthRequestError(
+        typeof payload.error === "string" ? payload.error : "email_auth_unavailable",
+        typeof payload.message === "string" ? payload.message : "Email sign-in is unavailable. Try again.",
+        response.status,
+      );
+    }
+    const opaque = (value: unknown) => typeof value === "string" && value.length >= 20 && value.length <= 4096;
+    const valid = action === "capabilities"
+      ? typeof payload.enabled === "boolean" && typeof payload.microsoft === "boolean"
+      : action === "request"
+        ? payload.status === "accepted" && opaque(payload.challenge_id)
+          && typeof payload.destination === "string" && payload.destination.length <= 254
+          && typeof payload.expires_at === "string" && Number.isFinite(Date.parse(payload.expires_at))
+          && typeof payload.resend_at === "number" && Number.isFinite(payload.resend_at)
+        : payload.status === "authenticated" && opaque(payload.custom_token);
+    if (!valid) {
+      const { EmailAuthRequestError } = await import("@/lib/auth/email-auth-contracts");
+      throw new EmailAuthRequestError("invalid_auth_response", "Restart email sign-in and try again.", 502);
+    }
+    return payload as T;
+  }
+
   /**
    * Create/update session
    */
@@ -1766,6 +1879,42 @@ export class ApiService {
       method: "POST",
       body: JSON.stringify(data),
     });
+  }
+
+  /** Start enterprise SSO for a work email. Resolves the org server-side; no session needed. */
+  static async startEnterpriseSso(email: string): Promise<{
+    authorization_url: string;
+    state: string;
+    organization: { name: string };
+  }> {
+    // The callback must return to the origin the person started on (the app is served on several
+    // hostnames); the backend only honours origins on its allowlist.
+    const origin =
+      typeof window !== "undefined" && window.location.origin.startsWith("http")
+        ? window.location.origin
+        : undefined;
+    // POST with a body: a work email must not travel in a URL.
+    const response = await apiFetch("/api/auth/sso/start", {
+      method: "POST",
+      cache: "no-store",
+      body: JSON.stringify({ email: email.trim(), ...(origin ? { origin } : {}) }),
+    });
+    return readEnterpriseSsoResponse(response);
+  }
+
+  /** Redeem the one-time WorkOS code for a Firebase custom token. */
+  static async exchangeEnterpriseSso(input: { code: string; state: string }): Promise<{
+    custom_token: string;
+    user_id: string;
+    is_new_account: boolean;
+    organization: { name: string };
+  }> {
+    const response = await apiFetch("/api/auth/sso/exchange", {
+      method: "POST",
+      cache: "no-store",
+      body: JSON.stringify(input),
+    });
+    return readEnterpriseSsoResponse(response);
   }
 
   /** Ask the account authority for the first-account welcome; routine sign-ins skip. */
@@ -1790,7 +1939,7 @@ export class ApiService {
 
   static async refreshAccountIdentityShadow(
     idToken?: string,
-    options?: { force?: boolean },
+    options?: { force?: boolean; requireSuccess?: boolean; verifiedPhoneNumber?: string },
   ): Promise<Response> {
     const firebaseIdToken = idToken || (await this.getFirebaseToken());
     if (!firebaseIdToken) {
@@ -1803,7 +1952,9 @@ export class ApiService {
     }
 
     const force = options?.force ?? true;
-    const path = force
+    const path = options?.requireSuccess === true
+      ? "/api/account/identity/refresh?require_success=true"
+      : force
       ? "/api/account/identity/refresh"
       : "/api/account/identity/refresh?force=false";
 
@@ -1812,6 +1963,9 @@ export class ApiService {
       headers: {
         Authorization: `Bearer ${firebaseIdToken}`,
       },
+      ...(options?.verifiedPhoneNumber ? {
+        body: JSON.stringify({ verified_phone_number: options.verifiedPhoneNumber }),
+      } : {}),
     });
   }
 
@@ -1882,6 +2036,7 @@ export class ApiService {
   static async claimAccountPhone(
     phoneIdToken: string,
     idToken?: string,
+    expectedUserId?: string,
   ): Promise<AccountPhoneClaimResponse> {
     const normalizedPhoneIdToken = String(phoneIdToken || "").trim();
     if (!normalizedPhoneIdToken) {
@@ -1900,6 +2055,7 @@ export class ApiService {
       },
       body: JSON.stringify({
         phone_id_token: normalizedPhoneIdToken,
+        expected_user_id: expectedUserId,
       }),
     });
 
@@ -1963,9 +2119,19 @@ export class ApiService {
       };
     }
 
+    if (
+      payload.success !== true ||
+      typeof payload.eligible !== "boolean" ||
+      (payload.eligible && (
+        typeof payload.verification_id !== "string" ||
+        !AuthService.isUatPhoneTestVerificationId(payload.verification_id)
+      ))
+    ) {
+      return { success: false, eligible: false, reason: "uat_phone_test_start_invalid_response" };
+    }
     return {
-      success: payload.success === true,
-      eligible: payload.eligible === true,
+      success: true,
+      eligible: payload.eligible,
       verification_id:
         typeof payload.verification_id === "string"
           ? payload.verification_id
@@ -1979,6 +2145,7 @@ export class ApiService {
     verificationCode: string,
     verificationId: string,
     idToken?: string,
+    expectedUserId?: string,
   ): Promise<AccountPhoneClaimResponse> {
     const firebaseIdToken = idToken || (await this.getFirebaseToken());
     if (!firebaseIdToken) {
@@ -1994,6 +2161,7 @@ export class ApiService {
         phone_number: phoneNumber,
         verification_code: verificationCode,
         verification_id: verificationId,
+        expected_user_id: expectedUserId,
       }),
     });
 
@@ -2535,7 +2703,15 @@ export class ApiService {
     token: string,
     platform: "web" | "ios" | "android",
     idToken: string,
+    isCurrent?: () => boolean,
   ): Promise<Response> {
+    if (isCurrent && !isCurrent()) throw new Error("Notification session changed");
+    const { prepareNotificationDevice, notificationDeviceId, activeNotificationKeyId } = await import("@/lib/notifications/preview-keys");
+    if (isCurrent && !isCurrent()) throw new Error("Notification session changed");
+    let device: { deviceId: string; keyId?: string; publicKey?: string };
+    try { device = await prepareNotificationDevice(userId); }
+    catch { device = { deviceId: await notificationDeviceId() }; }
+    if (isCurrent && !isCurrent() || device.keyId && activeNotificationKeyId() !== device.keyId) throw new Error("Notification session changed");
     if (Capacitor.isNativePlatform()) {
       try {
         const backendUrl = this.getDirectBackendUrl();
@@ -2545,8 +2721,11 @@ export class ApiService {
           platform,
           idToken,
           backendUrl,
+          deviceId: device.deviceId,
+          previewKeyId: device.keyId,
+          previewPublicKey: device.publicKey,
         });
-        return new Response(JSON.stringify(result), {
+        return new Response(JSON.stringify({ ...result, chatReady: Boolean(device.keyId && device.publicKey) }), {
           status: result.success ? 200 : 500,
           headers: { "Content-Type": "application/json" },
         });
@@ -2567,6 +2746,9 @@ export class ApiService {
         user_id: userId,
         token,
         platform,
+        device_id: device.deviceId,
+        preview_key_id: device.keyId,
+        preview_public_key: device.publicKey,
       }),
     });
   }
@@ -2580,6 +2762,7 @@ export class ApiService {
     idToken: string,
     platform?: "web" | "ios" | "android",
     signal?: AbortSignal,
+    deviceId?: string,
   ): Promise<Response> {
     if (Capacitor.isNativePlatform()) {
       try {
@@ -2589,6 +2772,7 @@ export class ApiService {
           idToken,
           ...(platform ? { platform } : {}),
           backendUrl,
+          deviceId,
         });
         return new Response(JSON.stringify(result), {
           status: result.success ? 200 : 500,
@@ -2612,6 +2796,7 @@ export class ApiService {
       body: JSON.stringify({
         user_id: userId,
         ...(platform ? { platform } : {}),
+        ...(deviceId ? { device_id: deviceId } : {}),
       }),
     });
   }
@@ -2891,6 +3076,12 @@ export class ApiService {
   /** Public accessor for callers outside this class (voice session tickets). */
   static async getFirebaseIdToken(): Promise<string | undefined> {
     return this.getFirebaseToken();
+  }
+
+  /** Correlate a token with the initiating owner; the backend verifies it. */
+  static async getFirebaseIdTokenForOwner(userId: string): Promise<string | undefined> {
+    const token = await this.getFirebaseToken();
+    return token && decodeFirebaseTokenSubject(token) === userId ? token : undefined;
   }
 
   private static async getFirebaseToken(): Promise<string | undefined> {
@@ -3878,6 +4069,32 @@ export class ApiService {
   /**
    * Fetch baseline market insights for Kai home without requiring vault access.
    */
+  static async getKaiMarketCompanyFacts(data: {
+    userId: string;
+    symbols: string[];
+    signal?: AbortSignal;
+  }): Promise<Record<string, KaiMarketCompanyFacts>> {
+    const authToken = await this.getFirebaseToken();
+    if (!authToken) throw new Error("Missing authentication for company facts");
+    const unique = [...new Set(data.symbols)].slice(0, 24);
+    const chunks = Array.from({ length: Math.ceil(unique.length / 8) }, (_, index) => unique.slice(index * 8, index * 8 + 8));
+    const results = await Promise.allSettled(chunks.map(async (symbols) => {
+      const query = new URLSearchParams({ symbols: symbols.join(",") });
+      const response = await apiFetch(`/api/kai/market/company-facts/${data.userId}?${query}`, {
+        method: "GET", signal: data.signal,
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!response.ok) throw new Error(`Company facts unavailable: ${response.status}`);
+      return (await response.json()).facts as Record<string, KaiMarketCompanyFacts>;
+    }));
+    const facts: Record<string, KaiMarketCompanyFacts> = {};
+    results.forEach((result, index) => {
+      if (result.status === "fulfilled") Object.assign(facts, result.value);
+      else for (const symbol of chunks[index] ?? []) facts[symbol] = { symbol, unavailable: true };
+    });
+    return facts;
+  }
+
   static async getKaiMarketBaselineInsights(data: {
     userId: string;
     daysBack?: number;

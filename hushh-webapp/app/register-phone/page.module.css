@@ -1,570 +1,193 @@
-/*
- * Phone verification layout matching Figma iPhone spec.
- * Supports light & dark themes seamlessly.
- */
-
 .shell {
+  --phone-safe-top: max(env(safe-area-inset-top, 0px), var(--app-safe-area-top-effective, 0px));
+  --phone-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--app-safe-area-bottom-effective, 0px));
+  --phone-keyboard-inset: 0px;
+  --phone-text: #1d1d1f;
+  --phone-muted: #6e6e73;
+  --phone-bg: #fff;
+  --phone-field: #f8f9fb;
+  --phone-line: #d9dde6;
+  --phone-soft: #f5f5f7;
   position: relative;
-  block-size: 100dvh;
-  min-block-size: 100svh;
-  inline-size: 100%;
-  overflow: hidden;
-  background: #ffffff;
-  color: #17130c;
   isolation: isolate;
-}
-
-:global(.dark) .shell {
-  background: #000000;
-  color: #f2f2f7;
-}
-
-.composition {
-  position: relative;
-  block-size: 100%;
-  min-block-size: 100%;
-  inline-size: 100%;
-  max-inline-size: 440px;
-  margin-inline: auto;
-  overflow: hidden;
-}
-
-.topBar {
-  position: absolute;
-  inset-inline: clamp(16px, 5vw, 24px);
-  top: calc(var(--app-safe-area-top-effective, 0px) + 13px);
-  z-index: 20;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.backButton,
-.accountButton {
-  display: grid;
-  block-size: 40px;
-  inline-size: 40px;
-  place-items: center;
-  border: 0;
-  border-radius: 9999px;
-  background: rgba(0, 0, 0, 0.05);
-  color: #1d1d1f;
-  box-shadow: none;
-}
-
-:global(.dark) .backButton,
-:global(.dark) .accountButton {
-  background: #1c1c1e;
-  color: rgba(255, 255, 255, 0.96);
-}
-
-.backButton:focus-visible,
-.accountButton:focus-visible {
-  outline: 2px solid var(--app-accent);
-  outline-offset: 2px;
-}
-
-.hero {
-  position: relative;
-  margin-inline: auto;
-  display: block;
-  block-size: auto !important;
-  inline-size: min(357px, calc(100% - 44px)) !important;
-  max-inline-size: none;
-  aspect-ratio: 357 / 238 !important;
-}
-
-.hero :global(img) {
-  block-size: 100%;
-  inline-size: 100%;
-  object-fit: contain;
-}
-
-.title {
-  position: relative;
-  z-index: 2;
-  margin: 0;
-  padding-inline: 16px;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
-  font-size: clamp(23px, 6.716vw, 27px);
-  font-weight: 700;
-  letter-spacing: -0.7px;
-  line-height: 32px;
-  text-align: center;
-}
-
-.inputRegion {
-  position: relative;
-  z-index: 5;
+  width: 100%;
+  block-size: calc(100dvh - var(--app-scroll-bottom-pad, 0px) - var(--phone-keyboard-inset));
+  min-block-size: calc(100svh - var(--app-scroll-bottom-pad, 0px) - var(--phone-keyboard-inset));
   overflow-x: hidden;
   overflow-y: auto;
-  overscroll-behavior: contain;
-  padding-inline: clamp(20px, 7.214vw, 29px);
-  padding-block-start: 16px;
-  padding-block-end: max(24px, calc(16px + var(--app-safe-area-bottom-effective, 0px)));
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-}
-
-.inputRegion::-webkit-scrollbar {
-  display: none;
-}
-
-.phoneForm {
-  inline-size: 100%;
-}
-
-/* Field geometry mirrors Figma measurements */
-.phoneForm :global([data-slot="field-set"]) {
-  gap: clamp(20px, 5.5vw, 28px) !important;
-}
-
-.phoneForm :global([data-slot="field-group"]) {
-  gap: clamp(9px, 2.736vw, 11px) !important;
-}
-
-.phoneForm :global([data-slot="field"]) {
-  gap: clamp(9px, 2.736vw, 11px) !important;
-}
-
-.phoneForm :global([data-slot="field-label"]) {
-  margin: 0;
-  padding-inline-start: clamp(9px, 2.736vw, 11px);
-  color: #8e8e93 !important;
-  font-family: var(--font-app-body) !important;
-  font-size: 13px !important;
-  font-weight: 590 !important;
-  letter-spacing: 0 !important;
-  line-height: 16px !important;
-}
-
-.phoneForm :global([data-slot="input-group"]) {
-  block-size: 56px !important;
-  min-block-size: 56px;
-  border: 1px solid rgba(0, 0, 0, 0.08) !important;
-  border-radius: 16px !important;
-  background: #f4f4f6 !important;
-  box-shadow: none !important;
-}
-
-:global(.dark) .phoneForm :global([data-slot="input-group"]) {
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
-  background: #1c1c1e !important;
-}
-
-.phoneForm :global([data-slot="input-group-control"]) {
-  block-size: 56px !important;
-  min-block-size: 56px;
-  padding-inline: 16px !important;
-  color: #17130c !important;
-  font-family: var(--font-app-body) !important;
-  font-size: 17px !important;
-  font-weight: 400 !important;
-  letter-spacing: -0.43px !important;
-  line-height: 22px !important;
-}
-
-:global(.dark) .phoneForm :global([data-slot="input-group-control"]) {
-  color: #f2f2f7 !important;
-}
-
-.phoneForm :global([data-slot="input-group"] > span[aria-hidden="true"]) {
-  inset-inline-start: 22px !important;
-  gap: 8px !important;
-  color: #17130c !important;
+  overscroll-behavior-y: contain;
+  scroll-padding-block: calc(var(--phone-safe-top) + 68px) calc(var(--phone-safe-bottom) + 24px);
+  background: var(--phone-bg);
+  color: var(--phone-text);
   font-family: var(--font-app-body);
-  font-size: 17px !important;
-  letter-spacing: -0.43px;
-  line-height: 22px !important;
+  -webkit-overflow-scrolling: touch;
 }
-
-:global(.dark) .phoneForm :global([data-slot="input-group"] > span[aria-hidden="true"]) {
-  color: #f2f2f7 !important;
+:global(html.dark) .shell {
+  color-scheme: dark;
+  --phone-text: #f5f5f7;
+  --phone-muted: #a5a7af;
+  --phone-bg: #101114;
+  --phone-field: #202127;
+  --phone-line: #393c47;
+  --phone-soft: #202127;
 }
-
-.primaryAction {
-  block-size: 56px !important;
-  min-block-size: 56px !important;
-  inline-size: 100% !important;
-  max-inline-size: 344px !important;
-  margin-inline: auto !important;
-  padding-inline: 16px !important;
-  border-radius: 9999px !important;
-  background: var(--app-accent) !important;
-  color: #ffffff !important;
-  font-family: var(--font-app-body) !important;
-  font-size: 17px !important;
-  font-weight: 600 !important;
-  letter-spacing: -0.2px !important;
-  line-height: 22px !important;
-  transition: opacity 0.12s ease !important;
-}
-
-.primaryAction:hover {
-  opacity: 0.92 !important;
-}
-
-.primaryAction:active {
-  opacity: 0.84 !important;
-}
-
-.phoneForm :global([data-slot="field-set"]) > :global(p) {
-  margin-block: 0;
-}
-
-.recaptcha {
-  display: none;
-}
-
-.existingBackdrop,
-.existingBurst {
-  display: contents;
-}
-
-.hushhVisual,
-.figmaBackGlyph {
-  display: none;
-}
-
-/* Refine only the light phone-entry step. OTP and linked-phone surfaces keep
-   their existing composition and the same mounted verification flow. */
-:global(html:not(.dark)) .refinedScreen {
-  --phone-safe-top: max(env(safe-area-inset-top, 0px), var(--app-safe-area-top-effective, 0px));
-  --phone-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--app-safe-area-bottom-effective, 0px));
-  --phone-font: var(--font-app-body);
-  --phone-keyboard-inset: 0px;
-  height: calc(100dvh - var(--app-scroll-bottom-pad, 0px) - var(--phone-keyboard-inset)) !important;
-  min-height: calc(100svh - var(--app-scroll-bottom-pad, 0px) - var(--phone-keyboard-inset)) !important;
-  overflow-y: auto !important;
-  overflow-x: hidden;
-  scroll-padding-block: calc(var(--phone-safe-top) + 68px) calc(var(--phone-safe-bottom) + 24px);
-  background: #f6f5fc;
-}
-
-/* Mobile web already resizes its dynamic viewport; subtract the bridge inset
-   only in Capacitor, whose Keyboard.resize is intentionally "none". */
-:global(html.native-keyboard-inset:not(.dark)) .refinedScreen {
-  --phone-keyboard-inset: var(--kb-height, 0px);
-}
-
-:global(html:not(.dark)) .refinedScreen .existingBackdrop,
-:global(html:not(.dark)) .refinedScreen .existingBurst {
-  display: none;
-}
-
-:global(html:not(.dark)) .refinedScreen .safeBack,
-:global(html:not(.dark)) .refinedScreen .safeAccount {
-  top: calc(var(--phone-safe-top) + 12px);
-}
-
-:global(html:not(.dark)) .refinedScreen .safeBack {
-  left: max(16px, env(safe-area-inset-left, 0px));
-  width: 44px;
-  height: 44px;
-  border-radius: 100px;
-  border: 0;
-  box-shadow: none;
-  background: #fcfbfe;
-}
-
-:global(html:not(.dark)) .refinedScreen .originalBackGlyph {
-  display: block;
-}
-
-:global(html:not(.dark)) .refinedScreen .figmaBackGlyph {
-  display: none;
-}
-
-:global(html:not(.dark)) .refinedScreen .safeAccount {
-  right: max(16px, env(safe-area-inset-right, 0px));
-}
-
-:global(html:not(.dark)) .refinedScreen .accountControl {
-  width: 44px;
-  height: 44px;
-}
-
-:global(html:not(.dark)) .refinedScreen [data-phone-mandate-input-region] {
-  max-width: none;
-}
-
-:global(html:not(.dark)) .refinedScreen [data-figma-phone-field] {
-  gap: 8px !important;
-}
-
-:global(html:not(.dark)) .refinedScreen [data-figma-phone-field] [data-slot="field-label"] {
-  padding-inline-start: 0;
-}
-
-/* Suppress an empty optional helper so it cannot create an extra section gap. */
-:global(html:not(.dark)) .refinedScreen [data-figma-phone-helper]:empty {
-  display: none;
-}
-
-:global(html:not(.dark)) .refinedScreen [data-figma-phone-primary] {
-  max-inline-size: none !important;
-}
-
-:global(html:not(.dark)) .refinedScreen input {
-  scroll-margin-block: 80px;
-}
-
-/* Dark phone entry reuses the verified light flow metrics. */
-:global(html.dark) .refinedScreen {
-  --phone-safe-top: max(env(safe-area-inset-top, 0px), var(--app-safe-area-top-effective, 0px));
-  --phone-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--app-safe-area-bottom-effective, 0px));
-  --phone-font: var(--font-app-body);
-  --phone-keyboard-inset: 0px;
-  height: calc(100dvh - var(--app-scroll-bottom-pad, 0px) - var(--phone-keyboard-inset)) !important;
-  min-height: calc(100svh - var(--app-scroll-bottom-pad, 0px) - var(--phone-keyboard-inset)) !important;
-  overflow-y: auto !important;
-  overflow-x: hidden;
-  scroll-padding-block: calc(var(--phone-safe-top) + 68px) calc(var(--phone-safe-bottom) + 24px);
-  background: #000;
-}
-
-/* Mobile web already resizes its dynamic viewport; subtract the bridge inset
-   only in Capacitor, whose Keyboard.resize is intentionally "none". */
-:global(html.native-keyboard-inset.dark) .refinedScreen {
-  --phone-keyboard-inset: var(--kb-height, 0px);
-}
-
-:global(html.dark) .refinedScreen .existingBackdrop,
-:global(html.dark) .refinedScreen .existingBurst {
-  display: none;
-}
-
-:global(html.dark) .refinedScreen .safeBack,
-:global(html.dark) .refinedScreen .safeAccount {
-  top: calc(var(--phone-safe-top) + 12px);
-}
-
-:global(html.dark) .refinedScreen .safeBack {
-  left: max(16px, env(safe-area-inset-left, 0px));
-  width: 44px;
-  height: 44px;
-  border-radius: 100px;
-  border: 0;
-  box-shadow: none;
-  background: #111;
-}
-
-:global(html.dark) .refinedScreen .originalBackGlyph {
-  display: block;
-}
-
-:global(html.dark) .refinedScreen .figmaBackGlyph {
-  display: none;
-}
-
-:global(html.dark) .refinedScreen .safeAccount {
-  right: max(16px, env(safe-area-inset-right, 0px));
-}
-
-:global(html.dark) .refinedScreen .accountControl {
-  width: 44px;
-  height: 44px;
-}
-
-:global(html.dark) .refinedScreen [data-phone-mandate-input-region] {
-  max-width: none;
-}
-
-:global(html.dark) .refinedScreen [data-figma-phone-field] {
-  gap: 8px !important;
-}
-
-:global(html.dark) .refinedScreen [data-figma-phone-field] [data-slot="field-label"] {
-  padding-inline-start: 0;
-}
-
-/* Suppress an empty optional helper so it cannot create an extra section gap. */
-:global(html.dark) .refinedScreen [data-figma-phone-helper]:empty {
-  display: none;
-}
-
-:global(html.dark) .refinedScreen [data-figma-phone-primary] {
-  max-inline-size: none !important;
-}
-
-:global(html.dark) .refinedScreen input {
-  scroll-margin-block: 80px;
-}
-
-:global(html.dark) .refinedScreen [data-slot="input-group"] { background: #1c1c1e !important; border: 0 !important; }
-
-/* Code entry uses the shared flow; backgrounds and fixed controls stay owned
-   by the existing route. Only this step receives the reference composition. */
-.codeScreen {
-  overflow-y: auto;
-  scroll-padding-top: 72px;
-}
-.codeScreen .flowContent {
-  height: auto !important;
-  min-height: 100% !important;
-  justify-content: flex-start;
-  padding: calc(max(var(--app-safe-area-top-effective, 0px), env(safe-area-inset-top, 0px)) + 66px) 16px max(24px, var(--app-safe-area-bottom-effective, 0px));
-}
-.codeScreen .flowStack { padding: 0; gap: 18px; }
-.codeScreen .flowHeading { gap: 22px; }
-.codeIcon {
+/* Capacitor keeps the WKWebView frame fixed. The shared keyboard manager
+   publishes its actual overlap; both phone and OTP need the same scroll area. */
+:global(html.native-keyboard-inset) .shell { --phone-keyboard-inset: var(--kb-height, 0px); }
+.backButton, .accountButton {
+  position: fixed;
+  z-index: 50;
+  top: calc(var(--phone-safe-top) + 14px);
   display: grid;
   place-items: center;
-  flex: none;
-  width: 80px;
-  height: 100px;
-  user-select: none;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--phone-soft);
+  color: var(--phone-muted);
+  touch-action: manipulation;
 }
-.codeMark {
-  width: 64px;
-  height: 64px;
+.backButton { left: max(18px, env(safe-area-inset-left, 0px)); }
+.accountActions { position: fixed; z-index: 50; top: calc(var(--phone-safe-top) + 14px); right: max(18px, env(safe-area-inset-right, 0px)); }
+.accountButton { position: static; }
+.backButton:hover, .accountButton:hover { background: var(--phone-line); color: var(--phone-text); }
+.backButton:focus-visible, .accountButton:focus-visible, .shell button:focus-visible { outline: 3px solid #0071e3; outline-offset: 3px; }
+.surface {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(15px, 3svh, 23px);
+  width: 100%;
+  max-width: 480px;
+  min-height: 100%;
+  margin-inline: auto;
+  padding: max(74px, calc(var(--phone-safe-top) + 68px)) 24px max(26px, var(--phone-safe-bottom));
 }
-.codeScreen .flowTitle {
-  font-size: clamp(27px, 7.5vw, 32px);
-  font-weight: 600;
-  line-height: 1.2;
-  letter-spacing: -0.8px;
-  white-space: normal;
-}
-.codeScreen [data-phone-mandate-input-region] { max-width: none; }
-.codeScreen [data-slot="field-set"] { gap: 24px !important; }
-.codeScreen [data-figma-otp-intro] { font-size: 13px; line-height: 20px; }
-.codeScreen [data-figma-otp-intro] > span { font-weight: 400; color: inherit; }
-.codeScreen [data-figma-otp-field] > label {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-.codeScreen [data-figma-otp-field] > div > div { gap: 5px; }
-.codeScreen [data-figma-otp-field] > div > div > div {
-  min-width: 0;
-  height: 52px;
-  border-radius: 18px;
-  font-weight: 500;
-}
-.codeScreen [data-figma-otp-actions] {
-  /* Keep the other field gaps at 24px; these two actions sit 12px apart. */
-  margin-top: -12px;
-  padding-top: 0;
-}
-.codeScreen [data-figma-otp-actions] button {
-  color: var(--app-accent-deep);
-  font-size: 17px;
-  min-height: 44px;
-}
-
-.codeScreen [data-figma-otp-field][data-invalid="true"] > div > div > div {
-  border: 2px solid var(--destructive);
-  box-shadow: none;
-}
-
-/* Phone entry: one shared, safe-area-aware composition for both themes. */
-.refinedScreen .flowContent {
-  height: auto !important;
-  min-height: 100% !important;
-  max-width: 402px;
-  justify-content: flex-start;
-  padding: calc(var(--phone-safe-top) + 72px) 16px calc(var(--phone-safe-bottom) + 32px);
-}
-.refinedScreen .flowStack { gap: 26px; padding: 0; }
-.refinedScreen .flowHeading { gap: 24px; }
-.refinedScreen .hushhVisual {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 64px;
-  height: 64px;
-  user-select: none;
-}
-.refinedScreen .hushhVisualMark {
-  width: 56px;
-  height: 56px;
-}
-.refinedScreen .flowTitle {
+.content { width: 100%; max-width: 374px; min-width: 0; flex: 0 0 auto; }
+.shell .content h1 {
   --foundation-title1-size: 30px;
   --foundation-title1-line: 36px;
   --foundation-title1-weight: 600;
-  --foundation-title1-tracking: -0.8px;
+  --foundation-title1-tracking: -.042em;
   margin: 0;
-  width: 100%;
-  font-family: var(--phone-font);
-  font-size: 30px;
-  font-weight: 600;
-  line-height: 36px;
-  letter-spacing: -0.8px;
-  white-space: normal;
+  color: var(--phone-text);
+  font-family: var(--font-app-display);
+  font-size: 30px !important;
+  font-weight: 600 !important;
+  line-height: 36px !important;
+  letter-spacing: -.042em !important;
+  text-align: center;
   text-wrap: balance;
 }
-.refinedScreen [data-figma-phone-step="phone"] [data-slot="field-set"] { gap: 16px !important; }
-.refinedScreen [data-figma-phone-fields] {
-  display: grid;
-  grid-template-columns: 108px minmax(0, 1fr);
-  align-items: start;
-  gap: 8px !important;
+.inputRegion { width: 100%; margin-top: 27px; }
+.phoneForm { width: 100%; }
+.phoneForm :global([data-slot="field-set"]) { gap: 0 !important; }
+.phoneForm :global([data-figma-phone-fields]) { display: grid; grid-template-columns: minmax(102px, 114px) minmax(0, 1fr); align-items: start; gap: 10px !important; }
+.phoneForm :global([data-figma-phone-field]) { min-width: 0; gap: 0 !important; }
+.phoneForm :global([data-figma-phone-field] [data-slot="field-label"]),
+.phoneForm :global([data-figma-otp-field] > label) {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
 }
-.refinedScreen [data-figma-phone-field] { min-width: 0; }
-.refinedScreen [data-figma-phone-field] [data-slot="field-label"] {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
+.phoneForm :global(#phone-flow-country),
+.phoneForm :global([data-slot="input-group"]) {
+  width: 100%; height: 52px !important; min-height: 52px !important;
+  border: 1px solid var(--phone-line) !important; border-radius: 15px !important;
+  background: var(--phone-field) !important; box-shadow: none !important;
+  color: var(--phone-text); font-family: var(--font-app-body); font-size: 15px;
 }
-.refinedScreen [data-slot="input-group"] {
-  height: 54px !important;
-  min-height: 54px;
-  block-size: 54px !important;
-  min-block-size: 54px;
-  border-radius: 20px !important;
+.phoneForm :global(#phone-flow-country) { padding-inline: 12px; font-weight: 600; }
+.phoneForm :global([data-slot="input-group-control"]) {
+  width: 100%; height: 52px !important; min-height: 52px !important; padding: 0 15px !important;
+  border: 0 !important; background: transparent !important; color: var(--phone-text) !important;
+  font-family: var(--font-app-body) !important; font-size: 16px !important; font-weight: 400 !important;
+  line-height: 21px !important; box-shadow: none !important;
 }
-.refinedScreen [data-slot="input-group-control"] {
-  height: 54px !important;
-  min-height: 54px;
-  block-size: 54px !important;
-  min-block-size: 54px;
-  padding-inline: 14px !important;
-  font-size: 18px !important;
+.phoneForm :global([data-slot="input-group-control"]::placeholder) { color: var(--phone-muted); opacity: 1; }
+.phoneForm :global([data-slot="input-group"]:is(:hover, :focus-within)) {
+  border-color: var(--app-accent-border) !important;
+  background: color-mix(in oklab, var(--app-accent) 8%, var(--phone-field)) !important;
 }
-.refinedScreen [data-slot="input-group"] > span[aria-hidden="true"] {
-  inset-inline-start: 12px !important;
-  max-width: calc(100% - 30px);
-  gap: 5px !important;
-  font-size: 16px !important;
+.phoneForm :global([data-slot="input-group"]:focus-within) { box-shadow: 0 0 0 2px var(--app-focus-ring) !important; }
+.phoneForm :global([data-figma-phone-helper]) {
+  margin: 14px 0 17px; color: var(--phone-muted) !important; font-family: var(--font-app-body);
+  font-size: 13px !important; font-weight: 400; line-height: 20px !important; letter-spacing: -.005em;
 }
-.refinedScreen [data-slot="input-group"]:focus-within {
-  outline: 1.5px solid var(--app-accent);
-  outline-offset: -1.5px;
+.learnMore { display: inline; padding: 0; border: 0; background: none; color: #0071e3; font: inherit; font-weight: 500; }
+.learnMore:hover { text-decoration: underline; text-underline-offset: 3px; }
+.primaryAction,
+.phoneForm :global([data-figma-phone-primary]),
+.phoneForm :global([data-figma-otp-primary]) {
+  width: 100% !important; max-width: none !important; height: 52px !important; min-height: 52px !important;
+  padding: 11px 18px !important; border: 0 !important; border-radius: 999px !important;
+  background: #0071e3 !important; color: #fff !important; font-family: var(--font-app-body) !important;
+  font-size: 17px !important; font-weight: 600 !important; line-height: 24px !important;
+  letter-spacing: -.01em !important; box-shadow: none !important;
 }
-.refinedScreen [data-figma-phone-helper] {
-  --type-helper-text-size: 13px;
-  --type-helper-text-line: 20px;
-  --type-helper-text-tracking: 0;
-  padding-inline: 0;
-  font-size: 13px;
-  font-weight: 400;
-  line-height: 20px;
-  letter-spacing: 0;
+.phoneForm :global([data-figma-phone-primary] *),
+.phoneForm :global([data-figma-otp-primary] *) { color: inherit !important; font-weight: 600 !important; }
+.phoneForm :global([data-figma-otp-primary]:disabled) { background: #d2e5f9 !important; color: #9bb1cd !important; opacity: 1 !important; }
+:global(html.dark) .phoneForm :global([data-figma-otp-primary]:disabled) { background: #17467c !important; color: #809ab7 !important; }
+.phoneForm :global([data-figma-phone-field="number"][data-invalid="true"] [data-slot="input-group"]) { border-color: var(--destructive) !important; }
+.phoneForm :global([data-slot="field-error"]),
+.phoneForm :global(#phone-flow-code-error) { margin-top: 8px; color: var(--destructive) !important; font-size: 13px; line-height: 20px; }
+.phoneForm :global([data-figma-otp-intro]) {
+  margin: -14px 0 19px; color: var(--phone-muted) !important; font-family: var(--font-app-body);
+  font-size: 14px !important; line-height: 21px !important; text-align: center; text-wrap: pretty;
 }
-.learnMore { color: var(--app-accent-deep); }
-.learnMore:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 3px; }
-
-/* Validation stays distinct from consent/helper copy in both themes. */
-.refinedScreen [data-figma-phone-field="number"][data-invalid="true"] [data-slot="input-group"] {
-  border: 1px solid var(--destructive) !important;
-  outline: none;
-  box-shadow: none;
+.phoneForm :global([data-figma-otp-intro] > span) { color: var(--phone-text) !important; font-weight: 600; white-space: nowrap; }
+.phoneForm :global([data-figma-otp-intro] button) { color: #0071e3 !important; font: inherit; font-weight: 500; }
+.phoneForm :global([data-figma-otp-field]) { margin-bottom: 18px; gap: 0 !important; }
+.phoneForm :global([data-figma-otp-field] > div) { height: 58px; }
+.phoneForm :global([data-otp-cells]) { height: 58px; gap: 7px !important; }
+.phoneForm :global([data-otp-cells] > div) {
+  min-width: 0; height: 58px; border: 1px solid var(--phone-line) !important;
+  border-radius: 14px !important; background: var(--phone-field) !important; box-shadow: none !important;
+  color: var(--phone-text) !important; font-family: var(--font-app-body); font-size: 22px; font-weight: 600;
 }
-.refinedScreen [data-slot="field-error"] {
-  color: var(--destructive) !important;
-  font-size: 13px;
-  line-height: 20px;
-  text-align: left;
+.phoneForm :global([data-figma-otp-field]:focus-within [data-otp-cells] > [data-current="true"]) { border: 2px solid #0071e3 !important; box-shadow: 0 0 0 3px #0071e328 !important; }
+.phoneForm :global([data-figma-otp-field][data-invalid="true"] [data-otp-cells] > div) { border-color: var(--destructive) !important; }
+.phoneForm :global(#phone-flow-code) { font-size: 22px; scroll-margin-block: 80px; }
+.phoneForm :global([data-figma-otp-actions]) { display: flex; justify-content: center; margin-top: 10px; padding: 0; }
+.phoneForm :global([data-figma-otp-actions] button) { min-height: 44px; color: #0071e3 !important; font-family: var(--font-app-body); font-size: 14px; font-weight: 500; }
+.recaptcha { display: none; }
+@media (max-width: 355px) {
+  .surface { padding-inline: 18px; }
+  .shell .content h1 { --foundation-title1-size: 28px; --foundation-title1-line: 34px; font-size: 28px !important; line-height: 34px !important; }
+  .inputRegion { margin-top: 19px; }
+  .phoneForm :global([data-figma-phone-fields]) { grid-template-columns: 100px minmax(0, 1fr); gap: 8px !important; }
+  .phoneForm :global(#phone-flow-country) { padding-inline: 9px; }
+  .phoneForm :global([data-slot="input-group-control"]) { padding-inline: 11px !important; }
+  .phoneForm :global([data-otp-cells]) { gap: 6px !important; }
+  .phoneForm :global([data-otp-cells] > div) { border-radius: 11px !important; }
 }
-.refinedScreen .safeBack,
-.refinedScreen .accountControl {
-  color: var(--foreground);
+@media (min-width: 800px) {
+  .surface { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); align-items: center; justify-content: center; gap: clamp(36px, 6vw, 90px); max-width: 1160px; padding: 70px 44px; }
+  .content { max-width: 410px; justify-self: start; }
+  .shell .content h1 { --foundation-title1-size: 42px; --foundation-title1-line: 48px; --foundation-title1-tracking: -.048em; font-size: 42px !important; line-height: 48px !important; letter-spacing: -.048em !important; text-align: left; }
+  .inputRegion { margin-top: 31px; }
+  .shell[data-phone-step="code"] .inputRegion { margin-top: 23px; }
+  .phoneForm :global([data-figma-phone-fields]) { grid-template-columns: minmax(110px, 122px) minmax(0, 1fr); gap: 12px !important; }
+  .phoneForm :global([data-figma-phone-helper]) { margin: 17px 0 19px; font-size: 14px !important; line-height: 22px !important; }
+  .phoneForm :global([data-figma-otp-intro]) { margin: 0 0 22px; text-align: left; font-size: 15px !important; line-height: 23px !important; }
+  .phoneForm :global([data-figma-otp-field]), .phoneForm :global([data-figma-otp-field] > div), .phoneForm :global([data-otp-cells]), .phoneForm :global([data-otp-cells] > div) { height: 60px; }
+  .accountActions { top: 26px; right: 32px; }
+  .backButton { top: 26px; left: 32px; }
 }
+@media (max-height: 690px) {
+  .surface { gap: 8px; padding-top: max(66px, calc(var(--phone-safe-top) + 58px)); padding-bottom: 16px; }
+  .inputRegion { margin-top: 13px; }
+  .phoneForm :global([data-figma-phone-helper]) { margin: 10px 0 13px; }
+  .phoneForm :global([data-figma-otp-intro]) { margin-bottom: 11px; }
+  .phoneForm :global([data-figma-otp-field]) { margin-bottom: 11px; }
+}
+@media (min-width: 800px) and (max-height: 690px) { .surface { gap: 28px; padding-block: 38px; } .inputRegion { margin-top: 17px; } }
+/* A visible keyboard gets the whole form area. On very short iPhones the
+   scrollable shell still lets the code and Confirm button reach the viewport. */
+@media (max-width: 799px) {
+  :global(html.kb-open) .surface { justify-content: flex-start; gap: 0; }
+  :global(html.kb-open) .surface > :first-child { display: none; }
+  :global(html.kb-open) .backButton, :global(html.kb-open) .accountActions { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .shell *, .shell *::before, .shell *::after { animation: none !important; transition: none !important; } }

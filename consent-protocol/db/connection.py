@@ -39,6 +39,7 @@ import asyncio
 import hashlib
 import logging
 import os
+from contextlib import asynccontextmanager
 from typing import Any, Optional
 from urllib.parse import quote_plus
 
@@ -441,6 +442,45 @@ def get_database_ssl():
 def _get_database_url() -> str:
     """Internal alias for get_database_url (used by get_pool)."""
     return get_database_url()
+
+
+@asynccontextmanager
+async def dedicated_connection():
+    """Use a separate connection for long-lived session-scoped database locks.
+
+    A provider call made while holding an advisory lock must not reserve one of
+    the request pool's limited connections. The caller owns the lock lifetime;
+    this context always closes the dedicated connection and releases its locks.
+    """
+    if _is_offline_mode():
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            yield conn
+        return
+
+    timeout = _get_connect_timeout_seconds()
+    socket = os.getenv("DB_UNIX_SOCKET")
+    if socket:
+        conn = await asyncpg.connect(
+            user=os.getenv("DB_USER"),
+            password=os.getenv("DB_PASSWORD"),
+            database=os.getenv("DB_NAME", "postgres"),
+            host=socket,
+            port=int(os.getenv("DB_PORT", "5432")),
+            timeout=timeout,
+            command_timeout=60,
+        )
+    else:
+        conn = await asyncpg.connect(
+            _get_database_url(),
+            ssl=get_database_ssl(),
+            timeout=timeout,
+            command_timeout=60,
+        )
+    try:
+        yield conn
+    finally:
+        await conn.close()
 
 
 async def get_pool() -> asyncpg.Pool:

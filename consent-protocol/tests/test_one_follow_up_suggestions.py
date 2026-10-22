@@ -245,6 +245,39 @@ async def test_reaction_tool_continues_answer_through_real_agui():
     assert _text(events) == ANSWER
 
 
+@pytest.mark.asyncio
+async def test_answer_then_reaction_finishes_in_one_model_call():
+    from hushh_mcp.one_adk.message_reactions import REACTION_TOOL_NAME, without_message_reactions
+
+    reaction = types.Part(
+        function_call=types.FunctionCall(name=REACTION_TOOL_NAME, args={"emoji": "👍"})
+    )
+    model, events, session = await _run_turn([[types.Part(text=ANSWER), reaction]])
+
+    assert model.calls == 1
+    assert _text(events) == ANSWER
+    assert str(events[-1].type).endswith("RUN_FINISHED")
+    assert newest_turn_answered(session.events)
+    # Durable history removes presentation metadata but keeps the answer final.
+    assert newest_turn_answered(without_message_reactions(session).events)
+
+
+@pytest.mark.asyncio
+async def test_reaction_cannot_skip_a_parallel_tool_result():
+    from hushh_mcp.one_adk.message_reactions import REACTION_TOOL_NAME
+
+    reaction = types.Part(
+        function_call=types.FunctionCall(name=REACTION_TOOL_NAME, args={"emoji": "👍"})
+    )
+    clock = types.Part(function_call=types.FunctionCall(name="get_current_time", args={}))
+    model, events, _ = await _run_turn(
+        [[types.Part(text="Checking."), reaction, clock], [types.Part(text=ANSWER)]]
+    )
+
+    assert model.calls == 2
+    assert _text(events).endswith(ANSWER)
+
+
 def test_reaction_is_typed_only_once_and_queued_target_is_server_owned():
     from types import SimpleNamespace
 

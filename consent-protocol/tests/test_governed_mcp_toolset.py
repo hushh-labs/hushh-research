@@ -16,6 +16,7 @@ from hushh_mcp.one_adk.governed_mcp_toolset import (
     GovernedMcpToolset,
     McpConnectionBinding,
     ResolvedMcpConnection,
+    clear_mcp_catalog_cache,
     native_registration_admitted,
     resolve_registered_connection,
     validated_mcp_arguments,
@@ -34,6 +35,13 @@ def _hosted_workspace_mcp_enrolled(monkeypatch):
 
 
 _NATIVE_RUN = McpTool._run_async_impl
+
+
+@pytest.fixture(autouse=True)
+def _clear_descriptor_catalog_cache():
+    clear_mcp_catalog_cache()
+    yield
+    clear_mcp_catalog_cache()
 
 
 @pytest.mark.parametrize("revision", [["revision"], ("",), (None,), (1,)])
@@ -113,19 +121,28 @@ def registry_harness(monkeypatch):
     )
 
 
+@pytest.mark.parametrize("metadata_only", [False, True])
 async def test_registered_resolver_uses_authenticated_owner_and_same_credential_snapshot(
     registry_harness,
+    metadata_only,
 ):
     h = registry_harness
-    result = await resolve_registered_connection(h.context, "custom_one")
+    result = await resolve_registered_connection(
+        h.context, "custom_one", metadata_only=metadata_only
+    )
     h.authenticate.assert_awaited_once_with("owner", "synthetic-owner-token")
     h.registry.get_connector.assert_awaited_once_with("custom_one", user_id="owner")
-    h.lifecycle.read.assert_awaited_once_with(user_id="owner", connector_id="custom_one")
-    h.credentials.open_credential.assert_called_once_with(
-        user_id="owner", connector_id="custom_one", row=h.row
+    h.lifecycle.read.assert_awaited_once_with(
+        user_id="owner", connector_id="custom_one", **({"purge": False} if metadata_only else {})
     )
+    if metadata_only:
+        h.credentials.open_credential.assert_not_called()
+    else:
+        h.credentials.open_credential.assert_called_once_with(
+            user_id="owner", connector_id="custom_one", row=h.row
+        )
     assert result.binding.generation == 3 and result.binding.credential_version == 4
-    assert result.headers == {"Authorization": "synthetic-key"}
+    assert result.headers == ({} if metadata_only else {"Authorization": "synthetic-key"})
     assert "synthetic-key" not in repr(result)
     # The owner's own private registration runs freely (founder, 2026-09-27).
     assert result.review_policy == "credentialed"
@@ -226,8 +243,9 @@ async def test_curated_workspace_rejects_registry_policy_drift(
 
 
 @pytest.mark.parametrize("failure", ["owner", "token", "hidden", "revoked", "expired"])
+@pytest.mark.parametrize("metadata_only", [False, True])
 async def test_registered_resolver_rejects_invalid_authority_before_decryption(
-    registry_harness, failure
+    registry_harness, failure, metadata_only
 ):
     h = registry_harness
     if failure == "owner":
@@ -241,8 +259,33 @@ async def test_registered_resolver_rejects_invalid_authority_before_decryption(
     else:
         h.row["credential_expires_at"] = datetime.now(UTC) - timedelta(seconds=1)
     with pytest.raises(ExternalMcpError):
-        await resolve_registered_connection(h.context, "custom_one")
+        await resolve_registered_connection(h.context, "custom_one", metadata_only=metadata_only)
     h.credentials.open_credential.assert_not_called()
+
+
+async def test_registered_resolver_overlaps_independent_authority_and_registry_reads(
+    registry_harness,
+):
+    h = registry_harness
+    authority_started, registry_started = asyncio.Event(), asyncio.Event()
+    connector = h.registry.get_connector.return_value
+
+    async def authenticate(*_args, **_kwargs):
+        authority_started.set()
+        await registry_started.wait()
+        return True
+
+    async def read_connector(*_args, **_kwargs):
+        registry_started.set()
+        await authority_started.wait()
+        h.credentials.open_credential.assert_not_called()
+        return connector
+
+    h.authenticate.side_effect = authenticate
+    h.registry.get_connector.side_effect = read_connector
+    resolved = await asyncio.wait_for(resolve_registered_connection(h.context, "custom_one"), 0.5)
+    assert resolved.binding.owner_id == "owner"
+    h.credentials.open_credential.assert_called_once()
 
 
 @pytest.fixture
@@ -335,6 +378,51 @@ async def test_native_adk_toolset_defaults_to_app_review(harness):
     assert h.approve.await_args.args[2] == "search"
     assert len(h.approve.await_args.args[3]) == 64
     assert h.approve.await_args.args[4] == {"q": "fixture"}
+
+
+async def test_catalog_descriptors_are_reused_across_turn_toolsets(harness):
+    h = harness
+    first = await h.toolset.get_tools(h.context)
+    assert first
+    h.session.list_tools.assert_awaited_once()
+
+    second_resolve = AsyncMock(side_effect=ExternalMcpError("Revoked", code="MCP_OWNER_MISMATCH"))
+    catalog_resolve = AsyncMock(return_value=replace(h.connection, headers={}))
+    second = GovernedMcpToolset(
+        binding=h.connection.binding,
+        resolve_connection=second_resolve,
+        resolve_catalog_connection=catalog_resolve,
+        authorize_call=h.approve,
+    )
+    remote_session = SimpleNamespace(list_tools=AsyncMock())
+    second._mcp_session_manager = SimpleNamespace(
+        create_session=AsyncMock(return_value=remote_session),
+        _begin_session_use=Mock(),
+        _end_session_use=Mock(),
+    )
+
+    reused = await second.get_tools(h.context)
+
+    assert [tool.name for tool in reused] == [tool.name for tool in first]
+    catalog_resolve.assert_awaited_once()
+    second_resolve.assert_not_awaited()
+    second._mcp_session_manager.create_session.assert_not_awaited()
+    remote_session.list_tools.assert_not_awaited()
+
+    # A descriptor is not a grant: invocation must still obtain live authority
+    # and credentials even though prompt construction did not need either.
+    result = await reused[0].run_async(args={"q": "fixture"}, tool_context=h.context)
+    assert result["error"] == "MCP_OWNER_MISMATCH"
+    second_resolve.assert_awaited_once()
+    h.native.assert_not_awaited()
+
+    # A changed metadata binding must not publish the cached schema at all.
+    catalog_resolve.return_value = replace(
+        h.connection, binding=replace(h.connection.binding, generation=2), headers={}
+    )
+    with pytest.raises(ExternalMcpError) as error:
+        await second.get_tools(h.context)
+    assert error.value.code == "MCP_CONNECTION_CHANGED"
 
 
 async def test_catalog_policy_cannot_invent_provider_tool(harness):
@@ -559,7 +647,7 @@ async def test_rediscovery_invalidates_previous_tool_schema(harness):
         "properties": {"id": {"type": "string"}},
         "required": ["id"],
     }
-    fresh = (await h.toolset.get_tools(h.context))[0]
+    fresh = (await h.toolset.get_tools(h.context, force_refresh=True))[0]
     assert old.revision != fresh.revision
     assert await old.run_async(args={"q": "fixture"}, tool_context=h.context) == {
         "connectorId": "custom_one",
@@ -1545,7 +1633,10 @@ def _wire_curated(registry_harness, monkeypatch, *, row, credential):
     definition = _curated_definition()
     registry_harness.registry.get_connector.return_value = definition
     monkeypatch.setattr(module, "connector_feature_enabled", lambda *_: True)
-    adapter = SimpleNamespace(current_credential=AsyncMock(return_value=(row, credential)))
+    adapter = SimpleNamespace(
+        current_credential=AsyncMock(return_value=(row, credential)),
+        connection_snapshot=AsyncMock(return_value=row),
+    )
     monkeypatch.setattr(
         oauth_service,
         "get_external_connector_oauth_service",
@@ -1581,6 +1672,27 @@ async def test_curated_oauth_resolves_reviewed_bearer_binding(registry_harness, 
     assert mcp_tool_name("hubspot", "manage_crm_objects") not in result.free_read_tool_ids
     assert mcp_tool_name("hubspot", "manage_custom_properties") not in result.free_read_tool_ids
     assert "synthetic-token" not in repr(result)
+
+
+async def test_curated_catalog_binding_does_not_refresh_or_obtain_a_bearer(
+    registry_harness, monkeypatch
+):
+    row = dict(
+        status="connected", connection_generation=5, credential_version=7, verified_policy_hash=None
+    )
+    _, adapter, hash_ = _wire_curated(
+        registry_harness, monkeypatch, row=row, credential={"accessToken": "synthetic-token"}
+    )
+    row["verified_policy_hash"] = hash_
+    catalog = await resolve_registered_connection(
+        registry_harness.context, "hubspot", metadata_only=True
+    )
+    assert catalog.headers == {}
+    adapter.current_credential.assert_not_awaited()
+    adapter.connection_snapshot.assert_awaited_once()
+    live = await resolve_registered_connection(registry_harness.context, "hubspot")
+    assert live.binding == catalog.binding
+    assert live.headers == {"Authorization": "Bearer synthetic-token"}
 
 
 async def test_curated_oauth_binding_survives_a_token_refresh(registry_harness, monkeypatch):

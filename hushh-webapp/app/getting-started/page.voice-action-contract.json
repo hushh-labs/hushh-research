@@ -18,8 +18,8 @@
   "actions": [
     {
       "action_id": "route.getting_started",
-      "label": "Open Welcome",
-      "meaning": "Navigates to the Hussh welcome carousel for new visitors.",
+      "label": "Open One entry",
+      "meaning": "Opens the compatibility entry: signed-out visitors continue to sign-in, and signed-in people continue to One.",
       "aliases": [
         "open welcome",
         "show the welcome screen",
@@ -44,7 +44,7 @@
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
-          "None; the welcome carousel is public."
+          "No sign-in is required to enter; the current session determines the destination."
         ]
       },
       "guard_ids": [],
@@ -62,7 +62,7 @@
     {
       "action_id": "onboarding.continue",
       "label": "Continue",
-      "meaning": "Moves from the welcome carousel to sign in and account setup.",
+      "meaning": "Navigates to sign-in from the compatibility entry; the entry itself has no Continue button.",
       "aliases": [
         "continue",
         "let's go",
@@ -93,9 +93,7 @@
         "path": "route",
         "target": "/login"
       },
-      "control_ids": [
-        "onboarding_continue"
-      ],
+      "control_ids": [],
       "state_exposure": [],
       "docs_references": []
     },
@@ -187,5 +185,6 @@
       "docs_references": [],
       "speaker_persona": "nav"
     }
-  ]
+  ],
+  "search": {}
 }

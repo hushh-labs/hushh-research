@@ -7,9 +7,13 @@ export type SmsComposeOutcome =
   | "failed"
   | "unavailable";
 export interface HushhInvitationsPlugin {
-  getCapabilities(): Promise<{ sms: boolean }>;
+  getCapabilities(): Promise<{ sms: boolean; maxSmsRecipients?: number }>;
   composeSms(options: {
     recipient: string;
+    body: string;
+  }): Promise<{ outcome: SmsComposeOutcome }>;
+  composeSmsBatch(options: {
+    recipients: string[];
     body: string;
   }): Promise<{ outcome: SmsComposeOutcome }>;
 }
@@ -19,8 +23,9 @@ export const HushhInvitations = registerPlugin<HushhInvitationsPlugin>(
   {
     web: () =>
       Promise.resolve({
-        getCapabilities: async () => ({ sms: false }),
+        getCapabilities: async () => ({ sms: false, maxSmsRecipients: 0 }),
         composeSms: async () => ({ outcome: "unavailable" as const }),
+        composeSmsBatch: async () => ({ outcome: "unavailable" as const }),
       }),
   },
 );

@@ -46,6 +46,12 @@ Founder-language translation for this doc:
 
 ## Invariants
 
+Independent email OTP and Microsoft sign-in reuse Firebase account/session
+authority. Automatic domain admission and email proof grant no vault or consent
+authority and do not depend on WorkOS organization onboarding. See
+[Independent Email Authentication](./independent-email-auth.md) for the domain,
+enrollment, sender, retention and rollout contracts.
+
 1. Cryptographic Primitives: no plaintext-at-rest for private user data.
 2. Capability Tokens + PCHP: private data access requires active consent-token scope and explicit approval.
 3. Separation of Duties: web, iOS, and Android must keep route/contract parity.
@@ -203,6 +209,14 @@ Public discovery data may be shown in marketplace cards.
 Private data is always consent-gated and scoped.
 
 ### Contact-sync relationship boundary
+
+Requester admission uses an existing verified phone claim, or, for an active-vault
+or setup-completed account, a fresh Firebase Admin verified Google/Apple email
+that matches the currently verified backend identity. Both the lookup budget and
+relationship mutation check this rule. The fallback establishes account identity,
+does not claim phone ownership, and cannot make a phone-less account discoverable
+by phone. Per-UID lookup quotas and every target-phone/privacy rule below remain
+unchanged. Client hints and setup completion alone provide no admission proof.
 
 1. Contact sync uses `contact_directory_auto_connect_v2`: a current, exact,
    unambiguous verified-phone match to a visible ONE Connect-directory account

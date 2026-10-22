@@ -1,4 +1,5 @@
 import { Capacitor } from "@capacitor/core";
+import { assertOAuthReturnOrigin } from "@/lib/connections/oauth-window";
 import { HushhOAuthReturn, isNativeCustomConnectorReturnUri } from "@/lib/capacitor/oauth-return";
 import { ExternalConnectorService, McpCatalogAuthenticationError } from "@/lib/services/external-connector-service";
 import {
@@ -122,6 +123,7 @@ export async function beginCustomConnectorSignIn(input: {
     const url = new URL(result.authorizeUrl);
     if (url.protocol !== "https:" || url.username || url.password || url.hash || result.authorizeUrl.length > 16000) throw new Error("Invalid authorization address.");
     if (Capacitor.isNativePlatform() && !isNativeCustomConnectorReturnUri(result.redirectUri)) throw new Error("This connection cannot return to the app.");
+    if (!Capacitor.isNativePlatform()) assertOAuthReturnOrigin(url.href);
     const ready = await input.prepareRecovery({ attemptId, reason: "web_full_page", customConnector: {
       connectorId: configuration.connectorId, revision: configuration.revision,
     } });

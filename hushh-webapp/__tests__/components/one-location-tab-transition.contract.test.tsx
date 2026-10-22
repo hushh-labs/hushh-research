@@ -199,6 +199,11 @@ function ControlledLocationPager({ initialValue }: { initialValue: string }) {
   return <LocationPager activeValue={value} onSelectionChange={setValue} />;
 }
 
+function OwnershipProbe() {
+  const state = useTopShellTabSwipeState("location");
+  return <span data-testid="owner">{`${state.pagerOwned}:${state.position}`}</span>;
+}
+
 /**
  * Records every write to a shared tab-position variable, in order.
  *
@@ -438,6 +443,21 @@ describe("Location tab transition — the viewport never clips a leaving panel",
 
     expect(root.style.height).toBe("520px");
     expect(root).toHaveAttribute("data-swipe-views-height-settling", "true");
+    expect(swipeVariable("location")).toBe("1");
+  });
+
+  it("keeps the old height floor when route state catches up before visual arrival", () => {
+    const view = render(<LocationPager activeValue="now" />);
+    const root = pagerRoot(view.container);
+
+    pressTab("people");
+    embla.offset = -0.9 * SLIDE_WIDTH;
+    act(() => {
+      view.rerender(<LocationPager activeValue="people" />);
+    });
+
+    expect(root.style.height).toBe("1400px");
+    expect(root).not.toHaveAttribute("data-swipe-views-height-settling");
   });
 
   it("lets short route-backed workspaces opt out of holding a stale tall panel height", () => {
@@ -467,13 +487,6 @@ describe("Location tab transition — the viewport never clips a leaving panel",
 });
 
 describe("Location tab transition — one writer owns the indicator", () => {
-  function OwnershipProbe() {
-    const state = useTopShellTabSwipeState("location");
-    return (
-      <span data-testid="owner">{`${state.pagerOwned}:${state.position}`}</span>
-    );
-  }
-
   it("claims the shared position for the whole flight and hands it back on settle", () => {
     render(
       <>
@@ -567,6 +580,33 @@ describe("Location tab transition — Reduce Motion", () => {
 });
 
 describe("Location tab strip", () => {
+  it("hands controlled selection to the pager before changing local tab state", () => {
+    function LocalWorkspace() {
+      const [value, setValue] = useState("now");
+      return <>
+        <LocationPager activeValue={value} onSelectionChange={setValue} />
+        <TopShellTabs tabSet={{ ...LOCATION_TAB_SET, activeValue: value }} onValueChange={setValue} />
+        <OwnershipProbe />
+      </>;
+    }
+    render(<LocalWorkspace />);
+    const recorder = recordSwipeWrites();
+    try {
+      act(() => { screen.getByRole("tab", { name: "People" }).click(); });
+      expect(embla.scrollTo).toHaveBeenCalledWith(1);
+      expect(recorder.values.length).toBeGreaterThan(0);
+      expect(recorder.values.every((value) => value === "0")).toBe(true);
+      expect(screen.getByTestId("owner")).toHaveTextContent("true:");
+      expect(navigation.push).not.toHaveBeenCalled();
+      expect(navigation.replace).not.toHaveBeenCalled();
+      emblaEvent("pointerDown");
+      scrollTo(0.3);
+      expect(screen.getByTestId("owner")).toHaveTextContent("true:");
+      emblaEvent("settle", () => { embla.offset = -SLIDE_WIDTH; });
+      expect(screen.getByTestId("owner")).toHaveTextContent("false:1");
+    } finally { recorder.restore(); }
+  });
+
   it("does not write the shared position itself when a pager owns it", () => {
     const { unmount } = render(<LocationPager activeValue="now" />);
     expect(hasTopShellTabPager("location")).toBe(true);

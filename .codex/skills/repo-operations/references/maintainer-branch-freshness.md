@@ -21,3 +21,19 @@ branch before a PR update, merge, or admin-mode landing.
 7. Pre-push subtree checks on feature branches should inspect the branch delta
    from `origin/main`, not the stale remote feature branch range; otherwise
    already-landed `main` subtree commits create false-positive slow checks.
+
+## Verified pushes while main remains active
+
+For a finished, locally verified candidate, carry the tested main SHA into the
+normal push hook so overlapping changes arriving during pre-push checks block
+before a stale CI run is created:
+
+```bash
+MAIN_SYNC_MODE=bounded MAIN_SYNC_TESTED_BASE_SHA=<tested-main-sha> \
+  git push origin HEAD:<existing-branch>
+```
+
+The shared hook honors this explicit mode; ordinary feature pushes retain their
+advisory default and main retains its existing forced mode and Admin preflight.
+On overlap, integrate and verify the existing branch again, then push one finished
+batch. This does not replace the final freshness check or authorize an Admin bypass.

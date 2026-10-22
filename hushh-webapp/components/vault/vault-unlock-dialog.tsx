@@ -1,10 +1,11 @@
 "use client";
 
-import { type CSSProperties, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { User } from "firebase/auth";
 import { Dialog as DialogPrimitive } from "radix-ui";
 
 import { VaultFlow } from "@/components/vault/vault-flow";
+import { SetupV10Surface } from "@/components/onboarding/setup/setup-v10-surface";
 import {
   Dialog,
   DialogOverlay,
@@ -13,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import styles from "./vault-setup-v10.module.css";
 
 type VaultUnlockDialogProps = {
   user: User;
@@ -30,6 +32,8 @@ type VaultUnlockDialogProps = {
    * while preserving the same vault-unlock flow and focus trap.
    */
   surfaceVariant?: "standard" | "hard_gate";
+  /** Show the setup artwork and responsive layout around the real vault flow. */
+  setupPresentation?: boolean;
   /**
    * When provided, VaultFlow shows a subtle "Sign out" escape on the unlock /
    * recovery steps. Passed only by the HARD vault gate (VaultLockGuard), where a
@@ -77,12 +81,28 @@ export function VaultUnlockDialog({
   allowVaultCreation = true,
   dismissible = true,
   surfaceVariant = "standard",
+  setupPresentation = false,
   onSignOut,
 }: VaultUnlockDialogProps) {
   const surfaceId = useId();
   const [recoveryKeyDisclosureActive, setRecoveryKeyDisclosureActive] =
     useState(false);
   const [suppressedByHardGate, setSuppressedByHardGate] = useState(false);
+  const [setupStage, setSetupStage] = useState<"lock" | "recovery">("lock");
+  const [setupMenuOpen, setSetupMenuOpen] = useState(false);
+  const setupContentRef = useRef<HTMLDivElement>(null);
+  const [setupCreating, setSetupCreating] = useState(false);
+  const setupCreatingRef = useRef(false);
+  const handleSetupCreateBusy = useCallback((busy: boolean) => {
+    setupCreatingRef.current = busy;
+    setSetupCreating(busy);
+    if (busy) setSetupMenuOpen(false);
+  }, []);
+  const handleSetupRecoveryDisclosure = useCallback((active: boolean) => {
+    setRecoveryKeyDisclosureActive(active);
+    setSetupStage(active ? "recovery" : "lock");
+    setSetupMenuOpen(false);
+  }, []);
   const onOpenChangeRef = useRef(onOpenChange);
   const effectiveDismissible =
     dismissible && !recoveryKeyDisclosureActive;
@@ -136,6 +156,10 @@ export function VaultUnlockDialog({
   useEffect(() => {
     if (!open) {
       setRecoveryKeyDisclosureActive(false);
+      setSetupStage("lock");
+      setSetupMenuOpen(false);
+      setupCreatingRef.current = false;
+      setSetupCreating(false);
     }
   }, [open]);
 
@@ -159,7 +183,7 @@ export function VaultUnlockDialog({
         <DialogOverlay
           className={cn(
             "!z-[711] !backdrop-blur-none [-webkit-backdrop-filter:none]",
-            surfaceVariant === "hard_gate" && "!animate-none",
+            (surfaceVariant === "hard_gate" || setupPresentation) && "!animate-none",
           )}
           style={{
             backgroundColor: "var(--background)",
@@ -175,10 +199,26 @@ export function VaultUnlockDialog({
           }}
         />
         <DialogPrimitive.Content
+          ref={setupContentRef}
           data-vault-unlock-surface={surfaceVariant}
+          data-setup-v10-vault={setupPresentation ? "true" : undefined}
           data-vault-layout="top-centered-flat"
           data-vault-dismissible={effectiveDismissible}
-          style={{
+          style={setupPresentation ? {
+            position: "fixed",
+            zIndex: 712,
+            inset: 0,
+            width: "100vw",
+            height: "100dvh",
+            maxWidth: "none",
+            maxHeight: "none",
+            transform: "none",
+            overflow: "hidden",
+            background: "var(--background)",
+            border: 0,
+            borderRadius: 0,
+            padding: 0,
+          } as CSSProperties : {
             "--vault-available-height": "min(640px, calc(100svh - max(calc(env(safe-area-inset-top, 0px) + 1.5rem), 6svh) - var(--kb-height, 0px) - 1rem))",
             position: "fixed",
             zIndex: 712,
@@ -195,7 +235,12 @@ export function VaultUnlockDialog({
             boxShadow: "none",
             padding: 0,
           } as CSSProperties}
-          className="outline-none focus:outline-none focus-visible:outline-none"
+          className={cn("outline-none focus:outline-none focus-visible:outline-none", setupPresentation && styles.setupDialog)}
+          onOpenAutoFocus={(event) => {
+            if (!setupPresentation) return;
+            event.preventDefault();
+            setupContentRef.current?.focus({ preventScroll: true });
+          }}
           onEscapeKeyDown={(event) => {
             if (!effectiveDismissible) event.preventDefault();
           }}
@@ -205,7 +250,37 @@ export function VaultUnlockDialog({
         >
           <DialogTitle className="sr-only">{title}</DialogTitle>
           <DialogDescription className="sr-only">{description}</DialogDescription>
-          <VaultFlow
+          {setupPresentation ? <SetupV10Surface
+            stage={setupStage}
+            onBack={setupStage === "lock" ? () => {
+              if (!setupCreatingRef.current && !recoveryKeyDisclosureActive) onOpenChange?.(false);
+            } : undefined}
+            backDisabled={setupCreating}
+            onMenu={setupStage === "lock" ? () => {
+              if (!setupCreatingRef.current) setSetupMenuOpen((current) => !current);
+            } : undefined}
+            menuDisabled={setupCreating}
+            menuOpen={setupMenuOpen}
+            menuContent={setupStage === "lock" ? (
+              <button type="button" onClick={() => {
+                if (setupCreatingRef.current || recoveryKeyDisclosureActive) return;
+                setSetupMenuOpen(false);
+                onOpenChange?.(false);
+              }}>Back to setup</button>
+            ) : undefined}
+          >
+            <VaultFlow
+              user={user}
+              enableGeneratedDefault={enableGeneratedDefault}
+              allowVaultCreation={allowVaultCreation}
+              onSuccess={onSuccess}
+              setupPresentation
+              onCreateBusyChange={handleSetupCreateBusy}
+              onRecoveryKeyDisclosureChange={handleSetupRecoveryDisclosure}
+              isHardGate={surfaceVariant === "hard_gate"}
+              onSignOut={onSignOut}
+            />
+          </SetupV10Surface> : <VaultFlow
             user={user}
             enableGeneratedDefault={enableGeneratedDefault}
             allowVaultCreation={allowVaultCreation}
@@ -215,7 +290,7 @@ export function VaultUnlockDialog({
             }
             isHardGate={surfaceVariant === "hard_gate"}
             onSignOut={onSignOut}
-          />
+          />}
         </DialogPrimitive.Content>
       </DialogPortal>
     </Dialog>

@@ -24,15 +24,11 @@
       "msainani",
       "RGlodAkshat",
       "ankitkumarsingh1702",
-      "azfx",
       "Jhumma-hushh",
       "DamriaNeelesh",
       "parthmawai",
-      "abdulbeast4-creator",
-      "smirthi-dharma",
       "anoushkauoc",
       "Roopmann30",
-      "Divya-rajendran009",
       "imsharukhan"
     ],
     "review_bypass_team_slug": "allowed-maintainers-to-approve",
@@ -45,15 +41,11 @@
       "msainani",
       "RGlodAkshat",
       "ankitkumarsingh1702",
-      "azfx",
       "Jhumma-hushh",
       "DamriaNeelesh",
       "parthmawai",
-      "abdulbeast4-creator",
-      "smirthi-dharma",
       "anoushkauoc",
       "Roopmann30",
-      "Divya-rajendran009",
       "imsharukhan"
     ],
     "protected_pipeline_edit_users": [
@@ -61,7 +53,6 @@
       "msainani",
       "RGlodAkshat",
       "ankitkumarsingh1702",
-      "azfx",
       "Jhumma-hushh",
       "DamriaNeelesh",
       "parthmawai",
@@ -71,9 +62,12 @@
       ".github/workflows/",
       ".github/actions/",
       "scripts/ci/",
+      "scripts/git/check-main-sync.sh",
       "deploy/",
       "config/ci-governance.json",
-      "config/protected-behaviors.json"
+      "config/protected-behaviors.json",
+      "config/runtime-capacity.json",
+      "config/release-cadence.json"
     ]
   },
   "pr_train": {
@@ -87,15 +81,11 @@
       "msainani",
       "RGlodAkshat",
       "ankitkumarsingh1702",
-      "azfx",
       "Jhumma-hushh",
       "DamriaNeelesh",
       "parthmawai",
-      "abdulbeast4-creator",
-      "smirthi-dharma",
       "anoushkauoc",
       "Roopmann30",
-      "Divya-rajendran009",
       "imsharukhan"
     ],
     "review_bypass_team_slug": "allowed-maintainers-to-approve",
@@ -108,15 +98,11 @@
       "msainani",
       "RGlodAkshat",
       "ankitkumarsingh1702",
-      "azfx",
       "Jhumma-hushh",
       "DamriaNeelesh",
       "parthmawai",
-      "abdulbeast4-creator",
-      "smirthi-dharma",
       "anoushkauoc",
       "Roopmann30",
-      "Divya-rajendran009",
       "imsharukhan"
     ]
   },
@@ -127,15 +113,11 @@
       "msainani",
       "RGlodAkshat",
       "ankitkumarsingh1702",
-      "azfx",
       "Jhumma-hushh",
       "DamriaNeelesh",
       "parthmawai",
-      "abdulbeast4-creator",
-      "smirthi-dharma",
       "anoushkauoc",
       "Roopmann30",
-      "Divya-rajendran009",
       "imsharukhan"
     ]
   },
@@ -152,17 +134,14 @@
       "msainani",
       "RGlodAkshat",
       "ankitkumarsingh1702",
-      "azfx",
       "Jhumma-hushh",
       "DamriaNeelesh",
       "parthmawai",
-      "abdulbeast4-creator",
-      "smirthi-dharma",
       "anoushkauoc",
       "Roopmann30",
-      "Divya-rajendran009",
       "imsharukhan"
-    ]
+    ],
+    "automatic_release_workflow": "release-cadence.yml"
   },
   "production": {
     "required_post_merge_check": "Main Post-Merge Smoke Gate",
@@ -178,6 +157,7 @@
       "DamriaNeelesh",
       "imsharukhan"
     ],
-    "owner_environment": "production"
+    "owner_environment": "production",
+    "automatic_release_workflow": "release-cadence.yml"
   }
 }

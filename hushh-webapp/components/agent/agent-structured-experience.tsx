@@ -46,9 +46,8 @@ import {
   scopeItemsFromRequestable,
 } from "@/lib/consent/consent-scope-items";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { openProfilePane } from "@/lib/navigation/profile-pane";
 import { EditRowIcon } from "@/components/icons/agents";
-import { ROUTES } from "@/lib/navigation/routes";
 import { describeOwnerStyleProposal, stageOwnerStyleProposal } from "@/lib/agent/owner-style-settings";
 import {
   ArrowUpRight,
@@ -209,7 +208,6 @@ export function AgentStructuredExperienceView({
  */
 function StyleSettingsOfferView({ experience }: { experience: StyleSettingsOfferExperience }) {
   const { user } = useAuth();
-  const router = useRouter();
   const ownerId = user?.uid ?? null;
   return (
     <ExperienceShell experienceType={experience.type} label="Writing style" title="Change how One writes to you"
@@ -218,14 +216,14 @@ function StyleSettingsOfferView({ experience }: { experience: StyleSettingsOffer
         {describeOwnerStyleProposal(experience.proposed).map((row) => (
           <div key={row.label} className="flex min-h-11 items-center justify-between gap-4 py-2">
             <dt className="text-sm text-muted-foreground">{row.label}</dt>
-            <dd className="min-w-0 truncate text-sm font-medium text-foreground">{row.value}</dd>
+            <dd className="min-w-0 truncate text-sm font-normal text-foreground">{row.value}</dd>
           </div>
         ))}
       </dl>
       <MorphyButton type="button" size="sm" className="mt-4" disabled={!ownerId} onClick={() => {
         if (!ownerId) return;
         stageOwnerStyleProposal(ownerId, experience.proposed);
-        router.push(ROUTES.PROFILE_PREFERENCES);
+        openProfilePane(window.location.pathname, window.location.search, { panel: "preferences", detail: null }, { returnsToOrigin: true });
       }}>Review in Settings</MorphyButton>
     </ExperienceShell>
   );
@@ -618,12 +616,15 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
   const publishedRef = useRef<InformationRequestBundle | null>(null);
   const eventRefreshRef = useRef(false);
   useEffect(() => {
-    if (!experience.bundleId || experience.phase !== "submitted") return;
+    // A queued reading belongs to this request and current vault authority.
+    // Only descriptor refreshes may carry it into the replacement consumer.
+    publishedRef.current = null;
+    if (!experience.bundleId || experience.phase !== "submitted" || !isVaultUnlocked || !vaultOwnerToken) return;
     return subscribeInformationRequest(experience.bundleId, (bundle) => {
       publishedRef.current = bundle;
       setRefreshRevision((revision) => revision + 1);
     });
-  }, [experience.bundleId, experience.phase]);
+  }, [experience.bundleId, experience.phase, experience.subjectRef, isVaultUnlocked, vaultOwnerToken]);
 
   useEffect(() => {
     if (!experience.bundleId || experience.phase !== "submitted") return;
@@ -662,9 +663,12 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
       setRefreshState("unavailable");
       return () => { active = false; };
     }
-    const published = publishedRef.current;
-    publishedRef.current = null;
     const fromEvent = eventRefreshRef.current;
+    // A queued pre-event publication is not the answer to this doorbell.
+    // Keep publication reuse for descriptor refreshes, but re-read authority
+    // after an event even when an older pending result was just published.
+    const published = fromEvent ? null : publishedRef.current;
+    if (fromEvent) publishedRef.current = null;
     eventRefreshRef.current = false;
     if (!published) setRefreshState("checking");
     // A status-change event must not reuse a read that began before the
@@ -675,6 +679,9 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
       ...(fromEvent ? { fresh: true } : {}),
     })).then((bundle) => {
       if (!active) return;
+      // A descriptor refresh can cancel this consumer before its Promise runs.
+      // Keep the reading for its replacement, and never clear a newer one.
+      if (publishedRef.current === published) publishedRef.current = null;
       // A restored descriptor is only a display reference. If the current
       // authority lookup resolves a different person, reject it without
       // rendering any of its status and settle the card into a recoverable

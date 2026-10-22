@@ -6,6 +6,9 @@ cd "$repo_root"
 
 node --check .codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs
 node --test .codex/skills/reviewer-app-testing/tests/reviewer-read-only-guard.test.mjs
+node --test .codex/skills/reviewer-app-testing/tests/pwm-browser-proof.test.mjs
+node --check .codex/skills/reviewer-app-testing/scripts/verify-reviewer-pwm.mjs
+node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-pwm.mjs --help >/dev/null
 node --check .codex/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs
 node --check .codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs
 node --check .codex/skills/reviewer-app-testing/scripts/verify-reviewer-agent-chat.mjs

@@ -1,7 +1,14 @@
 # Mail + Drive UAT acceptance
 
 Status: historical post-merge UAT deployment verified; verify the current live rollout and two-account acceptance separately. Mail/Drive acceptance remains incomplete.
-Runtime remains in `hushh-pda-uat`. Founder decision 2026-09-26: Drive moves off the isolated
+Runtime remains in `hushh-pda-uat`. The 2026-09-26 shared-client proposal below
+is historical and superseded by the current environment-specific callback
+contract: keep the UAT Drive client and grants intact; production uses its own
+reviewed registration and production-only callbacks/referrers. Provider review
+must pass before production activation. Switching a client requires affected
+connections to reconnect once.
+
+Historical proposal, not rollout instructions: Drive moves off the isolated
 `hushh-drive-uat` project onto the Hussh PDA Google projects. Localhost and dev use the
 dev/localhost OAuth client (project `hushh-pda-uat`) with its Picker key (secret
 `GOOGLE_DRIVE_PICKER_API_KEY` in `hushh-pda-dev`); UAT and production will use the same
@@ -347,9 +354,23 @@ second is read-only verification. Both require the canonical UAT environment,
 project, Cloud SQL instance and server-derived database identity. They accept
 no endpoint, scope, redirect, OAuth client or secret argument, serialize on a
 connector-specific advisory lock, and refuse registry drift rather than
-rewriting it. Their output contains only connector ID, transport, policy hash
-and redirect count. Registry activation does not enable Drive: the independent
-feature flags and UAT admission mode remain default-off.
+rewriting it. The reconciler also migrates the exact reviewed three-, four- or
+six-callback policy to the nine-callback UAT policy, preserving every earlier
+callback while adding the three `hussh.si` callbacks. Register those additions
+in the existing UAT Google client and verify persisted provider readback before
+running the reconciler. Foreign-environment, extra or altered callbacks remain
+policy drift; do not widen the row manually. Their output contains only connector ID, transport, policy hash
+and redirect count. Callback migration does not change staged live/indexing/
+sharing flags or cohorts. Ordinary connection, Picker and Chat reads remain
+available only with the active catalog row, credentials, owner grants and
+scoped authority.
+
+The existing production reconciler likewise accepts only its exact reviewed
+three- or six-callback predecessors, adds the three production `hussh.si`
+callbacks, and preserves every earlier callback. UAT callbacks never enter
+the production policy. Verify the production Google client registration and
+the existing production prerequisite gate before activation; this additive
+source change does not authorize enabling a disabled production connector.
 
 ## Required UAT Drive work-drain configuration
 
@@ -387,8 +408,9 @@ time, total response time, and time to first text. These diagnostics contain
 stage, outcome, duration and count only, never Drive query text or file names.
 `drive_rest.timing` records each Drive list/read operation, and
 `drive_permission_rest.timing` records each permission operation with fixed
-operation and outcome labels. Neither log includes provider URLs, file IDs,
-recipient identities, or request content.
+operation, outcome and provider-reason class labels (`reason=other` counts an
+unrecognized Google reason by class only). Neither log includes provider URLs,
+file IDs, recipient identities, provider messages, or request content.
 The Scheduler identity must be the exact same-project address above;
 the route rejects missing/non-OIDC tokens, a non-Google issuer, another project, a mismatched
 audience or an unverified service-account email.
@@ -397,8 +419,7 @@ The current Drive worker [release script](../../../deploy/drive/deploy_worker_se
 invokes [`setup_work_drain_scheduler.sh`](../../../deploy/drive/setup_work_drain_scheduler.sh)
 once per fixed UAT stage with its stage-specific job name, schedule, worker origin,
 and matching OIDC audience. A direct helper run defaults to the documents stage
-only. Each sharing invocation attempts up to 20 permission jobs and a combined 20 notifications, under the existing stage deadlines; documents and suggestions remain one job per invocation. The jobs run documents every four minutes, suggestions every four minutes
-at a two-minute offset, and sharing every minute. Each posts to the fixed drain
+only. Each sharing invocation attempts up to 20 permission jobs and a combined 20 notifications, under the existing stage deadlines; documents and suggestions remain one job per invocation. All three jobs run every minute. Each posts to the fixed drain
 route and verifies its OIDC target. If Cloud Run ingress requires IAM invocation,
 grant only that scheduler account `roles/run.invoker` through the approved infrastructure path before
 running the helper; do not weaken the route or make a direct Cloud Run deployment. A successful
@@ -413,6 +434,18 @@ one model retry; other model failures and a second timeout fail closed. Query
 isolation and per-query resource limits remain unchanged. Exhausting the shared
 budget cancels the unfinished check and keeps the candidate unready; the existing
 release workflow restores its prior serving services and scheduler targets.
+
+With those checks, a cold worker instance takes about 2.5 minutes to become
+ready, and each instance runs one drain at a time. The release therefore keeps
+both of the worker's two budgeted instances warm with the service-level
+`--min=2` floor, so a lane that arrives while another lane runs starts at once
+instead of waiting for a new instance. A third simultaneous lane still waits
+for a warm instance to finish. The floor follows the traffic split, so tagged
+candidates and retired revisions still scale to zero, and the revision-level
+minimum stays 0. The connection budget is unchanged because it counts each
+retained revision at its maximum scale. Concurrency stays 1 because the
+worker's memory-heavy child limits are per request and its store transactions
+share one SQLAlchemy connection.
 
 ## Remaining delivery checklist
 

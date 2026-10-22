@@ -1,11 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import PrivacyPolicyPage from "@/app/privacy/page";
 import TermsOfUsePage from "@/app/terms/page";
+import { buildProfileLegalStackEntries } from "@/components/profile/profile-legal-section";
 import { RUNTIME_PROVIDER_CATALOG } from "@/lib/connections/runtime-provider-catalog";
 import {
   LEGAL_DOCUMENTS,
@@ -87,6 +88,17 @@ describe("Privacy Policy and Terms of Use pages", () => {
     );
   });
 
+  it("identifies the canonical application and retained addresses without promising all processing is offline", () => {
+    for (const doc of Object.values(LEGAL_DOCUMENTS)) {
+      expect(plainText(doc)).toContain("one.hussh.si");
+      expect(plainText(doc)).toContain("one.hussh.ai");
+      expect(plainText(doc)).toContain("one.hushh.ai");
+    }
+    const privacy = plainText(LEGAL_DOCUMENTS.privacy);
+    expect(privacy).toContain("This indexing step loads its model files locally");
+    expect(privacy).toContain("relevant passages may still be sent to your selected AI service");
+  });
+
   it("describe One as a private agent, with Kai as one feature among many", () => {
     const privacyIds = LEGAL_DOCUMENTS.privacy.sections.map((s) => s.id);
     for (const id of [
@@ -134,6 +146,37 @@ describe("Privacy Policy and Terms of Use pages", () => {
     }
   });
 
+  it("discloses the separate Azure/Bing research opt-in and Bing privacy boundary", () => {
+    const privacy = LEGAL_DOCUMENTS.privacy;
+    const text = plainText(privacy);
+    expect(privacy.version).toBe("2.10");
+    expect(privacy.lastUpdated).toBe("2026-10-21");
+    expect(text).toContain("Microsoft Azure AI is the server-managed primary processor");
+    expect(text).toContain("No model-settings toggle or personal pilot approval is required or created");
+    expect(text).toContain("Current file access, owner consent, payment requirements and sharing permissions still apply");
+    expect(text).toContain("an earlier Google research setting does not authorize Microsoft research");
+    expect(text).toContain("GPT-5-mini on Microsoft Azure AI receives your name");
+    expect(text).toContain("GPT-5 mini also plans follow-up searches from received public profile labels and source URLs");
+    expect(text).toContain("Bing web search receives search terms that may include your name");
+    expect(text).toContain("outside Azure's compliance and data residency boundary");
+    expect(text).toContain("You review every suggested detail before it is saved");
+    expect(LEGAL_DOCUMENTS.terms.version).toBe("2.4");
+    expect(LEGAL_DOCUMENTS.terms.lastUpdated).toBe("2026-10-16");
+    render(<TermsOfUsePage />);
+    expect(screen.getByRole("link", { name: "Microsoft Privacy Statement" })).toHaveAttribute(
+      "href", "https://privacy.microsoft.com/en-us/privacystatement",
+    );
+  });
+
+  it("discloses private Azure scope and revocation separately from public research", () => {
+    const privacy = plainText(LEGAL_DOCUMENTS.privacy);
+    expect(privacy).toContain("No model-settings toggle or personal pilot approval is required or created");
+    expect(privacy).toContain("relevant conversation history and memories");
+    expect(privacy).toContain("request purposes and relevant document text");
+    expect(privacy).toContain("Current file access, owner consent, payment requirements and sharing permissions still apply");
+    expect(privacy).toContain("Native Google Search, public research, voice and your own-key settings have separate provider behavior");
+  });
+
   it("does not promise automatic expiry for manually created backups", () => {
     const privacy = plainText(LEGAL_DOCUMENTS.privacy);
     expect(privacy).toContain("Manually created backups may remain until an authorized operator deletes them.");
@@ -162,9 +205,21 @@ describe("Privacy Policy and Terms of Use pages", () => {
   // Profile reads them in place in its Legal section; it never leaves the
   // pane for the public page (founder, 2026-10-02).
   it("are read in place from Profile, never by leaving for the public page", () => {
+    const updateView = vi.fn();
+    const [section] = buildProfileLegalStackEntries({ detail: null, updateView });
+    const { unmount } = render(section.content);
+    for (const detail of ["privacy", "terms"] as const) {
+      fireEvent.click(screen.getByRole("button", { name: LEGAL_DOCUMENTS[detail].title }));
+      expect(updateView).toHaveBeenLastCalledWith({ panel: "legal", detail }, "push");
+    }
+    expect(updateView).toHaveBeenCalledTimes(2);
+    unmount();
+
+    const reader = buildProfileLegalStackEntries({ detail: "privacy", updateView }).at(-1)!;
+    render(reader.content);
+    fireEvent.click(screen.getByRole("button", { name: LEGAL_DOCUMENTS.terms.title }));
+    expect(updateView).toHaveBeenLastCalledWith({ panel: "legal", detail: "terms" }, "replace");
     const profile = read("components/profile/profile-workspace-page.tsx");
-    expect(profile).toContain("<ProfileLegalRows");
-    expect(profile).toContain('{ panel: "legal", detail: document }');
     expect(profile).not.toContain("router.push(ROUTES.PRIVACY)");
     expect(profile).not.toContain("router.push(ROUTES.TERMS)");
   });

@@ -456,19 +456,19 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
 
     public func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         let message = "Precise location unavailable: \(error.localizedDescription)"
-        if let call = clearPendingLocationCall() {
-            call.reject(message)
-        }
         // kCLErrorLocationUnknown is TRANSIENT. CoreLocation is saying "not
         // right now", it keeps trying on its own, and Apple's guidance is to
         // wait it out. Ending the watch on it meant failWatches() released every
         // saved call and called stopUpdatingLocation(), so a single blip — a
         // lift, a tunnel, a moment indoors — permanently stopped live sharing
-        // until the person toggled Location off and on again. The one-shot path
-        // above still rejects, because it is bounded by its own timeout.
+        // until the person toggled Location off and on again. Watches and the
+        // one-shot both stay alive until a fix or the bounded timeout.
         if let locationError = error as? CLError,
            locationError.code == .locationUnknown {
             return
+        }
+        if let call = clearPendingLocationCall() {
+            call.reject(message)
         }
         failWatches(message)
     }

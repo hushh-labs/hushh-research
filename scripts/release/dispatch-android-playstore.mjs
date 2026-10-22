@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 /**
- * Manual Android Google Play production release dispatcher.
+ * Manual Android Google Play internal or production release dispatcher.
  *
- * The workflow is production-only: it resolves an exact green main SHA, builds
- * against the production backend, signs the AAB with the existing upload key,
- * and uploads directly to Google Play's production track. There are no test
- * track or scheduled release modes.
+ * The workflow resolves an exact green main SHA, builds against the UAT backend
+ * (which must already be serving that exact SHA), signs the AAB with the existing
+ * upload key, and uploads to the selected Google Play track. Production remains
+ * blocked until a production runtime and customer-data transition are verified.
+ * Internal testing is the default. There are no scheduled releases.
  *
  * Usage:
  *   node scripts/release/dispatch-android-playstore.mjs
  *   node scripts/release/dispatch-android-playstore.mjs --sha <green-main-sha>
+ *   node scripts/release/dispatch-android-playstore.mjs --track internal
  *   node scripts/release/dispatch-android-playstore.mjs --dry-run
  *   node scripts/release/dispatch-android-playstore.mjs --notes "Release summary"
  *   node scripts/release/dispatch-android-playstore.mjs --no-watch
@@ -38,8 +40,9 @@ function run(cmd, args, { capture = false, input } = {}) {
   return result;
 }
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const options = {
+    track: "internal",
     sha: null,
     dryRun: false,
     notes: "",
@@ -48,6 +51,12 @@ function parseArgs(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     switch (argument) {
+      case "--track":
+        options.track = argv[++index] ?? "";
+        if (!["internal", "production"].includes(options.track)) {
+          fail("Track must be internal or production.");
+        }
+        break;
       case "--sha":
         options.sha = argv[++index] ?? "";
         break;
@@ -64,7 +73,7 @@ function parseArgs(argv) {
       case "-h":
         console.log(
           "Usage: node scripts/release/dispatch-android-playstore.mjs " +
-            "[--sha <green-main-sha>] [--dry-run] [--notes <text>] [--no-watch]",
+            "[--track <internal|production>] [--sha <green-main-sha>] [--dry-run] [--notes <text>] [--no-watch]",
         );
         process.exit(0);
         break;
@@ -95,7 +104,7 @@ function resolveSha(explicitSha) {
 
 async function confirm(expected, prompt) {
   if (!process.stdin.isTTY) {
-    fail("Production dispatch requires an interactive confirmation.");
+    fail("Release dispatch requires an interactive confirmation.");
   }
   const readline = createInterface({ input: process.stdin, output: process.stdout });
   const answer = await new Promise((resolve) => readline.question(prompt, resolve));
@@ -130,31 +139,38 @@ export function requireCompletedRelease(result, runId) {
   }
 }
 
+export function validateReleaseTarget(options) {
+  if (options.track === "production" && !options.dryRun) {
+    throw new Error("Public Android upload is blocked: this workflow targets UAT. Verify production routing and legacy customer data transition first.");
+  }
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  validateReleaseTarget(options);
   ensureGitHubCli();
   const sha = resolveSha(options.sha);
   if (!/^[0-9a-f]{40}$/.test(sha)) fail("Release SHA must be a full 40-character commit SHA.");
 
   const mode = options.dryRun
     ? "DRY RUN (query Play, build, sign, and verify; no upload)"
-    : "LIVE PRODUCTION ROLLOUT";
+    : `LIVE ${options.track.toUpperCase()} RELEASE`;
   console.log("\nHussh One Android Google Play release");
   console.log("─────────────────────────────────────");
   console.log(`  Workflow : ${WORKFLOW_NAME}`);
   console.log(`  Ref      : ${REF}`);
   console.log(`  SHA      : ${sha}`);
-  console.log("  Runtime  : production (hushh-pda)");
+  console.log("  Runtime  : UAT backend (hushh-pda-uat)");
   console.log("  Package  : com.hussh.app");
-  console.log("  Track    : production");
+  console.log(`  Track    : ${options.track}`);
   console.log(`  Mode     : ${mode}`);
   if (options.notes) console.log(`  Notes    : ${options.notes}`);
   console.log("");
 
-  const expected = options.dryRun ? "dry run" : "release production";
+  const expected = options.dryRun ? "dry run" : `release ${options.track}`;
   const approved = await confirm(
     expected,
-    `Type "${expected}" to confirm this ${options.dryRun ? "verification run" : "live production release"}: `,
+    `Type "${expected}" to confirm this ${options.dryRun ? "verification run" : `live ${options.track} release`}: `,
   );
   if (!approved) {
     console.log("Aborted. No workflow dispatched.");
@@ -171,7 +187,7 @@ async function main() {
     fail("Could not resolve the target GitHub repository.");
   }
 
-  const inputs = { sha, dry_run: String(options.dryRun) };
+  const inputs = { track: options.track, sha, dry_run: String(options.dryRun) };
   if (options.notes) inputs.notes = options.notes;
   const dispatch = run(
     "gh",

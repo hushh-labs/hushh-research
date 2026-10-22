@@ -94,11 +94,17 @@ def model_step_has_answer_text(tool_context: Any) -> bool:
     return _has_answer_text(_current_model_step(tool_context))
 
 
-def _ends_turn_safely(tool_context: ToolContext) -> bool:
+def ends_turn_after_answer_and_only_call(tool_context: ToolContext, tool_name: str) -> bool:
+    """Only a presentation call after visible answer text may close the model step.
+
+    A real tool in the same response still needs its result summarized. Matching
+    the call ID also prevents a parallel callback from closing another call's
+    step when ADK merges their actions.
+    """
     step = _current_model_step(tool_context)
     calls = [call for event in step for call in event.get_function_calls()]
     call_id = getattr(tool_context, "function_call_id", None)
-    if len(calls) != 1 or calls[0].name != FOLLOW_UP_TOOL_NAME or calls[0].id != call_id:
+    if len(calls) != 1 or calls[0].name != tool_name or calls[0].id != call_id:
         return False
     return _has_answer_text(step)
 
@@ -117,7 +123,7 @@ async def suggest_follow_ups(suggestions: list[str], tool_context: ToolContext) 
     shown = normalize_follow_ups(suggestions)
     if len(shown) < MIN_SUGGESTIONS:
         return {"status": "ignored", "reason": "need_two_or_three_short_suggestions"}
-    if not _ends_turn_safely(tool_context):
+    if not ends_turn_after_answer_and_only_call(tool_context, FOLLOW_UP_TOOL_NAME):
         return {"status": "ignored", "reason": "call_alone_after_your_answer"}
     tool_context.actions.skip_summarization = True
     return {"status": "shown", "suggestions": shown}
@@ -151,6 +157,7 @@ def follow_up_instruction(state_getter: Any) -> str:
 __all__ = [
     "FOLLOW_UP_INSTRUCTION",
     "FOLLOW_UP_TOOL_NAME",
+    "ends_turn_after_answer_and_only_call",
     "follow_up_instruction",
     "model_step_has_answer_text",
     "normalize_follow_ups",

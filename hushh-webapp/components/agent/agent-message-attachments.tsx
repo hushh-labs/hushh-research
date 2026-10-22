@@ -27,7 +27,7 @@ export function AgentMessageAttachments({
 }: {
   attachments?: readonly AgentTextAttachment[];
   /** Send an edited copy of attachment `index` as a new turn. False keeps the editor open. */
-  onResend?: (index: number, editedText: string) => boolean | void;
+  onResend?: (index: number, editedText: string) => boolean | void | Promise<boolean | void>;
 }) {
   if (!attachments?.length) return null;
   return (
@@ -48,7 +48,7 @@ function AgentMessageAttachmentChip({
   onResend,
 }: {
   attachment: AgentTextAttachment;
-  onResend?: (editedText: string) => boolean | void;
+  onResend?: (editedText: string) => boolean | void | Promise<boolean | void>;
 }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);

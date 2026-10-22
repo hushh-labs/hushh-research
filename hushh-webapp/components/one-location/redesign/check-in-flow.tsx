@@ -34,7 +34,6 @@ import {
   UsersRound,
 } from "@/components/icons";
 
-import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { circleMemberCountLabel } from "@/lib/one-location/circle-member-count";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -175,16 +174,14 @@ function ContactRow({
         label={label}
         photoUrl={photoUrl}
         verified={verified}
+        fromContacts={fromContacts}
         className="h-[42px] w-[42px]"
       />
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-start gap-1.5">
-          <MediumRowLabel as="span" className="min-w-0 flex-1 truncate">
+          <MediumRowLabel as="span" className="min-w-0 truncate">
             {label}
           </MediumRowLabel>
-          {fromContacts ? (
-            <ContactSourceBadge className="mt-px shrink-0" />
-          ) : null}
         </span>
         {completed ? (
           <StatusText

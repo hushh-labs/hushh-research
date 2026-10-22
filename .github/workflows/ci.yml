@@ -5,12 +5,20 @@ on:
     branches: ["**"]
   workflow_dispatch:
     inputs:
+      # `auto` runs the lanes the dispatched branch's changes against the
+      # default branch select, through the same path filters a pull request
+      # uses. The default used to be `all`, which put iOS on one of the org's
+      # five macOS slots on every dispatch: one 30-minute dispatch loop made 59
+      # of the 77 runs dispatched from 2026-10-07 to 2026-10-15. `frontend`
+      # and `backend` are diagnostic only: Branch Validation Gate fails them, so a
+      # partial run can never stand in for a full one.
       scope:
-        description: "Run frontend only, backend only, or all"
+        description: "auto (lanes from changed paths), all, or a diagnostic-only frontend/backend subset"
         required: true
-        default: "all"
+        default: "auto"
         type: choice
         options:
+          - auto
           - frontend
           - backend
           - all
@@ -107,7 +115,11 @@ jobs:
 
   dco-check:
     name: "DCO"
-    if: github.event_name == 'pull_request'
+    # Dispatched runs too: their Branch Validation Gate lands on the branch head, so
+    # the gate requires DCO on both events. Without a PR range,
+    # check-dco-signoff.sh checks merge-base(origin/<default branch>)..HEAD,
+    # the branch's own commits.
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -129,12 +141,18 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # Through env, not inline: a head ref is chosen by whoever opens the PR,
+      # and an inline expression is pasted into the script before bash parses it.
       - name: Verify PR target branch policy
+        env:
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           python3 scripts/ci/verify-pr-base-policy.py \
-            --base-ref "${{ github.event.pull_request.base.ref }}" \
-            --head-ref "${{ github.event.pull_request.head.ref }}" \
-            --actor "${{ github.event.pull_request.user.login }}"
+            --base-ref "$PR_BASE_REF" \
+            --head-ref "$PR_HEAD_REF" \
+            --actor "$PR_AUTHOR"
 
   repo-governance:
     name: "Governance"
@@ -175,13 +193,27 @@ jobs:
       backend: ${{ steps.resolve.outputs.backend }}
       ios: ${{ steps.resolve.outputs.ios }}
       android: ${{ steps.resolve.outputs.android }}
+      editor: ${{ steps.resolve.outputs.editor }}
     steps:
       - uses: actions/checkout@v6
 
+      # A dispatch with scope `auto` runs these same filters. paths-filter v4
+      # has no pull request to ask the API about then, so it diffs `ref`
+      # against its merge-base with `base` (git three-dot), deepening the
+      # shallow clone until it finds one. `ref` is the dispatched commit, not
+      # the branch name, so a branch that moves mid-run cannot select lanes for
+      # a commit this run does not test. Both are passed only on dispatch,
+      # because v4 ignores them on a pull_request event and warns on every run.
+      # The default branch has no branch diff, so `auto` there runs `all`.
       - uses: dorny/paths-filter@v4
         id: filter
-        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        if: >-
+          github.event_name == 'pull_request' || github.event_name == 'push' ||
+          (github.event_name == 'workflow_dispatch' && inputs.scope == 'auto' &&
+          github.ref_name != github.event.repository.default_branch)
         with:
+          base: ${{ github.event_name == 'workflow_dispatch' && github.event.repository.default_branch || '' }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || '' }}
           # A leading '!' pattern removes files from its own filter only; the
           # filters below without one behave exactly as under the default
           # 'some'. Without this setting a '!' pattern would match every other
@@ -189,8 +221,9 @@ jobs:
           predicate-quantifier: 'some-with-excludes'
           # scripts/ci is split by the lane that executes each script.
           # The web lanes run nothing under scripts/ci except orchestrate.sh
-          # and the web-*.sh scripts it dispatches (web-common.sh included),
-          # so those alone schedule them. Every other script, including any
+          # and the web-*.sh scripts it dispatches. The shared web-common.sh
+          # helper also schedules backend contracts that exercise its fixtures.
+          # Every other script, including any
           # added later, stays on the backend side, which covers the protocol,
           # MCP and integration lanes and every deploy script the protocol
           # tests exercise. orchestrate.sh dispatches both sides and is in both.
@@ -199,6 +232,7 @@ jobs:
           filters: |
             frontend:
               - 'hushh-webapp/**'
+              - 'deploy/mail-api/**'
               - '.github/workflows/ci.yml'
               - '.github/workflows/queue-validation.yml'
               - '.github/workflows/main-post-merge-smoke.yml'
@@ -206,14 +240,21 @@ jobs:
               - 'scripts/ci/web-*.sh'
             backend:
               - 'consent-protocol/**'
+              - 'deploy/plg/**'
               - 'packages/hushh-mcp/**'
               - 'deploy/backend.cloudbuild.yaml'
               - '.github/workflows/ci.yml'
               - '.github/workflows/deploy-uat.yml'
               - '.github/workflows/queue-validation.yml'
               - '.github/workflows/main-post-merge-smoke.yml'
+              # The protocol lane's guard pins it to the editor lane's steps.
+              - '.github/workflows/editor-performance-nightly.yml'
               - 'scripts/ci/**'
-              - '!scripts/ci/web-*.sh'
+              - '!scripts/ci/web-check.sh'
+              - '!scripts/ci/web-core-check.sh'
+              - '!scripts/ci/web-full-check.sh'
+              - '!scripts/ci/web-full-suite-check.sh'
+              - '!scripts/ci/web-targeted-check.sh'
             ios:
               - 'hushh-webapp/ios/**'
               - 'hushh-webapp/lib/capacitor/**'
@@ -228,10 +269,6 @@ jobs:
               # consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py
               - 'hushh-webapp/app/login/**'
               - 'hushh-webapp/components/onboarding/**'
-              # The post-sign-in capability setup screens. Nothing the XCUITest
-              # renders imports them (asserted by the guard above), and they
-              # alone used to schedule this 13-minute lane.
-              - '!hushh-webapp/components/onboarding/setup/**'
               - 'hushh-webapp/components/auth/**'
               - 'hushh-webapp/components/app-ui/native-*'
               - 'hushh-webapp/components/vault/**'
@@ -239,6 +276,10 @@ jobs:
               - 'hushh-webapp/lib/firebase/auth-context.tsx'
               - 'hushh-webapp/lib/testing/**'
               - 'hushh-webapp/app/providers.tsx'
+              # Shared private Profile controllers are part of this render graph.
+              - 'hushh-webapp/hooks/use-owner-presentation-state.ts'
+              - 'hushh-webapp/components/connections/gemini-runtime-settings-card.tsx'
+              - 'hushh-webapp/components/profile/world-model-provider.tsx'
               - 'hushh-webapp/components/one-location/onboarding/location-picker-map.tsx'
               - '.github/workflows/ci.yml'
             android:
@@ -250,35 +291,153 @@ jobs:
               - 'hushh-webapp/package.json'
               - 'hushh-webapp/package-lock.json'
               - '.github/workflows/ci.yml'
+            # The macOS editor latency lane (web-editor-performance-check):
+            # npm run test:layout-editor-performance: editor latency and the
+            # shared History motion contract. Their focused fixtures compile
+            # app/globals.css with Tailwind. These are their transitive imports,
+            # the files they read from disk, and
+            # the configs and lockfile that build and run them. components/icons
+            # (12 of its 14 files, reached through index barrels) and
+            # lib/morphy-ux (13 primitives that import one another) are listed
+            # whole, so a new import inside either stays covered. Elsewhere
+            # name runtime inputs only: Vite/Oxc erases explicit type imports.
+            # Keep unrelated families excluded; blanket lib/** would also
+            # mask the Morphy negative control.
+            # The original narrower filter matched 78/378 frontend PRs from
+            # 2026-10-01 to 2026-10-15; that is not this expanded filter's count.
+            # Guarded by
+            # consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py,
+            # and .github/workflows/editor-performance-nightly.yml runs the lane
+            # on main every night.
+            editor:
+              - 'hushh-webapp/e2e/agent-history-motion.layout.spec.ts'
+              - 'hushh-webapp/e2e/fixtures/agent-history-motion.tsx'
+              - 'hushh-webapp/e2e/fixtures/app-chrome-layer.ts'
+              - 'hushh-webapp/components/agent/agent-connections-drawer.tsx'
+              - 'hushh-webapp/components/agent/agent-history-sidebar.tsx'
+              - 'hushh-webapp/components/app-ui/app-chat-history-edge-gesture.tsx'
+              - 'hushh-webapp/components/app-ui/drawer-motion.ts'
+              - 'hushh-webapp/components/app-ui/search-clear-button.tsx'
+              - 'hushh-webapp/components/app-ui/side-panel-motion.tsx'
+              - 'hushh-webapp/components/ui/alert-dialog.tsx'
+              - 'hushh-webapp/components/ui/dropdown-menu.tsx'
+              - 'hushh-webapp/lib/agent/chat-time-separators.ts'
+              - 'hushh-webapp/e2e/text-attachment-viewer.layout.spec.ts'
+              - 'hushh-webapp/e2e/fixtures/text-attachment-viewer.tsx'
+              - 'hushh-webapp/e2e/fixtures/product-font.ts'
+              - 'hushh-webapp/e2e/tsconfig.json'
+              - 'hushh-webapp/public/fonts/PlusJakartaSans/**'
+              - 'hushh-webapp/components/agent/agent-message-attachments.tsx'
+              - 'hushh-webapp/components/agent/agent-text-attachment-editor.tsx'
+              - 'hushh-webapp/components/agent/agent-text-attachment-viewer.tsx'
+              - 'hushh-webapp/components/agent/animated-menu-cross-icon.tsx'
+              - 'hushh-webapp/components/app-ui/native-chat-chrome.tsx'
+              - 'hushh-webapp/components/app-ui/native-feature-page.tsx'
+              - 'hushh-webapp/components/app-ui/shell-action-surface.tsx'
+              - 'hushh-webapp/components/icons/**'
+              - 'hushh-webapp/components/profile/profile-inner-icons.tsx'
+              - 'hushh-webapp/components/profile/profile-pane-icons.tsx'
+              - 'hushh-webapp/components/profile/profile-secondary-icons.tsx'
+              - 'hushh-webapp/components/profile/profile-your-account-icons.tsx'
+              - 'hushh-webapp/components/ui/button.tsx'
+              - 'hushh-webapp/components/ui/card.tsx'
+              - 'hushh-webapp/components/ui/dialog.tsx'
+              - 'hushh-webapp/components/ui/input.tsx'
+              - 'hushh-webapp/components/ui/sheet.tsx'
+              - 'hushh-webapp/hooks/use-mobile.ts'
+              - 'hushh-webapp/lib/agent/agent-chat-transcript-scroll.ts'
+              - 'hushh-webapp/lib/agent/large-text-attachment.ts'
+              - 'hushh-webapp/lib/auth/session-owner.ts'
+              - 'hushh-webapp/lib/auth/use-session-chrome-suppression.ts'
+              - 'hushh-webapp/lib/capacitor/app-haptics.ts'
+              - 'hushh-webapp/lib/capacitor/native-base-apertures.ts'
+              - 'hushh-webapp/lib/capacitor/native-chrome.ts'
+              - 'hushh-webapp/lib/capacitor/native-control-appearance.ts'
+              - 'hushh-webapp/lib/capacitor/native-drawers.ts'
+              - 'hushh-webapp/lib/capacitor/native-navigation.ts'
+              - 'hushh-webapp/lib/capacitor/native-navigation-scroll.ts'
+              - 'hushh-webapp/lib/capacitor/native-panel-presentation.ts'
+              - 'hushh-webapp/lib/capacitor/native-presentation-policy.ts'
+              - 'hushh-webapp/lib/capacitor/native-presentation-regions.ts'
+              - 'hushh-webapp/lib/capacitor/native-profile-legal.ts'
+              - 'hushh-webapp/lib/capacitor/native-workspace.ts'
+              - 'hushh-webapp/lib/capacitor/session-privacy.ts'
+              - 'hushh-webapp/lib/capacitor/use-native-content-pane.ts'
+              - 'hushh-webapp/lib/kai/actions/voice-surface-activity.tsx'
+              - 'hushh-webapp/lib/kai/actions/voice-surface-metadata.ts'
+              - 'hushh-webapp/lib/legal/legal-documents.ts'
+              - 'hushh-webapp/lib/legal/private-text-disclosure.ts'
+              - 'hushh-webapp/lib/morphy-ux/**'
+              - 'hushh-webapp/lib/navigation/kai-bottom-chrome-visibility.ts'
+              - 'hushh-webapp/lib/theme/accent.ts'
+              - 'hushh-webapp/lib/ui/button-variants.ts'
+              - 'hushh-webapp/lib/utils.ts'
+              - 'hushh-webapp/lib/utils/clipboard.ts'
+              - 'hushh-webapp/lib/vault/session-epoch.ts'
+              - 'hushh-webapp/app/globals.css'
+              - 'hushh-webapp/tailwind.config.ts'
+              - 'hushh-webapp/postcss.config.mjs'
+              - 'hushh-webapp/playwright.config.ts'
+              - 'hushh-webapp/tsconfig.json'
+              - 'hushh-webapp/package.json'
+              - 'hushh-webapp/package-lock.json'
+              - '.github/workflows/ci.yml'
 
+      # The dispatches the filter above did not resolve: an explicit scope, or
+      # `auto` on the default branch. `editor` follows `frontend`.
       - id: override
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && steps.filter.outcome == 'skipped'
+        env:
+          SCOPE: ${{ inputs.scope }}
         run: |
-          scope="${{ github.event.inputs.scope }}"
-          case "$scope" in
-            frontend) echo "frontend=true" >> "$GITHUB_OUTPUT"; echo "backend=false" >> "$GITHUB_OUTPUT"; echo "ios=true" >> "$GITHUB_OUTPUT"; echo "android=true" >> "$GITHUB_OUTPUT" ;;
-            backend) echo "frontend=false" >> "$GITHUB_OUTPUT"; echo "backend=true" >> "$GITHUB_OUTPUT"; echo "ios=false" >> "$GITHUB_OUTPUT"; echo "android=false" >> "$GITHUB_OUTPUT" ;;
-            *) echo "frontend=true" >> "$GITHUB_OUTPUT"; echo "backend=true" >> "$GITHUB_OUTPUT"; echo "ios=true" >> "$GITHUB_OUTPUT"; echo "android=true" >> "$GITHUB_OUTPUT" ;;
+          case "$SCOPE" in
+            frontend) echo "frontend=true" >> "$GITHUB_OUTPUT"; echo "backend=false" >> "$GITHUB_OUTPUT"; echo "ios=true" >> "$GITHUB_OUTPUT"; echo "android=true" >> "$GITHUB_OUTPUT"; echo "editor=true" >> "$GITHUB_OUTPUT" ;;
+            backend) echo "frontend=false" >> "$GITHUB_OUTPUT"; echo "backend=true" >> "$GITHUB_OUTPUT"; echo "ios=false" >> "$GITHUB_OUTPUT"; echo "android=false" >> "$GITHUB_OUTPUT"; echo "editor=false" >> "$GITHUB_OUTPUT" ;;
+            all|auto) echo "frontend=true" >> "$GITHUB_OUTPUT"; echo "backend=true" >> "$GITHUB_OUTPUT"; echo "ios=true" >> "$GITHUB_OUTPUT"; echo "android=true" >> "$GITHUB_OUTPUT"; echo "editor=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "Unknown dispatch scope '$SCOPE'." >&2; exit 1 ;;
           esac
 
       - id: resolve
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "${{ steps.override.outcome }}" = "success" ]; then
             echo "frontend=${{ steps.override.outputs.frontend }}" >> "$GITHUB_OUTPUT"
             echo "backend=${{ steps.override.outputs.backend }}" >> "$GITHUB_OUTPUT"
             echo "ios=${{ steps.override.outputs.ios }}" >> "$GITHUB_OUTPUT"
             echo "android=${{ steps.override.outputs.android }}" >> "$GITHUB_OUTPUT"
+            echo "editor=${{ steps.override.outputs.editor }}" >> "$GITHUB_OUTPUT"
           else
             echo "frontend=${{ steps.filter.outputs.frontend }}" >> "$GITHUB_OUTPUT"
             echo "backend=${{ steps.filter.outputs.backend }}" >> "$GITHUB_OUTPUT"
             echo "ios=${{ steps.filter.outputs.ios }}" >> "$GITHUB_OUTPUT"
             echo "android=${{ steps.filter.outputs.android }}" >> "$GITHUB_OUTPUT"
+            echo "editor=${{ steps.filter.outputs.editor }}" >> "$GITHUB_OUTPUT"
           fi
         if: always()
+
+  ui-contracts:
+    name: "UI Contracts"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: hushh-webapp/scripts/architecture/ui-contract-tools/package-lock.json
+      - run: npm ci --ignore-scripts --no-audit --progress=false
+        working-directory: hushh-webapp/scripts/architecture/ui-contract-tools
+      - run: npm run verify:ui-contracts
+        working-directory: hushh-webapp
+        env:
+          UI_CONTRACT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
 
   preflight-gate:
     name: "Preflight Gate"
     needs:
+      - ui-contracts
       - secret-scan
       - dco-check
       - pr-base-policy
@@ -293,6 +452,7 @@ jobs:
       backend: ${{ needs.paths.outputs.backend }}
       ios: ${{ needs.paths.outputs.ios }}
       android: ${{ needs.paths.outputs.android }}
+      editor: ${{ needs.paths.outputs.editor }}
     steps:
       - name: Validate cheap authority checks before expensive lanes
         shell: bash
@@ -312,11 +472,16 @@ jobs:
           printf 'main-freshness-gate=%s\n' "$MAIN_FRESHNESS"
 
           fail=0
+          if [ "${{ needs['ui-contracts'].result }}" != "success" ]; then
+            echo "UI contracts (Back and Search) must pass; skipped checks cannot approve a PR."
+            fail=1
+          fi
           for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$MAIN_FRESHNESS"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
               fail=1
             fi
           done
+
 
           if [ "$fail" -ne 0 ]; then
             echo "Preflight failed; skipping expensive web/protocol/integration lanes."
@@ -338,6 +503,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
 
       - uses: actions/setup-node@v6
         with:
@@ -345,11 +512,25 @@ jobs:
           cache: "npm"
           cache-dependency-path: hushh-webapp/package-lock.json
 
+      # Restore-only; Main Post-Merge Smoke is the one saver. A cache saved by
+      # a pull_request run is scoped to that PR's merge ref, so no other PR can
+      # restore it, yet every save counted against the repository's 10GB
+      # budget. At 20:00Z on 2026-10-14 the budget held 10.65GB, 13 PR-scoped
+      # Next.js entries (379-461MB each) were 5.50GB of it, and no Next.js
+      # entry older than two hours survived eviction. PR runs restore main's
+      # entry by prefix and compiled in 4.0s and 7.1s from it (38621074234,
+      # 38619305777). Path, key and restore-keys must match the saver's
+      # (scripts/ci/test_ci_cache_scopes.py).
+      - name: Resolve Next.js build cache day
+        id: nextjs-cache-day
+        shell: bash
+        run: echo "day=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+
       - name: Restore Next.js build cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: hushh-webapp/.next/cache
-          key: ${{ runner.os }}-nextjs-${{ env.NODE_VERSION }}-${{ hashFiles('hushh-webapp/package-lock.json', 'hushh-webapp/next.config.ts') }}-${{ hashFiles('hushh-webapp/app/**', 'hushh-webapp/components/**', 'hushh-webapp/lib/**', 'hushh-webapp/public/**', 'hushh-webapp/package.json') }}
+          key: ${{ runner.os }}-nextjs-${{ env.NODE_VERSION }}-${{ hashFiles('hushh-webapp/package-lock.json', 'hushh-webapp/next.config.ts') }}-${{ steps.nextjs-cache-day.outputs.day }}
           restore-keys: |
             ${{ runner.os }}-nextjs-${{ env.NODE_VERSION }}-${{ hashFiles('hushh-webapp/package-lock.json', 'hushh-webapp/next.config.ts') }}-
 
@@ -375,29 +556,32 @@ jobs:
           if-no-files-found: ignore
 
   web-targeted-check:
-    name: "Web Targeted Contracts (${{ matrix.part }})"
+    name: "Web Targeted Contracts (${{ matrix.label }})"
     needs: [preflight-gate]
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.frontend == 'true')
     runs-on: ubuntu-latest
-    # Two legs that partition the matched packs (scripts/ci/web-targeted-check.sh,
-    # WEB_TARGETED_PART): `node` runs the Vitest and verifier packs and never
-    # downloads a browser; `browser` runs the Playwright packs, several at once.
-    # On one runner the browser packs ran one test at a time and were ~11 of
-    # the lane's ~13 minutes (run 36346187928). ci-status reads the aggregate
-    # result, which is `success` only when every leg succeeded. fail-fast is
-    # off so a red leg never hides the other leg's verdict.
+    # Keep node packs once; native Playwright sharding partitions each matched
+    # browser command across three runners. The aggregate succeeds only when all
+    # four jobs pass, and fail-fast leaves every verdict visible.
     strategy:
       fail-fast: false
       matrix:
-        part: [node, browser]
-    # Was 15, which the job could not fit. Downloading Chromium and WebKit
-    # took 13-15 minutes on its own, so the lane either died mid-download or
-    # reached the checks with ~100 seconds left and was cancelled part-way
-    # through them. Both outcomes report as "cancelled", which reads like
-    # infrastructure noise rather than a budget that was never large enough.
-    # 30 leaves room for a cold cache; a warm one finishes far inside it.
+        include:
+          - part: node
+            label: node
+            shard: ""
+          - part: browser
+            label: browser-1-of-3
+            shard: "1/3"
+          - part: browser
+            label: browser-2-of-3
+            shard: "2/3"
+          - part: browser
+            label: browser-3-of-3
+            shard: "3/3"
+    # Preserve the job limit; split work instead of extending the timeout.
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
@@ -436,8 +620,19 @@ jobs:
       # optional: it is the engine iOS ships, and a native <select> there
       # ignores an author border-radius that Chromium honours, so a
       # Chromium-only run passes controls that are visibly broken on an iPhone.
+      #
+      # Bounded at 8 minutes. Across 420 browser legs on 2026-10-08..14 this
+      # step took 1.2-1.4 minutes at p50 and 1.7 at p95, warm or cold cache.
+      # On 10-08 the apt half fetched 116 MB at 83.8 kB/s for 23 minutes (job
+      # 113516651801); three legs spent 20-24 minutes here and two of them then
+      # hit the job limit mid-test. A stall now fails here in minutes, as a
+      # failure rather than a "cancelled" that reads like noise, and frees the
+      # runner. The retry is for a fast transient error (an apt lock, a mirror
+      # mid-sync); a mirror that stays slow will not finish inside the bound,
+      # so a run that hits it should be re-run.
       - name: Install Playwright browsers
         if: matrix.part == 'browser'
+        timeout-minutes: 8
         run: |
           set -euo pipefail
           # The one dependency install for this job. It is the same
@@ -450,10 +645,25 @@ jobs:
           # ~/.cache/ms-playwright), so on a cache hit install only the system
           # deps and let the restored browser binaries stand.
           if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
-            (cd hushh-webapp && npx playwright install-deps chromium webkit)
+            install=(npx playwright install-deps chromium webkit)
           else
-            (cd hushh-webapp && npx playwright install --with-deps chromium webkit)
+            install=(npx playwright install --with-deps chromium webkit)
           fi
+          # Two attempts at most. A second attempt is safe: apt keeps what it
+          # already fetched and skips installed packages, and Playwright skips
+          # a browser that wrote its completion marker (its own download
+          # already retries five times).
+          for attempt in 1 2; do
+            if (cd hushh-webapp && "${install[@]}"); then
+              break
+            fi
+            if [ "$attempt" -eq 2 ]; then
+              echo "::error::Playwright browser install failed twice."
+              exit 1
+            fi
+            echo "::warning::Playwright browser install failed on attempt $attempt of 2; retrying in 15 seconds."
+            sleep 15
+          done
 
       - name: Run targeted web contract checks
         run: bash scripts/ci/orchestrate.sh web-targeted
@@ -466,15 +676,30 @@ jobs:
           # runner and fixture builds from starving a browser. Only the Playwright
           # config reads it, so it is inert in the node leg.
           PLAYWRIGHT_WORKERS: "3"
+          PLAYWRIGHT_SHARD: ${{ matrix.shard }}
           WEB_TARGETED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           WEB_TARGETED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
+
+      # The final layout pack owns these source-coupled synthetic fixtures.
+      # Never upload the whole output directory or protected reviewer traces.
+      - name: Upload synthetic Wallet failure evidence
+        if: failure() && matrix.part == 'browser'
+        uses: actions/upload-artifact@v6
+        with:
+          name: wallet-layout-failures-${{ matrix.label }}
+          path: |
+            hushh-webapp/test-results/wallet-workspace.layout-*/trace.zip
+            hushh-webapp/test-results/wallet-workspace.layout-*/test-failed-*.png
+            hushh-webapp/test-results/wallet-workspace.layout-*/error-context.md
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Upload security audit artifact
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: web-targeted-npm-audit-report-${{ matrix.part }}
+          name: web-targeted-npm-audit-report-${{ matrix.label }}
           path: hushh-webapp/npm-audit-report.json
           if-no-files-found: ignore
 
@@ -482,12 +707,18 @@ jobs:
   # native 100 KB textarea takes longer than our editor on the same runner,
   # so absolute key-to-paint latency is verified on macOS, the closer Safari
   # environment. Keep the 50 ms p95 / 120 ms max contract and both engines.
+  #
+  # Scheduled by the `editor` path filter, not by every frontend change. It
+  # took one of the org's five macOS slots on every frontend run while the
+  # files it builds changed in about one frontend PR in five. When the filter
+  # matches, CI Status Gate requires this lane to succeed, and
+  # editor-performance-nightly.yml runs it on main every night.
   web-editor-performance-check:
     name: "Web Editor Performance (macOS)"
     needs: [preflight-gate]
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
-      (needs['preflight-gate'].outputs.frontend == 'true')
+      (needs['preflight-gate'].outputs.editor == 'true')
     runs-on: macos-15
     timeout-minutes: 20
     steps:
@@ -505,7 +736,7 @@ jobs:
           npm ci
           npx playwright install chromium webkit
 
-      - name: Verify 100 KB editor latency on macOS
+      - name: Verify editor latency and drawer motion on macOS
         working-directory: hushh-webapp
         run: npm run test:layout-editor-performance
 
@@ -554,6 +785,13 @@ jobs:
           protocol-dir: ./consent-protocol
           sync-dev-group: "false"
 
+      # Native reviewer-resolution contracts execute the authored Zsh runner;
+      # Ubuntu does not guarantee that interpreter is preinstalled.
+      - name: Install Zsh for native runner contracts
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y zsh
+
       - name: Run the full Vitest suite and contract verifiers
         run: bash scripts/ci/orchestrate.sh web-full-suite
         env:
@@ -570,6 +808,8 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 45
     env:
+      # Also part of the Swift package cache key; the saver pins the same.
+      XCODE_VERSION: "26.3"
       XCODE_PROJECT: hushh-webapp/ios/App/App.xcodeproj
       XCODE_SCHEME: App
       NODE_OPTIONS: --max-old-space-size=8192
@@ -595,7 +835,7 @@ jobs:
       - name: Select release-parity Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "26.3"
+          xcode-version: ${{ env.XCODE_VERSION }}
 
       - uses: actions/setup-node@v6
         with:
@@ -632,12 +872,6 @@ jobs:
           plutil -insert GOOGLE_APP_ID -string "1:123456789:ios:abcdef1234567890abcdef" "$PLIST"
           plutil -lint "$PLIST"
 
-      # There is deliberately no actions/cache for these packages. A cache saved
-      # by a pull_request run is scoped to that PR, so a new PR never restored
-      # one (every restore key missed on 36346187928), each save cost ~80s and
-      # ~4.5GB of the repository's 10GB cache budget, evicting the npm cache
-      # every other lane restores from main.
-      #
       # Resolution stays sequential after cap sync. A background prefetch under
       # the web export was measured on run 36371292301: the export slowed from
       # 223s to 478s on the shared macOS runner and the resolve after sync still
@@ -681,10 +915,54 @@ jobs:
           nohup xcrun simctl bootstatus "${SIMULATOR_ID}" -b \
             > "${RUNNER_TEMP}/simulator-boot.log" 2>&1 &
 
+      # Restore-only, exact key. .github/workflows/ios-swift-package-cache.yml
+      # resolves this clone directory on main daily and saves it when its key
+      # is new, and only main's entries are restorable by every PR. The
+      # PR-scoped cache this lane had until 2026-09-27 never restored on a new
+      # PR (36346187928), and each ~4.5GB save evicted the npm cache the other
+      # lanes restore from main. Uncached, the resolve below took 6.5-8.8
+      # minutes on 2026-10-14 (38610933231, 38612718847, 38613036864).
+      #
+      # The key is the Xcode version, the runner, and the two files that define
+      # the package graph after cap sync: the project's Package.resolved (every
+      # remote pin, plaid-link-ios included) and the CapApp-SPM Package.swift
+      # that sync regenerates. There is no restore-keys fallback, because a
+      # partial match would hand SwiftPM another graph's checkouts and binary
+      # artifacts. A PR that changes the graph resolves cold, as every PR did
+      # before, until the next daily save. The resolve below stays the
+      # authority either way. A restore also skips the fetch that proved, on
+      # every iOS PR, that each pin and binary artifact can still be
+      # downloaded, so the saver repeats it from an empty directory every
+      # Sunday and files an issue when it fails, rather than every iOS PR
+      # failing at once at the next graph change or eviction.
+      #
+      # Budget: one entry per package graph, estimated at 2.5-3GB of the 10GB.
+      # It is at most the ~4.5GB the old entry measured for this same graph
+      # (Package.resolved last changed 2026-09-22), because that entry also
+      # held ~/Library/Caches/org.swift.swiftpm and this one does not. Most of
+      # it is plaid-link-ios, ~1.5GB of history by GitHub's disk usage figure:
+      # every LinkKit.xcframework release is committed to it, and SwiftPM
+      # clones it in full. The saver logs the measured size. GitHub evicts an
+      # entry nobody restores for 7 days, and over 10GB it evicts the least
+      # recently used first. An evicted entry costs one cold resolve until the
+      # next daily save.
+      - name: Restore Swift packages resolved on main
+        id: spm-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/spm
+          key: ios-spm-xcode${{ env.XCODE_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('hushh-webapp/ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'hushh-webapp/ios/App/CapApp-SPM/Package.swift') }}
+
       - name: Resolve Swift package dependencies
         shell: bash
+        env:
+          SPM_CACHE_HIT: ${{ steps.spm-cache.outputs.cache-hit }}
         run: |
           set -euo pipefail
+          # actions/cache reports a restore that fails partway (a full disk, a
+          # corrupt archive) as a miss but leaves what it extracted. A miss
+          # resolves from an empty directory, as every PR did before the cache.
+          if [ "${SPM_CACHE_HIT}" != true ]; then rm -rf "${RUNNER_TEMP}/spm"; fi
           xcodebuild -resolvePackageDependencies \
             -project "${XCODE_PROJECT}" \
             -scheme "${XCODE_SCHEME}" \
@@ -1018,22 +1296,83 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
+      # Every lane checks out github.sha, GitHub's refs/pull/N/merge commit: this
+      # head merged onto the base as of the push. Its first parent is the base
+      # those lanes tested. The head-only checkout above lacks it, so fetch it by
+      # SHA. Trusted only when its second parent is this head; otherwise the
+      # output stays empty and the check falls back to the merge-base.
+      - name: Resolve the base the PR checks tested
+        id: tested-base
+        if: github.base_ref == 'main'
+        env:
+          TESTED_MERGE_SHA: ${{ github.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          tested_base=""
+          if git fetch --no-tags --quiet origin "$TESTED_MERGE_SHA" \
+            && [ "$(git rev-parse --verify --quiet "$TESTED_MERGE_SHA^2" || true)" = "$PR_HEAD_SHA" ]; then
+            tested_base="$(git rev-parse --verify --quiet "$TESTED_MERGE_SHA^1" || true)"
+          fi
+          if [ -n "$tested_base" ]; then
+            echo "Tested base: $tested_base (first parent of $TESTED_MERGE_SHA)"
+          else
+            echo "::notice title=Branch Freshness::Could not resolve the base the PR checks tested from $TESTED_MERGE_SHA; using the merge-base instead."
+          fi
+          echo "sha=$tested_base" >> "$GITHUB_OUTPUT"
+
       - name: Verify branch freshness against PR base
         env:
           MAIN_SYNC_REMOTE: origin
           MAIN_SYNC_BRANCH: ${{ github.base_ref }}
-          # block (not warn): branch freshness is mandatory even for governed
-          # maintainers. A PR behind its base must sync before it can land, so
-          # the freshness signal hard-fails at the PR layer instead of only at
-          # the merge queue. Bypass cohorts waive review, never validation.
-          MAIN_SYNC_MODE: block
+          # bounded for PRs into main, block for integration/pr-train (2026-10-15).
+          #
+          # block failed every PR that was even one commit behind main. main
+          # lands 24-57 merges a day against a ~25 min green run, and this job
+          # fetches main when it STARTS, so runner queueing alone turned fresh
+          # pushes stale. Measured 2026-10-14: it caused 30-57% of failed PR
+          # runs, and ~17% of runs were "merge main into branch" re-runs. Nor
+          # did it keep stale bases out: 64% of merges still landed behind
+          # main, and Main Post-Merge Smoke was 324/0 green.
+          #
+          # Every lane already tests refs/pull/N/merge (github.sha), this head
+          # merged onto the base as of the push. bounded passes a head that is
+          # behind, with a warning and a step summary, unless the gap is one
+          # those lanes could not cover:
+          #   - the merge-base is more than 24 h old (MAIN_SYNC_MAX_AGE_HOURS), or
+          #   - main changed, after the base the lanes tested, a file this PR
+          #     also changes (up to 20 paths are printed).
+          # A missing remote, failed fetch or unresolvable commit still fails.
+          #
+          # block stays wherever landing order must be exact: the merge queue
+          # (.github/workflows/queue-validation.yml), PRs into
+          # integration/pr-train, and the release gate
+          # (scripts/ci/local-release-gate.sh). Bypass cohorts waive review,
+          # never validation.
+          MAIN_SYNC_MODE: ${{ github.base_ref == 'main' && 'bounded' || 'block' }}
+          MAIN_SYNC_TESTED_BASE_SHA: ${{ steps.tested-base.outputs.sha }}
           MAIN_SYNC_CURRENT_BRANCH: ${{ github.head_ref || github.ref_name }}
-        run: sh scripts/git/check-main-sync.sh
+          # Read the script from github.sha, the tree this workflow definition
+          # comes from, not from the head checkout above, so the mode set here
+          # and the script that reads it always match. A head cut before the
+          # script learned a mode runs its own older copy: on 2026-10-15 every
+          # PR branched before bounded mode landed (ae479af9f1) failed here
+          # with "Unsupported MAIN_SYNC_MODE 'bounded'" (run 38659836145).
+          MAIN_SYNC_SCRIPT_SHA: ${{ github.sha }}
+        run: |
+          if ! git cat-file -e "$MAIN_SYNC_SCRIPT_SHA^{commit}" 2>/dev/null \
+            && ! git fetch --no-tags --quiet origin "$MAIN_SYNC_SCRIPT_SHA"; then
+            echo "::error title=Branch Freshness::Could not fetch $MAIN_SYNC_SCRIPT_SHA, the commit this workflow runs from, to read scripts/git/check-main-sync.sh."
+            exit 1
+          fi
+          script="$RUNNER_TEMP/check-main-sync.sh"
+          git show "$MAIN_SYNC_SCRIPT_SHA:scripts/git/check-main-sync.sh" > "$script"
+          sh "$script"
 
-  # Advisory, not required: Base Freshness Gate proves a PR CONTAINS main's
-  # commits as ancestors; it says nothing about whether the PR's content still
-  # HAS what those commits landed. Three ways to lose landed work, three
-  # passes (see scripts/ci/check-merge-fidelity.sh):
+  # Advisory, not required: in block mode Base Freshness Gate proves a PR
+  # CONTAINS main's commits as ancestors (bounded mode on PRs into main proves
+  # only a recent, non-overlapping tested merge); it says nothing about
+  # whether the PR's content still HAS what those commits landed. Three ways
+  # to lose landed work, three passes (see scripts/ci/check-merge-fidelity.sh):
   #   A  a conflict resolution that kept the stale side (2026-08-19 incident)
   #   B  a clean revert inside the PR — no conflict, so pass A is blind to it
   #   C  a revert committed straight onto the base tip, which neither A nor B
@@ -1065,9 +1404,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash scripts/ci/check-merge-fidelity.sh
 
+  # The one required check. GitHub counts a skipped or neutral required check
+  # as passing, so this gate must never pass on a lane that did not run when
+  # it should have: every lane its path filter (or a dispatch scope) selects
+  # must report `success`, and so must the authority checks that have no path
+  # filter at all. `if: always()` is deliberate; `!cancelled()` would let a
+  # cancelled run leave this check skipped, which GitHub reads as a pass.
   ci-status:
-    name: "CI Status Gate"
+    name: ${{ github.event_name == 'workflow_dispatch' && 'Branch Validation Gate' || 'CI Status Gate' }}
     needs:
+      - ui-contracts
       - secret-scan
       - dco-check
       - pr-base-policy
@@ -1090,6 +1436,9 @@ jobs:
     steps:
       - name: Validate job outcomes
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
         run: |
           SECRET_SCAN="${{ needs['secret-scan'].result }}"
           DCO="${{ needs['dco-check'].result }}"
@@ -1126,14 +1475,26 @@ jobs:
           printf 'main-freshness-gate=%s\n' "$MAIN_FRESHNESS"
 
           fail=0
+          if [ "${{ needs['ui-contracts'].result }}" != "success" ]; then
+            echo "UI contracts (Back and Search) must pass; skipped checks cannot approve a PR."
+            fail=1
+          fi
+          if [ "${{ needs.paths.outputs.frontend }}" = "true" ] && [ "$WEB_CORE" != "success" ]; then
+            echo "Changed frontend sources require successful core and UI validator regressions."
+            fail=1
+          fi
           # A skipped lane passes the loop below, so a lane whose paths changed
           # must be proven to have actually run and succeeded.
+          if [ "${{ needs.paths.outputs.frontend }}" = "true" ] && [ "$WEB_TARGETED" != "success" ]; then
+            echo "Changed frontend sources require every targeted Node and browser shard to succeed."
+            fail=1
+          fi
           if [ "${{ needs.paths.outputs.frontend }}" = "true" ] && [ "$WEB_FULL_SUITE" != "success" ]; then
             echo "Changed frontend sources require a successful full Vitest suite run."
             fail=1
           fi
-          if [ "${{ needs.paths.outputs.frontend }}" = "true" ] && [ "$WEB_EDITOR_PERF" != "success" ]; then
-            echo "Changed frontend sources require a successful macOS editor performance run."
+          if [ "${{ needs.paths.outputs.editor }}" = "true" ] && [ "$WEB_EDITOR_PERF" != "success" ]; then
+            echo "Changed editor sources require a successful macOS editor performance run."
             fail=1
           fi
           if [ "${{ needs.paths.outputs.ios }}" = "true" ] && [ "$IOS_NATIVE" != "success" ]; then
@@ -1144,14 +1505,81 @@ jobs:
             echo "Changed Android sources require a successful native compile and unit run."
             fail=1
           fi
+          if [ "${{ needs.paths.outputs.backend }}" = "true" ] && [ "$PROTOCOL" != "success" ]; then
+            echo "Changed backend sources require a successful protocol check."
+            fail=1
+          fi
+          if [ "${{ needs.paths.outputs.backend }}" = "true" ] && [ "$MCP_PACKAGE" != "success" ]; then
+            echo "Changed backend sources require a successful MCP package check."
+            fail=1
+          fi
+          if { [ "${{ needs.paths.outputs.frontend }}" = "true" ] || [ "${{ needs.paths.outputs.backend }}" = "true" ]; } && [ "$INTEGRATION" != "success" ]; then
+            echo "Changed frontend or backend sources require a successful integration check."
+            fail=1
+          fi
+          # An output that is neither true nor false selected nothing above, so
+          # every lane it should have required would pass unrun. That is a
+          # broken paths job, never a skip.
+          for lane in "frontend=${{ needs.paths.outputs.frontend }}" "backend=${{ needs.paths.outputs.backend }}" "ios=${{ needs.paths.outputs.ios }}" "android=${{ needs.paths.outputs.android }}" "editor=${{ needs.paths.outputs.editor }}"; do
+            case "${lane#*=}" in
+              true|false) ;;
+              *) echo "Path filter output ${lane%%=*} is '${lane#*=}', not true or false."; fail=1 ;;
+            esac
+          done
+          # These run on every event with no path filter, so skipped is never
+          # legitimate. DCO runs on dispatch too: a dispatched gate lands on a
+          # branch head just as a pull request's does.
+          for check in "secret-scan=$SECRET_SCAN" "repo-governance=$REPO_GOVERNANCE" "paths=$PATHS" "preflight-gate=$PREFLIGHT" "dco-check=$DCO"; do
+            if [ "${check#*=}" != "success" ]; then
+              echo "${check%%=*} must succeed on every run; it reported ${check#*=}."
+              fail=1
+            fi
+          done
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            if [ "$PR_BASE_POLICY" != "success" ]; then
+              echo "A pull request requires a successful PR Base Policy check."
+              fail=1
+            fi
+            # The freshness job runs only for these bases; elsewhere its skip is legitimate.
+            if { [ "$BASE_REF" = "main" ] || [ "$BASE_REF" = "integration/pr-train" ]; } && [ "$MAIN_FRESHNESS" != "success" ]; then
+              echo "A pull request into ${BASE_REF} requires a successful Base Freshness Gate."
+              fail=1
+            fi
+          elif [ "$EVENT_NAME" != "workflow_dispatch" ]; then
+            echo "This gate knows pull_request and workflow_dispatch; ${EVENT_NAME} fails closed."
+            fail=1
+          fi
           for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$PREFLIGHT" "$WEB_CORE" "$WEB_TARGETED" "$WEB_EDITOR_PERF" "$WEB_FULL_SUITE" "$IOS_NATIVE" "$ANDROID_NATIVE" "$PROTOCOL" "$MCP_PACKAGE" "$INTEGRATION" "$MAIN_FRESHNESS"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
               fail=1
             fi
           done
 
+
           if [ "$fail" -ne 0 ]; then
             echo "One or more CI jobs failed."
             exit 1
           fi
           echo "All required CI jobs passed or were intentionally skipped."
+
+      # A manual branch verdict has its own name and cannot satisfy PR branch
+      # protection. The same full selected lanes remain required for dev.
+      - name: Refuse diagnostic-only dispatch scopes
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          SCOPE: ${{ inputs.scope }}
+        run: |
+          set -euo pipefail
+          case "$SCOPE" in
+            auto|all) ;;
+            frontend|backend)
+              echo "::error::Scope '${SCOPE}' runs a subset of the lanes, so it is diagnostic only. Dispatch with scope auto or all for a verdict."
+              exit 1
+              ;;
+            *)
+              echo "::error::Unknown dispatch scope '${SCOPE}'."
+              exit 1
+              ;;
+          esac
+          echo "Branch validation scope ${SCOPE} ran every selected lane; this is not a PR merge verdict."

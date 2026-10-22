@@ -206,7 +206,7 @@ for (const width of [393, 1440]) {
     ).toBeVisible();
     await expect(
       results.getByRole("link", { name: "Proceed to connections" }),
-    ).toHaveAttribute("href", "/one/connect?tab=all");
+    ).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
     await expect(
       results.getByRole("link", { name: "Proceed to connections" }),
     ).toHaveClass(/bg-\[[^\]]*var\(--app-neutral-fill\)/);

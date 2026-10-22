@@ -17,6 +17,11 @@ from hushh_mcp.services.drive_bulk_share_worker import DriveBulkShareWorker
 from hushh_mcp.services.drive_document_worker import DriveDocumentWorker
 from hushh_mcp.services.drive_owner_search_worker import DriveOwnerSearchWorker
 from hushh_mcp.services.drive_permission_worker import DrivePermissionWorker
+from hushh_mcp.services.drive_request_bulk_removal_worker import DriveRequestBulkRemovalWorker
+from hushh_mcp.services.drive_request_owner_payout_worker import DriveRequestOwnerPayoutWorker
+from hushh_mcp.services.drive_request_payment_checkout_worker import (
+    DriveRequestPaymentCheckoutWorker,
+)
 from hushh_mcp.services.drive_request_payment_refund_worker import DriveRequestPaymentRefundWorker
 from hushh_mcp.services.drive_share_notification_worker import DriveShareNotificationWorker
 from hushh_mcp.services.drive_suggestion_worker import DriveSuggestionWorker
@@ -24,20 +29,43 @@ from hushh_mcp.services.pkm_packet_order_worker import PkmPacketOrderWorker
 
 MAX_JOBS_PER_WORKER = 20
 WORKER_JOB_LIMITS = {
-    "documents": 1,
+    "documents": 20,
     "suggestions": 1,
     "searches": 1,
     "permissions": 20,
     "bulk_shares": 400,
+    "bulk_removals": 20,
+    "checkouts": 4,
     "notifications": 20,
     "refunds": 4,
+    "owner_payouts": 4,
     "packet_orders": 20,
 }
 STAGE_WORKERS = {
     "documents": frozenset({"documents"}),
     "suggestions": frozenset({"suggestions", "searches"}),
+    "v1": frozenset(
+        {
+            "searches",
+            "suggestions",
+            "bulk_shares",
+            "bulk_removals",
+            "checkouts",
+            "refunds",
+            "owner_payouts",
+        }
+    ),
     "sharing": frozenset(
-        {"permissions", "bulk_shares", "notifications", "refunds", "packet_orders"}
+        {
+            "permissions",
+            "bulk_shares",
+            "bulk_removals",
+            "checkouts",
+            "notifications",
+            "refunds",
+            "owner_payouts",
+            "packet_orders",
+        }
     ),
 }
 STAGE_MAX_SECONDS = {
@@ -46,8 +74,11 @@ STAGE_MAX_SECONDS = {
     "searches": 90,
     "permissions": 75,
     "bulk_shares": 80,
+    "bulk_removals": 45,
+    "checkouts": 35,
     "notifications": 35,
     "refunds": 35,
+    "owner_payouts": 40,
     "packet_orders": 35,
 }
 STAGE_MIN_SECONDS = {
@@ -56,8 +87,11 @@ STAGE_MIN_SECONDS = {
     "searches": 20,
     "permissions": 75,
     "bulk_shares": 75,
+    "bulk_removals": 20,
+    "checkouts": 20,
     "notifications": 35,
     "refunds": 20,
+    "owner_payouts": 20,
     "packet_orders": 20,
 }
 MAX_OUTCOME_COUNT = 500
@@ -82,12 +116,15 @@ _WORKER_ALLOWED_OUTCOMES = {
     ),
     "documents": frozenset(
         {
+            "queued",
+            "synced",
             "ready",
             "unchanged",
             "idle",
             "unavailable",
             "superseded",
             "not_ready",
+            "unsupported",
             "disabled",
             "deadline",
             "deferred",
@@ -95,6 +132,7 @@ _WORKER_ALLOWED_OUTCOMES = {
     ),
     "suggestions": frozenset(
         {
+            "package_queued",
             "not_claimed",
             "no_ready_files",
             "review_ready",
@@ -106,6 +144,7 @@ _WORKER_ALLOWED_OUTCOMES = {
     ),
     "permissions": frozenset(
         {
+            "materialized",
             "succeeded",
             "preexisting",
             "not_claimed",
@@ -142,6 +181,24 @@ _WORKER_ALLOWED_OUTCOMES = {
             "notification_not_claimed",
         }
     ),
+    "bulk_removals": frozenset(
+        {
+            "materialized",
+            "removed",
+            "absent",
+            "needs_review",
+            "queued",
+            "unknown",
+            "not_claimed",
+            "unavailable",
+            "disabled",
+            "deadline",
+            "deferred",
+        }
+    ),
+    "checkouts": frozenset(
+        {"ready", "not_ready", "not_claimed", "unavailable", "disabled", "deadline", "deferred"}
+    ),
     "notifications": frozenset(
         {
             "settled",
@@ -163,6 +220,42 @@ _WORKER_ALLOWED_OUTCOMES = {
             "unknown",
             "manual_review",
             "failed",
+            "disabled",
+            "unavailable",
+            "deadline",
+            "deferred",
+        }
+    ),
+    "owner_payouts": frozenset(
+        {
+            "checked",
+            "awaiting_refund",
+            "awaiting_fee",
+            "void",
+            "fees_resolved",
+            "claimed",
+            "transferred",
+            "unknown",
+            "manual_review",
+            "reversed",
+            "reversal_due",
+            "reversal_unknown",
+            "succeeded",
+            "failed",
+            "completed_checked",
+            "refund_reversed",
+            "refund_unknown",
+            "refund_manual_review",
+            "bank_accounts_checked",
+            "bank_payouts_changed",
+            "bank_provider_deferred",
+            "balance_accounts_checked",
+            "balance_snapshots_changed",
+            "balance_refresh_deferred",
+            "payout_reconciliations_queued",
+            "payout_reconciliations_checked",
+            "payout_reconciliations_completed",
+            "payout_reconciliation_deferred",
             "disabled",
             "unavailable",
             "deadline",
@@ -232,8 +325,11 @@ class DriveWorkDrain:
         search_worker: DriveOwnerSearchWorker | None = None,
         permission_worker: DrivePermissionWorker | None = None,
         bulk_share_worker: DriveBulkShareWorker | None = None,
+        bulk_removal_worker: DriveRequestBulkRemovalWorker | None = None,
+        checkout_worker: DriveRequestPaymentCheckoutWorker | None = None,
         notification_worker: DriveShareNotificationWorker | None = None,
         refund_worker: DriveRequestPaymentRefundWorker | None = None,
+        owner_payout_worker: DriveRequestOwnerPayoutWorker | None = None,
         packet_order_worker: PkmPacketOrderWorker | None = None,
     ) -> None:
         # Sharing permissions precede notifications in the same stage. Other
@@ -244,8 +340,11 @@ class DriveWorkDrain:
             ("searches", search_worker or DriveOwnerSearchWorker()),
             ("permissions", permission_worker or DrivePermissionWorker()),
             ("bulk_shares", bulk_share_worker or DriveBulkShareWorker()),
+            ("bulk_removals", bulk_removal_worker or DriveRequestBulkRemovalWorker()),
+            ("checkouts", checkout_worker or DriveRequestPaymentCheckoutWorker()),
             ("notifications", notification_worker or DriveShareNotificationWorker()),
             ("refunds", refund_worker or DriveRequestPaymentRefundWorker()),
+            ("owner_payouts", owner_payout_worker or DriveRequestOwnerPayoutWorker()),
             # PKM packet refunds ride the same minute-by-minute sharing drain.
             ("packet_orders", packet_order_worker or PkmPacketOrderWorker()),
         )
@@ -269,6 +368,9 @@ class DriveWorkDrain:
 
         deadline = self._now() + deadline_seconds
         summaries: dict[str, dict[str, int]] = {}
+        for name, _ in self._workers:
+            if name not in STAGE_WORKERS[stage]:
+                summaries[name] = {"deferred": 1}
 
         async def run_worker(name, worker):
             if name not in STAGE_WORKERS[stage]:
@@ -286,6 +388,7 @@ class DriveWorkDrain:
                         if name == "bulk_shares"
                         else min(max_jobs_per_worker, WORKER_JOB_LIMITS[name]),
                         deadline_seconds=budget,
+                        **({"v1_only": True} if stage == "v1" else {}),
                     )
             except TimeoutError:
                 summaries[name] = {"deadline": 1}
@@ -296,21 +399,57 @@ class DriveWorkDrain:
 
         if stage == "suggestions":
             # Independent read-only leases each get a bounded slice. A slow
-            # preparation cannot starve metadata searches (or vice versa).
-            # The sharing stage below retains permissions-before-notifications.
+            # preparation cannot starve metadata searches.
             await asyncio.gather(*(run_worker(name, worker) for name, worker in self._workers))
-        elif stage == "sharing":
-            # Refund reconciliation and notification dispatch are independent.
-            # Run them together after permission work so neither starves the
-            # other inside the existing minute-by-minute sharing drain.
+        elif stage == "v1":
+            # Each worker has its own V1-only candidate and claim fence. Run
+            # search, Checkout preparation and paid grants together; then
+            # settle delivery before reconciling earnings and refunds.
+            await asyncio.gather(
+                *(
+                    run_worker(name, worker)
+                    for name, worker in self._workers
+                    if name in {"searches", "suggestions", "checkouts", "bulk_shares"}
+                )
+            )
             for name, worker in self._workers:
-                if name not in {"notifications", "refunds", "packet_orders"}:
+                if name == "owner_payouts":
                     await run_worker(name, worker)
             await asyncio.gather(
                 *(
                     run_worker(name, worker)
                     for name, worker in self._workers
-                    if name in {"notifications", "refunds", "packet_orders"}
+                    if name in {"bulk_removals", "refunds"}
+                )
+            )
+        elif stage == "sharing":
+            # Bind checkout sessions before dispatching payment-ready notices.
+            # Payment preparation can overlap grant work; its own authority
+            # check and provider call need not consume the grant budget.
+            async def grant_work():
+                for name, worker in self._workers:
+                    if name in {"permissions", "bulk_shares"}:
+                        await run_worker(name, worker)
+
+            await asyncio.gather(
+                grant_work(),
+                *(
+                    run_worker(name, worker)
+                    for name, worker in self._workers
+                    if name == "checkouts"
+                ),
+            )
+            # Snapshot confirmed delivery before claiming a prorated refund.
+            # A confirmed refund becomes payable in the next bounded sweep.
+            for name, worker in self._workers:
+                if name == "owner_payouts":
+                    await run_worker(name, worker)
+            # Refund reconciliation and revocations remain independent.
+            await asyncio.gather(
+                *(
+                    run_worker(name, worker)
+                    for name, worker in self._workers
+                    if name in {"bulk_removals", "notifications", "refunds", "packet_orders"}
                 )
             )
         else:

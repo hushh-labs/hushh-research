@@ -9,6 +9,30 @@ from fastapi import HTTPException
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
 
+@pytest.fixture(autouse=True)
+def enable_selected_indexing_for_worker_readiness(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")
+
+
+@pytest.mark.asyncio
+async def test_worker_without_indexing_needs_no_model_or_scanner(monkeypatch, tmp_path):
+    import server_drive_worker as worker
+
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "false")
+    monkeypatch.setattr(worker, "BAKED_MODEL_DIR", str(tmp_path / "missing"))
+    query = AsyncMock()
+    check_ready = AsyncMock()
+    monkeypatch.setattr(worker.IsolatedDocumentEmbedding, "query", query)
+    monkeypatch.setattr(worker.ClamAvScanner, "check_ready", check_ready)
+
+    async with worker.lifespan(worker.app):
+        assert await worker.ready() == {"status": "ready"}
+    query.assert_not_awaited()
+    check_ready.assert_not_awaited()
+
+
 @pytest.mark.asyncio
 async def test_worker_startup_fails_closed_without_baked_model(monkeypatch, tmp_path):
     import server_drive_worker as worker
@@ -123,3 +147,37 @@ async def test_worker_total_budget_cancels_unfinished_readiness(
     assert cancelled.is_set()
     if blocked_stage == "embedding":
         check_ready.assert_not_awaited()
+
+
+def test_worker_process_logs_info_lines_through_the_redaction_filter():
+    """Job timing lines are INFO; a fresh worker process must not drop them."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    probe = (
+        "import logging\n"
+        "import server_drive_worker  # noqa: F401\n"
+        "logging.getLogger('hushh_mcp.services.drive_ingestion_service').info(\n"
+        "    'drive_extraction_job status=%s pages=%d fetch_ms=%d extract_ms=%d total_ms=%d',\n"
+        "    'ready', 3, 120, 340, 470)\n"
+        "logging.getLogger('hushh_mcp.services.drive_packet_worker').info(\n"
+        "    'drive_probe owner=%s', 'synthetic.owner@example.invalid')\n"
+    )
+    result = subprocess.run(  # noqa: S603 - this interpreter, fixed synthetic probe
+        [sys.executable, "-c", probe],
+        cwd=root,
+        env={**os.environ, "PYTHONPATH": str(root)},
+        capture_output=True,
+        text=True,
+        timeout=180,
+        check=True,
+    )
+    assert (
+        "drive_extraction_job status=ready pages=3 fetch_ms=120 extract_ms=340 total_ms=470"
+        in result.stderr
+    )
+    assert "drive_probe owner=[REDACTED]" in result.stderr
+    assert "synthetic.owner@example.invalid" not in result.stderr

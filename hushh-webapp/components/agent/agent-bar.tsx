@@ -3,6 +3,8 @@
 import { CommandAgentBar } from "@/components/agent/command-agent-bar";
 import { OneVoiceControl } from "@/components/one-voice/one-voice-control";
 import { useOneVoiceLiveEnabled } from "@/lib/one-voice/readiness";
+import { RetainedAgentBar } from "./agent-bar-surface";
+import { useAgentDockSurface } from "./agent-dock";
 
 /**
  * The persistent agent launcher. One stable entry point, two owners: the
@@ -11,6 +13,7 @@ import { useOneVoiceLiveEnabled } from "@/lib/one-voice/readiness";
  */
 export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const live = useOneVoiceLiveEnabled();
-  if (live) return <OneVoiceControl layout={layout} />;
-  return <CommandAgentBar layout={layout} />;
+  const dock = useAgentDockSurface();
+  const control = live ? <OneVoiceControl layout={layout} /> : <CommandAgentBar layout={layout} />;
+  return layout === "slot" && dock ? <RetainedAgentBar>{control}</RetainedAgentBar> : control;
 }

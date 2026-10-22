@@ -46,10 +46,11 @@ from hushh_mcp.services.one_location_agent_service import (
     OneLocationAgentError,
     OneLocationAgentService,
     database_error_detail,
+    is_sos_share,
     location_error_detail,
-    requires_recipient_phone_verification,
 )
 from hushh_mcp.services.one_location_circle_service import (
+    CIRCLE_MAX_CUSTOM_TYPES,
     OneLocationCircleError,
     OneLocationCircleService,
 )
@@ -65,6 +66,7 @@ from hushh_mcp.services.one_location_place_rating_service import (
     OneLocationPlaceRatingService,
     PlaceRatingError,
 )
+from hushh_mcp.services.one_location_sms_readiness import refresh_sms_recipient_identities
 
 router = APIRouter(prefix="/api/one", tags=["One Location Agent"])
 # Invitation presentation is not a protected Location workflow capability.
@@ -337,12 +339,14 @@ class ClaimCircleInviteRequest(_CamelModel):
 class CreateNamedCircleRequest(_CamelModel):
     name: str = Field(min_length=1, max_length=80)
     kind: str = Field(default="other", pattern="^(family|friends|other)$")
+    custom_type_label: str | None = Field(default=None, alias="customTypeLabel", max_length=80)
 
 
 class BootstrapNamedCircleRequest(_CamelModel):
     # No circle id and no kind: onboarding may only ever create the caller their
     # own first Circle, so there is nothing for a caller to point this at.
     name: str = Field(min_length=1, max_length=80)
+    purpose: Literal["signup_contacts_v1"] | None = None
 
 
 class CircleCommandRequest(_CamelModel):
@@ -357,6 +361,11 @@ class UpdateNamedCircleRequest(_CamelModel):
     command_binding: dict[str, Any] | None = Field(default=None, alias="commandBinding")
     name: str | None = Field(default=None, min_length=1, max_length=80)
     kind: str | None = Field(default=None, pattern="^(family|friends|other)$")
+    custom_type_label: str | None = Field(default=None, alias="customTypeLabel", max_length=80)
+
+
+class DeleteCircleTypeRequest(_CamelModel):
+    custom_type_label: str = Field(alias="customTypeLabel", min_length=1, max_length=80)
 
 
 def _circle_command_kwargs(
@@ -412,6 +421,7 @@ class CircleMembersPageResponse(_CamelModel):
 
 
 class CreateCircleMemberInvitesRequest(_CamelModel):
+    context: Literal["explicit", "signup"] = "explicit"
     command_directive_id: str | None = Field(
         default=None, alias="commandDirectiveId", pattern=r"^dir_[a-f0-9]{32}$"
     )
@@ -686,6 +696,55 @@ def _require_retention_auth(request: Request) -> None:
         )
 
 
+async def _sms_roster_identity_ready(
+    token_data: dict = Depends(require_vault_owner_token),
+) -> dict:
+    try:
+        await refresh_sms_recipient_identities(_service(), owner_user_id=_user_id(token_data))
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+    return token_data
+
+
+async def _sms_grant_identity_ready(
+    payload: CreateGrantRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+) -> dict:
+    try:
+        if is_sos_share(share_kind=payload.share_kind, reason=payload.reason):
+            await refresh_sms_recipient_identities(
+                _service(),
+                owner_user_id=_user_id(token_data),
+                recipient_user_id=payload.recipient_user_id,
+            )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+    return token_data
+
+
+async def _sms_envelope_identity_ready(
+    payload: CreateGrantWithEnvelopeRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+) -> dict:
+    return await _sms_grant_identity_ready(payload, token_data)
+
+
+async def _sms_add_identity_ready(
+    payload: AddSmsContactRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+) -> dict:
+    try:
+        await refresh_sms_recipient_identities(
+            _service(),
+            owner_user_id=_user_id(token_data),
+            recipient_user_id=payload.recipient_user_id,
+            adding_contact=True,
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+    return token_data
+
+
 @router.get("/location/state")
 def get_location_state(token_data: dict = Depends(require_vault_owner_token)):
     try:
@@ -694,7 +753,7 @@ def get_location_state(token_data: dict = Depends(require_vault_owner_token)):
         raise _handle_error(exc) from exc
 
 
-@router.post("/location/sms-contacts")
+@router.post("/location/sms-contacts", dependencies=[Depends(_sms_add_identity_ready)])
 def add_location_sms_contact(
     payload: AddSmsContactRequest,
     token_data: dict = Depends(require_vault_owner_token),
@@ -745,13 +804,21 @@ def list_location_sos_email_recipients(
         return {"ownerDisplayName": "", "openInOneUrl": "", "recipients": []}
 
 
-@router.get("/location/sms-contacts")
+@router.get("/location/sms-contacts", dependencies=[Depends(_sms_roster_identity_ready)])
 def get_location_sms_contacts(
     response: Response, token_data: dict = Depends(require_vault_owner_token)
 ):
     _set_private_no_store(response)
+    service = _service()
+    owner = _user_id(token_data)
+    ids = service.list_sms_contact_ids(owner_user_id=owner)
     return {
-        "smsContactUserIds": _service().list_sms_contact_ids(owner_user_id=_user_id(token_data))
+        "smsContactUserIds": ids,
+        "recipients": service.list_verified_recipients(
+            owner_user_id=owner, user_ids=ids, limit=max(1, len(ids))
+        )
+        if ids
+        else [],
     }
 
 
@@ -989,7 +1056,28 @@ def list_named_location_circles(
     token_data: dict = Depends(require_vault_owner_token),
 ):
     try:
-        return {"circles": _circle_service().list_circles(user_id=_user_id(token_data))}
+        return {
+            "circles": _circle_service().list_circles(user_id=_user_id(token_data)),
+            "customTypePolicy": {"version": 1, "maxTypes": CIRCLE_MAX_CUSTOM_TYPES},
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.delete("/location/circle-types")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
+def delete_named_location_circle_type(
+    request: Request,
+    response: Response,
+    payload: DeleteCircleTypeRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    del request
+    _set_private_no_store(response)
+    try:
+        return _circle_service().delete_custom_type(
+            owner_user_id=_user_id(token_data), label=payload.custom_type_label
+        )
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -1008,6 +1096,11 @@ def create_named_location_circle(
                 owner_user_id=_user_id(token_data),
                 name=payload.name,
                 kind=payload.kind,
+                **(
+                    {"custom_type_label": payload.custom_type_label}
+                    if payload.custom_type_label is not None
+                    else {}
+                ),
             )
         }
     except Exception as exc:
@@ -1141,6 +1234,11 @@ def update_named_location_circle(
             circle_id=circle_id,
             name=payload.name,
             kind=payload.kind,
+            **(
+                {"custom_type_label": payload.custom_type_label}
+                if payload.custom_type_label is not None
+                else {}
+            ),
             **command,
         )
         return result if command else {"circle": result}
@@ -1269,9 +1367,12 @@ def bootstrap_named_location_circle(
     try:
         response.headers["Cache-Control"] = "private, no-store"
         return {
-            "invite": _circle_service().bootstrap_first_circle(
-                user_id=firebase_uid,
-                name=payload.name,
+            "invite": (
+                _circle_service().bootstrap_signup_contacts_circle(user_id=firebase_uid)
+                if payload.purpose == "signup_contacts_v1"
+                else _circle_service().bootstrap_first_circle(
+                    user_id=firebase_uid, name=payload.name
+                )
             )
         }
     except Exception as exc:
@@ -1453,6 +1554,7 @@ def create_named_circle_member_invites(
             actor_user_id=actor_user_id,
             circle_id=str(payload.circle_id),
             invitee_user_ids=invitee_user_ids,
+            **({"signup_insert_only": True} if payload.context == "signup" else {}),
             **(
                 {
                     "operation_id": payload.operation_id,
@@ -2113,7 +2215,7 @@ async def maps_route_eta(
         ) from exc
 
 
-@router.post("/location/grants")
+@router.post("/location/grants", dependencies=[Depends(_sms_grant_identity_ready)])
 def create_location_grant(
     payload: CreateGrantRequest,
     token_data: dict = Depends(require_vault_owner_token),
@@ -2131,10 +2233,7 @@ def create_location_grant(
                 source_circle_id=(
                     str(payload.source_circle_id) if payload.source_circle_id is not None else None
                 ),
-                require_recipient_phone_verified=requires_recipient_phone_verification(
-                    share_kind=payload.share_kind,
-                    reason=payload.reason,
-                ),
+                require_recipient_phone_verified=False,
                 enforce_connection=True,
             )
         }
@@ -2142,7 +2241,7 @@ def create_location_grant(
         raise _handle_error(exc) from exc
 
 
-@router.post("/location/grants/with-envelope")
+@router.post("/location/grants/with-envelope", dependencies=[Depends(_sms_envelope_identity_ready)])
 def create_location_grant_with_envelope(
     payload: CreateGrantWithEnvelopeRequest,
     token_data: dict = Depends(require_vault_owner_token),
@@ -2172,10 +2271,7 @@ def create_location_grant_with_envelope(
             source_circle_id=(
                 str(payload.source_circle_id) if payload.source_circle_id is not None else None
             ),
-            require_recipient_phone_verified=requires_recipient_phone_verification(
-                share_kind=payload.share_kind,
-                reason=payload.reason,
-            ),
+            require_recipient_phone_verified=False,
             enforce_connection=True,
         )
     except Exception as exc:

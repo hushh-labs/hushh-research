@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
 
 /**
  * The 12 alias collisions seeded into KNOWN_ALIAS_COLLISIONS when the
@@ -50,10 +50,14 @@ describe("Connect's generic phrases resolve to the global nav action", () => {
   });
 });
 
-describe('"my connections" names the People tab, not Connect generally', () => {
-  it("belongs to connect.open_people, not route.one_connect", () => {
-    expectOwnedBy("my connections", "connect.open_people", "route.one_connect");
-  });
+describe("saved connections phrases name the accepted-roster view", () => {
+  it.each(["my connections", "who am i connected to"])(
+    '"%s" belongs to connect.open_connections',
+    (alias) => {
+      expectOwnedBy(alias, "connect.open_connections", "connect.open_people");
+      expectOwnedBy(alias, "connect.open_connections", "route.one_connect");
+    },
+  );
 });
 
 describe("vault setup phrases point at the vault screen itself", () => {

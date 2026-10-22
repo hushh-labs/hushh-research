@@ -12,7 +12,7 @@
  *   the voice preferences namespace (`one_voice_preferences_v1:<uid>:...`).
  */
 
-import { useEffect, useState } from "react";
+import { useVoiceSpeakerphonePreference } from "./use-voice-policy-preferences";
 import {
   LiveVoiceRowIcon,
   SpeakerSafeRowIcon,
@@ -41,11 +41,6 @@ function LiveVoiceIdleRowIcon(props: AgentIconProps) {
   return <LiveVoiceRowIcon {...props} color="var(--muted-foreground)" />;
 }
 
-import {
-  readSpeakerphoneSafePreference,
-  writeSpeakerphoneSafePreference,
-  subscribeSpeakerphoneSafePreference,
-} from "@/lib/one-voice/speakerphone-preferences";
 // Compatibility exports retain existing deletion and settings callers.
 export {
   speakerphoneSafePreferenceKey,
@@ -117,15 +112,7 @@ export function OneVoicePreferencesSection({
   const readiness = useOneVoiceReadiness();
   const live = describeOneVoiceLiveStatus(readiness);
 
-  const [speakerphoneSafe, setSpeakerphoneSafe] = useState<boolean>(() =>
-    readSpeakerphoneSafePreference(userId),
-  );
-
-  useEffect(() => {
-    setSpeakerphoneSafe(readSpeakerphoneSafePreference(userId));
-    if (!userId) return;
-    return subscribeSpeakerphoneSafePreference(userId, setSpeakerphoneSafe);
-  }, [userId]);
+  const { value: speakerphoneSafe, change: setSpeakerphoneSafe } = useVoiceSpeakerphonePreference(userId);
 
   return (
     <SettingsGroup
@@ -151,7 +138,7 @@ export function OneVoicePreferencesSection({
       />
       {/* Renders its own row body; the group's dividers and the row padding
           tokens keep it flush with the SettingsRows around it. */}
-      <VoiceMicrophoneCheck className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]" />
+      <VoiceMicrophoneCheck ownerKey={userId} className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]" />
       <SettingsRow
         icon={SpeakerSafeRowIcon}
         iconTone="capability"
@@ -163,7 +150,6 @@ export function OneVoicePreferencesSection({
             disabled={!userId}
             onCheckedChange={(checked) => {
               setSpeakerphoneSafe(checked);
-              writeSpeakerphoneSafePreference(userId, checked);
             }}
             aria-label="Speakerphone-safe mode"
           />

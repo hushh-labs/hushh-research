@@ -13,7 +13,7 @@ fan-out can sit behind this service without changing its transaction contract.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import datetime
 from typing import Any
 
@@ -117,6 +117,98 @@ def lock_connection_graph_users(conn: Any, *, user_ids: Iterable[str]) -> None:
             "lock_namespace": _GRAPH_MUTATION_LOCK_NAMESPACE,
         },
     )
+
+
+async def lock_connection_graph_users_async(conn: Any, *, user_ids: Iterable[str]) -> None:
+    """Asyncpg adapter for the same account-reset serialization namespace."""
+    normalized = sorted({str(user_id).strip() for user_id in user_ids if user_id})
+    if normalized:
+        await conn.execute(
+            """
+            WITH ordered_users AS MATERIALIZED (
+              SELECT user_id FROM UNNEST($1::text[]) AS item(user_id) ORDER BY user_id
+            )
+            SELECT pg_advisory_xact_lock(hashtextextended(user_id, $2))
+            FROM ordered_users ORDER BY user_id
+        """,
+            normalized,
+            _GRAPH_MUTATION_LOCK_NAMESPACE,
+            timeout=5,
+        )
+
+
+def list_connection_graph_viewer_ids(
+    conn: Any,
+    *,
+    user_id: str,
+    include_pending_requests: bool = False,
+    table_exists: Callable[[str], bool] | None = None,
+) -> set[str]:
+    """Capture readers to wake after commit; this confers no access authority.
+
+    Erasure callers must capture these ids before removing the graph. Keep the
+    query unpaged: a metadata-only doorbell must reach every affected reader.
+    The optional catalog probe preserves account erasure's older-schema support.
+    """
+    statements = [
+        (
+            ("connections",),
+            """
+            SELECT CASE WHEN user_a_id = :user_id THEN user_b_id ELSE user_a_id END AS user_id
+            FROM connections
+            WHERE status = 'active' AND (user_a_id = :user_id OR user_b_id = :user_id)
+        """,
+        ),
+        (
+            ("trusted_connections",),
+            """
+            SELECT CASE WHEN owner_user_id = :user_id THEN trusted_user_id ELSE owner_user_id END AS user_id
+            FROM trusted_connections
+            WHERE status = 'active' AND (owner_user_id = :user_id OR trusted_user_id = :user_id)
+        """,
+        ),
+        (
+            ("one_location_circles", "one_location_circle_memberships"),
+            """
+            SELECT member.user_id
+            FROM one_location_circles circle
+            JOIN one_location_circle_memberships member ON member.circle_id = circle.id
+              AND member.status = 'active'
+            WHERE circle.status = 'active' AND (
+              circle.owner_user_id = :user_id OR EXISTS (
+                SELECT 1 FROM one_location_circle_memberships mine
+                WHERE mine.circle_id = circle.id AND mine.user_id = :user_id AND mine.status = 'active'
+              )
+            )
+            UNION
+            SELECT circle.owner_user_id AS user_id
+            FROM one_location_circles circle
+            JOIN one_location_circle_memberships mine ON mine.circle_id = circle.id
+              AND mine.user_id = :user_id AND mine.status = 'active'
+            WHERE circle.status = 'active'
+        """,
+        ),
+    ]
+    if include_pending_requests:
+        statements.append(
+            (
+                ("connection_requests",),
+                """
+            SELECT CASE WHEN requester_user_id = :user_id THEN addressee_user_id ELSE requester_user_id END AS user_id
+            FROM connection_requests
+            WHERE status = 'pending' AND (requester_user_id = :user_id OR addressee_user_id = :user_id)
+        """,
+            )
+        )
+    viewers: set[str] = set()
+    for tables, statement in statements:
+        if table_exists is not None and not all(table_exists(table) for table in tables):
+            continue
+        for row in _all(conn.execute(text(statement), {"user_id": user_id})):
+            viewer = str(row.get("user_id") or "").strip()
+            if viewer and viewer != user_id:
+                viewers.add(viewer)
+    return viewers
 
 
 class ConnectionGraphService:

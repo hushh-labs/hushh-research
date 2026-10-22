@@ -76,7 +76,7 @@ vi.mock("@/lib/one-location/encryption", () => ({
   encryptLocationForRecipient: vi.fn(),
 }));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: toast }));
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
   usePublishVoiceSurfaceMetadata: vi.fn(),
 }));
 vi.mock("@/lib/voice/location-voice-actions", () => ({
@@ -97,7 +97,7 @@ const SOURCE = fs.readFileSync(
 const PRIYA = {
   userId: "user-2",
   displayName: "Priya Nair",
-  phoneVerified: true,
+  phoneVerified: false,
   keyId: "key-2",
   publicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
   keyAlgorithm: "ECDH-P256",
@@ -195,7 +195,8 @@ describe("CheckInFlow", () => {
     const priya = await screen.findByRole("radio", { name: /Priya Nair/ });
     expect(priya).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("radio", { name: /Sam Lee/ })).toBeDisabled();
-    expect(screen.getByText("Needs a verified phone")).toBeInTheDocument();
+    expect(screen.getByText("Location receiving unavailable")).toBeInTheDocument();
+    expect(screen.queryByText(/verified phone/)).toBeNull();
     expect(document.body.textContent).not.toContain("user-2");
   });
 

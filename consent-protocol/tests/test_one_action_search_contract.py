@@ -3,7 +3,7 @@
 The client sent `GET /api/one/actions/search?query=...` with no VAULT_OWNER
 token. The server has always served that path as an authenticated POST. Every
 call was therefore a 405 or a 401, and the single caller
-(`searchKaiActionsSemantic` in lib/voice/kai-action-gateway.ts) catches every
+(`searchKaiActionsSemantic` in lib/kai/actions/kai-action-gateway.ts) catches every
 failure and returns `[]` -- so a broken endpoint and "nothing matched" produced
 the same empty command palette. Nobody could see it.
 

@@ -1,0 +1,62 @@
+{
+  "status": "confirmation_required",
+  "proposal_id": "gcal_local_review",
+  "plan": {
+    "event_id": null,
+    "start_at": "2030-01-17T08:30:00Z",
+    "end_at": "2030-01-17T09:00:00Z",
+    "time_zone": "Asia/Kolkata",
+    "send_updates": true,
+    "title": "Call",
+    "attendees": [
+      "guest@example.com"
+    ],
+    "description": "",
+    "location": "",
+    "conference_request_id": "meet_local_review",
+    "connection_binding": [
+      "owner",
+      "calendar",
+      "subject",
+      "connected",
+      "connection-rev",
+      "grant-rev"
+    ],
+    "availability_calendar_ids": [
+      "calendar-1",
+      "calendar-2",
+      "calendar-4",
+      "calendar-5"
+    ],
+    "included_conflicts": [],
+    "conflicts": [],
+    "primary_conflicts": []
+  },
+  "conflicts": [],
+  "directive": {
+    "kind": "action",
+    "delegateAgentId": "agent_calendar",
+    "payload": {
+      "type": "calendar.execute_proposal",
+      "proposalId": "gcal_local_review",
+      "action": "create",
+      "summary": "Schedule \u201cCall\u201d for Thu, Jan 17 at 2:00 PM IST and notify 1 attendee?",
+      "confirmLabel": "Schedule meeting",
+      "expiresAt": "2030-01-17T10:00:00Z",
+      "eventId": null,
+      "title": "Call",
+      "startAt": "2030-01-17T08:30:00Z",
+      "endAt": "2030-01-17T09:00:00Z",
+      "timeZone": "Asia/Kolkata",
+      "attendees": [
+        "guest@example.com"
+      ],
+      "location": null,
+      "googleMeet": true,
+      "sendUpdates": true,
+      "conflicts": [],
+      "description": null
+    }
+  },
+  "message": "The app is showing the meeting details for owner confirmation. A Google Meet link will be added after scheduling."
+}

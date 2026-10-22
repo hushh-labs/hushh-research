@@ -283,12 +283,12 @@ async function ensureReviewerSession(page) {
   if (await unlockInput.isVisible().catch(() => false)) {
     await unlockInput.fill(reviewerPassphrase);
     const unlockButton = page
-      .getByRole("button", { name: /unlock with passphrase/i })
+      .getByRole("button", { name: /unlock with password/i })
       .first();
     await page.waitForFunction(
       () => {
         const button = Array.from(document.querySelectorAll("button")).find((candidate) =>
-          /unlock with passphrase/i.test((candidate.textContent || "").trim())
+          /unlock with password/i.test((candidate.textContent || "").trim())
         );
         return button instanceof HTMLButtonElement && !button.disabled;
       },

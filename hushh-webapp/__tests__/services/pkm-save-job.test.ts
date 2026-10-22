@@ -162,7 +162,7 @@ async function newJob(now = Date.now()): Promise<PkmSaveJob> {
 
 /** Same schema as the service, so opening it here never leaves a store-less database. */
 function openSecureCache(): IDBOpenDBRequest {
-  const request = indexedDB.open("hushh-secure-resource-cache", 1);
+  const request = indexedDB.open("hushh-secure-resource-cache");
   request.onupgradeneeded = () => {
     request.result.createObjectStore("resource_cache", { keyPath: "key" }).createIndex("userId", "userId", { unique: false });
   };

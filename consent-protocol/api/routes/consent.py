@@ -638,6 +638,9 @@ async def approve_consent(
     if token_data["user_id"] != userId:
         raise HTTPException(status_code=403, detail="User ID does not match authenticated user")
 
+    from hushh_mcp.services.product_value_receipts import capture_value_epoch, record_owner_decision
+
+    value_epoch = await capture_value_epoch(userId)
     logger.info("consent.approve_requested")
     logger.info("consent.approve_export_attached=%s", bool(encryptedData))
 
@@ -1027,6 +1030,8 @@ async def approve_consent(
 
     granted_event_metadata = dict(metadata) if isinstance(metadata, dict) else {}
     granted_event_metadata["approved_duration_hours"] = expiry_hours
+    granted_event_metadata["decision_owner_uid"] = userId
+    granted_event_metadata["owner_decision"] = "approve"
 
     # Log CONSENT_GRANTED with the normalized requested scope string.
     if subject_user_id != userId:
@@ -1051,6 +1056,9 @@ async def approve_consent(
         metadata=granted_event_metadata,
     )
     logger.info("consent.granted_event_saved")
+    await record_owner_decision(
+        user_id=userId, request_id=requestId, generation=value_epoch, decision="approve"
+    )
 
     superseded_scopes: list[str] = []
     superseded_tokens = await service.get_superseded_active_tokens(
@@ -1188,6 +1196,21 @@ async def get_consent_center_summary(
     return await service.get_center_summary(firebase_uid, actor=actor, mode=mode)
 
 
+@router.get("/center/source-fence")
+async def get_consent_source_fence(firebase_uid: str = Depends(require_firebase_auth)):
+    try:
+        fence = await ConsentCenterService(require_complete=True).source_fence(firebase_uid)
+    except Exception:
+        raise HTTPException(
+            status_code=503, detail="Consent source inventory unavailable"
+        ) from None
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(
+        {"user_id": firebase_uid, "fence": fence}, headers={"Cache-Control": "private, no-store"}
+    )
+
+
 @router.get("/center/list")
 async def get_consent_center_list(
     actor: str | None = Query(default=None, max_length=50),
@@ -1198,9 +1221,10 @@ async def get_consent_center_list(
     page: int = Query(default=1, ge=1, le=1_000),
     limit: int = Query(default=20, ge=1, le=100),
     request_view: str = Query(default="received", pattern="^(received|sent)$"),
+    source_read: bool = Query(default=False),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
-    service = ConsentCenterService()
+    service = ConsentCenterService(require_complete=True) if source_read else ConsentCenterService()
     return await service.list_center(
         firebase_uid,
         actor=actor,

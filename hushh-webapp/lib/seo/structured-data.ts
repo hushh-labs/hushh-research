@@ -9,6 +9,7 @@
 import {
   absoluteUrl,
   PUBLIC_ROUTES,
+  PUBLIC_CANONICAL_PATHS,
   PUBLIC_ROUTE_SEMANTICS,
   SITE_URL,
 } from "@/lib/seo/site";
@@ -32,7 +33,7 @@ export function buildOrganizationGraph(): Record<string, unknown> {
         description:
           "Hussh is the platform and trust infrastructure for consent-first private AI agents: scoped access, BYOK, zero-knowledge vault, and encrypted PKM.",
         founder: { "@id": FOUNDER_ID },
-        sameAs: ["https://hushh.ai", "https://www.hushh.ai"],
+        sameAs: ["https://www.hussh.si"],
       },
       {
         "@type": "WebSite",
@@ -40,12 +41,12 @@ export function buildOrganizationGraph(): Record<string, unknown> {
         url: SITE_URL,
         name: "Hussh",
         publisher: { "@id": ORG_ID },
-        hasPart: PUBLIC_ROUTES.map((route) => ({ "@id": `${absoluteUrl(route)}#page` })),
+        hasPart: PUBLIC_ROUTES.map((route) => ({ "@id": `${absoluteUrl(PUBLIC_CANONICAL_PATHS[route] ?? route)}#page` })),
       },
       ...PUBLIC_ROUTES.map((route) => ({
         "@type": PUBLIC_ROUTE_SEMANTICS[route].schemaType,
-        "@id": `${absoluteUrl(route)}#page`,
-        url: absoluteUrl(route),
+        "@id": `${absoluteUrl(PUBLIC_CANONICAL_PATHS[route] ?? route)}#page`,
+        url: absoluteUrl(PUBLIC_CANONICAL_PATHS[route] ?? route),
         name: PUBLIC_ROUTE_SEMANTICS[route].title,
         description: PUBLIC_ROUTE_SEMANTICS[route].description,
         isPartOf: { "@id": SITE_ID },

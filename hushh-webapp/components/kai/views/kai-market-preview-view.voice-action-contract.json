@@ -53,6 +53,127 @@
         "docs/reference/one/one-voice-kai-compatibility-runtime.md"
       ],
       "speaker_persona": "kai"
+    },
+    {
+      "action_id": "market.sectors.show_day",
+      "label": "Show 1 day sector performance",
+      "meaning": "Selects daily sector ETF price returns on the active Market screen, with observed period dates and an explicit unavailable state.",
+      "aliases": [
+        "show sector performance for 1 day",
+        "show daily sectors"
+      ],
+      "search_keywords": [
+        "sector performance",
+        "sector rotation",
+        "1 day"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/kai?tab=market"
+        ],
+        "screens": [
+          "kai_market"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "control",
+        "target": "kai_market_sector_period"
+      },
+      "control_ids": [
+        "kai_market_sector_period"
+      ],
+      "state_exposure": [
+        "selected sector performance period"
+      ],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "market.sectors.show_week",
+      "label": "Show 1 week sector performance",
+      "meaning": "Selects five-trading-session sector ETF price returns on the active Market screen, with observed period dates and an explicit unavailable state.",
+      "aliases": [
+        "show sector performance for 1 week",
+        "show weekly sectors"
+      ],
+      "search_keywords": [
+        "sector performance",
+        "sector rotation",
+        "1 week"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/kai?tab=market"
+        ],
+        "screens": [
+          "kai_market"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "control",
+        "target": "kai_market_sector_period"
+      },
+      "control_ids": [
+        "kai_market_sector_period"
+      ],
+      "state_exposure": [
+        "selected sector performance period"
+      ],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "market.sectors.show_all",
+      "label": "Show all sectors",
+      "meaning": "Expands sector rotation to every available sector for the selected return period.",
+      "aliases": ["all sectors", "expand sector rotation"],
+      "search_keywords": ["all sectors", "sector rotation"],
+      "reachability": { "routes": ["/one/kai?tab=market"], "screens": ["kai_market"], "hidden_navigable": false, "navigation_prerequisites": [] },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": { "status": "wired", "path": "control", "target": "kai_market_sector_scope" },
+      "control_ids": ["kai_market_sector_scope"],
+      "state_exposure": ["selected sector list size"],
+      "docs_references": ["docs/reference/architecture/route-contracts.md"],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "market.sectors.show_highlights",
+      "label": "Show sector highlights",
+      "meaning": "Shows the three highest and three lowest available sector returns for the selected period, or every sector when six or fewer are available.",
+      "aliases": ["sector highlights", "shorten sector rotation"],
+      "search_keywords": ["sector highlights", "sector rotation"],
+      "reachability": { "routes": ["/one/kai?tab=market"], "screens": ["kai_market"], "hidden_navigable": false, "navigation_prerequisites": [] },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": { "status": "wired", "path": "control", "target": "kai_market_sector_scope" },
+      "control_ids": ["kai_market_sector_scope"],
+      "state_exposure": ["selected sector list size"],
+      "docs_references": ["docs/reference/architecture/route-contracts.md"],
+      "speaker_persona": "kai"
     }
-  ]
+  ],
+  "search": {}
 }

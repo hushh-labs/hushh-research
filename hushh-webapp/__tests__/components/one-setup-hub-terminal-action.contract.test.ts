@@ -12,11 +12,11 @@ describe("One setup hub terminal action contract", () => {
 
     expect(source).toContain('const masterActionLabel = "Finish setup"');
     expect(source).toContain('data-voice-action-id="setup.hub_master_ack"');
-    expect(source).toContain('variant="blue"');
-    expect(source).toContain('effect="fill"');
+    expect(source).toContain('className={styles.primary}');
+    expect(source).toContain('disabled={!runtimeChoiceComplete || dismissing}');
     expect(source).toContain("FinanceSetupDraftService.finalizeForVault");
     expect(source.lastIndexOf("FinanceSetupDraftService.finalizeForVault")).toBeLessThan(
-      source.indexOf("await acknowledgeOneSetupExit"),
+      source.indexOf("const completion = acknowledgeOneSetupExit"),
     );
   });
 
@@ -40,10 +40,10 @@ describe("One setup hub terminal action contract", () => {
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
       "utf8",
     );
-    const tile = readFileSync(
+    const styles = readFileSync(
       join(
         process.cwd(),
-        "components/onboarding/setup/capability-setup-tile.tsx",
+        "components/onboarding/setup/one-setup-hub.module.css",
       ),
       "utf8",
     );
@@ -51,11 +51,11 @@ describe("One setup hub terminal action contract", () => {
     // "Required" in the same muted grey as every other trailing label reads as
     // one more optional status. The blocking row takes the accent pill and the
     // current-step role so it is legible as the thing to do first.
-    expect(hub).toContain('statusLabel={runtimeChoiceComplete ? "Selected" : "Required"}');
-    expect(hub).toContain('statusTone={runtimeChoiceComplete ? "muted" : "required"}');
-    expect(tile).toContain('statusTone === "required"');
-    expect(tile).toContain("bg-[var(--app-accent-tint)]");
-    expect(tile).toContain('aria-current={isCurrent ? "step" : undefined}');
+    expect(hub).toContain('{runtimeChoiceComplete ? "Selected" : "Required"}');
+    expect(hub).toContain('className={`${styles.status} ${runtimeChoiceComplete ? styles.selected : ""}`}');
+    expect(styles).toContain(".status {");
+    expect(styles).toContain("background: #eaf3fe;");
+    expect(styles).toContain("color: #1672d1;");
   });
 
   it("uses the canonical setup icon geometry instead of a setup-specific icon map", () => {

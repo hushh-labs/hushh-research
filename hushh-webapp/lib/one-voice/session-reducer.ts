@@ -118,7 +118,9 @@ export type ToolResultTone = "success" | "neutral" | "failure" | "pending";
  * `location_updates_pending` keep their pinned failure tone (their screens
  * render the interim state themselves and the panel hides the card).
  */
-const PENDING_STATUSES = new Set<string>([SOS_GRANTS_CREATED, "draft_open_requested"]);
+const PENDING_STATUSES = new Set<string>([
+  SOS_GRANTS_CREATED, "draft_open_requested", "review_requested", "review_pending", "sending",
+]);
 
 /**
  * Outcomes that are neither done nor failed, whatever the frame's `ok` says.
@@ -134,6 +136,8 @@ export const NEUTRAL_OUTCOME_STATUSES = new Set<string>([
   "already_sent",
   "already_sending",
   "not_sent",
+  "needs_input",
+  "outcome_unknown",
 ]);
 
 /** An armed-but-unsent outcome: neither success nor failure yet. */
@@ -498,6 +502,7 @@ function mergeTranscript(
       text,
       final,
       turnId,
+      lastLegacyChunk: normalizeTranscriptText(text),
     };
     return {
       transcript: [...transcript, item].slice(-MAX_TRANSCRIPT_ITEMS),
@@ -506,7 +511,12 @@ function mergeTranscript(
   };
   const replaceRow = (index: number, merged: string): TranscriptMerge => {
     const next = transcript.slice();
-    next[index] = { ...transcript[index]!, text: merged, final };
+    next[index] = {
+      ...transcript[index]!,
+      text: merged,
+      final,
+      lastLegacyChunk: normalizeTranscriptText(text),
+    };
     return { transcript: next, transcriptSeq };
   };
 
@@ -520,12 +530,24 @@ function mergeTranscript(
   const current = normalizeTranscriptText(existing.text);
   const isPrefix = incoming.startsWith(current);
   const longer = incoming.length > current.length;
-  // A chunk that begins with whitespace is incremental by its own shape: it
-  // continues the row ("H" + " Hussh garage"), so it can never restate it.
+  // A space-led chunk normally continues the row ("H" + " Hussh garage").
+  // A final may restate the whole line, as the relay's segment merger allows.
   const continues = /^\s/.test(text);
   const restates = !continues && isPrefix;
 
   if (!existing.final) {
+    // A full final can carry the provider's leading space. Preserve a repeated
+    // delta ("S" + " S") unless it repeats the raw line exactly; an accumulated
+    // line differs from its last chunk and can be replaced without guessing
+    // whether its words or letters were intentionally repeated.
+    if (
+      final &&
+      (text === existing.text ||
+        (incoming === current &&
+          existing.lastLegacyChunk !== undefined &&
+          incoming !== existing.lastLegacyChunk))
+    )
+      return replaceRow(index, text);
     // A cumulative restatement replaces the row. A chunk equal to the row so
     // far is not strictly longer, so it is incremental and appends ("S","S").
     if (restates && (longer || final)) return replaceRow(index, text);

@@ -59,7 +59,7 @@ export type SecretItemSummary = {
 
 export type SaveSecretCapturesResult =
   | { ok: true; resolved: ReadonlyMap<string, ResolvedSecret> }
-  | { ok: false; reason: "locked" | "failed"; message: string };
+  | { ok: false; reason: "locked" | "failed" | "not_persistable"; message: string };
 
 /** A reveal or change was asked for without an unlocked vault. Nothing was read. */
 export class SecretsLockedError extends Error {
@@ -77,7 +77,7 @@ function itemsOf(domainData: unknown): Record<string, Record<string, unknown>> {
   const items = isRecord(domainData) && isRecord(domainData.items) ? domainData.items : {};
   return Object.fromEntries(
     Object.entries(items).filter((entry): entry is [string, Record<string, unknown>] =>
-      SECRET_ID.test(entry[0]) && isRecord(entry[1])),
+      SECRET_ID.test(entry[0]) && isRecord(entry[1]) && entry[1].kind !== "card_security_code"),
   );
 }
 
@@ -199,6 +199,7 @@ async function writeItems(params: {
   context: { userId: string; vaultKey: string; vaultOwnerToken: string };
   confirmation: PkmUserConfirmation;
   mutate: (items: Record<string, Record<string, unknown>>) => Record<string, Record<string, unknown>>;
+  beforeEffect?: () => Promise<void>;
 }) {
   return PkmWriteCoordinator.saveMergedDomain({
     userId: params.context.userId,
@@ -206,6 +207,7 @@ async function writeItems(params: {
     vaultKey: params.context.vaultKey,
     vaultOwnerToken: params.context.vaultOwnerToken,
     confirmation: params.confirmation,
+    beforeEffect: params.beforeEffect,
     build: async (writeContext) => {
       const base = isRecord(writeContext.currentDomainData) ? writeContext.currentDomainData : {};
       const domainData = { ...base, [ITEMS_BRANCH]: params.mutate({ ...itemsOf(base) }) };
@@ -226,7 +228,7 @@ async function loadItems(context: SecretsVaultContext): Promise<Record<string, R
     domain: SECRETS_DOMAIN,
     vaultKey: unlocked.vaultKey,
     vaultOwnerToken: unlocked.vaultOwnerToken,
-  }).catch(() => null);
+  });
   return itemsOf(data);
 }
 
@@ -240,6 +242,7 @@ export class SecretsVaultService {
     captures: readonly SecretCapture[];
     surface: PkmUserConfirmation["surface"];
   }): Promise<SaveSecretCapturesResult> {
+    if (params.captures.some(capture => capture.kind === "card_security_code")) return { ok: false, reason: "not_persistable", message: "Card security codes cannot be saved." };
     if (params.captures.length === 0) return { ok: true, resolved: new Map() };
     let context: ReturnType<typeof requireUnlocked>;
     try {
@@ -301,11 +304,12 @@ export class SecretsVaultService {
     return typeof value === "string" && value ? value : null;
   }
 
-  static async removeSecret(context: SecretsVaultContext & { secretId: string }): Promise<boolean> {
+  static async removeSecret(context: SecretsVaultContext & { secretId: string; beforeEffect?: () => Promise<void> }): Promise<boolean> {
     const unlocked = requireUnlocked(context);
     const result = await writeItems({
       context: unlocked,
       confirmation: { confirmedByUser: true, surface: "web", source: "secrets_vault_remove" },
+      beforeEffect: context.beforeEffect,
       mutate: (items) => {
         delete items[context.secretId];
         return items;
@@ -318,11 +322,13 @@ export class SecretsVaultService {
   static async markFiled(context: SecretsVaultContext & {
     secretId: string;
     filedTo: Exclude<SecretFileTo, "none">;
+    beforeEffect?: () => Promise<void>;
   }): Promise<boolean> {
     const unlocked = requireUnlocked(context);
     const result = await writeItems({
       context: unlocked,
       confirmation: { confirmedByUser: true, surface: "web", source: "secrets_vault" },
+      beforeEffect: context.beforeEffect,
       mutate: (items) => {
         const item = items[context.secretId];
         if (item) items[context.secretId] = { ...item, filed_to: context.filedTo };

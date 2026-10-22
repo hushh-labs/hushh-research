@@ -19,6 +19,9 @@ const ONE_EMAIL_DRAFT_TIMEOUT_MS = resolveSlowRequestTimeoutMs(75_000, {
   developmentFloorMs: 75_000,
   overrideEnvKey: "HUSHH_ONE_EMAIL_DRAFT_TIMEOUT_MS",
 });
+// A Location proposal can require more than one model turn to resolve a
+// person or circle. Keep this above the command brain's bounded assessment.
+const ONE_LOCATION_PROPOSAL_TIMEOUT_MS = 140_000;
 // A KYC Inbox scan can classify up to 30 messages and safely replay a
 // side-effect-free model turn after a transient provider failure. It must be
 // allowed to return its persisted partial/full result instead of being cut off
@@ -32,7 +35,8 @@ const ONE_STREAM_TIMEOUT_MS = resolveSlowRequestTimeoutMs(285_000, {
   overrideEnvKey: "HUSHH_ONE_STREAM_TIMEOUT_MS",
 });
 
-const CIRCLE_CHAT_MAX_REQUEST_BYTES = 7_250_000;
+const CIRCLE_CHAT_MAX_REQUEST_BYTES = 9_000_000;
+const DIRECT_MESSAGE_MAX_REQUEST_BYTES = 7_054_508;
 async function readCircleChatBody(request: NextRequest, maximum = CIRCLE_CHAT_MAX_REQUEST_BYTES): Promise<string> {
   const declared = request.headers.get("content-length");
   if (declared && (!/^\d+$/.test(declared) || Number(declared) > maximum)) {
@@ -61,6 +65,8 @@ async function readCircleChatBody(request: NextRequest, maximum = CIRCLE_CHAT_MA
 }
 
 function requestTimeoutMs(path: string, acceptHeader: string | null): number {
+  if (path === "world-model/source-reviews") return 170_000;
+  if (path === "agent-chat/proposals") return ONE_LOCATION_PROPOSAL_TIMEOUT_MS;
   if (path === "email/draft") return ONE_EMAIL_DRAFT_TIMEOUT_MS;
   if (path === "email/draft/save") return ONE_EMAIL_DRAFT_TIMEOUT_MS;
   if (path === "email/information-requests/scan") return ONE_KYC_SCAN_TIMEOUT_MS;
@@ -80,6 +86,8 @@ function privateResponseHeaders(upstream?: Response): Headers {
   if (!upstream) return headers;
   const retryAfter = upstream.headers.get("retry-after");
   if (retryAfter) headers.set("Retry-After", retryAfter);
+  const pwmUsage = upstream.headers.get("x-hussh-pwm-usage");
+  if (pwmUsage) headers.set("X-Hussh-PWM-Usage", pwmUsage);
   return headers;
 }
 
@@ -124,7 +132,8 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     if (request.method !== "GET" && request.method !== "HEAD") {
       headers.set("Content-Type", contentType || "application/json");
       body = (await (/^circles\/[^/]+\/photo$/.test(path) ? readCircleChatBody(request, 430000) :
-        /^circles\/[^/]+\/chat(?:\/|$)/.test(path) ? readCircleChatBody(request) : request.text())) || undefined;
+        /^circles\/[^/]+\/chat(?:\/|$)/.test(path) ? readCircleChatBody(request) :
+        path === "messages" && request.method === "POST" ? readCircleChatBody(request, DIRECT_MESSAGE_MAX_REQUEST_BYTES) : path.startsWith("wallet/card-access") ? readCircleChatBody(request, 16384) : request.text())) || undefined;
     }
 
     // Agent chat is an SSE connection. An AbortSignal.timeout stays attached to
@@ -151,6 +160,22 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     // for the same reason. Gated on the upstream content type, so every JSON
     // route on this proxy keeps the exact behaviour it had.
     const responseContentType = response.headers.get("content-type");
+    if (request.method === "GET" && /^wallet\/card-access\/artwork\/assets\/[a-f0-9]{64}$/.test(path) && response.ok) {
+      if (!["image/png", "image/jpeg", "image/webp"].includes(responseContentType || "")) return new Response(null, { status: 502, headers: privateResponseHeaders(response) });
+      const artworkHeaders = privateResponseHeaders(response);
+      artworkHeaders.set("Content-Type", responseContentType!);
+      artworkHeaders.set("X-Content-Type-Options", "nosniff");
+      artworkHeaders.set("x-request-id", requestId);
+      return new Response(response.body, { status: response.status, headers: artworkHeaders });
+    }
+    if (request.method === "GET" && /^messages\/conversations\/[^/]+\/messages\/[^/]+\/attachment$/.test(path) && response.ok) {
+      const headers = privateResponseHeaders(response);
+      headers.set("Content-Type", responseContentType || "application/octet-stream");
+      headers.set("Content-Disposition", "attachment");
+      headers.set("X-Content-Type-Options", "nosniff");
+      headers.set("x-request-id", requestId);
+      return new Response(response.body, { status: response.status, headers });
+    }
     if (responseContentType?.includes("text/event-stream")) {
       return new Response(response.body, {
         status: response.status,
@@ -184,6 +209,13 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     if (error instanceof RangeError) {
       return withRequestIdJson(requestId, { error: "Chat request is too large" },
         { status: 413, headers: privateResponseHeaders() });
+    }
+    if (path === "calendar/schedule/availability") {
+      const timedOut = isUpstreamTimeoutError(error) || (error instanceof DOMException && error.name === "TimeoutError");
+      return withRequestIdJson(requestId, { detail: {
+        reason_code: timedOut ? "calendar_backend_timeout" : "calendar_backend_unavailable",
+        message: timedOut ? "The Calendar service took too long to respond. Try again." : "The Calendar service could not be reached. Try again shortly.",
+      } }, { status: timedOut ? 504 : 503, headers: privateResponseHeaders() });
     }
     const statusCode = isUpstreamTimeoutError(error) ? 504 : 502;
     return withRequestIdJson(

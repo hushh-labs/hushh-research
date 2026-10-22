@@ -149,7 +149,10 @@ def test_auto_backend_only_change() -> None:
     tempdir, repo = with_git_repo()
     with tempdir:
         base = commit_file(repo, "README.md", "base\n")
-        target = commit_file(repo, "consent-protocol/api/routes/health.py", "backend\n")
+        commit_file(repo, "consent-protocol/api/routes/health.py", "backend\n")
+        commit_file(repo, "deploy/email-auth/bind_secrets.sh", "backend\n")
+        commit_file(repo, "deploy/plg/bind_secrets.sh", "backend\n")
+        target = commit_file(repo, "scripts/ops/email_auth_uat_release.py", "backend\n")
         previous_cwd = Path.cwd()
         try:
             import os
@@ -165,6 +168,7 @@ def test_auto_backend_only_change() -> None:
     assert decision.scope == "backend"
     assert decision.deploy_backend is True
     assert decision.deploy_frontend is False
+    assert not decision.shared_changed_files
 
 
 def test_auto_mixed_change_deploys_all() -> None:
@@ -241,6 +245,9 @@ def test_auto_single_surface_lifecycle_change_deploys_both() -> None:
     for path in (
         "consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py",
         "hushh-webapp/lib/auth/session-invalidation.ts",
+        "hushh-webapp/lib/contacts/initial-contact-onboarding-config.ts",
+        "hushh-webapp/lib/services/initial-contacts-onboarding-service.ts",
+        "consent-protocol/db/migrations/337_initial_contacts_onboarding.sql",
     ):
         tempdir, repo = with_git_repo()
         with tempdir:

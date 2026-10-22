@@ -690,5 +690,11 @@
       ],
       "speaker_persona": "kai"
     }
-  ]
+  ],
+  "search": {
+    "query_defaults": {
+      "source": "kai",
+      "category": "top-picks"
+    }
+  }
 }

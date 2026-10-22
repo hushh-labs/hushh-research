@@ -50,12 +50,19 @@ def _policy_row():
 
 
 def _code_row():
-    return SimpleNamespace(slug="ada-1234", normalized_slug="ada-1234", created_at=NOW)
+    return SimpleNamespace(
+        id="11111111-1111-4111-8111-111111111111",
+        slug="ada-1234",
+        normalized_slug="ada-1234",
+        created_at=NOW,
+    )
 
 
 def _relationship_row(status: str):
     return SimpleNamespace(
         status=status,
+        id="opaque-relationship",
+        display_name="Display name",
         created_at=NOW,
         qualified_at=None,
         credited_seconds=0,
@@ -70,11 +77,27 @@ def _conn_with_relationships(all_statuses: list[str]):
     `one_referral_relationships`, so they are told apart by whether the SQL
     text carries the LATERAL join that only the detail query uses.
     """
-    all_rows = [SimpleNamespace(status=s) for s in all_statuses]
+    all_rows = [SimpleNamespace(status=s, total=1) for s in all_statuses]
     detail_rows = [_relationship_row(s) for s in all_statuses[:50]]
 
     def execute(query, params=None):
         sql = str(query)
+        if "COUNT(DISTINCT r.referred_user_id)" in sql:
+            return _Result(
+                [
+                    SimpleNamespace(
+                        total=sum(
+                            s not in {"rejected", "revoked", "ineligible"} for s in all_statuses
+                        )
+                    )
+                ]
+            )
+        if "pg_advisory_xact_lock" in sql:
+            return _Result([])
+        if "one_referral_attributions" in sql:
+            assert "referral_code_id = CAST(:code_id AS UUID)" in sql
+            assert params == {"uid": USER_ID, "code_id": _code_row().id}
+            return _Result([SimpleNamespace(link_open_count=81, last_opened_at=NOW)])
         if "one_referral_policies" in sql:
             return _Result([_policy_row()])
         if "one_referral_codes" in sql:
@@ -131,3 +154,26 @@ def test_counts_and_recent_list_agree_when_under_the_cap():
     assert summary["in_progress_count"] == 1
     assert summary["under_review_count"] == 1
     assert len(summary["referrals"]) == 3
+
+
+def test_link_opens_come_from_existing_attributions_not_qualification_counts():
+    conn = _conn_with_relationships(["qualified"])
+    with patch.object(one_referral_service, "get_db_connection", side_effect=lambda: _db(conn)):
+        summary = one_referral_service.get_referral_summary(USER_ID)
+    assert summary["link_open_count"] == 81
+    assert summary["last_opened_at"] == NOW.isoformat()
+    assert summary["qualified_count"] == 1
+    assert "user_id" not in summary
+
+
+def test_link_open_migration_reuses_owner_scoped_referral_doorbell():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    migration = (root / "db/migrations/286_one_referral_link_open_notify.sql").read_text()
+    assert "AFTER INSERT ON one_referral_attributions" in migration
+    assert "'one_referral_changed'" in migration
+    assert "'referrer_user_id', NEW.referrer_user_id" in migration
+    assert "(referrer_user_id, first_seen_at DESC)" in migration
+    assert "bound_user_id" not in migration
+    assert "installation_reference_hash" not in migration

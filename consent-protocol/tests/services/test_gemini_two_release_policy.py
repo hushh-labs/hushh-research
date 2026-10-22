@@ -14,6 +14,7 @@ import re
 import yaml
 
 from hushh_mcp.constants import FLEET_TEXT_MODEL_DEFAULT
+from hushh_mcp.managed_ai_config import load_profile
 from hushh_mcp.runtime_providers import gemini_config, model_catalog
 
 BACKEND_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -25,7 +26,7 @@ _RELEASE_ID = re.compile(r"^gemini-3\.(\d+)-flash$")
 # Any gemini-3.<n>-<family> id on a code line under the scanned roots. Comment lines are
 # skipped so a docstring or comment may still explain why a release was retired.
 _ANY_GEMINI_3_ID = re.compile(r"gemini-3\.\d+-[a-z0-9.-]+")
-_SCANNED_ROOTS = ("hushh_mcp", "api", "scripts")
+_SCANNED_ROOTS = ("hushh_mcp", "api", "scripts", "config")
 _SCANNED_SUFFIXES = {".py", ".yaml", ".yml", ".json", ".toml", ".sh", ".txt"}
 
 # Ids that may appear on a code line even though they are not one of the two supported
@@ -56,9 +57,9 @@ def test_contract_names_exactly_two_consecutive_releases_newest_first() -> None:
 
 
 def test_catalog_offers_only_supported_releases() -> None:
-    # Founder decision 2026-09-27: the catalog offers 3.6 Flash alone (no picker); the
+    # Owner decision 2026-10-15: the catalog offers 3.8 Flash alone (no picker); the
     # provider layer still supports both releases for explicit pins.
-    assert model_catalog.FLEET_TEXT_MODEL_CHOICES == ("gemini-3.6-flash",)
+    assert model_catalog.FLEET_TEXT_MODEL_CHOICES == ("gemini-3.8-flash",)
     assert set(model_catalog.FLEET_TEXT_MODEL_CHOICES) <= set(SUPPORTED)
     for model_id in model_catalog.FLEET_TEXT_MODEL_CHOICES:
         assert model_catalog.is_selectable_text_model(model_id), model_id
@@ -149,7 +150,8 @@ def test_deploy_substitutions_pin_only_supported_releases() -> None:
     assert offenders == [], f"deploy lanes may pin only {SUPPORTED}: {offenders}"
     # The lanes do pin a literal (dev, uat, production); a scan that found none would
     # prove nothing.
-    assert pinned, "no deploy lane pins HUSSH_GEMINI_TEXT_MODEL; the scan is broken"
+    for env in ("local", "dev", "uat", "production"):
+        assert load_profile(env)["text_model"] in SUPPORTED
 
 
 def _declared_models(node: object) -> list[str]:

@@ -26,7 +26,13 @@ PROTOCOL_VERSION = "one-voice-v1"
 # A client sends the matching keys or frames only when its relay lists them, so
 # a newer app never has a whole frame refused by an older or rolled-back relay.
 # "name_edit": the typed Edit name on an open create_circle card.
-RELAY_FEATURES: tuple[str, ...] = ("active_mail", "mail_delivery", "name_edit")
+RELAY_FEATURES: tuple[str, ...] = (
+    "active_mail",
+    "mail_delivery",
+    "name_edit",
+    "mail_draft_review",
+    "audio_playback",
+)
 INPUT_MIME = "audio/pcm;rate=16000"
 OUTPUT_MIME = "audio/pcm;rate=24000"
 MAX_AUDIO_FRAME_B64_CHARS = 1_000_000
@@ -64,6 +70,11 @@ NOT_OK_STATUSES = frozenset(
         "firebase_proof_required",
         "scope_review_required",
         "draft_open_requested",
+        "review_requested",
+        "review_pending",
+        "needs_input",
+        "outcome_unknown",
+        "sending",
         "draft_open_unconfirmed",
         _DRAFT_SEND_UNCONFIRMED,
         # A scheduled-mail cancel that did not cancel anything, and a scheduled
@@ -166,6 +177,24 @@ class ClientStepResultFrame(_Frame):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class MailDraftFields(_Frame):
+    to: str = Field(default="", max_length=16000)
+    cc: str = Field(default="", max_length=16000)
+    bcc: str = Field(default="", max_length=16000)
+    subject: str = Field(default="", max_length=256)
+    body: str = Field(default="", max_length=4000)
+
+
+class MailDraftChangedFrame(_Frame):
+    type: Literal["mail_draft.changed"]
+    draft_ref: str = Field(min_length=16, max_length=64)
+    revision: int = Field(ge=1, le=10000)
+    operation_id: str = Field(min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    # Validate private fields after the issued edit envelope has revoked old authority.
+    draft: Any = None
+    closed: bool = False
+
+
 class MailDeliveryResultFrame(_Frame):
     """The device says a review card's Send finished. Never what happened.
 
@@ -187,6 +216,15 @@ class UiSettledFrame(_Frame):
 
 class InterruptFrame(_Frame):
     type: Literal["interrupt"]
+
+
+class PlaybackFrame(_Frame):
+    """A bounded player-clock position, never permission to execute an action."""
+
+    type: Literal["audio.playback"]
+    turn_id: str = Field(pattern=r"^[0-9a-f]{12}$")
+    item_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
+    played_ms: int = Field(ge=0, le=120_000, strict=True)
 
 
 class PingFrame(_Frame):
@@ -237,8 +275,10 @@ ClientFrame = Annotated[
     | CandidateChooseFrame
     | ClientStepResultFrame
     | MailDeliveryResultFrame
+    | MailDraftChangedFrame
     | UiSettledFrame
     | InterruptFrame
+    | PlaybackFrame
     | PingFrame
     | PerfFrame
     | EndFrame
@@ -299,7 +339,12 @@ def session_ready(
 
 
 def audio_out(
-    data_b64: str, *, turn_id: str, narration: bool = False, origin_turn_id: str | None = None
+    data_b64: str,
+    *,
+    turn_id: str,
+    narration: bool = False,
+    origin_turn_id: str | None = None,
+    item_id: str | None = None,
 ) -> dict[str, Any]:
     """One chunk of speech for the player.
 
@@ -320,6 +365,8 @@ def audio_out(
         "mime_type": OUTPUT_MIME,
         "turn_id": turn_id,
     }
+    if item_id is not None:
+        frame["item_id"] = item_id
     if narration:
         frame["narration"] = True
     if origin_turn_id:

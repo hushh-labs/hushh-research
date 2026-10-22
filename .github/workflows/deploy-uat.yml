@@ -22,6 +22,38 @@ on:
         required: false
         default: false
         type: boolean
+      repeat_reviewer_byok:
+        description: "Repeat a selected read-only reviewer BYOK rehearsal for independent RCA acceptance"
+        required: false
+        default: false
+        type: boolean
+      run_pwm_acceptance:
+        description: "Authorized live PWM research, one reviewed save and cold vault readback"
+        required: false
+        default: false
+        type: boolean
+      pwm_evidence_public_key:
+        description: "Base64 DER SPKI public key sealing owner research evidence for the operator"
+        required: false
+        type: string
+      pwm_expected_emails:
+        description: "Expected verified owner emails (comma-separated); no fixture substitution"
+        required: false
+        type: string
+      pwm_owner_confirmed_profile:
+        description: "GitHub profile explicitly confirmed by the owner; bounds one reviewed save"
+        required: false
+        type: string
+      preserve_paused_drive_worker:
+        description: "Preserve all three operator-paused UAT Drive jobs and the current private worker"
+        required: false
+        default: false
+        type: boolean
+      skip_managed_vertex_probe_once:
+        description: "One-time UAT Vertex probe exception for a8e36651; verify runtime after release"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   # write: this workflow tags a healthy release as "last known good"
@@ -30,6 +62,7 @@ permissions:
   # — the workflow never touches a branch.
   contents: write
   checks: read
+  actions: read
   id-token: write
 
 env:
@@ -42,18 +75,21 @@ env:
   FRONTEND_RUNTIME_SERVICE_ACCOUNT: hushh-webapp-runtime@hushh-pda-uat.iam.gserviceaccount.com
   ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID: account-deletion-cleanup
   GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SCHEDULER_SERVICE_ACCOUNT_ID: gmail-personal-monitor-sched
-  APP_FRONTEND_ORIGIN: https://uat.one.hushh.ai
+  APP_FRONTEND_ORIGIN: https://uat.one.hussh.ai
   CONSENT_API_PUBLIC_ORIGIN: https://api.uat.hushh.ai
   CONSENT_API_RUNTIME_ORIGIN: https://consent-protocol-f2gsa4kfsq-uc.a.run.app
   UAT_CLOUDSQL_INSTANCE: hushh-pda-uat:us-central1:hushh-uat-pg
   UAT_DB_UNIX_SOCKET: /cloudsql/hushh-pda-uat:us-central1:hushh-uat-pg
-  BACKEND_REVISION_RETENTION: "3"
+  BACKEND_REVISION_RETENTION: "2"
   FRONTEND_REVISION_RETENTION: "10"
   PROTOCOL_PYTHON: ${{ github.workspace }}/consent-protocol/.venv/bin/python
 
 concurrency:
-  group: deploy-uat
+  # Backend candidates share one admission queue. Explicit frontend-only
+  # requests can proceed while backend revisions finish draining.
+  group: uat-release-requests-${{ inputs.scope == 'frontend' && 'frontend' || 'backend' }}
   cancel-in-progress: false
+  queue: max
 
 jobs:
   select-target:
@@ -83,6 +119,7 @@ jobs:
           fetch-depth: 0
           ref: main
 
+
       - name: Assert manual UAT dispatch actor policy
         run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${{ github.actor }}"
 
@@ -105,6 +142,23 @@ jobs:
           fi
           node hushh-webapp/scripts/ci/select-uat-target.mjs --limit 20 --github-output --allow-no-op
 
+      - name: Validate one-time Vertex probe exception
+        if: inputs.skip_managed_vertex_probe_once
+        shell: bash
+        env:
+          REQUESTED_SHA: ${{ inputs.sha }}
+          REQUESTED_SCOPE: ${{ inputs.scope }}
+          LIVE_CHECKS: ${{ inputs.run_live_model_checks }}
+        run: |
+          set -euo pipefail
+          if [[ "$REQUESTED_SHA" != "a8e36651c17f6a0837530840fbeaf0ec3bbfcdf2" ||
+                "$REQUESTED_SCOPE" != "all" || "$LIVE_CHECKS" != "false" ||
+                "$GITHUB_ACTOR" != "ankitkumarsingh1702" ||
+                "$(date -u +%Y-%m-%d)" > "2026-10-17" ]]; then
+            echo "One-time Vertex exception is limited to the approved UAT release." >&2
+            exit 1
+          fi
+
       - name: Summarize unchanged UAT target
         if: steps.resolve-sha.outputs.decision == 'NO_OP'
         shell: bash
@@ -118,12 +172,64 @@ jobs:
             echo "- No deployment, traffic change, or release tag update was performed."
           } >> "$GITHUB_STEP_SUMMARY"
 
-  deploy:
-    name: Deploy UAT Scope
+  wait-capacity:
+    name: Wait for UAT capacity outside the mutation lock
     needs: select-target
     if: needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'
     runs-on: ubuntu-latest
+    timeout-minutes: 7
+    permissions:
+      contents: read
+      checks: read
+      id-token: write
+    environment:
+      name: uat
+      deployment: false
+    outputs:
+      scope: ${{ steps.admission.outputs.scope }}
+    steps:
+      - name: Checkout current admission tooling
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Authenticate for read-only UAT capacity inventory
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Wait for scope-aware UAT capacity
+        id: admission
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_SHA: ${{ needs.select-target.outputs.sha }}
+          REQUESTED_SCOPE: ${{ inputs.scope }}
+        run: |
+          python3 scripts/ci/wait-uat-capacity.py \
+            --mode full --target-sha "$TARGET_SHA" \
+            --requested-scope "$REQUESTED_SCOPE" \
+            --github-output "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Deploy UAT Scope
+    needs: [select-target, wait-capacity]
+    if: needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-uat
+      cancel-in-progress: false
+      queue: max
     environment: uat
+    env:
+      UAT_EMAIL_AUTH_ENABLED: ${{ vars.EMAIL_AUTH_ENABLED_UAT || 'false' }}
 
     steps:
       - name: Assert manual dispatch originates from main
@@ -140,6 +246,14 @@ jobs:
         with:
           fetch-depth: 0
           ref: main
+
+      - name: Require reconciled maintenance mutations under deployment lock
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/ci/uat-retention-maintenance.py --environment uat \
+            --check-mutations --state-dir "$RUNNER_TEMP/uat-maintenance-guard"
+
 
       - name: Assert manual UAT dispatch actor policy
         shell: bash
@@ -178,12 +292,61 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/release-tools"
           cp scripts/ci/resolve-cloud-run-deploy-revision.py \
             "${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py"
+          cp scripts/ci/runtime-capacity-budget.py \
+            "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py"
+          cp scripts/ci/account-deletion-fence-decision.py \
+            "${RUNNER_TEMP}/release-tools/account-deletion-fence-decision.py"
+          cp config/runtime-capacity.json \
+            "${RUNNER_TEMP}/release-tools/runtime-capacity.json"
+          cp scripts/ops/verify_passkey_domain_associations.py \
+            "${RUNNER_TEMP}/release-tools/verify_passkey_domain_associations.py"
+          cp scripts/ops/verify_uat_release.py \
+            "${RUNNER_TEMP}/release-tools/verify_uat_release.py"
+          cp scripts/ci/capture_managed_provider_receipt.py \
+            "${RUNNER_TEMP}/release-tools/capture_managed_provider_receipt.py"
+          if [[ "${{ inputs.skip_managed_vertex_probe_once }}" == "true" ]]; then
+            cp scripts/ci/managed_provider_readiness.py \
+              "${RUNNER_TEMP}/release-tools/managed_provider_readiness.py"
+            cp deploy/backend.cloudbuild.yaml \
+              "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml"
+            cp deploy/email-auth/bind_secrets.sh \
+              "${RUNNER_TEMP}/release-tools/email-auth-bind-secrets.sh"
+            cp deploy/plg/bind_secrets.sh \
+              "${RUNNER_TEMP}/release-tools/plg-bind-secrets.sh"
+          fi
 
       - name: Checkout deployment SHA
         shell: bash
         run: |
           set -euo pipefail
           git checkout --detach "${{ steps.resolve-sha.outputs.sha }}"
+          # Keep the current opt-in contract when verifying an older approved build.
+          cp "${RUNNER_TEMP}/release-tools/verify_uat_release.py" \
+            scripts/ops/verify_uat_release.py
+          cp "${RUNNER_TEMP}/release-tools/capture_managed_provider_receipt.py" \
+            scripts/ci/capture_managed_provider_receipt.py
+          cp "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py" \
+            scripts/ci/runtime-capacity-budget.py
+          cp "${RUNNER_TEMP}/release-tools/account-deletion-fence-decision.py" \
+            scripts/ci/account-deletion-fence-decision.py
+          cp "${RUNNER_TEMP}/release-tools/runtime-capacity.json" \
+            config/runtime-capacity.json
+          cp "${RUNNER_TEMP}/release-tools/verify_passkey_domain_associations.py" \
+            scripts/ops/verify_passkey_domain_associations.py
+          if [[ "${{ inputs.skip_managed_vertex_probe_once }}" == "true" ]]; then
+            cp "${RUNNER_TEMP}/release-tools/managed_provider_readiness.py" \
+              scripts/ci/managed_provider_readiness.py
+            cp "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml" \
+              deploy/backend.cloudbuild.yaml
+            mkdir -p deploy/email-auth
+            cp "${RUNNER_TEMP}/release-tools/email-auth-bind-secrets.sh" \
+              deploy/email-auth/bind_secrets.sh
+            printf '\n!deploy/email-auth/bind_secrets.sh\n' >> .gcloudignore
+            mkdir -p deploy/plg
+            cp "${RUNNER_TEMP}/release-tools/plg-bind-secrets.sh" \
+              deploy/plg/bind_secrets.sh
+            printf '\n!deploy/plg/bind_secrets.sh\n' >> .gcloudignore
+          fi
 
       - name: Validate Google Cloud workload identity configuration
         shell: bash
@@ -292,8 +455,36 @@ jobs:
             --github-output "$GITHUB_OUTPUT" \
             --json
 
+      - name: Enforce UAT database connection budget before deployment
+        shell: bash
+        env:
+          DEPLOY_BACKEND: ${{ steps.scope.outputs.deploy_backend }}
+          DEPLOY_FRONTEND: ${{ steps.scope.outputs.deploy_frontend }}
+          ADMITTED_SCOPE: ${{ needs.wait-capacity.outputs.scope }}
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.scope.outputs.scope }}" != "$ADMITTED_SCOPE" ]; then
+            echo "UAT deploy scope changed after capacity admission; refusing deployment." >&2
+            exit 1
+          fi
+          if [ "$DEPLOY_BACKEND" = true ]; then
+            candidate_services=(--candidate-service consent-protocol)
+            if [ "${{ inputs.preserve_paused_drive_worker }}" = true ]; then
+              candidate_services+=(--candidate-service consent-protocol-drive-v1-worker)
+            else
+              candidate_services+=(--candidate-service consent-protocol-drive-worker)
+            fi
+            timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat \
+              "${candidate_services[@]}"
+          elif [ "$DEPLOY_FRONTEND" = true ]; then
+            timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat --frontend-only
+          else
+            echo "No resolved UAT deploy scope; refusing capacity admission." >&2
+            exit 1
+          fi
+
       - name: Verify prompt UAT Drive worker wake grant
-        if: steps.scope.outputs.deploy_backend == 'true'
+        if: steps.scope.outputs.deploy_backend == 'true' && inputs.preserve_paused_drive_worker != true
         shell: bash
         run: |
           set -euo pipefail
@@ -310,6 +501,31 @@ jobs:
                      for binding in policy.get("bindings", [])):
               raise SystemExit("Drive work wake Cloud Scheduler run grant is missing")
           '
+
+      # A manually paused Drive queue is an operator maintenance state. Capture
+      # it before any release mutation; the opt-in path never deploys the worker,
+      # retargets the jobs, or calls jobs run. The final gate checks exact drift.
+      - name: Capture paused Drive maintenance baseline
+        id: capture-paused-drive-maintenance
+        if: inputs.preserve_paused_drive_worker == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.scope.outputs.deploy_backend }}" != "true" ]; then
+            echo "Preserving paused Drive jobs requires a backend release" >&2
+            exit 1
+          fi
+          gcloud scheduler jobs list \
+            --project="${{ env.GCP_PROJECT_ID }}" --location="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/uat-paused-drive-pre-scheduler.json
+          gcloud run services describe consent-protocol-drive-worker \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/uat-paused-drive-pre-worker.json
+          python3 deploy/drive/attest_paused_maintenance.py capture \
+            --scheduler-snapshot /tmp/uat-paused-drive-pre-scheduler.json \
+            --worker-snapshot /tmp/uat-paused-drive-pre-worker.json \
+            --baseline /tmp/uat-paused-drive-baseline.json \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Resolve rollback targets from predeploy traffic
         id: rollback-targets
@@ -380,7 +596,7 @@ jobs:
           if-no-files-found: error
 
       - name: Set up Node runtime for protected PKM verification
-        if: steps.verification-plan.outputs.requires_web_dependencies == 'true'
+        if: steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance
         uses: actions/setup-node@v6
         with:
           node-version: "22"
@@ -388,7 +604,7 @@ jobs:
           cache-dependency-path: hushh-webapp/package-lock.json
 
       - name: Install protected PKM browser dependencies
-        if: steps.verification-plan.outputs.requires_web_dependencies == 'true'
+        if: steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance
         shell: bash
         run: |
           set -euo pipefail
@@ -514,12 +730,20 @@ jobs:
         # through the environment (not inline expressions in shell) keeps an
         # opaque Firebase UID cohort from becoming executable shell text.
         env:
+          UAT_ONE_PROFILE_RESEARCH_ENABLED: ${{ vars.ONE_PROFILE_RESEARCH_ENABLED_UAT || 'false' }}
+          UAT_ONE_MAGIC_INTELLIGENCE_PHASE: ${{ vars.ONE_MAGIC_INTELLIGENCE_PHASE_UAT || '1' }}
+          UAT_ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS: ${{ vars.ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS_UAT || '' }}
+          UAT_ONE_MAGIC_INTELLIGENCE_SENIOR_TEAM_EMAILS: ${{ vars.ONE_MAGIC_INTELLIGENCE_SENIOR_TEAM_EMAILS_UAT || 'ankit@hushh.ai,i-akshat@hush1one.com,i-neelesh@hushh.ai,kushal@hushh.ai' }}
+          UAT_ONE_MAGIC_INTELLIGENCE_QA_EMAILS: ${{ vars.ONE_MAGIC_INTELLIGENCE_QA_EMAILS_UAT || 'jhumma@hushh.ai' }}
           UAT_CONNECTIONS_PANEL_V2: ${{ vars.CONNECTIONS_PANEL_V2_UAT || 'false' }}
           UAT_GOOGLE_DRIVE_CONNECTION: ${{ vars.GOOGLE_DRIVE_CONNECTION_UAT || 'false' }}
           UAT_GOOGLE_DRIVE_LIVE: ${{ vars.GOOGLE_DRIVE_LIVE_UAT || 'false' }}
           UAT_GOOGLE_DRIVE_PICKER: ${{ vars.GOOGLE_DRIVE_PICKER_UAT || 'false' }}
           UAT_DRIVE_DOCUMENT_INDEXING: ${{ vars.DRIVE_DOCUMENT_INDEXING_UAT || 'false' }}
           UAT_DRIVE_DOCUMENT_SHARING: ${{ vars.DRIVE_DOCUMENT_SHARING_UAT || 'false' }}
+          # New packages and continuous collection/packet work are retired in
+          # UAT; selected-document ingestion from the 13 Oct flow stays on.
+          UAT_DRIVE_AGENT_PACKAGES_ENABLED: 'false'
           UAT_GMAIL_CHAT_READS: ${{ vars.GMAIL_CHAT_READS_UAT || 'false' }}
           UAT_GOOGLE_DRIVE_CHAT_READS: ${{ vars.GOOGLE_DRIVE_CHAT_READS_UAT || 'false' }}
           UAT_CURATED_MCP_CONNECTORS: ${{ vars.CURATED_MCP_CONNECTORS_UAT || 'false' }}
@@ -527,9 +751,21 @@ jobs:
           UAT_CONNECTOR_ALL_USERS: ${{ vars.CONNECTOR_UAT_ALL_USERS_UAT || 'false' }}
         run: |
           set -euo pipefail
+          email_auth_args=()
+          if [[ -f scripts/ops/email_auth_uat_release.py ]] && \
+              grep -q -- '--email-auth-enabled' scripts/ops/sync_backend_runtime_secrets.py; then
+            email_auth_args=(--email-auth-enabled "$UAT_EMAIL_AUTH_ENABLED")
+            if [[ "${{ steps.scope.outputs.deploy_backend }}" == "true" ]]; then
+              "${{ env.PROTOCOL_PYTHON }}" scripts/ops/email_auth_uat_release.py preflight
+            fi
+          elif [[ "$UAT_EMAIL_AUTH_ENABLED" != "false" ]]; then
+            echo "Selected SHA cannot preserve enabled email OTP; disable EMAIL_AUTH_ENABLED_UAT for an older approved release." >&2
+            exit 1
+          fi
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py \
             --project "${{ env.GCP_PROJECT_ID }}" \
             --environment uat \
+            "${email_auth_args[@]}" \
             --app-frontend-origin "${{ env.APP_FRONTEND_ORIGIN }}" \
             --db-host "cloudsql-socket" \
             --db-port "5432" \
@@ -542,7 +778,6 @@ jobs:
             --remote-mcp-enabled "true" \
             --cors-allowed-origins "${{ env.APP_FRONTEND_ORIGIN }}" \
             --obs-data-stale-ratio-threshold "0.25" \
-            --passkey-allowed-rp-ids "localhost,127.0.0.1,uat.one.hushh.ai" \
             --plaid-env "production" \
             --plaid-client-name "Hushh Kai" \
             --plaid-country-codes "US" \
@@ -555,6 +790,7 @@ jobs:
             --google-drive-picker "$UAT_GOOGLE_DRIVE_PICKER" \
             --drive-document-indexing "$UAT_DRIVE_DOCUMENT_INDEXING" \
             --drive-document-sharing "$UAT_DRIVE_DOCUMENT_SHARING" \
+            --drive-agent-packages-enabled "$UAT_DRIVE_AGENT_PACKAGES_ENABLED" \
             --gmail-chat-reads "$UAT_GMAIL_CHAT_READS" \
             --google-drive-chat-reads "$UAT_GOOGLE_DRIVE_CHAT_READS" \
             --curated-mcp-connectors "$UAT_CURATED_MCP_CONNECTORS" \
@@ -580,6 +816,12 @@ jobs:
             --advisors-api-base-url "${{ vars.ADVISORS_API_BASE_URL || 'https://brokercheck.35.253.255.106.sslip.io' }}" \
             --insurance-agents-api-base-url "${{ vars.INSURANCE_AGENTS_API_BASE_URL || 'https://insurance-agents.34.61.69.175.sslip.io' }}" \
             --one-places-directory-enabled "${{ vars.ONE_PLACES_DIRECTORY_ENABLED_UAT || 'true' }}" \
+            --one-business-directory-enabled "${{ vars.ONE_BUSINESS_DIRECTORY_ENABLED_UAT || 'false' }}" \
+            --one-profile-research-enabled "$UAT_ONE_PROFILE_RESEARCH_ENABLED" \
+            --one-magic-intelligence-phase "$UAT_ONE_MAGIC_INTELLIGENCE_PHASE" \
+            --one-magic-intelligence-inner-team-emails "$UAT_ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS" \
+            --one-magic-intelligence-senior-team-emails "$UAT_ONE_MAGIC_INTELLIGENCE_SENIOR_TEAM_EMAILS" \
+            --one-magic-intelligence-qa-emails "$UAT_ONE_MAGIC_INTELLIGENCE_QA_EMAILS" \
             --one-voice-mail-reply-enabled "${{ vars.ONE_VOICE_MAIL_REPLY_ENABLED_UAT || 'true' }}" \
             --one-voice-mail-schedule-send-enabled "${{ vars.ONE_VOICE_MAIL_SCHEDULE_SEND_ENABLED_UAT || 'true' }}" \
             --one-voice-mail-drafts-enabled "${{ vars.ONE_VOICE_MAIL_DRAFTS_ENABLED_UAT || 'true' }}" \
@@ -608,6 +850,11 @@ jobs:
           # The single definition of every value compiled into the web image.
           # The deploy step reuses it, so the build and deploy cannot disagree.
           build_substitutions="_APP_ENV=uat,_DEPLOY_ENV=uat,_IMAGE_TAG=${image_tag},_ONE_WALLET_CARD_ENABLED=true,_ONE_LOCATION_NEARBY_CHECK_IN=true,_LOCATION_MAP_DEMO=false"
+          # Older deployment SHAs do not declare this substitution in both builds.
+          if grep -q '^[[:space:]]*_WORKOS_SSO_ENABLED:' deploy/frontend.cloudbuild.yaml \
+            && grep -q '^[[:space:]]*_WORKOS_SSO_ENABLED:' deploy/frontend-image.cloudbuild.yaml; then
+            build_substitutions="${build_substitutions},_WORKOS_SSO_ENABLED=${{ vars.WORKOS_SSO_UAT_ENABLED || 'false' }}"
+          fi
           echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
           echo "build_substitutions=${build_substitutions}" >> "$GITHUB_OUTPUT"
           # A deployment SHA from before the split has no build-only config.
@@ -667,7 +914,7 @@ jobs:
           echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
 
       - name: Install Cloud SQL Auth Proxy
-        if: steps.scope.outputs.deploy_backend == 'true'
+        if: steps.scope.outputs.deploy_backend == 'true' || steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -676,9 +923,70 @@ jobs:
             -o /usr/local/bin/cloud-sql-proxy
           chmod +x /usr/local/bin/cloud-sql-proxy
 
+      - name: Qualify uninterrupted account deletion
+        id: account-deletion-fence-decision
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GCP_PROJECT_ID}" != "hushh-pda-uat" ] \
+             || [ "${UAT_CLOUDSQL_INSTANCE}" != "hushh-pda-uat:us-central1:hushh-uat-pg" ]; then
+            echo "Refusing account deletion preflight on a non-canonical UAT target."
+            exit 1
+          fi
+          if ! gcloud run revisions list \
+            --service="${BACKEND_SERVICE}" --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" --format=json \
+            > /tmp/uat-account-deletion-revisions.json; then
+            printf '[]\n' > /tmp/uat-account-deletion-revisions.json
+          fi
+          decision="$(python3 scripts/ci/account-deletion-fence-decision.py \
+            --revisions-json /tmp/uat-account-deletion-revisions.json \
+            --backend-base-sha "${{ steps.predeploy-state.outputs.backend_sha }}" \
+            --target-sha "${{ steps.resolve-sha.outputs.sha }}" \
+            --github-output "$GITHUB_OUTPUT")"
+          if [ "${decision}" = "unfenced_candidate" ]; then
+            DB_USER="$(gcloud secrets versions access latest --secret=DB_USER --project="${GCP_PROJECT_ID}")"
+            DB_PASSWORD="$(gcloud secrets versions access latest --secret=DB_PASSWORD --project="${GCP_PROJECT_ID}")"
+            echo "::add-mask::${DB_USER}"
+            echo "::add-mask::${DB_PASSWORD}"
+            cloud-sql-proxy --address 127.0.0.1 --port 6543 \
+              ${GOOGLE_GHA_CREDS_PATH:+--credentials-file="${GOOGLE_GHA_CREDS_PATH}"} \
+              "${UAT_CLOUDSQL_INSTANCE}" >/tmp/cloud-sql-proxy-uat-deletion-preflight.log 2>&1 &
+            PROXY_PID=$!
+            trap 'kill "${PROXY_PID}" >/dev/null 2>&1 || true' EXIT
+            python3 - <<'PY'
+          import socket
+          import time
+          deadline = time.time() + 20
+          while time.time() < deadline:
+              with socket.socket() as sock:
+                  sock.settimeout(0.5)
+                  if sock.connect_ex(("127.0.0.1", 6543)) == 0:
+                      raise SystemExit(0)
+              time.sleep(0.25)
+          raise SystemExit("Cloud SQL proxy did not bind for deletion preflight")
+          PY
+            if ! command -v psql >/dev/null 2>&1; then
+              sudo apt-get update -qq
+              sudo apt-get install -y -qq postgresql-client
+            fi
+            if PGHOST=127.0.0.1 PGPORT=6543 PGDATABASE=postgres \
+               PGUSER="$DB_USER" PGPASSWORD="$DB_PASSWORD" \
+               psql --no-psqlrc -v expected_fence_count=0 \
+                 --file deploy/account-deletion/verify_release_boundary.sql \
+                 > /tmp/uat-account-deletion-unfenced-preflight.log 2>&1; then
+              echo "required=false" >> "$GITHUB_OUTPUT"
+              echo "Verified active v201 database and revisions; deletion remains available."
+              exit 0
+            fi
+            echo "Unfenced database verification failed; retaining the release fence."
+          fi
+          echo "required=true" >> "$GITHUB_OUTPUT"
+
       - name: Install fail-closed account deletion release fence
         id: install-account-deletion-fence
-        if: steps.scope.outputs.deploy_backend == 'true'
+        if: steps.scope.outputs.deploy_backend == 'true' && steps.account-deletion-fence-decision.outputs.required == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -792,11 +1100,13 @@ jobs:
           export PGUSER="$DB_USER"
           export PGPASSWORD="$DB_PASSWORD"
 
-          # Re-acquire the table locks and prove the fence immediately before
-          # migration so manual drift cannot reopen the rolling-deploy gap.
-          psql --no-psqlrc \
-            --file deploy/account-deletion/install_release_fence.sql \
-            | tee /tmp/uat-account-deletion-fence-premigration.log
+          # A migration-201 transition must reassert the fence after connecting.
+          # A verified v201-to-v201 rollout keeps deletion available instead.
+          if [ "${{ steps.account-deletion-fence-decision.outputs.required }}" = "true" ]; then
+            psql --no-psqlrc \
+              --file deploy/account-deletion/install_release_fence.sql \
+              | tee /tmp/uat-account-deletion-fence-premigration.log
+          fi
 
           (
             cd consent-protocol
@@ -804,11 +1114,26 @@ jobs:
               --release-environment uat \
               --migration-mode "${{ vars.UAT_MIGRATION_MODE || 'replay' }}"
           )
+          # Reconcile the fixed Drive connector after migrations while the
+          # attested UAT database connection is available. This also migrates
+          # the previously reviewed Hushh web return to the Hussh alias.
+          "${{ env.PROTOCOL_PYTHON }}" consent-protocol/scripts/ops/reconcile_google_drive_uat_connector.py --activate
+          "${{ env.PROTOCOL_PYTHON }}" consent-protocol/scripts/ops/reconcile_google_drive_uat_connector.py
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/db_migration_release_guard.py \
             --release-environment uat \
             --contract-file consent-protocol/db/contracts/uat_integrated_schema.json \
             --report-path /tmp/uat-db-migration-guard-predeploy.json
-          psql --no-psqlrc \
+          if [[ "$UAT_EMAIL_AUTH_ENABLED" == "true" ]]; then
+            "${{ env.PROTOCOL_PYTHON }}" scripts/ops/email_auth_uat_release.py activate \
+              --actor "${{ github.actor }}" \
+              --sha "${{ steps.resolve-sha.outputs.sha }}" \
+              > /tmp/uat-email-auth-policy-activation.json
+          fi
+          expected_fence_count=0
+          if [ "${{ steps.account-deletion-fence-decision.outputs.required }}" = "true" ]; then
+            expected_fence_count=2
+          fi
+          psql --no-psqlrc -v "expected_fence_count=${expected_fence_count}" \
             --file deploy/account-deletion/verify_release_boundary.sql \
             | tee /tmp/uat-account-deletion-boundary.log
           tombstone_count="$(psql --no-psqlrc --tuples-only --no-align \
@@ -855,11 +1180,21 @@ jobs:
           BOOTSTRAP_FOCUS_PROFILE=uat bash scripts/env/bootstrap_profiles.sh --strict
           bash scripts/env/use_profile.sh uat
 
-          if [ "${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}" = "true" ]; then
-            PKM_UPGRADE_PROTECTED_UAT=1 \
-            PKM_UPGRADE_RUNTIME_AUDIT_DEFERRED=1 \
-              ./scripts/ci/pkm-upgrade-gate.sh
+
+      - name: Install PostgreSQL client for selected preservation
+        if: steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
+        shell: bash
+        run: |
+          if ! command -v psql >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
           fi
+
+      - name: Verify selected PKM preservation before deployment
+        id: verify-pkm-preservation
+        if: steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
+        shell: bash
+        run: bash scripts/ci/run-release-pkm-gate.sh uat
 
       - name: Verify One mail sender configuration
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -909,13 +1244,36 @@ jobs:
         id: deploy-backend
         if: steps.scope.outputs.deploy_backend == 'true'
         shell: bash
+        env:
+          STRIPE_UAT_MODE: ${{ vars.STRIPE_UAT_MODE || 'test' }}
+          STRIPE_CONNECT_UAT_MODE: ${{ vars.STRIPE_CONNECT_UAT_MODE || vars.STRIPE_UAT_MODE || 'test' }}
+          DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED || 'true' }}
+          DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT: ${{ vars.DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT || 'gemini' }}
+          DRIVE_REQUEST_HASHCOINS_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_HASHCOINS_UAT_ENABLED || 'false' }}
+          DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED || 'false' }}
         run: |
           set -euo pipefail
           started_at="$(date +%s)"
-          SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.UAT_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID##_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET##_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI##_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_TECH_LAUNCH_PEPPER_SECRET=HUSSH_TECH_LAUNCH_PEPPER##_RATE_LIMIT_STORAGE_URI_SECRET=RATE_LIMIT_STORAGE_URI##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=projects/hushh-pda/topics/one-email-kyc-uat##_ONE_EMAIL_WEBHOOK_AUDIENCE=https://consent-protocol-f2gsa4kfsq-uc.a.run.app/api/one/email/webhook##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_ONE_WALLET_CARD_ENABLED=true##_HUSSH_GEMINI_TEXT_MODEL=gemini-3.6-flash##_ONE_VOICE_LIVE_ENABLED=true##_VERTEX_LIVE_MODEL_ID=gemini-live-2.5-flash-native-audio##_VERTEX_LIVE_LOCATION=us-central1##_WALLET_PASS_PROVIDER=service##_WALLET_API_KEY_SECRET=WALLET_API_KEY##_APP_REVIEW_MODE=true##_CONSENT_WEB_FALLBACK_ENABLED=false##_CONSENT_SSE_ENABLED=false##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4##_DB_SQLALCHEMY_POOL_SIZE=3##_DB_SQLALCHEMY_MAX_OVERFLOW=0##_CLOUD_RUN_MIN_INSTANCES=2##_CLOUD_RUN_MAX_INSTANCES=5##_CLOUD_RUN_CPU=2##_CLOUD_RUN_CONCURRENCY=20##_CLOUD_RUN_NO_TRAFFIC=true##_IMAGE_TAG=uat-${{ steps.resolve-sha.outputs.sha }}##_DEPLOY_ENV=uat##_DEPLOY_SOURCE=deploy-uat##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}"
+          source deploy/drive/uat_stripe_bindings.sh
+          SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.UAT_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID##_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET##_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI##_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_TECH_LAUNCH_PEPPER_SECRET=HUSSH_TECH_LAUNCH_PEPPER##_RATE_LIMIT_STORAGE_URI_SECRET=RATE_LIMIT_STORAGE_URI##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_REVIEWER_COUNTERPART_UID_SECRET=REVIEWER_COUNTERPART_UID##_REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET=REVIEWER_COUNTERPART_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=projects/hushh-pda/topics/one-email-kyc-uat##_ONE_EMAIL_WEBHOOK_AUDIENCE=https://consent-protocol-f2gsa4kfsq-uc.a.run.app/api/one/email/webhook##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_ONE_WALLET_CARD_ENABLED=true##_ONE_VOICE_LIVE_ENABLED=true##_ONE_VOICE_CALENDAR_NARRATION_ENABLED=true##_WALLET_PASS_PROVIDER=service##_WALLET_API_KEY_SECRET=WALLET_API_KEY##_APP_REVIEW_MODE=true##_CONSENT_WEB_FALLBACK_ENABLED=false##_CONSENT_SSE_ENABLED=false##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4##_DB_SQLALCHEMY_POOL_SIZE=3##_DB_SQLALCHEMY_MAX_OVERFLOW=0##_CLOUD_RUN_MIN_INSTANCES=2##_CLOUD_RUN_MAX_INSTANCES=5##_CLOUD_RUN_CPU=2##_CLOUD_RUN_CONCURRENCY=20##_CLOUD_RUN_NO_TRAFFIC=true##_IMAGE_TAG=uat-${{ steps.resolve-sha.outputs.sha }}##_DEPLOY_ENV=uat##_DEPLOY_SOURCE=deploy-uat##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_DIRECT_MESSAGE_ENCRYPTION_KEY_V1_SECRET=DIRECT_MESSAGE_ENCRYPTION_KEY_V1"
+          # Older deployment SHAs do not declare this substitution.
+          if grep -q '^[[:space:]]*_WALLET_CARD_ACCESS_ENABLED:' deploy/backend.cloudbuild.yaml; then
+            SUBSTITUTIONS="${SUBSTITUTIONS}##_WALLET_CARD_ACCESS_ENABLED=${{ vars.WALLET_CARD_ACCESS_UAT_ENABLED || 'true' }}"
+          fi
+          # Older deployment SHAs do not declare these. The secrets are bound by
+          # deploy/sso/bind_workos.sh only if they exist in the deploy project.
+          if grep -q '^[[:space:]]*_WORKOS_SSO_ENABLED:' deploy/backend.cloudbuild.yaml; then
+            SUBSTITUTIONS="${SUBSTITUTIONS}##_WORKOS_SSO_ENABLED=${{ vars.WORKOS_SSO_UAT_ENABLED || 'false' }}##_WORKOS_REDIRECT_URI=${{ env.APP_FRONTEND_ORIGIN }}/login"
+          fi
+          # Every hostname UAT is served on (single source: the passkey alias list), so SSO can
+          # return to the one the person started on.
+          if grep -q '^[[:space:]]*_WORKOS_REDIRECT_ORIGINS:' deploy/backend.cloudbuild.yaml; then
+            WORKOS_ORIGINS="$(python3 -c "import json;print(','.join('https://'+h for h in json.load(open('hushh-webapp/lib/vault/passkey-domain-aliases.json'))['uat']))")"
+            SUBSTITUTIONS="${SUBSTITUTIONS}##_WORKOS_REDIRECT_ORIGINS=${WORKOS_ORIGINS}"
+          fi
           SUBSTITUTIONS="${SUBSTITUTIONS}##_GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_ID##_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_SECRET##_GOOGLE_DRIVE_PICKER_API_KEY_SECRET=GOOGLE_DRIVE_PICKER_API_KEY##_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET=EXTERNAL_CONNECTOR_CREDENTIAL_KEY##_DRIVE_DOCUMENT_KEY_V1_SECRET=DRIVE_DOCUMENT_KEY_V1##_DRIVE_SHARING_KEY_V1_SECRET=DRIVE_SHARING_KEY_V1"
           # Curated connector OAuth client secrets are derived from the checked-in
           # manifests by the "Resolve curated connector secrets" step; empty (the
@@ -923,44 +1281,80 @@ jobs:
           SUBSTITUTIONS="${SUBSTITUTIONS}##_CURATED_CONNECTOR_SECRETS=${{ steps.curated-secrets.outputs.names }}"
           # Keep credentials bound after the rollout switch turns off so existing
           # paid-required requests can finish Checkout and webhook settlement.
-          # Set the UAT variable only after test-mode secret versions are ready.
-          SUBSTITUTIONS="${SUBSTITUTIONS}##_DRIVE_REQUEST_PAYMENTS_ENABLED=${{ vars.DRIVE_REQUEST_PAYMENTS_UAT_ENABLED || 'false' }}##_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY##_STRIPE_WEBHOOK_SECRET_SECRET=STRIPE_WEBHOOK_SECRET"
+          # API and worker share explicit payment and separate Connect modes.
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_DRIVE_REQUEST_PAYMENTS_ENABLED=${{ vars.DRIVE_REQUEST_PAYMENTS_UAT_ENABLED || 'false' }}##_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED=${{ vars.DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED || 'false' }}##_STRIPE_MODE=${STRIPE_UAT_MODE}##_STRIPE_SECRET_KEY_SECRET=${STRIPE_UAT_KEY_SECRET}##_STRIPE_WEBHOOK_SECRET_SECRET=${STRIPE_UAT_WEBHOOK_SECRET}##_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET=${STRIPE_UAT_CONNECT_SECRET}"
+          ANSWER_STRIPE_MODE="${{ vars.PKM_ANSWER_STRIPE_UAT_MODE || 'test' }}"
+          case "$ANSWER_STRIPE_MODE" in
+            test) ANSWER_KEY_SECRET=STRIPE_SECRET_KEY; ANSWER_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET ;;
+            live) ANSWER_KEY_SECRET=STRIPE_LIVE_SECRET_KEY; ANSWER_WEBHOOK_SECRET=STRIPE_LIVE_WEBHOOK_SECRET ;;
+            *) echo "Invalid answer Stripe mode" >&2; exit 1 ;;
+          esac
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_PKM_ANSWER_REQUESTS_ENABLED=${{ vars.PKM_ANSWER_REQUESTS_UAT_ENABLED || 'true' }}##_PKM_ANSWER_PAYMENTS_ENABLED=${{ vars.PKM_ANSWER_PAYMENTS_UAT_ENABLED || 'false' }}##_PKM_ANSWER_COMPOSER_ENABLED=${{ vars.PKM_ANSWER_COMPOSER_UAT_ENABLED || 'false' }}##_PKM_ANSWER_LIVE_PROVIDER_REVIEWED=${{ vars.PKM_ANSWER_LIVE_PROVIDER_UAT_REVIEWED || 'false' }}##_PKM_ANSWER_STRIPE_MODE=${ANSWER_STRIPE_MODE}##_PKM_ANSWER_STRIPE_SECRET_KEY_SECRET=${ANSWER_KEY_SECRET}##_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET=${ANSWER_WEBHOOK_SECRET}##_PKM_ANSWER_STRIPE_TEST_SECRET_KEY_SECRET=${{ vars.PKM_ANSWER_STRIPE_TEST_SECRET_KEY_UAT_SECRET || 'STRIPE_SECRET_KEY' }}##_PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_SECRET=${{ vars.PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_UAT_SECRET || 'STRIPE_WEBHOOK_SECRET' }}##_PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_SECRET=${{ vars.PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_UAT_SECRET || '' }}##_PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_SECRET=${{ vars.PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_UAT_SECRET || '' }}##_ANSWER_WORK_DRAIN_ENABLED=${{ vars.ANSWER_WORK_DRAIN_UAT_ENABLED || 'false' }}##_ANSWER_WORK_DRAIN_AUDIENCE=https://api.uat.hushh.ai"
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_DRIVE_REQUEST_HASHCOINS_ENABLED=${DRIVE_REQUEST_HASHCOINS_UAT_ENABLED}##_DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED=${DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED}##_STRIPE_CONNECT_MODE=${STRIPE_CONNECT_UAT_MODE}##_STRIPE_CONNECT_SECRET_KEY_SECRET=${STRIPE_UAT_CONNECT_KEY_SECRET}##_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET=${STRIPE_UAT_CONNECT_TEST_WEBHOOK_SECRET}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_ACCOUNT_DELETION_CLEANUP_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}##_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL=${{ env.ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED=true##_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}##_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL=${{ env.GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
-          SUBSTITUTIONS="${SUBSTITUTIONS}##_DRIVE_WORK_DRAIN_ENABLED=true##_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=${{ env.GCP_PROJECT_ID }}##_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=drive-work-drain-sched@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com##_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
-          # E5's measured isolated query leaf peaks near 0.93 GiB RSS; the API
-          # also has two gunicorn workers. UAT must not retain the 1Gi default.
-          SUBSTITUTIONS="${SUBSTITUTIONS}##_CLOUD_RUN_MEMORY=4Gi"
+          if grep -q '^[[:space:]]*_DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED:' deploy/backend.cloudbuild.yaml; then
+            SUBSTITUTIONS="${SUBSTITUTIONS}##_DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED=${DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED}"
+          fi
+          if grep -q '^[[:space:]]*_DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER:' deploy/backend.cloudbuild.yaml; then
+            case "${DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT}" in
+              gemini|azure_openai) ;;
+              *) echo "Invalid Documents semantic provider" >&2; exit 1 ;;
+            esac
+            SUBSTITUTIONS="${SUBSTITUTIONS}##_DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER=${DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT}"
+          fi
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_DRIVE_WORK_DRAIN_ENABLED=${{ inputs.preserve_paused_drive_worker && 'false' || 'true' }}##_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=${{ env.GCP_PROJECT_ID }}##_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=drive-work-drain-sched@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com##_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
+          # The serving two-worker runtime held 86.9–87.85% of 4Gi during the
+          # 2026-10-13 read-only 5 RPS stage. Keep CPU/pools/instances unchanged;
+          # 6Gi gives that measured steady working set its required headroom.
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_CLOUD_RUN_MEMORY=6Gi"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_SKIP_IMAGE_BUILD=true##_IMAGE_REFERENCE=${{ steps.build-backend-image.outputs.image_reference }}##_CLOUD_RUN_TAG=account-deletion-${{ github.run_id }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_VPC_CONNECTOR=${{ vars.UAT_VPC_CONNECTOR || '' }}"
-          # Route only managed Vertex/Gemini to the dedicated personal Vertex
-          # project. backend.cloudbuild.yaml keeps GOOGLE_CLOUD_PROJECT on
-          # hushh-pda-uat for Cloud Run, SQL, secrets and native ADC resources.
-          SUBSTITUTIONS="${SUBSTITUTIONS}##_GENAI_PROJECT_ID=hushh-vertex-personal54"
+          # The packaged profile owns every managed AI surface.
+          SUBSTITUTIONS="${SUBSTITUTIONS}##$(python3 scripts/ops/managed_ai_config.py --environment uat --format substitutions)"
           # Durable Kai analyze-run store ON in UAT: exercises the migration-125
           # persist/replay path against real Cloud SQL before prod flips it on.
           SUBSTITUTIONS="${SUBSTITUTIONS}##_KAI_ANALYZE_DURABLE_RUN_STORE=true"
-          verify_managed_vertex_runtime=false
+          verify_managed_vertex_runtime=true
           if [ "${{ steps.verification-plan.outputs.pkm_evaluator_runs }}" != "0" ]; then
             verify_managed_vertex_runtime=true
           fi
           SUBSTITUTIONS="${SUBSTITUTIONS}##_VERIFY_MANAGED_VERTEX_RUNTIME=${verify_managed_vertex_runtime}"
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE=${{ inputs.skip_managed_vertex_probe_once }}"
           # RIA claim-by-phone: identity resolver + the UAT demo passcode
           # allowlist (fixed code, no SMS to real firm lines). UAT-only.
           SUBSTITUTIONS="${SUBSTITUTIONS}##_RIA_IDENTITY_BASE_URL_SECRET=RIA_IDENTITY_BASE_URL##_RIA_IDENTITY_API_KEY_SECRET=RIA_IDENTITY_API_KEY##_RIA_CLAIM_TEST_NUMBERS_SECRET=RIA_CLAIM_TEST_NUMBERS##_RIA_CLAIM_TEST_CODE_SECRET=RIA_CLAIM_TEST_CODE##_RIA_CLAIM_TEST_EMAILS_SECRET=RIA_CLAIM_TEST_EMAILS##_INTELLIGENCE_API_BASE_URL_SECRET=INTELLIGENCE_API_BASE_URL##_INTELLIGENCE_API_KEY_SECRET=INTELLIGENCE_API_KEY##_SUPPORT_EMAIL_TEST_TO_SECRET=SUPPORT_EMAIL_TEST_TO##_SUPPORT_EMAIL_MODE_SECRET=SUPPORT_EMAIL_MODE##_SUPPORT_EMAIL_DELEGATED_USER_SECRET=SUPPORT_EMAIL_DELEGATED_USER##_SUPPORT_EMAIL_FROM_SECRET=SUPPORT_EMAIL_FROM##_GOOGLE_SERVICE_ACCOUNT_EMAIL_SECRET=GOOGLE_SERVICE_ACCOUNT_EMAIL##_GOOGLE_PRIVATE_KEY_SECRET=GOOGLE_PRIVATE_KEY"
-          gcloud builds submit \
+          build_id="$(gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/backend.cloudbuild.yaml \
-            "--substitutions=^##^${SUBSTITUTIONS}"
+            --suppress-logs --format='value(id)' \
+            "--substitutions=^##^${SUBSTITUTIONS}")"
+          if [[ ! "${build_id}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+            echo "Backend deployment did not return an exact Cloud Build id." >&2
+            exit 1
+          fi
+          echo "build_id=${build_id}" >> "$GITHUB_OUTPUT"
           finished_at="$(date +%s)"
           echo "started_at_epoch=${started_at}" >> "$GITHUB_OUTPUT"
           echo "finished_at_epoch=${finished_at}" >> "$GITHUB_OUTPUT"
           echo "duration_seconds=$((finished_at - started_at))" >> "$GITHUB_OUTPUT"
 
-      - name: Retain latest backend revisions
-        if: steps.scope.outputs.deploy_backend == 'true'
-        continue-on-error: true
-        run: bash scripts/ci/cloudrun-retention.sh "${{ env.BACKEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.BACKEND_REVISION_RETENTION }}"
+      - name: Capture managed provider readiness receipt
+        if: always() && steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        env:
+          READINESS_BUILD_ID: ${{ steps.deploy-backend.outputs.build_id }}
+          READINESS_SOURCE_SHA: ${{ steps.resolve-sha.outputs.sha }}
+          READINESS_IMAGE: ${{ steps.build-backend-image.outputs.image_reference }}
+          READINESS_RUNTIME_ACCOUNT: ${{ env.RUNTIME_SERVICE_ACCOUNT }}
+          READINESS_PROJECT: ${{ env.GCP_PROJECT_ID }}
+          READINESS_REGION: ${{ env.GCP_REGION }}
+          READINESS_GITHUB_RUN: ${{ github.run_id }}
+          READINESS_ENVIRONMENT: uat
+          READINESS_LEGACY_EXCEPTION: ${{ inputs.skip_managed_vertex_probe_once || false }}
+        run: |
+          python3 scripts/ci/capture_managed_provider_receipt.py \
+            --output /tmp/uat-managed-provider-readiness.json
 
       # The structure evaluator exercises the backend candidate image. Keep it
       # before the frontend build so an advisory model-quality warning is
@@ -1091,6 +1485,10 @@ jobs:
             echo "Backend candidate tagged health probe failed." >&2
             exit 1
           fi
+          if [[ "$UAT_EMAIL_AUTH_ENABLED" == "true" ]]; then
+            "${{ env.PROTOCOL_PYTHON }}" scripts/ops/email_auth_uat_release.py verify-candidate \
+              --backend-url "$BACKEND_CANDIDATE_URL"
+          fi
 
       - name: Verify candidate PKM evaluator in Cloud Run
         id: verify-candidate-pkm-evaluator
@@ -1191,11 +1589,6 @@ jobs:
           echo "finished_at_epoch=${finished_at}" >> "$GITHUB_OUTPUT"
           echo "duration_seconds=$((finished_at - started_at))" >> "$GITHUB_OUTPUT"
 
-      - name: Retain latest frontend revisions
-        if: steps.scope.outputs.deploy_frontend == 'true'
-        continue-on-error: true
-        run: bash scripts/ci/cloudrun-retention.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.FRONTEND_REVISION_RETENTION }}"
-
       - name: Resolve deployed candidate revisions
         id: candidate-state
         shell: bash
@@ -1223,6 +1616,20 @@ jobs:
 
           echo "backend_revision=${backend_revision}" >> "$GITHUB_OUTPUT"
           echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify frontend-only candidate has no SQL binding before smoke
+        if: steps.scope.outputs.deploy_frontend == 'true' && steps.scope.outputs.deploy_backend != 'true'
+        shell: bash
+        env:
+          FRONTEND_REVISION: ${{ steps.candidate-state.outputs.frontend_revision }}
+        run: |
+          set -euo pipefail
+          if [ -z "$FRONTEND_REVISION" ]; then
+            echo "UAT frontend candidate revision is unavailable for SQL-free verification." >&2
+            exit 1
+          fi
+          timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat \
+            --frontend-only --frontend-revision "$FRONTEND_REVISION"
 
       - name: Verify frontend candidate runs the pinned image digest
         if: steps.scope.outputs.deploy_frontend == 'true' && steps.start-frontend-image-build.outputs.prebuilt == 'true'
@@ -1346,7 +1753,25 @@ jobs:
           echo "::add-mask::$reviewer_passphrase"
           export REVIEWER_UID="$reviewer_uid"
           export REVIEWER_VAULT_PASSPHRASE="$reviewer_passphrase"
+          # Retry only a browser failure with observed Cloud Run 5xx responses
+          # for this tagged candidate's static assets. A second smoke must pass
+          # fully before either zero-traffic candidate can be promoted.
+          set +e
           npm run smoke:analytics:uat 2>&1 | tee /tmp/uat-analytics-smoke.log
+          smoke_attempt_1_statuses=("${PIPESTATUS[@]}")
+          set -e
+          if [ "${smoke_attempt_1_statuses[1]}" -ne 0 ]; then
+            exit "${smoke_attempt_1_statuses[1]}"
+          fi
+          if [ "${smoke_attempt_1_statuses[0]}" -ne 0 ]; then
+            if ! grep -Fq '"classification": "candidate_asset_unavailable"' \
+              /tmp/uat-analytics-smoke.log; then
+              exit "${smoke_attempt_1_statuses[0]}"
+            fi
+            echo "Candidate static assets returned 5xx; retrying the analytics smoke once after warmup."
+            sleep 15
+            npm run smoke:analytics:uat 2>&1 | tee -a /tmp/uat-analytics-smoke.log
+          fi
 
       - name: Remove zero-traffic frontend analytics candidate tag
         if: always() && steps.scope.outputs.deploy_frontend == 'true'
@@ -1433,6 +1858,13 @@ jobs:
           fi
 
           if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ]; then
+            if [ "${{ steps.scope.outputs.deploy_backend }}" != "true" ]; then
+              # Recheck the immutable candidate and current frontend template
+              # immediately before sending it serving traffic.
+              timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat \
+                --frontend-only \
+                --frontend-revision "${{ steps.candidate-state.outputs.frontend_revision }}"
+            fi
             gcloud run services update-traffic "${{ env.FRONTEND_SERVICE }}" \
               --project="${{ env.GCP_PROJECT_ID }}" \
               --region="${{ env.GCP_REGION }}" \
@@ -1716,6 +2148,7 @@ jobs:
         run: |
           set -euo pipefail
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify_uat_release.py \
+            --run-live-model-checks "${{ steps.verification-plan.outputs.run_live_model_checks }}" \
             --backend-url "${{ steps.current-state.outputs.backend_url }}" \
             --frontend-url "${{ env.APP_FRONTEND_ORIGIN }}" \
             --protocol-env consent-protocol/.env \
@@ -1731,6 +2164,7 @@ jobs:
           set -euo pipefail
           sleep 20
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify_uat_release.py \
+            --run-live-model-checks "${{ steps.verification-plan.outputs.run_live_model_checks }}" \
             --backend-url "${{ steps.current-state.outputs.backend_url }}" \
             --frontend-url "${{ env.APP_FRONTEND_ORIGIN }}" \
             --protocol-env consent-protocol/.env \
@@ -1747,8 +2181,40 @@ jobs:
           REVIEWER_APP_ROUTES: /,/one/kai?tab=portfolio,/one/pkm
         run: |
           set -euo pipefail
-          node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs \
-            2>&1 | tee /tmp/uat-reviewer-byok.log
+          passes=1
+          if [ "${{ inputs.repeat_reviewer_byok }}" = "true" ]; then passes=2; fi
+          {
+            for ((pass = 1; pass <= passes; pass++)); do
+              printf 'Reviewer BYOK acceptance pass %s/%s\n' "$pass" "$passes"
+              node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs
+              echo "passes_completed=$pass" >> "$GITHUB_OUTPUT"
+            done
+          } 2>&1 | tee /tmp/uat-reviewer-byok.log
+
+      - name: Verify live PWM streaming, reviewed save and cold readback
+        id: verify-pwm-acceptance
+        if: inputs.run_pwm_acceptance && (steps.verify-uat-1.outcome == 'success' || steps.verify-uat-2.outcome == 'success')
+        continue-on-error: true
+        timeout-minutes: 25
+        env:
+          REVIEWER_APP_ORIGIN: ${{ env.APP_FRONTEND_ORIGIN }}
+          REVIEWER_SECRET_PROJECT: ${{ env.GCP_PROJECT_ID }}
+          REVIEWER_AUTH_MODE: custom_token
+          REVIEWER_ALLOW_SHARED_MUTATIONS: "true"
+          PWM_EXPECTED_EMAILS: ${{ inputs.pwm_expected_emails }}
+          PWM_OWNER_CONFIRMED_PROFILE: ${{ inputs.pwm_owner_confirmed_profile }}
+          PWM_EVIDENCE_PUBLIC_KEY: ${{ inputs.pwm_evidence_public_key }}
+          PWM_PROOF_OUTPUT: ${{ github.workspace }}/tmp/pwm-acceptance.sealed.json
+        run: node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-pwm.mjs
+
+      - name: Upload sealed PWM acceptance evidence
+        if: always() && inputs.run_pwm_acceptance
+        uses: actions/upload-artifact@v6
+        with:
+          name: pwm-acceptance-sealed
+          path: tmp/pwm-acceptance.sealed.json
+          if-no-files-found: error
+          retention-days: 3
 
       - name: Classify UAT release outcome
         if: always()
@@ -1766,6 +2232,8 @@ jobs:
           SEMANTIC_ATTEMPT_2: ${{ steps.verify-uat-2.outcome }}
           REVIEWER_BYOK_OUTCOME: ${{ steps.verify-reviewer-byok.outcome }}
           REVIEWER_BYOK_REQUIRED: ${{ steps.verification-plan.outputs.run_reviewer_byok }}
+          PWM_ACCEPTANCE_REQUIRED: ${{ inputs.run_pwm_acceptance }}
+          PWM_ACCEPTANCE_OUTCOME: ${{ steps.verify-pwm-acceptance.outcome }}
           PASSKEY_ASSOCIATIONS_OUTCOME: ${{ steps.verify-passkey-associations.outcome }}
           ANALYTICS_SMOKE_OUTCOME: ${{ steps.verify-analytics-uat.outcome }}
           PKM_EVALUATOR_RUNS: ${{ steps.verification-plan.outputs.pkm_evaluator_runs }}
@@ -1841,6 +2309,10 @@ jobs:
           )
 
           blocking: list[str] = []
+          pwm_required = os.environ.get("PWM_ACCEPTANCE_REQUIRED") == "true"
+          pwm_success = not pwm_required or os.environ.get("PWM_ACCEPTANCE_OUTCOME") == "success"
+          if not pwm_success:
+              blocking.append("pwm_acceptance_failed")
           backend_failure = False
           frontend_failure = False
 
@@ -1943,6 +2415,11 @@ jobs:
           payload = {
               "status": "blocked" if release_failed else "healthy",
               "release_failed": release_failed,
+              "pwm_acceptance": {
+                  "required": pwm_required,
+                  "success": pwm_success,
+                  "outcome": os.environ.get("PWM_ACCEPTANCE_OUTCOME") or "not_run",
+              },
               "blocking_classifications": blocking,
               "backend_failure": backend_failure,
               "frontend_failure": frontend_failure,
@@ -2108,9 +2585,12 @@ jobs:
           export PGDATABASE=postgres
           export PGUSER="$DB_USER"
           export PGPASSWORD="$DB_PASSWORD"
-          psql --no-psqlrc \
-            --file deploy/account-deletion/install_release_fence.sql \
-            > /tmp/uat-account-deletion-fence-rollback.log
+          if [ "${{ steps.account-deletion-fence-decision.outputs.required }}" = "true" ] \
+             || [ "${rollback_contract}" != "v201" ]; then
+            psql --no-psqlrc \
+              --file deploy/account-deletion/install_release_fence.sql \
+              > /tmp/uat-account-deletion-fence-rollback.log
+          fi
           tombstone_count="$(psql --no-psqlrc --tuples-only --no-align \
             --command 'SELECT count(*) FROM public.account_deletion_tombstones')"
           if [[ ! "${tombstone_count}" =~ ^[0-9]+$ ]]; then
@@ -2342,7 +2822,11 @@ jobs:
           export PGDATABASE=postgres
           export PGUSER="$DB_USER"
           export PGPASSWORD="$DB_PASSWORD"
-          psql --no-psqlrc \
+          expected_fence_count=0
+          if [ "${{ steps.account-deletion-fence-decision.outputs.required }}" = "true" ]; then
+            expected_fence_count=2
+          fi
+          psql --no-psqlrc -v "expected_fence_count=${expected_fence_count}" \
             --file deploy/account-deletion/verify_release_boundary.sql \
             > /tmp/uat-account-deletion-boundary-preactivation.log
           psql --no-psqlrc --tuples-only --no-align \
@@ -2350,9 +2834,11 @@ jobs:
               'counts_by_status', COALESCE((SELECT json_object_agg(cleanup_status, intent_count) FROM (SELECT cleanup_status, count(*) AS intent_count FROM public.account_deletion_tombstones GROUP BY cleanup_status) grouped), '{}'::json),
               'oldest_due_age_seconds', COALESCE((SELECT floor(extract(epoch FROM (now() - min(cleanup_next_attempt_at))))::bigint FROM public.account_deletion_tombstones WHERE firebase_uid IS NOT NULL AND cleanup_status <> 'completed' AND cleanup_next_attempt_at <= now()), 0)
             )" > /tmp/uat-account-deletion-cleanup-health.json
-          psql --no-psqlrc \
-            --file deploy/account-deletion/remove_release_fence.sql \
-            | tee /tmp/uat-account-deletion-fence-removal.log
+          if [ "${{ steps.account-deletion-fence-decision.outputs.required }}" = "true" ]; then
+            psql --no-psqlrc \
+              --file deploy/account-deletion/remove_release_fence.sql \
+              | tee /tmp/uat-account-deletion-fence-removal.log
+          fi
           echo "activated=true" >> "$GITHUB_OUTPUT"
 
       # Delivers One Voice scheduled mail. UAT only: production pins
@@ -2430,6 +2916,25 @@ jobs:
               raise SystemExit('Scheduled mail drain scheduler configuration drifted')
           PY
 
+      - name: Activate PWM completion notifications
+        id: activate-pwm-notifications
+        if: steps.scope.outputs.deploy_backend == 'true' && steps.classify-uat-release.outputs.release_failed != 'true' && steps.activate-account-deletion.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        env:
+          ONE_PROFILE_RESEARCH_ENABLED: ${{ vars.ONE_PROFILE_RESEARCH_ENABLED_UAT || 'false' }}
+        run: |
+          set -euo pipefail
+          bash deploy/pwm/setup_notification_scheduler.sh | tee /tmp/uat-pwm-notifications-setup.log
+
+      - name: Upload PWM scheduler verification
+        if: always() && steps.scope.outputs.deploy_backend == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: uat-pwm-notification-scheduler
+          path: /tmp/uat-pwm-notifications-setup.log
+          if-no-files-found: warn
+
       - name: Activate personal Gmail monitor
         id: activate-personal-gmail-monitor
         if: steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
@@ -2446,7 +2951,7 @@ jobs:
 
       - name: Capture Drive scheduler before worker rollout
         id: capture-drive-worker-scheduler
-        if: steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
+        if: inputs.preserve_paused_drive_worker != true && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -2464,7 +2969,7 @@ jobs:
 
       - name: Deploy and attest private Drive worker
         id: deploy-drive-worker
-        if: always() && !cancelled() && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
+        if: always() && !cancelled() && inputs.preserve_paused_drive_worker != true && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         env:
           IMAGE_REFERENCE: ${{ steps.build-backend-image.outputs.image_reference }}
@@ -2472,7 +2977,15 @@ jobs:
           RUNTIME_SERVICE_ACCOUNT: ${{ env.RUNTIME_SERVICE_ACCOUNT }}
           CLOUDSQL_INSTANCE: ${{ env.UAT_CLOUDSQL_INSTANCE }}
           RELEASE_RUN_ID: ${{ github.run_id }}
+          DRIVE_WORK_DRAIN_ENABLED: 'true'
           DRIVE_REQUEST_PAYMENTS_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_PAYMENTS_UAT_ENABLED || 'false' }}
+          DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED || 'false' }}
+          STRIPE_UAT_MODE: ${{ vars.STRIPE_UAT_MODE || 'test' }}
+          STRIPE_CONNECT_UAT_MODE: ${{ vars.STRIPE_CONNECT_UAT_MODE || vars.STRIPE_UAT_MODE || 'test' }}
+          DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED || 'true' }}
+          DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT: ${{ vars.DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT || 'gemini' }}
+          DRIVE_REQUEST_HASHCOINS_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_HASHCOINS_UAT_ENABLED || 'false' }}
+          DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED || 'false' }}
         run: |
           set -euo pipefail
           if [ "${{ steps.capture-drive-worker-scheduler.outcome }}" != "success" ]; then
@@ -2482,9 +2995,117 @@ jobs:
           exec > >(tee /tmp/uat-drive-worker-release.log) 2>&1
           exec bash deploy/drive/deploy_worker_service.sh
 
+      - name: Recover eligible pending UAT text requests
+        id: recover-uat-text-requests
+        if: success() && inputs.preserve_paused_drive_worker != true && steps.deploy-drive-worker.outcome == 'success' && steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ops/run_uat_text_recovery_job.py \
+            --service-json /tmp/uat-backend-promoted-service.json \
+            --sha "${{ steps.resolve-sha.outputs.sha }}" --run-id "${{ github.run_id }}"
+
+      - name: Verify paused Drive maintenance unchanged
+        id: verify-paused-drive-maintenance
+        if: always() && !cancelled() && inputs.preserve_paused_drive_worker == true && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.capture-paused-drive-maintenance.outcome }}" != "success" ]; then
+            echo "No validated paused Drive baseline; refusing release" >&2
+            exit 1
+          fi
+          gcloud scheduler jobs list \
+            --project="${{ env.GCP_PROJECT_ID }}" --location="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/uat-paused-drive-post-scheduler.json
+          gcloud run services describe consent-protocol-drive-worker \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/uat-paused-drive-post-worker.json
+          python3 deploy/drive/attest_paused_maintenance.py verify \
+            --scheduler-snapshot /tmp/uat-paused-drive-post-scheduler.json \
+            --worker-snapshot /tmp/uat-paused-drive-post-worker.json \
+            --baseline /tmp/uat-paused-drive-baseline.json \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Deploy isolated V1 Drive worker while legacy jobs stay paused
+        id: deploy-drive-v1-worker
+        if: always() && !cancelled() && inputs.preserve_paused_drive_worker == true && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true' && steps.verify-paused-drive-maintenance.outcome == 'success' && steps.activate-account-deletion.outcome == 'success' && steps.activate-personal-gmail-monitor.outcome == 'success' && steps.activate-pwm-notifications.outcome == 'success'
+        shell: bash
+        env:
+          DRIVE_WORK_DRAIN_ENABLED: ${{ vars.DRIVE_V1_WORK_DRAIN_UAT_ENABLED || 'true' }}
+          IMAGE_REFERENCE: ${{ steps.build-backend-image.outputs.image_reference }}
+          DEPLOY_SHA: ${{ steps.resolve-sha.outputs.sha }}
+          RUNTIME_SERVICE_ACCOUNT: ${{ env.RUNTIME_SERVICE_ACCOUNT }}
+          CLOUDSQL_INSTANCE: ${{ env.UAT_CLOUDSQL_INSTANCE }}
+          RELEASE_RUN_ID: ${{ github.run_id }}
+          SNAPSHOT_PATH: /tmp/uat-drive-v1-before.json
+          PREVIOUS_REVISION_PATH: /tmp/uat-drive-v1-previous-revision.txt
+          DRIVE_REQUEST_PAYMENTS_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_PAYMENTS_UAT_ENABLED || 'false' }}
+          DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED || 'false' }}
+          STRIPE_UAT_MODE: ${{ vars.STRIPE_UAT_MODE || 'test' }}
+          STRIPE_CONNECT_UAT_MODE: ${{ vars.STRIPE_CONNECT_UAT_MODE || vars.STRIPE_UAT_MODE || 'test' }}
+          DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED || 'true' }}
+          DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT: ${{ vars.DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT || 'gemini' }}
+          DRIVE_REQUEST_HASHCOINS_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_HASHCOINS_UAT_ENABLED || 'false' }}
+          DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED || 'false' }}
+        run: |
+          set -euo pipefail
+          exec > >(tee /tmp/uat-drive-v1-worker-release.log) 2>&1
+          bash deploy/drive/deploy_v1_worker_service.sh
+          revision="$(gcloud run services describe consent-protocol-drive-v1-worker \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" --format=json \
+            | python3 -c 'import json,sys; t=(json.load(sys.stdin).get("status") or {}).get("traffic") or []; r=[x.get("revisionName") for x in t if x.get("percent")==100]; print(r[0] if len(r)==1 else "")')"
+          if [[ ! "${revision}" =~ ^consent-protocol-drive-v1-worker-[a-z0-9-]+$ ]]; then
+            echo "V1 serving revision is ambiguous" >&2
+            exit 1
+          fi
+          revision_sha="$(gcloud run revisions describe "${revision}" \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+            --format='value(metadata.labels.deploy-sha)')"
+          if [ "${revision_sha}" != "${DEPLOY_SHA}" ]; then
+            echo "V1 serving revision SHA does not match the release" >&2
+            exit 1
+          fi
+          echo "revision=${revision}" >> "$GITHUB_OUTPUT"
+          echo "sha=${revision_sha}" >> "$GITHUB_OUTPUT"
+          if [ "$DRIVE_WORK_DRAIN_ENABLED" = false ]; then
+            echo "paused_drive_v1_unchanged=true" >> "$GITHUB_OUTPUT"
+            echo "scheduler_http_200=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "paused_drive_v1_unchanged=false" >> "$GITHUB_OUTPUT"
+            echo "scheduler_http_200=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify legacy paused Drive state after V1 rollout
+        id: verify-paused-drive-after-v1
+        if: always() && !cancelled() && inputs.preserve_paused_drive_worker == true && steps.deploy-drive-v1-worker.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud scheduler jobs list \
+            --project="${{ env.GCP_PROJECT_ID }}" --location="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/uat-paused-drive-after-v1-scheduler.json
+          gcloud run services describe consent-protocol-drive-worker \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/uat-paused-drive-after-v1-worker.json
+          python3 deploy/drive/attest_paused_maintenance.py verify \
+            --scheduler-snapshot /tmp/uat-paused-drive-after-v1-scheduler.json \
+            --worker-snapshot /tmp/uat-paused-drive-after-v1-worker.json \
+            --baseline /tmp/uat-paused-drive-baseline.json \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Restore V1 lane if paired paused-state gate failed
+        id: restore-drive-v1-after-postgate
+        if: always() && inputs.preserve_paused_drive_worker == true && steps.deploy-drive-v1-worker.outcome == 'success' && steps.verify-paused-drive-after-v1.outcome != 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          previous_revision="$(cat /tmp/uat-drive-v1-previous-revision.txt)"
+          bash deploy/drive/restore_v1_worker.sh /tmp/uat-drive-v1-before.json "${previous_revision}"
+
       - name: Restore backend after Drive worker failure
         id: rollback-backend-after-drive-worker
-        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && steps.deploy-drive-worker.outcome != 'success' && steps.scope.outputs.deploy_backend == 'true' && steps.rollback-targets.outputs.backend_revision != ''
+        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && ((inputs.preserve_paused_drive_worker == true && (steps.verify-paused-drive-maintenance.outcome != 'success' || steps.deploy-drive-v1-worker.outcome != 'success' || steps.verify-paused-drive-after-v1.outcome != 'success')) || (inputs.preserve_paused_drive_worker != true && steps.deploy-drive-worker.outcome != 'success')) && steps.scope.outputs.deploy_backend == 'true' && steps.rollback-targets.outputs.backend_revision != ''
         shell: bash
         env:
           PREDEPLOY_DB_GATE_OUTCOME: ${{ steps.predeploy-db-gate.outcome }}
@@ -2493,9 +3114,22 @@ jobs:
           bash deploy/drive/rollback_after_worker_failure.sh \
             "${{ env.BACKEND_SERVICE }}" "${{ steps.rollback-targets.outputs.backend_revision }}"
 
+      - name: Verify isolated V1 lane rollback after failed rollout
+        id: verify-drive-v1-worker-rollback
+        if: always() && inputs.preserve_paused_drive_worker == true && steps.deploy-drive-v1-worker.outcome == 'failure' && steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -s /tmp/uat-drive-v1-before.json ] || [ ! -f /tmp/uat-drive-v1-previous-revision.txt ]; then
+            echo "V1 candidate failed before scheduler capture; no V1 scheduler was changed"
+            exit 0
+          fi
+          previous_revision="$(cat /tmp/uat-drive-v1-previous-revision.txt)"
+          bash deploy/drive/restore_v1_worker.sh /tmp/uat-drive-v1-before.json "${previous_revision}"
+
       - name: Restore frontend after Drive worker failure
         id: rollback-frontend-after-drive-worker
-        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && steps.deploy-drive-worker.outcome != 'success' && steps.scope.outputs.deploy_backend == 'true' && steps.scope.outputs.deploy_frontend == 'true' && steps.rollback-targets.outputs.frontend_revision != ''
+        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && ((inputs.preserve_paused_drive_worker == true && (steps.verify-paused-drive-maintenance.outcome != 'success' || steps.deploy-drive-v1-worker.outcome != 'success' || steps.verify-paused-drive-after-v1.outcome != 'success')) || (inputs.preserve_paused_drive_worker != true && steps.deploy-drive-worker.outcome != 'success')) && steps.scope.outputs.deploy_backend == 'true' && steps.scope.outputs.deploy_frontend == 'true' && steps.rollback-targets.outputs.frontend_revision != ''
         shell: bash
         env:
           PREDEPLOY_DB_GATE_OUTCOME: ${{ steps.predeploy-db-gate.outcome }}
@@ -2506,7 +3140,7 @@ jobs:
 
       - name: Verify Drive scheduler after worker failure
         id: verify-drive-worker-scheduler-rollback
-        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && steps.deploy-drive-worker.outcome != 'success' && steps.scope.outputs.deploy_backend == 'true'
+        if: always() && inputs.preserve_paused_drive_worker != true && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && steps.deploy-drive-worker.outcome != 'success' && steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -2591,13 +3225,40 @@ jobs:
           BACKEND_ROLLBACK_DONE=true
           FRONTEND_ROLLBACK_DONE=true
           DRIVE_WORKER_ROLLBACK_COMPLETE=true
+          DRIVE_WORKER_GATE_SUCCESS=false
+
+          if [ "${{ inputs.preserve_paused_drive_worker }}" = "true" ] \
+             && [ "${{ steps.scope.outputs.deploy_backend }}" != "true" ]; then
+            DRIVE_WORKER_GATE_SUCCESS=false
+          elif [ "${{ steps.scope.outputs.deploy_backend }}" != "true" ]; then
+            DRIVE_WORKER_GATE_SUCCESS=true
+          elif [ "${{ inputs.preserve_paused_drive_worker }}" = "true" ]; then
+            if [ "${{ steps.capture-paused-drive-maintenance.outcome }}" = "success" ] \
+               && [ "${{ steps.capture-paused-drive-maintenance.outputs.paused_drive_baseline_captured }}" = "true" ] \
+               && [ "${{ steps.verify-paused-drive-maintenance.outcome }}" = "success" ] \
+               && [ "${{ steps.verify-paused-drive-maintenance.outputs.paused_drive_unchanged }}" = "true" ] \
+               && [ "${{ steps.deploy-drive-v1-worker.outcome }}" = "success" ] \
+               && [ "${{ steps.verify-paused-drive-after-v1.outcome }}" = "success" ] \
+               && [ "${{ steps.verify-paused-drive-after-v1.outputs.paused_drive_unchanged }}" = "true" ] \
+               && [ "${{ steps.deploy-drive-v1-worker.outputs.sha }}" = "${{ steps.resolve-sha.outputs.sha }}" ] \
+               && { { [ "${{ vars.DRIVE_V1_WORK_DRAIN_UAT_ENABLED || 'true' }}" = "true" ] \
+                      && [ "${{ steps.deploy-drive-v1-worker.outputs.scheduler_http_200 }}" = "true" ]; } \
+                    || { [ "${{ vars.DRIVE_V1_WORK_DRAIN_UAT_ENABLED || 'true' }}" = "false" ] \
+                         && [ "${{ steps.deploy-drive-v1-worker.outputs.paused_drive_v1_unchanged }}" = "true" ] \
+                         && [ "${{ steps.deploy-drive-v1-worker.outputs.scheduler_http_200 }}" = "false" ]; }; }; then
+              DRIVE_WORKER_GATE_SUCCESS=true
+            fi
+          elif [ "${{ steps.deploy-drive-worker.outcome }}" = "success" ]; then
+            DRIVE_WORKER_GATE_SUCCESS=true
+          fi
 
           if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
-             && [ "${{ steps.deploy-drive-worker.outcome }}" != "success" ]; then
+             && [ "$DRIVE_WORKER_GATE_SUCCESS" != true ]; then
             # A skipped/cancelled worker is not a completed rollback. Only
             # independent scheduler and serving-revision evidence can prove it.
             DRIVE_WORKER_ROLLBACK_COMPLETE=false
-            if [ "${{ steps.verify-drive-worker-scheduler-rollback.outcome }}" = "success" ] \
+            if [ "${{ inputs.preserve_paused_drive_worker }}" != "true" ] \
+               && [ "${{ steps.verify-drive-worker-scheduler-rollback.outcome }}" = "success" ] \
                && [ "${{ steps.verify-drive-worker-scheduler-rollback.outputs.restored }}" = "true" ] \
                && [ "${{ steps.rollback-targets.outputs.backend_revision }}" != "" ] \
                && [ "${{ steps.rollback-backend-after-drive-worker.outcome }}" = "success" ] \
@@ -2611,11 +3272,15 @@ jobs:
             fi
           fi
 
-          if [ "${{ steps.classify-uat-release.outputs.release_failed }}" != "true" ]; then
+          if [ "${{ inputs.preserve_paused_drive_worker }}" = "true" ] \
+             && [ "${{ steps.scope.outputs.deploy_backend }}" != "true" ]; then
+            STATUS="blocked"
+          elif [ "${{ steps.classify-uat-release.outputs.release_failed }}" != "true" ]; then
             if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
                && { [ "${{ steps.activate-account-deletion.outcome }}" != "success" ] \
                  || [ "${{ steps.activate-personal-gmail-monitor.outcome }}" != "success" ] \
-                 || [ "${{ steps.deploy-drive-worker.outcome }}" != "success" ]; }; then
+                 || [ "${{ steps.activate-pwm-notifications.outcome }}" != "success" ] \
+                 || [ "$DRIVE_WORKER_GATE_SUCCESS" != true ]; }; then
               STATUS="blocked"
             else
               STATUS="healthy"
@@ -2641,7 +3306,14 @@ jobs:
             fi
           fi
 
-          export STATUS DRIVE_WORKER_ROLLBACK_COMPLETE
+          if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
+             && [ "${{ inputs.preserve_paused_drive_worker }}" != "true" ] \
+             && [ "${{ steps.deploy-drive-worker.outcome }}" = "success" ] \
+             && [ "${{ steps.recover-uat-text-requests.outcome }}" != "success" ]; then
+            STATUS="blocked"
+          fi
+
+          export STATUS DRIVE_WORKER_ROLLBACK_COMPLETE DRIVE_WORKER_GATE_SUCCESS
           python3 - <<'PY'
           import json
           import os
@@ -2693,9 +3365,26 @@ jobs:
                   "semantic_success": "${{ steps.classify-uat-release.outputs.semantic_success }}",
                   "db_contract": "${{ steps.postdeploy-db-gate.outcome }}",
                   "reviewer_byok": "${{ steps.verify-reviewer-byok.outcome }}",
+                  "reviewer_byok_passes_requested": "${{ steps.verification-plan.outputs.run_reviewer_byok == 'true' && (inputs.repeat_reviewer_byok && '2' || '1') || '0' }}",
+                  "reviewer_byok_passes_completed": "${{ steps.verify-reviewer-byok.outputs.passes_completed || '0' }}",
+                  "pwm_notification_scheduler": "${{ steps.activate-pwm-notifications.outcome }}",
+                  "account_deletion_fence_required": "${{ steps.account-deletion-fence-decision.outputs.required }}",
                   "account_deletion_activation": "${{ steps.activate-account-deletion.outcome }}",
                   "account_deletion_activated": "${{ steps.activate-account-deletion.outputs.activated }}",
+                  "text_processor_recovery": "${{ steps.recover-uat-text-requests.outcome }}",
                   "drive_worker": "${{ steps.deploy-drive-worker.outcome }}",
+                  "drive_v1_worker": "${{ steps.deploy-drive-v1-worker.outcome }}",
+                  "drive_v1_worker_revision": "${{ steps.deploy-drive-v1-worker.outputs.revision }}",
+                  "drive_v1_worker_sha": "${{ steps.deploy-drive-v1-worker.outputs.sha }}",
+                  "drive_v1_paused_unchanged": "${{ steps.deploy-drive-v1-worker.outputs.paused_drive_v1_unchanged }}" == "true",
+                  "drive_v1_scheduler_http_200": "${{ steps.deploy-drive-v1-worker.outputs.scheduler_http_200 }}" == "true",
+                  "drive_v1_worker_rollback": "${{ steps.verify-drive-v1-worker-rollback.outcome }}",
+                  "drive_processing_enabled": "${{ inputs.preserve_paused_drive_worker && 'false' || 'true' }}",
+                  "drive_worker_gate_success": os.environ["DRIVE_WORKER_GATE_SUCCESS"] == "true",
+                  "paused_drive_maintenance_requested": "${{ inputs.preserve_paused_drive_worker }}" == "true",
+                  "paused_drive_baseline": "${{ steps.capture-paused-drive-maintenance.outcome }}",
+                  "paused_drive_unchanged": "${{ steps.verify-paused-drive-maintenance.outcome }}",
+                  "paused_drive_after_v1": "${{ steps.verify-paused-drive-after-v1.outcome }}",
                   "drive_worker_backend_rollback": "${{ steps.rollback-backend-after-drive-worker.outcome }}",
                   "drive_worker_frontend_rollback": "${{ steps.rollback-frontend-after-drive-worker.outcome }}",
                   "drive_worker_scheduler_rollback": "${{ steps.verify-drive-worker-scheduler-rollback.outcome }}",
@@ -2752,6 +3441,7 @@ jobs:
             /tmp/uat-backend-provenance.json
             /tmp/uat-frontend-provenance.json
             /tmp/uat-db-migration-guard-predeploy.json
+            /tmp/uat-email-auth-policy-activation.json
             /tmp/uat-db-migration-guard-postdeploy.json
             /tmp/uat-backend-image.json
             /tmp/uat-backend-image-manifest.json
@@ -2759,9 +3449,12 @@ jobs:
             /tmp/uat-frontend-image-manifest.json
             /tmp/uat-backend-candidate.json
             /tmp/uat-backend-candidate-readiness.json
+            /tmp/uat-managed-provider-readiness.json
             /tmp/uat-backend-candidate-health.json
             /tmp/uat-backend-promoted-service.json
             /tmp/uat-account-deletion-fence-install.log
+            /tmp/uat-account-deletion-revisions.json
+            /tmp/uat-account-deletion-unfenced-preflight.log
             /tmp/uat-account-deletion-fence-premigration.log
             /tmp/uat-account-deletion-boundary.log
             /tmp/uat-account-deletion-boundary-preactivation.log
@@ -2773,6 +3466,7 @@ jobs:
             /tmp/uat-account-deletion-revision-retirement.json
             /tmp/uat-account-deletion-fence-removal.log
             /tmp/uat-drive-worker-release.log
+            /tmp/uat-drive-v1-worker-release.log
             /tmp/cloud-sql-proxy-uat.log
             /tmp/cloud-sql-proxy-uat-migrate.log
             /tmp/cloud-sql-proxy-uat-activation.log
@@ -2782,6 +3476,7 @@ jobs:
             /tmp/uat-release-verify-attempt-2.json
             /tmp/uat-reviewer-byok.log
             /tmp/uat-release-classification.json
+            /tmp/uat-text-recovery-proof.json
             /tmp/uat-release-status.json
 
       - name: Deployment summary
@@ -2814,6 +3509,7 @@ jobs:
             echo "- PKM upgrade gate required: \`${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}\`"
             echo "- Reviewer BYOK required: \`${{ steps.verification-plan.outputs.run_reviewer_byok }}\`"
             echo "- Backend deployed SHA before run: \`${{ steps.predeploy-state.outputs.backend_sha || 'unknown' }}\`"
+            echo "- Account deletion fence required: \`${{ steps.account-deletion-fence-decision.outputs.required || 'not_applicable' }}\`"
             echo "- Frontend deployed SHA before run: \`${{ steps.predeploy-state.outputs.frontend_sha || 'unknown' }}\`"
             echo "- Status: \`$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/uat-release-status.json').read_text(encoding='utf-8'))['status'])")\`"
             echo "- Blocking classifications: \`${{ steps.classify-uat-release.outputs.blocking_classifications || 'none' }}\`"
@@ -2845,6 +3541,11 @@ jobs:
             echo "- Frontend rollback: \`${{ steps.rollback-frontend.outcome }}\`"
             echo "- Drive worker failure backend rollback: \`${{ steps.rollback-backend-after-drive-worker.outcome }}\`"
             echo "- Drive worker failure frontend rollback: \`${{ steps.rollback-frontend-after-drive-worker.outcome }}\`"
+            echo "- Isolated V1 worker: \`${{ steps.deploy-drive-v1-worker.outcome }}\`"
+            echo "- V1 serving revision: \`${{ steps.deploy-drive-v1-worker.outputs.revision || 'not_deployed' }}\`"
+            echo "- V1 serving SHA: \`${{ steps.deploy-drive-v1-worker.outputs.sha || 'not_deployed' }}\`"
+            echo "- V1 paused scheduler unchanged: \`${{ steps.deploy-drive-v1-worker.outputs.paused_drive_v1_unchanged || 'false' }}\`"
+            echo "- V1 Scheduler fresh 200: \`${{ steps.deploy-drive-v1-worker.outputs.scheduler_http_200 || 'false' }}\`"
             echo ""
             echo "### Deploy Timing"
             echo ""
@@ -2852,6 +3553,11 @@ jobs:
             echo "- Backend Cloud Build: \`${backend_build_seconds}s\`"
             echo "- Frontend Cloud Build: \`${frontend_build_seconds}s\`"
             echo "- Non-build gates and verification: \`${non_build_seconds}s\`"
+            echo ""
+            echo "### Revision Maintenance"
+            echo ""
+            echo "Old revisions are retired separately after a successful release; request drainage does not delay this deployment."
+            echo "[View Capacity Maintenance](${{ github.server_url }}/${{ github.repository }}/actions/workflows/capacity-maintenance.yml)"
             echo ""
             echo "### Auto Scope Evidence"
             echo ""
@@ -2887,6 +3593,32 @@ jobs:
             exit 0
           fi
           bash scripts/ci/tag-last-known-good.sh
+
+      - name: Retire old UAT revision tags after a healthy release
+        if: always()
+        shell: bash
+        env:
+          BACKEND_CURRENT: ${{ steps.final-state.outputs.backend_revision }}
+          FRONTEND_CURRENT: ${{ steps.final-state.outputs.frontend_revision }}
+          BACKEND_ROLLBACK: ${{ steps.predeploy-state.outputs.backend_revision }}
+          FRONTEND_ROLLBACK: ${{ steps.predeploy-state.outputs.frontend_revision }}
+        run: |
+          set -euo pipefail
+          status="$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/uat-release-status.json').read_text(encoding='utf-8'))['status'])")"
+          if [ "$status" != healthy ]; then
+            echo "Skipping revision tag retirement for release status $status"
+            exit 0
+          fi
+          bash scripts/ci/cloudrun-retention.sh "$BACKEND_SERVICE" "$GCP_REGION" "$BACKEND_REVISION_RETENTION" \
+            "$BACKEND_CURRENT" --rollback-revision "$BACKEND_ROLLBACK" \
+            --last-known-good-revision "$BACKEND_CURRENT" --apply --healthy --tags-only
+          bash scripts/ci/cloudrun-retention.sh "$FRONTEND_SERVICE" "$GCP_REGION" "$FRONTEND_REVISION_RETENTION" \
+            "$FRONTEND_CURRENT" --rollback-revision "$FRONTEND_ROLLBACK" \
+            --last-known-good-revision "$FRONTEND_CURRENT" --apply --healthy --tags-only
+          if [ "${{ inputs.preserve_paused_drive_worker }}" != true ]; then
+            bash scripts/ci/cloudrun-retention.sh consent-protocol-drive-worker "$GCP_REGION" 2 \
+              --apply --healthy --tags-only
+          fi
 
       - name: Fail workflow when UAT release did not end healthy
         if: always()

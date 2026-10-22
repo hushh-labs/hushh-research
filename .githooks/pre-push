@@ -5,9 +5,21 @@
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 DELEGATE="$REPO_ROOT/consent-protocol/ops/monorepo/pre-push.sh"
 
+# Git exports repository-specific environment variables to hooks. The UI
+# contract validator creates temporary fixture repositories, so let those
+# fixtures discover their own Git directory instead of inheriting this one.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_PREFIX
+unset GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
+cd "$REPO_ROOT" || exit 1
+
 if [ ! -f "$DELEGATE" ]; then
   echo "[pre-push] Missing delegate script: consent-protocol/ops/monorepo/pre-push.sh"
   exit 1
+fi
+
+# This is read-only and checks every route, so docs-only pushes cannot bypass it.
+if [ -d "$REPO_ROOT/hushh-webapp" ]; then
+  node "$REPO_ROOT/hushh-webapp/scripts/architecture/verify-ui-contracts.mjs" || exit 1
 fi
 
 exec sh "$DELEGATE" "$@"

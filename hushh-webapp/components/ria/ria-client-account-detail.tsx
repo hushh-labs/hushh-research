@@ -20,7 +20,7 @@ import {
 } from "@/lib/navigation/routes";
 import { useRiaClientWorkspaceState } from "@/components/ria/use-ria-client-workspace-state";
 import { Database, Loader2, Wallet } from "@/components/icons";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { RIA_TONE_BADGE } from "@/lib/ria/ria-tone";
 
 function formatStatusLabel(status?: string | null) {
@@ -151,13 +151,12 @@ export function RiaClientAccountDetail({
         authState: user ? "authenticated" : "pending",
         dataState: loading
           ? "loading"
-          : accountBranch
-            ? "loaded"
-            : detailError
-              ? "error"
+          : detailError
+            ? "error"
+            : accountBranch
+              ? "loaded"
               : "empty-valid",
         errorCode: detailError ? "ria_client_account_detail" : null,
-        errorMessage: detailError,
       }}
     >
       {loading ? (

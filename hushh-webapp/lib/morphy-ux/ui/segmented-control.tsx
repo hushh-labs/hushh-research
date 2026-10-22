@@ -3,9 +3,10 @@
 /**
  * Morphy-UX Segmented Control
  *
- * A unified component for single-value selection with two variants:
+ * A unified component for single-value selection:
  * - Compact: Equal-width segments (for period selectors, filters)
  * - Expanding: Active segment expands with label (for theme toggle, navigation)
+ * - Sliding: Equal-width icon choices with one retained selection thumb
  *
  * Features:
  * - Material 3 Expressive ripple effects
@@ -13,11 +14,9 @@
  * - Dark mode support
  * - Accessible keyboard navigation: one tab stop, arrow keys, Home/End
  *
- * There is no sliding thumb here. The active segment is a per-button
- * background that cross-fades. `segmented-pill.tsx` is the primitive that
- * already ships a translateX indicator with its own theme hooks and
- * reduced-motion guard; a second implementation of it would be a duplicate
- * path, so callers that want the slide should reach for that one instead.
+ * Bounded radio selections share semantics; route tabs and their continuous
+ * swipe indicators retain their own pager. Sliding preserves the existing
+ * Appearance geometry, rather than introducing a route-local selector.
  */
 
 "use client";
@@ -25,6 +24,7 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
+import { appHaptic } from "@/lib/capacitor/app-haptics";
 
 // =============================================================================
 // TYPES
@@ -48,9 +48,14 @@ interface SegmentedControlProps {
   value: string;
   onValueChange: (value: string) => void;
   options: SegmentOption[];
-  variant?: "compact" | "expanding";
+  variant?: "compact" | "expanding" | "sliding";
   size?: "sm" | "default" | "lg";
   className?: string;
+  disabled?: boolean;
+  /** Opt out when the accepted navigation owner emits its own cue. */
+  hapticFeedback?: boolean;
+  /** Bounded choices can keep their authored two-column phone layout. */
+  mobileColumns?: 2;
   /**
    * The group's name, matching `SegmentedPill`'s prop of the same name.
    *
@@ -84,12 +89,16 @@ export function SegmentedControl({
   variant = "compact",
   size = "default",
   className,
+  disabled = false,
+  hapticFeedback = true,
+  mobileColumns,
   ariaLabel,
   iconClassName,
   labelClassName,
   selectedButtonRef,
 }: SegmentedControlProps) {
   const isExpanding = variant === "expanding";
+  const isSliding = variant === "sliding";
   const buttonsRef = React.useRef<Array<HTMLButtonElement | null>>([]);
 
   // Size configurations
@@ -128,8 +137,11 @@ export function SegmentedControl({
 
   const moveTo = (index: number) => {
     const option = options[index];
-    if (!option) return;
-    onValueChange(option.value);
+    if (!option || disabled) return;
+    if (option.value !== value) {
+      onValueChange(option.value);
+      if (hapticFeedback) appHaptic("selection");
+    }
     buttonsRef.current[index]?.focus();
   };
 
@@ -138,7 +150,7 @@ export function SegmentedControl({
     index: number,
   ) => {
     // Browser and OS chords keep their meaning.
-    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    if (disabled || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
     const last = options.length - 1;
     if (last < 0) return;
     switch (event.key) {
@@ -171,15 +183,23 @@ export function SegmentedControl({
     <div
       role="radiogroup"
       aria-label={ariaLabel}
+      aria-disabled={disabled || undefined}
+      style={isSliding ? { minWidth: options.length * 44 + 6 } : undefined}
       className={cn(
-        "inline-flex items-center rounded-full",
-        "bg-black/[0.04] dark:bg-white/[0.06] backdrop-blur-md",
-        "border border-black/[0.06] dark:border-white/[0.08]",
-        "shadow-[inset_0_1px_2px_rgba(0,0,0,0.02)]",
-        config.container,
+        "relative inline-flex items-center rounded-full",
+        isSliding
+          ? "h-11 px-[3px]"
+          : "bg-black/[0.04] dark:bg-white/[0.06] backdrop-blur-md border border-black/[0.06] dark:border-white/[0.08] shadow-[inset_0_1px_2px_rgba(0,0,0,0.02)]",
+        !isSliding && config.container,
+        mobileColumns === 2 && !isSliding && "grid h-auto grid-cols-2 sm:inline-flex",
+        disabled && "opacity-50",
         className
       )}
     >
+      {isSliding ? <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 inset-y-1 rounded-full bg-black/[0.05] dark:bg-white/[0.07]" /> : null}
+      {isSliding && activeIndex >= 0 ? <span aria-hidden="true" data-slot="segmented-selection"
+        className="pointer-events-none absolute inset-y-[7px] left-[3px] rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.12)] dark:bg-neutral-800 dark:shadow-[0_1px_2px_rgba(0,0,0,0.4)] transition-transform duration-150 ease-out motion-reduce:transition-none"
+        style={{ width: `calc((100% - 6px) / ${options.length})`, transform: `translateX(${activeIndex * 100}%)` }} /> : null}
       {options.map((option, index) => {
         const isActive = value === option.value;
         const Icon = option.icon;
@@ -195,31 +215,34 @@ export function SegmentedControl({
             role="radio"
             aria-checked={isActive}
             aria-label={option.accessibleLabel}
+            disabled={disabled}
             // Roving tabindex: a radio group is ONE tab stop, and the arrows
             // move within it.
-            tabIndex={index === focusIndex ? 0 : -1}
+            tabIndex={!disabled && index === focusIndex ? 0 : -1}
             onKeyDown={(event) => handleKeyDown(event, index)}
-            onClick={() => onValueChange(option.value)}
+            onClick={() => moveTo(index)}
             className={cn(
               // Base styles
-              "relative flex items-center justify-center gap-1.5 rounded-full select-none",
+              "relative flex items-center justify-center rounded-full select-none",
+              isSliding ? "gap-1" : "gap-1.5",
               // A press is flat: colour and the ripple, never a scale. The
               // duration comes off the motion scale (a 500ms transition once
               // left the segment sagging under the thumb).
               "transition-[color,background-color,box-shadow] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
               "overflow-hidden font-normal tracking-tight",
-              config.segment,
+              isSliding ? "z-10 h-full min-w-0 px-0.5" : config.segment,
+              mobileColumns === 2 && !isSliding && "min-h-11",
 
               // Active state
-              isActive && [
+              isActive && (isSliding ? "text-slate-950 dark:text-white" : [
                 "bg-white text-neutral-900 font-semibold shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)]",
                 "dark:bg-white/[0.16] dark:text-white dark:shadow-[0_1px_2px_rgba(0,0,0,0.25)]",
-              ],
+              ]),
 
               // Inactive state
               !isActive && [
-                "text-muted-foreground/75",
+                isSliding ? "text-slate-500 dark:text-zinc-400" : "text-muted-foreground/75",
                 "hover:text-foreground",
               ],
 
@@ -237,7 +260,7 @@ export function SegmentedControl({
                 className={cn(
                   config.icon,
                   "transition-transform duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
-                  isActive && "scale-105",
+                  isActive && !isSliding && "scale-105",
                   iconClassName,
                 )}
                 aria-hidden

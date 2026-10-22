@@ -11,8 +11,8 @@ import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixture
  * One surface for the whole cold-start chain: it is the same element for
  * every stage, nothing on it moves when the stage changes (zero layout
  * shift), the mark sits on the viewport centre to half a pixel, the copy
- * hangs at equal insets on the 8 pt grid, every line fits whole (again with
- * the text widened, as CI's Linux faces set it), the live line is announced
+ * hangs at equal insets on the 8 pt grid, the title fits whole (again with
+ * the text widened, as CI's Linux faces set it), the steady title is announced
  * politely under an accessible name with AA contrast, reduced motion leaves a
  * still surface, and the iOS launch geometry matches the splash it continues.
  *
@@ -29,16 +29,7 @@ let css: string;
 const HALF_PX = 0.5;
 const STAGES = ["session", "vault", "phone", "setup", "workspace"] as const;
 const ALL_STAGES = ["session", "redirect", "reconnect", "vault", "phone", "setup", "workspace"] as const;
-const LINES: Record<(typeof ALL_STAGES)[number], string> = {
-  session: "Checking it's you",
-  redirect: "Taking you to sign in",
-  reconnect: "Reconnecting securely",
-  vault: "Opening your vault",
-  phone: "Checking your number",
-  setup: "Checking your setup",
-  workspace: "Getting One ready",
-};
-const TITLE = "Hussh One is getting ready";
+const TITLE = "One is getting ready";
 // The labels the old per-guard loaders painted (fixture LEGACY table).
 const LEGACY_LABELS: Record<(typeof STAGES)[number], string> = {
   session: "Checking session...",
@@ -69,7 +60,15 @@ test.beforeAll(async () => {
           for (const candidate of scanner.scanFiles([{ content: source, extension: "tsx" }])) candidates.add(candidate);
       },
     }],
-    resolve: { alias: [{ find: "@", replacement: root }] },
+    resolve: { alias: [
+      ...[
+        "lib/services/vault-service", "lib/vault/vault-context",
+        "lib/services/vault-bootstrap-service", "lib/services/vault-method-service",
+        "lib/services/vault-method-prompt-local-service", "lib/services/vault-quick-unlock-trust-local-service",
+        "lib/vault/prf-auth", "lib/utils/native-download", "lib/utils/clipboard", "lib/testing/native-test",
+      ].map((name) => ({ find: `@/${name}`, replacement: path.join(root, "e2e/fixtures/boot-vault-services.ts") })),
+      { find: "@", replacement: root },
+    ] },
     define: { "process.env.NODE_ENV": JSON.stringify("production"), "process.env": "{}" },
     build: {
       outDir, emptyOutDir: false,
@@ -124,20 +123,15 @@ async function settleIdle(page: Page) {
 /** Hold a stage and wait until it is on screen with its entrance finished. */
 async function showStage(page: Page, stage: string) {
   await page.evaluate((next) => window.bootFixture.set(next as never), stage);
-  await expect(page.locator("[data-boot-line='current']")).toContainText(LINES[stage as keyof typeof LINES]);
+  await expect(page.locator("[data-boot-surface] .boot-scene")).toHaveAttribute("data-boot-stage", stage);
   await expect.poll(() => page.evaluate(() => window.bootFixture.state().phase)).toMatch(/^(visible|launch)$/);
-  // Measure at rest: the line's 6 pt entrance is motion, not layout, and a
-  // loaded runner can otherwise read it mid-flight.
-  await page.waitForFunction(() =>
-    document.querySelector("[data-boot-line='current']")?.getAnimations().every((animation) => animation.playState === "finished") ?? false,
-  );
   await expect(async () => {
     const a = await measure(page);
     await page.waitForTimeout(80);
     const b = await measure(page);
     expect(a.mark).toEqual(b.mark);
     expect(b.surfaceOpacity).toBe(1);
-    expect(b.lineCount).toBe(1);
+    expect(b.lineCount).toBe(0);
   }).toPass();
 }
 
@@ -151,11 +145,9 @@ type Geometry = {
   mark: Box;
   copy: Box;
   title: Box & { clipped: boolean };
-  lines: Box;
-  line: (Box & { clipped: boolean }) | null;
   lineCount: number;
   live: { text: string; politeness: string | null };
-  contrast: { title: number; line: number };
+  contrast: { title: number };
 };
 
 async function measure(page: Page): Promise<Geometry> {
@@ -166,7 +158,6 @@ async function measure(page: Page): Promise<Geometry> {
     };
     const surface = document.querySelector("[data-boot-surface]") as HTMLElement;
     const title = surface.querySelector("[data-boot-title]") as HTMLElement;
-    const line = surface.querySelector("[data-boot-line='current']") as HTMLElement | null;
     const live = surface.querySelector("[role='status']") as HTMLElement;
 
     // Resolve any CSS colour (oklch, rgba, hex) to the sRGB pixel it paints
@@ -209,13 +200,10 @@ async function measure(page: Page): Promise<Geometry> {
       mark: box(surface.querySelector("[data-boot-mark]")!),
       copy: box(surface.querySelector("[data-boot-copy]")!),
       title: { ...box(title), clipped: title.scrollWidth > title.clientWidth + 0.5 },
-      lines: box(surface.querySelector("[data-boot-lines]")!),
-      line: line ? { ...box(line), clipped: line.scrollWidth > line.clientWidth + 0.5 } : null,
       lineCount: surface.querySelectorAll("[data-boot-line]").length,
       live: { text: live.textContent ?? "", politeness: live.getAttribute("aria-live") },
       contrast: {
         title: ratio(getComputedStyle(title).color),
-        line: line ? ratio(getComputedStyle(line).color) : 0,
       },
     };
   });
@@ -241,22 +229,15 @@ function assertGrid(g: Geometry, label: string, native = false) {
   expect.soft(Math.abs(g.copy.left - (g.viewport.width - g.copy.right)), `${label}: equal insets`).toBeLessThanOrEqual(HALF_PX);
   expect.soft(g.copy.left, `${label}: 16 pt gutter`).toBeCloseTo(16, 0);
 
-  // Title and line: 24 pt rows, 8 pt apart, centred, whole.
+  // One steady title, centred and whole.
   expect.soft(g.title.height, `${label}: title row`).toBeCloseTo(24, 0);
-  expect.soft(g.lines.height, `${label}: line row`).toBeCloseTo(24, 0);
-  expect.soft(g.lines.top - g.title.bottom, `${label}: title to line`).toBeCloseTo(8, 0);
   expect.soft(Math.abs(centreX(g.title) - g.viewport.width / 2), `${label}: title centred`).toBeLessThanOrEqual(HALF_PX);
   expect.soft(g.title.clipped, `${label}: title clipped`).toBe(false);
-  expect.soft(g.line, `${label}: a line`).not.toBeNull();
-  if (g.line) {
-    expect.soft(Math.abs(centreX(g.line) - g.viewport.width / 2), `${label}: line centred`).toBeLessThanOrEqual(HALF_PX);
-    expect.soft(g.line.clipped, `${label}: line clipped`).toBe(false);
-  }
+  expect.soft(g.lineCount, `${label}: stage sublines removed`).toBe(0);
 
   // Accessibility: announced politely, AA contrast for both rows.
   expect.soft(g.live.politeness, `${label}: polite live region`).toBe("polite");
   expect.soft(g.contrast.title, `${label}: title contrast`).toBeGreaterThanOrEqual(4.5);
-  expect.soft(g.contrast.line, `${label}: line contrast`).toBeGreaterThanOrEqual(4.5);
 }
 
 /**
@@ -281,7 +262,7 @@ async function walkChain(page: Page, mode: "new" | "legacy"): Promise<string[]> 
     }
     const probe = await page.evaluate(() => {
       const anchor =
-        document.querySelector("[data-boot-line='current']") ??
+        document.querySelector("[data-boot-title]") ??
         document.querySelector("[data-legacy-loader] p");
       const root = anchor?.closest("[data-boot-surface],[data-legacy-loader]") as (HTMLElement & { __probeId?: string }) | null;
       if (!anchor || !root) return null;
@@ -337,14 +318,14 @@ for (const dark of [false, true])
         const label = `${viewport.width} ${dark ? "dark" : "light"} ${stage}`;
         const g = await measure(page);
         assertGrid(g, label);
-        expect.soft(g.live.text, `${label}: announced line`).toBe(LINES[stage]);
+        expect.soft(g.live.text, `${label}: announced line`).toBe(TITLE);
         if (viewport.width === 393) await shot(page, `stage-${stage}-393-${dark ? "dark" : "light"}`);
       }
       // The surface has an accessible name.
       await expect(page.getByRole("region", { name: TITLE })).toHaveCount(1);
 
-      // Widened text (CI's Linux faces set wider): every line still fits whole.
-      await page.addStyleTag({ content: "[data-boot-surface] [data-boot-title],[data-boot-surface] [data-boot-line]{letter-spacing:0.3px}" });
+      // Widened text (CI's Linux faces set wider): the title still fits whole.
+      await page.addStyleTag({ content: "[data-boot-surface] [data-boot-title]{letter-spacing:0.3px}" });
       for (const stage of ALL_STAGES) {
         await showStage(page, stage);
         assertGrid(await measure(page), `${viewport.width} ${dark ? "dark" : "light"} ${stage} widened`);
@@ -446,11 +427,119 @@ test("hands the vault stage to the interactive unlock screen", async ({ page }) 
   const surface = page.locator("[data-boot-surface]");
   await expect(surface).toHaveAttribute("aria-hidden", "true");
   await expect(surface).toHaveCSS("pointer-events", "none");
-  const passphrase = page.getByLabel("Passphrase");
+  const passphrase = page.getByLabel("Vault password");
+  const target = await passphrase.boundingBox();
+  expect(target!.height).toBeGreaterThanOrEqual(44);
   await passphrase.click();
   await expect(passphrase).toBeFocused();
   await shot(page, "handoff-vault-unlock-393-light");
 });
+
+for (const viewport of [{ width: 834, height: 1194 }, { width: 1194, height: 834 }]) {
+  test(`real vault recovery remains reachable on tablet ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    await open(page, { ...viewport, dark: false, native: true });
+    await settleIdle(page);
+    await page.evaluate(() => window.bootFixture.unlock(true));
+    const content = page.locator("[data-vault-flow-content]");
+    await expect(content).toHaveAttribute("data-vault-flow-step", "unlock");
+    await settleIdle(page);
+    const passphrase = page.getByLabel("Vault password");
+    const visibility = page.getByRole("button", { name: "Show password", exact: true });
+    const inputTarget = await passphrase.boundingBox();
+    const visibilityTarget = await visibility.boundingBox();
+    expect({
+      entry: inputTarget!.height >= 44,
+      visibility: visibilityTarget!.height >= 44 && visibilityTarget!.width >= 44,
+    }).toEqual({ entry: true, visibility: true });
+    // Measure the actual controls, not their larger decorative field shell.
+    // Edge taps must focus/toggle without submitting any credential.
+    await expect(passphrase).toHaveValue("");
+    await passphrase.evaluate((node) => node.blur());
+    await passphrase.click({ position: { x: 10, y: 4 } });
+    await expect(passphrase).toBeFocused();
+    await visibility.click({ position: { x: 4, y: 4 } });
+    await expect(passphrase).toHaveAttribute("type", "text");
+    await page.getByRole("button", { name: "Hide password", exact: true }).click();
+    await expect(passphrase).toHaveAttribute("type", "password");
+    await expect(passphrase).toHaveValue("");
+    const surface = await page.locator("[data-vault-unlock-surface]").elementHandle();
+    const supportingText = content.locator("[data-vault-flow-header] p").first();
+    const originalTextSize = await supportingText.evaluate((node) => Number.parseFloat(getComputedStyle(node).fontSize));
+    const recoveryGeometry = () => page.evaluate(() => {
+      const scroll = document.querySelector<HTMLElement>("[data-vault-flow-content]")!;
+      const dialog = document.querySelector<HTMLElement>("[data-vault-unlock-surface]")!;
+      const box = scroll.getBoundingClientRect();
+      const surface = dialog.getBoundingClientRect();
+      const footer = [...scroll.querySelectorAll<HTMLButtonElement>("button")].filter((button) => ["Recovery key", "Sign out"].includes(button.textContent?.trim() ?? ""));
+      return {
+        centered: Math.abs(surface.left + surface.width / 2 - innerWidth / 2) <= 1,
+        horizontalOverflow: document.documentElement.scrollWidth > innerWidth,
+        contained: footer.every((button) => {
+          const r = button.getBoundingClientRect();
+          return r.top >= box.top - 1 && r.bottom <= box.bottom + 1 &&
+            r.bottom <= innerHeight - Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--kb-height")) + 1;
+        }),
+        targets: footer.length === 2 && footer.every((button) => button.getBoundingClientRect().height >= 44),
+      };
+    });
+    // Resize the same dialog through full tablet and split-window widths,
+    // including both sides of its responsive inset breakpoint. Rem-based
+    // supporting copy grows; pixel-sized headings are not Dynamic Type proof.
+    const sizes = [viewport, { width: 507, height: 834 }, { width: 639, height: 834 }, { width: 640, height: 834 }, viewport];
+    for (const { width, height, keyboard } of sizes.flatMap((size) => [0, 320, 0].map((keyboard) => ({ ...size, keyboard })))) {
+      await page.setViewportSize({ width, height });
+      await page.evaluate((height) => {
+        document.documentElement.style.setProperty("--kb-height", `${height}px`);
+        document.documentElement.style.fontSize = "20px";
+      }, keyboard);
+      expect(await surface!.evaluate((node) => node.isConnected)).toBe(true);
+      expect(await supportingText.evaluate((node) => Number.parseFloat(getComputedStyle(node).fontSize))).toBeGreaterThan(originalTextSize);
+      const resizedInput = await passphrase.boundingBox();
+      const resizedVisibility = await visibility.boundingBox();
+      expect(resizedInput!.height).toBeGreaterThanOrEqual(44);
+      expect(resizedVisibility!.height).toBeGreaterThanOrEqual(44);
+      expect(resizedVisibility!.width).toBeGreaterThanOrEqual(44);
+      const recovery = page.getByRole("button", { name: "Recovery key", exact: true });
+      await content.evaluate((node) => { node.scrollTop = 0; });
+      const scroll = await content.boundingBox();
+      const overflows = await content.evaluate((node) => node.scrollHeight > node.clientHeight);
+      if (keyboard === 320 && height === 834) expect(overflows).toBe(true);
+      await page.mouse.move(scroll!.x + scroll!.width / 2, scroll!.y + scroll!.height / 2);
+      if (overflows) {
+        // Negative control: programmatic reveal would pass overflow:hidden.
+        // A real wheel inside the scrollport must not pass that broken state.
+        // Optional account-recovery actions can overflow even when the two
+        // quiet escape controls already fit. A blocked wheel must preserve
+        // their initial geometry, not necessarily leave them offscreen.
+        const beforeBlockedWheel = await recoveryGeometry();
+        await content.evaluate((node) => { node.style.overflowY = "hidden"; });
+        await page.mouse.wheel(0, 1000);
+        await page.evaluate(() => new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        }));
+        await expect.poll(() => content.evaluate((node) => node.scrollTop)).toBe(0);
+        expect(await recoveryGeometry()).toEqual(beforeBlockedWheel);
+        await content.evaluate((node) => { node.style.overflowY = ""; });
+        // Synchronize the fixture's deliberate overflow mutation before the
+        // next wheel. WebKit failed without this paint boundary.
+        await page.evaluate(() => new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        }));
+        await page.mouse.wheel(0, 1000);
+        await expect.poll(() => content.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+      }
+      // A positive scroll offset proves motion started, not that WebKit has
+      // finished it. Require the full original geometry contract at settlement.
+      await expect.poll(recoveryGeometry, {
+        message: `Recovery footer ${width}x${height}, keyboard inset ${keyboard}`,
+      }).toEqual({ centered: true, horizontalOverflow: false, contained: true, targets: true });
+      await recovery.click();
+      await expect(content).toHaveAttribute("data-vault-flow-step", "recovery");
+      await page.getByRole("button", { name: "Password", exact: true }).click();
+      await expect(content).toHaveAttribute("data-vault-flow-step", "unlock");
+    }
+  });
+}
 
 test("reduced motion leaves a still surface that only fades", async ({ page }) => {
   await open(page, { width: 393, height: 852, dark: false, reduced: true });
@@ -464,15 +553,12 @@ test("reduced motion leaves a still surface that only fades", async ({ page }) =
       markTransition: style("[data-boot-mark]").transitionDuration,
       ring: style(".boot-mark-ring").animationName,
       glyph: style(".boot-mark-glyph").animationName,
-      line: style("[data-boot-line='current']").animationName,
     };
   });
   expect(motion.mark).toBe("none");
   expect(motion.markTransition.split(",").every((value) => parseFloat(value) === 0)).toBe(true);
   expect(motion.ring).toBe("none");
   expect(motion.glyph).toBe("none");
-  // The line still arrives, as an opacity fade with no movement.
-  expect(motion.line).toBe("boot-surface-reveal");
   assertGrid(await measure(page), "393 reduced motion");
   await shot(page, "reduced-motion-vault-393-light");
 });
@@ -484,14 +570,17 @@ test("offline and a hung stage hand the person a way forward", async ({ page, co
   await settleIdle(page);
   await page.evaluate(() => window.bootFixture.set("phone"));
   await page.clock.runFor(400);
-  await expect(page.locator("[data-boot-line='current']")).toContainText("Checking your number");
+  await expect(page.locator("[data-boot-title]")).toHaveText(TITLE);
+  await expect(page.locator("[data-boot-line]")).toHaveCount(0);
 
   await context.setOffline(true);
-  await expect(page.locator("[data-boot-line='current']")).toContainText("Waiting for a connection");
+  await expect(page.locator("[data-boot-title]")).toHaveText(TITLE);
+  await expect(page.locator("[data-boot-line]")).toHaveCount(0);
   await page.clock.runFor(200);
   await shot(page, "offline-phone-393-light");
   await context.setOffline(false);
-  await expect(page.locator("[data-boot-line='current']")).toContainText("Checking your number");
+  await expect(page.locator("[data-boot-title]")).toHaveText(TITLE);
+  await expect(page.locator("[data-boot-line]")).toHaveCount(0);
 
   await page.clock.runFor(10_500);
   await expect(page.getByText("This is taking longer than usual.")).toBeVisible();
@@ -507,7 +596,8 @@ for (const dark of [false, true])
   test(`iOS launch surface continues the splash (${dark ? "dark" : "light"})`, async ({ page, browserName }) => {
     await open(page, { width: 393, height: 852, dark, native: true, stage: "session" });
     await expect(page.locator("[data-boot-surface]")).toHaveAttribute("data-boot-phase", "launch");
-    await expect(page.locator("[data-boot-line='current']")).toContainText(LINES.session);
+    await expect(page.locator("[data-boot-title]")).toHaveText(TITLE);
+  await expect(page.locator("[data-boot-line]")).toHaveCount(0);
     // Visible from the first frame on a phone: no show-after for the launch surface.
     await expect(page.locator("[data-boot-surface]")).toHaveCSS("opacity", "1");
     await expect(page.locator("[data-boot-surface]")).toHaveCSS(

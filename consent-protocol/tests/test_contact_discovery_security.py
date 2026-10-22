@@ -16,6 +16,8 @@ from sqlalchemy.exc import StatementError
 from api.middleware import require_firebase_auth
 from api.routes import marketplace
 from api.routes.one import connections
+from hushh_mcp.services import actor_identity_service
+from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.connections_service import ConnectionsError
 
 PHONE = "+14155550198"
@@ -25,7 +27,20 @@ LOOKUP = {"lookup_id": "private_lookup_1", "hash": DIGEST, "last4": "0198"}
 
 @pytest.fixture
 def contact_routes(monkeypatch):
-    identity = SimpleNamespace(sync_from_firebase=AsyncMock())
+    identity = SimpleNamespace(
+        sync_from_firebase=AsyncMock(
+            return_value={
+                "phone_verified": True,
+                "phone_number": PHONE,
+            }
+        )
+    )
+    identity.sync_verified_phone_from_firebase = lambda user_id: (
+        ActorIdentityService.sync_verified_phone_from_firebase(identity, user_id)
+    )
+    identity.sync_contact_sync_requester_from_firebase = lambda user_id: (
+        ActorIdentityService.sync_contact_sync_requester_from_firebase(identity, user_id)
+    )
     matcher = SimpleNamespace(
         match_marketplace_contacts=AsyncMock(return_value=[{"user_id": "target"}]),
         match_one_network_contact_lookups_exact=AsyncMock(return_value=[]),
@@ -61,11 +76,210 @@ def _legacy_payload(scope="one_network"):
     }
 
 
+@pytest.mark.parametrize("canonical", [True, False])
+@pytest.mark.parametrize(
+    "provider_id,email_verified,current_email,expected_email",
+    [
+        ("google.com", True, "google-user@example.test", "google-user@example.test"),
+        ("apple.com", True, "relay@example.test", "relay@example.test"),
+        ("google.com", False, "google-user@example.test", None),
+        ("google.com", True, None, None),
+        ("google.com", True, "   ", None),
+        ("custom", True, "custom@example.test", None),
+    ],
+)
+def test_contact_email_evidence_is_current_server_provider_identity(
+    contact_routes,
+    monkeypatch,
+    canonical,
+    provider_id,
+    email_verified,
+    current_email,
+    expected_email,
+):
+    uid = "firebase_legacy_google_1234567890"
+    shadow = {
+        "user_id": uid,
+        "phone_number": None,
+        "phone_verified": False,
+        "email": "stale@example.test",
+        "email_verified": True,
+        "last_synced_at": datetime.now(timezone.utc),
+    }
+    identity = ActorIdentityService()
+    monkeypatch.setattr(identity, "get_many", AsyncMock(return_value={uid: shadow}))
+
+    async def persist(**values):
+        # Mirror the production display-data COALESCE: a missing provider email
+        # can retain old text, but must never authorize the fallback.
+        shadow["email"] = values["email"] or shadow["email"]
+        shadow["email_verified"] = values["email_verified"]
+        return shadow
+
+    monkeypatch.setattr(identity, "upsert_identity", AsyncMock(side_effect=persist))
+    monkeypatch.setattr(actor_identity_service, "get_firebase_auth_app", lambda: object())
+    from firebase_admin import auth as firebase_auth
+
+    provider = Mock(
+        return_value=SimpleNamespace(
+            phone_number=None,
+            email=current_email,
+            email_verified=email_verified,
+            disabled=False,
+            provider_data=[SimpleNamespace(provider_id=provider_id, email=None)],
+        )
+    )
+    monkeypatch.setattr(firebase_auth, "get_user", provider)
+    monkeypatch.setattr(connections, "ActorIdentityService", lambda: identity)
+    monkeypatch.setattr(marketplace, "ActorIdentityService", lambda: identity)
+    contact_routes.client.app.dependency_overrides[require_firebase_auth] = lambda: uid
+
+    def reserve(_uid, _count, **proof):
+        if not expected_email or proof.get("verified_requester_email") != expected_email:
+            raise ConnectionsError(
+                "CONTACT_SYNC_REQUESTER_PHONE_VERIFICATION_REQUIRED", "Unavailable", status_code=403
+            )
+
+    contact_routes.graph.reserve_contact_sync_lookup_budget.side_effect = reserve
+    route = "/api/one/connections/contact-sync" if canonical else "/api/marketplace/contacts/match"
+    payload = {"lookups": [LOOKUP]} if canonical else _legacy_payload()
+    # Caller-supplied identity hints cannot mint the server-owned fallback.
+    payload["verified_requester_email"] = "injected@example.test"
+    response = contact_routes.client.post(route, json=payload)
+    assert response.status_code == (200 if expected_email else 403)
+    provider.assert_called_once()
+    assert shadow["phone_verified"] is False
+    assert shadow["phone_number"] is None
+    if expected_email and canonical:
+        assert (
+            contact_routes.graph.sync_contact_matches.call_args.kwargs["verified_requester_email"]
+            == expected_email
+        )
+    elif not expected_email:
+        contact_routes.graph.sync_contact_matches.assert_not_called()
+        contact_routes.matcher.match_marketplace_contacts.assert_not_awaited()
+        contact_routes.matcher.match_one_network_contact_lookups_exact.assert_not_awaited()
+
+
+@pytest.mark.parametrize("canonical", [True, False])
+@pytest.mark.parametrize("state", ["verified_cache", "provider_verified", "unverified"])
+def test_contact_routes_reuse_signup_verification_and_repair_incomplete_shadow(
+    contact_routes, monkeypatch, canonical, state
+):
+    uid = "firebase_requester_1234567890"
+    shadow = {
+        "user_id": uid,
+        "phone_number": PHONE if state == "verified_cache" else None,
+        "phone_verified": state == "verified_cache",
+        "last_synced_at": datetime.now(timezone.utc),
+    }
+    identity = ActorIdentityService()
+    monkeypatch.setattr(identity, "get_many", AsyncMock(side_effect=lambda _ids: {uid: shadow}))
+
+    async def persist(**values):
+        if values["phone_number"]:
+            shadow.update(
+                phone_number=values["phone_number"], phone_verified=values["phone_verified"]
+            )
+        return shadow
+
+    monkeypatch.setattr(identity, "upsert_identity", AsyncMock(side_effect=persist))
+    monkeypatch.setattr(actor_identity_service, "get_firebase_auth_app", lambda: object())
+    from firebase_admin import auth as firebase_auth
+
+    provider = Mock(
+        return_value=SimpleNamespace(
+            phone_number=PHONE if state == "provider_verified" else None,
+        )
+    )
+    monkeypatch.setattr(firebase_auth, "get_user", provider)
+    monkeypatch.setattr(connections, "ActorIdentityService", lambda: identity)
+    monkeypatch.setattr(marketplace, "ActorIdentityService", lambda: identity)
+    contact_routes.client.app.dependency_overrides[require_firebase_auth] = lambda: uid
+
+    def reserve(*_args):
+        if not shadow["phone_verified"] or not shadow["phone_number"]:
+            raise ConnectionsError(
+                "CONTACT_SYNC_REQUESTER_PHONE_VERIFICATION_REQUIRED",
+                "Contact discovery is unavailable.",
+                status_code=403,
+            )
+
+    contact_routes.graph.reserve_contact_sync_lookup_budget.side_effect = reserve
+    route = "/api/one/connections/contact-sync" if canonical else "/api/marketplace/contacts/match"
+    payload = {"lookups": [LOOKUP]} if canonical else _legacy_payload()
+    response = contact_routes.client.post(route, json=payload)
+
+    assert response.status_code == (403 if state == "unverified" else 200)
+    if state == "verified_cache":
+        provider.assert_not_called()
+    else:
+        provider.assert_called_once()
+    if state == "unverified":
+        contact_routes.matcher.match_marketplace_contacts.assert_not_awaited()
+        contact_routes.matcher.match_one_network_contact_lookups_exact.assert_not_awaited()
+        contact_routes.graph.sync_contact_matches.assert_not_called()
+    else:
+        assert shadow["phone_number"] == PHONE
+        assert shadow["phone_verified"] is True
+
+
+@pytest.mark.parametrize("canonical", [True, False])
+@pytest.mark.parametrize("failure", ["provider", "persistence", "read", "pool", "disabled"])
+def test_contact_identity_outage_is_retryable_without_requesting_another_otp(
+    contact_routes,
+    monkeypatch,
+    canonical,
+    failure,
+):
+    uid = "firebase_requester_1234567890"
+    identity = ActorIdentityService()
+    shadow = {
+        "user_id": uid,
+        "phone_verified": False,
+        "phone_number": None,
+        "last_synced_at": datetime.now(timezone.utc),
+    }
+    monkeypatch.setattr(identity, "get_many", AsyncMock(return_value={uid: shadow}))
+    monkeypatch.setattr(identity, "upsert_identity", AsyncMock(return_value=None))
+    if failure == "read":
+        identity.get_many.side_effect = RuntimeError("database read unavailable")
+    elif failure == "pool":
+        identity.upsert_identity.side_effect = RuntimeError("database pool unavailable")
+    monkeypatch.setattr(actor_identity_service, "get_firebase_auth_app", lambda: object())
+    from firebase_admin import auth as firebase_auth
+
+    provider = Mock(
+        return_value=SimpleNamespace(phone_number=PHONE, disabled=failure == "disabled")
+    )
+    if failure == "provider":
+        provider.side_effect = RuntimeError("provider unavailable")
+    monkeypatch.setattr(firebase_auth, "get_user", provider)
+    monkeypatch.setattr(connections, "ActorIdentityService", lambda: identity)
+    monkeypatch.setattr(marketplace, "ActorIdentityService", lambda: identity)
+    contact_routes.client.app.dependency_overrides[require_firebase_auth] = lambda: uid
+    route = "/api/one/connections/contact-sync" if canonical else "/api/marketplace/contacts/match"
+    payload = {"lookups": [LOOKUP]} if canonical else _legacy_payload()
+
+    response = contact_routes.client.post(route, json=payload)
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "CONTACT_SYNC_IDENTITY_UNAVAILABLE"
+    assert "verify your phone" not in response.text.lower()
+    contact_routes.graph.reserve_contact_sync_lookup_budget.assert_not_called()
+    contact_routes.matcher.match_one_network_contact_lookups_exact.assert_not_awaited()
+    contact_routes.matcher.match_marketplace_contacts.assert_not_awaited()
+    contact_routes.graph.sync_contact_matches.assert_not_called()
+    if failure == "disabled":
+        identity.upsert_identity.assert_not_awaited()
+
+
 def test_one_network_read_charges_verified_requester_budget_before_matching(contact_routes):
     calls = []
 
     async def hydrate(*_args, **_kwargs):
         calls.append("hydrate")
+        return {"phone_verified": True, "phone_number": PHONE}
 
     def reserve(*_args):
         calls.append("reserve")

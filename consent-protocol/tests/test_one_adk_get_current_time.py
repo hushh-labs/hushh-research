@@ -32,6 +32,7 @@ def test_get_current_time_defaults_to_utc_when_state_has_no_timezone() -> None:
 
     assert result["status"] == "ok"
     assert result["time_zone"] == "UTC"
+    assert result["time_zone_source"] == "utc_fallback"
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", result["date"])
     assert re.fullmatch(r"\d{1,2}:\d{2} (AM|PM)", result["time"])
     assert result["weekday"]
@@ -43,6 +44,7 @@ def test_get_current_time_uses_the_named_timezone_from_state() -> None:
 
     assert result["status"] == "ok"
     assert result["time_zone"] == "America/Los_Angeles"
+    assert result["time_zone_source"] == "owner"
     # PDT or PST depending on time of year -- either way, a real Pacific label,
     # proving the tool actually resolved the named zone rather than defaulting.
     assert any(label in result["spoken"] for label in ("PDT", "PST"))
@@ -53,6 +55,14 @@ def test_get_current_time_falls_back_to_utc_on_a_garbage_timezone() -> None:
 
     assert result["status"] == "ok"
     assert result["time_zone"] == "UTC"
+    assert result["time_zone_source"] == "utc_fallback"
+
+
+def test_explicit_utc_is_an_owner_timezone_not_a_fallback() -> None:
+    result = asyncio.run(action_tools.get_current_time(_context("UTC")))
+
+    assert result["time_zone"] == "UTC"
+    assert result["time_zone_source"] == "owner"
 
 
 def test_resolve_timezone_matches_calendar_tools_default_and_fallback_shape() -> None:

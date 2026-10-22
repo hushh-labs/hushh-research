@@ -10,6 +10,12 @@ import {
 } from "@/lib/navigation/profile-routes";
 
 export const PROFILE_PANE_OPEN_EVENT = "hushh:profile-pane-open";
+// Presentation only: a preview neither admits Profile nor changes URL/focus.
+export const PROFILE_PANE_PREVIEW_EVENT = "hushh:profile-pane-preview";
+export type ProfilePanePreview = { phase: "drag" | "cancel" | "commit"; distance: number };
+export function previewProfilePane(detail: ProfilePanePreview) {
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(PROFILE_PANE_PREVIEW_EVENT, { detail }));
+}
 export const PROFILE_PANE_QUERY = "profile_pane";
 export const PROFILE_PANE_PANEL_QUERY = "profile_panel";
 export const PROFILE_PANE_DETAIL_QUERY = "profile_detail";
@@ -240,8 +246,15 @@ export function stripProfilePaneTransientParams(
   return query;
 }
 
-type ProfilePaneHistoryState = {
+export type ProfilePaneHistoryState = {
   depth?: number;
+  /** Public visited panel only, never record/connector IDs or another stack.
+   * null means the actual preceding entry was the Profile root. */
+  parentPanel?: ProfilePanel | null;
+  /** Presentation of the existing Legal Back owner, not another route stack.
+   * A document opened from Profile returns there; a visited Legal section is
+   * retained as its parent. No document content or private route IDs are kept. */
+  legalParent?: boolean;
   /**
    * The pane was opened straight onto this location from a screen elsewhere
    * in the app (Puppy One's "Trusted devices" link, say). Back from that first
@@ -253,7 +266,10 @@ type ProfilePaneHistoryState = {
 
 function currentPaneHistoryState(): ProfilePaneHistoryState {
   if (typeof window === "undefined") return {};
-  const state = window.history.state;
+  return parsePaneHistoryState(window.history.state);
+}
+
+function parsePaneHistoryState(state: unknown): ProfilePaneHistoryState {
   if (!state || typeof state !== "object") return {};
   const paneState = (state as Record<string, unknown>)[PROFILE_PANE_HISTORY_KEY];
   if (!paneState || typeof paneState !== "object") return {};
@@ -261,9 +277,56 @@ function currentPaneHistoryState(): ProfilePaneHistoryState {
   if (!(typeof depth === "number" && Number.isFinite(depth) && depth > 0)) {
     return {};
   }
-  return (paneState as Record<string, unknown>).returnsToOrigin === true
+  const origin = (paneState as Record<string, unknown>).returnsToOrigin === true
     ? { depth, returnsToOrigin: true }
     : { depth };
+  const legalParent = (paneState as Record<string, unknown>).legalParent;
+  const result: ProfilePaneHistoryState = typeof legalParent === "boolean" ? { ...origin, legalParent } : origin;
+  const parentPanel = (paneState as Record<string, unknown>).parentPanel;
+  if (parentPanel === null || typeof parentPanel === "string" && normalizeProfilePanel(parentPanel) === parentPanel) {
+    result.parentPanel = parentPanel as ProfilePanel | null;
+  }
+  return result;
+}
+
+/** Renderer projection only. Actual Back remains popProfilePaneLocation.
+ * An older owned entry without this metadata is ambiguous: retain the web
+ * reader instead of inventing native ancestry. Direct/resumed entries use the
+ * same authored parent rule as Back below. */
+export function profileLegalParentForPresentation(history?: ProfilePaneHistoryState): boolean | null {
+  return profilePanelParentForPresentation("legal", history);
+}
+
+/** Shared native presentation ancestry. An unrelated visited panel or older
+ * ambiguous entry keeps the established renderer; actual Back is unchanged. */
+export function profilePanelParentForPresentation(panel: ProfilePanel, history?: ProfilePaneHistoryState): boolean | null {
+  if (!history && typeof window === "undefined") return null;
+  const pane = history ?? currentPaneHistoryState();
+  if ((pane.depth ?? 0) <= 1) return pane.returnsToOrigin !== true;
+  if (pane.parentPanel === panel) return true;
+  if (pane.parentPanel === null) return false;
+  if (pane.parentPanel !== undefined) return null;
+  return panel === "legal" ? pane.legalParent ?? null : null;
+}
+
+/** Read-only presentation snapshot of one browser entry. Next's concurrent
+ * route render may still describe the previous entry after popstate. Never
+ * combine that route with this entry's visited-parent metadata. No additional
+ * navigation state is stored: the existing History owner remains authoritative. */
+export function profilePanePresentationSnapshot(): string {
+  if (typeof window === "undefined") return "";
+  return JSON.stringify([window.location.pathname, window.location.search, currentPaneHistoryState()]);
+}
+
+/** Browser Back must preserve this owner-authored stack beneath a modal. */
+export function profilePaneHistoryDepth(state: unknown): number {
+  if (!state || typeof state !== "object") return 0;
+  const pane = (state as Record<string, unknown>)[PROFILE_PANE_HISTORY_KEY];
+  if (!pane || typeof pane !== "object") return 0;
+  const depth = (pane as Record<string, unknown>).depth;
+  return typeof depth === "number" && Number.isFinite(depth) && depth > 0
+    ? depth
+    : 0;
 }
 
 function emitHistoryUpdate(): void {
@@ -291,7 +354,17 @@ export function pushProfilePaneLocation(
   options: { returnsToOrigin?: boolean } = {},
 ): void {
   if (typeof window === "undefined") return;
-  const depth = getProfilePaneHistoryDepth() + 1;
+  const currentDepth = getProfilePaneHistoryDepth();
+  // A direct query entry (including a destination's return to Profile) has
+  // no owned closed predecessor. Keep its existing in-place Back/Close
+  // boundary instead of inventing depth 1 over an already-open pane. Doing
+  // so would make Close traverse to another open Profile entry and strand
+  // the native drawer's underlying touch isolation.
+  if (currentDepth === 0 && resolveProfilePaneUrlState(window.location.search).open && !options.returnsToOrigin) {
+    replaceProfilePaneLocation(pathname, searchParams, location);
+    return;
+  }
+  const depth = currentDepth + 1;
   const state =
     window.history.state && typeof window.history.state === "object"
       ? { ...(window.history.state as Record<string, unknown>) }
@@ -301,6 +374,14 @@ export function pushProfilePaneLocation(
   state[PROFILE_PANE_HISTORY_KEY] = (
     options.returnsToOrigin && depth === 1 ? { depth, returnsToOrigin: true } : { depth }
   ) satisfies ProfilePaneHistoryState;
+  const previous = resolveProfilePaneUrlState(window.location.search);
+  if (previous.open && previous.location.detail === null) {
+    (state[PROFILE_PANE_HISTORY_KEY] as ProfilePaneHistoryState).parentPanel = previous.location.panel;
+  }
+  if (location.panel === "legal" && (location.detail === "privacy" || location.detail === "terms")) {
+    const entry = state[PROFILE_PANE_HISTORY_KEY] as ProfilePaneHistoryState;
+    entry.legalParent = previous.open && previous.location.panel === "legal" && previous.location.detail === null;
+  }
   window.history.pushState(
     state,
     "",
@@ -326,8 +407,16 @@ export function openProfilePane(
      * restored child still steps back through its parent.
      */
     returnsToOrigin?: boolean;
+    /** Authored origin retained by the existing shell; never persisted. */
+    returnFocus?: HTMLElement;
   } = {},
 ): void {
+  if (options.returnFocus) {
+    const result = requestProfilePaneOpen("tap", options.returnFocus, {
+      location, returnsToOrigin: options.returnsToOrigin,
+    });
+    if (result === "opening" || result === "unavailable") return;
+  }
   pushProfilePaneLocation(pathname, searchParams, location, options);
 }
 
@@ -460,6 +549,9 @@ export type ProfilePaneOpenResult = "opening" | "already_open" | "unavailable";
 
 export type ProfilePaneOpenDetail = {
   source: ProfilePaneOpenSource;
+  /** Transient authored opener, not inferred DOM or persisted state. */
+  returnFocus?: HTMLElement;
+  destination?: { location: ProfilePaneLocation; returnsToOrigin?: boolean };
   /** Called synchronously by the shell listener with what it did. */
   onResult?: (result: ProfilePaneOpenResult) => void;
 };
@@ -474,6 +566,8 @@ export type ProfilePaneOpenDetail = {
  */
 export function requestProfilePaneOpen(
   source: ProfilePaneOpenSource = "tap",
+  returnFocus?: HTMLElement,
+  destination?: ProfilePaneOpenDetail["destination"],
 ): ProfilePaneOpenResult | null {
   if (typeof window === "undefined") return null;
   let result: ProfilePaneOpenResult | null = null;
@@ -481,6 +575,8 @@ export function requestProfilePaneOpen(
     new CustomEvent<ProfilePaneOpenDetail>(PROFILE_PANE_OPEN_EVENT, {
       detail: {
         source,
+        returnFocus,
+        destination,
         onResult: (value) => {
           result = value;
         },

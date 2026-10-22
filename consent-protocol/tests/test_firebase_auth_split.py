@@ -58,6 +58,40 @@ def test_verify_firebase_bearer_preserves_global_revocation_check(monkeypatch):
     assert verification_modes == [False, True]
 
 
+@pytest.mark.parametrize(
+    "origin,provider,method,deprovisioned,allowed",
+    [
+        ("created", "microsoft.com", None, None, True),
+        ("created", "custom", "otp", None, True),
+        ("created", "microsoft.com", None, 1, False),
+        ("created", "custom", "otp", 1, False),
+        ("linked", "microsoft.com", None, 1, True),
+        (None, "custom", "otp", None, True),
+    ],
+)
+def test_independent_methods_preserve_enterprise_account_lifecycle(
+    monkeypatch, origin, provider, method, deprovisioned, allowed
+):
+    import firebase_admin.auth as firebase_auth
+
+    claims = {
+        "uid": "canonical-owner",
+        "workosOrigin": origin,
+        "firebase": {"sign_in_provider": provider},
+        "emailAuthMethod": method,
+        "workosDeprovisionedAt": deprovisioned,
+    }
+    monkeypatch.setattr(firebase_auth_module, "ensure_firebase_auth_admin", lambda: (True, "test"))
+    monkeypatch.setattr(firebase_auth_module, "get_firebase_auth_app", lambda: object())
+    monkeypatch.setattr(firebase_auth, "verify_id_token", lambda *_args, **_kwargs: claims)
+    if allowed:
+        assert verify_firebase_bearer("Bearer method-proof") == "canonical-owner"
+    else:
+        with pytest.raises(HTTPException) as error:
+            verify_firebase_bearer("Bearer method-proof")
+        assert error.value.status_code == 403
+
+
 def test_verify_firebase_bearer_can_require_revocation_proof(monkeypatch):
     import firebase_admin.auth as firebase_auth
 
@@ -747,10 +781,12 @@ def test_ensure_firebase_auth_admin_falls_back_to_default_admin(monkeypatch):
 
 
 def test_get_firebase_auth_app_falls_back_to_default_app(monkeypatch):
-    default_app = object()
+    from types import SimpleNamespace
+
+    default_app = SimpleNamespace(project_id="hushh-pda-uat")
 
     monkeypatch.setattr(
-        "api.utils.firebase_admin.ensure_firebase_auth_admin", lambda: (True, "hushh-pda")
+        "api.utils.firebase_admin.ensure_firebase_auth_admin", lambda: (True, "hushh-pda-uat")
     )
     monkeypatch.setattr(
         "api.utils.firebase_admin._get_existing_app",

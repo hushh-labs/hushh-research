@@ -1,24 +1,16 @@
-"""Referral program service.
+"""Referral attribution, owner summaries and verified qualification.
 
-Owns every database read and write for the referral program. The rules
-themselves live in ``hushh_mcp.operons.referral`` and are pure; this file is
-the part that talks to Postgres, and it deliberately holds no judgement of its
-own beyond what the policy module decides.
-
-Two things this service will never do:
-
-  * trust a number the client sent about how long someone was present;
-  * return anything about a referred person beyond a status word.
-
-A referrer sees how many people they brought in and roughly where each one is.
-They do not see who, when precisely, which agent, or why something was held.
+Direct referrers receive the member's privacy-safe profile display name,
+status, calendar date and aggregate usage progress. No phone, email, device,
+private reply content or internal risk reason leaves this service.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import text
 
@@ -44,6 +36,7 @@ from hushh_mcp.operons.referral.slug import (
     is_valid_slug,
     normalize_slug,
 )
+from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
 from hushh_mcp.services.one_referral_scoring_service import enqueue_scoring_work
 
 # What a referrer is told about where someone has reached. Deliberately about
@@ -100,6 +93,7 @@ def referral_base_url() -> str:
 def _row_to_policy(row) -> ReferralPolicy:
     return ReferralPolicy(
         version=row.version,
+        required_product_event=getattr(row, "required_product_event", "completed_agent_reply"),
         program_enabled=bool(row.program_enabled),
         new_users_only=bool(row.new_users_only),
         attribution_window_days=row.attribution_window_days,
@@ -132,6 +126,8 @@ def get_active_policy() -> ReferralPolicy:
     policy = _row_to_policy(row)
     if not policy.program_enabled:
         raise ReferralProgramDisabled("referral program disabled by policy")
+    if policy.required_product_event != "completed_agent_reply":
+        raise ReferralProgramDisabled("unsupported referral qualification event")
     return policy
 
 
@@ -143,94 +139,116 @@ def _display_name_for(connection, user_id: str) -> str | None:
     return row.display_name if row else None
 
 
-def get_or_create_referral_code(user_id: str, policy: ReferralPolicy) -> dict:
-    """This person's one active slug, minting it on first ask.
+def _active_referral_code(connection, user_id: str):
+    return connection.execute(
+        text("""
+            SELECT id, slug, normalized_slug, created_at
+              FROM one_referral_codes
+             WHERE owner_user_id = :uid AND status = 'active'
+             LIMIT 1
+        """),
+        {"uid": user_id},
+    ).fetchone()
 
-    Creation is idempotent under concurrency: two simultaneous first loads of
-    the Referrals tab both try to insert, the partial unique index lets exactly
-    one win, and the loser re-reads the winner's row instead of erroring.
-    """
-    with get_db_connection() as connection:
-        existing = connection.execute(
-            text(
-                """
-                SELECT slug, normalized_slug, created_at
-                  FROM one_referral_codes
-                 WHERE owner_user_id = :uid AND status = 'active'
-                 LIMIT 1
-                """
-            ),
-            {"uid": user_id},
-        ).fetchone()
-        if existing:
-            return {"slug": existing.slug, "normalized_slug": existing.normalized_slug}
 
-        display_name = _display_name_for(connection, user_id)
+def _code_dict(row) -> dict:
+    return {"id": str(row.id), "slug": row.slug, "normalized_slug": row.normalized_slug}
 
+
+def _allocate_referral_code(connection, user_id: str, policy: ReferralPolicy) -> dict:
+    """Allocate in the caller's transaction; collisions never abort that transaction."""
+    display_name = _display_name_for(connection, user_id)
     for _ in range(_SLUG_ATTEMPTS):
-        candidate = generate_slug(display_name)
-        normalized = normalize_slug(candidate)
+        normalized = normalize_slug(generate_slug(display_name))
         if not is_valid_slug(normalized):
             continue
-        try:
-            with get_db_connection() as connection:
-                connection.execute(
-                    text(
-                        """
-                        INSERT INTO one_referral_codes
-                          (owner_user_id, slug, normalized_slug, policy_version)
-                        VALUES (:uid, :slug, :normalized, :version)
-                        """
-                    ),
-                    {
-                        "uid": user_id,
-                        "slug": normalized,
-                        "normalized": normalized,
-                        "version": policy.version,
-                    },
-                )
-            return {"slug": normalized, "normalized_slug": normalized}
-        except Exception:  # noqa: BLE001 -- unique violation on either index
-            # Either this slug was taken, or this user won a race with
-            # themselves. Re-read before deciding which.
-            with get_db_connection() as connection:
-                row = connection.execute(
-                    text(
-                        """
-                        SELECT slug, normalized_slug
-                          FROM one_referral_codes
-                         WHERE owner_user_id = :uid AND status = 'active'
-                         LIMIT 1
-                        """
-                    ),
-                    {"uid": user_id},
-                ).fetchone()
-            if row:
-                return {"slug": row.slug, "normalized_slug": row.normalized_slug}
-            continue
-
+        row = connection.execute(
+            text("""
+                INSERT INTO one_referral_codes
+                  (owner_user_id, slug, normalized_slug, policy_version)
+                VALUES (:uid, :slug, :normalized, :version)
+                ON CONFLICT (normalized_slug) DO NOTHING
+                RETURNING id, slug, normalized_slug, created_at
+            """),
+            {
+                "uid": user_id,
+                "slug": normalized,
+                "normalized": normalized,
+                "version": policy.version,
+            },
+        ).fetchone()
+        if row:
+            return _code_dict(row)
     raise ReferralServiceError("could not allocate a referral slug")
 
 
-def get_referral_summary(user_id: str) -> dict:
-    """Everything the Referrals tab renders, and nothing more.
+def get_or_create_referral_code(user_id: str, policy: ReferralPolicy) -> dict:
+    """One active code per owner, serialized with replacement and account reset."""
+    with get_db_connection() as connection:
+        lock_connection_graph_users(connection, user_ids=[user_id])
+        existing = _active_referral_code(connection, user_id)
+        return (
+            _code_dict(existing)
+            if existing
+            else _allocate_referral_code(connection, user_id, policy)
+        )
 
-    Each row carries a step, a date, and how far that person has got toward the
-    active-time bar. It carries no name, phone, email, user id, agent or reason.
-    A referrer can see that someone is partway there; they cannot see who, what
-    they used, or why anything was held.
+
+def rotate_referral_code(user_id: str, *, expected_slug: str) -> dict:
+    """Invalidate the old invitation atomically; preserve all earned referral records.
+
+    A repeat or stale request cannot invalidate a newer replacement. Failure to
+    allocate rolls back the disable, so a failed operation never strands the owner.
     """
     policy = get_active_policy()
+    with get_db_connection() as connection:
+        lock_connection_graph_users(connection, user_ids=[user_id])
+        existing = _active_referral_code(connection, user_id)
+        if existing and existing.normalized_slug != normalize_slug(expected_slug):
+            return _code_dict(existing)
+        connection.execute(
+            text("""
+                UPDATE one_referral_codes
+                   SET status = 'disabled', disabled_at = NOW()
+                 WHERE owner_user_id = :uid AND status = 'active'
+            """),
+            {"uid": user_id},
+        )
+        replacement = _allocate_referral_code(connection, user_id, policy)
+        connection.execute(
+            text("SELECT pg_notify('one_referral_changed', :payload)"),
+            {"payload": json.dumps({"referrer_user_id": user_id})},
+        )
+        return replacement
+
+
+def get_referral_summary(user_id: str, *, offset: int = 0, limit: int = 50) -> dict:
+    """Owner-scoped counts, invitation and paginated direct member progress."""
+    policy = get_active_policy()
     code = get_or_create_referral_code(user_id, policy)
-    required_minutes = policy.required_active_seconds // 60
+    required_minutes = 0
 
     with get_db_connection() as connection:
+        from hushh_mcp.services.one_referral_rewards_service import lifetime_joined_count
+
+        joined = lifetime_joined_count(connection, user_id)
+        opens = connection.execute(
+            text(
+                """
+                SELECT COUNT(*) AS link_open_count, MAX(first_seen_at) AS last_opened_at
+                  FROM one_referral_attributions
+                 WHERE referrer_user_id = :uid
+                   AND referral_code_id = CAST(:code_id AS UUID)
+                """
+            ),
+            {"uid": user_id, "code_id": code["id"]},
+        ).fetchone()
         all_statuses = connection.execute(
             text(
                 """
-                SELECT r.status
+                SELECT r.status, COUNT(*) AS total
                   FROM one_referral_relationships r
-                 WHERE r.referrer_user_id = :uid
+                 WHERE r.referrer_user_id = :uid GROUP BY r.status
                 """
             ),
             {"uid": user_id},
@@ -239,33 +257,38 @@ def get_referral_summary(user_id: str) -> dict:
         rows = connection.execute(
             text(
                 """
-                SELECT r.status,
+                SELECT r.id, r.status, COALESCE(NULLIF(BTRIM(i.display_name), ''), h.handle, 'Member') AS display_name,
                        r.created_at,
                        r.qualified_at,
                        COALESCE(e.credited_seconds, 0)  AS credited_seconds,
                        COALESCE(e.meaningful_events, 0) AS meaningful_events
                   FROM one_referral_relationships r
+                  LEFT JOIN actor_identity_cache i ON i.user_id = r.referred_user_id
+                  LEFT JOIN one_referral_display_handles h ON h.user_id = r.referred_user_id
                   LEFT JOIN LATERAL (
-                        SELECT SUM(s.credited_active_seconds) AS credited_seconds,
-                               SUM(s.meaningful_event_count)  AS meaningful_events
-                          FROM one_agent_engagement_sessions s
-                         WHERE s.user_id = r.referred_user_id
-                           AND s.started_at >= r.created_at
+                        SELECT 0 AS credited_seconds, COUNT(*) AS meaningful_events
+                          FROM one_referral_events s
+                         WHERE s.user_id = r.referred_user_id AND s.event_type='product_usage'
+                           AND s.server_timestamp >= r.created_at
                   ) e ON TRUE
                  WHERE r.referrer_user_id = :uid
-                 ORDER BY r.created_at DESC
-                 LIMIT 50
+                 ORDER BY r.created_at DESC, r.id DESC
+                 LIMIT :limit OFFSET :offset
                 """
             ),
-            {"uid": user_id},
+            {"uid": user_id, "limit": limit, "offset": offset},
         ).fetchall()
 
     # Counts must cover every referral relationship, not just the 50 shown in
     # the Recent list below — a referrer with 63 referrals still sees 63
     # counted, even though only 50 render as rows.
-    qualified = sum(1 for row in all_statuses if row.status == QUALIFIED)
-    in_progress = sum(1 for row in all_statuses if public_status(row.status) == "In progress")
-    under_review = sum(1 for row in all_statuses if public_status(row.status) == "Under review")
+    qualified = sum(row.total for row in all_statuses if row.status == QUALIFIED)
+    in_progress = sum(
+        row.total for row in all_statuses if public_status(row.status) == "In progress"
+    )
+    under_review = sum(
+        row.total for row in all_statuses if public_status(row.status) == "Under review"
+    )
 
     referrals = []
     for row in rows:
@@ -275,20 +298,33 @@ def get_referral_summary(user_id: str) -> dict:
         active_minutes = min(credited // 60, required_minutes)
         referrals.append(
             {
+                "id": str(row.id),
+                "display_name": row.display_name,
                 "status": public_status(row.status),
                 "step": FUNNEL_STEP_LABELS.get(row.status, "In progress"),
                 "started_on": (row.created_at or _now()).date().isoformat(),
                 "active_minutes": active_minutes,
                 "required_minutes": required_minutes,
                 "meaningful_events": int(row.meaningful_events or 0),
-                "required_events": policy.minimum_meaningful_events,
+                "required_events": 1,
             }
         )
 
     return {
         "slug": code["slug"],
         "link": f"{referral_base_url()}/r/{code['slug']}",
+        # These are accepted link openings, including QR navigation. They are
+        # not unique visitors; preview bots are excluded by the resolver.
+        "link_open_count": int(opens.link_open_count or 0) if opens else 0,
+        "last_opened_at": opens.last_opened_at.isoformat()
+        if opens and opens.last_opened_at
+        else None,
         "qualified_count": qualified,
+        "joined_count": joined,
+        "total_count": joined,
+        "next_offset": offset + limit
+        if offset + limit < sum(row.total for row in all_statuses)
+        else None,
         "in_progress_count": in_progress,
         "under_review_count": under_review,
         "required_active_minutes": required_minutes,
@@ -375,6 +411,7 @@ def resolve_slug_for_attribution(
                   FROM one_referral_codes
                  WHERE normalized_slug = :slug AND status = 'active'
                  LIMIT 1
+                 FOR SHARE
                 """
             ),
             {"slug": normalized},
@@ -419,13 +456,14 @@ def bind_attribution(attribution_id: str, user_id: str) -> dict:
     Nothing here says anything about who the referrer is.
     """
     with get_db_connection() as connection:
+        connection.execute(text("SELECT pg_advisory_xact_lock(332,1)"))
         attribution = connection.execute(
             text(
                 """
                 SELECT id, referrer_user_id, policy_version, status, expires_at
                   FROM one_referral_attributions
                  WHERE id = CAST(:aid AS UUID)
-                 LIMIT 1
+                 LIMIT 1 FOR UPDATE
                 """
             ),
             {"aid": attribution_id},
@@ -487,7 +525,7 @@ def bind_attribution(attribution_id: str, user_id: str) -> dict:
             ),
             {"uid": user_id, "aid": attribution_id},
         )
-        connection.execute(
+        inserted = connection.execute(
             text(
                 """
                 INSERT INTO one_referral_relationships
@@ -497,6 +535,7 @@ def bind_attribution(attribution_id: str, user_id: str) -> dict:
                   (CAST(:aid AS UUID), :referrer, :uid, :version,
                    'signed_up', NOW())
                 ON CONFLICT DO NOTHING
+                RETURNING id
                 """
             ),
             {
@@ -505,22 +544,23 @@ def bind_attribution(attribution_id: str, user_id: str) -> dict:
                 "uid": user_id,
                 "version": attribution.policy_version,
             },
-        )
+        ).fetchone()
+        if inserted is not None:
+            from hushh_mcp.services.one_referral_activity_service import record_referral_activity
 
+            record_referral_activity(
+                connection, user_id=attribution.referrer_user_id, relationship_id=str(inserted.id)
+            )
+
+    logger.info("referral.attribution_bound", extra={"policy_version": attribution.policy_version})
     return {"status": "bound"}
 
 
 # ---------------------------------------------------------------------------
-# Qualification: driven by onboarding completion, nothing else
+# Qualification: verified setup, phone and successful product usage
 # ---------------------------------------------------------------------------
-# The funnel a relationship walks through on its way to a decision. Each entry
-# past the current status is a legal single-step transition under the database
-# trigger, so advancing several steps at once means issuing one UPDATE per
-# step rather than jumping straight to the end. `engaging` stays a stop on
-# this path for exactly one reason: it is already a legal hop out of
-# `onboarded` and into `qualified`/`under_review`, so reusing it here needs no
-# schema or trigger change. Nothing about reaching it requires engagement any
-# more -- a relationship passes through it the instant onboarding completes.
+# Advance one legal state at a time so the database transition guard remains
+# authoritative. `engaging` is reached only after verified product usage.
 _FUNNEL_ORDER = (ATTRIBUTED, SIGNED_UP, PHONE_VERIFIED, ONBOARDED, ENGAGING)
 
 _STEP_SQL = {
@@ -569,24 +609,11 @@ _TARGET_SQL = {
 
 
 def sync_referral_qualification_from_onboarding(referred_user_id: str) -> dict:
-    """Advance this person's referral relationship after they finish onboarding.
+    """Compatibility entrypoint for setup, identity and product-usage hooks.
 
-    This is the only place a relationship moves past `signed_up`. It is called
-    from the same authenticated write that marks a user's own setup complete,
-    so it carries no attack surface beyond what that write already has: nobody
-    can qualify a referral by acting on someone else's account.
-
-    Reads two backend-persisted facts, never anything the caller asserts:
-
-      * ``vault_keys.setup_completed`` -- the One product's own record of
-        whether this person finished the required onboarding flow.
-      * ``actor_identity_cache.phone_verified`` -- set from a live Firebase
-        Admin lookup, not from a client-supplied flag.
-
-    Safe to call for someone who was never referred (a no-op), for a
-    relationship that already settled (a no-op), and to call twice for the
-    same onboarding-completed event (the second call finds nothing left to
-    change and writes nothing).
+    The same relationship lock protects status, the activity upgrade, the
+    canonical qualification event and the durable scoring job. Login/setup
+    alone never qualifies. Every prerequisite comes from persisted server state.
     """
     try:
         policy = get_active_policy()
@@ -597,7 +624,7 @@ def sync_referral_qualification_from_onboarding(referred_user_id: str) -> dict:
         relationship = connection.execute(
             text(
                 """
-                SELECT id, status, referrer_user_id
+                SELECT id, status, referrer_user_id, created_at, internal_reason_code, policy_version
                   FROM one_referral_relationships
                  WHERE referred_user_id = :uid
                  LIMIT 1
@@ -610,6 +637,13 @@ def sync_referral_qualification_from_onboarding(referred_user_id: str) -> dict:
             return {"status": "not_referred"}
         if relationship.status in TERMINAL_STATES or relationship.status == QUALIFIED:
             return {"status": "no_change", "relationship_status": relationship.status}
+        pinned = connection.execute(
+            text("SELECT * FROM one_referral_policies WHERE version=:version"),
+            {"version": relationship.policy_version},
+        ).fetchone()
+        if pinned is None:
+            raise ReferralServiceError("relationship qualification policy is unavailable")
+        policy = _row_to_policy(pinned)
 
         vault_row = connection.execute(
             text("SELECT setup_completed, setup_completed_at FROM vault_keys WHERE user_id = :uid"),
@@ -627,19 +661,49 @@ def sync_referral_qualification_from_onboarding(referred_user_id: str) -> dict:
             else None
         )
         phone_verified = bool(identity_row and identity_row.phone_verified)
+        usage = connection.execute(
+            text("""
+            SELECT server_timestamp FROM one_referral_events
+             WHERE user_id=:uid AND event_type='product_usage'
+               AND server_timestamp >= :joined
+               AND server_timestamp >= :onboarded AND server_timestamp < :deadline
+             ORDER BY server_timestamp LIMIT 1
+        """),
+            {
+                "uid": referred_user_id,
+                "joined": relationship.created_at,
+                "onboarded": onboarded_at or _now(),
+                "deadline": relationship.created_at
+                + timedelta(days=policy.qualification_window_days),
+            },
+        ).fetchone()
 
         decision = evaluate(
             QualificationInput(
                 status=relationship.status,
                 phone_verified=phone_verified,
                 onboarding_complete=onboarding_complete,
-                risk_level="low",
+                risk_level="high"
+                if relationship.internal_reason_code == "risk_high"
+                else "medium"
+                if relationship.internal_reason_code == "risk_medium"
+                else "low",
+                verified_product_usage=bool(usage),
             ),
             policy,
         )
         if not decision.changed:
+            # Setup advances only through its real steps; engagement is a later event.
+            if onboarding_complete and phone_verified and relationship.status in _FUNNEL_ORDER:
+                start = _FUNNEL_ORDER.index(relationship.status)
+                for step in _FUNNEL_ORDER[start + 1 : _FUNNEL_ORDER.index(ONBOARDED) + 1]:
+                    connection.execute(
+                        _STEP_SQL[step], {"ts": onboarded_at or _now(), "rid": relationship.id}
+                    )
             return {"status": "no_change", "relationship_status": relationship.status}
 
+        # Qualification occurs when every prerequisite is verified together.
+        # A replay of old usage cannot backdate a time-limited flash award.
         now = _now()
         if relationship.status in _FUNNEL_ORDER:
             start = _FUNNEL_ORDER.index(relationship.status)
@@ -649,6 +713,14 @@ def sync_referral_qualification_from_onboarding(referred_user_id: str) -> dict:
         connection.execute(_TARGET_SQL[decision.target_status], {"ts": now, "rid": relationship.id})
 
         if decision.target_status == QUALIFIED:
+            from hushh_mcp.services.one_referral_activity_service import record_referral_activity
+
+            record_referral_activity(
+                connection,
+                user_id=relationship.referrer_user_id,
+                relationship_id=str(relationship.id),
+                qualified=True,
+            )
             # Same transaction as the UPDATE above: the relationship
             # reaching `qualified`, the canonical qualification event, and
             # the durable scoring job either all commit together or none do.
@@ -658,4 +730,8 @@ def sync_referral_qualification_from_onboarding(referred_user_id: str) -> dict:
                 user_id=relationship.referrer_user_id,
             )
 
+    logger.info(
+        "referral.qualification_transition",
+        extra={"policy_version": policy.version, "status": decision.target_status},
+    )
     return {"status": "updated", "relationship_status": decision.target_status}

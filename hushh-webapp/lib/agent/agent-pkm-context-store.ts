@@ -8,7 +8,12 @@ import { shouldSkipPkmAgentContextKey } from "@/lib/pkm/pkm-memory-cards";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { PKM_QUARANTINE_SEGMENT_ID } from "@/lib/personal-knowledge-model/upgrade-registry";
 import { reservedEntryFor } from "@/lib/pkm/reserved-branches";
+import type { ReceiptCanonicalIndex } from "@/lib/profile/gmail-receipt-memory-index";
+import { receiptMemoryForChat } from "@/lib/mail/receipt-lightweight-memory";
 import { maskSecretSpans } from "@/lib/pkm/secret-span-guard";
+import { businessMemoryEntity } from "@/lib/pkm/business-memory-origin";
+import type { AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
+import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import {
   OWNER_STYLE_BRANCH,
   OWNER_STYLE_DOMAIN,
@@ -58,14 +63,30 @@ type PkmInventory = {
   safetyOmittedNodeCount: number;
 };
 
+type ProfileBusinessCandidate = PkmReconciliationCandidate & { originMetadata: Record<string, unknown> };
+
 type AgentPkmWorkingSet = {
   userId: string;
+  vaultEpoch: number;
   metadata: PersonalKnowledgeModelMetadata | null;
   inventory: PkmInventory;
+  /** Current business records only; UID bookkeeping never enters chat context. */
+  businesses: Map<string, ProfileBusinessCandidate[]>;
+  businessInventoryComplete: boolean;
   /** The owner's Settings style choices, sent apart from the packet. */
   ownerStyle: OwnerStyleSettings;
+  /** Retired typed-index API remains null for caller compatibility. */
+  receiptIndex: ReceiptCanonicalIndex | null;
   loadedAt: number;
   metadataUpdatedAt: string | null;
+};
+
+/** One preparation's memory-only witness, not write authority or a new cache. */
+export type ProfileReviewInventory = {
+  findLocalDuplicate: (candidate: string) => LocalPkmDuplicateMatch;
+  findReconciliationCandidates: (text: string) => PkmReconciliationCandidate[];
+  businessTarget: (card: AgentPkmPreviewCard, targetDomain: string) =>
+    { businessUid: string; metadata: Record<string, unknown> } | null;
 };
 
 export type AgentPkmWorkingContextMode = "full";
@@ -130,13 +151,26 @@ const DERIVED_SUMMARY_BUDGET_SHARE = 0.5;
 const DERIVED_SUMMARY_NOISE_KEYS = new Set(["computed_at", "source_item_ids"]);
 
 const workingSets = new Map<string, AgentPkmWorkingSet>();
-const workingSetLoads = new Map<string, Promise<AgentPkmWorkingSet | null>>();
+const workingSetLoads = new Map<string, {
+  promise: Promise<AgentPkmWorkingSet | null>;
+  forceRefresh: boolean;
+  vaultEpoch: number;
+}>();
 const workingSetGenerations = new Map<string, number>();
 let globalWorkingSetGeneration = 0;
 let pkmChangeListenerInstalled = false;
 
 function currentGeneration(userId: string): string {
-  return `${globalWorkingSetGeneration}:${workingSetGenerations.get(userId) ?? 0}`;
+  return `${globalWorkingSetGeneration}:${workingSetGenerations.get(userId) ?? 0}:${snapshotVaultSessionEpoch()}`;
+}
+
+function currentWorkingSet(userId: string): AgentPkmWorkingSet | undefined {
+  const cached = workingSets.get(userId);
+  if (cached && !isVaultSessionEpochCurrent(cached.vaultEpoch)) {
+    workingSets.delete(userId);
+    return undefined;
+  }
+  return cached;
 }
 
 // Why the last void happened, per owner. Only a domain write may be retried;
@@ -344,7 +378,7 @@ function buildPkmInventory(fullBlob: Record<string, unknown>): PkmInventory {
         continue;
       }
       if (derivedSummary && path.length > 1 && DERIVED_SUMMARY_NOISE_KEYS.has(key)) continue;
-      visit(domain, child, [...path, key]);
+      visit(domain, domain === "shopping" && path.length === 0 && key === "receipts_memory" ? receiptMemoryForChat(child) : child, [...path, key]);
     }
   };
 
@@ -364,6 +398,37 @@ function snapshotsToBlob(
   return Object.fromEntries(
     Object.entries(snapshots).map(([domain, snapshot]) => [domain, snapshot.data]),
   );
+}
+
+function businessInventory(blob: Record<string, unknown>): Map<string, ProfileBusinessCandidate[]> {
+  const result = new Map<string, ProfileBusinessCandidate[]>();
+  for (const [domain, data] of Object.entries(blob)) {
+    if (isLabelOnly(domain) || shouldSkipPkmAgentContextKey(domain) || !isPlainRecord(data)) continue;
+    const visited = new WeakSet<object>();
+    const visit = (value: unknown, path: string[]) => {
+      if (!isPlainRecord(value) || visited.has(value) || path.length > 32 || value.status === "deleted" || value.active === false) return;
+      visited.add(value);
+      const origin = value._business_origin;
+      const uid = isPlainRecord(origin) && typeof origin.business_uid === "string" ? origin.business_uid : "";
+      if (uid && path.at(-2) === "entities") {
+        const fields = Object.fromEntries(Object.entries(value).filter(([key, child]) =>
+          !shouldSkipPkmAgentContextKey(key) && typeof child === "string" && child.trim(),
+        ).map(([key, child]) => [key, maskSecretSpans(child as string)]));
+        const message = JSON.stringify(fields);
+        const existing = result.get(uid) || [];
+        existing.push({ domain, entity_id: path.at(-1)!, entity_scope: path.slice(0, -2).join("."),
+          message: message.length <= 4000 ? message : "{}", active: true,
+          originMetadata: structuredClone(origin as Record<string, unknown>) });
+        result.set(uid, existing);
+      }
+      for (const [key, child] of Object.entries(value)) {
+        if (shouldSkipPkmAgentContextKey(key) || ["__proto__", "prototype", "constructor"].includes(key)) continue;
+        visit(child, [...path, key]);
+      }
+    };
+    visit(data, []);
+  }
+  return result;
 }
 
 function formatFactPath(fact: PkmInventoryFact): string {
@@ -557,9 +622,19 @@ export class AgentPkmContextStore {
     invalidateWorkingSet(userId, "invalidated");
   }
 
+  /**
+   * The saved receipt index from the unlocked, memory-only working set, or
+   * null. Never decrypts or fetches: a turn that has no loaded working set
+   * simply carries no index, and a receipts question then answers "not ready".
+   */
+  static peekReceiptIndex(userId: string): ReceiptCanonicalIndex | null {
+    ensurePkmChangeListener();
+    return currentWorkingSet(userId)?.receiptIndex ?? null;
+  }
+
   static peek(params: { userId: string; message?: string; maxChars?: number }): AgentPkmWorkingContext | null {
     ensurePkmChangeListener();
-    const cached = workingSets.get(params.userId);
+    const cached = currentWorkingSet(params.userId);
     if (!cached) return null;
     return buildContextText({
       workingSet: cached,
@@ -574,9 +649,13 @@ export class AgentPkmContextStore {
    * full domain back into a proposal request.
    */
   static findLocalDuplicate(params: { userId: string; candidate: string }): LocalPkmDuplicateMatch {
-    const candidate = normalizedMemoryValue(params.candidate);
+    return this.findLocalDuplicateIn(currentWorkingSet(params.userId), params.candidate);
+  }
+
+  private static findLocalDuplicateIn(workingSet: AgentPkmWorkingSet | undefined, text: string): LocalPkmDuplicateMatch {
+    const candidate = normalizedMemoryValue(text);
     if (!candidate) return null;
-    const inventory = workingSets.get(params.userId)?.inventory;
+    const inventory = workingSet?.inventory;
     if (!inventory) return null;
     const exact = inventory.facts.find((fact) => normalizedMemoryValue(fact.value) === candidate);
     if (exact) return { kind: "exact", domain: exact.domain, path: [...exact.path] };
@@ -604,9 +683,15 @@ export class AgentPkmContextStore {
     text: string;
     limit?: number;
   }): PkmReconciliationCandidate[] {
-    const inventory = workingSets.get(params.userId)?.inventory;
+    return this.findReconciliationCandidatesIn(currentWorkingSet(params.userId), params.text, params.limit);
+  }
+
+  private static findReconciliationCandidatesIn(
+    workingSet: AgentPkmWorkingSet | undefined, text: string, limit = 10,
+  ): PkmReconciliationCandidate[] {
+    const inventory = workingSet?.inventory;
     if (!inventory) return [];
-    const wanted = tokenize(params.text);
+    const wanted = tokenize(text);
     if (!wanted.size) return [];
     const best = new Map<string, PkmReconciliationCandidate & { score: number }>();
     for (const fact of inventory.facts) {
@@ -648,8 +733,96 @@ export class AgentPkmContextStore {
     }
     return [...best.values()]
       .sort((left, right) => right.score - left.score)
-      .slice(0, Math.max(0, params.limit ?? 10))
+      .slice(0, Math.max(0, limit))
       .map(({ score: _score, ...candidate }) => candidate);
+  }
+
+  static findBusinessReconciliationCandidates(params: { userId: string; businessUid: string }): PkmReconciliationCandidate[] {
+    const workingSet = currentWorkingSet(params.userId);
+    if (!workingSet || !workingSet.businessInventoryComplete)
+      throw new Error("Existing business details could not be checked. Try again.");
+    const candidates = workingSet.businesses.get(params.businessUid) || [];
+    if (candidates.length > 1) throw new Error("This business has conflicting saved records. Review your saved details first.");
+    return candidates.map(({ originMetadata: _origin, ...candidate }) => ({ ...candidate }));
+  }
+
+  /** Semantic merge context, excluding immutable identity bookkeeping. */
+  static findProfileReconciliationCandidates(params: { userId: string; text: string }): PkmReconciliationCandidate[] {
+    return this.findProfileReconciliationCandidatesIn(currentWorkingSet(params.userId), params.text);
+  }
+
+  private static findProfileReconciliationCandidatesIn(
+    workingSet: AgentPkmWorkingSet | undefined, text: string,
+  ): PkmReconciliationCandidate[] {
+    if (!workingSet?.businessInventoryComplete)
+      throw new Error("Existing details could not be checked. Try again.");
+    const businesses = [...workingSet.businesses.values()].flatMap(candidates =>
+      candidates.map(({ originMetadata: _origin, ...candidate }) => candidate));
+    const personal = this.findReconciliationCandidatesIn(workingSet, text);
+    const wanted = tokenize(text);
+    const ranked = new Map<string, { candidate: PkmReconciliationCandidate; score: number }>();
+    for (const candidate of [...personal, ...businesses]) {
+      const tokens = tokenize(candidate.message);
+      const score = [...wanted].filter(token => tokens.has(token)).length;
+      if (!score) continue;
+      const key = `${candidate.domain}|${candidate.entity_scope}|${candidate.entity_id}`;
+      if ((ranked.get(key)?.score ?? -1) < score) ranked.set(key, { candidate, score });
+    }
+    // Relevance retrieves bounded context; the model still owns merge meaning.
+    // Unrelated businesses must not crowd out existing personal details.
+    return [...ranked.values()].sort((left, right) => right.score - left.score).slice(0, 10).map(row => row.candidate);
+  }
+
+  /** A research model can extend a known business; it cannot mint its provenance. */
+  static profileBusinessTarget(userId: string, card: AgentPkmPreviewCard, targetDomain: string) {
+    return this.profileBusinessTargetIn(currentWorkingSet(userId), card, targetDomain);
+  }
+
+  private static profileBusinessTargetIn(
+    workingSet: AgentPkmWorkingSet | undefined, card: AgentPkmPreviewCard, targetDomain: string,
+  ) {
+    if (!workingSet?.businessInventoryComplete) throw new Error("Existing businesses need a fresh review.");
+    let target = String(card.merge_decision?.target_entity_path || "");
+    if (!target) {
+      try { target = businessMemoryEntity(card).path.join("."); } catch { return null; }
+    }
+    const matches = [...workingSet.businesses.entries()].flatMap(([businessUid, candidates]) =>
+      candidates.filter(candidate => candidate.domain === targetDomain &&
+        `${candidate.entity_scope}.entities.${candidate.entity_id}` === target).map(candidate => ({ businessUid, candidate })));
+    if (!matches.length) return null;
+    if (matches.length !== 1 || workingSet.businesses.get(matches[0]!.businessUid)?.length !== 1 ||
+      !["extend_entity", "correct_entity"].includes(String(card.merge_decision?.merge_mode || "")))
+      throw new Error("The proposed update would replace or combine existing businesses. Review your saved details first.");
+    return { businessUid: matches[0]!.businessUid, metadata: structuredClone(matches[0]!.candidate.originMetadata) };
+  }
+
+  /** Pin the inventory used by the model before any awaited preparation.
+   * Domain changes may invalidate the shared cache, but must not rebind a
+   * reviewed business to a different UID. The canonical writer still checks
+   * the fresh target on every conflict rebuild. Never survives vault expiry.
+   */
+  static captureProfileReviewInventory(userId: string): ProfileReviewInventory {
+    const workingSet = currentWorkingSet(userId);
+    if (!workingSet?.businessInventoryComplete)
+      throw new Error("Existing details could not be checked. Try again.");
+    const assertCurrent = () => {
+      if (!isVaultSessionEpochCurrent(workingSet.vaultEpoch))
+        throw new Error("Unlock your vault to review these details again.");
+    };
+    return {
+      findLocalDuplicate: candidate => {
+        assertCurrent();
+        return this.findLocalDuplicateIn(workingSet, candidate);
+      },
+      findReconciliationCandidates: text => {
+        assertCurrent();
+        return this.findProfileReconciliationCandidatesIn(workingSet, text);
+      },
+      businessTarget: (card, targetDomain) => {
+        assertCurrent();
+        return this.profileBusinessTargetIn(workingSet, card, targetDomain);
+      },
+    };
   }
 
   static async load(params: {
@@ -661,7 +834,8 @@ export class AgentPkmContextStore {
     maxChars?: number;
   }): Promise<AgentPkmWorkingContext | null> {
     ensurePkmChangeListener();
-    const cached = workingSets.get(params.userId);
+    const vaultEpoch = snapshotVaultSessionEpoch();
+    const cached = currentWorkingSet(params.userId);
     const cacheFresh = Boolean(cached && Date.now() - cached.loadedAt < SESSION_TTL_MS);
     if (!params.forceRefresh && cached && cacheFresh) {
       return buildContextText({
@@ -671,8 +845,24 @@ export class AgentPkmContextStore {
     }
 
     const existingLoad = workingSetLoads.get(params.userId);
-    if (existingLoad) {
-      const sharedWorkingSet = await existingLoad;
+    if (existingLoad && existingLoad.vaultEpoch === vaultEpoch) {
+      const generation = currentGeneration(params.userId);
+      let sharedWorkingSet: AgentPkmWorkingSet | null;
+      try {
+        sharedWorkingSet = await existingLoad.promise;
+      } catch (error) {
+        // A failed optional warm-up must not consume an explicit Review's
+        // attempt. Authority changes below still prevent a new read.
+        if (!params.forceRefresh || existingLoad.forceRefresh) throw error;
+        sharedWorkingSet = null;
+      }
+      if (generation !== currentGeneration(params.userId)) return null;
+      if (params.forceRefresh && !existingLoad.forceRefresh) {
+        // Join the warm-up, then revalidate; its device/stale inventory is not
+        // sufficient evidence for an explicit business duplicate check.
+        if (workingSetLoads.get(params.userId) === existingLoad) workingSetLoads.delete(params.userId);
+        return this.load(params);
+      }
       if (!sharedWorkingSet) return null;
       return buildContextText({
         workingSet: sharedWorkingSet,
@@ -682,11 +872,9 @@ export class AgentPkmContextStore {
 
     const loadOnce = async (): Promise<AgentPkmWorkingSet | null> => {
       const generation = currentGeneration(params.userId);
-      const metadata = await PersonalKnowledgeModelService.getMetadata(
-        params.userId,
-        params.forceRefresh === true,
-        params.vaultOwnerToken
-      );
+      const metadata = params.forceRefresh
+        ? await PersonalKnowledgeModelService.getMetadata(params.userId, true, params.vaultOwnerToken, { allowStaleFallback: false })
+        : await PersonalKnowledgeModelService.getMetadata(params.userId, false, params.vaultOwnerToken);
       if (generation !== currentGeneration(params.userId)) return null;
 
       const metadataUpdatedAt = metadata.lastUpdated || null;
@@ -696,13 +884,17 @@ export class AgentPkmContextStore {
 
       const domains = metadata.domains
         .map((domain) => domain.key)
+        // One chat reads this domain through markdown-memory.ts. Walking the
+        // document as ordinary JSON would duplicate it and could recursively
+        // seed a malformed compatibility view.
+        .filter((domain) => domain !== "one_memory")
         // A label-only domain (Secrets) is read here only to name its items;
         // its values never leave buildPkmInventory.
         .filter((domain) => !shouldSkipPkmAgentContextKey(domain) || isLabelOnly(domain));
       // Resolve every permitted domain before publishing the working set. The
       // batch resource still uses encrypted device snapshots when available,
       // but it must not publish a partial packet while other domains refresh.
-      const { snapshots } = await PkmDomainResourceService.getManyStaleFirst({
+      const { snapshots, failedDomains } = await PkmDomainResourceService.getManyStaleFirst({
         userId: params.userId,
         domains,
         vaultKey: params.vaultKey,
@@ -715,11 +907,15 @@ export class AgentPkmContextStore {
       const identity = blob[OWNER_STYLE_DOMAIN];
       return {
         userId: params.userId,
+        vaultEpoch,
         metadata,
         inventory: buildPkmInventory(blob),
+        businesses: businessInventory(blob),
+        businessInventoryComplete: !failedDomains?.length && domains.every(domain => Boolean(snapshots[domain])),
         ownerStyle: ownerStyleFromBranch(
           identity && typeof identity === "object" ? (identity as Record<string, unknown>)[OWNER_STYLE_BRANCH] : null,
         ),
+        receiptIndex: null,
         loadedAt: Date.now(),
         metadataUpdatedAt,
       };
@@ -733,19 +929,21 @@ export class AgentPkmContextStore {
       const first = await loadOnce();
       if (first) return first;
       const retryable =
+        isVaultSessionEpochCurrent(vaultEpoch) &&
         globalWorkingSetGeneration === startGlobalGeneration &&
         lastVoidReasons.get(params.userId) === "domain_changed";
       return retryable ? loadOnce() : null;
     })();
-    workingSetLoads.set(params.userId, load);
+    const loadRecord = { promise: load, forceRefresh: params.forceRefresh === true, vaultEpoch };
+    workingSetLoads.set(params.userId, loadRecord);
 
     let workingSet: AgentPkmWorkingSet | null;
     try {
       workingSet = await load;
     } finally {
-      if (workingSetLoads.get(params.userId) === load) workingSetLoads.delete(params.userId);
+      if (workingSetLoads.get(params.userId) === loadRecord) workingSetLoads.delete(params.userId);
     }
-    if (!workingSet) return null;
+    if (!workingSet || !isVaultSessionEpochCurrent(vaultEpoch)) return null;
     workingSets.set(params.userId, workingSet);
     return buildContextText({
       workingSet,

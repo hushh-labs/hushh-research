@@ -4,9 +4,11 @@ Google's Drive MCP server refused every tool call for this project ("The caller
 does not have permission", 2026-09-24), so no live grant on UAT ever verified.
 """
 
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 
 from hushh_mcp.services import google_drive_adapter as adapter_module
@@ -39,6 +41,84 @@ def transport(*, current=None, adapter=None, monkeypatch=None, enabled=True):
         lifecycle=SimpleNamespace(read=AsyncMock(return_value=current or row())),
     )
     return rest.GoogleDriveRestTransport(oauth=oauth, adapter=adapter or SimpleNamespace())
+
+
+async def test_real_rest_page_keeps_version_and_bounded_provider_relationship_facts(monkeypatch):
+    source = {
+        "id": FILE_ID,
+        "name": "A generic title",
+        "mimeType": "application/vnd.google-apps.document",
+        "version": "741",
+        "capabilities": {"canShare": True},
+        "owners": [
+            {
+                "displayName": "Synthetic Owner",
+                "emailAddress": "owner@example.invalid",
+                "photoLink": "discard",
+            }
+        ],
+        "sharingUser": {
+            "displayName": "Synthetic Sharer",
+            "emailAddress": "sharer@example.invalid",
+            "permissionId": "discard",
+        },
+        "description": "private source text must not be projected",
+    }
+    adapter = SimpleNamespace(list_files=AsyncMock(return_value={"files": [source]}))
+    drive = transport(adapter=adapter, monkeypatch=monkeypatch)
+    result = await drive.read_owner_search_page(
+        user_id="owner", tool_name="search_files", arguments={"query": "fullText contains 'topic'"}
+    )
+    observed = result.payload["files"][0]
+    assert observed["version"] == "741"
+    assert observed["owners"] == [
+        {"displayName": "Synthetic Owner", "emailAddress": "owner@example.invalid"}
+    ]
+    assert observed["sharingUser"] == {
+        "displayName": "Synthetic Sharer",
+        "emailAddress": "sharer@example.invalid",
+    }
+    assert observed["capabilities"] == {"canShare": True}
+    assert "description" not in observed
+    assert "photoLink" not in observed["owners"][0]
+    assert "permissionId" not in observed["sharingUser"]
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        {"version": True},
+        {"version": ""},
+        {"version": "7\n41"},
+        {"version": "1" * 33},
+        {"owners": {}},
+        {"owners": [{}] * 21},
+        {"owners": ["person"]},
+        {"owners": [{"displayName": "x" * 257}]},
+        {"sharingUser": {"emailAddress": "email\nheader"}},
+        {"sharingUser": {"emailAddress": "x" * 255}},
+    ],
+)
+def test_provider_relationship_projection_rejects_unbounded_or_malformed_facts(evidence):
+    source = {"id": FILE_ID, "name": "Plan.pdf", "mimeType": "application/pdf", **evidence}
+    with pytest.raises(DriveReadError, match="provider_response_invalid"):
+        rest._project_page({"files": [source]}, [source])
+
+
+def test_provider_relationship_projection_ignores_blank_optional_identity_fields():
+    # Drive can return sharingUser.displayName as an empty string on a valid
+    # files.list page. One such row must not fail the whole owner's search.
+    source = {
+        "id": FILE_ID,
+        "name": "Plan.pdf",
+        "mimeType": "application/pdf",
+        "version": "42",
+        "owners": [{"displayName": "", "emailAddress": "owner@example.invalid"}],
+        "sharingUser": {"displayName": ""},
+    }
+    projected = rest._project_page({"files": [source]}, [source])["files"][0]
+    assert projected["owners"] == [{"emailAddress": "owner@example.invalid"}]
+    assert "sharingUser" not in projected
 
 
 def test_the_mcp_query_dialect_becomes_drive_rest_q():
@@ -98,7 +178,7 @@ async def test_search_maps_rest_files_to_the_mcp_file_shape(monkeypatch):
     )
 
 
-async def test_owner_scanner_keeps_all_100_rest_rows_without_widening_agent_read(monkeypatch):
+async def test_owner_scanner_keeps_rest_rows_without_widening_agent_read(monkeypatch):
     listing = AsyncMock(
         return_value={
             "files": [
@@ -120,6 +200,16 @@ async def test_owner_scanner_keeps_all_100_rest_rows_without_widening_agent_read
     assert result.payload["nextPageToken"] == "next-100"
     assert result.payload["overLimit"] is False
     assert listing.await_args.kwargs["page_size"] == 100
+    large = await drive.read_owner_search_page(
+        user_id="owner",
+        tool_name="search_files",
+        arguments={"query": "title contains 'file'", "pageSize": 1000},
+    )
+    # Google may return fewer rows than requested, leaving a continuation.
+    assert len(large.payload["files"]) == 100
+    assert large.payload["nextPageToken"] == "next-100"
+    assert listing.await_args.kwargs["page_size"] == 1000
+    assert listing.await_args.kwargs["owner_search_page"] is True
     with pytest.raises(DriveOAuthError, match="invalid_argument"):
         await drive.read_tool(
             user_id="owner",
@@ -130,8 +220,51 @@ async def test_owner_scanner_keeps_all_100_rest_rows_without_widening_agent_read
         await drive.read_owner_search_page(
             user_id="owner",
             tool_name="search_files",
-            arguments={"query": "title contains 'file'", "pageSize": 101},
+            arguments={"query": "title contains 'file'", "pageSize": 1001},
         )
+
+
+async def test_owner_search_continuation_reaches_real_rest_adapter_at_page_size_1000(monkeypatch):
+    original = httpx.AsyncClient
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        if request.url.params.get("pageToken") == "next-25":
+            files = [
+                _file(f"file-{index}", modified="2026-09-20T10:00:00Z") for index in range(25, 50)
+            ]
+            return httpx.Response(
+                200, stream=httpx.ByteStream(json.dumps({"files": files}).encode())
+            )
+        files = [_file(f"file-{index}", modified="2026-09-20T10:00:00Z") for index in range(25)]
+        return httpx.Response(
+            200,
+            stream=httpx.ByteStream(
+                json.dumps({"files": files, "nextPageToken": "next-25"}).encode()
+            ),
+        )
+
+    monkeypatch.setattr(
+        adapter_module.httpx,
+        "AsyncClient",
+        lambda **kw: original(**kw, transport=httpx.MockTransport(handler)),
+    )
+    drive = transport(adapter=adapter_module.GoogleDriveAdapter(), monkeypatch=monkeypatch)
+    first = await drive.read_owner_search_page(
+        user_id="owner",
+        tool_name="search_files",
+        arguments={"query": "title contains 'file'", "pageSize": 25},
+    )
+    second = await drive.read_owner_search_page(
+        user_id="owner",
+        tool_name="search_files",
+        arguments={"query": "title contains 'file'", "pageSize": 1000, "pageToken": "next-25"},
+    )
+    assert len(first.payload["files"]) == len(second.payload["files"]) == 25
+    assert first.payload["nextPageToken"] == "next-25"
+    assert [request.url.params["pageSize"] for request in requests] == ["25", "1000"]
+    assert requests[1].url.params["pageToken"] == "next-25"
 
 
 def _file(file_id, *, modified, created="2026-09-01T00:00:00Z"):
@@ -292,7 +425,9 @@ async def test_compilation_can_tell_when_drive_extraction_was_truncated(monkeypa
         read_live_bytes=AsyncMock(return_value=("text/plain", b"many pages")),
     )
     monkeypatch.setattr(
-        rest, "parse_document", lambda *_: SimpleNamespace(pages=("first pages",), truncated=True)
+        rest.IsolatedDocumentParser,
+        "parse",
+        AsyncMock(return_value=SimpleNamespace(pages=("first pages",), truncated=True)),
     )
     drive = transport(adapter=adapter, monkeypatch=monkeypatch)
     result = await drive.read_tool(
@@ -345,10 +480,9 @@ async def test_parse_errors_return_an_allowlisted_reason(monkeypatch, code, payl
         read_live_bytes=AsyncMock(return_value=("application/pdf", b"%PDF-1.7")),
     )
 
-    def refuse(content, mime_type):
-        raise rest.ParseError(code)
-
-    monkeypatch.setattr(rest, "parse_document", refuse)
+    monkeypatch.setattr(
+        rest.IsolatedDocumentParser, "parse", AsyncMock(side_effect=DriveReadError(code))
+    )
     drive = transport(adapter=adapter, monkeypatch=monkeypatch)
     result = await drive.read_tool(
         user_id="owner", tool_name="read_file_content", arguments={"fileId": FILE_ID}
@@ -410,6 +544,30 @@ async def test_a_connection_change_during_the_read_releases_nothing(monkeypatch)
     )
     with pytest.raises(DriveOAuthError, match="connection_changed"):
         await drive.read_tool(user_id="owner", tool_name="search_files", arguments={"query": "x"})
+
+
+async def test_pooled_search_checks_credentials_and_revocation_on_every_page(monkeypatch):
+    listing = AsyncMock(return_value={"files": []})
+    drive = transport(adapter=SimpleNamespace(list_files=listing), monkeypatch=monkeypatch)
+    drive._oauth.current_credential.side_effect = [
+        (row(), {"accessToken": "synthetic-first"}),
+        (row(), {"accessToken": "synthetic-refreshed"}),
+        DriveOAuthError("reconnect_required", status_code=401),
+    ]
+    async with drive.owner_search_session():
+        for _ in range(2):
+            await drive.read_owner_search_page(
+                user_id="owner", tool_name="search_files", arguments={"query": "x"}
+            )
+        with pytest.raises(DriveOAuthError, match="reconnect_required"):
+            await drive.read_owner_search_page(
+                user_id="owner", tool_name="search_files", arguments={"query": "x"}
+            )
+    assert [call.kwargs["access_token"] for call in listing.await_args_list] == [
+        "synthetic-first",
+        "synthetic-refreshed",
+    ]
+    assert drive._oauth.lifecycle.read.await_count == 2
 
 
 async def test_the_connect_probe_is_one_bounded_rest_search():
@@ -799,3 +957,102 @@ async def test_bad_page_cannot_be_reported_as_complete_empty_results(monkeypatch
             user_id="owner", tool_name="search_files", arguments={"query": "name = 'Plan'"}
         )
     assert str(raised.value) in {"provider_response_invalid", "Invalid Drive listing."}
+
+
+async def test_owner_index_changes_are_owner_search_only_and_keep_the_row_shape(monkeypatch):
+    view = f"https://drive.google.com/file/d/{FILE_ID}/view"
+    changes = AsyncMock(
+        return_value={
+            "changes": [
+                {
+                    "changeType": "file",
+                    "fileId": FILE_ID,
+                    "removed": False,
+                    "file": {
+                        "id": FILE_ID,
+                        "name": "March statement.pdf",
+                        "mimeType": "application/pdf",
+                        "modifiedTime": "2026-09-20T10:00:00Z",
+                        "createdTime": "2026-09-19T10:00:00Z",
+                        "webViewLink": view,
+                        "trashed": True,
+                        "capabilities": {"canShare": True},
+                    },
+                },
+                {"changeType": "file", "fileId": "removed-file", "removed": True},
+                {"changeType": "drive", "removed": False},
+            ],
+            "newStartPageToken": "next-start",
+        }
+    )
+    start = AsyncMock(return_value="start-cursor")
+    drive = transport(
+        adapter=SimpleNamespace(index_changes=changes, collection_start_token=start),
+        monkeypatch=monkeypatch,
+    )
+    cursor = await drive.read_owner_search_page(
+        user_id="owner", tool_name="changes_start_token", arguments={}
+    )
+    assert cursor.payload == {"startPageToken": "start-cursor"}
+    page = await drive.read_owner_search_page(
+        user_id="owner", tool_name="list_changes", arguments={"pageToken": "start-cursor"}
+    )
+    # The changed file has exactly the owner-search row shape.
+    assert page.payload == {
+        "changes": [
+            {
+                "changeType": "file",
+                "fileId": FILE_ID,
+                "removed": False,
+                "trashed": True,
+                "file": {
+                    "id": FILE_ID,
+                    "title": "March statement.pdf",
+                    "mimeType": "application/pdf",
+                    "modifiedTime": "2026-09-20T10:00:00Z",
+                    "createdTime": "2026-09-19T10:00:00Z",
+                    "viewUrl": view,
+                    "capabilities": {"canShare": True},
+                },
+            },
+            {"changeType": "file", "fileId": "removed-file", "removed": True, "trashed": False},
+            {"changeType": "drive", "removed": False, "trashed": False},
+        ],
+        "nextPageToken": None,
+        "newStartPageToken": "next-start",
+    }
+    changes.assert_awaited_once_with(
+        access_token=GRANT, page_token=cursor.payload["startPageToken"], page_size=200
+    )
+    # Agent-facing reads cannot reach the change feed at all.
+    for tool in ("list_changes", "changes_start_token"):
+        with pytest.raises(DriveOAuthError, match="connector_unavailable"):
+            await drive.read_tool(user_id="owner", tool_name=tool, arguments={})
+    for arguments in (
+        {},
+        {"pageToken": "c", "pageSize": 1000},
+        {"pageToken": "c", "fields": "*"},
+        {"pageToken": ""},
+    ):
+        with pytest.raises(DriveOAuthError, match="invalid_argument"):
+            await drive.read_owner_search_page(
+                user_id="owner", tool_name="list_changes", arguments=arguments
+            )
+    with pytest.raises(DriveOAuthError, match="invalid_argument"):
+        await drive.read_owner_search_page(
+            user_id="owner", tool_name="changes_start_token", arguments={"pageToken": "c"}
+        )
+    assert changes.await_count == 1
+    for bad in (
+        {"changes": [], "nextPageToken": "a", "newStartPageToken": "b"},
+        {"changes": []},
+        {
+            "changes": [{"changeType": "file", "fileId": "x", "file": {"id": "other"}}],
+            "newStartPageToken": "b",
+        },
+    ):
+        changes.return_value = bad
+        with pytest.raises(DriveReadError, match="provider_response_invalid"):
+            await drive.read_owner_search_page(
+                user_id="owner", tool_name="list_changes", arguments={"pageToken": "start-cursor"}
+            )

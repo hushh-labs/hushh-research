@@ -53,28 +53,18 @@ export const CONNECT_WRAPPING_TITLE_ROW_CLASSNAME =
   "flex min-w-0 flex-col items-start gap-y-0.5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-1.5";
 
 /**
- * The roster is bounded on every viewport, phones included.
+ * My connections is part of the page, not a scroller of its own.
  *
- * It was previously capped only from `sm` up, because an earlier phone cap (at
- * 232px) let touch gestures get trapped in the inner scroller and let the fixed
- * bottom chrome sit over whichever row owned the gesture. Leaving phones
- * uncapped fixed those two problems by making the roster arbitrarily long
- * instead, which is its own bug: a few hundred connections push the directory
- * section below them out of reach.
- *
- * `overscroll-contain` is what makes the bound safe this time. It stops a
- * scroll that reaches the roster's end from chaining into the page behind it,
- * which is the gesture trap the original comment described; the finance
- * holdings roster already relies on the same mitigation on phones. The cap is
- * expressed against `dvh` so it shrinks with the visible viewport rather than
- * measuring a phone as though its browser chrome were not there, which keeps
- * the bottom of the list clear of the fixed bottom bars.
- *
- * The `min(42dvh, 18rem)` shape matches the RIA option lists, so the two read
- * as the same control.
+ * The roster used to be capped (`max-h-[min(60dvh,28rem)] overflow-y-auto`)
+ * with `overscroll-contain`. On a phone that made a finger resting on the list
+ * scroll the list, and once the list reached an end `overscroll-contain`
+ * refused to hand the gesture to the page, so People and everything under it
+ * could not be reached from there (founder, 2026-10-18: "parent scrolling is
+ * not working"). Connections load a page at a time ("Load more connections"),
+ * and the rows are compact, so the list flows in the app scroll root like the
+ * rest of the page. Held by __tests__/app/connect/page-client.test.tsx and
+ * e2e/connect-page-grid.layout.spec.ts.
  */
-export const CONNECT_CONNECTION_LIST_CLASSNAME =
-  "max-h-[min(42dvh,18rem)] overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]";
 
 /**
  * Connect's section headings stand on the page's content column.
@@ -95,14 +85,3 @@ export const CONNECT_SECTION_HEADING_CLASSNAME = "mb-2 px-0";
  * with no border, fill or padding box of its own, like "People". */
 export const CONNECT_SECTION_TITLE_CONTROL_CLASSNAME =
   "group inline-flex min-h-11 max-w-full items-center gap-2 rounded-full border-0 bg-transparent px-0 text-left text-[color:var(--app-label)] shadow-none hover:bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]";
-
-/**
- * A row's trailing action ends as far in from the row's right edge as its
- * avatar starts from the left (16px), so every row is symmetric.
- *
- * The shared row keeps its trailing slot 2px (4px from `sm`) further in than
- * its leading edge; on Connect, whose trailing actions are filled controls,
- * that read as a lopsided row. The compensation lives here, not in the
- * shared primitive, because every other surface's rows depend on it.
- */
-export const CONNECT_ROW_TRAILING_CLASSNAME = "-mr-0.5 sm:-mr-1";

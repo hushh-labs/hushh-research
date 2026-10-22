@@ -1,0 +1,22 @@
+{
+  "name": "hushh-mail-api",
+  "version": "1.1.0",
+  "description": "Standalone Hushh mail service — Google Workspace Gmail SMTP, API-key auth, template registry",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "test": "node --test test/mail-api.test.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.22.1",
+    "nodemailer": "^6.9.16"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "author": "Hushh Technologies",
+  "license": "MIT"
+}

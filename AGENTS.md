@@ -58,7 +58,8 @@ Verification:
 5. Write core tests only. A new test must protect a real contract: a regression that actually happened, a security, consent, vault or trust boundary, or a public API or schema shape. Guard a security boundary with one focused test plus a negative control that fails on the broken code. Do not add tests that restate the implementation, snapshot markup, cover trivial wiring, or duplicate an existing test.
 6. Extend the nearest existing test file before creating a new one, and delete or merge a redundant test rather than keeping both.
 7. Before a push, run the local core mirror `scripts/ci/orchestrate.sh core` (secret, governance, protocol and web-core in parallel, then mcp-package and integration). GitHub Actions is the authority for the browser layout packs and the full web suite; do not rerun every CI stage locally before each push.
-8. Never loosen, skip or weaken a real gate to go faster; make the check cheaper instead.
+8. Push once per finished, locally verified change, not once per edit. Each push to a PR cancels its running `PR Validation` and starts about 19 jobs on the hosted-runner pool that every team in the organization shares (20 jobs, 5 of them macOS). On 2026-10-14, 47% of PR runs were cancelled by a newer push (64% on agent branches), burning roughly 3,000-4,000 runner-minutes that day. Never push, or dispatch `PR Validation`, on a timer or in a loop to watch CI; re-run a failed job from its run page instead.
+9. Never loosen, skip or weaken a real gate to go faster; make the check cheaper instead.
 
 Communication:
 
@@ -72,6 +73,12 @@ Calibration standards: Margaret Hamilton for correctness under pressure, Grace H
 Durable persona rationale lives in `docs/reference/operations/hussh-code-persona.md`; keep this root file as the active operating contract and avoid duplicating the full kernel into every skill or agent prompt.
 
 Repository rules, skills, workflow packs, tests, generated contracts, and runtime evidence override this kernel when they are more specific.
+
+## Back navigation contracts
+
+Back uses one hierarchy across shell, iOS edge gesture and Android system Back: top overlay, route-scoped feature layer, then authored route parent. Register local nested states with `useBackLayer`; reuse the feature's existing cancel/review-reset callback. Never fall back to raw history for application route Back. The narrowly reviewed pane/auth/error/map history owners are ratcheted against new bypasses.
+
+Every route declares `backVerification` in `hushh-webapp/lib/navigation/app-route-layout.contract.json`, including query parents or an explained entry/redirect/hidden boundary. Add behavior cases when changing query state or nested interactions. Before editing, read [the UI contract contributor scaffold](docs/reference/architecture/ui-contract-contributor-guide.md) and run `cd hushh-webapp && npm run ui:doctor`. After reviewing behavior, run `npm run build:ui-contracts` (Back before Search), then `npm run verify:ui-contracts` and the owning behavioral tests. The mandatory UI Contracts job and aggregate gates reject failures and skipped checks. A source stamp proves freshness, not the meaning of a new interaction.
 
 ## Project-Wide Bacterial Software Architecture Gate
 
@@ -89,14 +96,26 @@ Parent and child agents must apply [Bacterial Software Architecture](docs/vision
 
 ## Project-Wide Runtime Telemetry Default & Chat Session Naming
 
-When a coding agent runs the local server, run it IN the agent's own terminal session (in-process / background terminal) by default, so the agent streams live logs, errors, and telemetry directly and can act on them. Do NOT default to the visible-OS-terminal wrapper (`./bin/hushh terminal ...`) for agent-driven runs — that detaches the logs from the agent.
+Start local servers only when runtime verification requires them, not for source or documentation review. Reuse an existing server after verifying its worktree and runtime identity. When a coding agent must start a server, run it IN the agent's own terminal session (in-process / background terminal) by default, so logs, errors, and telemetry remain observable. Do NOT default to the visible-OS-terminal wrapper (`./bin/hushh terminal ...`) for agent-driven runs — that detaches the logs from the agent.
 
-- Agent default = THREE separate in-session terminals, one component each (there is no combined `stack` command): `./bin/hushh proxy --mode local` (Cloud SQL proxy on `:6543`), then `./bin/hushh backend --mode local --reload` (FastAPI backend on `:8000`), then `./bin/hushh web --mode local` (Next.js web frontend on `:3000`). Run all three as background/async terminals so the agent streams per-component telemetry continuously.
+- Start only required components, each in a separate in-session terminal (there is no combined `stack` command). For a full local stack: `./bin/hushh proxy --mode local` (Cloud SQL proxy on `:6543`), then `./bin/hushh backend --mode local --reload` (FastAPI backend on `:8000`), then `./bin/hushh web --mode local` (Next.js web frontend on `:3000`). Use background/async terminals so per-component telemetry remains observable.
 - Session Naming Standard: At completion, name and summarize the task/session with a clear, professional, descriptive title reflecting the scope (e.g., `Fix Setup Onboarding, Morphy KYC Polish & Local Server Stack`).
 - Native restart: rely on backend `--reload` hot-restart first; for a full restart, stop only the affected agent-managed terminal, confirm its port is free (`lsof -ti :6543` proxy / `:8000` backend / `:3000` frontend empty), relaunch that in-session command, and verify health (`./bin/hushh doctor --mode local`, web origin, backend `/docs`) before claiming success.
 - Use the visible-OS-terminal wrapper only when the developer explicitly wants to watch logs themselves, or for a detached session the agent does not need to read.
 
 Full playbook in `.codex/skills/repo-operations/references/branch-runtime-ops.md` ("Runtime Terminals" / "Native restart playbook").
+
+## Project-Wide Local Resource and Process Lifecycle Gate
+
+These rules apply to parent sessions, subagents, verification workers and local MCP clients sharing the developer's computer.
+
+1. Before expensive local work, inspect existing runs, process ownership, CPU load and memory pressure. Coordinate a shared host budget across sessions and worktrees, especially while the developer is gaming or running local inference. Reuse valid evidence and existing runtimes instead of spawning another copy.
+2. Run at most one full core verification per worktree at a time. Keep necessary stages parallel within that run, but coordinate other heavy runs on the same host. Use supported worker limits; do not combine automatic CPU-sized pools with overlapping suites. Preserve required gates and the pre-push core mirror: reduce concurrency or wait, never skip checks to save resources.
+3. Start only the MCP tools required by the task. Prefer supported project/session scope for optional local servers over enabling them globally. Coordinate changes to shared configuration; preserve tool definitions, authentication and required integrations. Do not assume editing configuration stops already-running clients.
+4. Finish or cancel agent-owned background jobs and release finished MCP clients through the host's supported lifecycle controls. Check that the selected workers exit, including descendants and temporary-resource cleanup. Explicitly hand off any runtime intentionally left running. Closing a visible chat or returning a final answer is not proof of teardown; preserve conversation history.
+5. Treat repeated process names or idle CPU as investigation signals, not proof of abandonment. Separate legitimate clients for active sessions from retained or orphaned processes using parentage, start time and available session/transport evidence. Stop another session's work only with user authorization or an explicit ownership handoff; never apply blanket `pkill` or keep only one global instance regardless of active clients.
+6. Use graceful shutdown first and a bounded wait. If authorized cleanup requires escalation, recheck process identity before forcing only the selected process tree to exit. Preserve unrelated apps, project servers and databases; verify temporary resources were reconciled. Record uncertain external action outcomes before any retry.
+7. Inspect startup, transport and shutdown failures separately from resource pressure. Keep credentials and full environments/request payloads out of diagnostics. If retention is in the IDE/MCP host, record the evidence and use supported configuration or a checkpointed reload; do not patch vendor caches or add a recurring process killer.
 
 ## Project-Wide Agent Architecture Doctrine
 
@@ -288,3 +307,7 @@ The AI tool is NEVER a contributor. Do not credit Claude/Anthropic (or any AI ag
 2. This is enforced by `includeCoAuthoredBy: false` in `.claude/settings.json` (committed) and each developer's `~/.claude/settings.json`. Keep it set; do not re-enable it.
 3. Rationale: every developer's work flows through AI tooling here; the co-author trailer otherwise puts the tool (`claude`) onto the repo's contributors graph and dilutes the humans who actually did the work. Human authorship must land under the developer's own linked git email.
 4. Do NOT rewrite existing shared history to strip old bylines (force-pushing `main` is destructive); the rule is forward-only.
+
+## Search web contracts
+
+For changes to web screens, routes, layouts or their imported UI modules, review the owning `.voice-action-contract.json` actions, reachability and context defaults. Search reads these contracts automatically; do not add a separate Search catalog. Use [the UI contract contributor scaffold](docs/reference/architecture/ui-contract-contributor-guide.md) before editing. Run `cd hushh-webapp && npm run ui:doctor`, review owning actions and Back cases, then `npm run build:ui-contracts` and `npm run verify:ui-contracts`. The mandatory UI Contracts job and required CI Status Gate reject stale outputs and skipped checks. Source fingerprints do not replace semantic review of new actions.

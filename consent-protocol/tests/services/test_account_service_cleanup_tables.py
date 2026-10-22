@@ -21,6 +21,22 @@ def _db(conn):
     yield conn
 
 
+def _assert_wallet_grants_erased_before_sources(conn):
+    statements = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
+    for table in (
+        "wallet_profile_access_grants",
+        "wallet_card_requests",
+        "wallet_card_access_grants",
+        "wallet_profile_share_requests",
+        "wallet_card_share_requests",
+        "wallet_card_registrations",
+    ):
+        fragment = "DELETE FROM " + table
+        assert fragment in statements
+        assert statements.index(fragment) < statements.index("DELETE FROM messages")
+        assert statements.index(fragment) < statements.index("DELETE FROM one_wallet_cards")
+
+
 def test_delete_user_rows_if_table_exists_supports_pkm_data(monkeypatch):
     service = AccountService()
     conn = MagicMock()
@@ -130,6 +146,34 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     service = AccountService()
     conn = MagicMock()
     user_id = "user_delete_123"
+    committed = False
+    notifications = []
+
+    @contextmanager
+    def _committing_db():
+        nonlocal committed
+        yield conn
+        committed = True
+
+    def _capture_viewers(connection, **kwargs):
+        assert not committed
+        assert kwargs["user_id"] == user_id
+        assert kwargs["include_pending_requests"] is True
+        statements = "\n".join(str(call.args[0]) for call in connection.execute.call_args_list)
+        assert "DELETE FROM connections" not in statements
+        assert "pg_advisory_xact_lock" in statements
+        return {"connected-peer", "circle-peer", "pending-peer"}
+
+    def _notify(**kwargs):
+        assert committed
+        notifications.append(kwargs["user_ids"])
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.account_service.list_connection_graph_viewer_ids", _capture_viewers
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.connections_service._notify_connection_graph_changed", _notify
+    )
 
     monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
 
@@ -145,7 +189,7 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
 
     monkeypatch.setattr(service, "_delete_personal_agent_state", _delete_personal_agent_state)
 
-    with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
+    with patch("hushh_mcp.services.account_service.get_db_connection", side_effect=_committing_db):
         result = await service._delete_full_account(
             user_id,
             requested_target="both",
@@ -153,7 +197,10 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
 
     assert result["success"] is True
     assert result["account_deleted"] is True
+    assert notifications == [{"connected-peer", "circle-peer", "pending-peer"}]
     assert result["details"]["external_connectors"] is True
+    assert result["details"]["live_memory_hosted_pilot_grants"] is True
+    assert result["details"]["live_memory_hosted_source_envelopes"] is True
     assert result["details"]["drive_private_data"] is True
     assert result["details"]["one_kyc_workflows"] is True
     assert result["details"]["one_location_circle_member_invites"] is True
@@ -193,6 +240,8 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     assert result["details"]["account_deletion_tombstone"] is True
     assert result["details"]["firebase_cleanup_intent_count"] == 1
 
+    _assert_wallet_grants_erased_before_sources(conn)
+
     executed_sql = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
     assert "INSERT INTO account_deletion_tombstones" in executed_sql
     assert executed_sql.count("INSERT INTO account_deletion_tombstones") == 1
@@ -210,6 +259,8 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     first_delete_offset = executed_sql.index("DELETE FROM")
     assert executed_sql.index("INSERT INTO account_deletion_tombstones") < first_delete_offset
     expected_fragments = [
+        "DELETE FROM email_auth_challenges",
+        "DELETE FROM email_auth_enrollments",
         "DELETE FROM contact_sync_lookup_budgets",
         "DELETE FROM account_legal_acceptances",
         "DELETE FROM kai_gmail_receipts",
@@ -674,6 +725,42 @@ async def test_full_account_delete_returns_stable_external_resource_block_withou
     assert "DELETE FROM" not in executed_sql
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rollback", [True, False])
+async def test_full_delete_does_not_report_rollback_or_notification_failure_as_removal(
+    monkeypatch, rollback
+):
+    service = AccountService()
+    conn = MagicMock()
+    notifications = []
+    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: False)
+    monkeypatch.setattr(service, "_delete_personal_agent_state", lambda *_, **__: None)
+    monkeypatch.setattr(
+        "hushh_mcp.services.account_service.list_connection_graph_viewer_ids",
+        lambda *_, **__: {"peer"},
+    )
+
+    @contextmanager
+    def transaction():
+        yield conn
+        if rollback:
+            raise RuntimeError("commit failed")
+
+    def failed_notification(**kwargs):
+        notifications.append(kwargs["user_ids"])
+        raise RuntimeError("push unavailable")
+
+    monkeypatch.setattr("hushh_mcp.services.account_service.get_db_connection", transaction)
+    monkeypatch.setattr(
+        "hushh_mcp.services.connections_service._notify_connection_graph_changed",
+        failed_notification,
+    )
+    result = await service._delete_full_account("departing", requested_target="both")
+    assert result["success"] is not rollback
+    assert result["account_deleted"] is not rollback
+    assert notifications == ([] if rollback else [{"peer"}])
+
+
 def test_live_erasure_catalog_is_documented_and_has_explicit_predicates():
     service = AccountService()
     contract = json.loads(
@@ -844,6 +931,8 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
     # A reset keeps vault_keys, so the send ledger's ON DELETE CASCADE never
     # fires: a scheduled email must be deleted here or it sends after the reset.
     assert result["details"]["gmail_owner_send_actions"] is True
+
+    _assert_wallet_grants_erased_before_sources(conn)
 
     first_sql = str(conn.execute.call_args_list[0].args[0])
     assert "pg_advisory_xact_lock" in first_sql
@@ -1575,10 +1664,16 @@ async def test_release_fence_refusal_is_reported_as_paused(monkeypatch, message,
     release.assert_not_called()
 
 
-def test_account_reset_and_deletion_erase_pending_connector_reviews(monkeypatch):
-    """Sealed review arguments must not outlive a reset, which keeps the actor_profiles row."""
+def test_account_reset_erases_pending_connector_reviews_and_hosted_memory_intent(monkeypatch):
+    """A reset keeps the account spine, so pending authority must be explicitly erased."""
     service = AccountService()
     assert "user_id = :user_id" in str(service._delete_by_user_queries["one_mcp_pending_calls"])
+    assert "user_id = :user_id" in str(
+        service._delete_by_user_queries["live_memory_hosted_pilot_grants"]
+    )
+    assert "user_id = :user_id" in str(
+        service._delete_by_user_queries["live_memory_hosted_source_envelopes"]
+    )
     conn = MagicMock()
     monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
     monkeypatch.setattr(service, "_clear_external_connector_data", lambda *_args, **_kwargs: None)
@@ -1586,4 +1681,8 @@ def test_account_reset_and_deletion_erase_pending_connector_reviews(monkeypatch)
     service._clear_user_data_tables(conn, "user_123", results)
     executed = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
     assert "DELETE FROM one_mcp_pending_calls" in executed
+    assert "DELETE FROM live_memory_hosted_pilot_grants" in executed
+    assert "DELETE FROM live_memory_hosted_source_envelopes" in executed
     assert results.get("one_mcp_pending_calls") is True
+    assert results.get("live_memory_hosted_pilot_grants") is True
+    assert results.get("live_memory_hosted_source_envelopes") is True

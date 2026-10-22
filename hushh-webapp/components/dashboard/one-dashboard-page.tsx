@@ -1,5 +1,6 @@
 import { preload } from "react-dom";
 import { WALLET_HERO_SRC } from "@/lib/wallet/wallet-artwork";
+import { WalletEntryWarmup } from "@/components/wallet/wallet-entry-warmup";
 import {
   AppPageContentRegion,
   AppPageShell,
@@ -11,10 +12,12 @@ export function OneDashboardPage({
   capabilityStatusById = {},
   displayName,
   userId,
+  messagesUnreadCount,
 }: {
   displayName?: string | null;
   capabilityStatusById?: Record<string, CapabilityStatus>;
   userId?: string | null;
+  messagesUnreadCount?: number | null;
 }) {
   // Warm the lightweight artwork while the user chooses an agent.
   preload(WALLET_HERO_SRC, { as: "image", fetchPriority: "high" });
@@ -33,10 +36,12 @@ export function OneDashboardPage({
       }}
     >
       <AppPageContentRegion>
+        <WalletEntryWarmup />
         <OneAgentRoster
           capabilityStatusById={capabilityStatusById}
           displayName={displayName}
           userId={userId}
+          messagesUnreadCount={messagesUnreadCount}
         />
       </AppPageContentRegion>
     </AppPageShell>

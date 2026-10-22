@@ -1,5 +1,6 @@
 "use client";
 
+import mailStyles from "./mail-workspace.module.css";
 import type { ReactNode } from "react";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
@@ -30,7 +31,7 @@ export function GmailWorkspaceNavigation({
         ariaLabel="Gmail workspace"
         tabSetId={TAB_SET_ID}
         variant="agent-top"
-        className="bg-[color:var(--app-neutral-fill)] p-0.5 [&>button]:mx-0"
+        className={`${mailStyles.track} bg-[color:var(--app-neutral-fill)] p-0.5 [&>button]:mx-0`}
       />
     </div>
   );

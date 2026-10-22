@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { useGmailNudges } from "@/lib/gmail/use-gmail-nudges";
@@ -116,5 +116,25 @@ describe("useGmailNudges", () => {
 
     rerender({ isConnected: false });
     expect(result.current.nudges).toHaveLength(0);
+  });
+
+  it("hides the old owner's nudges immediately and ignores their late refresh", async () => {
+    const nudge = { type: "needs_reply", thread_id: "old-owner-thread" };
+    mockedListNudges.mockResolvedValueOnce({ nudges: [nudge] } as never);
+    const idTokenProvider = async () => "id-token";
+    const { result, rerender } = renderHook(({ owner }) => useGmailNudges({
+      userId: owner, vaultOwnerToken: `token-${owner}`, isConnected: true, idTokenProvider,
+    }), { initialProps: { owner: "A" } });
+    await waitFor(() => expect(result.current.nudges).toHaveLength(1));
+    let finish!: (value: unknown) => void;
+    mockedListNudges.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve as typeof finish; }));
+    act(() => result.current.refresh());
+    await waitFor(() => expect(mockedListNudges).toHaveBeenCalledTimes(2));
+    mockedListNudges.mockResolvedValueOnce({ nudges: [] } as never);
+    rerender({ owner: "B" });
+    expect(result.current.nudges).toEqual([]);
+    await waitFor(() => expect(mockedListNudges).toHaveBeenCalledTimes(3));
+    await act(async () => finish({ nudges: [nudge] }));
+    expect(result.current.nudges).toEqual([]);
   });
 });

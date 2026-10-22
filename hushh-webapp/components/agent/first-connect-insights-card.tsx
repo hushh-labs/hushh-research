@@ -6,7 +6,7 @@
 // Forget simply drops the item from the screen. The items live only in this
 // component's state (never browser storage); leaving the chat discards them.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { Check, Lightbulb, X } from "@/components/icons";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import {
   type FirstConnectInsight,
   type FirstConnectInsightsOffer,
 } from "@/lib/agent/first-connect-insights";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 
 type ItemState = "open" | "saving" | "kept" | "confirm_sharing" | "error" | "already_saved" | "nothing_to_save";
 
@@ -27,6 +28,8 @@ export type FirstConnectInsightsCardProps = {
   vaultOwnerToken: string | null;
   /** The chat is unlocked and ready; the card never asks before this. */
   enabled: boolean;
+  onPromptSelect?: (prompt: string) => void;
+  promptDisabled?: boolean;
 };
 
 export function FirstConnectInsightsCard({
@@ -34,11 +37,15 @@ export function FirstConnectInsightsCard({
   vaultKey,
   vaultOwnerToken,
   enabled,
+  onPromptSelect,
+  promptDisabled = false,
 }: FirstConnectInsightsCardProps) {
+  const descriptionId = useId();
   const [offer, setOffer] = useState<FirstConnectInsightsOffer | null>(null);
   const [states, setStates] = useState<Record<string, ItemState>>({});
   const [forgotten, setForgotten] = useState<ReadonlySet<string>>(new Set());
   const [recipients, setRecipients] = useState<Record<string, number>>({});
+  const [followUpSent, setFollowUpSent] = useState(false);
   const askedForOwnerRef = useRef<string | null>(null);
   const [offerOwner, setOfferOwner] = useState<{ ownerId: string; vaultKey: string; vaultOwnerToken: string } | null>(null);
   const credentialsRef = useRef({ ownerId, vaultKey, vaultOwnerToken, enabled });
@@ -54,7 +61,7 @@ export function FirstConnectInsightsCard({
 
   // Ask once per owner per mount. The server offers each source at most once.
   useEffect(() => {
-    if (!enabled || !ownerId || !vaultKey || !vaultOwnerToken) return undefined;
+    if (shouldSkipReviewerBackgroundWritesForAutomation() || !enabled || !ownerId || !vaultKey || !vaultOwnerToken) return undefined;
     if (askedForOwnerRef.current === ownerId) return undefined;
     askedForOwnerRef.current = ownerId;
     const controller = new AbortController();
@@ -67,6 +74,7 @@ export function FirstConnectInsightsCard({
         setOffer(next);
         setStates({});
         setForgotten(new Set());
+        setFollowUpSent(false);
       },
     );
     return () => controller.abort();
@@ -141,16 +149,38 @@ export function FirstConnectInsightsCard({
   };
 
   if (open.length === 0) {
-    if (kept === 0) return null;
+    const showFollowUp = offer.source === "calendar" && onPromptSelect && !followUpSent;
+    if (kept === 0 && !showFollowUp) return null;
     return (
-      <p
-        className="px-1 text-xs text-foreground/60"
-        data-testid="first-connect-insights-receipt"
-        role="status"
-      >
-        {kept} {kept === 1 ? "detail" : "details"} from {offer.sourceLabel} {kept === 1 ? "is" : "are"} in your private
-        memory. Nothing else was saved.
-      </p>
+      <div className="space-y-3 px-1">
+        {kept > 0 ? (
+          <p
+            className="text-xs text-foreground/60"
+            data-testid="first-connect-insights-receipt"
+            role="status"
+          >
+            {kept} {kept === 1 ? "detail" : "details"} from {offer.sourceLabel} {kept === 1 ? "is" : "are"} in your private
+            memory. Nothing else was saved.
+          </p>
+        ) : null}
+        {showFollowUp ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-sm text-foreground">Want a quick look at your week?</p>
+            <Button
+              size="sm"
+              className="min-h-11"
+              disabled={promptDisabled}
+              onClick={() => {
+                if (promptDisabled || followUpSent) return;
+                setFollowUpSent(true);
+                onPromptSelect("What's on my calendar this week?");
+              }}
+            >
+              Show my week
+            </Button>
+          </div>
+        ) : null}
+      </div>
     );
   }
 
@@ -169,7 +199,9 @@ export function FirstConnectInsightsCard({
             Here&apos;s what I picked up from {offer.sourceLabel}
           </p>
           <p className="mt-1 text-sm text-foreground/70">
-            Nothing is saved unless you tap Keep.
+            {offer.source === "calendar"
+              ? "Choose what One should remember."
+              : "Tap ✓ to keep a detail or × to dismiss it."}
           </p>
         </div>
       </div>
@@ -180,66 +212,69 @@ export function FirstConnectInsightsCard({
           return (
             <li
               key={item.id}
-              className="rounded-xl border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-white/[0.04]"
+              className="flex items-start gap-2 rounded-xl border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-white/[0.04]"
               data-testid="first-connect-insight"
             >
-              <p className="text-sm text-foreground/90">{item.label}</p>
-              {item.evidence ? (
-                <p className="mt-1 text-xs text-foreground/55">{item.evidence}</p>
+              <div className="min-w-0 flex-1 break-words">
+                <p id={`${descriptionId}-${item.id}`} className="text-sm text-foreground/90">{item.label}</p>
+                {item.evidence ? (
+                  <p className="mt-1 text-xs text-foreground/55">{item.evidence}</p>
+                ) : null}
+                {isSaved(item) ? (
+                  <p className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary">
+                    <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                    {state === "already_saved" ? "Already in Memory" : "Kept privately"}
+                  </p>
+                ) : (
+                  <>
+                    {state === "confirm_sharing" ? (
+                      <p className="mt-2 text-xs text-foreground/70">
+                        This would also update what you share with {recipients[item.id] ?? 1}{" "}
+                        {(recipients[item.id] ?? 1) === 1 ? "person" : "people"}. Keep it anyway?
+                      </p>
+                    ) : null}
+                    {state === "nothing_to_save" ? (
+                      <p className="mt-2 text-xs text-foreground/70" role="status">
+                        No new detail to save. Nothing was changed.
+                      </p>
+                    ) : null}
+                    {state === "error" ? (
+                      <p className="mt-2 text-xs text-destructive" role="alert">
+                        Saving couldn&apos;t finish. Check Memory before trying again.
+                      </p>
+                    ) : null}
+                  </>
+                )}
+              </div>
+              {!isSaved(item) ? (
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    size="compact"
+                    variant="ghost"
+                    className="h-11 w-11 shrink-0 p-0 text-primary"
+                    aria-label={state === "confirm_sharing" ? "Keep and share" : "Keep"}
+                    aria-describedby={`${descriptionId}-${item.id}`}
+                    disabled={saving}
+                    isLoading={busy}
+                    onClick={() => void keep(item, state === "confirm_sharing")}
+                    data-testid="first-connect-insight-keep"
+                  >
+                    <Check className="size-4 shrink-0" aria-hidden="true" />
+                  </Button>
+                  <Button
+                    size="compact"
+                    className="h-11 w-11 shrink-0 p-0"
+                    variant="ghost"
+                    aria-label="Forget"
+                    aria-describedby={`${descriptionId}-${item.id}`}
+                    disabled={busy}
+                    onClick={() => forget(item)}
+                    data-testid="first-connect-insight-forget"
+                  >
+                    <X className="size-4 shrink-0" aria-hidden="true" />
+                  </Button>
+                </div>
               ) : null}
-              {isSaved(item) ? (
-                <p className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary">
-                  <Check className="h-3.5 w-3.5" aria-hidden="true" />
-                  {state === "already_saved" ? "Already in Memory" : "Kept privately"}
-                </p>
-              ) : (
-                <>
-                  {state === "confirm_sharing" ? (
-                    <p className="mt-2 text-xs text-foreground/70">
-                      This would also update what you share with {recipients[item.id] ?? 1}{" "}
-                      {(recipients[item.id] ?? 1) === 1 ? "person" : "people"}. Keep it anyway?
-                    </p>
-                  ) : null}
-                  {state === "nothing_to_save" ? (
-                    <p className="mt-2 text-xs text-foreground/70" role="status">
-                      No new detail to save. Nothing was changed.
-                    </p>
-                  ) : null}
-                  {state === "error" ? (
-                    <p className="mt-2 text-xs text-destructive" role="alert">
-                      Saving couldn&apos;t finish. Check Memory before trying again.
-                    </p>
-                  ) : null}
-                  <div className="mt-3 grid grid-cols-2 items-stretch gap-2">
-                    <Button
-                      size="compact"
-                      className="h-auto min-h-11 w-full min-w-0 whitespace-normal"
-                      disabled={saving}
-                      isLoading={busy}
-                      onClick={() => void keep(item, state === "confirm_sharing")}
-                      data-testid="first-connect-insight-keep"
-                    >
-                      <span className="inline-flex min-w-0 max-w-full items-center justify-center gap-1.5">
-                        <Check className="size-4 shrink-0" aria-hidden="true" />
-                        <span className="min-w-0 whitespace-normal">{state === "confirm_sharing" ? "Keep and share" : "Keep"}</span>
-                      </span>
-                    </Button>
-                    <Button
-                      size="compact"
-                      className="h-auto min-h-11 w-full min-w-0 whitespace-normal"
-                      variant="secondary"
-                      disabled={busy}
-                      onClick={() => forget(item)}
-                      data-testid="first-connect-insight-forget"
-                    >
-                      <span className="inline-flex min-w-0 max-w-full items-center justify-center gap-1.5">
-                        <X className="size-4 shrink-0" aria-hidden="true" />
-                        <span className="min-w-0 whitespace-normal">Forget</span>
-                      </span>
-                    </Button>
-                  </div>
-                </>
-              )}
             </li>
           );
         })}

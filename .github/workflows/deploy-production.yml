@@ -1,8 +1,17 @@
 name: Deploy to Production
+run-name: ${{ inputs.cadence_origin && format('Cadence {0} deploy · {1}', inputs.cadence_ordinal, inputs.cadence_origin) || 'Deploy to Production' }}
 
 on:
   workflow_dispatch:
     inputs:
+      cadence_origin:
+        description: Internal exact-run release cadence authority (leave blank for manual deploys)
+        type: string
+        default: ""
+      cadence_ordinal:
+        description: Internal successful UAT deployment ordinal
+        type: string
+        default: ""
       sha:
         description: "Exact green main SHA to deploy"
         required: true
@@ -62,6 +71,7 @@ permissions:
   # — the workflow never touches a branch.
   contents: write
   checks: read
+  actions: read
   id-token: write
 
 env:
@@ -70,9 +80,9 @@ env:
   BACKEND_SERVICE: consent-protocol
   RUNTIME_SERVICE_ACCOUNT: consent-protocol-runtime@hushh-pda.iam.gserviceaccount.com
   FRONTEND_SERVICE: hushh-webapp
-  APP_FRONTEND_ORIGIN: https://one.hushh.ai
+  APP_FRONTEND_ORIGIN: https://one.hussh.ai
   CONSENT_API_PUBLIC_ORIGIN: https://api.hushh.ai
-  BACKEND_REVISION_RETENTION: "3"
+  BACKEND_REVISION_RETENTION: "2"
   FRONTEND_REVISION_RETENTION: "10"
   PROD_CLOUDSQL_INSTANCE_NAME: hushh-vault-db
   PROD_CLOUDSQL_INSTANCE: hushh-pda:us-central1:hushh-vault-db
@@ -80,6 +90,7 @@ env:
   PROD_DB_NAME: hushh_vault
   ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID: account-deletion-cleanup
   ACCOUNT_DELETION_SCHEDULER_JOB: account-deletion-cleanup-production
+  GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SCHEDULER_SERVICE_ACCOUNT_ID: gmail-personal-monitor-sched
   BACKUP_MAX_AGE_HOURS: "30"
   # Read-only source for backend_image_source=promote-from-uat. Production never
   # deploys from this registry; it copies the verified digest into its own.
@@ -96,6 +107,7 @@ env:
 concurrency:
   group: deploy-production
   cancel-in-progress: false
+  queue: max
 
 jobs:
   deploy:
@@ -120,8 +132,17 @@ jobs:
           fetch-depth: 0
           ref: main
 
+      - name: Require reconciled maintenance mutations under deployment lock
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/ci/uat-retention-maintenance.py --environment production \
+            --check-mutations --state-dir "$RUNNER_TEMP/production-maintenance-guard"
+
       - name: Assert production dispatch actor policy
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           python3 scripts/ci/assert-governed-actor.py --surface production --actor "${GITHUB_ACTOR}"
@@ -148,17 +169,45 @@ jobs:
           # is older than this workflow's production voice enablement.
           cp deploy/backend.cloudbuild.yaml \
             "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml"
+          # Source upload admission belongs to the same current tooling bundle.
+          cp .gcloudignore "${RUNNER_TEMP}/release-tools/.gcloudignore"
+          # Preserve the companion sourced by current Cloud Build tooling when
+          # the approved application SHA predates email-auth deployment support.
+          mkdir -p "${RUNNER_TEMP}/release-tools/email-auth"
+          cp deploy/email-auth/bind_secrets.sh \
+            "${RUNNER_TEMP}/release-tools/email-auth/bind_secrets.sh"
+          mkdir -p "${RUNNER_TEMP}/release-tools/plg"
+          cp deploy/plg/bind_secrets.sh \
+            "${RUNNER_TEMP}/release-tools/plg/bind_secrets.sh"
           cp scripts/ci/assert_one_voice_live_probe.py \
             "${RUNNER_TEMP}/release-tools/assert_one_voice_live_probe.py"
+          # Current Cloud Build records and evaluates provider readiness through
+          # this companion, even when the approved application predates it.
+          cp scripts/ci/managed_provider_readiness.py \
+            "${RUNNER_TEMP}/release-tools/managed_provider_readiness.py"
           # Orchestration must remain current when rolling back to an older image.
           mkdir -p "${RUNNER_TEMP}/release-tools/drive"
-          for tool in resolve_prod_release_mode.py verify_prod_prerequisites.py \
+          for tool in resolve_prod_release_mode.py verify_prod_prerequisites.py setup_native_callback_log_exclusion.sh \
             deploy_worker_service_prod.sh setup_work_drain_scheduler_prod.sh \
             work_drain_scheduler_snapshot_prod.py restore_prod_after_release_failure.sh; do
             cp "deploy/drive/${tool}" "${RUNNER_TEMP}/release-tools/drive/${tool}"
           done
+          cp hushh-webapp/lib/vault/passkey-domain-aliases.json \
+            "${RUNNER_TEMP}/release-tools/drive-domain-aliases.json"
           cp scripts/ops/sync_backend_runtime_secrets.py \
             "${RUNNER_TEMP}/release-tools/sync_backend_runtime_secrets.py"
+          cp scripts/ops/verify-env-secrets-parity.py \
+            "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py"
+          cp scripts/ci/cloudrun-retention.py \
+            "${RUNNER_TEMP}/release-tools/cloudrun-retention.py"
+          # Capacity policy and phase support belong to current release tooling,
+          # including when promoting or rolling back an older approved app image.
+          cp scripts/ci/runtime-capacity-budget.py \
+            "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py"
+          cp scripts/ci/account-deletion-fence-decision.py \
+            "${RUNNER_TEMP}/release-tools/account-deletion-fence-decision.py"
+          cp config/runtime-capacity.json \
+            "${RUNNER_TEMP}/release-tools/runtime-capacity.json"
           git log -1 --diff-filter=A --format=%H -- \
             consent-protocol/hushh_mcp/services/drive_prod_registry_provisioning.py \
             > "${RUNNER_TEMP}/release-tools/prod-drive-feature-commit"
@@ -172,12 +221,31 @@ jobs:
           git checkout --detach "${{ github.event.inputs.sha }}"
           cp "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml" \
             deploy/backend.cloudbuild.yaml
+          cp "${RUNNER_TEMP}/release-tools/.gcloudignore" .gcloudignore
+          mkdir -p deploy/email-auth
+          cp "${RUNNER_TEMP}/release-tools/email-auth/bind_secrets.sh" \
+            deploy/email-auth/bind_secrets.sh
+          mkdir -p deploy/plg
+          cp "${RUNNER_TEMP}/release-tools/plg/bind_secrets.sh" \
+            deploy/plg/bind_secrets.sh
           cp "${RUNNER_TEMP}/release-tools/assert_one_voice_live_probe.py" \
             scripts/ci/assert_one_voice_live_probe.py
+          cp "${RUNNER_TEMP}/release-tools/managed_provider_readiness.py" \
+            scripts/ci/managed_provider_readiness.py
           mkdir -p deploy/drive
           cp "${RUNNER_TEMP}/release-tools/drive/"* deploy/drive/
           cp "${RUNNER_TEMP}/release-tools/sync_backend_runtime_secrets.py" \
             scripts/ops/sync_backend_runtime_secrets.py
+          cp "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py" \
+            scripts/ops/verify-env-secrets-parity.py
+          cp "${RUNNER_TEMP}/release-tools/cloudrun-retention.py" \
+            scripts/ci/cloudrun-retention.py
+          cp "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py" \
+            scripts/ci/runtime-capacity-budget.py
+          cp "${RUNNER_TEMP}/release-tools/account-deletion-fence-decision.py" \
+            scripts/ci/account-deletion-fence-decision.py
+          cp "${RUNNER_TEMP}/release-tools/runtime-capacity.json" \
+            config/runtime-capacity.json
 
       - name: Report production deploy lane
         run: |
@@ -218,6 +286,10 @@ jobs:
             echo "Refusing deploy: expected project '${{ env.GCP_PROJECT_ID }}' but got '$ACTIVE_PROJECT'."
             exit 1
           fi
+
+      - name: Enforce production database connection budget before deployment
+        shell: bash
+        run: timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment production
 
       - name: Capture predeploy Cloud Run state
         id: predeploy-state
@@ -284,6 +356,43 @@ jobs:
             --github-output "$GITHUB_OUTPUT" \
             --json
 
+      - name: Verify production personal Gmail monitor identity
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud iam service-accounts describe \
+            "${{ env.GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
+            --project="${{ env.GCP_PROJECT_ID }}" --format='value(email)' >/dev/null
+
+      - name: Resolve production curated connector secrets
+        id: prod-curated-secrets
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        env:
+          CURATED_CONNECTORS_ENABLED: ${{ vars.CURATED_MCP_CONNECTORS_PROD || 'false' }}
+        run: |
+          set -euo pipefail
+          names=""
+          enabled="false"
+          if [ "${CURATED_CONNECTORS_ENABLED}" = "true" ]; then
+            enabled="true"
+            names="$(python3 scripts/ci/curated_connector_secrets.py)"
+            for secret in ${names//+/ } EXTERNAL_CONNECTOR_CREDENTIAL_KEY; do
+              if ! state="$(gcloud secrets versions describe latest --secret="${secret}" \
+                  --project="${{ env.GCP_PROJECT_ID }}" --format='value(state)' 2>&1)"; then
+                echo "::error::Production curated connector secret ${secret} is unavailable: ${state}. Provision it in hushh-pda before enabling CURATED_MCP_CONNECTORS_PROD." >&2
+                exit 1
+              fi
+              if [ "${state}" != "ENABLED" ]; then
+                echo "::error::Production curated connector secret ${secret} has no enabled latest version (state: ${state})." >&2
+                exit 1
+              fi
+            done
+          fi
+          echo "names=${names}" >> "$GITHUB_OUTPUT"
+          echo "enabled=${enabled}" >> "$GITHUB_OUTPUT"
+
       - name: Resolve production Drive release mode from serving backend
         id: drive-mode
         shell: bash
@@ -322,7 +431,10 @@ jobs:
             exit 1
           fi
           python3 deploy/drive/verify_prod_prerequisites.py \
-            --project "${{ env.GCP_PROJECT_ID }}" --oauth-attested
+            --project "${{ env.GCP_PROJECT_ID }}" --oauth-attested \
+            --domain-catalog "${RUNNER_TEMP}/release-tools/drive-domain-aliases.json"
+          PROJECT_ID="${{ env.GCP_PROJECT_ID }}" \
+            bash deploy/drive/setup_native_callback_log_exclusion.sh --verify-only
 
       # promote-from-uat preflight. Runs before the secret sync, backup, fence
       # and migrations so a missing UAT release or missing IAM stops the run
@@ -467,6 +579,8 @@ jobs:
       - name: Sync canonical hosted runtime secrets
         if: steps.scope.outputs.deploy_backend == 'true'
         shell: bash
+        env:
+          PROD_CURATED_MCP_CONNECTORS: ${{ vars.CURATED_MCP_CONNECTORS_PROD || 'false' }}
         run: |
           set -euo pipefail
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py \
@@ -484,7 +598,6 @@ jobs:
             --remote-mcp-enabled "true" \
             --cors-allowed-origins "${{ env.APP_FRONTEND_ORIGIN }}" \
             --obs-data-stale-ratio-threshold "0.25" \
-            --passkey-allowed-rp-ids "localhost,127.0.0.1,one.hushh.ai" \
             --plaid-env "production" \
             --plaid-client-name "Hushh Kai" \
             --plaid-country-codes "US" \
@@ -499,6 +612,7 @@ jobs:
             --drive-document-sharing "${{ steps.drive-mode.outputs.active }}" \
             --google-drive-chat-reads "${{ steps.drive-mode.outputs.active }}" \
             --connector-production-all-users "${{ steps.drive-mode.outputs.active }}" \
+            --curated-mcp-connectors "$PROD_CURATED_MCP_CONNECTORS" \
             --production-drive-candidate-secret "${{ env.DRIVE_CANDIDATE_RUNTIME_SECRET }}" \
             --one-location-read-only-state-enabled "false" \
             --consent-center-summary-v2-enabled "${{ vars.CONSENT_CENTER_SUMMARY_V2_ENABLED || 'true' }}" \
@@ -656,9 +770,70 @@ jobs:
           echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
           echo "image_source=${BACKEND_IMAGE_SOURCE}" >> "$GITHUB_OUTPUT"
 
+      - name: Qualify uninterrupted account deletion
+        id: account-deletion-fence-decision
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GCP_PROJECT_ID}" != "hushh-pda" ] \
+             || [ "${PROD_CLOUDSQL_INSTANCE}" != "hushh-pda:us-central1:hushh-vault-db" ]; then
+            echo "Refusing account deletion preflight on a non-canonical production target."
+            exit 1
+          fi
+          if ! gcloud run revisions list \
+            --service="${BACKEND_SERVICE}" --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" --format=json \
+            > /tmp/prod-account-deletion-revisions.json; then
+            printf '[]\n' > /tmp/prod-account-deletion-revisions.json
+          fi
+          decision="$(python3 scripts/ci/account-deletion-fence-decision.py \
+            --revisions-json /tmp/prod-account-deletion-revisions.json \
+            --backend-base-sha "${{ steps.predeploy-state.outputs.backend_sha }}" \
+            --target-sha "${{ github.event.inputs.sha }}" \
+            --github-output "$GITHUB_OUTPUT")"
+          if [ "${decision}" = "unfenced_candidate" ]; then
+            DB_USER="$(gcloud secrets versions access latest --secret=DB_USER --project="${GCP_PROJECT_ID}")"
+            DB_PASSWORD="$(gcloud secrets versions access latest --secret=DB_PASSWORD --project="${GCP_PROJECT_ID}")"
+            echo "::add-mask::${DB_USER}"
+            echo "::add-mask::${DB_PASSWORD}"
+            cloud-sql-proxy --address 127.0.0.1 --port 6544 \
+              ${GOOGLE_GHA_CREDS_PATH:+--credentials-file="${GOOGLE_GHA_CREDS_PATH}"} \
+              "${PROD_CLOUDSQL_INSTANCE}" >/tmp/cloud-sql-proxy-prod-deletion-preflight.log 2>&1 &
+            PROXY_PID=$!
+            trap 'kill "${PROXY_PID}" >/dev/null 2>&1 || true' EXIT
+            python3 - <<'PY'
+          import socket
+          import time
+          deadline = time.time() + 20
+          while time.time() < deadline:
+              with socket.socket() as sock:
+                  sock.settimeout(0.5)
+                  if sock.connect_ex(("127.0.0.1", 6544)) == 0:
+                      raise SystemExit(0)
+              time.sleep(0.25)
+          raise SystemExit("Cloud SQL proxy did not bind for deletion preflight")
+          PY
+            if ! command -v psql >/dev/null 2>&1; then
+              sudo apt-get update -qq
+              sudo apt-get install -y -qq postgresql-client
+            fi
+            if PGHOST=127.0.0.1 PGPORT=6544 PGDATABASE="${PROD_DB_NAME}" \
+               PGUSER="$DB_USER" PGPASSWORD="$DB_PASSWORD" \
+               psql --no-psqlrc -v expected_fence_count=0 \
+                 --file deploy/account-deletion/verify_release_boundary.sql \
+                 > /tmp/prod-account-deletion-unfenced-preflight.log 2>&1; then
+              echo "required=false" >> "$GITHUB_OUTPUT"
+              echo "Verified active v201 database and revisions; deletion remains available."
+              exit 0
+            fi
+            echo "Unfenced database verification failed; retaining the release fence."
+          fi
+          echo "required=true" >> "$GITHUB_OUTPUT"
+
       - name: Install fail-closed account deletion release fence
         id: install-account-deletion-fence
-        if: steps.scope.outputs.deploy_backend == 'true'
+        if: steps.scope.outputs.deploy_backend == 'true' && steps.account-deletion-fence-decision.outputs.required == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -775,11 +950,12 @@ jobs:
           export PGUSER="$DB_USER"
           export PGPASSWORD="$DB_PASSWORD"
 
-          # Re-acquire the table locks and prove the fence immediately before
-          # migration so manual drift cannot reopen the rolling-deploy gap.
-          psql --no-psqlrc \
-            --file deploy/account-deletion/install_release_fence.sql \
-            | tee /tmp/prod-account-deletion-fence-premigration.log
+          # Reassert the fence only when crossing an unproven lifecycle boundary.
+          if [ "${{ steps.account-deletion-fence-decision.outputs.required }}" = "true" ]; then
+            psql --no-psqlrc \
+              --file deploy/account-deletion/install_release_fence.sql \
+              | tee /tmp/prod-account-deletion-fence-premigration.log
+          fi
 
           (
             cd consent-protocol
@@ -796,7 +972,11 @@ jobs:
               "${{ env.PROTOCOL_PYTHON }}" scripts/ops/reconcile_google_drive_prod_connector.py
             )
           fi
-          psql --no-psqlrc \
+          expected_fence_count=0
+          if [ "${{ steps.account-deletion-fence-decision.outputs.required }}" = "true" ]; then
+            expected_fence_count=2
+          fi
+          psql --no-psqlrc -v "expected_fence_count=${expected_fence_count}" \
             --file deploy/account-deletion/verify_release_boundary.sql \
             | tee /tmp/prod-account-deletion-boundary.log
           tombstone_count="$(psql --no-psqlrc --tuples-only --no-align \
@@ -878,8 +1058,14 @@ jobs:
             exit 1
           fi
           DRIVE_SUBSTITUTIONS=",_BACKEND_RUNTIME_CONFIG_JSON_SECRET=${DRIVE_CANDIDATE_RUNTIME_SECRET}"
+          DRIVE_SUBSTITUTIONS+=",_CURATED_CONNECTOR_SECRETS=${{ steps.prod-curated-secrets.outputs.names }}"
+          DRIVE_SUBSTITUTIONS+=",_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET=STRIPE_CONNECT_WEBHOOK_SECRET"
+          DRIVE_SUBSTITUTIONS+=",_PKM_ANSWER_REQUESTS_ENABLED=${{ vars.PKM_ANSWER_REQUESTS_PROD_ENABLED || 'true' }},_PKM_ANSWER_PAYMENTS_ENABLED=${{ vars.PKM_ANSWER_PAYMENTS_PROD_ENABLED || 'false' }},_PKM_ANSWER_COMPOSER_ENABLED=${{ vars.PKM_ANSWER_COMPOSER_PROD_ENABLED || 'false' }},_PKM_ANSWER_LIVE_PROVIDER_REVIEWED=${{ vars.PKM_ANSWER_LIVE_PROVIDER_PROD_REVIEWED || 'false' }},_PKM_ANSWER_STRIPE_MODE=live,_PKM_ANSWER_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY,_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET=STRIPE_WEBHOOK_SECRET,_PKM_ANSWER_STRIPE_TEST_SECRET_KEY_SECRET=${{ vars.PKM_ANSWER_STRIPE_TEST_SECRET_KEY_PROD_SECRET || '' }},_PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_SECRET=${{ vars.PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_PROD_SECRET || '' }},_PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_SECRET=${{ vars.PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_PROD_SECRET || '' }},_PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_SECRET=${{ vars.PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_PROD_SECRET || '' }},_ANSWER_WORK_DRAIN_ENABLED=${{ vars.ANSWER_WORK_DRAIN_PROD_ENABLED || 'false' }},_ANSWER_WORK_DRAIN_AUDIENCE=https://api.hushh.ai"
+          DRIVE_SUBSTITUTIONS+=",_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED=true,_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }},_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL=${{ env.GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
           if [ "${{ steps.drive-mode.outputs.active }}" = "true" ]; then
             DRIVE_SUBSTITUTIONS+=",_GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_ID,_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_SECRET,_GOOGLE_DRIVE_PICKER_API_KEY_SECRET=GOOGLE_DRIVE_PICKER_API_KEY,_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET=EXTERNAL_CONNECTOR_CREDENTIAL_KEY,_DRIVE_DOCUMENT_KEY_V1_SECRET=DRIVE_DOCUMENT_KEY_V1,_DRIVE_SHARING_KEY_V1_SECRET=DRIVE_SHARING_KEY_V1,_DRIVE_WORK_DRAIN_ENABLED=true,_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=hushh-pda,_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=drive-work-drain-sched@hushh-pda.iam.gserviceaccount.com,_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=https://api.hushh.ai"
+          elif [ "${{ steps.prod-curated-secrets.outputs.enabled }}" = "true" ]; then
+            DRIVE_SUBSTITUTIONS+=",_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET=EXTERNAL_CONNECTOR_CREDENTIAL_KEY"
           fi
           # Same sizing as UAT: two gunicorn workers plus the E5 query leaf
           # outgrow the 1Gi default, and an out-of-memory kill drops every
@@ -890,7 +1076,7 @@ jobs:
           gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/backend.cloudbuild.yaml \
-            "--substitutions=_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_CLOUDSQL_INSTANCES=${{ env.PROD_CLOUDSQL_INSTANCE }},_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID,_PLAID_SECRET_SECRET=PLAID_SECRET,_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY,_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY,_PMP_API_KEY_SECRET=PMP_API_KEY,_NEWSAPI_KEY_SECRET=NEWSAPI_KEY,_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID,_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET,_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI,_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY,_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID,_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET,_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI,_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY,_OPENAI_API_KEY_SECRET=OPENAI_API_KEY,_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY,_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN,_HUSHH_PROD_PHONE_TEST_NUMBERS_SECRET=HUSHH_PROD_PHONE_TEST_NUMBERS,_HUSHH_PROD_PHONE_TEST_CODE_SECRET=HUSHH_PROD_PHONE_TEST_CODE,_HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET_SECRET=HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET,_HUSHH_PROD_PHONE_TEST_ENABLED=true,_KAI_ANALYZE_DURABLE_RUN_STORE=true,_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL,_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }},_CONSENT_WEB_FALLBACK_ENABLED=false,_CONSENT_SSE_ENABLED=false,_DB_POOL_MIN_SIZE=1,_DB_POOL_MAX_SIZE=4,_DB_SQLALCHEMY_POOL_SIZE=4,_DB_SQLALCHEMY_MAX_OVERFLOW=0,_CLOUD_RUN_CPU=2,_CLOUD_RUN_MEMORY=4Gi,_CLOUD_RUN_CONCURRENCY=20,_CLOUD_RUN_MIN_INSTANCES=1,_CLOUD_RUN_MAX_INSTANCES=5,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=prod-${{ github.event.inputs.sha }},_ONE_WALLET_CARD_ENABLED=true,_WALLET_PASS_PROVIDER=service,_WALLET_API_KEY_SECRET=WALLET_API_KEY,_HUSSH_GEMINI_TEXT_MODEL=gemini-3.6-flash,_ONE_VOICE_LIVE_ENABLED=true,_VERTEX_LIVE_MODEL_ID=gemini-live-2.5-flash-native-audio,_VERTEX_LIVE_LOCATION=us-central1,_GENAI_PROJECT_ID=hushh-vertex-personal54,_DEPLOY_ENV=production,_DEPLOY_SOURCE=deploy-production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }},_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }},_SKIP_IMAGE_BUILD=true,_IMAGE_REFERENCE=${{ steps.build-backend-image.outputs.image_reference }},_CLOUD_RUN_TAG=account-deletion-${{ github.run_id }},_ACCOUNT_DELETION_CLEANUP_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }},_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL=${{ env.ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com,_DRIVE_REQUEST_PAYMENTS_ENABLED=${{ vars.DRIVE_REQUEST_PAYMENTS_PROD_ENABLED || 'false' }},_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY,_STRIPE_WEBHOOK_SECRET_SECRET=STRIPE_WEBHOOK_SECRET${DRIVE_SUBSTITUTIONS}"
+            "--substitutions=$(python3 scripts/ops/managed_ai_config.py --environment production --format substitutions | sed 's/##/,/g'),_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_CLOUDSQL_INSTANCES=${{ env.PROD_CLOUDSQL_INSTANCE }},_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID,_PLAID_SECRET_SECRET=PLAID_SECRET,_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY,_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY,_PMP_API_KEY_SECRET=PMP_API_KEY,_NEWSAPI_KEY_SECRET=NEWSAPI_KEY,_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID,_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET,_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI,_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY,_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID,_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET,_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI,_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY,_OPENAI_API_KEY_SECRET=OPENAI_API_KEY,_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY,_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN,_HUSHH_PROD_PHONE_TEST_NUMBERS_SECRET=HUSHH_PROD_PHONE_TEST_NUMBERS,_HUSHH_PROD_PHONE_TEST_CODE_SECRET=HUSHH_PROD_PHONE_TEST_CODE,_HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET_SECRET=HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET,_HUSHH_PROD_PHONE_TEST_ENABLED=true,_KAI_ANALYZE_DURABLE_RUN_STORE=true,_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL,_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }},_CONSENT_WEB_FALLBACK_ENABLED=false,_CONSENT_SSE_ENABLED=false,_DB_POOL_MIN_SIZE=1,_DB_POOL_MAX_SIZE=4,_DB_SQLALCHEMY_POOL_SIZE=4,_DB_SQLALCHEMY_MAX_OVERFLOW=0,_CLOUD_RUN_CPU=2,_CLOUD_RUN_MEMORY=4Gi,_CLOUD_RUN_CONCURRENCY=20,_CLOUD_RUN_MIN_INSTANCES=1,_CLOUD_RUN_MAX_INSTANCES=5,_CLOUD_RUN_NO_TRAFFIC=true,_VERIFY_MANAGED_VERTEX_RUNTIME=true,_IMAGE_TAG=prod-${{ github.event.inputs.sha }},_ONE_WALLET_CARD_ENABLED=true,_WALLET_PASS_PROVIDER=service,_WALLET_API_KEY_SECRET=WALLET_API_KEY,_ONE_VOICE_LIVE_ENABLED=true,_DEPLOY_ENV=production,_DEPLOY_SOURCE=deploy-production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }},_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }},_SKIP_IMAGE_BUILD=true,_IMAGE_REFERENCE=${{ steps.build-backend-image.outputs.image_reference }},_CLOUD_RUN_TAG=account-deletion-${{ github.run_id }},_ACCOUNT_DELETION_CLEANUP_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }},_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL=${{ env.ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com,_DRIVE_REQUEST_PAYMENTS_ENABLED=${{ vars.DRIVE_REQUEST_PAYMENTS_PROD_ENABLED || 'false' }},_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY,_STRIPE_WEBHOOK_SECRET_SECRET=STRIPE_WEBHOOK_SECRET${DRIVE_SUBSTITUTIONS}"
 
       - name: Get backend URL
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -902,11 +1088,6 @@ jobs:
             --format='value(status.url)')
           echo "url=$BACKEND_URL" >> $GITHUB_OUTPUT
           echo "Backend URL: $BACKEND_URL"
-
-      - name: Retain latest backend revisions
-        if: steps.scope.outputs.deploy_backend == 'true'
-        continue-on-error: true
-        run: bash scripts/ci/cloudrun-retention.sh "${{ env.BACKEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.BACKEND_REVISION_RETENTION }}"
 
       - name: Resolve backend candidate revision
         id: backend-candidate-state
@@ -1012,6 +1193,15 @@ jobs:
               "env_run": env.get("HUSHH_DEPLOY_RUN_ID") == os.environ["GITHUB_RUN_ID"],
               "isolated_runtime_config": secret_refs.get("BACKEND_RUNTIME_CONFIG_JSON")
               == expected_runtime_secret,
+              "gmail_monitor_oidc_required": env.get(
+                  "GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED"
+              ) == "true",
+              "gmail_monitor_audience": env.get(
+                  "GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE"
+              ) == "https://api.hushh.ai",
+              "gmail_monitor_service_account": env.get(
+                  "GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL"
+              ) == "gmail-personal-monitor-sched@hushh-pda.iam.gserviceaccount.com",
           }
           report = {
               "status": "ready" if all(checks.values()) else "blocked",
@@ -1075,7 +1265,7 @@ jobs:
           FRONTEND_BUILD_SUBSTITUTIONS: ${{ steps.start-frontend-image-build.outputs.build_substitutions }}
         run: |
           set -euo pipefail
-          SUBSTITUTIONS="_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_CLOUD_RUN_NO_TRAFFIC=true,_DEPLOY_SOURCE=deploy-production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }},_GITHUB_RUN_ATTEMPT=${{ github.run_attempt }}"
+          SUBSTITUTIONS="_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_CLOUD_RUN_NO_TRAFFIC=true,_CLOUD_RUN_TIMEOUT_SECONDS=300,_DEPLOY_SOURCE=deploy-production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }},_GITHUB_RUN_ATTEMPT=${{ github.run_attempt }}"
           if [ -z "${FRONTEND_BUILD_SUBSTITUTIONS}" ]; then
             echo "Refusing frontend deploy: the frontend build substitutions were not resolved." >&2
             exit 1
@@ -1116,11 +1306,6 @@ jobs:
             --format='value(status.url)')
           echo "url=$FRONTEND_ORIGIN" >> $GITHUB_OUTPUT
           echo "Frontend URL: $FRONTEND_ORIGIN"
-
-      - name: Retain latest frontend revisions
-        if: steps.scope.outputs.deploy_frontend == 'true'
-        continue-on-error: true
-        run: bash scripts/ci/cloudrun-retention.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.FRONTEND_REVISION_RETENTION }}"
 
       - name: Resolve deployed candidate revisions
         id: candidate-state
@@ -1595,9 +1780,12 @@ jobs:
           export PGDATABASE="${{ env.PROD_DB_NAME }}"
           export PGUSER="$DB_USER"
           export PGPASSWORD="$DB_PASSWORD"
-          psql --no-psqlrc \
-            --file deploy/account-deletion/install_release_fence.sql \
-            > /tmp/prod-account-deletion-fence-rollback.log
+          if [ "${{ steps.account-deletion-fence-decision.outputs.required }}" = "true" ] \
+             || [ "${rollback_contract}" != "v201" ]; then
+            psql --no-psqlrc \
+              --file deploy/account-deletion/install_release_fence.sql \
+              > /tmp/prod-account-deletion-fence-rollback.log
+          fi
           tombstone_count="$(psql --no-psqlrc --tuples-only --no-align \
             --command 'SELECT count(*) FROM public.account_deletion_tombstones')"
           if [[ ! "${tombstone_count}" =~ ^[0-9]+$ ]]; then
@@ -1855,7 +2043,11 @@ jobs:
           export PGDATABASE="${{ env.PROD_DB_NAME }}"
           export PGUSER="$DB_USER"
           export PGPASSWORD="$DB_PASSWORD"
-          psql --no-psqlrc \
+          expected_fence_count=0
+          if [ "${{ steps.account-deletion-fence-decision.outputs.required }}" = "true" ]; then
+            expected_fence_count=2
+          fi
+          psql --no-psqlrc -v "expected_fence_count=${expected_fence_count}" \
             --file deploy/account-deletion/verify_release_boundary.sql \
             > /tmp/prod-account-deletion-boundary-preactivation.log
           psql --no-psqlrc --tuples-only --no-align \
@@ -1863,9 +2055,11 @@ jobs:
               'counts_by_status', COALESCE((SELECT json_object_agg(cleanup_status, intent_count) FROM (SELECT cleanup_status, count(*) AS intent_count FROM public.account_deletion_tombstones GROUP BY cleanup_status) grouped), '{}'::json),
               'oldest_due_age_seconds', COALESCE((SELECT floor(extract(epoch FROM (now() - min(cleanup_next_attempt_at))))::bigint FROM public.account_deletion_tombstones WHERE firebase_uid IS NOT NULL AND cleanup_status <> 'completed' AND cleanup_next_attempt_at <= now()), 0)
             )" > /tmp/prod-account-deletion-cleanup-health.json
-          psql --no-psqlrc \
-            --file deploy/account-deletion/remove_release_fence.sql \
-            | tee /tmp/prod-account-deletion-fence-removal.log
+          if [ "${{ steps.account-deletion-fence-decision.outputs.required }}" = "true" ]; then
+            psql --no-psqlrc \
+              --file deploy/account-deletion/remove_release_fence.sql \
+              | tee /tmp/prod-account-deletion-fence-removal.log
+          fi
           echo "activated=true" >> "$GITHUB_OUTPUT"
 
       - name: Resolve final Cloud Run state
@@ -1978,6 +2172,7 @@ jobs:
                   "backend_health": "${{ steps.health-backend.outcome }}",
                   "frontend_health": "${{ steps.health-frontend.outcome }}",
                   "passkey_domain_associations": "${{ steps.verify-passkey-associations.outcome }}",
+                  "account_deletion_fence_required": "${{ steps.account-deletion-fence-decision.outputs.required }}",
                   "account_deletion_activation": "${{ steps.activate-account-deletion.outcome }}",
                   "account_deletion_activated": "${{ steps.activate-account-deletion.outputs.activated }}",
               },
@@ -2043,6 +2238,8 @@ jobs:
             /tmp/prod-backend-candidate-readiness.json
             /tmp/prod-backend-candidate-health.json
             /tmp/prod-account-deletion-fence-install.log
+            /tmp/prod-account-deletion-revisions.json
+            /tmp/prod-account-deletion-unfenced-preflight.log
             /tmp/prod-account-deletion-fence-premigration.log
             /tmp/prod-account-deletion-boundary.log
             /tmp/prod-account-deletion-boundary-preactivation.log
@@ -2069,6 +2266,7 @@ jobs:
             echo ""
             echo "- Commit SHA: \`${{ github.event.inputs.sha }}\`"
             echo "- Scope: \`${{ steps.scope.outputs.scope }}\`"
+            echo "- Account deletion fence required: \`${{ steps.account-deletion-fence-decision.outputs.required || 'not_applicable' }}\`"
             echo "- Release status: \`$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/prod-release-status.json').read_text(encoding='utf-8'))['status'])")\`"
             if [ "${{ steps.classify.outputs.release_failed }}" != "false" ]; then
               echo "- Status: \`FAILED\`"
@@ -2139,6 +2337,29 @@ jobs:
             exit 0
           fi
           bash scripts/ci/tag-last-known-good.sh
+
+      - name: Retire unused production tags after a healthy release
+        if: always()
+        shell: bash
+        env:
+          BACKEND_CURRENT: ${{ steps.final-state.outputs.backend_serving }}
+          FRONTEND_CURRENT: ${{ steps.final-state.outputs.frontend_serving }}
+          BACKEND_ROLLBACK: ${{ steps.predeploy-state.outputs.backend_revision }}
+          FRONTEND_ROLLBACK: ${{ steps.predeploy-state.outputs.frontend_revision }}
+        run: |
+          set -euo pipefail
+          status="$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/prod-release-status.json').read_text(encoding='utf-8'))['status'])")"
+          if [ "$status" != healthy ]; then
+            echo "Skipping revision cleanup for release status $status"
+            exit 0
+          fi
+          bash scripts/ci/cloudrun-retention.sh "$BACKEND_SERVICE" "$GCP_REGION" "$BACKEND_REVISION_RETENTION" \
+            "$BACKEND_CURRENT" --rollback-revision "$BACKEND_ROLLBACK" \
+            --last-known-good-revision "$BACKEND_CURRENT" --apply --healthy --tags-only
+          bash scripts/ci/cloudrun-retention.sh "$FRONTEND_SERVICE" "$GCP_REGION" "$FRONTEND_REVISION_RETENTION" \
+            "$FRONTEND_CURRENT" --rollback-revision "$FRONTEND_ROLLBACK" \
+            --last-known-good-revision "$FRONTEND_CURRENT" --apply --healthy --tags-only
+          timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment production --phase post-release
 
       - name: Fail workflow when production release did not end healthy
         if: always()

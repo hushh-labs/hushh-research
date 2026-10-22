@@ -32,6 +32,65 @@ KYC, Connected Systems, and Connections. It replaced the top-bar
 `ActivityInbox` bell (which only ever surfaced Consent + background-task
 activity) with a real bottom-nav tab and a dedicated route, `/one/feed`.
 
+## Chat conversation presentation
+
+Circle photo sends show the original from mounted-view memory on the Send tap,
+with an explicit pending status until the server confirms delivery. Transcript
+confirmation reconciles the same sender/client identity even when the POST
+response is late; uncertain retries reuse the entire sealed payload unchanged.
+At most four sent originals remain in the mounted thread, and object URLs are
+released on hide, background, access loss, and unmount.
+
+New photo content may include a JPEG thumbnail of at most 1,536 bytes inside
+the authenticated encrypted attachment metadata. It arrives with the message
+and stays visible during the authorized original download; older messages still
+use the original image path. Serialized UTF-8 content must fit the existing
+24,000-character ciphertext limit, otherwise the optional thumbnail is omitted.
+Original photo bytes and existing recipient/membership authorization are unchanged.
+Recipients still wait for the sender's encrypted upload to commit.
+
+Circle detail entry relays only the selected circle's display name and member
+count while fresh reads resolve. Fresh overview can render before the member
+page; pending members occupy a bounded roster placeholder. Relayed summaries
+never grant controls or chat access, and detail authority is scoped to the
+current person and in-memory unlock identity.
+
+Circle messages share one Feed entry per Circle; received Direct Messages share
+one entry per authenticated conversation. The API groups before applying the
+cursor and page limit, using the newest immutable source event as the entry id.
+Other event types remain independent. `chat_thread_key`, `chat_message_count`
+and `chat_unread_count` are computed response metadata, never trusted from
+stored payloads. Feed unread counts count visible groups; the new-message count
+means unseen Feed events. Opening Feed marks that presentation seen without
+marking chat messages read. Dismissing the grouped entry hides it after ranking,
+so older messages do not resurface; genuinely new activity can make the group
+visible again. Clearing Feed updates server-owned rows through a source-id
+snapshot watermark.
+
+Client refresh/load-more deduplicates chat entries by thread key. Cursor
+continuity still requires overlapping source ids, since a moved conversation
+cannot prove there are no intervening events.
+
+Chat delivery extends the existing migration 290 pipeline: modern installations
+have their own encrypted preview key and durable provider acceptance receipt.
+Circle and direct workers reuse the same registry, ownership fences and retry
+contract. Committed Circle events wake the existing worker; its adaptive polling
+repairs missed events and full batches drain immediately.
+
+System presentation groups by conversation: web replaces an owner-key-scoped
+card and requests renotification; Android retains MessagingStyle children and a
+silent conversation summary; iOS uses the existing conversation thread.
+Authoritative unread counts enrich alert and read payloads for supported badges.
+Only a focused, readable matching conversation suppresses foreground sound.
+
+Read cleanup preserves Circle sequence and direct source-time/exact-message
+boundaries. Local web cleanup and native silent read synchronization persist a
+key-scoped presentation frontier against delayed alerts. Silent read pushes are
+limited to native platforms: Safari requires every Web Push to be user-visible.
+The iOS extension can silence a stale accepted alert but cannot discard it
+without Apple's restricted filtering entitlement. Physical delivery acceptance
+is documented in the [release checklist](../quality/circle-chat-notification-release-checklist.md).
+
 ## The `feed_events` table
 
 Migration `consent-protocol/db/migrations/117_feed_events.sql` adds a single,
@@ -100,6 +159,37 @@ mutation and retains that existing atomic policy.
 - `POST /api/one/feed/read` — marks unread rows read up to a given `id`.
   Fired once when the Feed page opens (Instagram/Twitter's "opening the tab
   clears the badge" convention), not per item.
+- `POST /api/one/feed/{item_id}/dismiss` and `/restore` — owner-scoped,
+  idempotent presentation-only hide and versioned Undo; neither changes source
+  activity. A dismissal returns a server token and `dismissed_ids`, every row it
+  hid; the page hides exactly those. Undo restores exactly that set, and only
+  while the token is current. Clear replaces tokens to supersede stale Undo.
+  Older members of a displayed Consent bundle are hidden with the selected row.
+  Removing a Drive outcome also hides earlier outcomes for that exact request.
+  Removing any Drive request row also hides the rows of that request the Feed
+  was folding behind it: the "Files are available" decision behind "No files
+  were shared", or the Pay row behind a payment or outcome. So nothing older
+  surfaces in its place after a refresh, on another device or after signing in
+  again. The server runs the same fold as the page
+  (`consent-protocol/hushh_mcp/services/feed_drive_fold.py`), and both test
+  suites read `consent-protocol/tests/fixtures/feed_drive_fold_cases.json`.
+  Drive rows the Feed shows remain independent history entries. Later activity
+  remains visible.
+- `POST /api/one/feed/clear` — marks the owner's current rows through
+  `up_to_id` hidden and read in one server update, plus any newer Drive row the
+  Feed was folding behind a cleared row. Newer visible rows remain visible.
+  Hidden state survives sign-out and other devices, and disappears with the
+  Feed rows on account deletion.
+- `POST /api/one/feed/sos-cards/clear` — Clear also clears ended (revoked or
+  expired) SOS cards. The clear is saved on the recipient's own received grant
+  (`recipient_cleared_at`, migration 346) by the Location service, behind the
+  vault owner token, so it holds on every device. The server never clears a
+  live share and never touches another person's grant, and the sender's view of
+  the grant does not include it. A clear an older release kept on one device is
+  copied to the server once, then removed from that device. If the server
+  cannot save a clear (a backend without this route, a failed request, or a
+  locked vault), the cards still leave and the clear is kept on that device the
+  same way, then copied on a later visit.
 
 The Feed tab's icon is fixed (no spinner or live-task overlay): the tab is a
 static navigational affordance, and unread state surfaces only through its
@@ -114,9 +204,16 @@ chronological Feed projection. Empty sections disappear:
 - **Live:** active location/emergency sharing.
 - **Needs you:** pending information, location, connection and Circle requests,
   Mail/KYC review and active Kai tasks, with existing vault/consent guards.
+- **Recent SMS alerts:** ended SMS incidents, grouped by sender. A sender with
+  an active SMS appears in Live instead, with earlier available incidents in
+  the same expandable group. Distinct people with the same name stay separate.
 - **Coming up:** up to three upcoming Calendar events.
 - **In progress:** Drive request search/sharing progress, grouped by request.
 - **History:** durable events grouped by Today, Yesterday and date.
+
+SMS liveness and Clear eligibility follow the server's received-grant status.
+While a live SOS is visible, Location status refreshes on the shared 10-second
+cadence, paused while hidden. Device clock skew cannot end a live emergency.
 
 The actionable and history mechanisms remain distinct:
 
@@ -142,6 +239,20 @@ The actionable and history mechanisms remain distinct:
 Both zones are built on the canonical `SettingsGroup` + `SettingsRow` list
 primitives (`FeedRow` for history, `FeedActionableRow` for the actionable
 zone), so the feed shares the app's list vocabulary.
+
+SMS groups are presentation over the existing received-grant resource. A new
+SMS can supersede an earlier grant; each incident keeps its own identity,
+status and original `createdAt` sent date/time, visible on phones. Revocation
+does not replace the sent time. Expiry removes Live treatment while Feed is
+mounted. Missing sent times are identified explicitly rather than fabricated.
+Ended incidents are readable in Feed and do not link to a live map that has
+already ended. The existing recipient-scoped Clear and cross-device persistence
+still apply only to ended incidents; active alerts cannot be cleared.
+
+The resource is bounded and subject to Location retention, so expansion shows
+recent available alerts, not a complete SMS archive. Durable location lifecycle
+events remain independent chronological history; matching display names do not
+authorize merging or deleting those source events.
 
 ## Person identity and responsive rows
 
@@ -311,4 +422,166 @@ only read as seen on the next open, matching Instagram's "opening clears the
 badge, the items you're looking at stay highlighted" behavior. `FEED_LIST`,
 `FEED_UNREAD_COUNT`, and `CONNECTIONS_INCOMING` (the actionable zone's
 connection-requests read) are all covered by `CacheService.invalidateUser`, so
-sign-out and account deletion purge them with the rest of the session.
+sign-out and account deletion purge them with the rest of the session. The page
+keeps no Feed rows in browser storage. Its only device keys are per account:
+the sound choice, and older releases' Clear watermark and SOS clears (or an SOS
+clear the server could not save yet) that wait for their server copy. Account
+delete and reset remove all of them
+(`forgetFeedDeviceState`); sign-out keeps them. An Undo toast belongs to the
+session that removed the row: sign-out or an account switch retires it, so a
+late tap restores nothing.
+
+## Device system chat notifications
+
+Direct and Circle messages use a durable outbox committed with the message.
+A two-second read grace period avoids interrupting someone already reading the
+chat. Workers claim one recipient at a time with a renewed 60-second lease and at most
+five attempts. They recheck source age, read state and current access before each
+device send. Direct messages require an active connection and no block in either
+direction; Circle messages require the original membership generation and an
+unmuted Circle. Messages older than one day are suppressed, and provider TTL/APNs
+expiration uses the original message time. Provider acceptance is recorded per
+installation/account, so a successful device is not retried when another device
+fails or its token rotates. Acceptance is neither device delivery nor a read
+receipt. A committed read clears delivered notifications on the reading device
+through that sequence or timestamp, retaining newer unread messages. Android
+conversation groups include a silent summary and alert only for child messages. A crash between provider acceptance and the ledger commit can still
+cause a retry; deterministic browser/Android event tags and APNs collapse IDs
+reduce repeated tray entries. Different messages retain distinct event identities.
+
+Notification previews use independent installation P-256 keys, ephemeral ECDH,
+HKDF-SHA256 and AES-256-GCM. The envelope is
+`[keyId, ephemeralUncompressedPoint, nonce, ciphertextAndTag]`, all binary fields
+base64url encoded; HKDF info is `hussh-chat-preview-v1:<keyId>` and authenticated
+context is `<keyId>:direct:<conversationId>:<messageId>` or
+`<keyId>:circle:<circleId>:<clientMessageId>`. Plaintext is bounded to 1800 UTF-8
+bytes and exists only while preparing/rendering the notification. Circle message
+snippets are sealed by the sender. Canonical sender name, stable sender reference,
+Circle name and avatar are separately sealed by the server as `chat_identity`;
+renderers take Circle identity only from that envelope. Direct chat retains its
+existing server-managed storage encryption; this change does not turn it into
+client end-to-end encrypted chat. Neither preview key can open the vault/history.
+
+The Android app replaces the vendor FCM service with one service that still
+forwards Capacitor foreground/token events. Preview-capable Android installations
+receive high-priority data messages and render native MessagingStyle notifications
+with sender name, avatar, conversation grouping, sound and a validated tap target.
+Legacy Android tokens retain automatic generic FCM alerts during rollout. Android
+uses a software P-256 preview key encrypted by a nonexportable Android Keystore
+AES key, supporting API 24+. Private lock-screen visibility exposes generic copy
+when Android's user settings hide sensitive contents.
+
+The iOS app embeds `ChatNotificationService.appex`. APNs alerts carry
+`mutable-content` and a generic fallback; the extension decrypts only preview
+keys and creates an incoming INSendMessageIntent communication notification with
+sender avatar/name and conversation/Circle threading. Its narrow shared Keychain
+item uses AfterFirstUnlockThisDeviceOnly. The app and extension must both have
+the `com.hussh.app.chatnotifications` Keychain access group; communication
+notifications capability must be enabled in signing profiles. Release CI passes
+`HUSSH_APP_ENTITLEMENTS` only to the app, preserving the extension's own entitlement
+file. A device reboot before its first unlock, extension deadline or unavailable
+preview leaves generic copy. iOS controls Focus, sound and lock-screen visibility.
+
+Web push uses its existing foreground acknowledgement bridge. When no visible
+page accepts a message, the service worker decrypts its nonexportable IndexedDB
+preview key and shows a system notification with the sender/Circle and avatar.
+Native and web paths fence preview key identity across account switching; logout
+clears only the matching account's installation keys and unregisters that device.
+Browser logout and key rotation also close delivered alerts carrying the old key,
+without closing another account's notifications.
+Denied native permission offers device Settings; foreground resume revalidates
+registration without automatically requesting permission. Key-storage failure
+preserves generic token registration. Missing/unsupported/oversized avatars use
+initials on native surfaces and the app icon on the web. Avatar preprocessing
+accepts bounded local rasters and only allowlisted HTTPS Google identity-image
+hosts, with no redirects. Payload budgeting leaves room below provider limits;
+optional avatar/preview information is omitted before sacrificing the alert.
+
+Release verification requires real devices and correctly provisioned builds:
+
+1. Apply migration 290 and deploy the workers; install the new app builds and
+   enable notifications from Feed.
+2. Send direct and Circle text/photo messages while the recipient app is
+   foregrounded, backgrounded, terminated, offline then reconnected, and locked.
+   Verify sender name/avatar, Circle title, preview, normal sound and correct tap.
+3. Verify two devices on the same account; rotate a token and switch accounts.
+   Confirm no sender/preview from the previous account and no removal of the
+   other device on logout.
+4. Read before dispatch, block/disconnect, mute/leave/rejoin a Circle, delete an
+   account, deny permission then allow it in Settings, and simulate one transient
+   device send failure. Confirm suppressed messages and bounded retries.
+5. Archive/sign the app and extension in Xcode with production APNs capabilities.
+   Android force-stop and device power/notification restrictions, and Apple Focus
+   or system restrictions can prevent immediate delivery; no push provider can
+   guarantee a visible alert in those states.
+
+Automated coverage uses disposable PostgreSQL migration replay/rollback, device
+ownership and retry tests, real Firebase wire encoding, browser/Python crypto
+interoperability with tampering/context negative controls, service-worker owner
+rotation, cold navigation and permission/logout contracts. These checks do not
+replace signed iOS builds or real device FCM/APNs delivery acceptance.
+
+### Verification and release acceptance
+
+Automated verification exercises the production chat components and service worker,
+real Firebase payload encoding, preview cryptography, and isolated PostgreSQL
+migration/service transactions. Browser service/auth/navigation fixtures are
+synthetic ports; they do not establish authenticated-route or physical-device
+acceptance. Signed iOS builds and real Android/iOS/Web Push delivery with the app
+backgrounded or closed remain required release checks.
+
+Rollout must follow migration 290's backward-compatible registry contract in
+`docs/reference/architecture/api-contracts.md`, then complete the device checklist
+above. A successful compile or provider acceptance does not establish system
+notification delivery on a physical device.
+
+## Connection and Circle chat experience
+
+Direct chat preserves reply, edit, reaction, emoji and voice actions. Circle uses
+the shared conversation composer and both surfaces use the app's chat bubbles.
+Their composers use 16px text, 44px actions and bounded multiline growth. Desktop
+Enter sends, Shift+Enter adds a newline, mobile Enter adds a newline, and active
+IME composition never sends. Circle photos are decoded before Send is enabled;
+an invalid image can be removed without losing its caption. The in-app image
+viewer has a 44px close action. Both surfaces use existing accent, surface,
+safe-area and keyboard contracts, including short phone/landscape layouts.
+
+Direct chat shows inbox and conversation together on desktop and navigates
+between them on phones. Its shared dock remains the composer owner; measured
+dock height reserves multiline/reply clearance above the keyboard. Reads check
+the bottom marker against the visible dock both before and after authentication.
+Conversation drafts survive selection changes; pending
+requests are fenced by owner and selection generation. An uncertain send retains
+its text and original client UUID, with an explicit retry. The server rechecks
+connection/block permissions and returns the original message on a matching
+retry. A different body or sender/conversation using that UUID receives a generic
+409. Concurrent retries commit one message, Feed projection and push outbox row.
+Definitive refusals unlock the draft for correction. This draft recovery is
+in-memory state, not a cross-device draft store.
+
+Date separators, grouped sender avatars/names, wrapped long text and real read
+receipts are consistent. Incoming realtime refreshes preserve older history and
+the reader's scroll position; own successful sends and the latest-messages action
+return to the end. Pagination restores the visible anchor and keeps its cursor
+after new messages or retries. No online/device-delivery claim is synthesized.
+
+Fetching messages does not mark them read. Both chats require a focused,
+foreground, visible conversation at the end, with no blocking authored layer,
+Radix modal or image viewer. Direct reads use the captured message's exact
+`(created_at,id)` boundary; equal timestamps do not swallow a later unread row.
+A message arriving during a read gets a trailing read when it becomes visible.
+Circle reads retain their sequence boundary. Read completion clears only the
+matching owner's delivered notifications through the boundary. For direct
+notifications, the exact last message is cleared together with strictly older
+millisecond timestamps, conservatively retaining a different unread event in the
+same millisecond.
+
+Verification uses production React components, CSS and fonts with explicit
+synthetic auth/navigation/service seams. Browser contracts cover 320px through
+1440px, light/dark, phone landscape, simulated native keyboard insets, modal read
+guards, IME, navigation races, uncertain retries and realtime/history behavior
+in Chromium, WebKit and mobile Chrome. These are component/browser proofs;
+authenticated app review, physical-device keyboards and actual FCM/APNs delivery
+remain release acceptance work. The disposable PostgreSQL tests execute real
+migrations and concurrent service transactions, including tuple-bound reads and
+permission failures.

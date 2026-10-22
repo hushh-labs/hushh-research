@@ -1,10 +1,11 @@
-"""Best-effort metadata FCM push to a user's registered devices.
+"""Metadata FCM push to a user's registered devices.
 
 Agent-agnostic notifier so any service can nudge a user's client to refresh
 (e.g. a freshly-created connection request). Mirrors the location specialist's
 metadata push but carries no domain coupling. It NEVER raises: push is
-strictly best-effort, and it no-ops (touching no DB) when Firebase is not
-configured, so unit tests and credential-less environments stay clean.
+best-effort outside source-backed system alerts. Core system alerts reuse the
+source-transaction outbox even during Firebase failure; other lanes retain
+their credential-less no-op behavior.
 """
 
 from __future__ import annotations
@@ -14,6 +15,12 @@ import uuid
 from urllib.parse import quote
 
 from hushh_mcp.branding import connection_request_body
+from hushh_mcp.services.push_tokens_service import (
+    PUSH_NOTIFICATION_DEVICES_FOR_USER_SQL as PUSH_TOKENS_FOR_USER_SQL,
+)
+from hushh_mcp.services.push_tokens_service import (
+    remove_stale_push_token,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +45,8 @@ def send_user_data_push(
     returns 0 (and swallows everything) when the user is empty, Firebase is
     unconfigured, the user has no tokens, or any send fails. Firebase config is
     checked FIRST so that unconfigured environments never touch the database.
+    Core source-backed alerts return currently registered installation count
+    while the durable worker owns provider acceptance and retries.
     ``platforms`` limits delivery to those registered platforms (for example
     native only); ``None`` keeps every registered device.
     """
@@ -45,6 +54,19 @@ def send_user_data_push(
     if not user_id:
         return 0
     try:
+        from hushh_mcp.services.system_push_delivery import durable_push_receipt
+
+        receipt = (
+            durable_push_receipt(user_id, notification_type, data or {})
+            if (
+                show_alert
+                and platforms is None
+                and str((data or {}).get("sync_only", "")).lower() != "true"
+            )
+            else None
+        )
+        if receipt is not None:
+            return receipt
         from api.utils.firebase_admin import ensure_firebase_admin
 
         configured, _ = ensure_firebase_admin()
@@ -56,7 +78,7 @@ def send_user_data_push(
         rows = (
             get_db()
             .execute_raw(
-                "SELECT token, platform FROM user_push_tokens WHERE user_id = :user_id",
+                PUSH_TOKENS_FOR_USER_SQL,
                 {"user_id": user_id},
             )
             .data
@@ -98,7 +120,15 @@ def send_user_data_push(
                 messaging,
                 token=token,
                 platform=platform,
-                data=message_data,
+                data={
+                    **message_data,
+                    **(
+                        {"recipient_key_id": str(row["preview_key_id"])}
+                        if notification_type in {"location_circle_chat_read", "direct_message_read"}
+                        and row.get("preview_key_id")
+                        else {}
+                    ),
+                },
                 title=title,
                 body=body,
                 request_url=deep_link,
@@ -110,10 +140,7 @@ def send_user_data_push(
                 sent += 1
             except (messaging.UnregisteredError, messaging.SenderIdMismatchError):
                 try:
-                    get_db().execute_raw(
-                        "DELETE FROM user_push_tokens WHERE token = :token",
-                        {"token": token},
-                    )
+                    remove_stale_push_token(get_db(), user_id, token)
                 except Exception as cleanup_exc:  # noqa: BLE001
                     logger.warning(
                         "push.token_cleanup_failed type=%s error=%s",
@@ -206,6 +233,18 @@ def _publish_connection_user_event(user_id: str, payload: dict[str, str]) -> Non
         logger.warning("push.sse_queue_failed type=%s error=%s", payload.get("type"), exc)
 
 
+def _canonical_push_message_id(
+    user_id: str, notification_type: str, data: dict, fallback: str
+) -> str:
+    try:
+        from hushh_mcp.services.system_push_delivery import durable_push_event_id
+
+        return durable_push_event_id(user_id, notification_type, data) or fallback
+    except Exception:
+        # A live doorbell still works while durable-dispatch recovery catches up.
+        return fallback
+
+
 def send_connection_graph_changed_push(
     user_id: str,
     *,
@@ -287,6 +326,9 @@ def send_connection_request_push(
     # The raw requester user id is deliberately absent: the client neither
     # routes nor renders from it, so sending it would widen the push payload
     # without adding a user-facing capability.
+    message_id = _canonical_push_message_id(
+        addressee_user_id, "connection_request", {"request_id": request_id}, message_id
+    )
     client_data = {
         "message_id": message_id,
         "requester_label": requester_name,
@@ -555,7 +597,10 @@ def send_direct_message_push(
     if not recipient or not conversation or not message:
         return 0
     notification_id = f"direct-message:{message}"
-    deep_link = f"/one/messages?conversationId={quote(conversation, safe='')}"
+    from hushh_mcp.services.direct_message_route_cipher import DirectMessageRouteCipher
+
+    route_token = DirectMessageRouteCipher().seal(recipient, "conversation", conversation)
+    deep_link = f"/one/messages?token={quote(route_token, safe='')}"
     return send_user_data_push(
         recipient,
         notification_type="direct_message",
@@ -567,6 +612,7 @@ def send_direct_message_push(
         data={
             "message_id": notification_id,
             "conversation_id": conversation,
+            "route_token": route_token,
             "direct_message_id": message,
         },
         # Firebase does not need a raw recipient id to route an opaque message
@@ -596,6 +642,8 @@ def _send_circle_user_event(
     """
 
     message_id = f"{notification_type}:{uuid.uuid4()}"
+    if show_alert and str(data.get("sync_only", "")).lower() != "true":
+        message_id = _canonical_push_message_id(user_id, notification_type, data, message_id)
     client_data = {**data, "message_id": message_id}
     try:
         from api.consent_listener import publish_user_state_event_threadsafe

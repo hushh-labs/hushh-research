@@ -1,0 +1,10 @@
+{
+  "name": "obs_agent_chat_first_visible_count",
+  "description": "Count of completed-turn logs with a measured first-visible timing",
+  "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"__BACKEND_SERVICE__\" AND textPayload=~\"one_agent_chat_turn_complete .* first_visible_ms=[0-9]+ \"",
+  "metricDescriptor": {
+    "metricKind": "DELTA",
+    "valueType": "INT64",
+    "unit": "1"
+  }
+}

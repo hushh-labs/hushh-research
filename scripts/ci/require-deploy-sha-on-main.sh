@@ -47,23 +47,55 @@ fi
 # on the dev lane, 2026-08-07, run 31145632745. Every release lane calls this
 # script, so the same commit would have blocked uat, production and both iOS
 # lanes identically.
-PAYLOAD_FILE="$(mktemp)"
-trap 'rm -f "$PAYLOAD_FILE"' EXIT
+PAYLOAD_DIR="$(mktemp -d)"
+trap 'rm -rf "$PAYLOAD_DIR"' EXIT
 
-curl -fsSL \
-  -H "Accept: application/vnd.github+json" \
-  -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-  -H "X-GitHub-Api-Version: 2022-11-28" \
-  "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${TARGET_SHA}/check-runs?per_page=100" \
-  -o "$PAYLOAD_FILE"
+# One request per accepted name, filtered by GitHub (check_name). The
+# unfiltered list is newest first and is never de-duplicated across workflow
+# runs, so its first page of 100 can fill with newer checks on an idle main
+# head (each Capacity Maintenance pass adds its jobs there) and lose the push-
+# time "Main Post-Merge Smoke Gate" entirely.
+index=0
+IFS=',' read -r -a requested_names <<< "$REQUIRED_CHECK_NAME"
+for requested in "${requested_names[@]}"; do
+  name="$(printf '%s' "$requested" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+  [ -n "$name" ] || continue
+  index=$((index + 1))
+  curl -fsSL -G \
+    -H "Accept: application/vnd.github+json" \
+    -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+    -H "X-GitHub-Api-Version: 2022-11-28" \
+    --data-urlencode "check_name=${name}" \
+    --data-urlencode "per_page=100" \
+    "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${TARGET_SHA}/check-runs" \
+    -o "$PAYLOAD_DIR/$index.json"
+done
 
-python3 - "$TARGET_SHA" "$REQUIRED_BRANCH" "$REQUIRED_CHECK_NAME" "$PAYLOAD_FILE" <<'PY'
+# Dev may explicitly accept a full manual branch verdict. Bind that new label
+# to the canonical Actions workflow/event and check suite; never trust its name
+# or follow a caller-controlled details_url. Other release names stay unchanged.
+for requested in "${requested_names[@]}"; do
+  name="$(printf '%s' "$requested" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+  [ "$name" = "Branch Validation Gate" ] || continue
+  mkdir -p "$PAYLOAD_DIR/provenance"
+  curl -fsSL -G \
+    -H "Accept: application/vnd.github+json" \
+    -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+    -H "X-GitHub-Api-Version: 2022-11-28" \
+    --data-urlencode "event=workflow_dispatch" \
+    --data-urlencode "head_sha=${TARGET_SHA}" \
+    --data-urlencode "per_page=100" \
+    "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
+    -o "$PAYLOAD_DIR/provenance/branch.json"
+  break
+done
+
+python3 - "$TARGET_SHA" "$REQUIRED_BRANCH" "$REQUIRED_CHECK_NAME" "$PAYLOAD_DIR" <<'PY'
 import json
 import sys
 from pathlib import Path
 
-sha, branch, check_name, payload_path = sys.argv[1:]
-payload = json.loads(Path(payload_path).read_text(encoding="utf-8"))
+sha, branch, check_name, payload_dir = sys.argv[1:]
 
 # REQUIRED_CHECK_NAME accepts a comma-separated any-of list because the
 # authoritative full-CI check differs by commit kind: PR heads carry
@@ -72,7 +104,9 @@ payload = json.loads(Path(payload_path).read_text(encoding="utf-8"))
 # value keeps the historical exact-match behavior.
 accepted_names = [name.strip() for name in check_name.split(",") if name.strip()]
 
-check_runs = payload.get("check_runs", [])
+check_runs = []
+for page in sorted(Path(payload_dir).glob("*.json")):
+    check_runs.extend(json.loads(page.read_text(encoding="utf-8")).get("check_runs", []))
 matches = [run for run in check_runs if run.get("name") in accepted_names]
 if not matches:
     available = ", ".join(sorted({str(run.get("name")) for run in check_runs if run.get("name")})) or "<none>"
@@ -81,7 +115,38 @@ if not matches:
         f"Available checks: {available}"
     )
 
-successful = [run for run in matches if run.get("conclusion") == "success"]
+def verified_branch_check(check):
+    if check.get("name") != "Branch Validation Gate":
+        return True
+    if (
+        check.get("head_sha") != sha
+        or check.get("status") != "completed"
+        or check.get("app", {}).get("id") != 15368
+        or check.get("app", {}).get("slug") != "github-actions"
+    ):
+        return False
+    suite = check.get("check_suite", {}).get("id")
+    if type(suite) is not int or suite <= 0:
+        return False
+    payload = Path(payload_dir) / "provenance/branch.json"
+    # A bounded API page can refuse an old run, never authorize an unobserved
+    # one. A fresh full dispatch supplies a current receipt if the page is full.
+    runs = json.loads(payload.read_text(encoding="utf-8")).get("workflow_runs", [])
+    return any(
+        run.get("head_sha") == sha
+        and run.get("check_suite_id") == suite
+        and run.get("path") == ".github/workflows/ci.yml"
+        and run.get("event") == "workflow_dispatch"
+        and run.get("status") == "completed"
+        and run.get("conclusion") == "success"
+        for run in runs
+    )
+
+
+successful = [
+    run for run in matches
+    if run.get("conclusion") == "success" and verified_branch_check(run)
+]
 if not successful:
     conclusions = ", ".join(
         f"{run.get('name')}={run.get('conclusion') or 'unknown'}" for run in matches

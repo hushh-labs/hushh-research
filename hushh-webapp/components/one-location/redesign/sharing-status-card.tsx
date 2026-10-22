@@ -242,7 +242,7 @@ export function SharingStatusCard({
             </span>
           </button>
 
-          <h2 className="mt-3.5 text-[25px] font-bold leading-none tracking-[-0.4px] text-[#1c1c2e] dark:text-[color:var(--app-label)]">
+          <h2 className="mt-3.5 text-[25px] font-semibold leading-none tracking-[-0.4px] text-[#1c1c2e] dark:text-[color:var(--app-label)]">
             {title}
           </h2>
           <p className="mt-1.5 max-w-[210px] text-[15px] leading-[20px] text-[#8E8E93] dark:text-[color:var(--app-secondary-label)]">

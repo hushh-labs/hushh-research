@@ -3,7 +3,6 @@
 import type { ReactNode } from "react";
 import { Loader2 } from "@/components/icons";
 
-import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { cn } from "@/lib/utils";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
@@ -41,17 +40,20 @@ export function ContactAvatar({
   photoUrl,
   className,
   verified = false,
+  fromContacts = false,
 }: {
   label: string;
   photoUrl?: string | null;
   className?: string;
   verified?: boolean;
+  fromContacts?: boolean;
 }) {
   return (
     <ConnectionPersonAvatar
       label={label}
       photoUrl={photoUrl}
       verified={verified}
+      fromContacts={fromContacts}
       className={cn("h-9 w-9 text-[15px]", className)}
     />
   );
@@ -87,7 +89,7 @@ export function EmptyStateCard({ message }: { message: string }) {
 /**
  * The Add / Remove control that ends a person row.
  *
- * `ready === false` means the person has not finished Location or phone setup,
+ * `ready === false` means receiving-key readiness is unavailable,
  * so adding them would silently produce a contact who receives nothing. The
  * button says "Setup" rather than going disabled-and-silent, because the row
  * still has to explain why it will not act.
@@ -99,6 +101,7 @@ export function ContactRowAction({
   label,
   onAdd,
   onRemove,
+  addDisabled = false,
 }: {
   selected: boolean;
   busy: boolean;
@@ -106,6 +109,7 @@ export function ContactRowAction({
   label: string;
   onAdd: () => void;
   onRemove: () => void;
+  addDisabled?: boolean;
 }) {
   if (selected) {
     return (
@@ -124,7 +128,7 @@ export function ContactRowAction({
     <button
       type="button"
       onClick={onAdd}
-      disabled={busy || !ready}
+      disabled={busy || !ready || addDisabled}
       aria-label={`Add ${label}`}
       className="press-scale flex h-8 min-w-[58px] items-center justify-center rounded-full bg-[color:var(--app-accent)] px-3 text-[13px] font-semibold text-[color:var(--app-accent-fg)] disabled:bg-[color:var(--app-neutral-fill-strong)] disabled:text-[color:var(--app-tertiary-label)]"
     >
@@ -144,6 +148,7 @@ export function ContactRow({
   ready,
   onAdd,
   onRemove,
+  addDisabled,
 }: {
   label: string;
   photoUrl?: string | null;
@@ -155,21 +160,19 @@ export function ContactRow({
   ready: boolean;
   onAdd: () => void;
   onRemove: () => void;
+  addDisabled?: boolean;
 }) {
   return (
     <div
       className="flex min-h-[58px] items-center gap-3 px-3.5 py-2"
       data-testid="contact-picker-row"
     >
-      <ContactAvatar label={label} photoUrl={photoUrl} verified={verified} />
+      <ContactAvatar label={label} photoUrl={photoUrl} verified={verified} fromContacts={fromContacts} />
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-start gap-1.5">
-          <span className="min-w-0 flex-1 truncate text-[17px] font-normal leading-[22px] text-[color:var(--app-label)]">
+          <span className="min-w-0 truncate text-[17px] font-normal leading-[22px] text-[color:var(--app-label)]">
             {label}
           </span>
-          {fromContacts ? (
-            <ContactSourceBadge className="mt-px shrink-0" />
-          ) : null}
         </span>
         {subtitle ? (
           <span className="mt-0.5 block truncate text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
@@ -184,6 +187,7 @@ export function ContactRow({
         label={label}
         onAdd={onAdd}
         onRemove={onRemove}
+        addDisabled={addDisabled}
       />
     </div>
   );

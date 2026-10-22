@@ -178,6 +178,7 @@ export async function syncOneLocationContactSignals({
   signal,
   source,
   onInviteCandidates,
+  context,
 }: {
   /** Existing callers may provide an already-resolved Firebase token. */
   idToken?: string;
@@ -205,6 +206,8 @@ export async function syncOneLocationContactSignals({
   source?: MarketplaceContactSource;
   /** Client-only, session-scoped recipients. Never part of the API/result object. */
   onInviteCandidates?: (candidates: InviteCandidate[]) => void;
+  /** Initial signup never reopens a disconnected relationship. */
+  context?: "signup";
 }): Promise<OneLocationContactSignalResult> {
   // The web Contact Picker requires transient user activation. Its own read
   // reports availability, so avoid any async bridge/auth work before select().
@@ -286,6 +289,7 @@ export async function syncOneLocationContactSignals({
           idToken: resolvedIdToken,
           lookups: batch,
           signal,
+          ...(context ? { context } : {}),
         });
         break;
       } catch (error) {
@@ -369,6 +373,13 @@ export async function syncOneLocationContactSignals({
     }
     if (contact.lookupIds.some((lookupId) => unknownLookupIds.has(lookupId))) {
       unknownContactCount += 1;
+      continue;
+    }
+    if (contact.normalizationIncomplete) {
+      // Preserve positive matches above, but never invite a mixed-number
+      // contact whose national number could not be checked. This is identity
+      // recovery, not lookup-cap overflow, so its retry remains truthful.
+      uncheckedReadableContactCount += 1;
       continue;
     }
     // A partially covered multi-number contact cannot truthfully be called

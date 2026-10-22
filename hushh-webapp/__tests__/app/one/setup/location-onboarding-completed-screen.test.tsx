@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LocationOnboardingSetupClient } from "@/app/one/setup/location/location-onboarding-setup-client";
@@ -9,6 +9,15 @@ const coordinatorMocks = vi.hoisted(() => ({
   finish: vi.fn(),
   skip: vi.fn(),
 }));
+
+import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
+
+const legacyMocks = vi.hoisted(() => ({ userId: "user_a", runId: null as string | null, get: vi.fn() }));
+vi.mock("@/lib/firebase/auth-context", () => ({ useAuth: () => ({ userId: legacyMocks.userId }) }));
+vi.mock("@/components/one-location/onboarding/location-onboarding-interaction-surface", () => ({
+  useOptionalOneLocationInteractionSurface: () => legacyMocks.runId ? { currentRun: { runId: legacyMocks.runId } } : null,
+}));
+vi.mock("@/lib/services/one-location-onboarding-run-client", () => ({ OneLocationOnboardingRunClient: { get: legacyMocks.get } }));
 
 const readinessMocks = vi.hoisted(() => ({ live: false }));
 
@@ -45,7 +54,7 @@ vi.mock("@/lib/morphy-ux/morphy", () => ({
   morphyToast: {},
 }));
 
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
   usePublishVoiceSurfaceMetadata: vi.fn(),
 }));
 
@@ -53,6 +62,10 @@ describe("completed Location onboarding re-entry", () => {
   beforeEach(() => {
     coordinatorMocks.isAlreadyComplete = false;
     coordinatorMocks.returnToSetup.mockReset();
+    coordinatorMocks.finish.mockReset();
+    legacyMocks.userId = "user_a";
+    legacyMocks.runId = null;
+    legacyMocks.get.mockReset();
     readinessMocks.live = false;
   });
 
@@ -91,4 +104,47 @@ describe("completed Location onboarding re-entry", () => {
       expect(coordinatorMocks.returnToSetup).toHaveBeenCalledTimes(1);
     });
   });
+  it("acknowledges legacy finish only from fresh verified server evidence", async () => {
+    legacyMocks.runId = "run_aaaaaaaaaaaaaaaa";
+    legacyMocks.get.mockResolvedValue({ run: { runId: legacyMocks.runId, status: "verified_succeeded", completionClaimAllowed: true } });
+    render(<LocationOnboardingSetupClient />);
+    const handler = resolveLocalOnboardingHandler("setup.finish_location")!;
+    let result;
+    await act(async () => { result = await handler({}); });
+    expect(result).toMatchObject({ status: "succeeded" });
+    expect(legacyMocks.get).toHaveBeenCalledWith(legacyMocks.runId, { expectedUserId: "user_a" });
+    expect(coordinatorMocks.returnToSetup).toHaveBeenCalledOnce();
+    expect(coordinatorMocks.finish).not.toHaveBeenCalled();
+  });
+
+  it("keeps the legacy finish blocked without verified server completion", async () => {
+    legacyMocks.runId = "run_aaaaaaaaaaaaaaaa";
+    legacyMocks.get.mockResolvedValue({ run: { runId: legacyMocks.runId, status: "interaction_required", completionClaimAllowed: false } });
+    render(<LocationOnboardingSetupClient />);
+    const result = await resolveLocalOnboardingHandler("setup.finish_location")!({});
+    expect(result.status).toBe("blocked");
+    expect(coordinatorMocks.returnToSetup).not.toHaveBeenCalled();
+    expect(coordinatorMocks.finish).not.toHaveBeenCalled();
+  });
+
+  it("discards a legacy verification response after the owner changes and returns", async () => {
+    legacyMocks.runId = "run_aaaaaaaaaaaaaaaa";
+    let release!: (result: unknown) => void;
+    legacyMocks.get.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    const { rerender } = render(<LocationOnboardingSetupClient />);
+    const pending = resolveLocalOnboardingHandler("setup.finish_location")!({});
+    legacyMocks.userId = "user_b";
+    rerender(<LocationOnboardingSetupClient />);
+    legacyMocks.userId = "user_a";
+    rerender(<LocationOnboardingSetupClient />);
+    let result;
+    await act(async () => {
+      release({ run: { runId: legacyMocks.runId, status: "verified_succeeded", completionClaimAllowed: true } });
+      result = await pending;
+    });
+    expect(result).toMatchObject({ status: "blocked" });
+    expect(coordinatorMocks.returnToSetup).not.toHaveBeenCalled();
+    expect(coordinatorMocks.finish).not.toHaveBeenCalled();
+  });
+
 });

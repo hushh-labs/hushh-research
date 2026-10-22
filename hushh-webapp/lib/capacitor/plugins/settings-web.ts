@@ -23,6 +23,8 @@ const DEFAULT_SETTINGS: HushhSettingsData = {
 };
 
 export class HushhSettingsWeb implements HushhSettingsPlugin {
+  async getFeedbackCapabilities() { return { interactionFeedback: false }; }
+  async interactionFeedback() { return { accepted: false }; }
   private cachedSettings: HushhSettingsData | null = null;
 
   async getSettings(): Promise<HushhSettingsData> {

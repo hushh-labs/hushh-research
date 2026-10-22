@@ -26,8 +26,9 @@ export function visibleFollowUps(
 }
 
 /**
- * Tapping a follow-up fills the composer: the
- * person can read, edit, or discard it before anything is sent.
+ * Tapping a follow-up invokes the caller-owned next turn. The workspace sends
+ * a guarded turn immediately; other consumers can keep their own selection
+ * behaviour.
  *
  * Each suggestion is a semantic button with a quiet text-row presentation and
  * a 44-point target. It carries the shared ripple itself and
@@ -35,14 +36,17 @@ export function visibleFollowUps(
  */
 export function AgentFollowUpSuggestions({
   suggestions,
+  disabled = false,
   onSelect,
 }: {
   suggestions: readonly string[];
+  disabled?: boolean;
   onSelect: (suggestion: string) => void;
 }) {
   return (
     <AgentSuggestionList
       suggestions={suggestions}
+      disabled={disabled}
       label="Suggested follow-ups"
       testId="agent-follow-up-suggestions"
       onSelect={onSelect}
@@ -67,7 +71,7 @@ export function AgentSuggestionList({ suggestions, label, testId, disabled = fal
       role="group"
       aria-label={label}
       className={layout === "starter-grid"
-        ? "mt-4 mb-2 grid w-full max-w-2xl grid-cols-1 auto-rows-fr gap-1 text-left sm:grid-cols-3 sm:gap-4"
+        ? "mt-3 mb-1 grid w-full max-w-2xl grid-cols-1 auto-rows-fr gap-0.5 text-left sm:grid-cols-3 sm:gap-3"
         : "mb-2 flex w-full max-w-2xl flex-col items-start gap-0.5 text-left"}
     >
       {suggestions.map((suggestion, index) => (
@@ -77,21 +81,21 @@ export function AgentSuggestionList({ suggestions, label, testId, disabled = fal
           disabled={disabled}
           onClick={() => onSelect(suggestion)}
           className={`relative inline-flex !h-auto max-w-full !justify-start overflow-hidden !rounded-lg !border-0 !bg-transparent text-left text-sm font-medium !shadow-none transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 active:!scale-100 disabled:pointer-events-none disabled:opacity-60 ${layout === "starter-grid"
-            ? "!min-h-11 w-full items-center gap-3 !px-0 !py-2 text-foreground hover:text-[color:var(--app-accent-deep)]"
+            ? "!min-h-11 w-full items-start gap-3 !px-0 !py-1.5 text-foreground"
             : "!min-h-11 items-center gap-2 !px-2 !py-2 text-muted-foreground hover:text-foreground"}`}
         >
           {layout === "starter-grid" ? (
-            <span aria-hidden className="flex h-8 w-8 shrink-0 items-center gap-1 text-[color:var(--app-accent-deep)]">
-              <span className="text-xs font-medium tabular-nums">{String(index + 1).padStart(2, "0")}</span>
+            <span aria-hidden className="flex h-6 w-8 shrink-0 items-center gap-1 text-current">
+              <span data-profile-role="group-label" className="text-xs font-medium tabular-nums">{String(index + 1).padStart(2, "0")}</span>
               <ChevronRight className="h-3 w-3" />
             </span>
           ) : null}
-          <span className="min-w-0 whitespace-normal leading-6">{suggestion}</span>
+          <span data-profile-role={layout === "starter-grid" ? "label" : undefined} className="min-w-0 whitespace-normal leading-6 [overflow-wrap:anywhere]">{suggestion}</span>
           {layout === "list" ? <ChevronRight
             className="h-4 w-4 shrink-0 text-[color:var(--app-accent-deep)]"
             aria-hidden
           /> : null}
-          <MaterialRipple variant="none" effect="glass" disabled={disabled} />
+          <MaterialRipple variant="none" effect="glass" disabled={disabled} disableHover={layout === "starter-grid"} />
         </button>
       ))}
     </div>

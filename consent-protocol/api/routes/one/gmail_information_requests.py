@@ -57,6 +57,7 @@ class SendReplyRequest(BaseModel):
     body: str = Field(min_length=1, max_length=50_000)
     html_body: str | None = Field(default=None, max_length=50_000)
     action_id: str = Field(min_length=1, max_length=128)
+    sender_token: str | None = Field(default=None, min_length=32, max_length=32768)
 
 
 def _service():
@@ -473,6 +474,7 @@ async def send_information_request_reply(
                 user_id=user_id,
                 workflow_id=workflow_id,
                 action_id=payload.action_id,
+                sender_token=payload.sender_token,
                 body=payload.body,
                 html_body=payload.html_body,
             ),

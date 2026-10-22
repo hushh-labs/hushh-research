@@ -73,7 +73,7 @@ function replacementTitle(count: number): string {
 }
 
 /**
- * The amber read-back under the confirm step's recipient rail.
+ * The quiet read-back under the confirm step's recipient rail.
  *
  * Renders nothing when there is nothing to give up, which is the ordinary case
  * — a first share, or a longer one. A warning that appears on every share is a
@@ -95,6 +95,7 @@ export function ShareReplacementNotice({
       data-testid="one-location-share-replacement-notice"
     >
       <WarningCard
+        tone="neutral"
         title={replacementTitle(rows.length)}
         description={
           single && rows[0]

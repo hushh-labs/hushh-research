@@ -43,6 +43,7 @@ export function PkmSettingsShell({
   children: ReactNode;
 }) {
   const pathname = usePathname();
+  const isMemoryWorkspace = pathname === ROUTES.PKM;
   const shellRef = useRef<HTMLDivElement | null>(null);
 
   usePageEnterAnimation(shellRef, {
@@ -112,7 +113,7 @@ export function PkmSettingsShell({
   }, [pathname]);
 
   return (
-    <AppPageShell as="div" width={shellWidth}>
+    <AppPageShell as="div" width={shellWidth} headerContentSpacing={titleRole === "agent" && !isMemoryWorkspace ? "compact" : "standard"}>
       <AppPageHeaderRegion>
         <div className={cn("w-full", innerClassName)}>
           <PageHeader
@@ -126,7 +127,7 @@ export function PkmSettingsShell({
         </div>
       </AppPageHeaderRegion>
 
-      <AppPageContentRegion>
+      <AppPageContentRegion className={isMemoryWorkspace ? "!mt-4" : undefined}>
         <div ref={shellRef} className={cn("w-full space-y-4", innerClassName)}>
           <div data-pkm-detail-panel="true" data-pkm-workspace={pathname === ROUTES.PKM || pathname?.startsWith(`${ROUTES.PKM}/`) ? "true" : undefined}>
             <SurfaceStack compact>{children}</SurfaceStack>

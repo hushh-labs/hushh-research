@@ -6,6 +6,9 @@ runs, so oversized path segments are rejected with 422 ahead of any auth or
 enablement check.
 """
 
+from unittest.mock import MagicMock
+
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -58,3 +61,31 @@ def test_consent_events_web_fallback_flag_can_disable_uat(monkeypatch):
 
     assert resp.status_code == 410
     assert resp.json()["detail"]["error_code"] == "CONSENT_SSE_DISABLED"
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_consent_delivery_discovery_returns_runtime_flag_without_opening_stream(
+    monkeypatch, enabled
+):
+    monkeypatch.setenv("CONSENT_WEB_FALLBACK_ENABLED", str(enabled).lower())
+    monkeypatch.setattr(sse, "verify_firebase_bearer", lambda _authorization: "user-1")
+    generator = MagicMock()
+    monkeypatch.setattr(sse, "consent_event_generator", generator)
+    response = _client().get(
+        "/api/consent/events/user-1?capabilities=1",
+        headers={"Authorization": "Bearer synthetic-token"},
+    )
+    assert response.status_code == 200
+    assert response.json() == {"enabled": enabled}
+    assert response.headers["cache-control"] == "private, no-store"
+    generator.assert_not_called()
+
+
+def test_consent_delivery_discovery_requires_matching_owner(monkeypatch):
+    monkeypatch.setenv("CONSENT_WEB_FALLBACK_ENABLED", "false")
+    monkeypatch.setattr(sse, "verify_firebase_bearer", lambda _authorization: "other-owner")
+    response = _client().get(
+        "/api/consent/events/user-1?capabilities=1",
+        headers={"Authorization": "Bearer synthetic-token"},
+    )
+    assert response.status_code == 403

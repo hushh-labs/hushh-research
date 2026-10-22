@@ -17,9 +17,9 @@ describe("location onboarding progress", () => {
       ),
     ).toBe("ready");
     rerender({ userId: "b", mode: "setup" });
-    expect(result.current.screen).toBe("welcome");
+    expect(result.current.screen).toBe("features");
     rerender({ userId: "a", mode: "workspace" });
-    expect(result.current.screen).toBe("welcome");
+    expect(result.current.screen).toBe("features");
     rerender({ userId: "a", mode: "setup" });
     expect(result.current.screen).toBe("ready");
     unmount();
@@ -32,7 +32,7 @@ describe("location onboarding progress", () => {
     expect(
       renderHook(() => useLocationOnboardingProgress("a", "setup")).result
         .current.screen,
-    ).toBe("welcome");
+    ).toBe("features");
   });
 
   it.each(["garbage", "place"])(
@@ -46,7 +46,7 @@ describe("location onboarding progress", () => {
         useLocationOnboardingProgress("a", "setup"),
       );
       expect(result.current.screen).toBe(
-        stored === "place" ? "features" : "welcome",
+        "features",
       );
     },
   );

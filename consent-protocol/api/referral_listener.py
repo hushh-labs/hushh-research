@@ -34,13 +34,13 @@ logger = logging.getLogger(__name__)
 
 CHANNEL = "one_referral_changed"
 
-# One queue per referrer with an open stream on THIS instance. Bounded, because
+# One bounded queue per authenticated stream on THIS instance. Bounded, because
 # a client that stops reading must not be able to grow a queue without limit --
 # and because a referrer who has fallen behind by more than a few doorbells
 # learns nothing extra from the older ones.
 _QUEUE_MAXSIZE = 16
 
-_queues: Dict[str, asyncio.Queue] = {}
+_queues: Dict[str, set[asyncio.Queue]] = {}
 _queues_lock = asyncio.Lock()
 _listener_active = False
 _serving_loop: asyncio.AbstractEventLoop | None = None
@@ -48,22 +48,26 @@ _serving_loop: asyncio.AbstractEventLoop | None = None
 
 def get_referral_queue(user_id: str) -> asyncio.Queue:
     """The queue a referrer's open stream reads from."""
-    if user_id not in _queues:
-        _queues[user_id] = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
-    return _queues[user_id]
+    queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
+    _queues.setdefault(user_id, set()).add(queue)
+    return queue
 
 
-async def release_referral_queue(user_id: str) -> None:
-    """Drop the queue when the last stream for this referrer closes."""
+async def release_referral_queue(user_id: str, queue: asyncio.Queue) -> None:
+    """Remove only this device's stream; other devices keep their own queue."""
     async with _queues_lock:
-        _queues.pop(user_id, None)
+        subscribers = _queues.get(user_id)
+        if subscribers is not None:
+            subscribers.discard(queue)
+            if not subscribers:
+                _queues.pop(user_id, None)
 
 
 def get_referral_listener_status() -> dict:
     return {
         "active": _listener_active,
         "channel": CHANNEL,
-        "queue_count": len(_queues),
+        "queue_count": sum(len(queues) for queues in _queues.values()),
     }
 
 
@@ -75,15 +79,26 @@ def _push(user_id: str, data: Dict[str, Any]) -> None:
     doorbell costs a few seconds of staleness, while blocking the LISTEN
     callback would stall every other referrer's stream behind it.
     """
-    queue = _queues.get(user_id)
-    if queue is None:
-        return
-    try:
-        queue.put_nowait(data)
-    except asyncio.QueueFull:
-        logger.debug("referral_listener.queue_full user_id=%s", user_id)
-    except Exception:  # noqa: BLE001 -- a listener callback must never die
-        logger.exception("referral_listener.push_failed")
+    for queue in tuple(_queues.get(user_id, ())):
+        try:
+            if queue.full():
+                queue.get_nowait()  # retain the newest state-change doorbell
+            queue.put_nowait(data)
+        except Exception:
+            logger.exception("referral_listener.push_failed")
+
+
+def _broadcast(message: Dict[str, Any]) -> None:
+    # This doorbell contains no balances, membership or identity information.
+    for user_id in list(_queues):
+        _push(user_id, message)
+
+
+def _deliver(user_id: str, message: Dict[str, Any]) -> None:
+    if user_id:
+        _push(user_id, message)
+    else:
+        _broadcast(message)
 
 
 def _notify_callback(connection, pid, channel, payload: str) -> None:
@@ -94,18 +109,23 @@ def _notify_callback(connection, pid, channel, payload: str) -> None:
         logger.warning("referral_listener.bad_payload")
         return
 
-    user_id = str(data.get("referrer_user_id") or "").strip()
-    if not user_id:
+    if not isinstance(data, dict):
         return
-
+    user_id = str(data.get("referrer_user_id") or "").strip()
     message = {"reason": str(data.get("reason") or "changed")}
+    if not user_id and message["reason"] not in {
+        "leaderboard_published",
+        "weekly_prizes_enabled",
+        "circle_wars_changed",
+    }:
+        return
 
     loop = _serving_loop
     if loop is not None and loop.is_running():
         # asyncpg may deliver on a different loop than the one serving requests.
-        loop.call_soon_threadsafe(_push, user_id, message)
+        loop.call_soon_threadsafe(_deliver, user_id, message)
     else:
-        _push(user_id, message)
+        _deliver(user_id, message)
 
 
 async def run_referral_listener() -> None:

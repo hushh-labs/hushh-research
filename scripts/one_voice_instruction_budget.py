@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
-"""Report the real One Voice instruction and declaration payload without a provider call."""
+"""Measure the canonical One Voice workload without a provider call.
+
+Fixed screen, owner and clock inputs isolate authored payload growth from
+calendar changes. This is not a ceiling for every live owner/session context;
+production continues to use its actual clock.
+"""
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "consent-protocol"))
@@ -21,26 +29,46 @@ BUDGET_PATH = (
     / "contracts"
     / "one_voice_performance_budget.v1.json"
 )
+BENCHMARK_NOW = datetime(2026, 10, 5, 14, 6, 55, tzinfo=timezone.utc)
 
 
 def measure() -> dict[str, int]:
-    declarations = registry.declarations()
-    instruction = build_instruction(
-        tool_declarations=declarations,
-        screen_ids=list(OPENABLE_SCREENS),
-        screen_id="one_home",
-        display_name=None,
-    )
-    schema = json.dumps(declarations, ensure_ascii=False, separators=(",", ":"))
-    return {
-        "instruction_chars": len(instruction),
-        "instruction_utf8_bytes": len(instruction.encode("utf-8")),
-        "tool_count": len(declarations),
-        "tool_schema_json_bytes": len(schema.encode("utf-8")),
-        "tool_description_chars": sum(
-            len(str(item.get("description") or "")) for item in declarations
-        ),
+    # Measure the declarations a real client can receive, not the static
+    # projection (which intentionally contains mutually exclusive legacy and
+    # versioned mail paths). Turn on optional mail gates for the worst case.
+    gates = {
+        "ONE_VOICE_MAIL_READS_ENABLED": "true",
+        "ONE_VOICE_MAIL_REPLY_ENABLED": "true",
+        "ONE_VOICE_MAIL_DRAFTS_ENABLED": "true",
+        "ONE_VOICE_MAIL_SCHEDULE_SEND_ENABLED": "true",
+        "MAIL_SCHEDULED_DRAIN_ENABLED": "true",
     }
+    variants: list[dict[str, int]] = []
+    with patch.dict(os.environ, gates):
+        for review_supported in (False, True):
+            declarations = registry.runtime_declarations(
+                mail_review_supported=review_supported
+            )
+            instruction = build_instruction(
+                tool_declarations=declarations,
+                screen_ids=list(OPENABLE_SCREENS),
+                screen_id="one_home",
+                display_name=None,
+                now=BENCHMARK_NOW,
+            )
+            schema = json.dumps(declarations, ensure_ascii=False, separators=(",", ":"))
+            variants.append(
+                {
+                    "instruction_chars": len(instruction),
+                    "instruction_utf8_bytes": len(instruction.encode("utf-8")),
+                    "tool_count": len(declarations),
+                    "tool_schema_json_bytes": len(schema.encode("utf-8")),
+                    "tool_description_chars": sum(
+                        len(str(item.get("description") or "")) for item in declarations
+                    ),
+                }
+            )
+    return {key: max(variant[key] for variant in variants) for key in variants[0]}
 
 
 def main() -> int:

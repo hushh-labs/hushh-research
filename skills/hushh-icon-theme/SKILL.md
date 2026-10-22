@@ -1,6 +1,6 @@
 ---
 name: hushh-icon-theme
-description: Authoring, styling, and integrating official Phosphor base SVG icons for Hushh capabilities and navigation. Use when designing, creating, or configuring agent capability icons with pure, flat Phosphor duotone vector geometry, signature capability color tones, zero 3D artifacts, zero viewBox clipping, transparent backgrounds, deep obsidian dark mode contrast, crisp light mode surfaces, and edge-to-edge agent chat layout.
+description: Authoring, styling, and integrating official Phosphor base SVG icons for Hushh capabilities and navigation. Use when designing, creating, or configuring agent capability icons with pure, flat Phosphor outline vector geometry, signature capability color tones, zero 3D artifacts, zero viewBox clipping, transparent backgrounds, deep obsidian dark mode contrast, crisp light mode surfaces, and edge-to-edge agent chat layout.
 ---
 
 # Hushh Icon Theme & Surface Contrast Skill: Pure Flat Phosphor & Obsidian Standards
@@ -14,7 +14,7 @@ description: Authoring, styling, and integrating official Phosphor base SVG icon
 Hushh interfaces demand an aesthetic of **quiet luxury, high-contrast clarity, and modern technical craft**.
 
 1. **Official Phosphor Geometry Base**: Every capability and navigation icon is an authentic Phosphor icon (`Bank`, `Wallet`, `MapPin`, `UsersThree`, `EnvelopeSimple`, `CalendarBlank`, `IdentificationCard`, `Graph`, `LockKey`, `Storefront`, `PlugsConnected`, `SquaresFour`, `ChatCircle`, `Compass`). No cartoonish doodles, no fake 3D shadows, no clip-art.
-2. **Pure Flat Vector Aesthetic**: Flat 2D vector geometry with Phosphor's duotone weight (primary silhouette at 100% opacity, secondary contour at 20% opacity).
+2. **Pure Flat Vector Aesthetic**: Flat 2D vector geometry with Phosphor's regular outline weight and no translucent interior shading.
 3. **Focused Signature Palette**: Each icon has a single signature capability hue (not multi-color or rainbow):
    - **Finance**: Emerald (`#10B981`)
    - **Wallet**: Amber (`#F59E0B`)
@@ -29,15 +29,15 @@ Hushh interfaces demand an aesthetic of **quiet luxury, high-contrast clarity, a
    - **Connected Systems**: Electric Cyan (`#00E5FF`)
 4. **Zero ViewBox Clipping**: Always preserve Phosphor's native `viewBox="0 0 256 256"`. Never crop the viewBox. Scale cleanly via container CSS dimensions (`classes.glyph`).
 5. **Clean Transparent Canvas**: Custom capability icons sit on transparent backdrops without artificial colored squircle box backgrounds (`!bg-transparent !shadow-none !ring-0`).
-6. **Muted & Loading States**: Muted states preserve the exact same flat duotone geometry with `currentColor` / muted opacity without falling back to solid gray boxes or inconsistent geometry.
+6. **Muted & Loading States**: Muted states preserve the exact same flat outline geometry with `currentColor` / muted opacity without falling back to solid gray boxes or inconsistent geometry.
 
 ---
 
 ## 2. Mathematical Geometry Baseline
 
 - **Coordinate Canvas**: Uniform native `viewBox="0 0 256 256"`.
-- **Weight**: Phosphor `weight="duotone"` (or `weight="fill"`).
-- **Styling**: `color` prop sets the primary hue; secondary path renders at `opacity="0.2"`.
+- **Weight**: Phosphor `weight="regular"` (or `weight="fill"` for intentionally solid glyphs).
+- **Styling**: `color` prop sets the primary hue; interior counters remain transparent. Keys use the shared neutral outline and fixed blue pinpoint.
 - **Container Sizing**: `classes.glyph` controls physical display dimensions with balanced padding inside the tile.
 
 ---
@@ -46,17 +46,17 @@ Hushh interfaces demand an aesthetic of **quiet luxury, high-contrast clarity, a
 
 | Capability ID | Display Title | Phosphor Component | Weight | Default Color |
 |---|---|---|---|---|
-| `finance` | **Finance** | `Bank` | `duotone` | `#10B981` |
-| `wallet` | **Wallet** | `Wallet` | `duotone` | `#F59E0B` |
-| `location` | **Location** | `MapPin` | `duotone` | `#007AFF` |
-| `ria` | **RIA** | `UsersThree` | `duotone` | `#8B5CF6` |
-| `gmail` | **Email** | `EnvelopeSimple` | `duotone` | `#E11D48` |
-| `calendar` | **Calendar** | `CalendarBlank` | `duotone` | `#0284C7` |
-| `email` | **KYC** | `IdentificationCard` | `duotone` | `#2563EB` |
-| `pkm` | **Memory** | `Graph` | `duotone` | `#6366F1` |
-| `consent` | **Consent** | `LockKey` | `duotone` | `#F97316` |
-| `marketplace` | **Marketplace** | `Storefront` | `duotone` | `#059669` |
-| `connected-systems` | **Connected Systems** | `PlugsConnected` | `duotone` | `#00E5FF` |
+| `finance` | **Finance** | `Bank` | `regular` | `#10B981` |
+| `wallet` | **Wallet** | `Wallet` | `regular` | `#F59E0B` |
+| `location` | **Location** | `MapPin` | `regular` | `#007AFF` |
+| `ria` | **RIA** | `UsersThree` | `regular` | `#8B5CF6` |
+| `gmail` | **Email** | `EnvelopeSimple` | `regular` | `#E11D48` |
+| `calendar` | **Calendar** | `CalendarBlank` | `regular` | `#0284C7` |
+| `email` | **KYC** | `IdentificationCard` | `regular` | `#2563EB` |
+| `pkm` | **Memory** | `Graph` | `regular` | `#6366F1` |
+| `consent` | **Consent** | `LockKey` | `regular` | `#F97316` |
+| `marketplace` | **Marketplace** | `Storefront` | `regular` | `#059669` |
+| `connected-systems` | **Connected Systems** | `PlugsConnected` | `regular` | `#00E5FF` |
 
 ---
 
@@ -87,31 +87,28 @@ To avoid washed-out milky gray tones (`#1c1c1e` / `rgb(28, 28, 30)`), dark mode 
 
 ## 6. Universal UI Icon Registry & Replacement Map
 
-To preserve the design language across every route and sheet, all generic UI icons must come from `@/components/icons` and use official Phosphor geometry. Capability glyphs use duotone; neutral utility controls (search, navigation, refresh, loading, plus, close) use regular so secondary fills never read as a background. Direct imports from any other icon library, hand-drawn utility SVGs, and per-surface stroke-width overrides are prohibited on application-owned modernized surfaces. Reviewed exceptions are limited to vendor code, branded provider artwork, and non-icon diagrams.
+To preserve the design language across every route and sheet, all generic UI icons must come from `@/components/icons` and use official Phosphor geometry. Capability glyphs and neutral utility controls use regular outlines so secondary fills never read as a background. Direct imports from any other icon library, hand-drawn utility SVGs, and per-surface stroke-width overrides are prohibited on application-owned modernized surfaces. Reviewed exceptions are limited to vendor code, branded provider artwork, and non-icon diagrams.
 
-Close and add controls are deliberate exceptions: `XIcon`/`CloseIcon` and
+Close and add controls follow the same outline rule: `XIcon`/`CloseIcon` and
 `PlusIcon` default to Phosphor `regular`. Their duotone artwork contains a
 square backing that reads as a second surface inside a button. Preserve the
 official regular paths and native viewBox; do not hide SVG paths with CSS or
 hand-draw substitutes. Animated menu/close controls crossfade registry icons.
-Capabilities retain duotone. Verify rendered glyphs, not just import names.
+Capabilities also use regular outlines. `Key`, `KeyRound`, `KeyIcon` and the key row aliases share `AccentedKeyIcon`, including password setup and recovery. Its neutral ink follows the theme; `--app-key-accent` remains blue under the gold preference. Verify rendered glyphs, not just import names.
 
 ### Settings rows: one treatment, one glyph per concept
 
-A `SettingsRow` leading icon uses `iconTone="capability"` with a registry glyph
-that carries its own colour: the `*AgentIcon` and `*ProfileIcon` exports, or the
-semantic `*RowIcon` set in `hushh-webapp/components/icons/agents/row-icons.tsx`
-(vault, passphrase, sync, reset, delete, disconnect, invite code and so on).
-The row paints no tile. The Profile menu and every nested Profile screen share
-one size (32px well, 28px glyph, from `app/globals.css`); the coloured tile tones
-(`blue`, `orange`, `gray`...) are legacy and must not return on Profile surfaces.
-The same concept uses the same export on every screen: email is
-`GmailAgentIcon`, security is `SecurityProfileIcon`, devices are
-`DevicesProfileIcon`, invitations are `InviteFriendsProfileIcon`. When a row
-needs a concept the registry lacks, add a `*RowIcon` there; never import a glyph
-library from application code. A state (off, paused) may mute the same glyph
-rather than swap to a gray tile. `__tests__/components/iconography-motion.contract.test.ts`
-enforces both the import boundary and the Profile row treatment.
+Profile uses `PROFILE_ICONS` from `@/components/icons`: existing neutral-outline
+artwork with restrained app-accent details, not the launcher's capability palette.
+Preserve its approved geometry; this mapping also supplies generated iOS base and
+accent assets. Do not redraw it or edit generated assets by hand. Profile menus
+and nested rows keep the same 32px well/28px glyph from `app/globals.css`, with no
+colored tile. Provider logos remain branded; keys retain their fixed Blue detail.
+Capability launchers and other authored capability rows retain their own registry
+palette. A muted state uses the same glyph, not a gray tile. Add missing concepts
+to the shared authored mapping; never import an icon library from application
+code. The existing iconography-motion and Profile registry regressions protect
+these distinct treatments and the import boundary.
 
 ### Card headers, status lines, and the sparkle ban
 
@@ -120,7 +117,7 @@ bare on a transparent well, in its own capability colour. Never a filled or
 tinted tile with a white or tinted glyph. Consent is always `ConsentAgentIcon`
 (the /one Consent capability), whatever the card. A person is their face or
 initials (`ConnectionPersonAvatar`), not a silhouette on a tile. Status lines
-use registry duotone glyphs in a semantic role from
+use registry outline glyphs in a semantic role from
 `hushh-webapp/lib/morphy-ux/tokens/semantic-roles.ts`: success for a settled
 positive fact (shared), neutral for absence and time (not shared, access ends).
 
@@ -150,21 +147,21 @@ host-specific adapters are not a second copy of portable behavior.
 | `ArrowRight` | `ArrowRight` | `ArrowRightIcon` | `regular` |
 | `Plus` | `Plus` | `PlusIcon` | `regular` |
 | `X` | `X` | `XIcon`, `CloseIcon` | `regular` |
-| `Check` | `Check` | `CheckIcon` | `duotone` |
-| `Trash` / `Trash2` | `Trash` | `TrashIcon` | `duotone` |
-| `Pencil` / `Edit` | `PencilSimple` | `PencilIcon` | `duotone` |
-| `Copy` | `Copy` | `CopyIcon` | `duotone` |
-| `Send` | `PaperPlaneRight` | `SendIcon` | `duotone` |
-| `Mic` / `Microphone` | `Microphone` | `MicrophoneIcon` | `duotone` |
-| `Settings` / `Gear` | `GearSix` | `GearIcon`, `SettingsIcon` | `duotone` |
-| `Sliders` | `Sliders` | `SlidersIcon` | `duotone` |
-| `MoreHorizontal` | `DotsThree` | `DotsThreeIcon`, `MoreHorizontalIcon` | `duotone` |
-| `ExternalLink` | `ArrowSquareOut` | `ExternalLinkIcon` | `duotone` |
-| `Sidebar` | `SidebarSimple` | `PanelLeftCloseIcon`, `PanelLeftOpenIcon` | `duotone` |
-| `Shield` | `ShieldCheck` | `ShieldIcon` | `duotone` |
-| `Lock` | `LockKey` | `LockIcon` | `duotone` |
-| `User` | `User` | `UserIcon` | `duotone` |
-| `Laptop` | `Laptop` | `LaptopIcon` | `duotone` |
-| `Key` | `Key` | `KeyIcon` | `duotone` |
-| `Mail` | `EnvelopeSimple` | `MailIcon` | `duotone` |
-| `LogOut` | `SignOut` | `LogOutIcon` | `duotone` |
+| `Check` | `Check` | `CheckIcon` | `regular` |
+| `Trash` / `Trash2` | `Trash` | `TrashIcon` | `regular` |
+| `Pencil` / `Edit` | `PencilSimple` | `PencilIcon` | `regular` |
+| `Copy` | `Copy` | `CopyIcon` | `regular` |
+| `Send` | `PaperPlaneRight` | `SendIcon` | `regular` |
+| `Mic` / `Microphone` | `Microphone` | `MicrophoneIcon` | `regular` |
+| `Settings` / `Gear` | `GearSix` | `GearIcon`, `SettingsIcon` | `regular` |
+| `Sliders` | `Sliders` | `SlidersIcon` | `regular` |
+| `MoreHorizontal` | `DotsThree` | `DotsThreeIcon`, `MoreHorizontalIcon` | `regular` |
+| `ExternalLink` | `ArrowSquareOut` | `ExternalLinkIcon` | `regular` |
+| `Sidebar` | `SidebarSimple` | `PanelLeftCloseIcon`, `PanelLeftOpenIcon` | `regular` |
+| `Shield` | `ShieldCheck` | `ShieldIcon` | `regular` |
+| `Lock` | `LockKey` | `LockIcon` | `regular` |
+| `User` | `User` | `UserIcon` | `regular` |
+| `Laptop` | `Laptop` | `LaptopIcon` | `regular` |
+| `Key` | `Key` | `KeyIcon` | `regular` |
+| `Mail` | `EnvelopeSimple` | `MailIcon` | `regular` |
+| `LogOut` | `SignOut` | `LogOutIcon` | `regular` |

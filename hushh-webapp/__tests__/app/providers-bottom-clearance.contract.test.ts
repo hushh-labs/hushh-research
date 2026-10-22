@@ -5,10 +5,6 @@ import { describe, expect, it } from "vitest";
 
 describe("app shell bottom-clearance contract", () => {
   const source = readFileSync(join(process.cwd(), "app/providers.tsx"), "utf8");
-  const commandBarSource = readFileSync(
-    join(process.cwd(), "components/kai/kai-command-bar-global.tsx"),
-    "utf8",
-  );
 
   it("reserves the existing Agent Bar footprint for hidden-shell scroll roots", () => {
     expect(source).toContain(
@@ -52,9 +48,6 @@ describe("app shell bottom-clearance contract", () => {
     expect(source).toContain(
       '"--bottom-chrome-full-height": bottomChromeHidden',
     );
-    expect(source).toContain(
-      '"--bottom-chrome-search-height": bottomChromeHidden',
-    );
     expect(source).toContain('"--app-scroll-bottom-pad": bottomChromeHidden');
   });
 
@@ -76,8 +69,7 @@ describe("app shell bottom-clearance contract", () => {
     expect(shell).not.toContain("<AmbientChromeMask");
   });
 
-  it("keeps typed search available while focused Location navigation is hidden", () => {
-    expect(commandBarSource).not.toContain("focusedLocationSmsFlow");
-    expect(commandBarSource).toContain("!chromeState.hideCommandBar");
+  it("does not mount the archived app-wide Search", () => {
+    expect(source).not.toContain("KaiCommandBarGlobal");
   });
 });

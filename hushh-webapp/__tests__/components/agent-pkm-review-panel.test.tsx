@@ -22,6 +22,16 @@ const CARDS = [
 ];
 
 describe("AgentPkmReviewPanel", () => {
+  it("keeps compact field review flat and hides internal source instructions", () => {
+    render(<AgentPkmReviewPanel cards={CARDS} compact
+      selectedCardIds={new Set(["c1", "c2", "c3"])} onToggleCard={vi.fn()}
+      renderCardDetails={() => <p>Reviewed field</p>} onSave={vi.fn()} onDismiss={vi.fn()} />);
+    expect(screen.getByText("Save details")).toBeTruthy();
+    expect(screen.queryByText(CARDS[0]!.source_text)).toBeNull();
+    expect(screen.queryByText("One needs your review before this is stored.")).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.getByTestId("agent-pkm-review-list")).not.toHaveClass("overflow-y-auto");
+  });
   it("groups a multi-destination review by domain and scope with per-item keep/skip", () => {
     const onToggleCard = vi.fn();
     const onToggleGroup = vi.fn();

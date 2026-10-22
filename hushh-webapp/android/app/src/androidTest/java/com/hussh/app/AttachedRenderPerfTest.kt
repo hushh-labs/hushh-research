@@ -648,8 +648,8 @@ class AttachedRenderPerfTest {
             if (dismissCredentialManager()) continue
             var field = if (gateUp()) findPassphraseField() else null
             if (field == null && attempts == 0 && passphrase.isNotEmpty()) {
-                // "Passphrase" is the escape link on the biometric / passkey step.
-                device.findObject(By.text("Passphrase").clazz("android.widget.Button"))?.let {
+                // "Password" is the escape link on the biometric / passkey step.
+                device.findObject(By.text("Password").clazz("android.widget.Button"))?.let {
                     it.click()
                     settle(800)
                     field = findPassphraseField()
@@ -760,8 +760,8 @@ class AttachedRenderPerfTest {
      * gateUp() holds, so the agent bar's input is never mistaken for it.
      */
     private fun findPassphraseField(): UiObject2? =
-        device.findObject(By.desc("Vault passphrase"))
-            ?: device.findObject(By.hint("Enter passphrase"))
+        device.findObject(By.desc("Vault password"))
+            ?: device.findObject(By.hint("Enter password"))
             ?: device.findObject(By.clazz("android.widget.EditText").pkg(pkg))
 
     private fun signedInBarPresent(): Boolean =

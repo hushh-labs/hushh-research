@@ -1,0 +1,54 @@
+"use client";
+
+import { useLayoutEffect, useRef, useState } from "react";
+import type { ChromeAccentPalette } from "@/lib/capacitor/native-chrome";
+import { NativeChatChrome } from "@/components/app-ui/native-chat-chrome";
+import { SHELL_ICON_BUTTON_CLASSNAME } from "@/components/app-ui/shell-action-surface";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
+import { writeAccent, type AppAccent } from "@/lib/theme/accent";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
+import { cn } from "@/lib/utils";
+
+export function readAccentPalette(): ChromeAccentPalette | undefined {
+  if (typeof document === "undefined") return undefined;
+  const style = getComputedStyle(document.documentElement);
+  const blue = style.getPropertyValue("--accent-preview-blue").trim();
+  const gold = style.getPropertyValue("--accent-preview-gold").trim();
+  return [blue, gold].every(color => /^#[0-9a-f]{6}$/i.test(color)) ? { blue, gold } : undefined;
+}
+
+/** Public preference projection only; the existing accent service owns commits. */
+export function NativeAccentChoice({ value, owner, context, eligible }: {
+  value: AppAccent; owner: string | null; context: string; eligible: boolean;
+}) {
+  const trigger = useRef<HTMLButtonElement>(null);
+  // A warm document already has its palette. Do not first admit the fallback
+  // and then replace it solely because this route mounted its preference row.
+  const [palette, setPalette] = useState(readAccentPalette);
+  useLayoutEffect(() => {
+    setPalette(current => current ?? readAccentPalette());
+  }, []);
+  const label = value === "gold" ? "Molten Gold" : "Blue";
+  return <div className="flex min-w-0 items-center justify-end">
+    <NativeChatChrome kind="accent" value={value} onValueChange={writeAccent}
+      fullTrigger palette={palette} owner={owner} context={context} eligible={eligible && !!palette} focusRef={trigger}
+      className="flex h-11 w-[138px] max-w-full shrink-0 items-center justify-center [&>div]:w-full">
+      <Select value={value} onValueChange={(next) => { if (next === "blue" || next === "gold") writeAccent(next); }}>
+        <SelectTrigger ref={trigger} aria-label="App accent color"
+          className={cn(SHELL_ICON_BUTTON_CLASSNAME, "group/accent h-11 w-full justify-between gap-1 border-0 !bg-transparent px-2 !shadow-none data-[size=default]:h-11 [&>svg]:relative [&>svg]:z-10")}>
+          {/* Match Appearance's 36px visual track inside the same 44px target. */}
+          <span aria-hidden data-slot="accent-control-surface"
+            className={cn(SHELL_ICON_BUTTON_CLASSNAME, "pointer-events-none absolute inset-x-0 inset-y-1 h-auto w-full group-hover/accent:bg-[color:var(--app-shell-surface-bg-hover)]")}>
+            <MaterialRipple variant="blue" effect="glass" className="z-10" />
+          </span>
+          <span aria-hidden className="relative z-10 size-3 shrink-0 rounded-full bg-[color:var(--app-accent)]" />
+          <span className="relative z-10 min-w-0 flex-1 truncate text-xs">{label}</span>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="blue"><span aria-hidden className="inline-block size-3 shrink-0 rounded-full bg-[color:var(--accent-preview-blue)] ring-1 ring-foreground/40" /> Blue</SelectItem>
+          <SelectItem value="gold"><span aria-hidden className="inline-block size-3 shrink-0 rounded-full bg-[color:var(--accent-preview-gold)] ring-1 ring-foreground/40" /> Molten Gold</SelectItem>
+        </SelectContent>
+      </Select>
+    </NativeChatChrome>
+  </div>;
+}

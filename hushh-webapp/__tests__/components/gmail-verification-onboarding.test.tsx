@@ -1,3 +1,5 @@
+import { CacheService } from "@/lib/services/cache-service";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -17,7 +19,7 @@ vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
 }));
 vi.mock("@/lib/services/kyc-identity-profile-pkm-service", () => ({
   hasCompletedKycIdentityIntake: mocks.hasCompletedKycIdentityIntake,
-  KycIdentityProfilePkmService: { saveProfile: mocks.saveProfile },
+  KycIdentityProfilePkmService: { saveProfile: mocks.saveProfile, hasCompletedIntake: mocks.getStaleFirst },
 }));
 vi.mock("sonner", () => ({
   toast: {
@@ -29,14 +31,16 @@ vi.mock("sonner", () => ({
 
 describe("GmailVerificationOnboarding", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    mocks.getStaleFirst.mockResolvedValue({ data: {} });
+    advanceVaultSessionEpoch();
+    CacheService.getInstance().clear();
+    vi.resetAllMocks();
+    mocks.getStaleFirst.mockResolvedValue(false);
     mocks.hasCompletedKycIdentityIntake.mockReturnValue(false);
     mocks.saveProfile.mockResolvedValue({ success: true, message: "KYC details saved privately." });
   });
 
   it("keeps the setup check accessible with a visible KYC workspace placeholder", async () => {
-    let finishCheck!: (snapshot: { data: Record<string, unknown> }) => void;
+    let finishCheck!: (completed: boolean) => void;
     mocks.getStaleFirst.mockReturnValueOnce(new Promise((resolve) => { finishCheck = resolve; }));
     const { container } = render(
       <GmailVerificationOnboarding userId="user_1" vaultKey="vault-key" vaultOwnerToken="owner-token"
@@ -50,8 +54,33 @@ describe("GmailVerificationOnboarding", () => {
     expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
     expect(screen.queryByText("Build your KYC profile")).not.toBeInTheDocument();
     expect(screen.queryByText("KYC workspace")).not.toBeInTheDocument();
-    finishCheck({ data: {} });
+    finishCheck(false);
     expect(await screen.findByText("Build your KYC profile")).toBeInTheDocument();
+  });
+
+  it("renders a warm intake result before any network wait on remount", async () => {
+    const props = { userId: "warm-owner", vaultKey: "vault-key", vaultOwnerToken: "owner-token",
+      onRequestVaultUnlock: vi.fn(), deferred: false, onDeferredChange: vi.fn(), details: "", onDetailsChange: vi.fn() };
+    const first = render(<GmailVerificationOnboarding {...props}>KYC workspace</GmailVerificationOnboarding>);
+    await screen.findByText("Build your KYC profile");
+    first.unmount();
+    mocks.getStaleFirst.mockReturnValueOnce(new Promise(() => {}));
+    render(<GmailVerificationOnboarding {...props}>KYC workspace</GmailVerificationOnboarding>);
+    expect(screen.getByText("Build your KYC profile")).toBeVisible();
+    expect(screen.queryByLabelText("Checking KYC setup")).toBeNull();
+    expect(mocks.getStaleFirst).toHaveBeenCalledTimes(1);
+  });
+
+  it("retires an open intake dialog when its owner changes", async () => {
+    const props = { userId: "owner-a", vaultKey: "vault-key-a", vaultOwnerToken: "owner-token-a",
+      onRequestVaultUnlock: vi.fn(), deferred: false, onDeferredChange: vi.fn(), details: "", onDetailsChange: vi.fn() };
+    const view = render(<GmailVerificationOnboarding {...props}>KYC workspace</GmailVerificationOnboarding>);
+    fireEvent.click(await screen.findByRole("button", { name: "Paste details" }));
+    expect(screen.getByRole("dialog")).toBeVisible();
+    view.rerender(<GmailVerificationOnboarding {...props} userId="owner-b" vaultKey="vault-key-b" vaultOwnerToken="owner-token-b">KYC workspace</GmailVerificationOnboarding>);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByText("KYC workspace")).toBeNull();
+    expect(await screen.findByRole("button", { name: "Paste details" })).toBeEnabled();
   });
 
   it("continues to KYC immediately while the PKM save runs in the background", async () => {
@@ -96,13 +125,7 @@ describe("GmailVerificationOnboarding", () => {
   });
 
   it("does not ask again after the durable KYC intake marker is saved", async () => {
-    mocks.getStaleFirst.mockResolvedValue({
-      data: {
-        identity_profile: {
-          identity_intake_completed_at: "2026-09-04T12:00:00.000Z",
-        },
-      },
-    });
+    mocks.getStaleFirst.mockResolvedValue(true);
     mocks.hasCompletedKycIdentityIntake.mockReturnValue(true);
 
     render(
@@ -123,8 +146,7 @@ describe("GmailVerificationOnboarding", () => {
     expect(await screen.findByText("KYC workspace")).toBeInTheDocument();
     expect(screen.queryByText("Build your KYC profile")).not.toBeInTheDocument();
     expect(mocks.getStaleFirst).toHaveBeenCalledWith(expect.objectContaining({
-      forceRefresh: true,
-      backgroundRefresh: false,
+      userId: "user_1", vaultKey: "vault-key", vaultOwnerToken: "owner-token",
     }));
   });
 

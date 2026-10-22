@@ -79,7 +79,7 @@ case "$TARGET_ENV" in
   production)
     GCP_PROJECT_ID="hushh-pda"
     RUNTIME_SERVICE_ACCOUNT="consent-protocol-runtime@hushh-pda.iam.gserviceaccount.com"
-    APP_FRONTEND_ORIGIN="https://one.hushh.ai"
+    APP_FRONTEND_ORIGIN="https://one.hussh.ai"
     CONSENT_API_PUBLIC_ORIGIN="https://api.hushh.ai"
     CLOUDSQL_INSTANCE="hushh-pda:us-central1:hushh-vault-db"
     DB_UNIX_SOCKET="/cloudsql/hushh-pda:us-central1:hushh-vault-db"
@@ -89,7 +89,7 @@ case "$TARGET_ENV" in
   uat)
     GCP_PROJECT_ID="hushh-pda-uat"
     RUNTIME_SERVICE_ACCOUNT="consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com"
-    APP_FRONTEND_ORIGIN="https://uat.one.hushh.ai"
+    APP_FRONTEND_ORIGIN="https://uat.one.hussh.ai"
     CONSENT_API_PUBLIC_ORIGIN="https://api.uat.hushh.ai"
     CLOUDSQL_INSTANCE="hushh-pda-uat:us-central1:hushh-uat-pg"
     DB_UNIX_SOCKET="/cloudsql/hushh-pda-uat:us-central1:hushh-uat-pg"
@@ -265,14 +265,11 @@ BACKEND_SECRET_ARGS=(
 )
 if [[ "$TARGET_ENV" == "production" ]]; then
   BACKEND_SECRET_ARGS+=(--consent-sse-enabled "false"
-    --passkey-allowed-rp-ids "localhost,127.0.0.1,one.hushh.ai"
     --hushh-trusted-device-enabled "false")
 elif [[ "$TARGET_ENV" == "uat" ]]; then
-  BACKEND_SECRET_ARGS+=(--consent-sse-enabled "true"
-    --passkey-allowed-rp-ids "localhost,127.0.0.1,uat.one.hushh.ai")
+  BACKEND_SECRET_ARGS+=(--consent-sse-enabled "true")
 else
-  BACKEND_SECRET_ARGS+=(--consent-sse-enabled "true"
-    --passkey-allowed-rp-ids "localhost,127.0.0.1,dev.one.hushh.ai")
+  BACKEND_SECRET_ARGS+=(--consent-sse-enabled "true")
 fi
 
 run "$PROTOCOL_PYTHON" scripts/ops/sync_backend_runtime_secrets.py "${BACKEND_SECRET_ARGS[@]}" \

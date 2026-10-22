@@ -14,12 +14,101 @@ from hushh_mcp.services.google_oauth_attempt import connection_generation
 from tests.google_oauth_test_support import TransactionEngine
 
 
+@pytest.mark.parametrize("domain", ["hushh.ai", "hussh.ai", "hussh.si"])
+def test_google_callback_alias_is_exact_and_environment_scoped(monkeypatch, domain):
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", f"https://uat.one.{domain}")
+    callback = f"https://uat.one.{domain}/one/profile/google/oauth/return"
+    monkeypatch.setenv("GOOGLE_OAUTH_REDIRECT_URI", callback)
+    monkeypatch.setenv(
+        "CORS_ALLOWED_ORIGINS",
+        "https://uat.one.hushh.ai,https://uat.one.hussh.ai,https://uat.one.hussh.si,https://one.hussh.si",
+    )
+    service = GoogleConnectionService()
+    for alias in ("hushh.ai", "hussh.ai", "hussh.si"):
+        expected = f"https://uat.one.{alias}/one/profile/google/oauth/return"
+        assert service._redirect_uri(expected) == expected
+    for invalid in (
+        "https://one.hussh.si/one/profile/google/oauth/return",
+        "https://uat.one.hussh.si/other",
+        "https://uat.one.hussh.si/one/profile/google/oauth/return?extra=1",
+        "https://evil.uat.one.hussh.si/one/profile/google/oauth/return",
+    ):
+        with pytest.raises(GoogleConnectionError):
+            service._redirect_uri(invalid)
+
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://uat.one.hussh.si")
+    other_domain = "hushh.ai" if domain == "hussh.si" else "hussh.si"
+    with pytest.raises(GoogleConnectionError):
+        service._redirect_uri(f"https://uat.one.{other_domain}/one/profile/google/oauth/return")
+
+
+def test_custom_callback_does_not_gain_a_spelling_alias_from_cors(monkeypatch):
+    from hushh_mcp.services.oauth_redirect_policy import allowed_oauth_callback_uris
+
+    callback = "https://custom.hushh.ai/one/profile/google/oauth/return"
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://custom.hushh.ai,https://custom.hussh.ai")
+    assert allowed_oauth_callback_uris(callback) == frozenset({callback})
+
+
+@pytest.mark.asyncio
+async def test_additional_calendar_account_does_not_impersonate_default_status():
+    service = GoogleConnectionService(db=Mock())
+    service.status = AsyncMock(
+        return_value={
+            "configured": True,
+            "connected": False,
+            "google_email": None,
+            "status": "disconnected",
+            "access_level": None,
+            "scope_csv": "",
+            "calendar_list_access": False,
+        }
+    )
+    service._execute_raw_async = AsyncMock(
+        return_value=SimpleNamespace(
+            data=[
+                {
+                    "account_id": "second",
+                    "provider_email": "second@example.com",
+                    "status": "connected",
+                    "scope_csv": "",
+                    "access_level": "manage",
+                }
+            ]
+        )
+    )
+
+    result = await service.calendar_accounts_status(user_id="owner")
+
+    assert result["connected"] is False
+    assert result["google_email"] is None
+    assert result["accounts"] == [
+        {
+            "account_id": "second",
+            "google_email": "second@example.com",
+            "status": "connected",
+            "connected": True,
+            "access_level": "manage",
+            "calendar_list_access": False,
+        }
+    ]
+
+
 class _Db:
-    def __init__(self, existing=None, *, accept_connection=True, accept_grant=True, grants=None):
+    def __init__(
+        self,
+        existing=None,
+        *,
+        accept_connection=True,
+        accept_grant=True,
+        grants=None,
+        additional_subjects=None,
+    ):
         self.existing = existing
         self.grants = grants or []
         self.accept_connection = accept_connection
         self.accept_grant = accept_grant
+        self.additional_subjects = additional_subjects or []
         self.calls = []
         self.engine = TransactionEngine(self)
 
@@ -29,6 +118,12 @@ class _Db:
             return SimpleNamespace(data=[self.existing] if self.existing else [])
         if "SELECT scope_csv FROM google_service_grants" in sql:
             return SimpleNamespace(data=[{"scope_csv": value} for value in self.grants])
+        if "SELECT 1 FROM google_calendar_additional_accounts" in sql:
+            return SimpleNamespace(
+                data=[{"present": 1}] if params["subject"] in self.additional_subjects else []
+            )
+        if "SELECT COUNT(*) FROM google_calendar_additional_accounts" in sql:
+            return SimpleNamespace(data=[{"count": len(self.additional_subjects)}])
         if "INSERT INTO google_provider_connections" in sql:
             return SimpleNamespace(data=[{"user_id": "owner"}] if self.accept_connection else [])
         if "INSERT INTO google_service_grants" in sql:
@@ -143,6 +238,41 @@ async def test_explicitly_disconnected_account_can_connect_a_new_subject(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_default_calendar_cannot_duplicate_an_additional_google_subject(monkeypatch):
+    db = _Db(additional_subjects=["google-b"])
+    service = _service(monkeypatch, db, subject="google-b")
+    with pytest.raises(GoogleConnectionError, match="already connected") as error:
+        await _store(service)
+    assert error.value.status_code == 409
+    assert not any("INSERT INTO google_provider_connections" in sql for sql, _ in db.calls)
+
+
+@pytest.mark.asyncio
+async def test_additional_reconnect_rejects_a_different_selected_google_account(monkeypatch):
+    service = _service(monkeypatch, _Db())
+    monkeypatch.setattr(
+        service,
+        "_execute_raw_async",
+        AsyncMock(
+            return_value=SimpleNamespace(data=[{"account_id": "second", "status": "connected"}])
+        ),
+    )
+    with pytest.raises(GoogleConnectionError, match="shown on this Calendar card") as error:
+        await service._store_additional_calendar_account(
+            user_id="owner",
+            token={"access_token": "synthetic-access"},
+            profile={"email": "b@example.com"},
+            subject="google-b",
+            requested_scopes=service.scopes("calendar", "read"),
+            oauth_started_at=datetime(2026, 9, 22, tzinfo=UTC),
+            attempt_id="synthetic-attempt",
+            calendar_account_id="third",
+        )
+    assert error.value.status_code == 409
+    service._encrypt.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_missing_verified_subject_fails_before_credential_read(monkeypatch):
     db = _Db()
     service = _service(monkeypatch, db, subject="")
@@ -166,6 +296,42 @@ async def test_active_legacy_row_without_subject_requires_reconnection(monkeypat
 async def test_complete_read_and_manage_permissions_remain_supported(monkeypatch, level):
     service = _service(monkeypatch, _Db())
     assert await _store(service, level=level) == {"connected": True}
+
+
+@pytest.mark.asyncio
+async def test_full_calendar_grant_preserves_management_capability(monkeypatch):
+    db = _Db()
+    service = _service(monkeypatch, db)
+    await _store(
+        service,
+        level="manage",
+        token={
+            "access_token": "synthetic-access",
+            "refresh_token": "synthetic-refresh",
+            "scope": "https://www.googleapis.com/auth/calendar",
+        },
+    )
+    grant = next(params for sql, params in db.calls if "INSERT INTO google_service_grants" in sql)
+    assert grant["access_level"] == "manage"
+
+
+@pytest.mark.asyncio
+async def test_management_request_cannot_silently_finish_with_read_only_consent(monkeypatch):
+    db = _Db()
+    service = _service(monkeypatch, db)
+    with pytest.raises(GoogleConnectionError) as error:
+        await _store(
+            service,
+            level="manage",
+            token={
+                "access_token": "synthetic-access",
+                "refresh_token": "synthetic-refresh",
+                "scope": "https://www.googleapis.com/auth/calendar.readonly",
+            },
+        )
+    assert error.value.status_code == 403
+    assert error.value.reason_code == "google_permission_required"
+    assert not any("INSERT" in sql for sql, _ in db.calls)
 
 
 @pytest.mark.asyncio

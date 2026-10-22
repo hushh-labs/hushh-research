@@ -1,16 +1,30 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   AgentConnectionsDrawer,
   transitionConnectionsDrawer,
   type ConnectionsDrawerMode,
 } from "../../components/agent/agent-connections-drawer";
+import { OneAgentProfileSheet } from "../../components/agent/one-agent-profile-sheet";
+import { appInteractionCoordinator } from "../../lib/interaction/interaction-intent-coordinator";
+
+declare const __ONE_PROFILE_TRIGGER_CLASS__: string;
+declare const __ONE_HEADER_IDENTITY_CLASS__: string;
+declare const __ONE_HEADER_NAME_CLASS__: string;
+
+import { OnePresenceAvatar, resolveOnePresenceState } from "../../components/agent/one-presence-avatar";
+import { DriveRecentSharing } from "../../components/agent/drive-background-search";
 import { AgentHistorySidebar } from "../../components/agent/agent-history-sidebar";
-import { ConnectorsPanel } from "../../components/agent/connectors-panel";
-import { ConnectorReadReceipt } from "../../components/agent/connector-read-receipt";
+import type { AgentChatConversation } from "../../lib/services/agent-chat-client";
+import { HistoryConnectorsPage } from "../../components/agent/history-connectors-page";
+import { registerChatConnectorRecoveryHost } from "../../lib/agent/drive-oauth-chat-recovery";
 import { ProfileConnectorsSection } from "../../components/profile/profile-connectors-section";
 import { AppPageShell } from "../../components/app-ui/app-page-shell";
+import { NativeHistoryClose, NativeHistoryOpener } from "../../components/app-ui/native-chat-chrome";
 import { SettingsPresentationProvider } from "../../components/profile/settings-ui";
+import { SettingsGroup, SettingsRow } from "../../components/app-ui/settings-ui";
+import { ProfileAccountResetIcon } from "../../components/profile/profile-your-account-icons";
+import accountStyles from "../../components/profile/profile-your-account.module.css";
 import {
   readGoogleOAuthPopupAttempt,
   settleGoogleOAuthPopup,
@@ -190,13 +204,43 @@ function ChatConnectCards() {
 }
 
 function Fixture() {
+  useEffect(() => registerChatConnectorRecoveryHost({
+    prepare: async (request) => {
+      const fixtureWindow = window as RecoveryFixtureWindow;
+      (fixtureWindow.__driveRecoveryRequests ??= []).push(request);
+      return fixtureWindow.__driveRecoveryReadiness ?? "unavailable";
+    },
+    clear: async () => undefined,
+  }), []);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const transcriptRef = useRef<HTMLElement>(null);
   const [open, setOpen] = useState(false);
+  const [historyRows, setHistoryRows] = useState<AgentChatConversation[]>([{ id: "public-layout-chat", title: "A weekend idea", status: "active", message_count: 0,
+    created_at: null, updated_at: null, last_message_at: (Date.now() - 5 * 60_000) / 1000 }]);
+  const historySelections = useRef<string[]>([]);
+  const newChatRequests = useRef(0);
+  Object.assign(window, {
+    __seedChatHistory: (title = "Weekly planning") => setHistoryRows([
+      { id: "history-one", title, status: "active", message_count: 2, updated_at: new Date().toISOString() },
+      { id: "history-two", title: "Draft email", status: "active", message_count: 1, updated_at: new Date().toISOString() },
+    ]),
+    __chatHistorySelections: historySelections.current,
+    __newChatRequests: () => newChatRequests.current,
+  });
+  const [gestureEnabled, setGestureEnabled] = useState(true);
+  Object.assign(window, { __setHistoryGestureEnabled: setGestureEnabled });
   const [mode, setMode] = useState<ConnectionsDrawerMode>("chats");
   const [external, setExternal] = useState(false);
   const [draft, setDraft] = useState("");
   const [turns, setTurns] = useState(1);
+  const [oneProfileOpen, setOneProfileOpen] = useState(false);
+  const [onePresenceWork, setOnePresenceWork] = useState(() => ({
+    working: new URLSearchParams(window.location.search).get("initial-presence") === "working",
+    drafting: false, answering: false, thinking: false,
+  }));
+  Object.assign(window, { __setOnePresenceWork: setOnePresenceWork });
+  const onePresenceState = resolveOnePresenceState(onePresenceWork);
+  const oneProfileTrigger = useRef<HTMLButtonElement>(null);
   const changeOpen = (nextOpen: boolean) => {
     const next = transitionConnectionsDrawer(
       { open, mode }, { type: "set-open", open: nextOpen },
@@ -204,14 +248,33 @@ function Fixture() {
     setOpen(next.open);
     setMode(next.mode);
   };
+  if (new URLSearchParams(window.location.search).has("reset-icon")) {
+    return (
+      <main className="profile-pane-scroll-root bg-background p-4 text-foreground">
+        <div className={accountStyles.paneAccountContent}>
+          <SettingsGroup title="Account actions">
+            <SettingsRow icon={ProfileAccountResetIcon} iconTone="capability"
+              className="profile-account-reset-row" title="Reset account"
+              description="Clears saved details" chevron onClick={() => {}} />
+          </SettingsGroup>
+        </div>
+      </main>
+    );
+  }
+  (window as unknown as { __setOnePresenceLifecycle: typeof appInteractionCoordinator.handleLifecycle }).__setOnePresenceLifecycle = state => appInteractionCoordinator.handleLifecycle(state);
   return (
     <main
       className="relative flex h-dvh flex-col overflow-hidden bg-background text-foreground"
-      style={{ "--agent-chat-header-height": "56px" } as React.CSSProperties}
     >
-      <button
-        ref={triggerRef}
-        className="h-14 shrink-0"
+      <header className="agent-chat-header flex h-[var(--agent-chat-header-height)] shrink-0 items-center gap-3 px-[var(--agent-chat-header-inline-gutter)] pt-[var(--agent-chat-header-safe-top)]">
+      <NativeHistoryOpener owner="fixture-owner" context="public-layout" eligible open={open}
+        pendingAttention={0} showAttentionDot={false} focusRef={triggerRef}
+        onActivate={(_, trigger) => {
+          if (trigger) triggerRef.current = trigger;
+          changeOpen(!open);
+        }} />
+      {!new URLSearchParams(window.location.search).has("one-profile") ? <button
+        className="h-11 shrink-0"
         onClick={(event) => {
           triggerRef.current = event.currentTarget;
           const next = transitionConnectionsDrawer(
@@ -222,10 +285,20 @@ function Fixture() {
         }}
       >
         Open drawer
-      </button>
+      </button> : null}
+      {new URLSearchParams(window.location.search).has("one-profile") ? <div
+        data-agent-chat-header-region="identity" className={__ONE_HEADER_IDENTITY_CLASS__}>
+        <div data-agent-chat-brand-tile className="grid h-11 w-11 shrink-0 place-items-center"><button
+        type="button" data-testid="one-presence-header" data-agent-chat-one-profile-trigger aria-label="Open One profile"
+        ref={oneProfileTrigger} className={__ONE_PROFILE_TRIGGER_CLASS__} onClick={() => setOneProfileOpen(true)}>
+        <OnePresenceAvatar state={onePresenceState} className="size-8 shrink-0" />
+      </button></div><div className="min-w-0"><div data-one-presence-name className={__ONE_HEADER_NAME_CLASS__}>One</div></div>
+      </div> : null}
+      </header>
+      <OneAgentProfileSheet presenceState={onePresenceState} open={oneProfileOpen} onOpenChange={setOneProfileOpen} triggerRef={oneProfileTrigger} />
       <AgentConnectionsDrawer
         gestureSurfaceRef={transcriptRef}
-        gestureEnabled
+        gestureEnabled={gestureEnabled}
         triggerRef={triggerRef}
         open={open}
         onOpenChange={changeOpen}
@@ -233,38 +306,34 @@ function Fixture() {
         externalModalOpen={external}
         chats={
           <AgentHistorySidebar
-            conversations={[]}
-            activeConversationId={null}
-            onCreateNew={() => {}}
-            onSelectConversation={() => {}}
+            driveActivity={location.search.includes("drive-sharing") ? <DriveRecentSharing presentation="sidebar" active={open} /> : undefined}
+            conversations={historyRows}
+            activeConversationId={historyRows[0]?.id ?? null}
+            onCreateNew={() => { newChatRequests.current += 1; }}
+            onSelectConversation={id => { historySelections.current.push(id); changeOpen(false); }}
             onRenameConversation={() => {}}
             onDeleteConversation={() => {}}
             onClose={() => changeOpen(false)}
+            closeControl={<NativeHistoryClose owner="fixture-owner" context="public-layout" onClose={() => changeOpen(false)} />}
             hideCloseButton={false}
             mode="mobile"
             className="h-full w-full"
-            onOpenConnectors={() => setMode("connections")}
+            onOpenConnectors={trigger => { triggerRef.current = trigger; setMode("connections"); }}
           />
         }
         connections={
-          <ConnectorsPanel
+          <HistoryConnectorsPage
+            native={false}
+            owner="fixture-owner"
+            context="public-layout"
             open={open && mode === "connections"}
             onBack={() => setMode("chats")}
             onClose={() => changeOpen(false)}
             onExternalModalChange={setExternal}
-            onPrepareRecovery={async (request) => {
-              const fixtureWindow = window as RecoveryFixtureWindow;
-              (fixtureWindow.__driveRecoveryRequests ??= []).push(request);
-              return fixtureWindow.__driveRecoveryReadiness ?? "unavailable";
-            }}
-            onClearRecovery={async () => undefined}
           />
         }
       />
       <section ref={transcriptRef} inert={open} data-gesture-body className="flex min-h-0 flex-1 touch-pan-y flex-col p-4">
-        <ConnectorReadReceipt experience={{ type: "one.connector_read.v1", connector: "mail",
-          status: "reconnect_required", sourceRefs: [], truncated: false, metadataOnly: true }}
-          onOpenConnections={(_provider, trigger) => { triggerRef.current = trigger; setMode("connections"); setOpen(true); }} />
         <ChatConnectCards />
         <p>Conversation one</p>
         <p data-testid="stream">Streaming turn {turns}</p>

@@ -115,20 +115,17 @@ afterEach(() => {
 });
 
 describe("circle discovery actions", () => {
-  it("shows all six starters without writing and keeps Custom circle wired", () => {
+  it("keeps ideas optional and hiding a template never changes membership", () => {
     render(ui());
-    expect(
-      screen.getAllByRole("button", { name: /^Setup .* circle$/ }),
-    ).toHaveLength(6);
+    expect(screen.queryByRole("button", { name: "Setup Finance circle" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Circle ideas/ }));
+    expect(screen.getAllByRole("button", { name: /^Setup .* circle$/ })).toHaveLength(6);
+    fireEvent.click(screen.getByRole("button", { name: "Hide Finance suggestion" }));
+    expect(screen.queryByRole("button", { name: "Setup Finance circle" })).toBeNull();
     expect(mocks.create).not.toHaveBeenCalled();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Create your own circle" }),
-    );
-    expect(callbacks.onCreateCircle).toHaveBeenCalledOnce();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Find people to connect with" }),
-    );
-    expect(callbacks.onFindPeople).toHaveBeenCalledOnce();
+    expect(mocks.publish).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Restore hidden" }));
+    expect(screen.getByRole("button", { name: "Setup Finance circle" })).toBeEnabled();
   });
 
   it("creates the requested starter once and opens the saved circle", async () => {
@@ -139,6 +136,7 @@ describe("circle discovery actions", () => {
       }),
     );
     render(ui());
+    fireEvent.click(screen.getByRole("button", { name: /Circle ideas/ }));
     const create = screen.getByRole("button", { name: "Setup Finance circle" });
     fireEvent.click(create);
     fireEvent.click(create);
@@ -156,7 +154,7 @@ describe("circle discovery actions", () => {
       { notificationType: "location_circle_created", circleId: "finance-id" },
     );
     expect(mocks.push).toHaveBeenCalledWith(
-      "/one/connect?tab=circles&action=circle-detail&circleId=finance-id",
+      "/one/connect?tab=circles&action=circle-detail&circleId=finance-id&circleSetup=1",
       { scroll: false },
     );
     expect(create).toBeDisabled();
@@ -164,6 +162,7 @@ describe("circle discovery actions", () => {
 
   it("uses the SMS system roster rather than a similarly named custom circle", async () => {
     render(ui({ ...ready, circles: [circle({ name: "SMS Circle" })] }));
+    fireEvent.click(screen.getByRole("button", { name: /Circle ideas/ }));
     fireEvent.click(screen.getByRole("button", { name: "Setup SMS circle" }));
     await waitFor(() =>
       expect(mocks.sms).toHaveBeenCalledExactlyOnceWith({
@@ -171,32 +170,26 @@ describe("circle discovery actions", () => {
       }),
     );
     expect(mocks.create).not.toHaveBeenCalled();
+    expect(String(mocks.push.mock.calls[0][0])).not.toContain("circleSetup");
     expect(mocks.push).toHaveBeenCalledWith(
       expect.stringContaining("circleId=sms-id"),
       { scroll: false },
     );
   });
 
-  it("shows Open only for the current owner's saved starter and updates after removal", () => {
+  it("keeps saved circles out of optional ideas and restores their template after removal", () => {
     const view = render(ui({ ...ready, circles: [circle()] }));
-    expect(screen.queryByText("Ready")).toBeNull();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Open Finance circle" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /Circle ideas/ }));
+    expect(screen.queryByRole("button", { name: "Setup Finance circle" })).toBeNull();
     expect(mocks.create).not.toHaveBeenCalled();
-    expect(mocks.push).toHaveBeenCalledWith(
-      expect.stringContaining("circleId=finance-id"),
-      { scroll: false },
-    );
     view.rerender(ui());
-    expect(
-      screen.getByRole("button", { name: "Setup Finance circle" }),
-    ).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Setup Finance circle" })).toBeEnabled();
   });
 
   it("keeps a failed creation retryable", async () => {
     mocks.create.mockRejectedValueOnce(new Error("offline"));
     render(ui());
+    fireEvent.click(screen.getByRole("button", { name: /Circle ideas/ }));
     fireEvent.click(
       screen.getByRole("button", { name: "Setup Family circle" }),
     );
@@ -214,6 +207,7 @@ describe("circle discovery actions", () => {
 
   it("does not turn a loading or failed list into an empty list that allows duplicate creation", () => {
     const view = render(ui({ ...ready, loading: true }));
+    fireEvent.click(screen.getByRole("button", { name: /Circle ideas/ }));
     expect(
       screen.getByRole("button", { name: "Setup Family circle" }),
     ).toBeDisabled();
@@ -231,6 +225,7 @@ describe("circle discovery actions", () => {
       }),
     );
     const view = render(ui());
+    fireEvent.click(screen.getByRole("button", { name: /Circle ideas/ }));
     fireEvent.click(
       screen.getByRole("button", { name: "Setup Family circle" }),
     );
@@ -244,11 +239,14 @@ describe("circle discovery actions", () => {
 
   it("does not show summaries from another owner", () => {
     render(ui({ ...ready, ownerId: "someone-else", circles: [circle()] }));
-    expect(screen.queryByRole("button", { name: /Open Finance/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Circle ideas/ }));
+    expect(screen.getByRole("button", { name: "Setup Finance circle" })).toBeDisabled();
+    expect(mocks.create).not.toHaveBeenCalled();
   });
 
   it("routes missing vault access to setup rather than an ineffective list retry", () => {
     render(ui(ready, null));
+    fireEvent.click(screen.getByRole("button", { name: /Circle ideas/ }));
     expect(screen.queryByRole("button", { name: "Retry circles" })).toBeNull();
     fireEvent.click(
       screen.getByRole("button", { name: "Finish setting up One" }),
@@ -261,6 +259,7 @@ describe("circle discovery actions", () => {
       throw new Error("BroadcastChannel unavailable");
     });
     render(ui());
+    fireEvent.click(screen.getByRole("button", { name: /Circle ideas/ }));
     fireEvent.click(
       screen.getByRole("button", { name: "Setup Family circle" }),
     );

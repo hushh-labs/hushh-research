@@ -53,7 +53,7 @@ export function PublicKnowledgeWorkspace() {
         authState="public"
         dataState="loaded"
       />
-      <SwipeViews
+      <SwipeViews heightMode="active" viewportMinHeight="0px"
         tabSetId={definition.id}
         activeValue={activeTab}
         options={definition.tabs}

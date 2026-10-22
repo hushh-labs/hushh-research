@@ -1,6 +1,14 @@
 # Fundamental blocking backend tests for CI.
 # Keep this list small and stable. Full historical suites remain manual.
 
+# PLG exports are signed, production-only and limited to enrolled task metadata.
+tests/services/test_plg_evidence.py
+tests/services/test_product_activity_postgres.py
+tests/test_plg_deploy_bindings.py
+
+# Store releases must retain the selected track, exact source and private binaries.
+tests/test_native_ship_artifact_workflows.py
+
 # Mail/Drive connector lifecycle: real PostgreSQL in the existing test-only CI service.
 tests/services/test_external_connector_lifecycle_postgres.py
 tests/services/test_external_connector_credentials_service.py
@@ -22,6 +30,7 @@ tests/services/test_drive_ingestion.py
 tests/services/test_drive_document_processor.py
 tests/services/test_drive_document_retrieval.py
 tests/services/test_drive_document_worker.py
+tests/services/test_drive_extraction_mime_admission.py
 # Native selected-file staging, the privacy-only notification outbox, and the
 # bounded Scheduler coordinator each rely on real PostgreSQL leases.  Keep
 # these in the blocking manifest: collection-only coverage cannot catch a
@@ -71,9 +80,45 @@ tests/services/test_drive_live_query.py
 tests/services/test_drive_owner_share.py
 tests/services/test_drive_owner_search_postgres.py
 tests/services/test_drive_request_search_unit.py
+tests/services/test_drive_request_candidate_assessment.py
+tests/services/test_drive_request_review_policy.py
+tests/services/test_drive_request_package_store_postgres.py
+tests/services/test_drive_agent_package_flow_postgres.py
+tests/services/test_drive_v1_manual_review_postgres.py
+tests/services/test_drive_request_package_service.py
+# Managed UAT text: primary/fallback transport, current owner authority,
+# immutable administrator policy and actual foreground/background ADK entrypoints.
+tests/services/test_azure_adk.py
+tests/test_model_preference_resolution.py
+tests/test_one_adk_text_runtime.py
+tests/services/test_drive_bounded_search_unit.py
+tests/services/test_drive_search_performance_proof.py
+# Search v2: the request flow plans without any model call, and only typed
+# words and exact synonyms are title evidence for autoshare.
+tests/services/test_drive_request_brain.py
 tests/services/test_drive_request_bulk_postgres.py
 tests/services/test_drive_trusted_auto.py
+# A "3 month meeting notes" request over a realistic Drive (synthetic titles):
+# exactly the in-period notes A may share, end to end on PostgreSQL.
+tests/services/test_drive_owner_meeting_notes_scenario.py
 tests/services/test_drive_request_payment.py
+tests/services/test_drive_autoshare_pay_then_stream_postgres.py
+# Pay once, then stream: the real request pipeline against a fake Drive and
+# Stripe. Checkout opens mid-search, nothing is shared before payment, every
+# match is shared once after it, and every paid request settles exactly once.
+tests/services/test_drive_pay_stream_acceptance_postgres.py
+tests/test_drive_request_owner_payouts.py
+tests/test_stripe_connect_bank_payouts.py
+# Hashcoin liabilities and test-only redemption must run against real PostgreSQL.
+tests/test_hashcoin_wallet.py
+tests/test_hashcoin_redemption.py
+# Owner Allow for requests from outside the Trusted circle: migration 291 bounds
+# the owner price, replays without waiting behind live writers and refuses a
+# rollback that would strand an owner-priced payment. The Consent Center keeps
+# the owner's Allow/Deny decision and the automatic progress after Allow.
+tests/test_drive_request_owner_allowed_migration.py
+tests/services/test_drive_sharing_center.py
+tests/services/test_drive_feed_projection.py
 tests/services/test_google_drive_mcp_service.py
 tests/services/test_drive_bulk_share_postgres.py
 tests/services/test_drive_bulk_share_service.py
@@ -87,10 +132,13 @@ tests/services/test_connector_feature_admission.py
 tests/test_external_connector_oauth_routes.py
 tests/services/test_gmail_metadata_reader.py
 tests/services/test_email_delegated_read.py
+tests/services/test_receipt_memory_read.py
 tests/test_email_agent_a2a.py
 tests/test_adk_specialist_chat_services.py
 tests/test_one_external_read_boundary.py
 tests/test_one_external_read_projection.py
+# Receipt functions use the native client continuation, owner binding and ephemeral history projection.
+tests/test_receipt_client_tools.py
 # Queued messages join a live turn only at a step boundary, exactly once, owner-bound.
 tests/test_one_queued_input.py
 tests/test_private_agent_telemetry.py
@@ -137,6 +185,8 @@ tests/test_pkm_upgrade_run_id_path_bounds.py
 tests/test_pkm_upgrade_routes.py
 tests/test_pkm_upgrade_service.py
 tests/test_vault_keys_metadata.py
+tests/test_initial_contacts_migration.py
+tests/services/test_initial_contacts_circle_postgres.py
 tests/test_onboarding_contract.py
 tests/test_one_location_routes.py
 tests/services/test_one_location_agent_service.py
@@ -147,12 +197,15 @@ tests/services/test_location_circle_direct_executor.py
 tests/services/test_location_circle_name_interaction.py
 tests/services/test_connections_service.py
 tests/services/test_push_notifications.py
+tests/services/test_system_push_delivery.py
 tests/test_fcm_messages.py
 tests/routes/test_connections_route.py
 tests/test_adk_a2a_compliance_script.py
 tests/test_agent_manifests.py
+tests/test_pass_assets_reach_the_deployed_image.py
 tests/test_hushh_adk_single_turn.py
 tests/services/test_pkm_agent_lab_service.py
+tests/services/test_pkm_preview_outcomes.py
 # A pasted context transfer is kept whole (Phase 4): recorded server answers.
 tests/services/test_context_transfer_is_kept.py
 tests/test_ria_claim_flow.py
@@ -166,6 +219,7 @@ tests/test_llm_operon_stream_error_leak.py
 tests/test_stream_agent_thinking_gemini_error_cwe209.py
 tests/test_one_location_db_error_detail_cwe209.py
 tests/test_cloudbuild_step_arg_limit.py
+tests/test_one_wallet_card_deploy_parity.py
 tests/test_gmail_information_request_release_contract.py
 tests/test_uat_deploy_no_traffic_contract.py
 tests/test_verify_env_secrets_parity.py
@@ -243,6 +297,9 @@ tests/services/test_one_referral_rewards_service.py
 tests/test_one_referral_handle.py
 tests/services/test_one_referral_display_handle_service.py
 tests/services/test_one_referral_leaderboard_service.py
+tests/services/test_one_referral_identity_service.py
+tests/services/test_one_referral_challenge_service.py
+tests/test_one_referral_daily_streak.py
 tests/services/test_one_referral_weekly_award_service.py
 
 # One Location Circles, and the migration guards that protect them.
@@ -275,12 +332,27 @@ tests/test_one_location_system_circle_migration.py
 tests/test_one_location_system_circle_kinds_migration.py
 tests/test_migrations_are_replay_safe.py
 tests/services/test_account_service_cleanup_tables.py
+# Hosted Live Memory pilot review is owner-only, pending-only, and revoke-fenced.
+# The PostgreSQL proof exercises migration replay, row isolation, and vault erasure.
+tests/test_hosted_memory_pilot_routes.py
+tests/test_hosted_memory_pilot_postgres.py
+tests/services/test_hosted_memory_envelope_contract.py
+tests/test_hosted_memory_envelope_postgres.py
+tests/services/test_hosted_memory_attestation.py
+# Owner-scoped document request payment snapshots feed the encrypted client
+# projection without exposing Stripe, bank, or document payloads.
+tests/test_requester_document_payment_source_unit.py
+tests/test_requester_document_payment_source_routes.py
+tests/test_requester_document_payment_source_postgres.py
 tests/test_pool_acquire_is_bounded.py
+tests/test_market_advisory_lock_connection.py
 
 # Deleted-account session invalidation is a cross-client privacy boundary.
 # Keep the route machine code, Firebase classification, durable cleanup intent,
 # and migration-level resurrection guard in every backend and merge-queue run.
 tests/test_account_routes.py
+# Full encrypted export: bounded cursor memory, complete recovery history, snapshot and cleanup.
+tests/services/test_account_service_export.py
 tests/test_account_legal_acceptance.py
 tests/test_account_legal_acceptance_postgres.py
 tests/test_firebase_auth_split.py
@@ -446,6 +518,7 @@ tests/test_adk_pin_contract.py
 # unlisted test never runs in any lane, so a guard outside this manifest is
 # decoration.
 tests/test_ios_lane_path_filter_covers_native_test_surfaces.py
+tests/test_tmp_cleanup_preserves_worktrees.py
 tests/test_capability_graph_gate_compares_against_base.py
 # (2026-09-26) scripts/ci is split between the frontend and backend path
 # filters by the lane that runs each script; this proves every script a lane
@@ -453,6 +526,11 @@ tests/test_capability_graph_gate_compares_against_base.py
 # keeps the UAT backend provenance check in front of the macOS job.
 tests/test_ci_path_filters_cover_lane_scripts.py
 tests/test_testflight_backend_provenance_runs_before_macos.py
+# (2026-10-15) CI Status Gate is the one required check, and GitHub reads a
+# skipped required check as a pass. This runs the gate's own bash and fails
+# when an in-scope lane or authority check can pass unrun, or a dispatched run
+# can stand in for a pull request's checks.
+tests/test_ci_status_gate_fails_closed.py
 
 # Consent and information sharing, proven end to end: the lifecycle proof
 # (request, approve with duration, export, decrypt, deny, revoke, cancel,
@@ -516,7 +594,9 @@ tests/one_voice/test_relay_name_edit.py
 tests/one_voice/test_tools_sos.py
 tests/one_voice/test_tools_mail.py
 tests/one_voice/test_mail_send.py
+tests/one_voice/test_mail_compose.py
 tests/one_voice/test_relay_mail_send.py
+tests/one_voice/test_relay_mail_input_pump.py
 tests/one_voice/test_live_mail_tool_selection_eval.py
 tests/one_voice/test_mail_reply.py
 tests/one_voice/test_relay_mail_reply.py
@@ -634,6 +714,30 @@ tests/test_provision_curated_connector.py
 
 # Circle chat membership, encrypted relay, retries, delivery and migration replay.
 tests/test_circle_chat.py
+tests/services/test_chat_notification_state.py
+
+# Grouped Feed pagination/read authority and authenticated chat route boundaries.
+tests/services/test_feed_service.py
+tests/routes/test_feed_route.py
+# Feed removal and the ended-SOS clear belong to the account: a new session or
+# device reads the same server state, another account is untouched, and account
+# deletion leaves no Feed. PostgreSQL runs in the serial lane.
+tests/test_feed_account_session_postgres.py
+tests/test_one_location_recipient_feed_clear_migration.py
+tests/services/test_direct_messages_service.py
+tests/routes/test_direct_messages_route.py
+
+# Direct-message attachment history, replay and authorization on isolated PostgreSQL.
+tests/test_direct_message_feed_projection_postgres.py
+tests/services/test_wallet_card_access_service.py
+tests/services/test_wallet_card_network.py
+tests/services/test_wallet_artwork_catalog.py
+tests/services/test_wallet_artwork_providers.py
+tests/routes/test_wallet_artwork_route.py
+tests/test_wallet_card_validation.py
+tests/routes/test_wallet_card_access_route.py
+tests/test_wallet_card_access_postgres.py
+tests/test_wallet_universal_sharing_postgres.py
 
 # Scheduled mail by voice: migration 275 shape and rollback guard, the owner-local
 # send-time rules, and the schedule/list/cancel tools against the sealed ledger.
@@ -645,6 +749,16 @@ tests/one_voice/test_mail_schedule.py
 tests/services/test_scheduled_mail_drain.py
 tests/test_scheduled_mail_drain_routes.py
 tests/test_scheduled_mail_scheduler_contract.py
+tests/test_business_suggestions.py
+tests/test_one_profile_research.py
+tests/test_profile_research_jobs.py
+tests/test_magic_intelligence_admission.py
+tests/test_magic_intelligence_completion.py
+tests/test_insurance_agents_runtime_config_wiring.py
+tests/test_hushh_adk_turn.py
+tests/test_business_runtime_reliability.py
+tests/test_consent_listener_asyncio.py
+tests/services/test_consent_db_refresh_jobs.py
 
 # Gmail drafts by voice: list/open/send by position, the send gate and the
 # drafts grant, one ledger row per send, and the draft open route.
@@ -663,4 +777,130 @@ tests/test_pkm_packets_and_directory_claims.py
 tests/test_pkm_packet_orders.py
 tests/test_pkm_credits.py
 tests/test_pkm_payouts.py
+# Answer scope, encrypted delivery, payments and disabled-drain boundaries.
+# The PostgreSQL suites run in the existing serial database lane.
+tests/test_answer_scope_resolution.py
+tests/test_answer_scope_resolver.py
+tests/test_answer_composer.py
+tests/test_pkm_answer_payment.py
+tests/test_answer_work_drain.py
+tests/services/test_pkm_answer_requests_postgres.py
+tests/services/test_pkm_answer_races_postgres.py
 tests/test_one_career_routes.py
+tests/services/test_pkm_answer_recovery_postgres.py
+tests/services/test_pkm_answer_signed_settlement_postgres.py
+tests/test_pkm_answer_config.py
+tests/test_pkm_answer_routes.py
+tests/test_sse_routes.py
+tests/test_feed_realtime_postgres.py
+tests/test_payout_account_refresh_route.py
+# Payouts v2: owner-scoped activity and receipts, Connect balances, deposit
+# snapshots, typed payout doorbell and stream v2, request terms, and the
+# release replay of the Connect event CHECK (real PostgreSQL where named).
+tests/test_payout_doorbell.py
+tests/test_payout_doorbell_kinds_postgres.py
+tests/test_document_feed_stream.py
+tests/test_payout_activity_routes.py
+tests/test_payout_activity_postgres.py
+tests/test_stripe_connect_balances.py
+tests/test_stripe_connect_balances_postgres.py
+tests/test_connect_bank_payout_snapshot_postgres.py
+tests/test_bank_payout_event_replay_postgres.py
+tests/test_referral_settings_replay_postgres.py
+tests/test_drive_request_terms_migrations_postgres.py
+
+tests/test_pkm_answer_catalog.py
+tests/test_answer_center_surface_integration.py
+
+tests/test_world_model.py
+tests/test_world_model_azure.py
+tests/test_world_model_story.py
+tests/test_world_model_contracts.py
+
+tests/test_world_model_invitations.py
+
+tests/test_one_chat_service_only_release.py
+
+tests/services/test_drive_packet_intelligence.py
+
+tests/services/test_drive_packet_account_guard.py
+tests/services/test_drive_packet_owner_guard.py
+
+tests/services/test_drive_document_pages_postgres.py
+
+tests/services/test_drive_pipeline_evaluation.py
+# Drive packet batch eval: synthetic fixtures only, fixture model and judge, no network.
+tests/eval_drive_packets/test_cli_smoke_fixtures.py
+tests/eval_drive_packets/test_contracts.py
+tests/eval_drive_packets/test_deterministic_checks.py
+tests/eval_drive_packets/test_gates.py
+tests/eval_drive_packets/test_guard_regression_suite.py
+tests/eval_drive_packets/test_journey.py
+tests/eval_drive_packets/test_judge_protocol.py
+tests/eval_drive_packets/test_labels.py
+tests/eval_drive_packets/test_metrics_definitions.py
+tests/eval_drive_packets/test_package_boundary.py
+tests/eval_drive_packets/test_partition.py
+tests/eval_drive_packets/test_privacy_boundary.py
+tests/eval_drive_packets/test_replay_no_label_leakage.py
+tests/eval_drive_packets/test_report.py
+tests/eval_drive_packets/test_sampling.py
+tests/eval_drive_packets/test_sources_read_only.py
+tests/eval_drive_packets/test_stats.py
+
+tests/services/test_drive_reusable_packets_postgres.py
+
+tests/services/test_drive_packet_catalog_postgres.py
+
+tests/services/test_drive_packet_provider_schema.py
+
+tests/services/test_drive_request_index_reuse.py
+
+tests/services/test_drive_request_index_reuse_postgres.py
+
+tests/services/test_drive_packet_payment_postgres.py
+tests/services/test_drive_request_package_disclosure.py
+
+tests/services/test_drive_package_access_preflight.py
+
+tests/services/test_drive_package_existing_access_postgres.py
+
+tests/services/test_drive_collection_semantic_status_postgres.py
+
+tests/test_wallet_default_qr_revocation_postgres.py
+tests/test_one_wallet_card_service.py
+tests/test_one_wallet_card_routes.py
+tests/services/test_one_referral_service_summary.py
+tests/test_one_referral_dashboard_routes.py
+
+tests/test_pwm_notification_drain_routes.py
+tests/test_world_model_lifecycle.py
+# WorkOS enterprise SSO: signatures, state, exchange refusals and deprovisioning.
+tests/test_workos_enterprise_sso_flow.py
+
+tests/services/test_calendar_schedule_service.py
+tests/services/test_calendar_schedule_boundaries.py
+tests/services/test_calendar_attendance_service.py
+tests/services/test_calendar_invitations.py
+tests/test_calendar_schedule_routes.py
+
+# Live Memory replay: owner route contract and committed source journal on PostgreSQL.
+tests/test_source_journal_routes.py
+tests/test_live_memory_source_journal_postgres.py
+tests/services/test_calendar_shared_availability.py
+
+# Referral transaction, privacy and concurrency contracts.
+tests/test_one_referral_lifecycle_postgres.py
+tests/test_referral_prize_activation_postgres.py
+
+# V1 request search, exact authority, and isolated checkout/refund lane.
+tests/test_drive_v1_worker_lane.py
+tests/services/test_drive_owner_search_v1_queue.py
+tests/services/test_drive_v1_discovery_contract.py
+tests/services/test_drive_v1_request_evidence.py
+tests/services/test_drive_v1_authority.py
+tests/services/test_drive_request_payment_v1_lane.py
+# Independent authentication authority, including real Postgres lock races.
+tests/services/test_email_auth_postgres.py
+
+tests/test_client_connector_routes.py

@@ -8,6 +8,10 @@ import {
   useSetupCapabilityCoordinator,
 } from "@/components/onboarding/setup/setup-capability-coordinator";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
+import { useAuth } from "@/lib/firebase/auth-context";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
+import { useOptionalOneLocationInteractionSurface } from "@/components/one-location/onboarding/location-onboarding-interaction-surface";
+import { finishVerifiedLocationSetup } from "@/lib/one-location/legacy-setup-finish";
 
 function LocationSetupReturn({ onReturn }: { onReturn: () => void }) {
   const returnedRef = useRef(false);
@@ -21,14 +25,31 @@ function LocationSetupReturn({ onReturn }: { onReturn: () => void }) {
 }
 
 export function LocationOnboardingSetupClient() {
+  const auth = useAuth();
+  const interaction = useOptionalOneLocationInteractionSurface();
+  const sessionRef = useRef({ mounted: true, userId: auth.userId });
+  useEffect(() => {
+    sessionRef.current = { mounted: true, userId: auth.userId };
+    return () => { sessionRef.current.mounted = false; };
+  }, [auth.userId]);
   const [ready, setReady] = useState(false);
   const coordinator = useSetupCapabilityCoordinator({
     capabilityId: "location",
     isOperationallyReady: ready,
-    finishActionId: "setup.finish_location",
+    finishActionId: "setup.finish_location_intro",
     skipActionId: "setup.skip_location",
     terminalPresentation: "automatic",
   });
+  useLocalOnboardingActionHandler("setup.finish_location", (_slots, context) => {
+    const userId = auth.userId;
+    const session = sessionRef.current;
+    return finishVerifiedLocationSetup({
+      userId,
+      runId: interaction?.currentRun?.runId ?? null,
+      isCurrent: () => sessionRef.current === session && session.mounted && session.userId === userId && !context?.signal?.aborted,
+      onVerified: coordinator.returnToSetup,
+    });
+  }, { enabled: coordinator.isReady && Boolean(auth.userId) });
 
   if (!coordinator.isReady)
     return <SetupCapabilityLoading label="Preparing location setup…" />;
@@ -37,11 +58,9 @@ export function LocationOnboardingSetupClient() {
     return <LocationSetupReturn onReturn={coordinator.returnToSetup} />;
   }
 
-  // No cinematic intro or separate permission primer here. The flow's own
-  // Welcome and Features screens frame the value, and Location is requested
-  // only after the person taps "Set up my location". Notifications are
-  // deliberately outside this onboarding journey. Other capabilities keep
-  // their intro gate: this is a Location-only change.
+  // The introduction completes independently of device access; its optional
+  // Save a place step is skippable and a refused grant moves on to Ready.
+  // Location is requested later through the workspace toggle or Save a place.
   const flowProps = {
     onSetupReadinessChange: setReady,
     onSetupComplete: async () => {

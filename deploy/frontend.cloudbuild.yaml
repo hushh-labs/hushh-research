@@ -47,6 +47,8 @@ steps:
           exit 1
         fi
 
+        FRONTEND_IMAGE_PREBUILT="${_SKIP_IMAGE_BUILD}"
+
         passkey_rp_id_file="/workspace/.passkey-rp-id"
         : > "$${passkey_rp_id_file}"
         chmod 600 "$${passkey_rp_id_file}"
@@ -73,15 +75,20 @@ steps:
           echo "Could not derive the frontend passkey RP ID from APP_FRONTEND_ORIGIN."
           exit 1
         fi
-        expected_passkey_rp_id=""
-        case "${_DEPLOY_ENV}" in
-          dev) expected_passkey_rp_id="dev.one.hushh.ai" ;;
-          uat) expected_passkey_rp_id="uat.one.hushh.ai" ;;
-          production) expected_passkey_rp_id="one.hushh.ai" ;;
-        esac
-        if [[ -n "$${expected_passkey_rp_id}" && "$${PASSKEY_RP_ID_VAL}" != "$${expected_passkey_rp_id}" ]]; then
-          echo "APP_FRONTEND_ORIGIN host does not match the ${_DEPLOY_ENV} frontend domain."
-          exit 1
+        # Deploy-only consumes a validated, environment-specific image digest
+        # without uploading source. Catalog validation belongs to image builds.
+        if [[ "$${FRONTEND_IMAGE_PREBUILT:-false}" != "true" ]]; then
+        # One environment-scoped domain catalog owns frontend and backend aliases.
+        python3 - "${_DEPLOY_ENV}" "$${PASSKEY_RP_ID_VAL}" <<'PY_RP'
+        import json
+        import sys
+        from pathlib import Path
+
+        environment, hostname = sys.argv[1:]
+        aliases = json.loads(Path("hushh-webapp/lib/vault/passkey-domain-aliases.json").read_text())
+        if hostname not in aliases.get(environment, []):
+            raise SystemExit("APP_FRONTEND_ORIGIN host does not match the deployment environment")
+        PY_RP
         fi
         printf '%s' "$${PASSKEY_RP_ID_VAL}" > "$${passkey_rp_id_file}"
 
@@ -123,6 +130,37 @@ steps:
         else
           echo "Unable to access Google Contacts OAuth client configuration."
           exit 1
+        fi
+
+        google_sign_in_client_id_file="/workspace/.google-sign-in-client-id"
+        if [[ "$${FRONTEND_IMAGE_PREBUILT:-false}" == "true" ]]; then
+          : > "$${google_sign_in_client_id_file}"
+          chmod 600 "$${google_sign_in_client_id_file}"
+        else
+          bash scripts/deploy/resolve-google-sign-in-client.sh \
+            "$PROJECT_ID" "$${google_sign_in_client_id_file}"
+        fi
+
+        # Receipt logos are optional and resolved for UAT only. Never bind a
+        # missing resource through availableSecrets or echo its public token.
+        receipt_logo_url_template_file="/workspace/.receipt-logo-url-template"
+        : > "$${receipt_logo_url_template_file}"
+        chmod 600 "$${receipt_logo_url_template_file}"
+        if [[ "$${FRONTEND_IMAGE_PREBUILT:-false}" != "true" && "${_DEPLOY_ENV}" == "uat" ]]; then
+          if gcloud secrets versions access latest \
+            --secret=NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE \
+            --project="$PROJECT_ID" \
+            > "$${receipt_logo_url_template_file}" \
+            2> "$${google_contacts_secret_error}"; then
+            python3 scripts/ops/validate_receipt_logo_template.py \
+              < "$${receipt_logo_url_template_file}"
+          elif grep -Eq '(^|[[:space:]])NOT_FOUND(:|[[:space:]])' "$${google_contacts_secret_error}"; then
+            : > "$${receipt_logo_url_template_file}"
+            echo "UAT receipt-logo configuration is absent; leaving the public variable unset."
+          else
+            echo "Unable to access UAT receipt-logo configuration."
+            exit 1
+          fi
         fi
     id: "resolve-google-contacts-client-config"
     secretEnv:
@@ -219,7 +257,19 @@ steps:
         fi
         PASSKEY_RP_ID="$$(cat "$${passkey_rp_id_file}")"
         GOOGLE_CONTACTS_CLIENT_ID_VAL="$$(cat "$${google_contacts_client_id_file}")"
-        trap 'rm -f "$${google_contacts_client_id_file}" "$${passkey_rp_id_file}"' EXIT
+        google_sign_in_client_id_file="/workspace/.google-sign-in-client-id"
+        if [[ ! -f "$${google_sign_in_client_id_file}" ]]; then
+          echo "Google sign-in OAuth client resolver artifact is missing."
+          exit 1
+        fi
+        GOOGLE_SIGN_IN_CLIENT_ID_VAL="$$(cat "$${google_sign_in_client_id_file}")"
+        receipt_logo_url_template_file="/workspace/.receipt-logo-url-template"
+        if [[ ! -f "$${receipt_logo_url_template_file}" ]]; then
+          echo "Receipt-logo resolver artifact is missing."
+          exit 1
+        fi
+        RECEIPT_LOGO_URL_TEMPLATE_VAL="$$(cat "$${receipt_logo_url_template_file}")"
+        trap 'rm -f "$${google_contacts_client_id_file}" "$${google_sign_in_client_id_file}" "$${passkey_rp_id_file}" "$${receipt_logo_url_template_file}"' EXIT
 
         # Registry layer cache (buildx, mode=max): caches the npm ci + next build layers
         # so an unchanged package-lock turns dependency install into a cache hit. First
@@ -251,10 +301,13 @@ steps:
           --build-arg NEXT_PUBLIC_ONE_WALLET_CARD_ENABLED=${_ONE_WALLET_CARD_ENABLED} \
           --build-arg NEXT_PUBLIC_ONE_LOCATION_NEARBY_CHECK_IN=${_ONE_LOCATION_NEARBY_CHECK_IN} \
           --build-arg NEXT_PUBLIC_LOCATION_MAP_DEMO=${_LOCATION_MAP_DEMO} \
+          --build-arg NEXT_PUBLIC_WORKOS_SSO_ENABLED=${_WORKOS_SSO_ENABLED} \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_DEBUG=false \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE=1 \
           --build-arg NEXT_PUBLIC_GTM_ID=$$NEXT_PUBLIC_GTM_ID_VAL \
           --build-arg "NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID=$$GOOGLE_CONTACTS_CLIENT_ID_VAL" \
+          --build-arg "NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID=$$GOOGLE_SIGN_IN_CLIENT_ID_VAL" \
+          --build-arg "NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE=$$RECEIPT_LOGO_URL_TEMPLATE_VAL" \
           --build-arg NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY=$$NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY_VAL \
           --build-arg NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=$$NEXT_PUBLIC_GOOGLE_MAPS_API_KEY_VAL \
           -f hushh-webapp/Dockerfile \
@@ -380,6 +433,9 @@ substitutions:
   # environment-shaped gate reads every store install as non-production and
   # hands real users a map of fabricated people.
   _LOCATION_MAP_DEMO: "false"
+  # Presentation only: shows "Continue with SSO". The backend WORKOS_SSO_ENABLED
+  # flag stays the authority, so a lane has to opt in deliberately.
+  _WORKOS_SSO_ENABLED: "false"
   _HUSHH_TECH_CLIENT_ENABLED: "false"
   _HUSHH_TECH_PROXY_AUDIENCE: ""
   _HUSHH_TECH_FRONTEND_TRUSTED_PROXY_HOPS: "0"

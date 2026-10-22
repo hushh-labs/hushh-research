@@ -67,3 +67,19 @@ class TestFeedMetadataAllowlist:
             "counterpart_label": "Kushal",
             "reason": "dinner planning",
         }
+
+    def test_the_requester_payment_state_crosses_without_provider_detail(self):
+        # One closed enum from the shared payment view; a Pay row and its
+        # history line read the same state. Provider ids never cross.
+        safe = _safe_feed_metadata(
+            {
+                "current_payment_state": "refund_pending",
+                "current_refund_amount_cents": 2500,
+                "stripe_checkout_session_id": "cs_live_must_not_cross",
+                "stripe_payment_intent_id": "pi_must_not_cross",
+            }
+        )
+        assert safe == {
+            "current_payment_state": "refund_pending",
+            "current_refund_amount_cents": 2500,
+        }

@@ -24,6 +24,8 @@ function Shell() {
             routeLayoutMode: "standard",
           }).style,
           ...resolveTopShellGeometryStyle({ hasTabs: true }),
+          "--app-bottom-shell-height": "140px",
+          "--app-scroll-bottom-pad": "var(--app-bottom-shell-height)",
         } as React.CSSProperties
       }
     >
@@ -33,7 +35,7 @@ function Shell() {
           position: "fixed",
           inset: 0,
           overflowY: "auto",
-          paddingBottom: "140px",
+          paddingBottom: "var(--app-scroll-bottom-pad)",
         }}
       >
         <div data-app-shell-top-spacer="true" aria-hidden="true" />
@@ -48,11 +50,28 @@ function Shell() {
       <div
         data-fixture-top-bar=""
         aria-hidden="true"
-        className="fixed inset-x-0 top-0 z-30 flex items-end justify-center bg-background pb-2 text-[17px] font-semibold text-foreground"
+        className="fixed inset-x-0 top-0 z-30 flex items-end justify-center bg-background pb-2 text-foreground"
         style={{ height: "calc(var(--top-inset, 0px) + var(--top-systembar-row-gap) + var(--top-bar-h))" }}
       >
-        Connect
+        {/* The same hooks the shared bar's breadcrumb trail carries, so the
+            page's Profile type scale reaches this title exactly as it does there. */}
+        <nav data-testid="top-app-bar-breadcrumb-trail" className="ui-text-navigation-title flex items-center">
+          <span className="font-semibold">Connect</span>
+        </nav>
       </div>
+      {document.documentElement.dataset.bottomChrome === "1" ? (
+        <div
+          data-fixture-bottom-shell=""
+          aria-hidden="true"
+          className="fixed inset-x-0 bottom-0 z-30 flex flex-col gap-2 bg-background px-4 pb-4 pt-2"
+          style={{ height: "var(--app-bottom-shell-height)" }}
+        >
+          <div className="flex min-h-11 items-center rounded-full bg-white px-4 text-foreground dark:bg-black">Talk to One</div>
+          <div className="flex min-h-14 items-center justify-around rounded-full bg-white text-foreground dark:bg-black">
+            <span>Chat</span><span>One</span><span>Connect</span><span>Feed</span><span>Search</span>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -25,5 +25,9 @@ export const CIRCLE_NAME_ACTION_CLASSNAME =
 export const CIRCLE_NAME_INPUT_CLASSNAME =
   "h-11 min-w-0 flex-1 rounded-xl border border-border bg-background px-3 text-base outline-none transition focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent-ring)]";
 
+/** The rename sheet's field matches its 14px Save action and stays quiet on focus. */
+export const CIRCLE_RENAME_NAME_INPUT_CLASSNAME =
+  "h-11 min-w-0 flex-1 rounded-[14px] border border-border bg-background px-3 text-base outline-none transition focus-visible:border-border focus-visible:ring-0";
+
 /** The field and its control sit on one line (`flex items-center gap-2`). */
 export const CIRCLE_NAME_ROW_CLASSNAME = "mt-2 flex items-center gap-2";

@@ -21,7 +21,8 @@
   "required_reads": [
     "docs/reference/mobile/README.md",
     "docs/guides/new-feature.md",
-    "hushh-webapp/ios/App/CapApp-SPM/README.md"
+    "hushh-webapp/ios/App/CapApp-SPM/README.md",
+    "hushh-webapp/docs/ios-native-surface-adoption.md"
   ],
   "required_commands": [
     "cd hushh-webapp && npm run typecheck",

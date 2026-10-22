@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 import jwt
@@ -42,6 +44,48 @@ async def test_drive_catalog_readiness_requires_configured_oauth_and_return(serv
         "connector_unavailable", status_code=503
     )
     assert await service.connection_available() is False
+
+
+async def test_expired_drive_catalog_metadata_never_refreshes_a_token(service):
+    row = dict(
+        status="connected",
+        envelope_version=2,
+        credential_expires_at=datetime.now(UTC) - timedelta(seconds=1),
+        connection_generation=1,
+        credential_version=2,
+    )
+    credential = dict(
+        profile="live",
+        subject="synthetic-subject",
+        grantedScopes=list(oauth.LIVE_SCOPES),
+        oauthClientId="synthetic-client",
+        accessToken="synthetic-token",
+    )
+    service.lifecycle.read = AsyncMock(return_value=row)
+    service.lifecycle.claim_refresh = AsyncMock(side_effect=AssertionError("refresh attempted"))
+    service.credentials = SimpleNamespace(open_credential=Mock(return_value=credential))
+    service._configuration = AsyncMock(
+        return_value=(
+            SimpleNamespace(
+                capability_policy=oauth.DRIVE_POLICY, oauth_scopes=oauth.REGISTRY_SCOPES
+            ),
+            "synthetic-client",
+            "synthetic-secret",
+        )
+    )
+    assert await service.current_credential(
+        user_id="owner", required_profile="live", refresh=False
+    ) == (row, credential)
+    service.lifecycle.claim_refresh.assert_not_awaited()
+    with pytest.raises(AssertionError, match="refresh attempted"):
+        await service.current_credential(user_id="owner", required_profile="live")
+    credential["grantedScopes"] = []
+    with pytest.raises(oauth.DriveOAuthError, match="reconnect_required"):
+        await service.current_credential(user_id="owner", required_profile="live", refresh=False)
+    credential["grantedScopes"] = list(oauth.LIVE_SCOPES)
+    row["envelope_version"] = 1
+    with pytest.raises(oauth.DriveOAuthError, match="reconnect_required"):
+        await service.current_credential(user_id="owner", required_profile="live", refresh=False)
 
 
 @pytest.fixture(scope="module")
@@ -245,9 +289,10 @@ def test_live_consent_accepts_drive_with_optional_prior_selected_scope(service, 
 
 
 @pytest.mark.asyncio
-async def test_live_verification_requires_a_drive_search_before_marking_connected(
-    service, monkeypatch
+async def test_live_verification_requires_a_drive_search_then_resumes_waiting_requests(
+    service, monkeypatch, caplog
 ):
+    from hushh_mcp.services import drive_sharing_service
     from hushh_mcp.services import google_drive_rest_transport as rest
 
     monkeypatch.setattr(oauth, "connector_feature_enabled", lambda *_: True)
@@ -261,13 +306,41 @@ async def test_live_verification_requires_a_drive_search_before_marking_connecte
     probe = AsyncMock(side_effect=oauth.DriveOAuthError("connector_unavailable", status_code=502))
     monkeypatch.setattr(oauth.GoogleDriveAdapter, "account", account)
     monkeypatch.setattr(rest.GoogleDriveRestTransport, "probe", probe)
-    service.lifecycle.mark_verified = AsyncMock()
+    resume = AsyncMock()
+    service._prepare_drive_collection = AsyncMock()
+
+    class Sharing:
+        def __init__(self, **kwargs):
+            assert kwargs == {"oauth": service}
+            self.resume_owner_drive = resume
+
+    monkeypatch.setattr(drive_sharing_service, "DriveSharingService", Sharing)
+    service.lifecycle.mark_verified = AsyncMock(return_value=True)
     with pytest.raises(oauth.DriveOAuthError, match="connector_unavailable"):
         await service.verify_live(user_id="owner")
     account.assert_awaited_once()
     probe.assert_awaited_once()
     service.lifecycle.mark_verified.assert_not_awaited()
+    service._prepare_drive_collection.assert_not_awaited()
     probe.side_effect = None
-    assert (
-        await service.verify_live(user_id="owner") is service.lifecycle.mark_verified.return_value
-    )
+    # A superseded credential is not verified, so nothing resumes.
+    service.lifecycle.mark_verified.return_value = False
+    assert await service.verify_live(user_id="owner") is False
+    resume.assert_not_awaited()
+    service._prepare_drive_collection.assert_not_awaited()
+    service.lifecycle.mark_verified.return_value = True
+    assert await service.verify_live(user_id="owner") is True
+    service._prepare_drive_collection.assert_awaited_once_with("owner")
+    resume.assert_awaited_once_with(user_id="owner")
+
+    # The committed verification never fails or waits on a failed or slow resume.
+    async def hang(**_):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(oauth, "RESUME_TIMEOUT_SECONDS", 0.01)
+    for failure in (RuntimeError("synthetic provider detail"), hang):
+        resume.side_effect = failure
+        caplog.clear()
+        assert await service.verify_live(user_id="owner") is True
+        assert "request_resume_deferred" in caplog.text
+        assert "synthetic" not in caplog.text and "owner" not in caplog.text

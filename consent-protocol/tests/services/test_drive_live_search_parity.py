@@ -85,7 +85,7 @@ def reader_with(responses):
 TERM = "(title contains '{0}' or fullText contains '{0}')"
 
 
-async def test_multi_word_terms_must_all_match_before_any_term_may():
+async def test_distinct_legacy_terms_remain_required_concepts():
     both = TERM.format("bank") + " and " + TERM.format("statement")
     reader, calls = reader_with({("search_files", both): [file("f1", "SBI bank statement.pdf")]})
     found = await reader.find(query=["bank", "statement"])
@@ -93,12 +93,7 @@ async def test_multi_word_terms_must_all_match_before_any_term_may():
     assert [call[1] for call in calls] == [both]
 
 
-async def test_any_term_is_only_a_fallback_when_all_terms_find_nothing():
-    both = (
-        "(title contains 'salary slip' or fullText contains '\"salary slip\"')"
-        + " and "
-        + TERM.format("payslip")
-    )
+async def test_equivalent_variants_are_searched_together_even_when_one_has_a_hit():
     either = (
         "("
         + "(title contains 'salary slip' or fullText contains '\"salary slip\"')"
@@ -107,11 +102,47 @@ async def test_any_term_is_only_a_fallback_when_all_terms_find_nothing():
         + ")"
     )
     reader, calls = reader_with(
-        {("search_files", both): [], ("search_files", either): [file("f2", "payslip-aug.pdf")]}
+        {
+            ("search_files", either): [
+                [file("f1", "salary slip.pdf")],
+                [file("f2", "payslip-aug.pdf")],
+            ]
+        }
     )
-    found = await reader.find(query=["salary slip", "payslip"])
-    assert [item["name"] for item in found["matches"]] == ["payslip-aug.pdf"]
-    assert [call[1] for call in calls] == [both, either]
+    found = await reader.find(query=["salary slip"], term_groups=[["salary slip", "payslip"]])
+    assert [item["name"] for item in found["matches"]] == ["salary slip.pdf", "payslip-aug.pdf"]
+    assert [call[1] for call in calls] == [either, either]
+    assert calls[1][2]["pageToken"] == "1"
+
+
+async def test_groups_preserve_institution_and_subject_without_unrelated_or_fallback():
+    query = (
+        "("
+        + TERM.format("Schwab")
+        + " or (title contains 'Charles Schwab' or fullText contains '\"Charles Schwab\"'))"
+        + " and ("
+        + TERM.format("statement")
+        + " or "
+        + TERM.format("statements")
+        + ")"
+    )
+    reader, calls = reader_with({("search_files", query): []})
+    found = await reader.find(
+        query=["Schwab", "statement"],
+        term_groups=[["Schwab", "Charles Schwab"], ["statement", "statements"]],
+    )
+    assert found["matches"] == []
+    assert [call[1] for call in calls] == [query]
+
+
+@pytest.mark.parametrize(
+    "groups", [[[]], [["different"]], [["statement", "STATEMENT"]], [["statement", "bad\nterm"]]]
+)
+async def test_invalid_groups_cannot_reach_drive(groups):
+    reader, calls = reader_with({})
+    with pytest.raises(DriveReadError, match="narrow_selection_required"):
+        await reader.find(query=["statement"], term_groups=groups)
+    assert calls == []
 
 
 async def test_compilation_folder_children_use_validated_parent_scope_and_bound_pages():
@@ -126,15 +157,12 @@ async def test_compilation_folder_children_use_validated_parent_scope_and_bound_
     assert calls[0][2]["pageSize"] == 25
 
 
-async def test_owner_title_only_search_excludes_full_text_from_both_query_passes():
-    both = "title contains 'standup' and title contains 'sync'"
+async def test_owner_title_only_search_excludes_full_text_from_variants():
     either = "(title contains 'standup' or title contains 'sync')"
-    reader, calls = reader_with(
-        {("search_files", both): [], ("search_files", either): [file("f2", "Standup sync notes")]}
-    )
-    found = await reader.find(query=["standup", "sync"], title_only=True)
+    reader, calls = reader_with({("search_files", either): [file("f2", "Standup sync notes")]})
+    found = await reader.find(query=["standup"], term_groups=[["standup", "sync"]], title_only=True)
     assert [item["name"] for item in found["matches"]] == ["Standup sync notes"]
-    assert [call[1] for call in calls] == [both, either]
+    assert [call[1] for call in calls] == [either]
     assert all("fullText" not in call[1] for call in calls)
 
 
@@ -215,6 +243,11 @@ async def test_title_only_requires_a_boolean_before_provider_call(value):
     "kind,clause",
     [
         ("pdf", "mimeType = 'application/pdf'"),
+        (
+            "document",
+            "(mimeType = 'application/vnd.google-apps.document' or mimeType = 'application/pdf'"
+            " or mimeType = 'application/msword' or mimeType contains 'wordprocessingml')",
+        ),
         ("video", "mimeType contains 'video/'"),
         (
             "spreadsheet",
@@ -323,6 +356,12 @@ def test_a_calendar_day_is_the_owners_day_not_a_rolling_window():
         {"date_from": "2024-01-01", "date_to": "2026-09-24", "time_intent": "file_activity"},
         {"date_from": "24/09/2026", "time_intent": "file_activity"},
         {"file_kind": "spreadsheet'"},
+        {"file_kind": "document", "result_limit": 100},  # missing ordering
+        {"sort": "recent", "result_limit": 0},
+        {"sort": "recent", "result_limit": 1001},
+        {"sort": "recent", "result_limit": True},
+        {"sort": "recent", "result_limit": "100"},
+        {"sort": "recent", "result_limit": 100.0},
     ],
 )
 def test_plan_rejects_unbounded_or_contradictory_windows(payload):
@@ -337,10 +376,17 @@ def test_plan_rejects_unbounded_or_contradictory_windows(payload):
         {"file_kind": "pdf"},
         {"shared_with_me": True},
         {"date_from": "2026-09-10", "time_intent": "file_activity"},
+        {"file_kind": "document", "sort": "recent", "result_limit": 100},
     ],
 )
 def test_plan_accepts_each_claude_style_boundary_on_its_own(payload):
     LiveSearchPlan.model_validate(payload)
+
+
+def test_legacy_frozen_search_plans_do_not_gain_a_silent_result_cap():
+    plan = LiveSearchPlan.model_validate({"file_kind": "document", "sort": "recent"})
+    assert plan.result_limit is None
+    assert plan.model_dump(mode="json")["result_limit"] is None
 
 
 @pytest.mark.parametrize(
@@ -433,7 +479,13 @@ async def test_ambiguous_file_activity_question_keeps_model_planning(monkeypatch
     )
     monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: reader)
     planner = AsyncMock(
-        return_value={"mode": "find", "relative_days": 2, "time_intent": "file_activity"}
+        return_value={
+            "mode": "find",
+            "relative_days": 2,
+            "time_intent": "file_activity",
+            "subject_scope": "metadata_listing",
+            "subject_complete": True,
+        }
     )
     chat = DriveChatService(
         oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
@@ -481,6 +533,7 @@ async def test_the_chat_turn_passes_type_sharing_recency_and_the_owners_day(monk
         search_planner=AsyncMock(
             return_value={
                 "terms": ["recording"],
+                "term_groups": [["recording", "recordings"]],
                 "file_kind": "video",
                 "shared_with_me": False,
                 "sort": "recent",
@@ -501,6 +554,7 @@ async def test_the_chat_turn_passes_type_sharing_recency_and_the_owners_day(monk
     )
     kwargs = reader.find.await_args.kwargs
     assert kwargs["query"] == ["recording"]
+    assert kwargs["term_groups"] == [["recording", "recordings"]]
     assert kwargs["file_kind"] == "video" and kwargs["recent"] is True
     assert kwargs["shared_with_me"] is False
     assert kwargs["title_dates"] == ["2026-09-24"]
@@ -727,6 +781,8 @@ async def test_a_date_only_listing_states_the_owners_window_and_names_each_file(
                 "date_from": "2026-09-21",
                 "date_to": "2026-09-21",
                 "time_intent": "file_activity",
+                "subject_scope": "metadata_listing",
+                "subject_complete": True,
             }
         ),
     )
@@ -1165,3 +1221,296 @@ async def test_inventory_unavailable_preserves_initial_matches_as_incomplete():
     found = await reader.find(query=[], exact_title="Plan")
     assert [item["file_id"] for item in found["matches"]] == ["one"]
     assert found["truncated"] is True and found["continuation"]["tool_name"] == "list_shared_drives"
+
+
+def _semantic_predicate(identity, value, *, kind="content", match="token", negated=False):
+    return {
+        "id": identity,
+        "kind": kind,
+        "value": value,
+        "match": match,
+        "negated": negated,
+        "discovery_terms": [],
+    }
+
+
+def _semantic_expression(*clauses, basis="title_created_modified"):
+    return {
+        "version": 1,
+        "status": "ready",
+        "clauses": [{"predicates": list(clause)} for clause in clauses],
+        "metadata_listing": not clauses,
+        "date_basis": basis,
+        "clarification": None,
+    }
+
+
+def test_semantic_discovery_preserves_boolean_meaning_and_negative_verification():
+    from hushh_mcp.services.drive_request_semantic_plan import (
+        SemanticDrivePlan,
+        compile_semantic_queries,
+        semantic_plan_digest,
+    )
+
+    raw = _semantic_expression(
+        [
+            _semantic_predicate("person", "Arbitrary Unseenname", kind="entity"),
+            _semantic_predicate("topic", "acquisition"),
+            _semantic_predicate("excluded", "obsolete", negated=True),
+        ],
+        [_semantic_predicate("exact", "O'Brien\\plan.pdf", kind="title", match="exact")],
+    )
+    plan = SemanticDrivePlan.model_validate(raw)
+    query = compile_semantic_queries(plan, file_kind="document")[0]["arguments"]["query"]
+    assert "name contains 'Arbitrary'" in query and "fullText contains 'Unseenname'" in query
+    assert "acquisition" not in query  # Semantic meaning is checked against source contents.
+    assert plan.clauses[0].predicates[1].value == "acquisition"
+    assert " or (name = 'O\\'Brien\\\\plan.pdf')" in query
+    # A provider index cannot establish semantic absence. Do not filter out
+    # possible matches with a guessed NOT query, nor lose the real constraint.
+    assert "obsolete" not in query
+    assert plan.clauses[0].predicates[2].negated is True
+    assert semantic_plan_digest(plan) == semantic_plan_digest(dict(reversed(list(raw.items()))))
+    changed = plan.model_copy(deep=True)
+    changed.clauses[0].predicates[2].negated = False
+    assert semantic_plan_digest(changed) != semantic_plan_digest(plan)
+    assert "text/plain" in query  # Reuse the full existing request document MIME family.
+
+
+@pytest.mark.parametrize("basis", ["title_created_modified", "content"])
+def test_semantic_content_or_title_dates_never_become_file_timestamp_filters(basis):
+    from hushh_mcp.services.drive_request_semantic_plan import compile_semantic_queries
+
+    plan = _semantic_expression([_semantic_predicate("name", "Any Person")], basis=basis)
+    arguments = compile_semantic_queries(
+        plan, period_start="2026-09-02", period_end="2026-10-02", timezone="Asia/Kolkata"
+    )[0]["arguments"]
+    assert "createdTime" not in arguments["query"]
+    assert "modifiedTime" not in arguments["query"]
+    assert "orderBy" not in arguments  # Native full-text relevance order is preserved.
+
+
+@pytest.mark.parametrize("basis,field", [("created", "createdTime"), ("modified", "modifiedTime")])
+def test_semantic_explicit_metadata_dates_keep_inclusive_local_calendar_days(basis, field):
+    from hushh_mcp.services.drive_request_semantic_plan import compile_semantic_queries
+
+    plan = _semantic_expression(
+        [_semantic_predicate("title", "Plan.pdf", kind="title")], basis=basis
+    )
+    arguments = compile_semantic_queries(
+        plan, period_start="2026-09-02", period_end="2026-10-02", timezone="Asia/Kolkata"
+    )[0]["arguments"]
+    assert f"{field} >= '2026-09-01T18:30:00Z'" in arguments["query"]
+    assert f"{field} < '2026-10-02T18:30:00Z'" in arguments["query"]
+    assert arguments["orderBy"] == f"{field} desc"
+
+
+def test_semantic_ownership_never_becomes_full_text_or_a_guessed_account():
+    from hushh_mcp.services.drive_request_semantic_plan import (
+        SemanticPlanInputRequired,
+        compile_semantic_queries,
+    )
+
+    owner = _semantic_expression([_semantic_predicate("account", "A Display Name", kind="owner")])
+    with pytest.raises(SemanticPlanInputRequired, match="unresolved_identity"):
+        compile_semantic_queries(owner)
+    query = compile_semantic_queries(
+        owner, resolved_identities={"account": "verified@example.invalid"}
+    )[0]["arguments"]["query"]
+    assert "'verified@example.invalid' in owners" in query
+    assert "fullText" not in query and "Display Name" not in query
+    shared = _semantic_expression(
+        [_semantic_predicate("sharer", "A Display Name", kind="shared_by")]
+    )
+    query = compile_semantic_queries(
+        shared, resolved_identities={"sharer": "verified@example.invalid"}
+    )[0]["arguments"]["query"]
+    assert "sharedWithMe = true" in query
+    assert "owners" not in query and "writers" not in query and "fullText" not in query
+
+
+@pytest.mark.parametrize(
+    "mutation", ["boolean_version", "duplicate_id", "negative_only", "unknown_field"]
+)
+def test_semantic_plan_rejects_ambiguous_or_unversioned_contracts(mutation):
+    from hushh_mcp.services.drive_request_semantic_plan import SemanticDrivePlan
+
+    raw = _semantic_expression([_semantic_predicate("subject", "new unseen topic")])
+    if mutation == "boolean_version":
+        raw["version"] = True
+    elif mutation == "duplicate_id":
+        raw["clauses"].append(raw["clauses"][0])
+    elif mutation == "negative_only":
+        raw["clauses"][0]["predicates"][0]["negated"] = True
+    else:
+        raw["confirmed"] = True
+    with pytest.raises(ValidationError):
+        SemanticDrivePlan.model_validate(raw)
+
+
+def test_semantic_planner_schema_is_accepted_by_the_actual_google_sdk_converter():
+    # The real managed call rejected numeric Literal enums before reaching
+    # Vertex. Exercise the SDK conversion, not just Pydantic's JSON schema.
+    from google.genai import _transformers, types
+
+    from hushh_mcp.services.drive_suggestion_service import SemanticLiveSearchModelPlan
+
+    assert isinstance(_transformers.t_schema(None, SemanticLiveSearchModelPlan), types.Schema)
+
+
+def test_semantic_provider_grammar_simplification_preserves_strict_host_limits():
+    from hushh_mcp.services.drive_request_semantic_plan import SemanticDrivePlan
+    from hushh_mcp.services.drive_suggestion_service import SemanticLiveSearchModelPlan
+
+    provider_schema = SemanticLiveSearchModelPlan.model_json_schema()
+    predicates = provider_schema["$defs"]["SemanticClause"]["properties"]["predicates"]
+    assert "maxItems" not in predicates  # Vertex's bounded-array grammar caused real HTTP 400.
+    too_many = _semantic_expression(
+        *([_semantic_predicate(f"subject_{index}", "arbitrary topic")] for index in range(7))
+    )
+    with pytest.raises(ValidationError):
+        SemanticDrivePlan.model_validate(too_many)
+    too_long = _semantic_expression([_semantic_predicate("subject", "a" * 161)])
+    with pytest.raises(ValidationError):
+        SemanticDrivePlan.model_validate(too_long)
+
+
+async def test_semantic_planner_retains_expression_and_never_falls_back_to_keyword_repair(
+    monkeypatch,
+):
+    from hushh_mcp.services import drive_suggestion_service as suggestions
+    from hushh_mcp.services.drive_suggestion_service import plan_semantic_live_search
+
+    expression = _semantic_expression([_semantic_predicate("person", "Unseen Name", kind="entity")])
+    response = {
+        "terms": [],
+        "mode": "find",
+        "file_kind": "any",
+        "subject_scope": "specific_records",
+        "subject_complete": True,
+        "semantic_intent": "other",
+        "discovery_clues": ["Unseen Name"],
+        "required_entities": ["Unseen Name"],
+        "expected_document_anatomy": "Substantive discussion of the requested person.",
+        "semantic_query": expression,
+    }
+    planner = AsyncMock(return_value=response)
+    plan = await plan_semantic_live_search(planner, prompt="synthetic request", user_id="synthetic")
+    assert plan.semantic_query.model_dump(mode="json") == expression
+    assert plan.file_kind == "any" and plan.terms == []
+    assert LiveSearchPlan(mode="find", terms=["legacy"]).semantic_query is None
+    planner = AsyncMock(return_value={**response, "semantic_query": {"version": 999}})
+    with pytest.raises(ValidationError):
+        await plan_semantic_live_search(planner, prompt="synthetic request", user_id="synthetic")
+    assert planner.await_count == 2
+
+    # Exercise the production interpreter and real manifest selection. A good
+    # injected plan alone would miss semantic requests using the legacy prompt.
+    built = Mock(return_value=object())
+    legacy_response = {key: value for key, value in response.items() if key != "semantic_query"}
+    legacy_response["terms"] = ["Unseen Name"]
+    run = AsyncMock(side_effect=[response, legacy_response])
+    monkeypatch.setattr(suggestions, "build_single_turn_agent", built)
+    monkeypatch.setattr(suggestions, "run_single_turn", run)
+    original = json.dumps(
+        {
+            "document_request": {
+                "purpose": "Unseen Name and either contracts or tax filings",
+                "periodStart": "2026-09-02",
+                "periodEnd": "2026-10-02",
+            }
+        }
+    )
+    actual = await plan_semantic_live_search(
+        suggestions.interpret_semantic_live_search, prompt=original, user_id="synthetic"
+    )
+    assert actual.semantic_query == plan.semantic_query
+    await suggestions.plan_live_search(
+        suggestions.interpret_live_search, prompt=original, user_id="synthetic"
+    )
+    semantic_call, legacy_call = built.call_args_list
+    assert semantic_call.args[0].id == "agent_documents_request_search"
+    assert semantic_call.kwargs["output_schema"] is suggestions.SemanticLiveSearchModelPlan
+    assert legacy_call.args[0].id == "agent_documents_live_search"
+    assert legacy_call.kwargs["output_schema"] is suggestions.LiveSearchModelPlan
+    assert [call.kwargs["prompt_parts"] for call in run.await_args_list] == [original, original]
+
+
+async def test_semantic_pending_page_resizes_at_the_same_cursor_without_dropping_candidates(
+    monkeypatch,
+):
+    from hushh_mcp.services import drive_owner_search_service as search
+
+    monkeypatch.setattr(search, "MAX_CHECKPOINT_BYTES", 4500)
+    calls = []
+
+    async def provider(**kwargs):
+        args = kwargs["arguments"]
+        calls.append((args["pageSize"], args.get("pageToken")))
+        return ExternalMcpToolResult(
+            False,
+            {
+                "files": [
+                    {
+                        "id": f"synthetic_{position}",
+                        "title": "Synthetic " + "a" * 990,
+                        "mimeType": "application/vnd.google-apps.document",
+                        "version": "7",
+                        "capabilities": {"canShare": True},
+                    }
+                    for position in range(args["pageSize"])
+                ],
+                "nextPageToken": "next_from_smaller_page",
+                "incompleteSearch": False,
+            },
+            False,
+        )
+
+    service = object.__new__(search.DriveOwnerSearchService)
+    service.transport = SimpleNamespace(read_owner_search_page=provider)
+    checkpoint = {
+        "semantic_plan": _semantic_expression(
+            [_semantic_predicate("subject", "topic")], basis="content"
+        ),
+        "semantic_seen": [],
+        "semantic_pending": [],
+        "phase": "user",
+        "arguments": {"query": "fullText contains 'topic'"},
+        "page_token": "original_cursor",
+        "seen_tokens": [],
+        "request_origin_id": "synthetic_request",
+        "request_explicit_dates": True,
+        "request_file_kind": "any",
+        "authority_mode": "trusted_auto",
+        "coverage_counts": {},
+    }
+    job = {"user_id": "synthetic_owner", "checkpoint": checkpoint}
+    queued, files, incomplete, done = await service._page(job)
+    assert calls == [(25, "original_cursor"), (5, "original_cursor"), (1, "original_cursor")]
+    assert len(queued["semantic_pending"]) == 1 and files == []
+    assert queued["page_token"] == "next_from_smaller_page"
+    assert queued["coverage_counts"]["providerRowsScanned"] == 31
+    assert queued["coverage_counts"]["resizedProviderPages"] == 2
+    assert not incomplete and not done
+    assert checkpoint["page_token"] == "original_cursor" and checkpoint["semantic_seen"] == []
+
+
+async def test_semantic_provider_folder_is_discovery_not_a_filename_eligibility_gate():
+    from hushh_mcp.services import drive_owner_search_service as search
+
+    service = object.__new__(search.DriveOwnerSearchService)
+    checkpoint = {
+        "semantic_plan": _semantic_expression([_semantic_predicate("subject", "Any Person")]),
+        "request_file_kind": "any",
+        "authority_mode": "trusted_auto",
+        "coverage_counts": {},
+    }
+    files, incomplete = await service._request_candidates(
+        {"user_id": "synthetic_owner"},
+        checkpoint,
+        [{"id": "folder_001", "title": "Generic Folder", "mimeType": search.FOLDER_MIME}],
+        folder_scoped=False,
+        drive_id=None,
+    )
+    assert checkpoint["folder_queue"] == [{"id": "folder_001"}]
+    assert files == [] and not incomplete  # Discovery itself releases no file or grant.

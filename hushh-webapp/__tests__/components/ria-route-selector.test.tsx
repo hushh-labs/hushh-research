@@ -61,6 +61,7 @@ describe("RiaRouteSelector", () => {
       expect.any(Function),
       "tap",
       "contextual",
+      "selection",
     );
   });
 });

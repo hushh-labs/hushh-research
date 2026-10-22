@@ -76,7 +76,7 @@ export function KaiPersonaScreen(props: {
               <span className="type-caption text-muted-foreground">
                 {cfg.pill}
               </span>
-              <h1 className="mt-3 text-balance text-2xl font-bold tracking-tight text-foreground sm:text-3xl leading-snug">
+              <h1 className="mt-3 text-balance text-2xl font-semibold tracking-tight text-foreground sm:text-3xl leading-snug">
                 {cfg.title}
               </h1>
               <p className="mt-4 max-w-[22rem] text-sm leading-relaxed text-muted-foreground text-balance">

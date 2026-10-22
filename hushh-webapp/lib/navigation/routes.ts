@@ -103,6 +103,7 @@ export function resolvePersonRefFromProfilePathname(
 }
 
 export const ROUTES = {
+  CALENDAR_RESCHEDULE: "/calendar/reschedule",
   HOME: "/",
   PERSON_PROFILE: "/people/[personRef]",
   /** Canonical public knowledge workspace; root is dual-mode Chat/onboarding. */
@@ -137,7 +138,10 @@ export const ROUTES = {
   PROFILE_SECURITY_VAULT: "/one/profile/security/vault",
   PROFILE_SECURITY_SESSION: "/one/profile/security/session",
   PROFILE_SECURITY_DEVICE_AUTHORIZE: "/one/profile/security/devices/authorize",
+  PROFILE_WORLD_MODEL: "/one/profile/world-model",
   PROFILE_MY_DATA: "/one/profile/my-data",
+  PROFILE_PAYOUTS: "/one/profile/payouts",
+  PROFILE_REQUEST_PRICING: "/one/profile/request-pricing",
   PROFILE_MY_DATA_DOMAIN: "/one/profile/my-data/domain",
   PROFILE_ACCESS: "/one/profile/access",
   PROFILE_ACCESS_CONNECTION: "/one/profile/access/connection",
@@ -160,6 +164,7 @@ export const ROUTES = {
   PROFILE_GOOGLE_OAUTH_RETURN: "/one/profile/google/oauth/return",
   OAUTH_AUTHORIZE: "/oauth/authorize",
   ONE_SETUP: "/one/setup",
+  ONE_WELCOME: "/one/welcome",
   ONE_SETUP_FINANCE: "/one/setup/finance",
   ONE_SETUP_FINANCE_IMPORT: "/one/setup/finance/import",
   ONE_SETUP_KAI: "/one/setup/kai",
@@ -173,6 +178,8 @@ export const ROUTES = {
   GMAIL: "/one/gmail",
   EMAIL_AGENT: "/one/email",
   CALENDAR: "/one/calendar",
+  /** Owner's to-do items and safe read-only Calendar agenda. */
+  ONE_TODOS: "/one/todos",
   PKM: "/one/pkm",
   PKM_RECENT: "/one/pkm/recent",
   PKM_LOCATION: "/one/pkm/location",
@@ -181,6 +188,8 @@ export const ROUTES = {
   /** Owner setup and management for the Apple Wallet profile pass. */
   ONE_WALLET_CARD: "/one/wallet-card",
   ONE_WALLET: "/one/wallet",
+  /** Anonymous, local-only reader for password-encrypted payment-card files. */
+  WALLET_CARD_OPEN: "/wallet/open",
   /** Puppy One: the agent running on the owner's own machine. */
   ONE_PUPPY: "/one/puppy",
   CONNECTED_SYSTEMS: "/one/connected-systems",
@@ -193,7 +202,7 @@ export const ROUTES = {
   /** Compatibility-only inbound path; the active chat surface is `/`. */
   LEGACY_AGENT: "/agent",
   /** Private 1:1 message route. Direct messaging remains separate from One agent chat. */
-  ONE_MESSAGES: DIRECT_MESSAGES_PATH,
+  ONE_MESSAGES: "/one/messages",
   CONNECT: "/one/connect",
   CONNECT_SETTINGS: "/one/connect/settings",
   MARKETPLACE: "/marketplace",
@@ -202,6 +211,8 @@ export const ROUTES = {
   /** Retired mailbox-KYC compatibility target; personal Gmail KYC lives in Email. */
   ONE_KYC: "/one/email",
   ONE_CAREER: "/one/career",
+  /** Dedicated full-page weekly referral dashboard. `/one/profile/referrals` redirects here. */
+  ONE_REFERRALS: "/one/referrals",
   ONE_LOCATION: "/one/location",
   /** Immersive, consented multi-person Location map. */
   ONE_LOCATION_MAP: "/one/location/map",
@@ -222,6 +233,7 @@ export const ROUTES = {
    * outside the app, like LOGIN — the destination is the reason the person
    * opened the app at all, so it must render before setup is checked.
    */
+  WORLD_MODEL_INVITE: "/world-model/invite",
   CIRCLE_JOIN: "/circle/join",
   LEGACY_GMAIL: "/gmail",
   LEGACY_PKM: "/pkm",
@@ -312,6 +324,20 @@ export function buildWelcomeRoute(redirect?: string | null) {
   return withQuery(ROUTES.HOME, {
     redirect: safeRedirect,
   });
+}
+
+/** A root terminal, outside the completed setup route family. */
+export function buildInitialContactsWelcomeRoute(returnTo?: string | null): string {
+  return withQuery(ROUTES.ONE_WELCOME, {
+    return_to: initialContactsWelcomeDestination(returnTo),
+  });
+}
+
+export function initialContactsWelcomeDestination(returnTo?: string | null): string {
+  const safe = normalizeInternalRouteHref(returnTo);
+  const path = normalizeStaticExportPathname(safe?.split(/[?#]/, 1)[0] ?? "");
+  const financeResume = path === ROUTES.ONE_SETUP_FINANCE_IMPORT || path === ROUTES.ONE_SETUP_FINANCE;
+  return safe && path !== ROUTES.ONE_WELCOME && (financeResume || !isOneSetupSurfaceRoute(path ?? "")) ? safe : ROUTES.HOME;
 }
 
 export function normalizeInternalRouteHref(
@@ -537,6 +563,7 @@ export function isCompletedLocationWorkspaceRoute(
 export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
   const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
+    normalizedPathname === ROUTES.CALENDAR_RESCHEDULE ||
     normalizedPathname === ROUTES.HOME ||
     normalizedPathname === ROUTES.WELCOME ||
     normalizedPathname === ROUTES.DEVELOPERS ||
@@ -559,6 +586,7 @@ export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
     // verified is on an SEC filing, before any capability is active.
     normalizedPathname === ROUTES.RIA_CLAIM ||
     normalizedPathname === ROUTES.LOGOUT ||
+    normalizedPathname === ROUTES.WALLET_CARD_OPEN ||
     normalizedPathname === ROUTES.PROFILE ||
     normalizedPathname.startsWith(`${ROUTES.PROFILE}/`) ||
     normalizedPathname.startsWith("/people/") ||
@@ -832,7 +860,7 @@ const WALLET_CARD_PUBLIC_PREFIX = "/c";
 export function isInvitationPreviewRoute(pathname: string): boolean {
   const path = normalizeStaticExportPathname(pathname);
   return (
-    path === ROUTES.CIRCLE_JOIN || /^\/one\/location\/invite\/[^/]+$/.test(path)
+    path === ROUTES.WORLD_MODEL_INVITE || path === ROUTES.CIRCLE_JOIN || /^\/one\/location\/invite\/[^/]+$/.test(path)
   );
 }
 
@@ -852,6 +880,7 @@ export function normalizeInvitationReturnTo(
 export function isPublicRoute(pathname: string): boolean {
   const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
+    normalizedPathname === ROUTES.CALENDAR_RESCHEDULE ||
     normalizedPathname === ROUTES.HOME ||
     normalizedPathname === ROUTES.WELCOME ||
     normalizedPathname === ROUTES.DEVELOPERS ||
@@ -862,6 +891,7 @@ export function isPublicRoute(pathname: string): boolean {
     normalizedPathname === ROUTES.TERMS ||
     normalizedPathname === ROUTES.PHONE_MANDATE ||
     normalizedPathname === ROUTES.LOGOUT ||
+    normalizedPathname === ROUTES.WALLET_CARD_OPEN ||
     normalizedPathname === ROUTES.RESEARCH ||
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||
@@ -890,6 +920,8 @@ export function isPublicRoute(pathname: string): boolean {
 export function isAnalyticsExemptRoute(pathname: string): boolean {
   const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
+    normalizedPathname === ROUTES.CALENDAR_RESCHEDULE ||
+    normalizedPathname === ROUTES.WALLET_CARD_OPEN ||
     normalizedPathname === WALLET_CARD_PUBLIC_PREFIX ||
     normalizedPathname.startsWith(`${WALLET_CARD_PUBLIC_PREFIX}/`)
   );

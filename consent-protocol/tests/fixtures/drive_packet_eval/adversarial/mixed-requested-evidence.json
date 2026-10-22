@@ -1,0 +1,186 @@
+{
+  "description": "One request and one completed record presented as one Ready packet.",
+  "documents": [
+    {
+      "complete": true,
+      "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "document_id": "doc-wire",
+      "facts": {
+        "account": null,
+        "ambiguous": false,
+        "date_evidence": [
+          {
+            "citations": [
+              {
+                "page": 1,
+                "quote": "Requested date 2026-09-14",
+                "unit_kind": "page"
+              }
+            ],
+            "end": "2026-09-14",
+            "meaning": "Requested transfer date",
+            "role": "planned_action",
+            "start": "2026-09-14"
+          }
+        ],
+        "document_type": {
+          "citations": [
+            {
+              "page": 1,
+              "quote": "Wire transfer request form",
+              "unit_kind": "page"
+            }
+          ],
+          "value": "Wire transfer request form"
+        },
+        "facts": [
+          {
+            "citations": [
+              {
+                "page": 1,
+                "quote": "Amount $2,500.00",
+                "unit_kind": "page"
+              }
+            ],
+            "value": "Amount $2,500.00"
+          }
+        ],
+        "issuer": null,
+        "missing_information": [],
+        "periods": [],
+        "record_status": {
+          "citations": [
+            {
+              "page": 1,
+              "quote": "Wire transfer request form",
+              "unit_kind": "page"
+            }
+          ],
+          "evidence_basis": "documentary_form",
+          "explanation": "The form requests a transfer.",
+          "status": "requested"
+        },
+        "subject": null,
+        "topics": []
+      },
+      "metadata": {
+        "modifiedTime": "2026-09-14T12:00:00Z"
+      },
+      "pages": {
+        "1": "Wire transfer request form\nRequested date 2026-09-14\nAmount $2,500.00\n"
+      },
+      "source_version": "3"
+    },
+    {
+      "complete": true,
+      "content_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "document_id": "doc-done",
+      "facts": {
+        "account": null,
+        "ambiguous": false,
+        "date_evidence": [
+          {
+            "citations": [
+              {
+                "page": 1,
+                "quote": "Requested date 2026-09-14",
+                "unit_kind": "page"
+              }
+            ],
+            "end": "2026-09-14",
+            "meaning": "Requested transfer date",
+            "role": "planned_action",
+            "start": "2026-09-14"
+          }
+        ],
+        "document_type": {
+          "citations": [
+            {
+              "page": 1,
+              "quote": "Wire transfer request form",
+              "unit_kind": "page"
+            }
+          ],
+          "value": "Wire transfer request form"
+        },
+        "facts": [
+          {
+            "citations": [
+              {
+                "page": 1,
+                "quote": "Amount $2,500.00",
+                "unit_kind": "page"
+              }
+            ],
+            "value": "Amount $2,500.00"
+          }
+        ],
+        "issuer": null,
+        "missing_information": [],
+        "periods": [],
+        "record_status": {
+          "citations": [
+            {
+              "page": 1,
+              "quote": "Wire transfer request form",
+              "unit_kind": "page"
+            }
+          ],
+          "evidence_basis": "completion_evidence",
+          "explanation": "The form requests a transfer.",
+          "status": "completed"
+        },
+        "subject": null,
+        "topics": []
+      },
+      "metadata": {
+        "modifiedTime": "2026-09-14T12:00:00Z"
+      },
+      "pages": {
+        "1": "Wire transfer request form\nRequested date 2026-09-14\nAmount $2,500.00\n"
+      },
+      "source_version": "3"
+    }
+  ],
+  "id": "mixed-requested-evidence",
+  "known_gap": null,
+  "proposal": {
+    "assessment_score": 90,
+    "coverage_summary": "September 2026.",
+    "description": "Monthly statements for one account.",
+    "excluded_documents": [],
+    "gaps": [],
+    "importance": 50,
+    "periods": [],
+    "pricing": {
+      "coverage": "complete",
+      "quality": "verified",
+      "rationale": "One verified statement period.",
+      "rubric_version": "drive-packet-price-v1",
+      "suggested_price_cents": 500,
+      "useful_scope": "collection"
+    },
+    "selected_document_ids": [
+      "doc-wire",
+      "doc-done"
+    ],
+    "standalone_value": "supported",
+    "state": "ready",
+    "temporal_scope": "no_period_claim",
+    "title": "Example Bank statements",
+    "utility_rationale": "A complete monthly statement."
+  },
+  "schema_version": "dpe.guard.v1",
+  "stage": "construct",
+  "verdict": {
+    "correct_coverage": true,
+    "correct_issuer_and_type": true,
+    "correct_record_status": true,
+    "correct_standalone_value": true,
+    "correct_subject_and_account": true,
+    "issues": [],
+    "no_unexplained_omissions": true,
+    "no_unrelated_inclusions": true,
+    "state": "ready"
+  }
+}

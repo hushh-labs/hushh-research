@@ -35,7 +35,11 @@ pass substitutions through the step's `env:` field.
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -45,6 +49,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # Cloud Build's hard cap on a single build-step arg.
 CLOUD_BUILD_MAX_ARG = 10_000
+
+# Cloud Build's hard cap on `env` entries in a single build step. A 101st entry rejects every
+# backend deploy at submission (dev, UAT and production share the file), before anything changes,
+# and nothing else in CI notices.
+CLOUD_BUILD_MAX_ENV = 100
 
 # Refuse to land a change that leaves less than this much room. Without a margin the
 # suite goes green at 9,999 and the very next secret ref breaks all three deploy lanes.
@@ -114,6 +123,41 @@ def _workflow_substitutions(workflow_path: str) -> dict[str, str]:
             if key.startswith("_"):
                 values[key] = _GHA_EXPRESSION.sub(_GHA_PLACEHOLDER, value)
     return values
+
+
+@pytest.mark.parametrize("config_path", CLOUDBUILD_CONFIGS)
+def test_no_cloud_build_step_declares_more_env_entries_than_the_limit(config_path: str) -> None:
+    config = _load(config_path)
+    if config is None:
+        pytest.skip(f"{config_path} not present")
+
+    for index, step in enumerate(config.get("steps") or []):
+        count = len(step.get("env") or [])
+        assert count <= CLOUD_BUILD_MAX_ENV, (
+            f"{config_path} step {index} ({step.get('id')}) declares {count} env entries, over "
+            f"Cloud Build's {CLOUD_BUILD_MAX_ENV}. gcloud rejects the build at submission, so every "
+            f"deploy lane using this file fails. Pack related values into one entry, or move "
+            f"them into a script the step sources."
+        )
+
+
+@pytest.mark.skipif(sys.platform == "win32" or not shutil.which("bash"), reason="needs POSIX bash")
+def test_the_deploy_script_unpacks_the_packed_workos_values() -> None:
+    script = REPO_ROOT / "deploy" / "sso" / "bind_workos.sh"
+    stubs = 'add_secret() { :; }\nadd_env() { echo "$1=$2"; }\n'
+    packed = "true|https://a.example/login|https://a.example,https://b.example"
+    run = subprocess.run(  # noqa: S603 - fixed shell and repository script; fixed inputs
+        ["bash", "-c", f"{stubs}source {script}"],
+        env={**os.environ, "_WORKOS_CONFIG": packed},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert run.stdout.splitlines() == [
+        "WORKOS_SSO_ENABLED=true",
+        "WORKOS_REDIRECT_URI=https://a.example/login",
+        "WORKOS_REDIRECT_ORIGINS=https://a.example,https://b.example",
+    ]
 
 
 @pytest.mark.parametrize("config_path", CLOUDBUILD_CONFIGS)

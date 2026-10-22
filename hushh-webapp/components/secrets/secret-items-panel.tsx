@@ -12,7 +12,7 @@
  * Morphy surfaces, bare duotone glyphs, ripple on every press.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { Check, Copy, KycAgentIcon, LockedRowIcon, WalletAgentIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
@@ -53,16 +53,10 @@ export type SecretItemsPanelProps = {
   onRemove?: (item: SecretPanelItem) => void;
 };
 
-function RevealedValue({
-  label,
-  value,
-  onHide,
-  onRemove,
-}: {
-  label: string;
-  value: string;
-  onHide: () => void;
-  onRemove?: () => void;
+/** The two renderers share hide/copy policy, not a second revealed-value store.
+ * Native scenes can omit per-second text updates without extending exposure. */
+export function useSecretValueControls({ label, value, onHide, active = true, countdown = true, identity = value, isCurrent }: {
+  label: string; value: string; onHide: () => void; active?: boolean; countdown?: boolean; identity?: unknown; isCurrent?: () => boolean;
 }) {
   const [secondsLeft, setSecondsLeft] = useState(AUTO_HIDE_SECONDS);
   const [copyState, setCopyState] = useState<"idle" | "confirm" | "copied">("idle");
@@ -73,21 +67,22 @@ function RevealedValue({
     onHideRef.current = onHide;
   }, [onHide]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    setSecondsLeft(AUTO_HIDE_SECONDS); setCopyState("idle"); setAnnouncement("");
+    if (!active) return;
+    const expiry = window.setTimeout(() => onHideRef.current(), AUTO_HIDE_SECONDS * 1000);
+    if (!countdown) return () => window.clearTimeout(expiry);
     const timer = window.setInterval(() => setSecondsLeft((current) => Math.max(0, current - 1)), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-  useEffect(() => {
-    if (secondsLeft === 0) onHideRef.current();
-  }, [secondsLeft]);
+    return () => { window.clearInterval(timer); window.clearTimeout(expiry); };
+  }, [active, countdown, identity]);
   // Leaving the app hides the value, so it is not in the app switcher's snapshot.
   useEffect(() => {
     const onVisibility = () => {
-      if (document.visibilityState === "hidden") onHideRef.current();
+      if (active && document.visibilityState === "hidden") onHideRef.current();
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
-  }, []);
+  }, [active]);
   useEffect(() => {
     if (copyState === "idle") return;
     const timer = window.setTimeout(() => setCopyState("idle"), copyState === "confirm" ? CONFIRM_WINDOW_MS : COPIED_MS);
@@ -95,6 +90,7 @@ function RevealedValue({
   }, [copyState]);
 
   const copy = async () => {
+    if (!active || isCurrent?.() === false || document.visibilityState === "hidden") return;
     if (copyState !== "confirm") {
       setCopyState("confirm");
       setAnnouncement(`Tap again to copy ${label}.`);
@@ -102,6 +98,7 @@ function RevealedValue({
     }
     try {
       await navigator.clipboard.writeText(value);
+      if (isCurrent?.() === false) return;
       setCopyState("copied");
       setAnnouncement(`${label} copied.`);
     } catch {
@@ -109,6 +106,13 @@ function RevealedValue({
       setAnnouncement("Copying is not available here.");
     }
   };
+  return { secondsLeft, copyState, announcement, copy };
+}
+
+function RevealedValue({ label, value, onHide, onRemove }: {
+  label: string; value: string; onHide: () => void; onRemove?: () => void;
+}) {
+  const { secondsLeft, copyState, announcement, copy } = useSecretValueControls({ label, value, onHide });
 
   return (
     <div className="flex flex-col gap-2 px-4 pb-3" data-testid="secret-revealed">

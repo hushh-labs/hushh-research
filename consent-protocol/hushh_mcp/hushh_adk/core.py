@@ -229,10 +229,17 @@ class HushhAgent(LlmAgent):
         from google.adk.sessions.in_memory_session_service import InMemorySessionService
         from google.genai import types as genai_types
 
+        from hushh_mcp.hushh_adk.product_activity import product_activity_plugins
+
         app_name = f"hushh_{self.name}"
         session_id = f"turn_{uuid.uuid4().hex}"
         session_service = InMemorySessionService()
-        runner = Runner(app_name=app_name, agent=self, session_service=session_service)
+        runner = Runner(
+            app_name=app_name,
+            agent=self,
+            session_service=session_service,
+            plugins=product_activity_plugins(),
+        )
         await session_service.create_session(
             app_name=app_name,
             user_id=user_id,

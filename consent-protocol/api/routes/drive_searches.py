@@ -6,9 +6,9 @@ from datetime import UTC, datetime
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
@@ -188,6 +188,51 @@ async def list_searches(owner: Owner = Depends(_owner)):
 @router.get("/{job_id}")
 async def search_status(job_id: UUID, owner: Owner = Depends(_owner)):
     return await _call(_service().status, owner=owner, job_id=str(job_id), require_feature=False)
+
+
+async def _status_stream(*, request, owner, service, job_id, initial):
+    """Observe committed progress; disconnect never cancels durable work."""
+    state = initial
+    previous = None
+    deadline = asyncio.get_running_loop().time() + 50
+    while not await request.is_disconnected():
+        # Revalidate even on a quiet stream so a revoked owner session cannot
+        # retain a read capability from the initial HTTP handshake.
+        try:
+            await owner.require_current()
+            encoded = json.dumps({**state, "event": "status"}, separators=(",", ":"))
+            if encoded != previous:
+                yield f"event: status\ndata: {encoded}\n\n"
+                previous = encoded
+            else:
+                yield "event: heartbeat\ndata: {}\n\n"
+            evaluating = state.get("evaluation", {}).get("status") in {"pending", "running"}
+            if state.get("status") in {"stopped", "failed", "limited"} or (
+                state.get("status") == "completed" and not evaluating
+            ):
+                return
+            if asyncio.get_running_loop().time() >= deadline:
+                return
+            await asyncio.sleep(2)
+            state = await _call(service.status, owner=owner, job_id=job_id, require_feature=False)
+        except HTTPException:
+            # Authored, non-sensitive failure only. Client resumes through the
+            # same authenticated status endpoint; no provider error leaks.
+            yield 'event: error\ndata: {"code":"search_unavailable"}\n\n'
+            return
+
+
+@router.get("/{job_id}/stream")
+async def search_status_stream(job_id: UUID, request: Request, owner: Owner = Depends(_owner)):
+    service = _service()
+    initial = await _call(service.status, owner=owner, job_id=str(job_id), require_feature=False)
+    return StreamingResponse(
+        _status_stream(
+            request=request, owner=owner, service=service, job_id=str(job_id), initial=initial
+        ),
+        media_type="text/event-stream",
+        headers={**NO_STORE, "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/{job_id}/results")

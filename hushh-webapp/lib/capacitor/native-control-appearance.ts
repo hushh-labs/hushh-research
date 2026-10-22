@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { useTheme } from "next-themes";
 import { resolvedAccentHex, useAccent } from "@/lib/theme/accent";
 import { parseCssColor } from "@/lib/morphy-ux/ambient-chrome";
@@ -61,7 +61,7 @@ export function useNativeControlAppearance(foreground: NativeControlForeground =
   const accent = useAccent();
   const [projection, setProjection] = useState<NativeControlAppearance | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (resolvedTheme !== "light" && resolvedTheme !== "dark") return;
     const root = document.documentElement;
     const publish = () => {

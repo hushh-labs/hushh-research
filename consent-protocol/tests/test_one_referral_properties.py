@@ -213,3 +213,61 @@ def test_every_declared_transition_target_is_a_real_state():
         assert source in known
         for target in targets:
             assert target in known, f"{source} -> {target} is not a state"
+
+
+def test_leaderboard_doorbell_refreshes_viewers_without_broadcasting_private_fields(monkeypatch):
+    import asyncio
+    import json
+
+    from api import referral_listener as listener
+
+    queues = {"alice": {asyncio.Queue(), asyncio.Queue()}, "bob": {asyncio.Queue()}}
+    monkeypatch.setattr(listener, "_queues", queues)
+    monkeypatch.setattr(listener, "_serving_loop", None)
+    listener._notify_callback(
+        None, None, None, json.dumps({"reason": "leaderboard_published", "points": 9999})
+    )
+    assert all(
+        queue.get_nowait() == {"reason": "leaderboard_published"} for queue in queues["alice"]
+    )
+    assert all(queue.get_nowait() == {"reason": "leaderboard_published"} for queue in queues["bob"])
+    listener._notify_callback(
+        None, None, None, json.dumps({"reason": "weekly_prizes_enabled", "points": 9999})
+    )
+    assert all(
+        queue.get_nowait() == {"reason": "weekly_prizes_enabled"} for queue in queues["alice"]
+    )
+    assert all(queue.get_nowait() == {"reason": "weekly_prizes_enabled"} for queue in queues["bob"])
+    listener._notify_callback(None, None, None, json.dumps({"reason": "unknown_global_reason"}))
+    assert all(queue.empty() for owner in queues.values() for queue in owner)
+    listener._notify_callback(
+        None,
+        None,
+        None,
+        json.dumps({"referrer_user_id": "alice", "reason": "changed", "points": 9999}),
+    )
+    assert all(queue.get_nowait() == {"reason": "changed"} for queue in queues["alice"])
+    assert all(queue.empty() for queue in queues["bob"])
+
+
+async def test_each_device_has_a_bounded_queue_and_independent_cleanup(monkeypatch):
+    import asyncio
+
+    from api import referral_listener as listener
+
+    monkeypatch.setattr(listener, "_queues", {})
+    monkeypatch.setattr(listener, "_queues_lock", asyncio.Lock())
+    first = listener.get_referral_queue("alice")
+    second = listener.get_referral_queue("alice")
+    other = listener.get_referral_queue("bob")
+    for _ in range(listener._QUEUE_MAXSIZE):
+        first.put_nowait({"reason": "old"})
+    listener._push("alice", {"reason": "new"})
+    assert first.qsize() == listener._QUEUE_MAXSIZE
+    assert [first.get_nowait() for _ in range(first.qsize())][-1] == {"reason": "new"}
+    assert second.get_nowait() == {"reason": "new"} and other.empty()
+    await listener.release_referral_queue("alice", first)
+    listener._push("alice", {"reason": "latest"})
+    assert first.empty() and second.get_nowait() == {"reason": "latest"}
+    await listener.release_referral_queue("alice", second)
+    assert "alice" not in listener._queues

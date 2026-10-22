@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -232,6 +232,7 @@ def _behavior_sync(
     count: int = 1,
     activation_suppressed: bool = False,
     sync_started_at: datetime | None = None,
+    allow_reconnect: bool = True,
 ):
     lookups: list[dict[str, str]] = []
     matches: list[dict[str, str]] = []
@@ -287,6 +288,7 @@ def _behavior_sync(
             phone_lookups=lookups,
             matches=matches,
             sync_started_at=sync_started_at,
+            allow_reconnect=allow_reconnect,
         )
 
 
@@ -425,7 +427,7 @@ def test_sync_route_keeps_both_outer_request_limits() -> None:
 
 def test_sync_route_hydrates_requester_identity_before_matching() -> None:
     source = inspect.getsource(sync_contacts)
-    warmup = "await ActorIdentityService().sync_from_firebase"
+    warmup = "await ActorIdentityService().sync_contact_sync_requester_from_firebase"
     assert warmup in source
     assert source.index(warmup) < source.index("reserve_contact_sync_lookup_budget")
     assert source.index(warmup) < source.index("match_one_network_contact_lookups_exact")
@@ -810,14 +812,21 @@ def test_behavior_stale_proof_is_omitted_and_writes_nothing() -> None:
     assert service.writes == []
 
 
-def test_behavior_unverified_requester_is_rejected_before_any_write() -> None:
+@pytest.mark.parametrize("stage", ["budget", "mutation"])
+def test_behavior_unverified_requester_is_rejected_before_any_write(stage: str) -> None:
     service = _ContactSyncService(requester_verified=False)
 
     with pytest.raises(ConnectionsError) as captured:
-        _behavior_sync(service)
+        if stage == "budget":
+            with patch.object(service, "_execute_one", return_value=None):
+                service.reserve_contact_sync_lookup_budget("requester", 1)
+        else:
+            _behavior_sync(service)
 
     assert captured.value.code == "CONTACT_SYNC_REQUESTER_PHONE_VERIFICATION_REQUIRED"
     assert captured.value.status_code == 403
+    assert "verify your phone" not in captured.value.message.lower()
+    assert "contact support" in captured.value.message.lower()
     assert service.writes == []
 
 
@@ -1211,11 +1220,64 @@ def test_account_deletion_explicitly_purges_the_fk_free_abuse_budget() -> None:
     assert '"contact_sync_lookup_budgets"' not in reset_source
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("verified", [True, False])
+async def test_ria_profile_deletion_preserves_account_phone_authority(verified: bool) -> None:
+    # Execute the actual persona deletion. Web phone proof belongs to the
+    # surviving account; its primary Google Firebase user has no phone to repair it.
+    identity = {
+        "phone_number": "+14155550999" if verified else None,
+        "phone_verified": verified,
+        "email": "owner@example.test",
+        "custom_photo_url": "https://example.test/owner.png",
+    }
+    original = identity.copy()
+    statements = []
+
+    @asynccontextmanager
+    async def transaction():
+        yield
+
+    async def execute(sql, *_args):
+        statements.append(sql)
+        if "DELETE FROM actor_identity_cache" in sql:
+            identity.clear()
+
+    conn = MagicMock()
+    conn.transaction = transaction
+    conn.fetchrow = AsyncMock(return_value={"id": "00000000-0000-0000-0000-000000000001"})
+    conn.fetch = AsyncMock(return_value=[])
+    conn.fetchval = AsyncMock(return_value=False)
+    conn.execute = AsyncMock(side_effect=execute)
+    conn.close = AsyncMock()
+    service = RIAIAMService()
+    with (
+        patch.object(service, "_conn", AsyncMock(return_value=conn)),
+        patch.object(service, "_ensure_iam_schema_ready", AsyncMock()),
+        patch.object(service, "_ensure_vault_user_row", AsyncMock()),
+        patch.object(service, "_set_runtime_last_persona", AsyncMock()),
+    ):
+        result = await service.delete_ria_self_profile("requester")
+
+    assert result == {"deleted": True, "remaining_personas": ["investor"]}
+    assert identity == original
+    assert any("DELETE FROM ria_profiles" in sql for sql in statements)
+    graph = _ContactSyncService(requester_verified=bool(identity.get("phone_verified")))
+    if verified:
+        assert _behavior_sync(graph)["matchedCount"] == 1
+    else:
+        with pytest.raises(ConnectionsError) as error:
+            _behavior_sync(graph)
+        assert error.value.code == "CONTACT_SYNC_REQUESTER_PHONE_VERIFICATION_REQUIRED"
+        assert graph.writes == []
+
+
 def test_ria_profile_deletion_preserves_contact_sync_lock_order() -> None:
     source = inspect.getsource(RIAIAMService.delete_ria_self_profile)
 
     assert "_ensure_actor_profile_row" not in source
-    assert source.index("DELETE FROM actor_identity_cache") < source.index("UPDATE actor_profiles")
+    assert source.index("FROM actor_identity_cache") < source.index("UPDATE actor_profiles")
+    assert "FOR UPDATE" in source
 
 
 def test_read_models_expose_only_viewer_relative_contact_provenance() -> None:
@@ -1232,3 +1294,18 @@ def test_read_models_expose_only_viewer_relative_contact_provenance() -> None:
     assert '"connectedFromContacts"' in circle_source
     assert "contact_origin.source_ref = :viewer_user_id" in circle_source
     assert "contact_origin.source_ref = :actor_user_id" in circle_source
+
+
+def test_initial_signup_never_reconnects_a_previously_removed_contact():
+    removed_at = datetime(2026, 9, 9, tzinfo=timezone.utc)
+    service = _ContactSyncService(
+        existing_status="revoked",
+        revoked_by_user_id="requester",
+        revoked_at=removed_at,
+        revoked_by_at=removed_at,
+    )
+    result = _behavior_sync(
+        service, sync_started_at=removed_at + timedelta(seconds=1), allow_reconnect=False
+    )
+    assert result["items"][0]["outcome"] == "suppressed"
+    assert service.writes == []

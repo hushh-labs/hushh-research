@@ -35,6 +35,7 @@ from datetime import datetime
 from typing import Any, Callable, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from google.adk.models.llm_response import LlmResponse
 from google.adk.tools.tool_context import ToolContext
 
 from hushh_mcp.consent.pii_sanitizer import mask_email
@@ -151,7 +152,20 @@ _STATE_GOAL_RUN = "hussh:goal_run"
 _STATE_USER_ID = "hussh:user_id"
 _STATE_CONSENT_TOKEN = "hussh:consent_token"  # noqa: S105
 _STATE_TIMEZONE = "hussh:timezone"
+_STATE_DOCUMENT_CLOCK_RECEIPT = "temp:hussh:document_clock_receipt"
+_STATE_DOCUMENT_PERIOD_CLARIFICATION = "hussh:document_period_clarification"
+_STATE_DOCUMENT_PERIOD_REPLY = "temp:hussh:document_period_reply"
 _STATE_CONVERSATION_ID = "hussh:conversation_id"
+
+_DOCUMENT_PERIOD_QUESTIONS = {
+    "year": "Which year should I use?",
+    "day_month_order": "Do these dates use day/month or month/day?",
+    "requested_period": "What date range should the documents cover?",
+    "owner_timezone": "Which timezone should I use?",
+    "relative_anchor": "What dates should this period cover?",
+    "relative_window": "Do you mean complete calendar periods or a range ending today?",
+    "complete_period": "What complete start and end dates should I use?",
+}
 
 # Manifest delegate ids -> One's specialist tool names. Only these redirect;
 # other delegate markers (e.g. "agent_kyc", which has no conversational
@@ -1355,7 +1369,11 @@ async def _execute_backend_direct_mutation(
                 page = 1
                 while page <= _DIRECTORY_RESOLVE_MAX_PAGES:
                     result = connections_service.search_directory(
-                        user_id, query=search_term, page=page, limit=_DIRECTORY_RESOLVE_PAGE_SIZE
+                        user_id,
+                        query=search_term,
+                        page=page,
+                        limit=_DIRECTORY_RESOLVE_PAGE_SIZE,
+                        name_only=True,
                     )
                     directory_candidates.extend(result.get("items") or [])
                     if not result.get("hasMore"):
@@ -1931,6 +1949,17 @@ async def read_my_pkm_domain_summary(domain: str, tool_context: ToolContext) -> 
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
 
+    from hushh_mcp.one_adk.external_read_boundary import STATE_EXECUTION_SURFACE
+
+    # Typed chat has exactly one approved memory source: browser-supplied
+    # Soul.md. A model selecting this compatibility tool cannot reopen a
+    # second memory lane through the discovery index.
+    if tool_context.state.get(STATE_EXECUTION_SURFACE) == "typed_chat":
+        return {
+            "status": "unavailable",
+            "message": "Use the supplied Soul.md for chat memory. Legacy domain summaries are not a chat memory source.",
+        }
+
     requested = normalize_domain_key(domain)
     if requested not in _PKM_READABLE_DOMAIN_KEYS:
         return {
@@ -2189,7 +2218,11 @@ def _directory_candidates(
     page = 1
     while page <= _DIRECTORY_RESOLVE_MAX_PAGES:
         result = connections_service.search_directory(
-            user_id, query=search_term, page=page, limit=_DIRECTORY_RESOLVE_PAGE_SIZE
+            user_id,
+            query=search_term,
+            page=page,
+            limit=_DIRECTORY_RESOLVE_PAGE_SIZE,
+            name_only=True,
         )
         candidates.extend(result.get("items") or [])
         if not result.get("hasMore"):
@@ -3158,8 +3191,8 @@ async def propose_information_request(
         }
 
 
-def _document_request_user_text(tool_context: ToolContext) -> str:
-    """Read this turn's authored text, including authenticated queued messages."""
+def _document_request_user_texts(tool_context: ToolContext) -> tuple[str, ...]:
+    """Keep current authenticated user messages separate for exact evidence checks."""
     from hushh_mcp.one_adk.queued_input import QUEUED_INPUT_KIND
 
     def plain_text(content: Any) -> str:
@@ -3189,7 +3222,107 @@ def _document_request_user_text(tool_context: ToolContext) -> str:
                 pieces.append(queued_text)
             if len(pieces) >= 17:
                 break
-    return "\n".join(pieces)
+    return tuple(piece for piece in pieces if piece)
+
+
+def _pending_document_period(tool_context: ToolContext, user_id: str, person_ref: str):
+    """Admit only this conversation's immediately preceding host clarification."""
+    from hushh_mcp.one_adk.document_period_assessment import PendingPeriodContext
+
+    pending = tool_context.state.get(_STATE_DOCUMENT_PERIOD_CLARIFICATION)
+    if not isinstance(pending, dict):
+        return None
+    session = getattr(tool_context, "session", None)
+    invocation_id = getattr(tool_context, "invocation_id", None)
+    session_id = getattr(session, "id", None)
+    if not session_id or not invocation_id:
+        return None
+    prior_user_invocation = next(
+        (
+            getattr(event, "invocation_id", None)
+            for event in reversed(getattr(session, "events", None) or [])
+            if getattr(event, "author", None) == "user"
+            and getattr(getattr(event, "content", None), "role", None) == "user"
+            and getattr(event, "invocation_id", None) != invocation_id
+        ),
+        None,
+    )
+    if (
+        not prior_user_invocation
+        or pending.get("invocation_id") != prior_user_invocation
+        or pending.get("user_id") != user_id
+        or pending.get("person_ref") != person_ref
+        or pending.get("session_id") != getattr(session, "id", None)
+    ):
+        return None
+    try:
+        return PendingPeriodContext.model_validate(pending.get("context"))
+    except ValueError:
+        return None
+
+
+def _document_period_question(context: Any) -> str | None:
+    """Read only a host-selected question bound to this authenticated input."""
+    from hushh_mcp.one_adk.document_period_assessment import user_texts_sha256
+
+    reply = context.state.get(_STATE_DOCUMENT_PERIOD_REPLY)
+    if not isinstance(reply, dict):
+        return None
+    user_id = context.state.get(_STATE_USER_ID)
+    invocation_id = getattr(context, "invocation_id", None)
+    session_id = getattr(getattr(context, "session", None), "id", None)
+    if (
+        not user_id
+        or not invocation_id
+        or not session_id
+        or reply.get("user_id") != user_id
+        or reply.get("invocation_id") != invocation_id
+        or reply.get("session_id") != session_id
+        or reply.get("user_texts_sha256")
+        != user_texts_sha256(_document_request_user_texts(context))
+    ):
+        return None
+    dimension = reply.get("missing_dimension")
+    return _DOCUMENT_PERIOD_QUESTIONS.get(dimension) if isinstance(dimension, str) else None
+
+
+def _latch_document_period_question(context: Any, user_id: str, dimension: str) -> str:
+    from hushh_mcp.one_adk.document_period_assessment import user_texts_sha256
+
+    question = _DOCUMENT_PERIOD_QUESTIONS[dimension]
+    context.state[_STATE_DOCUMENT_PERIOD_REPLY] = {
+        "user_id": user_id,
+        "session_id": getattr(getattr(context, "session", None), "id", None),
+        "invocation_id": getattr(context, "invocation_id", None),
+        "user_texts_sha256": user_texts_sha256(_document_request_user_texts(context)),
+        "missing_dimension": dimension,
+    }
+    return question
+
+
+def document_period_before_model(callback_context: Any, llm_request: Any) -> LlmResponse | None:
+    """Finish a validated date question without another model/tool retry loop."""
+    question = _document_period_question(callback_context)
+    if question is None:
+        return None
+    from google.genai import types
+
+    from hushh_mcp.one_adk.external_read_boundary import before_external_read_model
+    from hushh_mcp.one_adk.queued_input import STOPPED_ANSWER, current_run, registry
+
+    run = current_run()
+    if run is not None and registry.stop_requested(run.owner_id, run.conversation_id, run.run_id):
+        return LlmResponse(
+            content=types.Content(role="model", parts=[types.Part(text=STOPPED_ANSWER)]),
+            turn_complete=True,
+        )
+    guarded_response = before_external_read_model(callback_context, llm_request)
+    if guarded_response is not None:
+        return guarded_response
+    return LlmResponse(
+        content=types.Content(role="model", parts=[types.Part(text=question)]),
+        turn_complete=True,
+    )
 
 
 async def propose_document_request(
@@ -3199,17 +3332,36 @@ async def propose_document_request(
     period_start: str = "",
     period_end: str = "",
     selection_handle: str = "",
+    date_evidence: str = "",
 ) -> dict[str, Any]:
-    """Stage one recipient-bound document request; only the browser can send it."""
+    """Assess the requested document period and prepare an editable review card.
+
+    Call for every document request, including ambiguous or absent dates. Leave
+    period_start/end empty so One's bounded period assessor reads the current
+    authenticated messages independently. Optional candidate dates must exactly
+    match its result in YYYY-MM-DD format. For an explicitly relative period,
+    call get_current_time first; absolute dates never need a clock or timezone.
+    Return one focused clarification when needed; no request is sent here.
+    date_evidence is retained for older callers and supplies no date authority.
+    """
+    from hushh_mcp.one_adk.document_period_assessment import (
+        HostClockReceipt,
+        PendingPeriodContext,
+        assess_document_period,
+        user_texts_sha256,
+    )
     from hushh_mcp.services.drive_sharing_contract import ShareRequestPurpose
 
-    user_text = _document_request_user_text(tool_context)
+    user_texts = _document_request_user_texts(tool_context)
 
     user_id, blocked = await _read_tool_user_id(tool_context)
     if blocked is not None:
         return blocked
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    question = _document_period_question(tool_context)
+    if question is not None:
+        return {"status": "needs_clarification", "message": question}
     try:
         person_ref, display_name = await asyncio.to_thread(
             _resolve_person_for_information,
@@ -3229,32 +3381,97 @@ async def propose_document_request(
                 "status": "connection_required",
                 "message": "Connect with this person before requesting documents.",
             }
-        if not (period_start and period_end):
-            return {
-                "status": "needs_clarification",
-                "message": (
-                    "Which exact start date and end date should I request? "
-                    "Please give both calendar dates in YYYY-MM-DD format."
-                ),
-            }
-        if not all(
-            re.search(rf"(?<!\d){re.escape(value)}(?!\d)", user_text)
-            for value in (period_start, period_end)
+        invocation_id = str(getattr(tool_context, "invocation_id", "") or "")
+        receipt_data = tool_context.state.get(_STATE_DOCUMENT_CLOCK_RECEIPT)
+        try:
+            receipt = HostClockReceipt.model_validate(receipt_data) if receipt_data else None
+        except ValueError:
+            receipt = None
+        if receipt is not None and (
+            receipt.invocation_id != invocation_id
+            or receipt.user_texts_sha256 != user_texts_sha256(user_texts)
         ):
+            receipt = None
+        pending_context = _pending_document_period(tool_context, user_id, person_ref)
+        result = await assess_document_period(
+            current_user_texts=user_texts,
+            user_id=user_id,
+            consent_token=resolve_request_secret(tool_context.state.get(_STATE_CONSENT_TOKEN))
+            or "",
+            invocation_id=invocation_id,
+            clock_receipt=receipt,
+            pending_context=pending_context,
+            candidate_start=period_start or None,
+            candidate_end=period_end or None,
+        )
+        assessment = result.assessment
+        if (
+            result.status in {"clarify", "clock_required", "timezone_required"}
+            and assessment is not None
+        ):
+            missing_dimension = (
+                "relative_anchor"
+                if result.status == "clock_required"
+                else "owner_timezone"
+                if result.status == "timezone_required"
+                else assessment.missing_dimension
+            )
+            if missing_dimension is None:
+                return {"status": "failed", "reason": "invalid_response"}
+            if missing_dimension == "relative_anchor" and receipt is None:
+                return {
+                    "status": "clock_required",
+                    "nextStep": "Call get_current_time, then retry this document request once.",
+                }
+            prior_texts = pending_context.original_user_texts if pending_context else []
+            context_texts = [*prior_texts, *user_texts]
+            if len(context_texts) > 17:
+                tool_context.state[_STATE_DOCUMENT_PERIOD_CLARIFICATION] = None
+                return {
+                    "status": "needs_clarification",
+                    "message": _latch_document_period_question(
+                        tool_context, user_id, "complete_period"
+                    ),
+                }
+            session_id = getattr(getattr(tool_context, "session", None), "id", None)
+            tool_context.state[_STATE_DOCUMENT_PERIOD_CLARIFICATION] = {
+                "user_id": user_id,
+                "person_ref": person_ref,
+                "session_id": session_id,
+                "invocation_id": invocation_id,
+                "context": PendingPeriodContext(
+                    original_user_texts=context_texts,
+                    asked_missing_dimension=missing_dimension,
+                ).model_dump(),
+            }
             return {
                 "status": "needs_clarification",
-                "message": (
-                    "Please give the exact start date and end date in YYYY-MM-DD format. "
-                    "I cannot choose them for you."
+                "message": _latch_document_period_question(
+                    tool_context, user_id, missing_dimension
                 ),
+                "nextStep": "Ask only this question. Keep the requested person and documents.",
             }
+        if result.status == "candidate_mismatch":
+            return {
+                "status": "date_candidate_mismatch",
+                "message": "The proposed dates do not match the requested period.",
+                "nextStep": "Do not show a card. Retry once with both date arguments empty.",
+            }
+        if result.status != "supported" or assessment is None:
+            return {
+                "status": "failed",
+                "reason": result.status,
+                "message": "I couldn't verify the requested dates. Please try again.",
+            }
+        assessed_start, assessed_end = assessment.period_start, assessment.period_end
         terms = ShareRequestPurpose.model_validate(
             {
                 "purpose": str(purpose or "").strip(),
-                "periodStart": period_start or None,
-                "periodEnd": period_end or None,
+                "periodStart": assessed_start,
+                "periodEnd": assessed_end,
             }
         )
+        tool_context.state[_STATE_DOCUMENT_PERIOD_CLARIFICATION] = None
         return {
             "status": "proposal_ready",
             "person": {"personRef": person_ref, "displayName": display_name},
@@ -5382,8 +5599,8 @@ async def add_to_pkm(
     memory_text instead of copying the text. For one detail stated in conversation, pass that
     detail as memory_text.
 
-    This call saves nothing by itself. The device prepares, reconciles and encrypts the
-    details, and its result card reports what was saved, updated, merged or skipped.
+    This call saves nothing by itself. The device silently prepares, reconciles and
+    encrypts eligible details. Continue the conversation without narrating that work.
     """
     clean_text = str(memory_text or "").strip()
     if not clean_text and not whole_message:
@@ -5401,18 +5618,16 @@ async def add_to_pkm(
         "kind": "action",
         "payload": {"actionId": "pkm.add", "slots": slots},
     }
-    # Measured on production 2026-09-29: this used to return "Saving eligible
-    # details privately.", and One told the person their document had been
-    # "queued and submitted" to memory when nothing had been saved. The truth at
-    # this point is only that the device has the request.
+    # The truth at this point is only that the device has the request. Keep the
+    # handoff silent so One cannot promise a progress UI or persistence outcome
+    # before the encrypted device-side write completes.
     return {
         "status": "handed_to_device",
         "saved": False,
         "message": (
-            "Nothing is saved yet. The person's device is preparing and saving this privately, "
-            "and its card will show what was saved, updated, merged or skipped. Say it is "
-            "being saved on their device. Do not say it is saved, queued or submitted, and do "
-            "not list the details."
+            "The person's device will handle this request silently. Continue answering "
+            "naturally. Do not mention Memory, saving, progress, a card, confirmation, or a "
+            "receipt, and do not list the details."
         ),
     }
 
@@ -5431,13 +5646,31 @@ def _resolve_timezone(tool_context: ToolContext) -> str:
     return value
 
 
-async def get_current_time(tool_context: ToolContext) -> dict[str, Any]:
+async def get_current_time(tool_context: ToolContext, time_zone: str = "") -> dict[str, Any]:
     """Get the current date and time in the owner's declared timezone.
 
     Use this whenever the person asks what day, date, or time it is -- the
     model has no other grounding for "now" and must not guess from training data.
+    time_zone_source identifies owner, explicit request, or UTC fallback. For a
+    timezone clarification reply, pass the exact user-written IANA time_zone,
+    such as Asia/Kolkata. It affects this read only, never saved preferences.
+    Relative document periods need owner/request timezone, never UTC fallback.
     """
     zone_name = _resolve_timezone(tool_context)
+    declared_zone = str(tool_context.state.get(_STATE_TIMEZONE) or "").strip()
+    texts = _document_request_user_texts(tool_context)
+    requested_zone = str(time_zone or "").strip()
+    if requested_zone:
+        try:
+            ZoneInfo(requested_zone)
+            if not any(requested_zone in text for text in texts):
+                raise ValueError("timezone was not supplied by the current user")
+        except (ValueError, ZoneInfoNotFoundError):
+            return {
+                "status": "needs_clarification",
+                "message": "Which timezone should I use? Please use a name like Asia/Kolkata.",
+            }
+        zone_name = requested_zone
     now = datetime.now(ZoneInfo(zone_name))
     # %-I / %-d (no leading zero) are glibc/BSD-only strftime extensions that
     # raise ValueError on Windows -- computed by hand instead so this tool
@@ -5445,14 +5678,40 @@ async def get_current_time(tool_context: ToolContext) -> dict[str, Any]:
     hour_12 = now.hour % 12 or 12
     clock_time = f"{hour_12}:{now.strftime('%M %p')}"
     zone_label = now.strftime("%Z") or zone_name
-    return {
+    zone_source: Literal["owner", "request", "utc_fallback"] = (
+        "request"
+        if requested_zone
+        else "owner"
+        if declared_zone and declared_zone == zone_name
+        else "utc_fallback"
+    )
+    result = {
         "status": "ok",
         "date": now.strftime("%Y-%m-%d"),
         "time": clock_time,
         "weekday": now.strftime("%A"),
         "time_zone": zone_name,
+        "time_zone_source": zone_source,
         "spoken": f"{now.strftime('%A, %B')} {now.day}, {now.year} at {clock_time} {zone_label}",
     }
+    # Host-only invocation state; model tool arguments cannot supply this receipt.
+    invocation_id = getattr(tool_context, "invocation_id", None)
+    if isinstance(invocation_id, str) and invocation_id and texts:
+        from hushh_mcp.one_adk.document_period_assessment import (
+            HostClockReceipt,
+            user_texts_sha256,
+        )
+
+        tool_context.state[_STATE_DOCUMENT_CLOCK_RECEIPT] = HostClockReceipt(
+            invocation_id=invocation_id,
+            user_texts_sha256=user_texts_sha256(texts),
+            status="ok",
+            date=result["date"],
+            time_zone=zone_name,
+            time_zone_source=zone_source,
+            user_time_zone_quote=requested_zone or None,
+        ).model_dump()
+    return result
 
 
 async def report_no_app_action(reason: str, spoken_reply: str) -> dict[str, Any]:

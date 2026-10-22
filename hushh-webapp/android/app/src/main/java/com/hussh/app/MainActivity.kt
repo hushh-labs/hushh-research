@@ -37,6 +37,7 @@ import com.hussh.app.plugins.HushhSettings.HushhSettingsPlugin
 import com.hussh.app.plugins.HushhSync.HushhSyncPlugin
 import com.hussh.app.plugins.HushhAccount.HushhAccountPlugin
 import com.hussh.app.plugins.HushhLocation.HushhLocationPlugin
+import com.hussh.app.plugins.HushhCardCapture.HushhCardCapturePlugin
 import com.hussh.app.plugins.HushhContacts.HushhContactsPlugin
 import com.hussh.app.plugins.HushhInvitations.HushhInvitationsPlugin
 import com.hussh.app.plugins.HushhNotifications.HushhNotificationsPlugin
@@ -255,6 +256,7 @@ class MainActivity : BridgeActivity() {
         registerPlugin(PersonalKnowledgeModelPlugin::class.java) // PKM plugin
         registerPlugin(HushhAccountPlugin::class.java) // Account management (deletion)
         registerPlugin(HushhLocationPlugin::class.java) // Foreground location capture
+        registerPlugin(HushhCardCapturePlugin::class.java)
         registerPlugin(HushhContactsPlugin::class.java) // Contact matching
         registerPlugin(HushhVoiceInvocationPlugin::class.java)
         registerPlugin(HushhInvitationsPlugin::class.java) // User-confirmed invitations
@@ -295,6 +297,7 @@ class MainActivity : BridgeActivity() {
      * exact generation it just rendered.
      */
     override fun onResume() {
+        HushhNotificationsPlugin.activityActive = true
         sessionPrivacyActivityResumed = true
         if (sessionPrivacyShielded) {
             showSessionPrivacyOverlay()
@@ -309,6 +312,7 @@ class MainActivity : BridgeActivity() {
      * Android never snapshots or reveals stale vault content while inactive.
      */
     override fun onPause() {
+        HushhNotificationsPlugin.activityActive = false
         val wasResumed = sessionPrivacyActivityResumed
         sessionPrivacyActivityResumed = false
         sessionPrivacyRecoveryRunnable?.let { nativeTestHandler.removeCallbacks(it) }
@@ -366,12 +370,15 @@ class MainActivity : BridgeActivity() {
         }
     }
 
+    /** Read-only admission; feedback cannot observe a document or release the cover. */
+    internal fun acceptsSessionPrivacyDocument(documentId: String): Boolean =
+        documentId in sessionPrivacyObservedDocuments && documentId !in sessionPrivacyRetiredDocuments
+
     internal fun completeSessionValidation(generation: Int, documentId: String): SessionPrivacyCompletion {
         val released =
             sessionPrivacyShielded &&
                 sessionPrivacyActivityResumed &&
-                documentId in sessionPrivacyObservedDocuments &&
-                documentId !in sessionPrivacyRetiredDocuments &&
+                acceptsSessionPrivacyDocument(documentId) &&
                 generation == sessionPrivacyGeneration
 
         if (released) {
@@ -966,7 +973,7 @@ class MainActivity : BridgeActivity() {
                             if (!fallbackButton) {
                               fallbackButton = buttons.find(function(button) {
                                 var text = (button.textContent || "").trim().toLowerCase();
-                                return text === "use passphrase instead";
+                                return text === "use password instead";
                               });
                             }
                             if (fallbackButton && !fallbackButton.disabled) {
@@ -999,7 +1006,7 @@ class MainActivity : BridgeActivity() {
                             var currentButtons = Array.prototype.slice.call(document.querySelectorAll("button"));
                             var unlockButton = currentButtons.find(function(button) {
                               var text = (button.textContent || "").trim().toLowerCase();
-                              return text === "unlock with passphrase";
+                              return text === "unlock with password";
                             });
                             if (unlockButton && !unlockButton.disabled) {
                               bridge._vaultUnlockButtonClicked = true;

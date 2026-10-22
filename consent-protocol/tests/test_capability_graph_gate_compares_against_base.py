@@ -211,6 +211,38 @@ def test_merged_branch_history_is_selected_from_the_base_merge(repo: Repo) -> No
     assert generator._merged_workflow_predecessor_refs("main") == (feature_tip,)
 
 
+@pytest.mark.parametrize(
+    ("history", "expected"),
+    [
+        (
+            "newer parent-a parent-b\nmatching base feature-a feature-b\nolder base old\n",
+            ("feature-a", "feature-b"),
+        ),
+        ("newer parent-a parent-b\nolder parent-c parent-d\n", ()),
+    ],
+)
+def test_merge_parent_history_uses_one_full_git_query(
+    repo: Repo,
+    monkeypatch: pytest.MonkeyPatch,
+    history: str,
+    expected: tuple[str, ...],
+) -> None:
+    monkeypatch.setattr(generator, "_resolve_base_ref", lambda _: "main")
+    monkeypatch.setattr(generator, "_resolve_base_commit", lambda _: "base")
+    commands: list[list[str]] = []
+
+    def run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        assert kwargs["cwd"] == repo.root
+        assert kwargs["check"] is True
+        return subprocess.CompletedProcess(command, 0, stdout=history)
+
+    monkeypatch.setattr(generator.subprocess, "run", run)
+
+    assert generator._merged_workflow_predecessor_refs("main") == expected
+    assert commands == [["git", "rev-list", "--first-parent", "--merges", "--parents", "HEAD"]]
+
+
 def test_base_ref_comparison_names_the_changed_action_and_fails(
     repo: Repo, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -1,0 +1,23 @@
+.visual { display: grid; place-items: center; width: 100%; min-width: 0; flex: 0 0 auto; }
+.artboard { position: relative; container-type: inline-size; width: min(100%, clamp(230px, 61vw, 302px)); aspect-ratio: 440 / 370; }
+.shapes { position: absolute; inset: 0; display: block; width: 100%; height: 100%; overflow: visible; color: #24252b; pointer-events: none; }
+:global(.dark) .shapes { color: #e1e3ea; }
+.mascot { position: absolute; z-index: 2; left: 19cqw; top: 9cqw; width: 69cqw; height: auto; object-fit: contain; pointer-events: none; }
+.codeMascot { left: 16cqw; top: 8cqw; width: 71cqw; }
+.sticker { position: absolute; z-index: 4; display: flex; align-items: center; gap: 2.3cqw; width: max-content; max-width: 85%; min-height: 11.5cqw; padding: 1.7cqw 3cqw; border: 1px solid #d9dde6; border-radius: 3cqw; background: #fff; color: #1d1d1f; box-shadow: 0 2cqw 5cqw #1717200d; font-family: var(--font-app-body); font-size: 3.5cqw; font-weight: 600; letter-spacing: -.02em; white-space: nowrap; }
+:global(.dark) .sticker, :global(.dark) .codeDots { border-color: #393c47; background: #1b1c22; color: #f5f5f7; }
+.icon { display: grid; place-items: center; width: 7.2cqw; height: 7.2cqw; flex: 0 0 auto; border-radius: 2.1cqw; }
+.icon svg { width: 4.7cqw; height: 4.7cqw; }
+.blue { background: #e5f0ff; color: #0071e3; }
+.pink { background: #fce6f2; color: #a43b7e; }
+.mint { background: #e3f2e7; color: #377657; }
+.topSticker { left: 1cqw; top: 13cqw; transform: rotate(-6deg); }
+.bottomSticker { right: 0; bottom: 13cqw; transform: rotate(5deg); }
+[data-phone-scene="code"] .topSticker { left: 2cqw; top: 10cqw; transform: rotate(-5deg); }
+[data-phone-scene="code"] .bottomSticker { right: 1cqw; bottom: 15cqw; }
+.codeDots { position: absolute; z-index: 4; right: 0; top: 20cqw; display: flex; align-items: center; gap: 1.6cqw; padding: 3cqw; border: 1px solid #d9dde6; border-radius: 3.5cqw; background: #fff; box-shadow: 0 2cqw 5cqw #17172009; transform: rotate(7deg); }
+.codeDots i { width: 4cqw; height: 5.3cqw; border-radius: 1cqw; background: #b8cfff; }
+.codeDots i:nth-child(4) { background: #0071e3; }
+@media (min-width: 800px) { .artboard { width: min(100%, 495px); } }
+@media (max-height: 690px) { .artboard { width: min(100%, 190px); } }
+@media (min-width: 800px) and (max-height: 690px) { .artboard { width: min(100%, 360px); } }

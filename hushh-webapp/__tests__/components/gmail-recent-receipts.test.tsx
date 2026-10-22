@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -12,6 +13,7 @@ import {
   ReceiptMerchantLogo,
 } from "@/components/gmail/gmail-recent-receipts";
 import type { ReceiptListItem } from "@/lib/services/gmail-receipts-service";
+import { buildRecentReceiptRows } from "@/lib/profile/gmail-receipt-presentation";
 
 function detailLoader(receipts: readonly ReceiptListItem[]) {
   return vi.fn(async (sourceId: string) => {
@@ -363,7 +365,30 @@ describe("receipt merchant logo", () => {
     expect(
       container.querySelectorAll('svg[data-canonical-icon="true"]'),
     ).toHaveLength(1);
-    expect(container.querySelector('svg [opacity="0.2"]')).not.toBeNull();
+    expect(container.querySelector('svg [opacity="0.2"]')).toBeNull();
+  });
+
+  it.each([
+    ["Internshala Trainings", "trainings.internshala.com"],
+    ["Udemy", "udemy.com"],
+  ])("uses the reviewed category icon for %s without changing its receipt category", (merchantName, logoDomain) => {
+    const { container } = render(
+      <ReceiptMerchantLogo merchantName={merchantName} logoDomain={logoDomain} category="Other" providerUrlTemplate="" />,
+    );
+    const frame = container.querySelector('[data-slot="receipt-merchant-logo"]');
+    expect(frame).toHaveAttribute("data-logo-kind", "category");
+    expect(frame).toHaveAttribute("data-receipt-category", "Other");
+    expect(frame).toHaveClass("size-9");
+    expect(container.querySelector("svg")).toHaveClass("text-violet-500");
+    expect(container.querySelector("img")).toBeNull();
+  });
+
+  it("keeps the generic fallback for an unreviewed new-brand domain", () => {
+    const { container } = render(
+      <ReceiptMerchantLogo merchantName="Udemy" logoDomain="udemy.com.example.test" category="Other" providerUrlTemplate="" />,
+    );
+    expect(container.querySelector('[data-slot="receipt-merchant-logo"]')).toHaveAttribute("data-logo-kind", "fallback");
+    expect(container.querySelector("svg")).toHaveClass("text-slate-500");
   });
 
   it("uses only the canonical domain and falls back without a layout change after failure", () => {
@@ -385,7 +410,7 @@ describe("receipt merchant logo", () => {
       "https://logos.example.test/myntra.com",
     );
     expect(image).toHaveAttribute("referrerpolicy", "no-referrer");
-    expect(image).toHaveAttribute("crossorigin", "anonymous");
+    expect(image).not.toHaveAttribute("crossorigin");
     expect(image?.getAttribute("src")).not.toContain("ship-confirm");
 
     fireEvent.error(image!);
@@ -393,6 +418,90 @@ describe("receipt merchant logo", () => {
     expect(container.querySelector("img")).toBeNull();
     expect(frame).toHaveClass("size-9");
     expect(frame).toHaveAttribute("data-logo-kind", "fallback");
+  });
+
+  it("keeps the colorful fallback visible while a logo hangs, then drops the failed request", () => {
+    vi.useFakeTimers();
+    try {
+      const { container } = render(
+        <ReceiptMerchantLogo merchantName="Plaid" logoDomain="plaid.com" category="Cloud & Infra"
+          providerUrlTemplate="https://logos.example.test/{domain}" />,
+      );
+      const frame = container.querySelector('[data-slot="receipt-merchant-logo"]');
+      expect(frame).toHaveAttribute("data-logo-kind", "category");
+      expect(container.querySelector("img")).toHaveClass("opacity-0");
+      fireEvent.load(container.querySelector("img")!);
+      expect(frame).toHaveAttribute("data-logo-kind", "brand");
+      // A different request has its own bounded wait and the same fixed frame.
+      const hanging = render(
+        <ReceiptMerchantLogo merchantName="Plaid" logoDomain="plaid.com" category="Cloud & Infra"
+          providerUrlTemplate="https://unavailable.example.test/{domain}" />,
+      );
+      act(() => vi.advanceTimersByTime(5000));
+      expect(hanging.container.querySelector("img")).toBeNull();
+      expect(hanging.container.querySelector('[data-slot="receipt-merchant-logo"]')).toHaveClass("size-9");
+      expect(hanging.container.querySelector('[data-slot="receipt-merchant-logo"]')).toHaveAttribute("data-logo-kind", "category");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the Plaid row as one detail trigger and visits only its reviewed homepage at the bottom", async () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    const item: ReceiptListItem = {
+      id: 12, source_id: "plaid-source", merchant_name: "Plaid", merchant_domain: "plaid.com",
+      from_email: "billing@plaid.com", category: "Cloud & Infra", category_confidence: 0.95,
+      status: "payment_failed", attention_state: "needs_attention", attention_reason: "payment_failed",
+      document_kind: "invoice", recurrence: "recurring", identifier_kind: "invoice", identifier_value: "INV-12",
+      short_detail: "Payment declined", receipt_date: "2026-10-11T12:00:00Z", preview: "Update your payment information.",
+    };
+    const { container } = render(<GmailRecentReceipts accountKey="test" receipts={[item]} loadReceiptDetail={detailLoader([item])} />);
+    const row = screen.getByTestId("receipt-row");
+    expect(row.querySelectorAll("a, button")).toHaveLength(0);
+    expect(row.querySelector("img")?.getAttribute("src")).toContain("/plaid.com.ico");
+    fireEvent.click(row.querySelector('[data-slot="receipt-merchant-logo"]')!);
+    const detail = await screen.findByTestId("receipt-detail");
+    expect(open).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog").querySelector("img")?.getAttribute("src")).toContain("/plaid.com.ico");
+    expect(within(detail).getByText("INV-12")).toBeVisible();
+    expect(within(detail).getByText("Email preview")).toBeVisible();
+    expect([...detail.querySelectorAll("dt")].map(label => label.textContent)).toEqual([
+      "Amount", "Status", "Attention", "Category", "Document", "Recurrence", "Invoice", "Details", "Date", "Sender",
+    ]);
+    const visit = within(detail).getByRole("button", { name: "Visit merchant" });
+    expect(detail.lastElementChild).toContainElement(visit);
+    expect(container).not.toHaveTextContent("https://plaid.com");
+    fireEvent.click(visit);
+    expect(open).toHaveBeenCalledWith("https://plaid.com", "_blank", "noopener,noreferrer");
+    expect(detail).toBeVisible();
+    open.mockImplementationOnce(() => { throw new Error("External browser unavailable"); });
+    fireEvent.click(visit);
+    expect(within(detail).getByRole("status")).toHaveTextContent("We couldn’t open the merchant website. Please try again.");
+    expect(screen.getByRole("dialog")).toBeVisible();
+  });
+
+  it("keeps an unknown seller's category fallback without a merchant website action", async () => {
+    const item: ReceiptListItem = { id: 13, source_id: "unknown-seller", merchant_name: "Unknown Store",
+      from_email: "ship-confirm@amazon.in", merchant_domain: "amazon.in", category: "Shopping", category_confidence: 0.95 };
+    render(<GmailRecentReceipts accountKey="test" receipts={[item]} loadReceiptDetail={detailLoader([item])} />);
+    const row = screen.getByTestId("receipt-row");
+    expect(row.querySelector('[data-logo-kind="category"]')).not.toBeNull();
+    expect(row.querySelector("img")).toBeNull();
+    fireEvent.click(row);
+    await screen.findByTestId("receipt-detail");
+    expect(screen.queryByRole("button", { name: "Visit merchant" })).not.toBeInTheDocument();
+  });
+
+  it("does not promote a saved unverified key from a detail label without live evidence", async () => {
+    const item: ReceiptListItem = { id: 14, source_id: "saved-unverified", merchant_name: "Plaid",
+      category: "Cloud & Infra", category_confidence: 0.95 };
+    const savedRows = buildRecentReceiptRows([item], "test").map(row => ({ ...row, brandKey: null, logoDomain: null }));
+    render(<GmailRecentReceipts accountKey="test" receipts={[]} savedRows={savedRows}
+      loadReceiptDetail={async () => ({ item, live_unavailable: "Live Mail evidence is unavailable." })} />);
+    fireEvent.click(screen.getByTestId("receipt-row"));
+    await screen.findByTestId("receipt-detail");
+    expect(screen.getByRole("dialog").querySelector("img")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Visit merchant" })).not.toBeInTheDocument();
   });
 
   it("does not request a provider logo while the browser is offline", () => {

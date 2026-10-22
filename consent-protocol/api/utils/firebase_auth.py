@@ -314,6 +314,10 @@ def verify_firebase_bearer(
             raise HTTPException(status_code=401, detail="Invalid Firebase ID token")
         if refuse_foreign_review_mint(decoded):
             raise HTTPException(status_code=401, detail="Invalid Firebase ID token")
+        from hushh_mcp.services.email_auth.identity import independent_method_allowed
+
+        if not independent_method_allowed(decoded):
+            raise HTTPException(status_code=403, detail="This account is unavailable")
 
         if check_revoked:
             _verify_revocation_with_cache(

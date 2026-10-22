@@ -35,7 +35,7 @@ vi.mock("@/components/consent/consent-scope-nested-list", () => ({
 
 import { AgentConsentContinuationContext, AgentStructuredExperienceView } from "@/components/agent/agent-structured-experience";
 import { armConsentContinuation, clearSentInformationRequests } from "@/lib/agent/consent-continuation";
-import { resetInformationRequestReads } from "@/lib/consent/information-request-reads";
+import { readInformationRequest, resetInformationRequestReads, subscribeInformationRequest } from "@/lib/consent/information-request-reads";
 
 const person = "1234567890abcdef";
 const experience: ScopeDiscoveryExperience = {
@@ -465,7 +465,7 @@ describe("current-authority inline Chat catalog", () => {
     expect(mocks.decryptScopedExport).toHaveBeenCalledTimes(1);
   });
 
-  it("waits for the owner's approval, then continues the asking chat exactly once", async () => {
+  it.each(["granted", "pending"] as const)("waits for the owner's approval, then continues the asking chat exactly once: %s backend", async (authority) => {
     clearSentInformationRequests(null);
     const sent: InformationRequestReviewExperience = {
       type: "one.information_request_review.v1", personName: "Synthetic Recipient",
@@ -487,18 +487,39 @@ describe("current-authority inline Chat catalog", () => {
     );
     expect(await screen.findByText("Waiting for Synthetic Recipient's approval")).toBeInTheDocument();
     expect(continueWithOutcome).not.toHaveBeenCalled();
-
-    mocks.getInformationRequest.mockResolvedValue(bundle("granted"));
+    await act(async () => {
+      await readInformationRequest({ bundleId: sent.bundleId!, vaultOwnerToken: "test-owner-token" });
+    });
+    const settledReads = mocks.getInformationRequest.mock.calls.length;
     const doorbell = () => act(() => window.dispatchEvent(new CustomEvent("consent-state-changed", { detail: {
       source: "information_request_updated", action: "CONSENT_GRANTED", bundleId: sent.bundleId, requestId: "request_12345678",
     } })));
-    doorbell();
-    expect(await screen.findByText("Consent approved")).toBeInTheDocument();
-    await waitFor(() => expect(continueWithOutcome).toHaveBeenCalledTimes(1));
-    expect(continueWithOutcome).toHaveBeenCalledWith(expect.objectContaining({ bundleId: sent.bundleId, outcome: "granted", subjectRef: person }));
+    // The card listener queues pending first; the matching doorbell arrives
+    // before React consumes that publication. It must force a newer GET.
+    let dispatched = false;
+    const stop = subscribeInformationRequest(sent.bundleId!, () => {
+      if (dispatched) return;
+      dispatched = true;
+      mocks.getInformationRequest.mockResolvedValue(bundle(authority));
+      doorbell();
+    });
+    try {
+      await act(async () => {
+        await readInformationRequest({ bundleId: sent.bundleId!, vaultOwnerToken: "test-owner-token", fresh: true });
+      });
+      await waitFor(() => expect(mocks.getInformationRequest.mock.calls.length).toBeGreaterThanOrEqual(settledReads + 2));
+    } finally { stop(); }
+    if (authority === "granted") {
+      expect(await screen.findByText("Consent approved")).toBeInTheDocument();
+      await waitFor(() => expect(continueWithOutcome).toHaveBeenCalledTimes(1));
+      expect(continueWithOutcome).toHaveBeenCalledWith(expect.objectContaining({ bundleId: sent.bundleId, outcome: "granted", subjectRef: person }));
+    } else {
+      expect(screen.queryByText("Consent approved")).not.toBeInTheDocument();
+      expect(continueWithOutcome).not.toHaveBeenCalled();
+    }
     doorbell();
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
-    expect(continueWithOutcome).toHaveBeenCalledTimes(1);
+    expect(continueWithOutcome).toHaveBeenCalledTimes(authority === "granted" ? 1 : 0);
   });
 
   // Run 4 (R3): every refetch re-ran the continuation and dropped it before

@@ -8,9 +8,10 @@ or a sender address from the caller.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, cast
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
@@ -21,7 +22,9 @@ from hushh_mcp.services.gmail_delivery_service import (
     GmailDeliveryError,
     create_reviewed_gmail_draft,
     get_gmail_delivery_service,
+    get_owner_send_action,
     normalize_draft,
+    reconcile_owner_send_action,
 )
 from hushh_mcp.services.gmail_mailbox_actions import get_gmail_mailbox_actions
 from hushh_mcp.services.gmail_personal_information_request_service import (
@@ -75,6 +78,8 @@ class EmailEnvelope(BaseModel):
     # This optional representation is independently sanitized by the Gmail
     # owner delivery service before it becomes part of the reviewed envelope.
     html_body: str | None = Field(default=None, max_length=50_000)
+    draft_ref: str | None = Field(default=None, min_length=1, max_length=128)
+    revision: int | None = Field(default=None, ge=1)
 
 
 class DriveAttachmentRef(BaseModel):
@@ -118,6 +123,7 @@ class EmailSendRequest(EmailEnvelope):
 
     action_id: str = Field(min_length=1, max_length=128)
     attachment_token: str | None = Field(default=None, min_length=32, max_length=2048)
+    sender_token: str | None = Field(default=None, min_length=32, max_length=32768)
     source_workflow_id: str | None = Field(
         default=None,
         min_length=1,
@@ -287,6 +293,8 @@ async def gmail_email_prepare(
             source_workflow_id=payload.source_workflow_id,
             source_mail_ref=payload.source_mail_ref,
         )
+        if payload.draft_ref is not None or payload.revision is not None:
+            draft_payload.update(draft_ref=payload.draft_ref, revision=payload.revision)
         with mail_latency("deliver_prep", logger):
             prepared = cast(
                 dict[str, Any],
@@ -376,6 +384,10 @@ async def gmail_email_send(
             source_workflow_id=payload.source_workflow_id,
             source_mail_ref=payload.source_mail_ref,
         )
+        if payload.sender_token is not None:
+            draft_payload["sender_token"] = payload.sender_token
+        if payload.draft_ref is not None or payload.revision is not None:
+            draft_payload.update(draft_ref=payload.draft_ref, revision=payload.revision)
         with mail_latency("deliver", logger) as span:
             result = cast(
                 dict[str, Any],
@@ -402,3 +414,70 @@ async def gmail_email_send(
     except Exception as exc:
         logger.warning("one.gmail_delivery.send_failed error=%s", type(exc).__name__)
         raise _as_http_error(exc) from exc
+
+
+def _send_action_status_payload(
+    *, action_id: str, row: dict[str, Any] | None, response: Response
+) -> dict[str, Any]:
+    if row is None:
+        raise HTTPException(status_code=404, detail={"code": "ACTION_NOT_FOUND"})
+    state = str(row.get("state") or "")
+    if state not in {
+        "prepared",
+        "sending",
+        "sent",
+        "failed",
+        "outcome_unknown",
+        "expired",
+        "cancelled",
+    }:
+        raise HTTPException(status_code=503, detail={"code": "GMAIL_DELIVERY_UNAVAILABLE"})
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Pragma"] = "no-cache"
+    return {
+        "action_id": action_id,
+        "state": state,
+        "outcome_unknown": state == "outcome_unknown",
+    }
+
+
+@router.get("/email/send/status/{action_id}")
+async def gmail_email_send_status(
+    action_id: str,
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict[str, Any] = Depends(require_vault_owner_token),
+) -> dict[str, Any]:
+    """Read one owner's durable send result without exposing mail or provider ids.
+
+    A lost HTTP response is reconciled against the same action. In particular,
+    ``sending`` and ``outcome_unknown`` never authorize a fresh send.
+    """
+    user_id = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
+    if not re.fullmatch(r"[A-Za-z0-9-]{1,128}", action_id):
+        raise HTTPException(status_code=404, detail={"code": "ACTION_NOT_FOUND"})
+    try:
+        row = await get_owner_send_action(user_id=user_id, action_id=action_id)
+    except Exception as exc:
+        logger.warning("one.gmail_delivery.status_failed error=%s", type(exc).__name__)
+        raise _as_http_error(exc) from exc
+    return _send_action_status_payload(action_id=action_id, row=row, response=response)
+
+
+@router.post("/email/send/status/{action_id}")
+async def gmail_email_reconcile_send_status(
+    action_id: str,
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict[str, Any] = Depends(require_vault_owner_token),
+) -> dict[str, Any]:
+    """Settle an interrupted immediate attempt after its execution grace period."""
+    user_id = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
+    if not re.fullmatch(r"[A-Za-z0-9-]{1,128}", action_id):
+        raise HTTPException(status_code=404, detail={"code": "ACTION_NOT_FOUND"})
+    try:
+        row = await reconcile_owner_send_action(user_id=user_id, action_id=action_id)
+    except Exception as exc:
+        logger.warning("one.gmail_delivery.status_reconcile_failed error=%s", type(exc).__name__)
+        raise _as_http_error(exc) from exc
+    return _send_action_status_payload(action_id=action_id, row=row, response=response)

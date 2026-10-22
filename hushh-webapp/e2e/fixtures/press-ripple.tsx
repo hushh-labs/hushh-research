@@ -14,8 +14,14 @@ import { ArrowRight, Send } from "../../components/icons";
 import { AgentFollowUpSuggestions, AgentSuggestionList } from "../../components/agent/agent-follow-up-suggestions";
 import { ShellActionSurface } from "../../components/app-ui/shell-action-surface";
 import { AuthProviderButton } from "../../components/onboarding/AuthProviderButton";
+import { EmailSignInSection } from "../../components/onboarding/EmailSignInSection";
+import authStyles from "../../components/onboarding/AuthStepLight.module.css";
+import { AppleIcon, GoogleIcon } from "../../lib/morphy-ux/social-icons";
 import { Button as StockButton } from "../../components/ui/button";
 import { Button as MorphyButton } from "../../lib/morphy-ux/button";
+
+const ignoreEmailState = () => {};
+const rejectEmailAuthentication = async () => { throw new Error("Layout fixture cannot authenticate"); };
 
 function LegacyChip() {
   return (
@@ -36,7 +42,16 @@ function Fixture() {
         Create your One
         <ArrowRight className="ml-2 h-5 w-5" aria-hidden="true" />
       </MorphyButton>
-      <AuthProviderButton label="Continue with Apple" icon={null} />
+      <div className={`${authStyles.shell} w-full max-w-[430px] space-y-3`} data-testid="auth-providers">
+        <AuthProviderButton label="Continue with Apple" icon={<AppleIcon className={`size-6 ${authStyles.appleProviderIcon}`} />} className={authStyles.providerButton} />
+        <AuthProviderButton label="Continue with Google" icon={<GoogleIcon className="size-6" />} className={authStyles.providerButton} />
+        <AuthProviderButton label="Continue with Microsoft" className={authStyles.providerButton}
+          icon={<span aria-hidden="true" className={`grid size-6 grid-cols-2 gap-[2px] ${authStyles.microsoftProviderIcon}`}>
+            {["#f25022", "#7fba00", "#00a4ef", "#ffb900"].map(color => <span key={color} style={{ backgroundColor: color }} />)}
+          </span>} />
+        <EmailSignInSection disabled={false} onBusyChange={ignoreEmailState}
+          onExpandedChange={ignoreEmailState} onAuthenticated={rejectEmailAuthentication} />
+      </div>
       <AgentFollowUpSuggestions
         suggestions={["Show my week", "Draft a reply to Sam"]}
         onSelect={() => {}}

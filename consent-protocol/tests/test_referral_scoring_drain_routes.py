@@ -27,6 +27,8 @@ PATH = "/api/internal/referral-scoring/drain"
 
 @pytest.fixture
 def client(monkeypatch):
+    monkeypatch.setattr(routes, "reconcile_pending_activity", Mock(return_value=0))
+    monkeypatch.setattr(routes, "publish_dashboard_state", Mock(return_value=0))
     monkeypatch.setenv("ENVIRONMENT", "test")
     monkeypatch.setenv("REFERRAL_SCORING_DRAIN_ENABLED", "true")
     monkeypatch.setenv("REFERRAL_SCORING_DRAIN_SCHEDULER_PROJECT_ID", PROJECT)

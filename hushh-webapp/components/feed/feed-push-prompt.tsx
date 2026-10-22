@@ -15,31 +15,37 @@ function browserPermission(): BrowserPermission {
   return Notification.permission;
 }
 
-/**
- * The one place a web browser is asked for notification permission.
- *
- * Web push registers only after the browser grants permission, and the
- * provider deliberately never prompts on load. Nothing else asked, so a
- * browser that had not granted permission some other way never registered a
- * device: shares, Drive questions and answers reached nobody on the web
- * while the app was open. The request runs inside the tap, which browsers
- * require, and only then does the provider register this device.
- */
-export function FeedPushPrompt() {
-  const { deliveryMode, retryPushRegistration, isRetryingPushRegistration } =
+/** Explicit permission action for browser and native notification registration. */
+export function FeedPushPrompt({ context = "feed" }: { context?: "feed" | "chat" | "location" } = {}) {
+  const { deliveryMode, deliveryDetail, retryPushRegistration, isRetryingPushRegistration } =
     useConsentNotificationState();
   const [permission, setPermission] = useState<BrowserPermission>("unsupported");
+  const quietNative = Capacitor.isNativePlatform() && (
+    ["native_alerts_disabled", "native_sound_disabled", "native_emergency_sound_disabled"].includes(deliveryDetail ?? "")
+    || (context === "chat" && ["native_chat_alerts_disabled", "native_chat_sound_disabled"].includes(deliveryDetail ?? ""))
+  );
 
   useEffect(() => {
-    setPermission(browserPermission());
-  }, [deliveryMode]);
+    if (Capacitor.isNativePlatform()) setPermission(deliveryMode === "push_blocked" || quietNative ? "denied" : "default");
+    else setPermission(browserPermission());
+  }, [deliveryMode, quietNative]);
 
-  if (Capacitor.isNativePlatform() || deliveryMode === "push_active") {
+  if (deliveryMode === "push_active" && !quietNative) {
     return null;
   }
-  if (permission === "unsupported" || permission === "granted") return null;
+  if (permission === "unsupported") return null;
 
   const enable = async () => {
+    if (Capacitor.isNativePlatform()) {
+      if (permission === "denied") {
+        const { NotificationSettingsService } = await import("@/lib/services/notification-settings-service");
+        await NotificationSettingsService.open();
+        return;
+      }
+      retryPushRegistration();
+      return;
+    }
+    if (permission === "granted") { retryPushRegistration(); return; }
     let result: BrowserPermission;
     try {
       result = await Notification.requestPermission();
@@ -56,21 +62,28 @@ export function FeedPushPrompt() {
       data-testid="feed-push-prompt"
       className="mb-3 flex w-full items-center justify-between gap-3 rounded-[16px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3"
     >
-      <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
-        {permission === "denied"
-          ? "Notifications are blocked for One in this browser. Allow them in site settings to get alerts."
-          : "Get an alert when someone shares with you or asks you something."}
+      <p data-profile-role="description" className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+        {quietNative ? "Device alerts or sounds are off. Enable them in notification settings to hear alerts."
+          : permission === "denied"
+          ? Capacitor.isNativePlatform() ? "Allow notifications in device settings to get message alerts." : "Notifications are blocked for One in this browser. Allow them in site settings to get alerts."
+          : permission === "granted" ? "Reconnect notifications to receive message alerts."
+          : context === "location" ? "Turn on device notifications for Save My Soul alerts, location shares, and requests when One is closed."
+          : context === "chat" ? "Allow device notifications to hear new messages when you leave this chat."
+          : "Get notifications for direct messages, Circle chats, and requests."}
       </p>
-      {permission === "default" ? (
+      {permission === "default" || permission === "granted" || (permission === "denied" && Capacitor.isNativePlatform()) ? (
         <Button
+          data-profile-role="action"
           type="button"
+          data-voice-control-id={context === "location" ? "one-location-notification-recovery" : undefined}
           variant="none"
           effect="fade"
           size="compact"
+          className="min-h-11 shrink-0"
           disabled={isRetryingPushRegistration}
           onClick={() => void enable()}
         >
-          Turn on
+          {permission === "denied" ? "Open settings" : permission === "granted" ? "Retry" : "Turn on"}
         </Button>
       ) : null}
     </div>

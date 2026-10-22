@@ -11,6 +11,7 @@
 
   "$comment_writers": "The closed writer catalog. A writer id is the normalized `source` of a PKM write authorization (hushh-webapp/lib/personal-knowledge-model/mutation-plan.ts normalizedWriterId), which reaches the server as mutation_plan.writer_id; the server derives `pkm_upgrade_orchestrator` for an upgrade-claim write and falls back to structure_decision.source_agent otherwise. Every label used in code must appear here (hushh-webapp/__tests__/lib/pkm/reserved-branches.test.ts fails otherwise). class: `feature` is an app feature's own control; `memory_agent` is the chat and capture pipeline, which may never write a reserved branch; `migration` is the PKM upgrade gate, whose authority is the server-verified upgrade claim, so it is never refused here. Writer identity is a governed catalog, not cryptography: the owner's client can always write its own vault, and the threat addressed is our own agent pipelines.",
   "writers": {
+    "one_living_memory_source_projection": {"feature": "living_memory", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_source_projection"]},
     "plaid_vault_connect": {"feature": "finance", "class": "feature", "surfaces": ["web", "ios", "android"], "authorization_modes": ["owner_confirmed"]},
     "plaid_vault_refresh": {"feature": "finance", "class": "feature", "surfaces": ["web", "ios", "android"], "authorization_modes": ["owner_connected_source_sync"]},
     "plaid_vault_view_upgrade": {"feature": "finance", "class": "feature", "surfaces": ["web", "ios", "android"], "authorization_modes": ["owner_connected_source_sync"]},
@@ -53,14 +54,20 @@
     "kyc_identity_document_file": {"feature": "kyc", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
 
     "one_chat_onboarding": {"feature": "settings", "class": "feature", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
-    "$comment_style_settings": "Settings > Preferences > How One writes to you (hushh-webapp/lib/agent/owner-style-settings-writer.ts, OWNER_STYLE_SETTINGS_SOURCE). Chat only proposes a style change; the owner commits it here.",
+    "one_chat_preferred_name": {"feature": "settings", "class": "feature", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
+    "$comment_style_settings": "Settings > Preferences > How One writes to you (hushh-webapp/lib/agent/owner-style-settings-writer.ts, OWNER_STYLE_SETTINGS_SOURCE). Explicit preferred-name choices also commit on device from live typed chat; other style changes need Settings Save.",
     "one_settings_communication_preferences": {"feature": "settings", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
 
     "one_wallet_add": {"feature": "wallet", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
+    "one_wallet_artwork_change": {"feature": "wallet", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
     "one_wallet_remove": {"feature": "wallet", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
+    "one_wallet_share_card": {"feature": "wallet", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
     "agent_chat_wallet_add": {"feature": "wallet", "class": "feature", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
 
     "gmail_receipt_memory_save_button": {"feature": "gmail_receipts", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
+
+    "$comment_pwm_owner_review": "The owner's Yes, No, Edit and Remove taps on the Personal World Model page (hushh-webapp/lib/services/world-model-decision-service.ts). Each tap commits the Soul.md (one_memory) bullet change and its private _pwm_claims decision together; No writes only the decision.",
+    "pwm_owner_review": {"feature": "personal_world_model", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
 
     "$comment_secrets": "The device guard (hushh-webapp/lib/pkm/secret-span-guard.ts) saves a secret the owner sends, pastes or asks to save; sending it is the owner's act. secrets_vault_remove is the owner's delete on the Secrets list.",
     "secrets_vault": {"feature": "secrets", "class": "feature", "surfaces": ["chat", "web", "ios", "android"], "authorization_modes": ["owner_confirmed"]},
@@ -84,7 +91,6 @@
     "connector_settings": {"feature": "connectors", "class": "feature", "surfaces": ["web", "ios", "android"], "authorization_modes": ["owner_confirmed"]},
     "connector_oauth_return": {"feature": "connectors", "class": "feature", "surfaces": ["web", "ios", "android"], "authorization_modes": ["owner_confirmed"]},
     "chat_connector_card": {"feature": "connectors", "class": "feature", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
-    "pkm_memory_auto_save_toggle": {"feature": "memory_settings", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
 
     "$comment_memory_edits": "The owner's direct edit and delete controls on the Memory screen. A feature writer, but listed on no reserved entry: under memory_screen_policy read_only_reserved the Memory screen never offers them on a reserved item, and the owning app screen edits it instead.",
     "pkm_memory_edited_button": {"feature": "memory_workspace", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
@@ -95,7 +101,6 @@
 
     "agent_chat_owner_request": {"feature": "memory", "class": "memory_agent", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
     "agent_chat_owner_confirmed_card": {"feature": "memory", "class": "memory_agent", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
-    "agent_chat_auto_save_policy": {"feature": "memory", "class": "memory_agent", "surfaces": ["chat"], "authorization_modes": ["owner_auto_save_policy"]},
     "agent_chat_product_default_auto_save": {"feature": "memory", "class": "memory_agent", "surfaces": ["chat"], "authorization_modes": ["product_default_auto_save_policy"]},
     "$comment_kyc_auto_save": "Declared in the PkmProductDefaultAutoSaveAuthorization type; no runtime caller uses it today.",
     "kyc_identity_product_default_auto_save": {"feature": "memory", "class": "memory_agent", "surfaces": ["chat", "web"], "authorization_modes": ["product_default_auto_save_policy"]},
@@ -103,13 +108,16 @@
     "pkm_agent_lab_save_button": {"feature": "memory", "class": "memory_agent", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
     "first_connect_insights": {"feature": "memory", "class": "memory_agent", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
     "drive_read_review": {"feature": "memory", "class": "memory_agent", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
+    "business_profile_review": {"feature": "memory", "class": "memory_agent", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
+    "profile_research_review": {"feature": "memory", "class": "memory_agent", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
     "pkm_structure_agent": {"feature": "memory", "class": "memory_agent", "surfaces": [], "authorization_modes": []},
 
     "pkm_upgrade_orchestrator": {"feature": "pkm_upgrade", "class": "migration", "surfaces": ["system_upgrade"], "authorization_modes": ["upgrade_claim"]}
   },
 
-  "$comment_entries": "branch_prefix is a dotted path under the domain; `*` reserves every top-level branch of the domain except those in `except`. A path matches an entry when it equals the prefix or lies beneath it. agent_memory_sibling is where chat facts about the area are kept (null where no chat fact belongs). offer_action names a route in contracts/kai/one-route-orchestration-index.v1.json and an action in the generated gateway (null where nothing should be offered); {label} in label_template is the short noun the structure agent returns for the re-routed fact (\"Home\", \"Amex Gold\"). shareable and send_to_model are declared now and enforced by later releases.",
+  "$comment_entries": "branch_prefix is a dotted path under the domain; `*` reserves every top-level branch of the domain except those in `except`. A path matches an entry when it equals the prefix or lies beneath it. agent_memory_sibling is where chat facts about the area are kept (null where no chat fact belongs). offer_action names a route in contracts/kai/one-route-orchestration-index.v1.json and an action in the generated gateway (null where nothing should be offered); {label} in label_template is the short noun the structure agent returns for the re-routed fact (\"Home\", \"Amex Gold\"). shareable and send_to_model are declared now and enforced by later releases. Every reader treats a send_to_model value other than `full` as restricted: documents, exports and shares never carry those values. `owner_turn_allowlist` (one_living_sources only) adds one narrow reader: the owner's own private agent, on the owner's consented and unlocked turn, may receive a bounded packet of allowlisted fields (hushh-webapp/lib/pkm/live-mirror-agent-facts.ts AGENT_FACT_FIELDS); other people's identifiers and the photo URL are never in it, and shareable stays `never`.",
   "entries": [
+    {"domain": "one_living_sources","branch_prefix": "*","except": [],"owner_feature": "living_memory","writer_ids": ["one_living_memory_source_projection"],"agent_memory_sibling": null,"shareable": "never","send_to_model": "owner_turn_allowlist","offer_action": null},
     {
       "domain": "financial",
       "branch_prefix": "*",
@@ -204,7 +212,7 @@
       "branch_prefix": "communication_preferences",
       "except": [],
       "owner_feature": "settings",
-      "writer_ids": ["one_chat_onboarding", "one_settings_communication_preferences"],
+      "writer_ids": ["one_chat_onboarding", "one_chat_preferred_name", "one_settings_communication_preferences"],
       "agent_memory_sibling": "identity.agent_memory",
       "offer_action": {"route_pattern": "/one/profile/preferences", "action_id": "route.profile", "label_template": "Change {label} in Preferences"},
       "shareable": "policy",
@@ -223,10 +231,21 @@
     },
     {
       "domain": "wallet",
+      "branch_prefix": "artwork",
+      "except": [],
+      "owner_feature": "wallet",
+      "writer_ids": ["one_wallet_add", "one_wallet_remove", "one_wallet_artwork_change"],
+      "agent_memory_sibling": null,
+      "offer_action": {"route_pattern": "/one/wallet", "action_id": "route.one_wallet", "label_template": "Open Wallet"},
+      "shareable": "never",
+      "send_to_model": "never"
+    },
+    {
+      "domain": "wallet",
       "branch_prefix": "*",
       "except": [],
       "owner_feature": "wallet",
-      "writer_ids": ["one_wallet_add", "one_wallet_remove", "agent_chat_wallet_add"],
+      "writer_ids": ["one_wallet_add", "one_wallet_remove", "one_wallet_share_card", "agent_chat_wallet_add", "one_wallet_artwork_change"],
       "agent_memory_sibling": "financial.agent_memory",
       "offer_action": {"route_pattern": "/one/wallet", "action_id": "route.one_wallet", "label_template": "Add {label} to Wallet"},
       "shareable": "policy",
@@ -289,8 +308,7 @@
         "profile_gemini_transport", "profile_gemini_transport_remove",
         "profile_gemini_vertex_project", "profile_gemini_vertex_project_clear", "profile_gemini_vertex_project_remove",
         "profile_gemini_vertex_location", "profile_gemini_vertex_location_clear", "profile_gemini_vertex_location_remove",
-        "connector_settings", "connector_oauth_return", "chat_connector_card",
-        "pkm_memory_auto_save_toggle"
+        "connector_settings", "connector_oauth_return", "chat_connector_card"
       ],
       "agent_memory_sibling": null,
       "offer_action": null,

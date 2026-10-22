@@ -12,7 +12,8 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { TYPOGRAPHY_CLASSNAMES } from "@/components/app-ui/typography";
-import { Check, Copy } from "@/components/icons";
+import { ProfilePaneCopyIcon } from "@/components/profile/profile-pane-icons";
+import { ProfileInnerSuccessIcon } from "@/components/profile/profile-inner-icons";
 import { Button } from "@/components/ui/button";
 import { cardNetworkLabel } from "@/components/wallet/card-network-mark";
 import { WalletCardFace } from "@/components/wallet/wallet-card-face";
@@ -71,12 +72,6 @@ function rowsFor(summary: WalletCardSummary, secrets: WalletCardSecrets): Secret
       copyValue: `${String(summary.expiryMonth).padStart(2, "0")}/${summary.expiryYear}`,
     },
   ];
-  if (secrets.cvv) {
-    rows.push({ id: "cvv", noun: "CVV", copyLabel: "Copy CVV", label: "CVV", value: secrets.cvv, copyValue: secrets.cvv });
-  }
-  if (secrets.pin) {
-    rows.push({ id: "pin", noun: "PIN", copyLabel: "Copy PIN", label: "PIN", value: secrets.pin, copyValue: secrets.pin });
-  }
   if (secrets.cardholderName) {
     rows.push({
       id: "name",
@@ -218,11 +213,11 @@ export function SecureCardReveal({
                 >
                   {copied ? (
                     <>
-                      <Check className="size-4" />
+                      <ProfileInnerSuccessIcon className="size-4 text-foreground [&_.profile-pane-icon-accent]:stroke-[var(--app-accent)]" />
                       <span className={TYPOGRAPHY_CLASSNAMES.statusText}>Copied</span>
                     </>
                   ) : (
-                    <Copy className="size-5" />
+                    <ProfilePaneCopyIcon className="size-5" />
                   )}
                 </span>
                 <MaterialRipple variant="none" effect="fade" />

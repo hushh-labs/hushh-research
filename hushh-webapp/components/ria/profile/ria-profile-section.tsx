@@ -74,7 +74,6 @@ import {
   type RiaOnboardingDraft,
 } from "@/lib/ria/ria-onboarding-flow";
 import { buildRiaOnboardingBioSuggestion } from "@/lib/ria/ria-onboarding-prefill";
-import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
 import { cn } from "@/lib/utils";
 
 export interface RiaProfileSectionProps {
@@ -200,7 +199,6 @@ function RiaRegulatoryProfileSummary({
   officeLongitude,
   officeCountryCode,
   onEditSection,
-  onAskKaiUpdateAnything,
 }: {
   reviewProps: RiaProfileReviewSummary;
   profileSource?: string | null;
@@ -210,7 +208,6 @@ function RiaRegulatoryProfileSummary({
   officeLongitude?: number | null;
   officeCountryCode?: string | null;
   onEditSection: (section: "license" | "services") => void;
-  onAskKaiUpdateAnything: () => void;
 }) {
   const certifications = formatRiaListValue(reviewProps.certifications);
   const services = formatRiaListValue(reviewProps.servicesOffered);
@@ -221,16 +218,6 @@ function RiaRegulatoryProfileSummary({
 
   return (
     <div className={cn("space-y-4", styles.summary)} data-native={native || undefined}>
-      <SettingsGroup testId="ria-profile-assistant">
-        <SettingsRow
-          title="Ask One to update anything"
-          description="Open One and describe what should change in this profile."
-          onClick={onAskKaiUpdateAnything}
-          chevron
-          testId="ria-profile-ask-kai"
-        />
-      </SettingsGroup>
-
       <SettingsGroup eyebrow="Profile" title="Licence" testId="ria-profile-licence-summary">
         <RiaProfileSummaryRow
           title="Advisor"
@@ -797,11 +784,6 @@ export function RiaProfileSection({
     [openServicesEdit, router],
   );
 
-  const handleAskKai = useCallback(() => {
-    openKaiCommandBar();
-    toast.info("Command bar opened. Ask One what to update, or use Edit on any section.");
-  }, []);
-
   const handleDraftBio = useCallback(() => {
     setDraft((current) => {
       if (!current) return current;
@@ -1090,7 +1072,6 @@ export function RiaProfileSection({
         officeLongitude={coerceCoordinate(status?.business_longitude)}
         officeCountryCode={status?.business_country_code ?? null}
         onEditSection={handleEditSection}
-        onAskKaiUpdateAnything={handleAskKai}
       />
 
       {secRecordMetadata ? (

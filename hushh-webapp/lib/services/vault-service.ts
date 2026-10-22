@@ -15,6 +15,7 @@ import {
   resolvePasskeyRpId,
 } from "@/lib/vault/passkey-rp";
 import { VAULT_WRITE_PROTOCOL_VERSION } from "@/lib/vault/write-protocol-version";
+import { VaultStateReadCache } from "@/lib/vault/vault-state-read-cache";
 import { auth } from "@/lib/firebase/config";
 import { apiJson } from "@/lib/services/api-client";
 import {
@@ -98,15 +99,10 @@ export class VaultService {
     "generated_default_web_prf",
     "generated_default_native_passkey_prf",
   ];
-  private static vaultStateCache = new Map<
-    string,
-    {
-      state: VaultState;
-      cachedAt: number;
-    }
-  >();
+  private static vaultStateReads = new VaultStateReadCache<VaultState>(
+    VaultService.VAULT_STATE_CACHE_TTL_MS,
+  );
   private static vaultCheckInflight = new Map<string, Promise<boolean>>();
-  private static vaultStateInflight = new Map<string, Promise<VaultState>>();
 
   private static vaultCheckSessionKey(userId: string): string {
     return `vault_check:${userId}`;
@@ -195,36 +191,15 @@ export class VaultService {
     return trimmed;
   }
 
-  private static getCachedVaultState(userId: string): VaultState | null {
-    const entry = this.vaultStateCache.get(userId);
-    if (!entry) return null;
-    const age = Date.now() - entry.cachedAt;
-    if (age > this.VAULT_STATE_CACHE_TTL_MS) {
-      this.vaultStateCache.delete(userId);
-      return null;
-    }
-    return entry.state;
-  }
-
-  private static setCachedVaultState(userId: string, state: VaultState): void {
-    this.vaultStateCache.set(userId, {
-      state,
-      cachedAt: Date.now(),
-    });
-  }
-
   static invalidateVaultStateCache(userId?: string): void {
+    this.vaultStateReads.invalidate(userId);
     if (userId) {
-      this.vaultStateCache.delete(userId);
       this.vaultCheckInflight.delete(userId);
-      this.vaultStateInflight.delete(userId);
       removeSessionItem(this.vaultCheckSessionKey(userId));
       CacheSyncService.onVaultStateChanged(userId);
       return;
     }
-    this.vaultStateCache.clear();
     this.vaultCheckInflight.clear();
-    this.vaultStateInflight.clear();
   }
 
   private static normalizeVaultKeyHex(value: string): string | null {
@@ -408,7 +383,7 @@ export class VaultService {
         new Set(normalizedWrappers.map((wrapper) => wrapper.method)),
       );
       throw new Error(
-        `Vault state is invalid: passphrase wrapper missing (wrappers=${normalizedWrappers.length}, methods=${methods.join(",") || "none"}).`,
+        `Vault state is invalid: password wrapper missing (wrappers=${normalizedWrappers.length}, methods=${methods.join(",") || "none"}).`,
       );
     }
 
@@ -540,9 +515,8 @@ export class VaultService {
       return false;
     }
 
-    this.vaultStateCache.delete(params.userId);
+    this.vaultStateReads.invalidate(params.userId);
     this.vaultCheckInflight.delete(params.userId);
-    this.vaultStateInflight.delete(params.userId);
     removeSessionItem(this.vaultCheckSessionKey(params.userId));
     const cache = CacheService.getInstance();
     cache.invalidate(CACHE_KEYS.VAULT_CHECK(params.userId));
@@ -708,7 +682,12 @@ export class VaultService {
     secretMaterial: string;
   }): Promise<string | null> {
     const wrapper = this.getWrapperByMethod(params.state, params.method);
-    if (!wrapper) return null;
+    if (!wrapper) {
+      // Distinct from a failed decrypt: there is nothing to attempt a
+      // secret against, so this must not read as "that passphrase did not
+      // match" to the owner.
+      throw new Error(`Vault unlock method is not configured on this account: ${params.method}`);
+    }
 
     const decrypted = await this.unlockVault(
       params.secretMaterial,
@@ -754,7 +733,7 @@ export class VaultService {
     }
     const methods = new Set(state.wrappers.map((wrapper) => wrapper.method));
     if (!methods.has("passphrase")) {
-      throw new Error("Passphrase wrapper is mandatory.");
+      throw new Error("Password wrapper is mandatory.");
     }
     const hasPrimaryWrapper = state.wrappers.some(
       (wrapper) =>
@@ -1166,18 +1145,27 @@ export class VaultService {
 
   /**
    * Get vault state (recovery + all enrolled wrappers).
+   *
+   * `forceFresh` bypasses the client cache (and, on web, the `/api/vault/get`
+   * proxy's own cache) for security-sensitive reads like an unlock attempt:
+   * a stale wrapper must never be the reason a correct secret is rejected.
+   * Concurrent callers still coalesce onto one in-flight request.
    */
-  static async getVaultState(userId: string): Promise<VaultState> {
-    const cached = this.getCachedVaultState(userId);
-    if (cached) {
-      return cached;
+  static async getVaultState(userId: string, options?: { forceFresh?: boolean }): Promise<VaultState> {
+    const forceFresh = options?.forceFresh ?? false;
+    if (!forceFresh) {
+      const cached = this.vaultStateReads.getCached(userId);
+      if (cached) {
+        return cached;
+      }
     }
 
-    const inFlight = this.vaultStateInflight.get(userId);
+    const inFlight = this.vaultStateReads.getPending(userId, forceFresh);
     if (inFlight) {
       return inFlight;
     }
 
+    const read = this.vaultStateReads.begin(userId, forceFresh);
     console.log("🔐 [VaultService] getVaultState called for:", userId);
     const requestOwner = this.requestOwnerSnapshot();
 
@@ -1211,7 +1199,7 @@ export class VaultService {
             const normalized = this.normalizeVaultState(
               result as Partial<VaultState>,
             );
-            this.setCachedVaultState(userId, normalized);
+            this.vaultStateReads.publish(read, normalized);
             return normalized;
           } catch (error) {
             const message =
@@ -1235,7 +1223,9 @@ export class VaultService {
         }
       }
 
-      const url = this.getApiUrl(`/api/vault/get?userId=${userId}`);
+      const url = this.getApiUrl(
+        `/api/vault/get?userId=${userId}${forceFresh ? "&fresh=1" : ""}`,
+      );
       const authToken = await this.getFirebaseToken();
       if (!authToken) throw new VaultAuthSessionNotReadyError();
       const headers: HeadersInit = {};
@@ -1278,8 +1268,9 @@ export class VaultService {
       }
       try {
         const normalized = this.normalizeVaultState(payload);
-        this.setCachedVaultState(userId, normalized);
-        this.writeSessionVaultCheck(userId, true);
+        if (this.vaultStateReads.publish(read, normalized)) {
+          this.writeSessionVaultCheck(userId, true);
+        }
         return normalized;
       } catch (error) {
         const message =
@@ -1292,13 +1283,11 @@ export class VaultService {
       }
     })();
 
-    this.vaultStateInflight.set(userId, requestPromise);
+    this.vaultStateReads.track(read, requestPromise);
     try {
       return await requestPromise;
     } finally {
-      if (this.vaultStateInflight.get(userId) === requestPromise) {
-        this.vaultStateInflight.delete(userId);
-      }
+      this.vaultStateReads.finish(read);
     }
   }
 
@@ -1485,7 +1474,7 @@ export class VaultService {
           "default";
 
         if (normalizedMethod === "passphrase") {
-          throw new Error("Passphrase unlock cannot be removed.");
+          throw new Error("Password unlock cannot be removed.");
         }
 
         if (Capacitor.isNativePlatform()) {
@@ -1626,7 +1615,7 @@ export class VaultService {
     const normalized = this.normalizeVaultKeyHex(decrypted);
     if (!normalized) {
       if (!decrypted) return "";
-      throw new Error("Vault key format is invalid after passphrase unlock.");
+      throw new Error("Vault key format is invalid after password unlock.");
     }
     return normalized;
   }

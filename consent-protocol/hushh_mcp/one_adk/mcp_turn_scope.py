@@ -227,6 +227,9 @@ class McpTurnResources:
         # What each connector listed this turn, so later model steps reuse it (see
         # RegisteredMcpToolset): connector id -> (its toolset, the provider tools).
         self.catalog_tools: dict[str, tuple[Any, list[Any]]] = {}
+        # Registry definitions are stable for this owner-bound turn. Provider
+        # descriptors have their own generation cache in GovernedMcpToolset.
+        self.registry_definitions: list[Any] | None = None
 
     def vault_catalog(self, owner_id: str) -> list[tuple[str, str]]:
         if self._closed or owner_id != self._owner:
@@ -255,7 +258,9 @@ class McpTurnResources:
             )
         return sorted(entries, key=lambda entry: entry["name"].casefold())
 
-    async def resolve_connection(self, context: Any, connector_id: str) -> ResolvedMcpConnection:
+    async def resolve_connection(
+        self, context: Any, connector_id: str, *, metadata_only: bool = False
+    ) -> ResolvedMcpConnection:
         if self._closed or context.state.get("hussh:conversation_id") != self.conversation_id:
             raise ExternalMcpError("Connector turn is unavailable.", code="MCP_TURN_UNAVAILABLE")
         if self._owner is not None and context.user_id != self._owner:
@@ -267,8 +272,12 @@ class McpTurnResources:
                 # the superseded readable database registry during this turn.
                 if connector_id.startswith("custom_"):
                     raise ExternalMcpError("Connector unavailable.", code="MCP_CONNECTION_CHANGED")
-                return await resolve_registered_connection(context, connector_id, curated_only=True)
-            return await resolve_registered_connection(context, connector_id)
+                return await resolve_registered_connection(
+                    context, connector_id, curated_only=True, metadata_only=metadata_only
+                )
+            return await resolve_registered_connection(
+                context, connector_id, metadata_only=metadata_only
+            )
         if (
             context.user_id != context.state.get("hussh:user_id")
             or context.state.get("temp:one_execution_surface") != "typed_chat"
@@ -315,7 +324,7 @@ class McpTurnResources:
                 record["endpoint"],
                 ("vault", record["revision"], digest),
             ),
-            headers,
+            {} if metadata_only else headers,
             catalog_policy=admitted,
             # The person's own connector either way; this only labels Activity.
             review_policy="credentialless" if auth["kind"] == "none" else "credentialed",
@@ -333,7 +342,7 @@ class McpTurnResources:
     ) -> GovernedMcpToolset:
         if self._closed or context.state.get("hussh:conversation_id") != self.conversation_id:
             raise ExternalMcpError("Connector turn is unavailable.", code="MCP_TURN_UNAVAILABLE")
-        resolved = await self.resolve_connection(context, connector_id)
+        resolved = await self.resolve_connection(context, connector_id, metadata_only=True)
         if self._closed or (self._owner is not None and self._owner != resolved.binding.owner_id):
             raise ExternalMcpError("Connector owner mismatch.", code="MCP_OWNER_MISMATCH")
         self._owner = resolved.binding.owner_id
@@ -348,6 +357,9 @@ class McpTurnResources:
         toolset = GovernedMcpToolset(
             binding=resolved.binding,
             resolve_connection=partial(self.resolve_connection, connector_id=connector_id),
+            resolve_catalog_connection=partial(
+                self.resolve_connection, connector_id=connector_id, metadata_only=True
+            ),
             authorize_call=authorize_call,
             catalog_policy=resolved.catalog_policy,
             result_policy=resolved.result_policy,
@@ -363,6 +375,7 @@ class McpTurnResources:
         self._configurations.clear()
         self.unavailable_connectors.clear()
         self.catalog_tools.clear()
+        self.registry_definitions = None
         views, self._catalog_views = self._catalog_views, []
         for view in views:
             view.clear_invocation_catalog()

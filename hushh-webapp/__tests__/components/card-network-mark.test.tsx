@@ -17,7 +17,9 @@ describe("CardNetworkMark", () => {
   });
 
   it("falls back to a neutral mark for an unknown or missing brand", () => {
-    expect(cardNetworkLabel("not-a-network")).toBe("Card");
+    expect(cardNetworkLabel("invalid/network")).toBe("Card");
+    expect(cardNetworkLabel("future_network")).toBe("FUTURE NETWORK");
+    expect(hasOfficialCardMark("future_network")).toBe(false);
     expect(cardNetworkLabel(null)).toBe("Card");
     expect(cardNetworkLabel("")).toBe("Card");
   });
@@ -40,5 +42,11 @@ describe("CardNetworkMark", () => {
     const mark = screen.getByRole("img", { name: "Visa" });
     expect(mark).toBeInTheDocument();
     expect(mark.querySelector("img")).toBeNull();
+    expect(mark).toHaveTextContent("VISA");
   });
+});
+
+it("renders stored Visa casing with a visible network name", () => {
+ render(<CardNetworkMark brand=" Visa " />);
+ expect(screen.getByRole("img", { name: "Visa" })).toHaveTextContent("VISA");
 });

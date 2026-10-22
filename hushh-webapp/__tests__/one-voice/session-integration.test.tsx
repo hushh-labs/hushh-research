@@ -57,7 +57,7 @@ vi.mock("@/lib/services/api-service", () => ({
   ApiService: { getFirebaseIdToken: vi.fn(async () => "firebase-proof") },
   normalizeNativeBackendUrl: (value: string) => value,
 }));
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
   getVoiceSurfaceMetadata: () => ({
     screenId: "one_location",
     availableActions: ["location.open_settings", "location.share_with"],
@@ -827,6 +827,14 @@ describe("VoiceSessionProvider with a scripted relay", () => {
       showPanel: true,
       effects: { onDirective: (_id, _kind, _payload, report) => { settle = report; } },
     }));
+    // The screen holds this directive across the act() steps below and settles
+    // it itself. On real timers the harness's 40 ms claim window could run out
+    // between those steps on a loaded runner, hand the directive to the generic
+    // executor and fail the card before `settle` ran: run 38540199373 failed
+    // that way on attempt 1 and passed on re-run, and an 80 ms pause before the
+    // "Opening…" check fails all three before-result=false cases every time.
+    // The claim window is not what this test asserts, so freeze the clock.
+    vi.useFakeTimers();
     await act(async () => {
       server.push({ type: "transcript.input", turn_id: "profile-turn", text: "Open their profile", final: true });
       server.push({ type: "tool.started", call_id: "profile-call", turn_id: "profile-turn", tool: "open_screen", args_public: {} });

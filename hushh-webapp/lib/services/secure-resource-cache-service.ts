@@ -13,20 +13,23 @@ interface SecureResourceCacheRecord {
 }
 
 const DB_NAME = "hushh-secure-resource-cache";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = "resource_cache";
+export const DURABLE_RESOURCE_STORE = "durable_resources";
+export const DURABLE_GENERATION_STORE = "owner_generations";
 
 function buildStorageKey(userId: string, resourceKey: string): string {
   return `${userId}:${resourceKey}`;
 }
 
-async function openDb(): Promise<IDBDatabase | null> {
+export async function openSecureResourceDb(): Promise<IDBDatabase | null> {
   if (typeof window === "undefined" || typeof window.indexedDB === "undefined") {
     return null;
   }
 
   return await new Promise((resolve, reject) => {
     const request = window.indexedDB.open(DB_NAME, DB_VERSION);
+    let blocked = false;
 
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -34,13 +37,26 @@ async function openDb(): Promise<IDBDatabase | null> {
         const store = db.createObjectStore(STORE_NAME, { keyPath: "key" });
         store.createIndex("userId", "userId", { unique: false });
       }
+      if (!db.objectStoreNames.contains(DURABLE_RESOURCE_STORE)) {
+        const store = db.createObjectStore(DURABLE_RESOURCE_STORE, { keyPath: "key" });
+        store.createIndex("userId", "userId", { unique: false });
+      }
+      if (!db.objectStoreNames.contains(DURABLE_GENERATION_STORE))
+        db.createObjectStore(DURABLE_GENERATION_STORE);
     };
 
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      if (blocked) { request.result.close(); return; }
+      request.result.onversionchange = () => request.result.close();
+      resolve(request.result);
+    };
     request.onerror = () =>
       reject(request.error ?? new Error("Failed to open secure resource cache"));
+    request.onblocked = () => { blocked = true; reject(new Error("Encrypted storage upgrade is blocked. Close older app tabs and try again.")); };
   });
 }
+
+const openDb = openSecureResourceDb;
 
 function readRecord<T>(
   database: IDBDatabase,
@@ -75,13 +91,16 @@ function takeRecord<T>(database: IDBDatabase, key: string): Promise<T | null> {
   });
 }
 
-function writeRecord<T>(database: IDBDatabase, value: T): Promise<void> {
+function writeRecord<T>(database: IDBDatabase, value: T, generation?: { userId: string; expected: number }): Promise<void> {
   return new Promise((resolve, reject) => {
-    const transaction = database.transaction(STORE_NAME, "readwrite");
+    const transaction = database.transaction(generation ? [STORE_NAME, DURABLE_GENERATION_STORE] : STORE_NAME, "readwrite");
     const store = transaction.objectStore(STORE_NAME);
-    store.put(value);
+    if (generation) {
+      const request = transaction.objectStore(DURABLE_GENERATION_STORE).get(generation.userId);
+      request.onsuccess = () => { if ((request.result ?? 0) !== generation.expected) transaction.abort(); else store.put(value); };
+    } else store.put(value);
     transaction.oncomplete = () => resolve();
-    transaction.onerror = () =>
+    transaction.onerror = transaction.onabort = () =>
       reject(transaction.error ?? new Error("Failed to write secure cache record"));
   });
 }
@@ -114,6 +133,14 @@ function listRecordsByUser(
 }
 
 export class SecureResourceCacheService {
+  /** Metadata-only discovery for encrypted, resumable device work. */
+  static async listResourceKeys(userId: string, prefix: string): Promise<string[]> {
+    const database = await openDb();
+    if (!database) return [];
+    return (await listRecordsByUser(database, userId))
+      .filter(record => record.resourceKey.startsWith(prefix))
+      .map(record => record.resourceKey);
+  }
   /** One-use encrypted handoff; a second tab cannot consume the same record. */
   static async take<T>(params: {
     userId: string;
@@ -166,6 +193,24 @@ export class SecureResourceCacheService {
     }
   }
 
+  /** Recovery callers must distinguish absence from failed decryption/storage.
+   * Never delete an expired recovery envelope or pretend it is a fresh job. */
+  static async readRequired<T>(params: {
+    userId: string;
+    resourceKey: string;
+    vaultKey: string;
+  }): Promise<T | null> {
+    const database = await openDb();
+    if (!database) throw new Error("Secure recovery storage is unavailable.");
+    const record = await readRecord<SecureResourceCacheRecord>(database,
+      buildStorageKey(params.userId, params.resourceKey));
+    if (!record) return null;
+    const ageMs = Date.now() - Date.parse(record.cachedAt);
+    if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > record.ttlMs)
+      throw new Error("The encrypted recovery checkpoint needs review.");
+    return JSON.parse(await decryptData(record.payload, params.vaultKey)) as T;
+  }
+
   static async write<T>(params: {
     userId: string;
     resourceKey: string;
@@ -195,6 +240,7 @@ export class SecureResourceCacheService {
     value: T;
     ttlMs: number;
     vaultKey: string;
+    ownerGeneration?: number;
   }): Promise<void> {
     const database = await openDb();
     if (!database) {
@@ -210,7 +256,7 @@ export class SecureResourceCacheService {
       cachedAt: new Date().toISOString(),
       ttlMs: params.ttlMs,
       payload,
-    });
+    }, params.ownerGeneration === undefined ? undefined : { userId: params.userId, expected: params.ownerGeneration });
   }
 
   static async invalidateResource(userId: string, resourceKey: string): Promise<void> {
@@ -223,6 +269,13 @@ export class SecureResourceCacheService {
     } catch (error) {
       console.warn("[SecureResourceCacheService] Failed to invalidate secure cache:", error);
     }
+  }
+
+  /** Pending writes must observe deletion failure before allowing a manual edit. */
+  static async invalidateResourceRequired(userId: string, resourceKey: string): Promise<void> {
+    const database = await openDb();
+    if (!database) return; // No device checkpoint exists when storage is unavailable.
+    await deleteRecord(database, buildStorageKey(userId, resourceKey));
   }
 
   static async invalidateResourcePrefix(userId: string, resourcePrefix: string): Promise<void> {

@@ -149,13 +149,16 @@ from api.routes import (  # noqa: E402
     debug_firebase,
     developer,
     drive_request_payments,
+    drive_request_requester,
     drive_searches,
+    drive_shared_files,
     drive_sharing,
     drive_work_drain,
     external_connectors,
     health,
     hushh_tech,
     notifications,
+    pwm_notification_drain,
     referral_scoring_drain,
     session,
     sse,
@@ -316,6 +319,52 @@ app.add_middleware(ChatKeyMiddleware)
 # REGISTER ROUTERS
 # ============================================================================
 
+from api.routes import email_auth  # noqa: E402
+
+app.include_router(email_auth.router)
+
+
+@app.on_event("startup")
+async def startup_independent_email_delivery():
+    from hushh_mcp.services.email_auth.delivery import run_retention
+
+    async def retention_store():
+        from db.connection import get_pool
+        from hushh_mcp.services.email_auth.store import PostgresEmailAuthStore
+
+        return PostgresEmailAuthStore(await get_pool())
+
+    _track_startup_background_task(
+        asyncio.create_task(run_retention(retention_store), name="email-auth-retention")
+    )
+
+    async def supervise():
+        while True:
+            if os.getenv("EMAIL_AUTH_ENABLED", "").lower() != "true":
+                await asyncio.sleep(2)
+                continue
+            try:
+                from api.routes.email_auth import get_email_auth_service
+                from hushh_mcp.services.email_auth.delivery import (
+                    EmailAuthDeliveryWorker,
+                    MailApiTransport,
+                )
+
+                service = await get_email_auth_service()
+                worker = EmailAuthDeliveryWorker(
+                    service,
+                    MailApiTransport(service.config.mail_api_endpoint, service.config.mail_api_key),
+                )
+                await worker.run()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning("email_auth.startup_unavailable")
+                await asyncio.sleep(5)
+
+    _track_startup_background_task(asyncio.create_task(supervise(), name="email-auth-delivery"))
+
+
 # Health check routes (/, /health)
 app.include_router(health.router)
 
@@ -328,9 +377,11 @@ app.include_router(connected_systems.router)
 # External MCP connector routes (/api/connectors/...)
 app.include_router(external_connectors.router)
 app.include_router(drive_sharing.router)
+app.include_router(drive_request_requester.router)
 app.include_router(drive_request_payments.router)
 app.include_router(drive_request_payments.webhook_router)
 app.include_router(drive_searches.router)
+app.include_router(drive_shared_files.router)
 # A separately authenticated, default-off Cloud Scheduler route performs one
 # finite Drive workflow sweep. It has no startup/background execution path.
 app.include_router(drive_work_drain.router)
@@ -339,6 +390,7 @@ app.include_router(drive_work_drain.router)
 # durable referral-scoring queue (one_referral_scoring_jobs). It has no
 # startup/background execution path.
 app.include_router(referral_scoring_drain.router)
+app.include_router(pwm_notification_drain.router)
 
 # Consent management routes (/api/consent/...)
 app.include_router(consent.router)
@@ -455,6 +507,15 @@ from api.routes import one_wallet_card  # noqa: E402
 
 app.include_router(one_wallet_card.router)
 logger.info("one_wallet_card.routes_registered")
+
+# WorkOS enterprise SSO: /api/auth/sso/* and /api/webhooks/workos. Gated by
+# WORKOS_SSO_ENABLED; when off every route answers 404, so registering
+# unconditionally is safe and Firebase sign-in is untouched.
+from api.routes import workos as workos_sso  # noqa: E402
+
+app.include_router(workos_sso.router)
+app.include_router(workos_sso.webhook_router)
+logger.info("workos_sso.routes_registered")
 
 # White Pages public lookup: unauthenticated, rate-limited; returns only verified
 # claims and the titles/prices of their for-sale packets.
@@ -921,6 +982,40 @@ async def shutdown_email_delivery_queue():
     await shutdown_email_delivery_queue_service()
 
 
+@app.on_event("shutdown")
+async def shutdown_kai_retention():
+    """Release the shared analyze manager's expiry worker."""
+    from api.routes.kai.stream import shutdown_analyze_run_retention
+
+    await shutdown_analyze_run_retention()
+
+
+@app.on_event("shutdown")
+async def shutdown_magic_discovery():
+    from hushh_mcp.services.profile_research_jobs import profile_research_jobs
+
+    await profile_research_jobs.shutdown()
+    from hushh_mcp.services.world_model_service import world_model_jobs
+
+    await world_model_jobs.shutdown()
+    from hushh_mcp.services.world_model_notifications import world_model_notification_worker
+
+    await world_model_notification_worker.stop()
+
+
+@app.on_event("startup")
+async def startup_magic_discovery_retention():
+    from hushh_mcp.services.profile_research_jobs import profile_research_jobs
+
+    profile_research_jobs.start_retention()
+    from hushh_mcp.services.world_model_service import world_model_jobs
+
+    world_model_jobs.start_retention()
+    from hushh_mcp.services.world_model_notifications import world_model_notification_worker
+
+    world_model_notification_worker.start()
+
+
 # ============================================================================
 # RUN
 # ============================================================================
@@ -1058,6 +1153,24 @@ async def startup_circle_chat_push_worker() -> None:
 
     _track_startup_background_task(
         asyncio.create_task(run_circle_chat_push_worker(), name="circle-chat-push")
+    )
+
+
+@app.on_event("startup")
+async def startup_direct_message_push_worker() -> None:
+    from hushh_mcp.services.direct_message_notifications import run_direct_message_push_worker
+
+    _track_startup_background_task(
+        asyncio.create_task(run_direct_message_push_worker(), name="direct-message-push")
+    )
+
+
+@app.on_event("startup")
+async def startup_system_push_worker() -> None:
+    from hushh_mcp.services.system_push_delivery import run_system_push_worker
+
+    _track_startup_background_task(
+        asyncio.create_task(run_system_push_worker(), name="system-push")
     )
 
 

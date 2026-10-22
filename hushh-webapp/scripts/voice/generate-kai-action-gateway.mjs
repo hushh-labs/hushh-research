@@ -58,7 +58,7 @@ const GLOBAL_NAV_ACTION_IDS = new Set([
 // phrase now resolves to exactly one action.
 const KNOWN_ALIAS_COLLISIONS = new Set([]);
 
-// The frontend gateway parser (lib/voice/kai-action-gateway.ts) only knows
+// The frontend gateway parser (lib/kai/actions/kai-action-gateway.ts) only knows
 // how to keep an action whose execution_target.path is one of these -- any
 // other value makes it drop the whole action, silently, everywhere (#6122:
 // location.find_contacts and ria.clients.switch_to_nearby vanished this way
@@ -893,6 +893,13 @@ function normalizeSurface(contractPath, raw) {
       `${toRelativeRepoPath(contractPath)}: invalid orchestration.delegation_policy`,
     );
   }
+  if (raw.search?.query_defaults) {
+    for (const [key, value] of Object.entries(raw.search.query_defaults)) {
+      if (!key || typeof value !== "string" || /token|code|state|secret/i.test(key)) {
+        throw new Error(`${surfaceId}: search query defaults must be public string dimensions`);
+      }
+    }
+  }
   const surface = {
     schema_version:
       cleanString(raw.schema_version) || "kai.local_action_contract.v1",
@@ -901,6 +908,7 @@ function normalizeSurface(contractPath, raw) {
     docs_references: docsReferences,
     contract_file: toRelativeRepoPath(contractPath),
     defaults,
+    search: raw.search || {},
     orchestration: {
       instruction_id: cleanString(orchestrationRaw.instruction_id),
       context_policy: contextPolicy,
@@ -922,20 +930,23 @@ function normalizeSurface(contractPath, raw) {
   };
 }
 
-async function listContractFiles(startDir) {
+async function listContractFiles(startDir, sourceRoot = startDir) {
   const entries = await fs.readdir(startDir, { withFileTypes: true });
   const files = [];
   for (const entry of entries) {
     if (
       entry.name === "node_modules" ||
       entry.name === ".next" ||
+      // Match the root-only ignored NEXT_DIST_DIR outputs, not authored
+      // directories or only Git-tracked files. Warm build caches are not input.
+      (startDir === sourceRoot && entry.name.startsWith(".next-")) ||
       entry.name === "dist"
     ) {
       continue;
     }
     const absolutePath = path.join(startDir, entry.name);
     if (entry.isDirectory()) {
-      files.push(...(await listContractFiles(absolutePath)));
+      files.push(...(await listContractFiles(absolutePath, sourceRoot)));
       continue;
     }
     if (entry.isFile() && entry.name.endsWith(CONTRACT_SUFFIX)) {
@@ -977,6 +988,20 @@ async function readContracts() {
     }
   }
 
+  const defaultsByRoute = new Map();
+  for (const surface of surfaces) {
+    const defaults = surface.search.query_defaults || {};
+    const routes = actions.filter(action => action.surface_id === surface.surface_id).flatMap(action => action.reachability.routes);
+    for (const route of routes) {
+      const pathname = route.split("?")[0];
+      const current = defaultsByRoute.get(pathname) || {};
+      for (const [key, value] of Object.entries(defaults)) {
+        if (key in current && current[key] !== value) throw new Error(`${pathname}: conflicting search default for ${key}`);
+        current[key] = value;
+      }
+      defaultsByRoute.set(pathname, current);
+    }
+  }
   return {
     surfaces,
     actions,
@@ -1155,6 +1180,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 }
 
 export {
+  listContractFiles,
   validateAliasCollisions,
   validateSiriExposure,
   KNOWN_ALIAS_COLLISIONS,

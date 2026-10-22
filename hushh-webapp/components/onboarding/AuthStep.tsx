@@ -3,26 +3,30 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import Image from "next/image";
 import { ArrowLeft, Shield } from "@/components/icons";
 import lightStyles from "./AuthStepLight.module.css";
-import { AuthService } from "@/lib/services/auth-service";
+import { AuthService, type AuthResult } from "@/lib/services/auth-service";
+import { EmailSignInSection } from "@/components/onboarding/EmailSignInSection";
+import { InitialContactsOnboardingService } from "@/lib/services/initial-contacts-onboarding-service";
+import { preloadGoogleSignupAuth } from "@/lib/auth/google-signup-token";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ApiService } from "@/lib/services/api-service";
 import { LegalAcceptanceService } from "@/lib/services/legal-acceptance-service";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { SessionVerificationRecovery } from "@/components/auth/session-verification-recovery";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
-import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
+import { OneWelcomeArtwork } from "@/components/onboarding/OneWelcomeStory";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { isAndroid, isWeb } from "@/lib/capacitor/platform";
 import { Icon } from "@/lib/morphy-ux/ui";
+import { AppleIcon, GoogleIcon } from "@/lib/morphy-ux/social-icons";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { cn } from "@/lib/utils";
 import { AuthProviderButton } from "@/components/onboarding/AuthProviderButton";
-import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
+import { EnterpriseSsoSection } from "@/components/onboarding/EnterpriseSsoSection";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import {
@@ -55,13 +59,14 @@ const AUTH_CANCEL_CODES = new Set([
 ]);
 
 const APPLE_BTN_CLASS =
-  "!bg-white !text-zinc-900 border border-slate-200/90 shadow-sm hover:!bg-slate-50 h-[56px] sm:h-[60px] rounded-[20px] text-[17px] font-medium whitespace-nowrap flex items-center justify-center dark:!bg-[#1C1C1E] dark:!text-white dark:border-white/10 dark:hover:!bg-[#26262a]";
+  "!bg-white !text-zinc-900 border border-slate-200/90 shadow-sm hover:!bg-slate-50 h-[56px] sm:h-[60px] rounded-[20px] text-[17px] font-[650] whitespace-nowrap flex items-center justify-center dark:!bg-[#1C1C1E] dark:!text-white dark:border-white/10 dark:hover:!bg-[#26262a]";
 const GOOGLE_BTN_CLASS =
-  "!bg-white !text-zinc-900 border border-slate-200/90 shadow-sm hover:!bg-slate-50 h-[56px] sm:h-[60px] rounded-[20px] text-[17px] font-medium whitespace-nowrap flex items-center justify-center dark:!bg-[#1C1C1E] dark:!text-white dark:border-white/10 dark:hover:!bg-[#26262a]";
+  "!bg-white !text-zinc-900 border border-slate-200/90 shadow-sm hover:!bg-slate-50 h-[56px] sm:h-[60px] rounded-[20px] text-[17px] font-[650] whitespace-nowrap flex items-center justify-center dark:!bg-[#1C1C1E] dark:!text-white dark:border-white/10 dark:hover:!bg-[#26262a]";
 const REVIEWER_BTN_CLASS =
   "!bg-transparent !text-[#6b6b70] border border-black/10 shadow-none hover:!bg-black/[0.03] dark:!text-white/60 dark:border-white/15 dark:hover:!bg-white/[0.05]";
 
-type AuthProviderId = "google" | "apple";
+type AuthProviderId = "google" | "apple" | "microsoft";
+const PROVIDER_NAMES = { google: "Google", apple: "Apple", microsoft: "Microsoft", email: "Email" };
 type ProviderAttemptPhase =
   | "launching"
   | "provider_open"
@@ -69,7 +74,7 @@ type ProviderAttemptPhase =
   | "settling";
 type ProviderAttempt = {
   id: string;
-  provider: AuthProviderId;
+  provider: AuthProviderId | "email";
   initiator: "tap" | "voice_confirmation";
   directiveId: string | null;
   resumeRoute: string;
@@ -78,6 +83,7 @@ type ProviderAttempt = {
 };
 
 function isAuthCancel(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === "AbortError") return true;
   const code =
     error && typeof error === "object" && "code" in error
       ? String((error as { code?: unknown }).code ?? "")
@@ -124,6 +130,8 @@ export function AuthStep({
   compact?: boolean;
 }) {
   const [hydrated, setHydrated] = useState(false);
+  const [findInitialContacts, setFindInitialContacts] = useState(true);
+  const initialContactsEnabled = AuthService.canRequestInitialGoogleContacts();
   const nativeTestConfig = useNativeTestConfig();
   const router = useRouter();
   const {
@@ -150,24 +158,34 @@ export function AuthStep({
   >(nativeTestConfig.autoReviewerLogin ? "loading" : "loaded");
   const [nativeErrorCode, setNativeErrorCode] = useState<string | null>(null);
   const providerAttemptRef = useRef<ProviderAttempt | null>(null);
+  const emailBusyRef = useRef(false);
+  const [emailBusy, setEmailBusy] = useState(false);
+  const [emailExpanded, setEmailExpanded] = useState(false);
+  const setEmailOperationBusy = useCallback((busy: boolean) => {
+    emailBusyRef.current = busy;
+    setEmailBusy(busy);
+  }, []);
   const providerAttemptSequenceRef = useRef(0);
+  const providerAbortRef = useRef<AbortController | null>(null);
   const attentionResolversRef = useRef(
     new Map<string, (result: { status: "started"; summary: string }) => void>(),
   );
   const [providerAttempt, setProviderAttempt] =
     useState<ProviderAttempt | null>(null);
+  const [providerRecovery, setProviderRecovery] = useState<string | null>(null);
   const providerBusy = Boolean(
-    providerAttempt && providerAttempt.phase !== "attention_required",
+    emailBusy || (providerAttempt && providerAttempt.phase !== "attention_required"),
   );
 
   const [reviewModeConfig, setReviewModeConfig] = useState<{
     enabled: boolean;
   }>({ enabled: false });
+  // Authentication belongs to NativeTestBootstrap even in the mint-only
+  // rehearsal. Withholding the vault passphrase must keep the vault locked,
+  // not start a second Firebase sign-in from this component.
   const shouldUseNativeTestBootstrap =
     nativeTestConfig.enabled &&
-    nativeTestConfig.autoReviewerLogin &&
-    Boolean(nativeTestConfig.expectedUserId) &&
-    Boolean(nativeTestConfig.vaultPassphrase);
+    nativeTestConfig.autoReviewerLogin;
   const preserveOnboardingAuditRoute =
     nativeTestConfig.enabled &&
     nativeTestConfig.expectedRoute === ROUTES.ONE_SETUP_FINANCE &&
@@ -184,6 +202,14 @@ export function AuthStep({
   useEffect(() => {
     setHydrated(true);
   }, []);
+
+  useEffect(() => {
+    if (isWeb()) {
+      void preloadGoogleSignupAuth().catch(() => undefined);
+    }
+  }, []);
+
+  useEffect(() => () => providerAbortRef.current?.abort(), []);
 
   const publishProviderAttempt = useCallback(
     (attempt: ProviderAttempt | null) => {
@@ -208,7 +234,7 @@ export function AuthStep({
     const scheduleAttentionRecovery = () => {
       const current = providerAttemptRef.current;
       if (
-        !current ||
+        !current || current.provider === "email" ||
         (current.phase !== "launching" && current.phase !== "provider_open") ||
         Date.now() - current.startedAt < 250
       ) {
@@ -229,7 +255,7 @@ export function AuthStep({
         updateProviderAttemptPhase(active.id, "attention_required");
         attentionResolversRef.current.get(active.id)?.({
           status: "started",
-          summary: `${active.provider === "apple" ? "Apple" : "Google"} sign-in still needs attention. You can retry securely.`,
+          summary: `${PROVIDER_NAMES[active.provider]} sign-in still needs attention. You can retry securely.`,
         });
         attentionResolversRef.current.delete(active.id);
       }, 750);
@@ -280,7 +306,9 @@ export function AuthStep({
       idToken?: string,
       phoneNumber?: string | null,
       resumeTarget?: string,
+      canContinue: () => boolean = () => true,
     ) => {
+      if (!canContinue()) return undefined;
       const explicitTargetPath = normalizeInternalRouteHref(
         resumeTarget || redirectPath,
       );
@@ -290,6 +318,11 @@ export function AuthStep({
         return lastResolvedNavigationPathRef.current || targetPath;
       }
       lastNavigationKeyRef.current = navigationKey;
+      const stillCurrent = () => {
+        if (canContinue()) return true;
+        if (lastNavigationKeyRef.current === navigationKey) lastNavigationKeyRef.current = null;
+        return false;
+      };
 
       try {
         if (preserveOnboardingAuditRoute) {
@@ -302,6 +335,7 @@ export function AuthStep({
         const resolvedIdToken =
           idToken ||
           (user ? await user.getIdToken().catch(() => undefined) : undefined);
+        if (!stillCurrent()) return undefined;
         const resolvedPath = await PostAuthRouteService.resolveAfterLogin({
           userId,
           redirectPath: explicitTargetPath ?? undefined,
@@ -309,6 +343,7 @@ export function AuthStep({
           phoneNumber,
           enableFirstRunSetupGate: true,
         });
+        if (!stillCurrent()) return undefined;
 
         const resumeImportFlow =
           resolvedPath === ROUTES.KAI_HOME &&
@@ -332,6 +367,7 @@ export function AuthStep({
             );
           });
         }
+        if (!stillCurrent()) return undefined;
         setOnboardingRequiredCookie(
           !firebaseSessionOnly && nextPath === ROUTES.ONE_SETUP,
         );
@@ -342,6 +378,7 @@ export function AuthStep({
         lastResolvedNavigationPathRef.current = nextPath;
         return nextPath;
       } catch (error) {
+        if (!stillCurrent()) return undefined;
         console.warn("[AuthStep] Failed to resolve post-auth route:", error);
         const safeFallbackPath =
           targetPath === ROUTES.ONE_SETUP ||
@@ -416,6 +453,8 @@ export function AuthStep({
   }, []);
 
   const handleReviewerLogin = useCallback(async () => {
+    const liveConfig = getNativeTestConfig();
+    if (shouldUseNativeTestBootstrap || (liveConfig.enabled && liveConfig.autoReviewerLogin)) return;
     trackEvent("auth_started", {
       action: "reviewer",
     });
@@ -518,6 +557,7 @@ export function AuthStep({
     nativeTestConfig.vaultPassphrase,
     resolveAndNavigate,
     reviewModeConfig.enabled,
+    shouldUseNativeTestBootstrap,
   ]);
 
   useEffect(() => {
@@ -567,6 +607,54 @@ export function AuthStep({
     user,
   ]);
 
+  const finishAuthentication = useCallback(async (
+    result: AuthResult, method: AuthProviderId | "email", resumeRoute: string, attemptId: string, signal?: AbortSignal,
+  ) => {
+    const ownsAttempt = () => providerAttemptRef.current?.id === attemptId
+      && (!isWeb() || AuthService.getCurrentUser()?.uid === result.user.uid);
+    if (!ownsAttempt()) throw new Error("The active sign-in session changed.");
+    const settlementId = beginPostAuthSettlement(result.user);
+    try {
+      const idToken = result.idToken || await result.user.getIdToken();
+      if (!ownsAttempt()) throw new Error("The active sign-in session changed.");
+      trackEvent("auth_succeeded", { action: method, result: "success" });
+      void ApiService.notifyFirstWelcome({ idToken });
+      void LegalAcceptanceService.recordSignInAcceptance(result.user);
+      if (method === "google" || method === "apple") {
+        void InitialContactsOnboardingService.begin(result, method, attemptId,
+          initialContactsEnabled && findInitialContacts).catch(() => undefined);
+      }
+      if (growthJourney) {
+        trackGrowthFunnelStepCompleted({ journey: growthJourney, step: "auth_completed",
+          entrySurface: growthEntrySurface, authMethod: method,
+          dedupeKey: `growth:${growthJourney}:auth_completed:${method}`, dedupeWindowMs: 5_000 });
+      }
+      if (signal?.aborted) return undefined;
+      return await resolveAndNavigate(result.user.uid, idToken, result.user.phoneNumber, resumeRoute,
+        () => !signal?.aborted && ownsAttempt());
+    } finally { completePostAuthSettlement(settlementId); }
+  }, [beginPostAuthSettlement, completePostAuthSettlement, initialContactsEnabled, findInitialContacts, growthEntrySurface, growthJourney, resolveAndNavigate]);
+
+  const handleEmailAuthenticated = useCallback(async (customToken: string) => {
+    if (providerAttemptRef.current) throw new Error("Another sign-in is in progress.");
+    const attempt: ProviderAttempt = {
+      id: `email_${Date.now()}_${++providerAttemptSequenceRef.current}`, provider: "email",
+      initiator: "tap", directiveId: null, resumeRoute: redirectPath, phase: "settling", startedAt: Date.now(),
+    };
+    const controller = new AbortController();
+    providerAbortRef.current?.abort();
+    providerAbortRef.current = controller;
+    publishProviderAttempt(attempt);
+    try {
+      const result = await AuthService.signInWithCustomToken(customToken);
+      if ((providerAttemptRef.current as ProviderAttempt | null)?.id !== attempt.id) throw new Error("Restart sign-in.");
+      await finishAuthentication(result, "email", attempt.resumeRoute, attempt.id, controller.signal);
+    } finally {
+      if (providerAbortRef.current === controller) providerAbortRef.current = null;
+      if ((providerAttemptRef.current as ProviderAttempt | null)?.id === attempt.id) publishProviderAttempt(null);
+    }
+  }, [finishAuthentication, publishProviderAttempt, redirectPath]);
+
   const handleProviderLogin = useCallback(
     (
       provider: AuthProviderId,
@@ -576,7 +664,7 @@ export function AuthStep({
       },
     ) => {
       const active = providerAttemptRef.current;
-      if (active && active.phase !== "attention_required") {
+      if (emailExpanded || emailBusyRef.current || (active && active.phase !== "attention_required")) {
         return Promise.resolve({
           status: "blocked" as const,
           summary: "A sign-in window is already open.",
@@ -584,6 +672,10 @@ export function AuthStep({
       }
 
       providerAttemptSequenceRef.current += 1;
+      providerAbortRef.current?.abort();
+      const controller = new AbortController();
+      providerAbortRef.current = controller;
+      setProviderRecovery(null);
       const attempt: ProviderAttempt = {
         id: `provider_${Date.now().toString(36)}_${providerAttemptSequenceRef.current}`,
         provider,
@@ -598,8 +690,13 @@ export function AuthStep({
 
       const providerPromise =
         provider === "google"
-          ? AuthService.signInWithGoogle()
-          : AuthService.signInWithApple();
+          ? AuthService.signInWithGoogle({
+              purpose: initialContactsEnabled && findInitialContacts ? "initial_contacts" : "authentication",
+              includeContacts: initialContactsEnabled && findInitialContacts,
+              signal: controller.signal,
+              onCredentialExchange: () => updateProviderAttemptPhase(attempt.id, "settling"),
+            })
+          : provider === "apple" ? AuthService.signInWithApple() : AuthService.signInWithMicrosoft();
       updateProviderAttemptPhase(attempt.id, "provider_open");
 
       const attentionPromise = new Promise<{
@@ -617,7 +714,7 @@ export function AuthStep({
               summary: "A newer sign-in attempt replaced this one.",
             };
           }
-          updateProviderAttemptPhase(attempt.id, "settling");
+          if (!controller.signal.aborted) updateProviderAttemptPhase(attempt.id, "settling");
           const authenticatedUser = authResult.user;
           if (!authenticatedUser) {
             trackEvent("auth_failed", {
@@ -631,59 +728,28 @@ export function AuthStep({
             );
             return {
               status: "failed" as const,
-              summary: `${provider === "apple" ? "Apple" : "Google"} did not return a user session.`,
+              summary: `${PROVIDER_NAMES[provider]} did not return a user session.`,
             };
           }
-          const settlementId = beginPostAuthSettlement(authenticatedUser);
-          try {
-            const idToken =
-              authResult.idToken || (await authenticatedUser.getIdToken());
-            if (providerAttemptRef.current?.id !== attempt.id) {
-              return {
-                status: "blocked" as const,
-                summary: "A newer sign-in attempt replaced this one.",
-              };
-            }
-            trackEvent("auth_succeeded", {
-              action: provider,
-              result: "success",
-            });
-            void ApiService.notifyFirstWelcome({ idToken });
-            // The sign-in screen states "By continuing you agree"; record it.
-            void LegalAcceptanceService.recordSignInAcceptance(authenticatedUser);
-            if (growthJourney) {
-              trackGrowthFunnelStepCompleted({
-                journey: growthJourney,
-                step: "auth_completed",
-                entrySurface: growthEntrySurface,
-                authMethod: provider,
-                dedupeKey: `growth:${growthJourney}:auth_completed:${provider}`,
-                dedupeWindowMs: 5_000,
-              });
-            }
-            const routeAfter = await resolveAndNavigate(
-              authenticatedUser.uid,
-              idToken,
-              authenticatedUser.phoneNumber,
-              attempt.resumeRoute,
-            );
+            const routeAfter = await finishAuthentication(authResult, provider, attempt.resumeRoute, attempt.id, controller.signal);
             return {
               status: "succeeded" as const,
-              summary: `${provider === "apple" ? "Apple" : "Google"} sign-in completed.`,
+              summary: `${PROVIDER_NAMES[provider]} sign-in completed.`,
               routeAfter,
             };
-          } finally {
-            completePostAuthSettlement(settlementId);
-          }
         })
         .catch((error: unknown) => {
-          if (providerAttemptRef.current?.id !== attempt.id) {
+          if (controller.signal.aborted || providerAttemptRef.current?.id !== attempt.id) {
             return {
               status: "blocked" as const,
               summary: "A newer sign-in attempt replaced this one.",
             };
           }
           const cancelled = isAuthCancel(error);
+          if (error && typeof error === "object" && "code" in error &&
+              error.code === "auth/popup-closed-by-user") {
+            setProviderRecovery("Sign-in didn’t finish. Please try again.");
+          }
           if (!cancelled) {
             debugError(`[AuthStep] ${provider} login failed`, error);
           }
@@ -697,18 +763,19 @@ export function AuthStep({
           });
           if (!cancelled) {
             morphyToast.error(
-              `Could not sign in with ${provider === "apple" ? "Apple" : "Google"}.`,
+              `Could not sign in with ${PROVIDER_NAMES[provider]}.`,
               { description: authErrorMessage(error) },
             );
           }
           return {
             status: cancelled ? ("blocked" as const) : ("failed" as const),
             summary: cancelled
-              ? `${provider === "apple" ? "Apple" : "Google"} sign-in was cancelled.`
+              ? `${PROVIDER_NAMES[provider]} sign-in was cancelled.`
               : authErrorMessage(error),
           };
         })
         .finally(() => {
+          if (providerAbortRef.current === controller) providerAbortRef.current = null;
           attentionResolversRef.current.delete(attempt.id);
           if (providerAttemptRef.current?.id === attempt.id) {
             publishProviderAttempt(null);
@@ -718,13 +785,12 @@ export function AuthStep({
       return Promise.race([settlementPromise, attentionPromise]);
     },
     [
-      beginPostAuthSettlement,
-      completePostAuthSettlement,
-      growthEntrySurface,
-      growthJourney,
+      initialContactsEnabled,
+      findInitialContacts,
+      emailExpanded,
+      finishAuthentication,
       publishProviderAttempt,
       redirectPath,
-      resolveAndNavigate,
       updateProviderAttemptPhase,
     ],
   );
@@ -768,7 +834,7 @@ export function AuthStep({
       purpose:
         "This is the sign-in screen. Help the person sign in with Apple or Google so they can open their private vault. Terms and Privacy Policy open as their own pages.",
       actions: [
-        ...(!providerBusy
+        ...(!providerBusy && !emailExpanded
           ? [
               {
                 id: "auth.sign_in_google",
@@ -796,7 +862,7 @@ export function AuthStep({
           label: "Privacy Policy",
           purpose: "Open the Privacy Policy page.",
         },
-        ...(!providerBusy
+        ...(!providerBusy && !emailExpanded
           ? [
               {
                 id: "onboarding.back_to_intro",
@@ -809,7 +875,7 @@ export function AuthStep({
           : []),
       ],
       controls: [
-        ...(!providerBusy
+        ...(!providerBusy && !emailExpanded
           ? [
               {
                 id: "auth_google",
@@ -841,7 +907,7 @@ export function AuthStep({
           actionId: "auth.open_privacy",
           role: "link",
         },
-        ...(!providerBusy
+        ...(!providerBusy && !emailExpanded
           ? [
               {
                 id: "auth_back",
@@ -884,13 +950,13 @@ export function AuthStep({
         {
           id: "google",
           label: "Continue with Google",
-          icon: <GoogleIcon />,
+          icon: <GoogleIcon className="size-6" />,
           onClick: () => handleProviderLogin("google", { initiator: "tap" }),
         },
         {
           id: "apple",
           label: "Continue with Apple",
-          icon: <AppleIcon />,
+          icon: <AppleIcon className={cn("size-6", lightStyles.appleProviderIcon)} />,
           onClick: () => handleProviderLogin("apple", { initiator: "tap" }),
         },
       ]
@@ -898,29 +964,38 @@ export function AuthStep({
         {
           id: "apple",
           label: "Continue with Apple",
-          icon: <AppleIcon />,
+          icon: <AppleIcon className={cn("size-6", lightStyles.appleProviderIcon)} />,
           onClick: () => handleProviderLogin("apple", { initiator: "tap" }),
         },
         {
           id: "google",
           label: "Continue with Google",
-          icon: <GoogleIcon />,
+          icon: <GoogleIcon className="size-6" />,
           onClick: () => handleProviderLogin("google", { initiator: "tap" }),
         },
       ];
 
   const showReviewer = nativeTestConfig.enabled && nativeReviewerVisible;
 
+  if (isWeb()) {
+    authOptions.push({
+      id: "microsoft", label: "Continue with Microsoft",
+      icon: <span aria-hidden="true" className={cn("grid size-6 grid-cols-2 gap-[2px]", lightStyles.microsoftProviderIcon)}>
+        {["#f25022", "#7fba00", "#00a4ef", "#ffb900"].map((color) => <span key={color} style={{ backgroundColor: color }} />)}
+      </span>,
+      onClick: () => handleProviderLogin("microsoft", { initiator: "tap" }),
+    });
+  }
+
   return (
     <main
-      className={cn("relative w-full overflow-hidden bg-white dark:bg-background", lightStyles.shell)}
+      className={lightStyles.shell}
       style={{
         height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
         minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
       }}
       data-testid="auth-step-primary"
     >
-      <div className={lightStyles.existingBackdrop}><OnboardingHeroBackground /></div>
       <NativeTestBeacon
         routeId="/login"
         marker="native-route-login"
@@ -928,7 +1003,7 @@ export function AuthStep({
         dataState={nativeDataState}
         attachToBridge={(bridge) => {
           bridge.triggerReviewerLogin = () => {
-            if (autoReviewerLoginStartedRef.current) {
+            if (shouldUseNativeTestBootstrap || autoReviewerLoginStartedRef.current) {
               return;
             }
             autoReviewerLoginStartedRef.current = true;
@@ -945,161 +1020,137 @@ export function AuthStep({
         }
       />
 
-      <button
-        type="button"
-        onClick={handleBack}
-        disabled={providerBusy}
-        aria-label={providerBusy ? "Sign-in in progress" : "Go back"}
-        data-voice-control-id={providerBusy ? undefined : "auth_back"}
-        className={cn("fixed left-4 top-[calc(max(var(--app-safe-area-top-effective),0.75rem))] z-50 grid h-9 w-9 place-items-center rounded-full bg-black/[0.05] text-[#1d1d1f]/70 transition-colors hover:bg-black/[0.08] disabled:pointer-events-none disabled:opacity-40 dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/15", lightStyles.back, isWeb() && lightStyles.webBack)}
-      >
-        <ArrowLeft className={cn("h-[18px] w-[18px]", lightStyles.existingBackIcon)} strokeWidth={2} />
-        <Image src="/onboarding/figma/auth-back-chevron.svg" alt="" width={10} height={17} unoptimized className={lightStyles.backGlyph} />
-      </button>
-
-      <div
-        className={cn("relative mx-auto flex w-full max-w-[440px] flex-col justify-center px-4", lightStyles.content)}
-        style={{
-          height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
-          minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
-        }}
-        data-auth-content-block
-      >
-        <div
-          className={cn("flex w-full flex-none flex-col items-center gap-5 px-2 text-center", lightStyles.clusters)}
-          data-auth-signin-clusters
+      <div className={lightStyles.frame}>
+        <button
+          type="button"
+          onClick={handleBack}
+          disabled={providerBusy}
+          aria-label={providerBusy ? "Sign-in in progress" : "Go back"}
+          data-voice-control-id={providerBusy ? undefined : "auth_back"}
+          className={lightStyles.back}
         >
-          <div className={cn("flex w-full flex-col items-center gap-3", lightStyles.hero)}>
-            <span className={lightStyles.brandMark} aria-hidden="true">
-              <span className={lightStyles.brandGlow} />
-              <HushhMark
-                aria-hidden="true"
-                className={lightStyles.brandIcon}
-              />
-            </span>
+          <ArrowLeft className="h-[18px] w-[18px]" strokeWidth={2} />
+        </button>
 
-            <h1
-              role="heading"
-              aria-level={1}
-              aria-label="Welcome to One"
-              className={cn("whitespace-nowrap font-bold text-[25px] sm:text-[27px] leading-[32px] tracking-[-0.5px] text-[#17130C] dark:text-[#F2F2F7]", lightStyles.title)}
-            >
-              Welcome to One
-              <span className="text-[#387BF5]">.</span>
-            </h1>
-          </div>
+        <div className={lightStyles.artwork} data-auth-illustration>
+          <OneWelcomeArtwork />
+        </div>
 
-          <div className={cn("relative mx-auto w-full max-w-[344px] space-y-3.5", lightStyles.actions)}>
-            <div className="space-y-3" data-auth-provider-actions>
-              {providerAttempt?.phase === "attention_required" ? (
-                <p
-                  role="status"
-                  className="rounded-2xl bg-[color:var(--app-accent-tint)] px-4 py-3 text-center text-sm leading-relaxed text-[color:var(--app-accent-deep)] dark:bg-white/[0.08]"
-                >
-                  The provider window needs attention. You can retry the same
-                  sign-in option securely.
-                </p>
+        <div
+          className={lightStyles.content}
+          data-auth-content-block
+        >
+          <div
+            className={cn("flex w-full flex-none flex-col items-center gap-5 px-2 text-center", lightStyles.clusters)}
+            data-auth-signin-clusters
+          >
+            <div className={cn("flex w-full flex-col items-center gap-3", lightStyles.hero)}>
+              <h1
+                role="heading"
+                aria-level={1}
+                aria-label="Welcome to One"
+                className={lightStyles.title}
+              >
+                Welcome to One
+                <span className="text-[#387BF5]">.</span>
+              </h1>
+            </div>
+
+            <div className={cn("relative mx-auto w-full max-w-[344px] space-y-3.5", lightStyles.actions)}>
+              {initialContactsEnabled && !emailExpanded ? (
+                <div className={cn("space-y-2 text-start text-sm text-muted-foreground", lightStyles.contacts)}>
+                  <label className="flex min-h-11 items-center gap-3 font-semibold">
+                    <Checkbox checked={findInitialContacts} disabled={providerBusy}
+                      onCheckedChange={(checked) => setFindInitialContacts(checked === true)} />
+                    <span>Find people I know</span>
+                  </label>
+                  <p>Use my contacts to make a shared circle. Members can see who’s in it.</p>
+                </div>
               ) : null}
-              {authOptions.map((option) => (
-                <AuthProviderButton
-                  key={option.id}
-                  label={option.label}
-                  icon={<>
-                    <span className={lightStyles.existingProviderIcon}>{option.icon}</span>
-                    {option.id === "apple" && <Image src="/onboarding/figma/auth-apple-dark.png" alt="" width={37} height={37} unoptimized className={lightStyles.darkAppleIcon} />}
-                    <Image src={option.id === "apple" ? "/onboarding/figma/auth-apple-light.png" : "/onboarding/figma/google.png"} alt="" width={option.id === "apple" ? 41 : 46} height={23} unoptimized className={cn(lightStyles.providerIcon, option.id === "apple" ? lightStyles.appleIcon : lightStyles.googleIcon)} />
-                  </>}
-                  onClick={() => {
-                    void option.onClick();
-                  }}
+              <div className="space-y-3" data-auth-provider-actions>
+                {!emailExpanded && providerRecovery && !providerAttempt ? (
+                  <p role="status" className="text-center text-sm text-muted-foreground">
+                    {providerRecovery}
+                  </p>
+                ) : null}
+                {!emailExpanded && providerAttempt?.phase === "attention_required" ? (
+                  <p
+                    role="status"
+                    className="rounded-2xl bg-[color:var(--app-accent-tint)] px-4 py-3 text-center text-sm leading-relaxed text-[color:var(--app-accent-deep)] dark:bg-white/[0.08]"
+                  >
+                    The provider window needs attention. You can retry the same
+                    sign-in option securely.
+                  </p>
+                ) : null}
+                {!emailExpanded && authOptions.map((option) => (
+                  <AuthProviderButton
+                    key={option.id}
+                    label={option.label}
+                    icon={option.icon}
+                    onClick={() => {
+                      void option.onClick();
+                    }}
+                    disabled={providerBusy}
+                    voiceControlId={option.id === "microsoft" ? undefined : `auth_${option.id}`}
+                    className={cn(
+                      option.id === "apple" ? APPLE_BTN_CLASS : GOOGLE_BTN_CLASS,
+                      lightStyles.providerButton,
+                    )}
+                  />
+                ))}
+                {!emailExpanded ? <EnterpriseSsoSection
+                  redirectPath={redirectPath}
                   disabled={providerBusy}
-                  voiceControlId={`auth_${option.id}`}
-                  className={cn(
-                    option.id === "apple" ? APPLE_BTN_CLASS : GOOGLE_BTN_CLASS,
-                    lightStyles.providerButton,
-                  )}
-                />
-              ))}
+                /> : null}
 
-              {showReviewer ? (
-                <AuthProviderButton
-                  label="Continue as Reviewer"
-                  icon={<Icon icon={Shield} size="md" />}
-                  onClick={handleReviewerLogin}
-                  disabled={providerBusy}
-                  className={REVIEWER_BTN_CLASS}
-                />
-              ) : null}
+                {isWeb() ? <EmailSignInSection
+                  disabled={Boolean(providerAttempt)}
+                  onBusyChange={setEmailOperationBusy}
+                  onExpandedChange={setEmailExpanded}
+                  onAuthenticated={handleEmailAuthenticated}
+                /> : null}
+
+                {showReviewer && !emailExpanded ? (
+                  <AuthProviderButton
+                    label="Continue as Reviewer"
+                    icon={<Icon icon={Shield} size="md" />}
+                    onClick={handleReviewerLogin}
+                    disabled={providerBusy || shouldUseNativeTestBootstrap}
+                    className={REVIEWER_BTN_CLASS}
+                  />
+                ) : null}
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <div className={cn("absolute inset-x-4 bottom-5 z-10 flex justify-center", lightStyles.footer)}>
-        <div
-          className={cn("flex items-center gap-3.5 text-left max-w-[24rem]", lightStyles.legalRow)}
-          data-auth-supporting-content
-        >
-          <p className="text-xs sm:text-[13px] leading-[1.35] text-[#8E8E93] dark:text-white/90">
-            By continuing you agree to our{" "}
-            <br />
-            <Link
-              href={ROUTES.TERMS}
-              data-voice-control-id="auth_terms"
-              className="font-semibold text-[#387BF5] transition-opacity hover:opacity-75"
-            >
-              Terms
-            </Link>
-            <span aria-hidden="true"> and </span>
-            <Link
-              href={ROUTES.PRIVACY}
-              data-voice-control-id="auth_privacy"
-              className="font-semibold text-[#387BF5] transition-opacity hover:opacity-75"
-            >
-              Privacy Policy
-            </Link>
-            .
-          </p>
+        <div className={lightStyles.footer}>
+          <div
+            className={cn("flex items-center gap-3.5 text-left max-w-[24rem]", lightStyles.legalRow)}
+            data-auth-supporting-content
+          >
+            <p className="text-xs sm:text-[13px] leading-[1.35] text-[#8E8E93] dark:text-white/90">
+              By continuing you agree to our{" "}
+              <Link
+                href={ROUTES.TERMS}
+                data-voice-control-id="auth_terms"
+                className="font-semibold text-[#387BF5] transition-opacity hover:opacity-75"
+              >
+                Terms
+              </Link>
+              <span aria-hidden="true"> and </span>
+              <Link
+                href={ROUTES.PRIVACY}
+                data-voice-control-id="auth_privacy"
+                className="font-semibold text-[#387BF5] transition-opacity hover:opacity-75"
+              >
+                Privacy Policy
+              </Link>
+              .
+            </p>
+          </div>
         </div>
       </div>
     </main>
-  );
-}
-
-function GoogleIcon() {
-  return (
-    <svg className="h-5 w-5" viewBox="0 0 24 24" aria-hidden>
-      <title>Google</title>
-      <path
-        fill="#4285F4"
-        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-      />
-      <path
-        fill="#34A853"
-        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-      />
-      <path
-        fill="#FBBC05"
-        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-      />
-      <path
-        fill="#EA4335"
-        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-      />
-    </svg>
-  );
-}
-
-function AppleIcon() {
-  return (
-    <svg
-      className="h-5 w-5"
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      aria-hidden
-    >
-      <title>Apple</title>
-      <path d="M17.05 20.28c-.98.95-2.05.88-3.08.38-1.07-.52-2.07-.51-3.2 0-1.01.43-2.1.49-2.98-.38C5.22 17.63 2.7 12 5.45 8.04c1.47-2.09 3.8-2.31 5.33-1.18 1.1.75 3.3.73 4.45-.04 2.1-1.31 3.55-.95 4.5 1.14-.15.08.2.14 0 .2-2.63 1.34-3.35 6.03.95 7.84-.46 1.4-1.25 2.89-2.26 4.4l-.07.08-.05-.2zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.17 2.22-1.8 4.19-3.74 4.25z" />
-    </svg>
   );
 }

@@ -5,17 +5,18 @@
  * may do.
  *
  * They live in the reserved `identity.communication_preferences` branch of the
- * owner's encrypted memory and are edited only in Settings (Profile >
- * Preferences). Each chat turn reads them from the decrypted working set and
+ * owner's encrypted memory. Settings (Profile > Preferences) edits the full
+ * style; onboarding and live typed chat can save an explicitly chosen name.
+ * Each chat turn reads them from the decrypted working set and
  * sends them as their own `communicationPreferences` request field; the
  * recalled-memory packet no longer carries the branch, so the same values are
  * never presented to One as both data and style.
  *
  * The shape is closed and mirrors the server's
  * `consent-protocol/hushh_mcp/one_adk/owner_style.py`, which refuses anything
- * outside it. Chat can only propose a change (the `propose_style_settings`
- * offer card); the proposal is handed to Settings in memory, never in the URL,
- * and the owner commits it there with `saveOwnerStyleSettings`
+ * outside it. Non-name chat proposals (`propose_style_settings`) are handed
+ * to Settings in memory, never in the URL, and the owner commits them with
+ * `saveOwnerStyleSettings`
  * (`owner-style-settings-writer.ts`). This module stays pure so the chat
  * client can import it without the PKM write path.
  */
@@ -199,6 +200,17 @@ export function stageOwnerStyleProposal(ownerUserId: string, proposal: OwnerStyl
   stagedProposal = { ownerUserId, proposal: { ...proposal }, expiresAt: Date.now() + PROPOSAL_TTL_MS };
   // Settings may already be on screen (the profile pane beside chat).
   if (typeof window !== "undefined") window.dispatchEvent(new Event(OWNER_STYLE_PROPOSAL_EVENT));
+}
+
+/** Reading a form must not consume an unsaved proposal during a remount. */
+export function readOwnerStyleProposal(ownerUserId: string): OwnerStyleProposal | null {
+  if (stagedProposal && stagedProposal.expiresAt <= Date.now()) stagedProposal = null;
+  return stagedProposal?.ownerUserId === ownerUserId ? stagedProposal.proposal : null;
+}
+
+/** Clear only the proposal this form saved; a newer offer must survive. */
+export function clearOwnerStyleProposal(ownerUserId: string, proposal: OwnerStyleProposal): void {
+  if (stagedProposal?.ownerUserId === ownerUserId && stagedProposal.proposal === proposal) stagedProposal = null;
 }
 
 /** Take the staged proposal once; another owner or an expired one gets nothing. */

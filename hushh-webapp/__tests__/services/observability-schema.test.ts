@@ -1,9 +1,28 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
-import { ONE_LOCATION_JOURNEY_ACTIONS } from "@/lib/observability/events";
+import {
+  LIVE_MEMORY_SOURCE_KINDS,
+  ONE_LOCATION_JOURNEY_ACTIONS,
+} from "@/lib/observability/events";
 import { validateAndSanitizeEvent } from "@/lib/observability/schema";
 
 describe("observability schema", () => {
+  it.each(["private note", "1234567890123", 10, null])("drops invalid native build metadata %s", (app_build) => {
+    const result = validateAndSanitizeEvent("page_view", {
+      env: "production", platform: "android", event_category: "navigation", app_version: "1.3.9", app_build,
+    } as any);
+    expect(result.droppedKeys).toContain("app_build");
+    expect(result.sanitized.app_build).toBeUndefined();
+  });
+  it("preserves a bounded numeric build", () => {
+    const result = validateAndSanitizeEvent("page_view", {
+      env: "production", platform: "android", event_category: "navigation", app_version: "1.3.9", app_build: "10",
+    } as any);
+    expect(result.sanitized.app_build).toBe("10");
+  });
   it.each([
     ["one_memory_action", "capture_saved", "pkm"],
     ["one_wallet_action", "card_added", "one_wallet"],
@@ -498,5 +517,114 @@ describe("observability schema", () => {
     expect(result.droppedKeys).toContain("pkm_payload");
     expect(result.sanitized.resource_class).toBe("pkm_projection");
     expect(result.sanitized.freshness).toBe("fresh");
+  });
+});
+
+const EVENT_MATRIX = path.resolve(
+  __dirname, "../../../docs/reference/operations/observability-event-matrix.md",
+);
+/** Every key the Live Memory emitter sends. The matrix must document each one. */
+const LIVE_MEMORY_SOURCE_PARAMS = [
+  "kind", "outcome", "lag_bucket", "pending_bucket", "retry_bucket",
+] as const;
+
+/**
+ * Live Memory telemetry is the one place the encrypted source pipeline talks
+ * to analytics. It may say which kind was checked and how long a change
+ * waited, as bands. It may never say which record, what value, whose vault
+ * or when. These tests keep the schema and the event matrix in step.
+ */
+describe("live memory source verification contract", () => {
+  it("keeps the bands and drops anything that could name a record, a value, an owner or a time", () => {
+    const result = validateAndSanitizeEvent("live_memory_source_verified", {
+      env: "uat",
+      platform: "web",
+      event_category: "system",
+      app_version: "2.1.0",
+      kind: "consent",
+      outcome: "verified",
+      lag_bucket: "1m_5m",
+      pending_bucket: "2_5",
+      retry_bucket: "0",
+      // None of these may ever reach analytics.
+      record_id: "grant-7f3a",
+      source_value: "attr.travel.visits",
+      owner_user_id: "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+      verified_at: "2026-10-15T10:00:00.000Z",
+      lag_ms: 42_000,
+      pending_count: 3,
+    } as any);
+
+    expect(result.fatal).toBe(false);
+    expect(result.sanitized).toEqual({
+      env: "uat",
+      platform: "web",
+      event_category: "system",
+      app_version: "2.1.0",
+      kind: "consent",
+      outcome: "verified",
+      lag_bucket: "1m_5m",
+      pending_bucket: "2_5",
+      retry_bucket: "0",
+    });
+    expect(result.droppedKeys).toEqual(expect.arrayContaining([
+      "record_id", "source_value", "owner_user_id", "verified_at", "lag_ms", "pending_count",
+    ]));
+    expect(JSON.stringify(result.sanitized)).not.toMatch(/grant-7f3a|attr\.|UWHGe|2026-|42000/);
+  });
+
+  const valid = {
+    env: "uat",
+    platform: "web",
+    event_category: "system",
+    app_version: "2.1.0",
+    kind: "document_earning",
+    outcome: "capped",
+    lag_bucket: "unknown",
+    pending_bucket: "gt_20",
+    retry_bucket: "1",
+  } as const;
+
+  it("keeps every source kind, even one as long as an opaque id", () => {
+    // `document_request_payment` is 24 characters, the length at which the
+    // generic rule treats a string as an opaque id and drops it.
+    for (const kind of LIVE_MEMORY_SOURCE_KINDS) {
+      const result = validateAndSanitizeEvent("live_memory_source_verified", { ...valid, kind });
+      expect(result.fatal).toBe(false);
+      expect(result.droppedKeys).toEqual([]);
+      expect(result.sanitized.kind).toBe(kind);
+    }
+  });
+
+  it("drops the whole event when a dimension is missing or leaves its closed set", () => {
+    expect(validateAndSanitizeEvent("live_memory_source_verified", valid).fatal).toBe(false);
+
+    for (const leak of [
+      { kind: "grant-7f3a" }, // a record id where the kind goes
+      { outcome: "Error: connection refused" }, // an error message
+      { pending_bucket: 3 }, // an exact count where a band goes
+      { lag_bucket: "42000" }, // an exact lag
+      { retry_bucket: undefined }, // a band left out
+    ]) {
+      const result = validateAndSanitizeEvent(
+        "live_memory_source_verified", { ...valid, ...leak } as any,
+      );
+      expect(result.fatal).toBe(true);
+    }
+  });
+
+  it("is listed in the event matrix with every emitted param and its privacy note", () => {
+    const matrix = readFileSync(EVENT_MATRIX, "utf8");
+    const row = matrix.split("\n").find((line) => line.startsWith("| `live_memory_source_verified` |"));
+    expect(row).toBeDefined();
+    const paramsCell = row!.split("|").map((cell) => cell.trim())[3];
+    for (const param of LIVE_MEMORY_SOURCE_PARAMS) expect(paramsCell).toContain(`\`${param}\``);
+    const section = matrix.slice(
+      matrix.indexOf("## Live Memory Source Checks"),
+      matrix.indexOf("## Declared but Not Currently Emitted"),
+    );
+    expect(section).toContain(
+      "must never carry an owner id, a record id, a value, a timestamp, an exact count",
+    );
   });
 });

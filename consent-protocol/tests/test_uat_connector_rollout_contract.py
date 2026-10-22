@@ -239,3 +239,18 @@ def test_governed_uat_workflow_wires_every_flag_and_cohort_as_environment_data()
     assert ("UAT_CONNECTOR_ALL_USERS: ${{ vars.CONNECTOR_UAT_ALL_USERS_UAT || 'false' }}") in step
     assert '--connector-uat-all-users "$UAT_CONNECTOR_ALL_USERS"' in step
     assert "_validate_connector_rollout(args)" in SCRIPT.read_text(encoding="utf-8")
+
+
+def test_uat_backend_deploy_reconciles_drive_redirects_after_migrations():
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    step = workflow.split("- name: Apply UAT DB migrations behind account deletion fence", 1)[
+        1
+    ].split("- name: ", 1)[0]
+    assert "if: steps.scope.outputs.deploy_backend == 'true'" in step
+    assert "export HUSSH_RELEASE_ENVIRONMENT=uat" in step
+    assert 'export CLOUDSQL_INSTANCE_CONNECTION_NAME="${UAT_CLOUDSQL_INSTANCE}"' in step
+    migration = step.index("db/migrate.py --release")
+    activation = step.index("reconcile_google_drive_uat_connector.py --activate")
+    verification = step.index("reconcile_google_drive_uat_connector.py\n")
+    release_guard = step.index("db_migration_release_guard.py")
+    assert migration < activation < verification < release_guard

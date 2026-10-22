@@ -1,0 +1,143 @@
+/* Mail adopts Connect's compact roles; shared chrome keeps its own frame. */
+.typography {
+  font-family: var(--font-app-body), system-ui, sans-serif;
+  --type-helper-text-size: 12px;
+  --type-helper-text-line: 18px;
+  --type-page-subtitle-size: 12px;
+  --type-page-subtitle-line: 18px;
+  --type-major-section-title-size: 14px;
+  --type-major-section-title-line: 22px;
+  --type-major-section-title-weight: 600;
+  --type-card-title-size: 14px;
+  --type-card-title-line: 22px;
+  --type-card-title-weight: 600;
+  --type-row-label-size: 14px;
+  --type-row-label-line: 21px;
+  --type-row-label-weight: 550;
+  --type-row-label-compact-size: 14px;
+  --type-row-label-compact-line: 21px;
+  --type-row-label-compact-weight: 550;
+  --type-row-description-size: 12px;
+  --type-row-description-line: 18px;
+  --type-row-description-weight: 400;
+  --type-row-description-compact-size: 12px;
+  --type-row-description-compact-line: 18px;
+  --type-section-label-size: 14px;
+  --type-section-label-line: 22px;
+  --type-section-label-weight: 600;
+  --type-compact-button-label-size: 12px;
+  --type-compact-button-label-line: 18px;
+  --type-compact-button-label-weight: 550;
+  --type-form-label-size: 14px;
+  --type-form-label-line: 21px;
+  --type-form-label-weight: 550;
+  --type-input-value-size: 14px;
+  --type-input-value-line: 22px;
+  --type-input-value-weight: 400;
+  --foundation-title2-size: 14px;
+  --foundation-title2-line: 22px;
+  --foundation-title2-weight: 600;
+  --foundation-title3-size: 14px;
+  --foundation-title3-line: 22px;
+  --foundation-title3-weight: 600;
+  font-size: 14px;
+  line-height: 21px;
+}
+.workspace {
+  --app-shell-reading: 728px;
+  --page-inline-gutter-standard: 24px;
+  max-width: 728px;
+}
+.typography :global([data-slot="page-header-description"]),
+.typography :global([data-slot="settings-row-description"]),
+.typography :global(p.text-muted-foreground),
+.support {
+  --type-helper-text-size: 12px;
+  --type-helper-text-line: 18px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+}
+.sectionTitle {
+  --foundation-title2-size: 14px;
+  --foundation-title3-size: 14px;
+  --foundation-title2-line: 22px;
+  --foundation-title3-line: 22px;
+  --foundation-title2-weight: 600;
+  --foundation-title3-weight: 600;
+}
+.account {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-block: 12px;
+  border-bottom: 1px solid var(--app-separator);
+}
+.accountIcon {
+  display: flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  color: var(--app-accent);
+}
+.overview {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding-block: 24px;
+}
+.overviewCopy { display: grid; gap: 12px; }
+.benefits { display: grid; gap: 8px; }
+.action {
+  height: 44px !important;
+  min-height: 44px !important;
+  box-shadow: none !important;
+  border: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+  color: var(--app-accent) !important;
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 18px;
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 88px;
+  height: 44px;
+  padding-inline: 15px;
+  border: 1px solid color-mix(in srgb, var(--app-accent) 32%, var(--app-card-surface-default-solid));
+  border-radius: 999px;
+  background: var(--app-card-surface-default-solid);
+  font: inherit;
+}
+.action[aria-busy="true"] .pill { background: var(--app-accent-tint); }
+.action:active .pill { background: var(--app-accent-tint); }
+.action:disabled { opacity: 0.6; }
+@media (max-width: 620px) {
+  .workspace { --page-inline-gutter-standard: 20px; }
+  .typography { --type-input-value-size: 16px; }
+  .pill { min-width: 78px; padding-inline: 11px; }
+}
+@media (max-width: 350px) {
+  .workspace { --page-inline-gutter-standard: 16px; }
+  .pill { min-width: 72px; padding-inline: 9px; }
+}
+
+/* Portals inherit the shared dialog title role, independently of section headings. */
+.portal {
+  --foundation-title2-size: 20px;
+  --foundation-title2-line: 28px;
+  --foundation-title2-weight: 600;
+  --foundation-title3-size: 20px;
+  --foundation-title3-line: 28px;
+  --foundation-title3-weight: 600;
+}
+.track :global(button[data-state="active"]) {
+  background: var(--app-card-surface-default-solid);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.1);
+}

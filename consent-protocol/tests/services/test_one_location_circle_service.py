@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from uuid import UUID
 
 import pytest
 
@@ -22,6 +23,105 @@ from hushh_mcp.services.push_notifications import (
 )
 
 
+def test_custom_circle_type_normalization_and_bounds() -> None:
+    clean = circle_service_module._clean_custom_type_label
+    assert clean("  Ｆｉｎａｎｃｅ  team  ", "other") == "Finance team"
+    assert clean("  ", "family") is None
+    for label, kind in [
+        ("Finance", "family"),
+        ("family", "other"),
+        ("Friends", "other"),
+        ("x" * 33, "other"),
+    ]:
+        with pytest.raises(OneLocationCircleError):
+            clean(label, kind)
+
+
+def test_fourth_custom_type_is_refused_before_creating_a_circle() -> None:
+    conn = _CapacityConnection({"user_id": "owner"}, {"type_count": 3, "already_exists": False})
+    service = OneLocationCircleService(db=_TransactionDb(conn))
+    with pytest.raises(OneLocationCircleError) as error:
+        service.create_circle_in_transaction(
+            conn,
+            owner_user_id="owner",
+            name="Investments",
+            kind="other",
+            custom_type_label="Finance",
+        )
+    assert error.value.code == "LOCATION_CIRCLE_TYPE_LIMIT"
+    assert "FOR NO KEY UPDATE" in conn.sql[0]
+    assert not any("INSERT INTO one_location_circles" in sql for sql in conn.sql)
+
+
+def test_existing_custom_type_can_be_reused_at_the_limit() -> None:
+    conn = _CapacityConnection(
+        {"user_id": "owner"}, {"type_count": 3, "already_exists": True}, {"id": "circle"}, None
+    )
+    service = OneLocationCircleService(db=_TransactionDb(conn))
+    assert (
+        service.create_circle_in_transaction(
+            conn,
+            owner_user_id="owner",
+            name="Investments",
+            kind="other",
+            custom_type_label="Finance",
+        )
+        == "circle"
+    )
+    insert = next(
+        params
+        for sql, params in zip(conn.sql, conn.params, strict=True)
+        if "INSERT INTO one_location_circles" in sql
+    )
+    assert circle_service_module.json.loads(insert["metadata"]) == {"customTypeLabel": "Finance"}
+
+
+def test_custom_type_deletion_keeps_circles_and_is_owner_scoped() -> None:
+    conn = _CapacityConnection(
+        {"user_id": "owner"}, [{"id": "one"}, {"id": "two"}], [{"id": "one"}, {"id": "two"}]
+    )
+    service = OneLocationCircleService(db=_TransactionDb(conn))
+    assert service.delete_custom_type(owner_user_id="owner", label=" Finance ") == {
+        "updatedCircleCount": 2
+    }
+    assert "FOR NO KEY UPDATE" in conn.sql[0]
+    assert "FOR UPDATE NOWAIT" in conn.sql[1]
+    assert "metadata, '{}'::jsonb) - 'customTypeLabel'" in conn.sql[2]
+    assert "owner_user_id = :owner" in conn.sql[2]
+    assert conn.params[2] == {"owner": "owner", "label": "Finance"}
+    assert not any(
+        "DELETE FROM" in sql or "UPDATE one_location_circle_memberships" in sql for sql in conn.sql
+    )
+
+
+def test_custom_type_row_lock_contention_is_retryable() -> None:
+    class BusyConnection:
+        def execute(self, *_args):
+            error = RuntimeError("busy")
+            error.orig = SimpleNamespace(sqlstate="55P03")
+            raise error
+
+    with pytest.raises(OneLocationCircleError) as error:
+        OneLocationCircleService._lock_custom_type_rows(BusyConnection(), "owner", label="Finance")
+    assert error.value.status_code == 409
+    assert error.value.code == "LOCATION_CIRCLE_BUSY"
+
+
+def test_custom_type_projection_is_owner_only() -> None:
+    row = {
+        "id": "circle",
+        "name": "Investments",
+        "kind": "other",
+        "custom_type_label": "Finance",
+        "owner_user_id": "owner",
+        "viewer_user_id": "owner",
+    }
+    assert OneLocationCircleService._circle_summary(row)["customTypeLabel"] == "Finance"
+    assert "customTypeLabel" not in OneLocationCircleService._circle_summary(
+        {**row, "viewer_user_id": "member"}
+    )
+
+
 def test_circle_name_accepts_one_character_and_still_bounds_the_column() -> None:
     clean = circle_service_module._clean_name
 
@@ -38,6 +138,30 @@ def test_circle_name_accepts_one_character_and_still_bounds_the_column() -> None
         with pytest.raises(OneLocationCircleError) as excinfo:
             clean(rejected)
         assert excinfo.value.code == "LOCATION_CIRCLE_NAME_INVALID"
+
+
+def test_command_additions_share_one_event_batch_across_requests() -> None:
+    batch_id = circle_service_module._member_add_event_batch_id
+    command = dict(
+        actor_user_id="owner-user",
+        circle_id="550e8400-e29b-41d4-a716-446655440000",
+        operation_id="a" * 64,
+        explicit_batch_id=None,
+    )
+    first_chunk = batch_id(**command)
+    assert UUID(first_chunk).version == 5
+    assert batch_id(**command) == first_chunk
+    assert batch_id(**{**command, "operation_id": "b" * 64}) != first_chunk
+    assert batch_id(**{**command, "actor_user_id": "other-user"}) != first_chunk
+    assert (
+        batch_id(**{**command, "circle_id": "550e8400-e29b-41d4-a716-446655440001"}) != first_chunk
+    )
+    assert batch_id(**{**command, "explicit_batch_id": "550e8400-e29b-41d4-a716-446655440002"}) == (
+        "550e8400-e29b-41d4-a716-446655440002"
+    )
+    assert batch_id(**{**command, "operation_id": None}) != batch_id(
+        **{**command, "operation_id": None}
+    )
 
 
 def test_circle_member_payload_includes_public_recipient_key_for_group_selection() -> None:
@@ -265,6 +389,10 @@ class _Rows:
         self._rows.clear()
         return rows
 
+    def scalar(self):
+        row = self.fetchone()
+        return next(iter(row.values())) if isinstance(row, dict) else row
+
 
 class _CapacityConnection:
     def __init__(self, *rows: dict | None) -> None:
@@ -273,8 +401,13 @@ class _CapacityConnection:
         self.params: list[dict] = []
 
     def execute(self, statement, params):
-        self.sql.append(str(statement))
+        sql = str(statement)
+        self.sql.append(sql)
         self.params.append(dict(params))
+        if "current_setting('hushh.circle_member_add_batch_id'" in sql:
+            return _Rows({"setting": ""})
+        if "set_config('hushh.circle_member_add_batch_id'" in sql:
+            return _Rows({"setting": params["batch_id"]})
         row = self.rows.pop(0) if self.rows else None
         return _Rows(*row) if isinstance(row, list) else _Rows(row)
 
@@ -568,7 +701,7 @@ def test_nobody_is_capped_on_how_many_circles_they_may_belong_to() -> None:
     assert "_lock_user_circle_memberships" in source
 
 
-def test_an_sms_circle_holds_ten_people_where_an_ordinary_circle_holds_a_hundred() -> None:
+def test_an_sms_circle_holds_ten_contacts_plus_owner_where_ordinary_holds_a_hundred() -> None:
     """An SMS Circle is not a small ordinary Circle.
 
     Everyone on it is woken at once, with the owner's address, at the worst
@@ -582,22 +715,21 @@ def test_an_sms_circle_holds_ten_people_where_an_ordinary_circle_holds_a_hundred
     from hushh_mcp.services import one_location_circle_service as module
 
     assert module.CIRCLE_DEFAULT_MEMBER_LIMIT == 100
-    assert module.SMS_SYSTEM_CIRCLE_MEMBER_LIMIT == 10
+    assert module.SMS_SYSTEM_CIRCLE_MEMBER_LIMIT == 11
 
     # The system Circle is created with its own ceiling, not the ordinary one.
     insert = inspect.getsource(module.OneLocationCircleService._insert_system_circle)
     assert '"member_limit": SMS_SYSTEM_CIRCLE_MEMBER_LIMIT' in insert
     assert "CIRCLE_DEFAULT_MEMBER_LIMIT" not in insert
 
-    # And Circles provisioned before that ceiling existed are brought down on
-    # the next bootstrap, the same way the rename heals.
+    # Circles provisioned with an earlier ceiling are reconciled on bootstrap.
     bootstrap = inspect.getsource(module.OneLocationCircleService.ensure_sms_system_circle)
     assert "SET member_limit = :member_limit" in bootstrap
     assert "member_limit <> :member_limit" in bootstrap
 
 
-def test_lowering_the_sms_ceiling_never_evicts_anyone() -> None:
-    """An owner already over ten keeps everyone they have.
+def test_changing_the_sms_ceiling_never_evicts_anyone() -> None:
+    """An owner already over eleven keeps everyone they have.
 
     member_limit is read when someone is ADDED. Nothing consults it to decide
     who may stay, and nothing should: removing people from an emergency list to
@@ -1622,6 +1754,13 @@ def test_adding_connections_writes_memberships_and_tells_each_person(
     assert result["addedUserIds"] == ["friend-one", "friend-two"]
     assert not any("INSERT INTO one_location_circle_member_invites" in sql for sql in conn.sql)
     assert sum("INSERT INTO one_location_circle_memberships" in sql for sql in conn.sql) == 2
+    batch_settings = [
+        params["batch_id"]
+        for sql, params in zip(conn.sql, conn.params, strict=True)
+        if "set_config('hushh.circle_member_add_batch_id'" in sql
+    ]
+    assert len(batch_settings) == 2
+    assert UUID(batch_settings[0]) and batch_settings[1] == ""
 
     # Each new member is paired with whoever added them, and with nobody else.
     assert {(call["user_a_id"], call["user_b_id"], call["kind"]) for call in origin_calls} == {
@@ -1736,9 +1875,25 @@ def test_the_people_being_added_are_locked_before_the_connection_rows() -> None:
     profile_lock_index = next(
         index
         for index, sql in enumerate(conn.sql)
-        if "FROM actor_profiles" in sql and "FOR UPDATE" in sql
+        if "FROM actor_profiles" in sql and "FOR NO KEY UPDATE" in sql
     )
     assert "ORDER BY user_id" in conn.sql[profile_lock_index]
+
+
+def test_profile_coordination_allows_chat_actor_foreign_key_checks() -> None:
+    """Reciprocal adds must not deadlock on the chat event's actor KEY SHARE.
+
+    Both helpers must use the same compatible lock, including explicit adds and
+    invite acceptance; weakening only the signup path leaves a mixed-path cycle.
+    """
+    conn = _CapacityConnection({"user_id": "owner"}, [{"user_id": "friend"}])
+    OneLocationCircleService._lock_user_circle_memberships(conn, user_id="owner")
+    OneLocationCircleService._lock_invitees(conn, user_ids=["friend"])
+
+    assert len(conn.sql) == 2
+    assert all("FOR NO KEY UPDATE" in sql for sql in conn.sql)
+    assert all("FOR UPDATE" not in sql for sql in conn.sql)
+    assert "ORDER BY user_id" in conn.sql[1]
 
 
 def test_a_member_cannot_add_anybody_to_a_circle_they_do_not_own() -> None:
@@ -2253,7 +2408,7 @@ def test_planning_all_connections_uses_the_sms_circle_ceiling() -> None:
         circle_id=_DIRECT_ADD_CIRCLE_ID,
     )
 
-    assert plan["circle"]["memberLimit"] == 10
+    assert plan["circle"]["memberLimit"] == 11
 
 
 def test_only_the_owner_can_plan_adding_all_connections() -> None:
@@ -4371,3 +4526,96 @@ def test_circle_deleted_invite_fanout_continues_after_one_delivery_fails(
     )
 
     assert delivered == ["healthy-invite"]
+
+
+class _SignupConnection(_CapacityConnection):
+    def execute(self, statement, params):
+        if "pg_advisory_xact_lock" in str(statement):
+            self.sql.append(str(statement))
+            self.params.append(dict(params))
+            return _Rows()
+        return super().execute(statement, params)
+
+
+@pytest.mark.parametrize("status", ["active", "removed", "left"])
+def test_signup_fill_never_restores_existing_membership(status):
+    circle = "550e8400-e29b-41d4-a716-446655440000"
+    conn = _SignupConnection(
+        {"id": circle, "owner_user_id": "owner", "name": "Contacts"},
+        {"role": "owner"},
+        [{"user_id": "person"}],
+        {"initial_contacts_welcome_acknowledged": False, "initial_contacts_circle_id": circle},
+        None,
+        [{"user_id": "person", "status": status, "left_recently": status == "left"}],
+    )
+    service = OneLocationCircleService(db=_TransactionDb(conn), hmac_key="a" * 32)
+    result = service.create_member_invites(
+        actor_user_id="owner",
+        circle_id=circle,
+        invitee_user_ids=["person"],
+        signup_insert_only=True,
+    )
+    assert result["addedUserIds"] == []
+    assert result["skippedUserIds"] == ["person"]
+    assert result["skippedReasons"]["person"] == (
+        "already_member" if status == "active" else "previous_membership"
+    )
+    assert not any("INSERT INTO" in sql for sql in conn.sql)
+    profile_lock = next(i for i, sql in enumerate(conn.sql) if "FROM actor_profiles" in sql)
+    lifecycle_lock = next(i for i, sql in enumerate(conn.sql) if "FROM vault_keys" in sql)
+    assert profile_lock < lifecycle_lock
+    assert "pg_advisory_xact_lock_shared" in conn.sql[0]
+    assert not any("pg_advisory_xact_lock(" in sql for sql in conn.sql)
+
+
+@pytest.mark.parametrize("ack,reference", [(True, "same"), (False, "other"), (None, "same")])
+def test_signup_fill_requires_pending_exact_server_reference(ack, reference):
+    circle = "550e8400-e29b-41d4-a716-446655440000"
+    conn = _SignupConnection(
+        {"id": circle, "owner_user_id": "owner", "name": "Contacts"},
+        {"role": "owner"},
+        [{"user_id": "person"}],
+        {
+            "initial_contacts_welcome_acknowledged": ack,
+            "initial_contacts_circle_id": circle
+            if reference == "same"
+            else "550e8400-e29b-41d4-a716-446655440001",
+        },
+    )
+    service = OneLocationCircleService(db=_TransactionDb(conn), hmac_key="a" * 32)
+    with pytest.raises(OneLocationCircleError) as raised:
+        service.create_member_invites(
+            actor_user_id="owner",
+            circle_id=circle,
+            invitee_user_ids=["person"],
+            signup_insert_only=True,
+        )
+    assert raised.value.code == "INITIAL_CONTACTS_CLOSED"
+    assert not any("INSERT INTO" in sql for sql in conn.sql)
+
+
+def test_signup_fill_filters_tombstones_without_blocking_new_people():
+    circle = "550e8400-e29b-41d4-a716-446655440000"
+    conn = _SignupConnection(
+        {"id": circle, "owner_user_id": "owner", "name": "Contacts"},
+        {"role": "owner"},
+        [{"user_id": "removed"}, {"user_id": "new"}],
+        {"initial_contacts_welcome_acknowledged": False, "initial_contacts_circle_id": circle},
+        None,
+        [{"user_id": "removed", "status": "removed"}],
+    )
+    service = OneLocationCircleService(db=_TransactionDb(conn), hmac_key="a" * 32)
+    with pytest.raises(OneLocationCircleError):
+        # Missing live connection fixture intentionally stops after filtering.
+        service.create_member_invites(
+            actor_user_id="owner",
+            circle_id=circle,
+            invitee_user_ids=["removed", "new"],
+            signup_insert_only=True,
+        )
+    lookup = next(
+        params
+        for sql, params in zip(conn.sql, conn.params, strict=True)
+        if "connection.id AS connection_id" in sql
+    )
+    assert lookup["invitee_user_ids"] == ["new"]

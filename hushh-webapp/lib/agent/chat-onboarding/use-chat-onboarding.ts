@@ -13,16 +13,18 @@
  * - confirmed answers go to encrypted memory, client-side.
  */
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { create } from "zustand";
+import { PREFERRED_NAME_MAX, sanitizeStyleText } from "@/lib/agent/owner-style-settings";
+import { containsSecretSpan } from "@/lib/pkm/secret-patterns";
+import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 import {
   activeChipTurnId,
   isAwaitingTypedName,
   reduceChatOnboarding,
   type ChatOnboardingEvent,
-  type ChatOnboardingState,
   type ChatOnboardingTurn,
 } from "@/lib/agent/chat-onboarding/chat-onboarding-machine";
+import { useChatOnboardingSession } from "@/lib/agent/chat-onboarding/chat-onboarding-session";
 import {
   localCalendarDate,
   pickDailyTip,
@@ -39,70 +41,85 @@ import {
   type OneChatOnboardingState,
 } from "@/lib/services/pre-vault-user-state-service";
 
-type ChatOnboardingSession = {
-  userId: string | null;
-  /** `undefined` until the durable record was read; `null` means never started. */
-  durable: OneChatOnboardingState | null | undefined;
-  machine: ChatOnboardingState | null;
-  /**
-   * Turns already shown, with the time label they were first shown at, so a
-   * remount (leaving chat for a connect flow and returning) never re-types a
-   * turn or re-stamps it with the wrong time.
-   */
-  shownTurns: ReadonlyMap<string, string>;
-  /**
-   * When each turn was first shown (epoch ms). Drives the transcript's
-   * centered time separators; kept beside the label so the label stays the
-   * exact string the person saw.
-   */
-  shownTurnTimes: ReadonlyMap<string, number>;
-  /**
-   * The conversation onboarding happened in, once it has an id. A finished
-   * onboarding stays in that conversation; a new chat starts clean.
-   */
-  homeConversationId: string | null;
-};
-
-const EMPTY_SESSION: ChatOnboardingSession = {
-  userId: null,
-  durable: undefined,
-  machine: null,
-  shownTurns: new Map(),
-  shownTurnTimes: new Map(),
-  homeConversationId: null,
-};
-
-export const useChatOnboardingSession = create<
-  ChatOnboardingSession & {
-    reset: (userId: string | null) => void;
-    patch: (next: Partial<ChatOnboardingSession>) => void;
-    markShown: (turnId: string, timeLabel: string, shownAtMs?: number) => void;
-  }
->((set) => ({
-  ...EMPTY_SESSION,
-  reset: (userId) =>
-    set({ ...EMPTY_SESSION, shownTurns: new Map(), shownTurnTimes: new Map(), userId }),
-  patch: (next) => set(next),
-  markShown: (turnId, timeLabel, shownAtMs) =>
-    set((state) =>
-      state.shownTurns.has(turnId)
-        ? state
-        : {
-            shownTurns: new Map([...state.shownTurns, [turnId, timeLabel]]),
-            shownTurnTimes:
-              typeof shownAtMs === "number"
-                ? new Map([...state.shownTurnTimes, [turnId, shownAtMs]])
-                : state.shownTurnTimes,
-          },
-    ),
-}));
+export { useChatOnboardingSession };
 
 /** What the event runner needs from the mounted workspace. */
 export type ChatOnboardingHost = {
   anchor: () => string | null;
   vault: () => { vaultKey: string | null; vaultOwnerToken: string | null };
   focusComposer: () => void;
+  isCurrent?: () => boolean;
 };
+
+export type OnboardingNameTurn = {
+  screenState: { onboarding_name_request: string };
+  stage: (result: unknown, callId: string) => void;
+  finish: (succeeded: boolean) => void;
+};
+
+/** Correlate One's assessment; this nonce carries no identity or authority. */
+export function beginChatOnboardingNameTurn(host: ChatOnboardingHost): OnboardingNameTurn | null {
+  const initial = useChatOnboardingSession.getState();
+  const machine = initial.machine;
+  const vault = host.vault();
+  if (!initial.userId || machine?.step !== "name_typing" || !vault.vaultKey || !vault.vaultOwnerToken) return null;
+  const epoch = snapshotVaultSessionEpoch();
+  const requestId = Array.from(crypto.getRandomValues(new Uint8Array(16)), byte =>
+    String.fromCharCode(97 + (byte >> 4), 97 + (byte & 15))).join("");
+  initial.patch({ nameRequestId: requestId });
+  const isCurrent = () => {
+    const current = useChatOnboardingSession.getState();
+    const keys = host.vault();
+    return current.userId === initial.userId && current.machine === machine &&
+      current.nameRequestId === requestId && isVaultSessionEpochCurrent(epoch) &&
+      keys.vaultKey === vault.vaultKey && keys.vaultOwnerToken === vault.vaultOwnerToken &&
+      (host.isCurrent?.() ?? true);
+  };
+  let assessment: { decision: "name" | "skip" | "clarify" | "other"; name?: string } | null = null;
+  let firstCallId: string | null = null;
+  let firstResult: string | null = null;
+  let invalid = false;
+  let finished = false;
+  return {
+    screenState: { onboarding_name_request: requestId },
+    stage: (raw, callId) => {
+      if (typeof raw === "string") {
+        try { raw = JSON.parse(raw); } catch { invalid = true; return; }
+      }
+      if (finished || !isCurrent() || !raw || typeof raw !== "object") return;
+      const result = raw as Record<string, unknown>;
+      if (result.status !== "onboarding_name_assessed") return;
+      const fingerprint = JSON.stringify(raw);
+      if (firstCallId === callId && firstResult === fingerprint) return; // Transport redelivery.
+      if (firstCallId !== null) { invalid = true; return; }
+      firstCallId = callId;
+      firstResult = fingerprint;
+      if (result.request_id !== requestId || !["name", "skip", "clarify", "other"].includes(String(result.decision))) {
+        invalid = true; return;
+      }
+      const decision = result.decision as NonNullable<typeof assessment>["decision"];
+      if (decision !== "name") {
+        if (result.preferred_name !== undefined) { invalid = true; return; }
+        assessment = { decision }; return;
+      }
+      const name = result.preferred_name;
+      if (typeof name !== "string" || !name || name.length > PREFERRED_NAME_MAX ||
+        sanitizeStyleText(name) !== name || containsSecretSpan(name)) {
+        invalid = true; return;
+      }
+      assessment = { decision, name };
+    },
+    finish: (succeeded) => {
+      if (finished) return;
+      finished = true;
+      const current = isCurrent();
+      if (useChatOnboardingSession.getState().nameRequestId === requestId)
+        useChatOnboardingSession.getState().patch({ nameRequestId: null });
+      if (!succeeded || !current || invalid || !assessment) return;
+      runChatOnboardingEvent({ type: "name_assessment", ...assessment, anchor: host.anchor(), today: localCalendarDate() }, host);
+    },
+  };
+}
 
 function persistDurable(durable: OneChatOnboardingState): void {
   const owner = useChatOnboardingSession.getState().userId;
@@ -137,6 +154,14 @@ export function runChatOnboardingEvent(
     } else if (effect.type === "save_preferences") {
       const owner = store.userId;
       const { vaultKey, vaultOwnerToken } = host.vault();
+      const epoch = snapshotVaultSessionEpoch();
+      const currentSave = () => {
+        const current = useChatOnboardingSession.getState();
+        const keys = host.vault();
+        return current.userId === owner && current.machine === result.state &&
+          isVaultSessionEpochCurrent(epoch) && keys.vaultKey === vaultKey &&
+          keys.vaultOwnerToken === vaultOwnerToken && (host.isCurrent?.() ?? true);
+      };
       const save = owner
         ? saveChatOnboardingPreferences({
             userId: owner,
@@ -144,13 +169,16 @@ export function runChatOnboardingEvent(
             vaultOwnerToken,
             name: effect.name,
             tone: effect.tone,
+            beforeEffect: async () => {
+              if (!currentSave()) throw new DOMException("Session changed", "AbortError");
+            },
           }).catch(() => false)
         : Promise.resolve(false);
       void save.then((ok) => {
         // Ignore a result that lands after the signed-in person changed.
-        if (useChatOnboardingSession.getState().userId !== owner) return;
+        if (useChatOnboardingSession.getState().userId !== owner || useChatOnboardingSession.getState().machine !== result.state) return;
         runChatOnboardingEvent(
-          { type: "save_result", ok, anchor: host.anchor(), today: localCalendarDate() },
+          { type: "save_result", ok: ok && currentSave(), anchor: host.anchor(), today: localCalendarDate() },
           host,
         );
       });
@@ -160,6 +188,8 @@ export function runChatOnboardingEvent(
 }
 
 export type ChatOnboardingController = {
+  /** Owner progress is loaded and personality onboarding is finished or not due. */
+  resolved: boolean;
   /** Onboarding turns to render (empty when there is nothing to show). */
   turns: readonly ChatOnboardingTurn[];
   /** The one assistant turn whose chips are live, if any. */
@@ -171,11 +201,10 @@ export type ChatOnboardingController = {
   busy: boolean;
   onChip: (chipId: ChatOnboardingChipId) => void;
   /**
-   * Called with composer text before it is sent. Returns true only when the
-   * person had explicitly chosen to type their name and the text is
-   * name-shaped; the workspace then does not send it to One.
+   * Compatibility entrypoint: text is always assessed by One, never classified here.
    */
   captureComposerText: (text: string) => boolean;
+  beginNameTurn?: (isCurrent: () => boolean) => OnboardingNameTurn | null;
   composerPlaceholder: string | null;
   /** Tip-of-the-day starter for the first few days after onboarding. */
   dailyTip: string | null;
@@ -237,15 +266,39 @@ export function useChatOnboarding(input: {
   useEffect(() => {
     if (!userId || session.userId !== userId || session.durable !== undefined) return;
     let active = true;
-    void PreVaultUserStateService.bootstrapState(userId)
-      .then((state) => {
-        if (active && useChatOnboardingSession.getState().userId === userId) {
-          useChatOnboardingSession.getState().patch({ durable: state.oneChatOnboarding });
-        }
-      })
-      .catch(() => undefined);
+    let inFlight = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let backoff = 5000;
+    const load = () => {
+      const current = useChatOnboardingSession.getState();
+      if (!active || inFlight || current.userId !== userId || current.durable !== undefined) return;
+      clearTimeout(retryTimer);
+      inFlight = true;
+      void PreVaultUserStateService.bootstrapState(userId)
+        .then((state) => {
+          if (active && useChatOnboardingSession.getState().userId === userId) {
+            useChatOnboardingSession.getState().patch({ durable: state.oneChatOnboarding });
+          }
+        })
+        .catch(() => {
+          // Never treat a failed read as completed onboarding, but do not leave
+          // discovery disabled forever after a transient bootstrap failure.
+          if (active) {
+            retryTimer = setTimeout(load, backoff);
+            backoff = Math.min(backoff * 2, 30_000);
+          }
+        })
+        .finally(() => { inFlight = false; });
+    };
+    const resume = () => { if (document.visibilityState === "visible") load(); };
+    load();
+    window.addEventListener("online", load);
+    document.addEventListener("visibilitychange", resume);
     return () => {
       active = false;
+      clearTimeout(retryTimer);
+      window.removeEventListener("online", load);
+      document.removeEventListener("visibilitychange", resume);
     };
   }, [userId, session.userId, session.durable]);
 
@@ -288,13 +341,13 @@ export function useChatOnboarding(input: {
     [anchor, dispatch, firstName],
   );
 
-  const captureComposerText = useCallback(
-    (text: string) => {
-      if (!isAwaitingTypedName(useChatOnboardingSession.getState().machine)) return false;
-      return dispatch({ type: "typed_answer", text, anchor: anchor() }) === true;
-    },
-    [anchor, dispatch],
-  );
+  const captureComposerText = useCallback(() => false, []);
+  const beginNameTurn = useCallback((isCurrent: () => boolean) =>
+    beginChatOnboardingNameTurn({ ...host, isCurrent: () =>
+      latest.current.userId === useChatOnboardingSession.getState().userId &&
+      latest.current.isVaultUnlocked &&
+      (!useChatOnboardingSession.getState().homeConversationId ||
+        latest.current.conversationId === useChatOnboardingSession.getState().homeConversationId) && isCurrent() }), [host]);
 
   const today = localCalendarDate();
   const dailyTip = useMemo(
@@ -316,14 +369,18 @@ export function useChatOnboarding(input: {
     input.conversationId !== session.homeConversationId;
   const visible = ready && !finishedElsewhere ? session.machine : null;
   return {
+    resolved: ready && session.durable !== undefined && (session.machine
+      ? session.machine.step === "done"
+      : session.durable?.status === "completed" || (session.durable === null && !input.startSignal)),
     turns: visible?.turns ?? [],
     activeChipTurnId: activeChipTurnId(visible),
     shownTurns: session.shownTurns,
     shownTurnTimes: session.shownTurnTimes,
     markShown: session.markShown,
-    busy: visible?.step === "saving",
+    busy: visible?.step === "saving" || visible?.step === "saving_name",
     onChip,
     captureComposerText,
+    beginNameTurn,
     composerPlaceholder: isAwaitingTypedName(visible) ? "Type what I should call you" : null,
     dailyTip,
     dismissDailyTip,

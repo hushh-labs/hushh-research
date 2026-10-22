@@ -47,7 +47,7 @@ export const ProfileConnectorsLink = forwardRef<
       window.location.pathname,
       window.location.search,
       profileConnectorsLocation(connectorId),
-      { returnsToOrigin: true },
+      { returnsToOrigin: true, returnFocus: event.currentTarget },
     );
   };
   return (

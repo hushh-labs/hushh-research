@@ -59,6 +59,7 @@ capabilities:
   - { capability_id: location.setup.advance, kind: action, feature_group_id: onboarding }
   - { capability_id: setup.open_location, kind: action, feature_group_id: onboarding }
   - { capability_id: setup.finish_location, kind: action, feature_group_id: onboarding }
+  - { capability_id: setup.finish_location_intro, kind: action, feature_group_id: onboarding }
   - { capability_id: setup.skip_location, kind: action, feature_group_id: onboarding }
   - { capability_id: native.request_device_location_permission, kind: native_action, feature_group_id: onboarding }
   - capability_id: location.onboarding.choose_place
@@ -121,6 +122,10 @@ capabilities:
   - { capability_id: location.open_sos, kind: action, feature_group_id: safety }
   - { capability_id: location.open_sms_contacts, kind: action, feature_group_id: safety }
   - { capability_id: location.open_settings, kind: action, feature_group_id: safety }
+  - capability_id: location.review_notifications
+    kind: action
+    feature_group_id: safety
+    semantic_boundary: Opens Location settings to review device notification readiness. The person must explicitly choose Turn on, Retry, or Open settings; navigation never requests permission, changes a phone setting, or proves physical alert delivery.
   - { capability_id: location.add_emergency_contact, kind: action, feature_group_id: safety }
   - { capability_id: location.remove_emergency_contact, kind: action, feature_group_id: safety }
   - { capability_id: location.trigger_sos, kind: action, feature_group_id: safety }

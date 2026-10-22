@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -49,6 +50,11 @@ vi.mock("@/components/agent/puppy-resource-monitor", () => ({
   PuppyMachineSheet: () => null,
 }));
 import type { PuppyStatus } from "@/lib/services/puppy-one-service";
+import { useEffect, useState } from "react";
+import { activeAgentDockSeat, AgentDockPortal, AgentDockProvider, AgentDockVoiceBoundary } from "@/components/agent/agent-dock";
+import { AgentBarSurface, RetainedAgentBar } from "@/components/agent/agent-bar-surface";
+import { NativeDockPortProvider, useNativeDockPorts, type NativeDockPort } from "@/components/agent/native-dock-port";
+import type { DockEvent } from "@/lib/capacitor/native-dock";
 
 /**
  * What the connected panel promises, how it says it, and how it reads.
@@ -92,6 +98,90 @@ afterEach(() => {
 });
 
 describe("HermesChatPanel empty state", () => {
+  it.each([{ active: false }, { composerDisabled: true }])("rejects a queued Enter when the composer is no longer eligible: %j", async props => {
+    const view = await mount();
+    const editor = await screen.findByPlaceholderText("Ask Puppy One…");
+    fireEvent.change(editor, { target: { value: "Unsent synthetic draft" } });
+    view.rerender(<HermesChatPanel {...props} />);
+    fireEvent.keyDown(editor, { key: "Enter" });
+    expect(mocks.runAgent).not.toHaveBeenCalled();
+    expect(editor).toHaveValue("Unsent synthetic draft");
+  });
+  it("shares the retained bar with Cloud while keeping each unsent draft isolated", async () => {
+    const conversations: AgentChatConversation[] = ["a", "b"].map(id => ({
+      id, title: id, status: "active", message_count: 0,
+      created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z",
+    }));
+    function CloudComposer({ active }: { active: boolean }) {
+      const [draft, setDraft] = useState("");
+      return <AgentDockPortal enabled active={active} visible><AgentBarSurface embedded><textarea aria-label="Message One" value={draft} onChange={event => setDraft(event.target.value)} /></AgentBarSurface></AgentDockPortal>;
+    }
+    function Shell({ puppy, conversation = "a" }: { puppy: boolean; conversation?: string }) {
+      return <AgentDockProvider>
+        <AgentDockVoiceBoundary><RetainedAgentBar><AgentBarSurface><button>Talk to One</button></AgentBarSurface></RetainedAgentBar></AgentDockVoiceBoundary>
+        <div hidden={!puppy}><PuppyOneSurface active={puppy} sharedDock conversations={conversations} activeConversationId={conversation} /></div>
+        <div hidden={puppy}><CloudComposer active={!puppy} /></div>
+      </AgentDockProvider>;
+    }
+    mocks.fetchPuppyStatus.mockResolvedValue(CONNECTED);
+    mocks.link.current = null;
+    const view = render(<Shell puppy={false} />);
+    const seat = view.container.querySelector<HTMLDivElement>("[data-agent-dock-composer]")!;
+    const cloud = screen.getByRole("textbox", { name: "Message One" }) as HTMLTextAreaElement;
+    fireEvent.change(cloud, { target: { value: "Cloud-only draft" } });
+    cloud.setSelectionRange(3, 8);
+    view.rerender(<Shell puppy />);
+    const puppy = await screen.findByRole("textbox", { name: "Message Puppy One" });
+    fireEvent.change(puppy, { target: { value: "Puppy-only draft" } });
+    (puppy as HTMLTextAreaElement).setSelectionRange(2, 7);
+    expect(puppy.closest("[data-agent-dock-composer]")).toBe(seat);
+    expect(activeAgentDockSeat(seat)).toBe(puppy.closest("[data-agent-dock-embedded]"));
+    expect(screen.queryByRole("textbox", { name: "Message One" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Talk to One" })).toBeNull();
+    expect(cloud.closest("[data-agent-dock-owner]")).toHaveAttribute("hidden");
+    expect(cloud.closest("[data-agent-dock-owner]")).toHaveAttribute("inert");
+    view.rerender(<Shell puppy={false} />);
+    const returnedCloud = screen.getByRole("textbox", { name: "Message One" }) as HTMLTextAreaElement;
+    expect(returnedCloud).toHaveValue("Cloud-only draft");
+    expect(returnedCloud).toBe(cloud);
+    expect([returnedCloud.selectionStart, returnedCloud.selectionEnd]).toEqual([3, 8]);
+    expect(activeAgentDockSeat(seat)).toBe(cloud.closest("[data-agent-dock-embedded]"));
+    expect(screen.queryByRole("textbox", { name: "Message Puppy One" })).toBeNull();
+    expect(puppy.closest("[data-agent-dock-owner]")).toHaveAttribute("hidden");
+    expect(puppy.closest("[data-agent-dock-owner]")).toHaveAttribute("inert");
+    fireEvent.keyDown(puppy, { key: "Enter" });
+    view.rerender(<Shell puppy />);
+    const returnedPuppy = screen.getByRole("textbox", { name: "Message Puppy One" }) as HTMLTextAreaElement;
+    expect(returnedPuppy).toHaveValue("Puppy-only draft");
+    expect(returnedPuppy).toBe(puppy);
+    expect([returnedPuppy.selectionStart, returnedPuppy.selectionEnd]).toEqual([2, 7]);
+    expect(activeAgentDockSeat(seat)).toBe(puppy.closest("[data-agent-dock-embedded]"));
+    view.rerender(<Shell puppy conversation="b" />);
+    const otherPuppy = screen.getByRole("textbox", { name: "Message Puppy One" }) as HTMLTextAreaElement;
+    expect(otherPuppy).not.toBe(puppy);
+    fireEvent.change(otherPuppy, { target: { value: "Second Puppy draft" } });
+    otherPuppy.setSelectionRange(1, 5);
+    expect(activeAgentDockSeat(seat)).toBe(otherPuppy.closest("[data-agent-dock-embedded]"));
+    view.rerender(<Shell puppy />);
+    expect(screen.getByRole("textbox", { name: "Message Puppy One" })).toBe(puppy);
+    expect(puppy).toHaveValue("Puppy-only draft");
+    expect(activeAgentDockSeat(seat)).toBe(puppy.closest("[data-agent-dock-embedded]"));
+    view.rerender(<Shell puppy conversation="b" />);
+    expect(screen.getByRole("textbox", { name: "Message Puppy One" })).toBe(otherPuppy);
+    expect([otherPuppy.selectionStart, otherPuppy.selectionEnd]).toEqual([1, 5]);
+    expect(view.container.querySelectorAll("[data-agent-dock-composer]")).toHaveLength(1);
+    expect(mocks.runAgent).not.toHaveBeenCalled();
+  });
+  it("does not submit unfinished IME text; an ordinary Enter sends once", async () => {
+    await mount();
+    const editor = await screen.findByPlaceholderText("Ask Puppy One…");
+    fireEvent.change(editor, { target: { value: "Synthetic composition" } });
+    fireEvent.keyDown(editor, { key: "Enter", isComposing: true });
+    expect(mocks.runAgent).not.toHaveBeenCalled();
+    expect(editor).toHaveValue("Synthetic composition");
+    fireEvent.keyDown(editor, { key: "Enter", isComposing: false });
+    await waitFor(() => expect(mocks.runAgent).toHaveBeenCalledOnce());
+  });
   it("promises on-machine generation only while the turn is pinned to it", async () => {
     await mount();
     expect(
@@ -239,6 +329,40 @@ describe("HermesChatPanel transcript", () => {
 });
 
 describe("HermesChatPanel secrets", () => {
+  it("routes the actual native Puppy port through the same secret guard and preserves its draft when hidden", async () => {
+    let port: NativeDockPort | undefined;
+    function Observe() {
+      const observed = useNativeDockPorts()?.get("text");
+      useEffect(() => { port = observed; }, [observed]);
+      return null;
+    }
+    function Shell({ active }: { active: boolean }) {
+      return <NativeDockPortProvider><AgentDockProvider><HermesChatPanel active={active} sharedDock /><Observe /></AgentDockProvider></NativeDockPortProvider>;
+    }
+    mocks.fetchPuppyStatus.mockResolvedValue(CONNECTED);
+    mocks.link.current = null;
+    const view = render(<Shell active />);
+    await waitFor(() => expect(port?.projection.editable).toBe(true));
+    expect(port!.projection.editorLabel).toBe("Message Puppy");
+    const context = port!.projection.context;
+    const text = `my github token ${["gh", "p_", "fakefake0000fakefake0000fakefake0000"].join("")}`;
+    act(() => port!.onEdit?.(text));
+    await waitFor(() => expect(port?.projection.text).toBe(text));
+    const event = (): DockEvent => ({ documentId: "synthetic", ownerEpoch: "synthetic", revision: 1, updateSequence: 1,
+      sequence: 1, editRevision: 1, editorRevision: port!.projection.editorRevision, privacyGeneration: 0,
+      context, kind: "action", action: "send", text: port!.projection.text, selectionStart: 0, selectionEnd: 0 });
+    await act(async () => port!.onAction(event()));
+    expect(mocks.runAgent).not.toHaveBeenCalled();
+    expect(port!.projection.text).toBe(text);
+    view.rerender(<Shell active={false} />);
+    expect(port).toBeUndefined();
+    view.rerender(<Shell active />);
+    await waitFor(() => expect(port?.projection.text).toBe(text));
+    expect(port!.projection.context).toBe(context);
+    act(() => port!.onEdit?.("Hello 世界\nA synthetic nonsecret request"));
+    await act(async () => port!.onAction(event()));
+    await waitFor(() => expect(mocks.runAgent).toHaveBeenCalledOnce());
+  });
   it("never sends a raw secret to Puppy, keeps the draft and says why (negative control)", async () => {
     await mount();
     const secret = ["gh", "p_", "fakefake0000fakefake0000fakefake0000"].join("");

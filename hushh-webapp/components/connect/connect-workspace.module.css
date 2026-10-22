@@ -1,0 +1,671 @@
+.workspace,
+.circleCreateDetails {
+  --page-inline-gutter-standard: 24px;
+  --app-shell-reading: 728px;
+  --type-row-label-size: 14px;
+  --type-row-label-weight: 550;
+  --type-row-label-line: 21px;
+  --type-row-label-compact-size: 14px;
+  --type-row-label-compact-weight: 550;
+  --type-row-label-compact-line: 21px;
+  --type-row-description-size: 12px;
+  --type-row-description-weight: 400;
+  --type-row-description-line: 18px;
+  --type-row-description-compact-size: 12px;
+  --type-row-description-compact-line: 18px;
+  --type-section-label-size: 14px;
+  --type-section-label-weight: 600;
+  --type-section-label-line: 22px;
+  --type-form-label-size: 15px;
+  --type-form-label-weight: 550;
+  --type-form-label-line: 22px;
+  --type-input-value-size: 14px;
+  --type-input-value-line: 22px;
+  --foundation-title1-size: 28px;
+  --foundation-title1-weight: 600;
+  --foundation-title1-line: 36px;
+  font-family: var(--font-app-body), system-ui, sans-serif;
+}
+.workspace {
+  max-width: 728px;
+}
+.circleCreateDescription {
+  font-family: var(--font-app-body), system-ui, sans-serif;
+  font-size: var(--type-row-description-size);
+  font-weight: var(--type-row-description-weight);
+  line-height: var(--type-row-description-line);
+}
+.workspace :global([data-slot="settings-row-title"]),
+.workspace :global([data-profile-role="name"]) {
+  font-size: 14px;
+  font-weight: 550;
+  line-height: 21px;
+}
+.workspace :global([data-slot="settings-row-description"]),
+.workspace :global([data-profile-role="description"]) {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+}
+.workspace :global([data-slot="settings-group-heading"]) {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 22px;
+}
+.workspace :global([data-profile-role="action"]) {
+  --type-compact-button-label-size: 12px;
+  --type-compact-button-label-weight: 550;
+  --type-compact-button-label-line: 18px;
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 18px;
+}
+.workspace :global([data-row-layout="person-compact"]) {
+  min-height: 72px;
+}
+.workspace :global([data-row-layout="person-compact"]::after) {
+  left: 0;
+}
+.workspace
+  :global([data-row-layout="person-compact"] > div:first-child > button),
+.workspace
+  :global(
+    [data-row-layout="person-compact"] > div:first-child > div:first-child
+  ) {
+  grid-template-columns: 36px minmax(0, 1fr);
+  column-gap: 13px;
+  min-height: 70px;
+  padding-block: 10px;
+}
+.workspace
+  :global(
+    [data-row-layout="person-compact"]
+      > div:first-child
+      > button
+      > span:first-child
+  ),
+.workspace
+  :global(
+    [data-row-layout="person-compact"]
+      > div:first-child
+      > div:first-child
+      > span:first-child
+  ) {
+  width: 36px;
+}
+.workspace :global([data-testid="connect-directory-group"]),
+.workspace :global([data-testid="connect-my-connections-group"]) {
+  margin-top: 0;
+}
+.workspace :global([data-testid="connect-search-row"] input),
+.rosterSearch input,
+.circleSearch input {
+  min-height: 48px;
+  height: 48px;
+  border: 1px solid var(--app-label);
+  border-radius: 12px;
+  background: var(--app-secondary-fill);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+}
+/* One neutral perimeter in every state; no separate focus ring or outline. */
+.workspace :global([data-testid="connect-search-row"] input),
+.workspace :global(input[type="search"]:not([data-slot="input-group-control"])),
+.workspace :global([data-slot="input-group"]:has(input[type="search"])) {
+  border: 1px solid var(--app-label);
+  box-shadow: none;
+}
+.workspace :global([data-testid="connect-search-row"] input:focus),
+.workspace :global(input[type="search"]:not([data-slot="input-group-control"]):focus),
+.workspace :global([data-slot="input-group"]:has(input[type="search"]):focus-within) {
+  border-color: var(--app-label);
+  outline: 0 none transparent;
+  outline-offset: 0;
+  box-shadow: none;
+}
+.workspace :global([data-testid="connect-search-row"]) {
+  padding-bottom: 18px;
+}
+.connectionViews {
+  gap: 9px;
+  --type-form-label-size: 15px;
+  --type-form-label-weight: 550;
+  --type-form-label-line: 22px;
+}
+.viewTabs {
+  justify-content: flex-start;
+  width: 100%;
+  gap: 26px;
+}
+.viewTabs :global([data-slot="tabs-trigger"]) {
+  min-height: 48px;
+  flex: 0 1 auto;
+  white-space: normal;
+  padding: 10px 0;
+  font-size: 15px;
+  font-weight: 550;
+  line-height: 22px;
+}
+.viewTabs :global([data-slot="tabs-trigger"]::after) {
+  bottom: 0;
+  background: var(--app-accent);
+}
+.connectionTabCount {
+  display: inline-grid;
+  place-items: center;
+  align-self: center;
+  flex-shrink: 0;
+  min-width: 18px;
+  height: 17px;
+  padding-inline: 4px;
+  border-radius: 999px;
+  background: var(--app-neutral-fill);
+  color: var(--app-secondary-label);
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.viewTabs :global([data-state="active"]) .connectionTabCount {
+  background: var(--app-accent-tint);
+  color: var(--app-accent);
+}
+
+.count {
+  border-radius: 5px;
+  background: var(--app-secondary-fill);
+  padding: 0 4px;
+  min-width: 20px;
+  color: var(--app-secondary-label);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 18px;
+  text-align: center;
+}
+.listMeta {
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--app-secondary-label);
+}
+.utilityAction {
+  --type-compact-button-label-size: 13px;
+  --type-compact-button-label-weight: 550;
+  --type-compact-button-label-line: 21px;
+  gap: 7px;
+  padding-inline: 0;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--app-accent);
+}
+.joinAction.joinAction {
+  background: transparent;
+}
+
+.rosterSearch {
+  position: relative;
+  margin-bottom: 18px;
+}
+.rosterSearch input {
+  padding-left: 42px;
+}
+.relationship {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 44px;
+  font-size: 12px;
+  color: var(--app-secondary-label);
+}
+.circleSearch {
+  position: relative;
+  display: block;
+}
+.circleSearch input {
+  width: 100%;
+  padding: 11px 14px 11px 42px;
+}
+.circleHeading {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.circleHeading :is(h2, h3) {
+  --foundation-title3-size: 14px;
+  --foundation-title3-weight: 600;
+  --foundation-title3-line: 22px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 22px;
+}
+.circleHeading h3 {
+  --foundation-title3-size: 13px;
+  --foundation-title3-weight: 550;
+  --foundation-headline-size: 13px;
+  --foundation-headline-line: 22px;
+  --foundation-headline-weight: 550;
+  --foundation-headline-tracking: normal;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--app-secondary-label);
+}
+.circleRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  align-items: center;
+  min-height: 76px;
+  border-bottom: 1px solid var(--app-separator);
+}
+.circleRow:last-child {
+  border-bottom: 0;
+}
+.circleOpen {
+  display: flex;
+  min-width: 0;
+  min-height: 76px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  text-align: left;
+}
+.circleOpen strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 550;
+  line-height: 21px;
+  overflow-wrap: anywhere;
+}
+.circleOpen small {
+  display: block;
+  margin-top: 3px;
+  color: var(--app-secondary-label);
+  font-size: 12px;
+  line-height: 18px;
+}
+.circleOpen > span {
+  flex: 1;
+  min-width: 0;
+}
+.circleOpen > svg {
+  width: 16px;
+  flex-shrink: 0;
+  color: var(--app-secondary-label);
+}
+.ideas {
+  border-top: 1px solid var(--app-separator);
+  margin-top: 28px;
+  padding-top: 12px;
+}
+.ideaHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ideaToggle {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 9px;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+}
+.optional {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--app-secondary-label);
+}
+.ideaRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 76px;
+  border-bottom: 1px solid var(--app-separator);
+}
+.ideaRow > button:first-child {
+  flex: 1;
+  min-width: 0;
+  min-height: 76px;
+  text-align: left;
+}
+.ideaRow strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 550;
+  line-height: 21px;
+}
+.ideaRow small {
+  display: block;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--app-secondary-label);
+  margin-top: 3px;
+}
+.workspace :global([data-testid="one-location-circle-detail-flow"] h1) {
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 36px;
+}
+@media (max-width: 620px) {
+  .workspace {
+    --page-inline-gutter-standard: 20px;
+    --type-input-value-size: 16px;
+  }
+  .workspace :global([data-row-layout="person-compact"]) {
+    min-height: 70px;
+    column-gap: 7px;
+  }
+  .workspace
+    :global([data-row-layout="person-compact"] > div:first-child > button),
+  .workspace
+    :global(
+      [data-row-layout="person-compact"] > div:first-child > div:first-child
+    ) {
+    column-gap: 11px;
+    padding-block: 8px;
+  }
+  .workspace :global([data-testid="connect-search-row"] input),
+  .rosterSearch input,
+  .circleSearch input {
+    font-size: 16px;
+  }
+  .viewTabs {
+    gap: 24px;
+  }
+}
+@media (max-width: 350px) {
+  .workspace {
+    --page-inline-gutter-standard: 16px;
+  }
+  .viewTabs {
+    gap: 16px;
+  }
+}
+
+.workspace
+  :global(
+    [data-row-layout="person-compact"]
+      > div:first-child
+      > div:last-child:not(:first-child)
+  ) {
+  padding-left: 49px;
+}
+@media (max-width: 620px) {
+  .workspace
+    :global(
+      [data-row-layout="person-compact"]
+        > div:first-child
+        > div:last-child:not(:first-child)
+    ) {
+    padding-left: 47px;
+  }
+}
+@media (max-width: 350px) {
+  .workspace
+    :global([data-row-layout="person-compact"] > div:first-child > button),
+  .workspace
+    :global(
+      [data-row-layout="person-compact"] > div:first-child > div:first-child
+    ) {
+    grid-template-columns: 32px minmax(0, 1fr);
+    column-gap: 8px;
+  }
+  .workspace
+    :global(
+      [data-row-layout="person-compact"]
+        > div:first-child
+        > button
+        > span:first-child
+    ),
+  .workspace
+    :global(
+      [data-row-layout="person-compact"]
+        > div:first-child
+        > div:first-child
+        > span:first-child
+    ) {
+    width: 32px;
+  }
+  .workspace
+    :global(
+      [data-row-layout="person-compact"]
+        > div:first-child
+        > div:last-child:not(:first-child)
+    ) {
+    padding-left: 40px;
+  }
+}
+.workspace :global([data-slot="settings-group-toolbar"]) {
+  display: contents;
+}
+@media (max-height: 560px) {
+  .workspace :global([data-testid="connect-search-row"]) {
+    position: relative;
+    top: auto;
+  }
+}
+
+.picker {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  font-family: var(--font-app-body), system-ui, sans-serif;
+  --type-input-value-size: 16px;
+}
+.circleGroup {
+  overflow: hidden;
+  border: 1px solid var(--app-separator);
+  border-radius: 16px;
+}
+
+.swipeRow {
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid var(--app-separator);
+}
+.swipeRow:last-child {
+  border-bottom: 0;
+}
+.swipeRow .circleRow {
+  position: relative;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  min-height: 84px;
+  padding-inline: 22px 12px;
+  border: 0;
+  background: var(--app-card-surface-default-solid);
+  transition: transform 180ms ease;
+}
+.swipeAction {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 92px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  background: var(--app-destructive);
+  color: var(--app-on-accent);
+  font-size: 12px;
+}
+
+.swipeAction[data-action="delete"] {
+  background: var(--app-destructive-tint);
+  color: var(--app-destructive);
+}
+@media (max-width: 620px) {
+  .swipeRow .circleRow {
+    min-height: 82px;
+    padding-inline: 16px 8px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .swipeRow .circleRow {
+    transition: none;
+  }
+}
+.viewTabs {
+  position: sticky;
+  top: calc(
+    var(--top-shell-mask-solid-height, 0px) +
+      var(--connect-sticky-header-height, 0px)
+  );
+  z-index: 12;
+  background: var(--background);
+}
+.workspace :global([data-testid="connect-directory-group"] > div:first-child),
+.workspace
+  :global([data-testid="connect-my-connections-group"] > div:first-child) {
+  position: sticky;
+  top: calc(
+    var(--top-shell-mask-solid-height, 0px) +
+      var(--connect-sticky-header-height, 0px) + 48px
+  );
+  z-index: 11;
+  min-height: 44px;
+  background: var(--background);
+}
+.workspace :global([data-testid="connect-search-row"]),
+.rosterSearch {
+  position: sticky;
+  top: calc(
+    var(--top-shell-mask-solid-height, 0px) +
+      var(--connect-sticky-header-height, 0px) + 92px
+  );
+  z-index: 10;
+  background: var(--background);
+}
+@media (max-height: 560px) {
+  .viewTabs,
+  .workspace :global([data-testid="connect-directory-group"] > div:first-child),
+  .workspace
+    :global([data-testid="connect-my-connections-group"] > div:first-child),
+  .workspace :global([data-testid="connect-search-row"]),
+  .rosterSearch {
+    position: relative;
+    top: auto;
+  }
+}
+
+.circleOpen:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+
+@media (max-width: 280px) {
+  .viewTabs,
+  .workspace :global([data-testid="connect-directory-group"] > div:first-child),
+  .workspace
+    :global([data-testid="connect-my-connections-group"] > div:first-child),
+  .workspace :global([data-testid="connect-search-row"]),
+  .rosterSearch {
+    position: relative;
+    top: auto;
+  }
+  .workspace :global([data-row-layout="person-compact"]) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .workspace
+    :global(
+      [data-row-layout="person-compact"] [data-slot="settings-row-trailing"]
+    ) {
+    justify-self: end;
+  }
+}
+
+.utilityLabel {
+  --type-section-label-size: 13px;
+  --type-section-label-weight: 550;
+  --type-section-label-line: 21px;
+  --type-compact-button-label-size: 13px;
+  --type-compact-button-label-weight: 550;
+  --type-compact-button-label-line: 21px;
+  font-size: 13px;
+  font-weight: 550;
+  line-height: 21px;
+}
+.workspace
+  :global(
+    section[data-testid^="connection-source-"]
+      [data-slot="settings-group-heading"]
+  ) {
+  --type-section-label-size: 12px;
+  --type-section-label-weight: 600;
+  --type-section-label-line: 18px;
+  font-size: 12px;
+  line-height: 18px;
+}
+.workspace :global([data-relationship]) {
+  min-width: 88px;
+}
+.workspace :global([data-slot="connect-row-action-pill"]) {
+  min-width: 88px;
+  height: 44px;
+  border-radius: 999px;
+  padding-inline: 15px;
+  background: var(--app-card-surface-default-solid);
+  border-color: color-mix(
+    in srgb,
+    var(--app-accent) 32%,
+    var(--app-card-surface-default-solid)
+  );
+}
+.workspace
+  :global(
+    [data-relationship="pending_outgoing"] [data-slot="connect-row-action-pill"]
+  ) {
+  border-color: var(--app-card-border-standard);
+  color: var(--app-secondary-label);
+}
+.workspace
+  :global(
+    [data-relationship="pending_incoming"] [data-slot="connect-row-action-pill"]
+  ) {
+  border-color: transparent;
+  background: var(--app-accent-ring);
+}
+@media (max-width: 620px) {
+  .workspace :global([data-relationship]),
+  .workspace :global([data-slot="connect-row-action-pill"]) {
+    min-width: 78px;
+  }
+  .workspace :global([data-slot="connect-row-action-pill"]) {
+    padding-inline: 11px;
+  }
+}
+@media (max-width: 350px) {
+  .workspace :global([data-relationship]),
+  .workspace :global([data-slot="connect-row-action-pill"]) {
+    min-width: 72px;
+  }
+  .workspace :global([data-slot="connect-row-action-pill"]) {
+    padding-inline: 9px;
+  }
+}
+
+.viewTabs :global([data-slot="tabs-trigger"] > span:first-child) {
+  line-height: inherit;
+}
+.viewTabs :global([data-slot="tabs-trigger"][data-state="inactive"]) {
+  --app-label: var(--app-secondary-label);
+}
+.quietAction {
+  --type-compact-button-label-size: 12px;
+  --type-compact-button-label-weight: 550;
+  --type-compact-button-label-line: 19px;
+}
+@media (max-width: 620px) {
+  .utilityAction,
+  .utilityLabel {
+    --type-compact-button-label-size: 12px;
+    --type-section-label-size: 12px;
+  }
+}

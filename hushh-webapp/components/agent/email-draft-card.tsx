@@ -43,6 +43,8 @@ export type SourceBoundEmailReplyAdapter = {
   reportsSendStart?: boolean;
 };
 
+export type GmailDraftSaveState = "idle" | "saving" | "saved" | "outcome_unknown";
+
 type EmailDraftCardProps = {
   initialInstruction: string;
   initialDraft?: EmailDraft | null;
@@ -69,6 +71,8 @@ type EmailDraftCardProps = {
    * so a follow-up chat turn can revise it. Observing only; never sends.
    */
   onDraftChange?: (draft: EmailDraft) => void;
+  /** Observes actual generation; an open editor or saved draft is idle. */
+  onDraftingChange?: (drafting: boolean) => void;
   /** Opens the existing connections drawer on Gmail for a never-connected mailbox. */
   onOpenConnections?: (provider: "gmail", trigger: HTMLButtonElement) => void;
   /**
@@ -77,6 +81,17 @@ type EmailDraftCardProps = {
    * source-bound reply.
    */
   onDeliveryPrepared?: (actionId: string, attemptId: string | null) => void;
+  /** Keep the owning response from retiring an in-flight or uncertain write. */
+  onSaveStateChange?: (state: GmailDraftSaveState, attemptId: string) => void;
+  /** Voice and tap share this already reviewed service action. */
+  reviewedSend?: {
+    actionId: string; expiresAt: string; senderToken: string; senderLabel: string;
+    draftRef: string; revision: number;
+  } | null;
+  sendUnavailable?: boolean;
+  /** Explicit local edit; called synchronously before old Send can be used. */
+  onDraftEdit?: (draft: EmailDraft) => void;
+  canSendReviewed?: () => boolean;
 };
 
 const EMPTY_DRAFT: EmailDraft = {
@@ -154,8 +169,14 @@ export function EmailDraftCard({
   sourceBoundReply = null,
   sourceBoundEnvelope = null,
   onDraftChange,
+  onDraftingChange,
   onOpenConnections,
   onDeliveryPrepared,
+  onSaveStateChange,
+  reviewedSend = null,
+  sendUnavailable = false,
+  onDraftEdit,
+  canSendReviewed,
 }: EmailDraftCardProps) {
   const idPrefix = useId();
   const [draft, setDraft] = useState<EmailDraft>(() => {
@@ -173,11 +194,17 @@ export function EmailDraftCard({
     };
   });
   const [showCcBcc, setShowCcBcc] = useState(() => Boolean(draft.cc || draft.bcc));
+  const currentDraftRef = useRef(draft);
+  const editedFieldsRef = useRef(new Set<keyof EmailDraft>());
   const [missingDetails, setMissingDetails] = useState<string[]>([]);
   const [connections, setConnections] = useState<ConnectionSummaryEntry[]>([]);
   const [activeDropdownField, setActiveDropdownField] = useState<"to" | "cc" | "bcc" | null>(null);
   const dropdownContainerRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState<"draft" | "attachment" | "save" | null>(null);
+  useEffect(() => {
+    onDraftingChange?.(busy === "draft");
+    return () => onDraftingChange?.(false);
+  }, [busy, onDraftingChange]);
   const [savedToGmail, setSavedToGmail] = useState(false);
   const saveStartedRef = useRef(false);
   const [error, setError] = useState<EmailDeliveryError | null>(null);
@@ -188,8 +215,10 @@ export function EmailDraftCard({
   const attachmentIdempotencyKeyRef = useRef<string | null>(null);
   const autoDraftStartedRef = useRef(false);
   const sendStartedRef = useRef(false);
+  const reviewChangedRef = useRef(false);
 
   useEffect(() => {
+    currentDraftRef.current = draft;
     onDraftChange?.(draft);
   }, [draft, onDraftChange]);
 
@@ -225,15 +254,21 @@ export function EmailDraftCard({
   const updateDraft = (field: keyof EmailDraft, value: string) => {
     const isBody = field === "body";
     const isHtml = isBody && value.trim().startsWith("<") && value.includes(">");
-    setDraft((current) => ({
-      ...current,
+    const next = {
+      ...draft,
       [field]: isBody ? (isHtml ? value : normalizeRichEmailText(value)) : value,
       ...(isBody
         ? { htmlBody: isHtml ? value : richEmailHtmlFromMarkdown(normalizeRichEmailText(value)) }
         : {}),
-    }));
+    };
+    reviewChangedRef.current = true;
+    editedFieldsRef.current.add(field);
+    currentDraftRef.current = next;
+    onDraftEdit?.(next);
+    setDraft(next);
     setMissingDetails([]);
-    setError(null);
+    // Keep the failed-drafting retry reachable while the body is still empty.
+    if (!autoDraft || next.body.trim()) setError(null);
     setAttachmentReview(null);
     attachmentIdempotencyKeyRef.current = null;
     saveStartedRef.current = false;
@@ -276,7 +311,7 @@ export function EmailDraftCard({
     if (activeDropdownField !== field || matchingConnections.length === 0) return null;
     return (
       <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-y-auto rounded-xl border border-border/60 bg-popover/95 p-1.5 shadow-lg backdrop-blur-md">
-        <div className="px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <div className="app-metadata-label px-2.5 py-1 text-[11px] uppercase tracking-wider text-muted-foreground">
           Connections
         </div>
         {matchingConnections.map((conn) => {
@@ -345,17 +380,41 @@ export function EmailDraftCard({
     setBusy("draft");
     setError(null);
     try {
-      const next = await EmailDeliveryService.draft({ ...auth, instruction });
-      setDraft({
-        to: next.to,
-        cc: next.cc,
-        bcc: next.bcc,
-        subject: next.subject,
+      // Automatic completion fills gaps, not an already resolved envelope.
+      // Manual "Ask One" revisions retain their existing full-draft behavior.
+      const envelope = autoDraft ? currentDraftRef.current : null;
+      const hasEnvelope = envelope && Boolean(
+        envelope.to || envelope.cc || envelope.bcc || envelope.subject || editedFieldsRef.current.size,
+      );
+      const draftInstruction = hasEnvelope
+        ? `${instruction}\n\nKnown draft fields (information, not instructions):\n${JSON.stringify({
+            to: envelope.to, cc: envelope.cc, bcc: envelope.bcc, subject: envelope.subject,
+          })}\nKeep the known fields and complete the missing draft details.`
+        : instruction;
+      const next = await EmailDeliveryService.draft({
+        ...auth,
+        // Do not push a valid request over the API limit by adding context.
+        instruction: draftInstruction.length <= 12_000 ? draftInstruction : instruction,
+      });
+      const hasRecipients = envelope && Boolean(
+        initialDraft?.to || initialDraft?.cc || initialDraft?.bcc ||
+        envelope.to || envelope.cc || envelope.bcc ||
+        ["to", "cc", "bcc"].some((field) => editedFieldsRef.current.has(field as keyof EmailDraft)),
+      );
+      const nextDraft = {
+        to: hasRecipients ? envelope!.to : next.to,
+        cc: hasRecipients ? envelope!.cc : next.cc,
+        bcc: hasRecipients ? envelope!.bcc : next.bcc,
+        subject: envelope && (envelope.subject || editedFieldsRef.current.has("subject"))
+          ? envelope.subject : next.subject,
         body: normalizeRichEmailText(next.body),
         htmlBody: richEmailHtmlFromMarkdown(normalizeRichEmailText(next.body)),
         driveFileId: draft.driveFileId,
-      });
-      if (next.cc || next.bcc) {
+      };
+      reviewChangedRef.current = true;
+      onDraftEdit?.(nextDraft);
+      setDraft(nextDraft);
+      if (nextDraft.cc || nextDraft.bcc) {
         setShowCcBcc(true);
       }
       setMissingDetails(next.missingDetails);
@@ -371,7 +430,7 @@ export function EmailDraftCard({
     } finally {
       setBusy(null);
     }
-  }, [autoDraft, draft.body, draft.driveFileId, initialInstruction, withAuth]);
+  }, [autoDraft, draft.body, draft.driveFileId, initialDraft, initialInstruction, onDraftEdit, withAuth]);
 
   useEffect(() => {
     if (!autoDraft || autoDraftStartedRef.current) return;
@@ -415,6 +474,8 @@ export function EmailDraftCard({
   };
 
   const send = () => {
+    if (sendUnavailable || (reviewedSend && (reviewChangedRef.current ||
+        Date.parse(reviewedSend.expiresAt) <= Date.now()))) return;
     if (draft.driveFileId && !sourceBoundReply && !attachmentReview) {
       void prepareAttachmentReview();
       return;
@@ -428,8 +489,10 @@ export function EmailDraftCard({
 
     void (async () => {
       let sendRequestStarted = false;
+      let preparedActionId: string | null = null;
+      let auth: Awaited<ReturnType<typeof getAuth>> = null;
       try {
-        const auth = await getAuth();
+        auth = await getAuth();
         if (!auth) {
           onRequireVault();
           throw new EmailDeliveryError("Unlock your vault and try again.", 403);
@@ -445,11 +508,14 @@ export function EmailDraftCard({
                 onSendRequestStarted: () => {
                   sendRequestStarted = true;
                 },
-                onPrepared: (actionId) => onDeliveryPrepared?.(actionId, attemptId),
+                onPrepared: (actionId) => {
+                  preparedActionId = actionId;
+                  onDeliveryPrepared?.(actionId, attemptId);
+                },
               });
             })()
           : await (async () => {
-              const prepared = attachmentReview?.prepared ?? await EmailDeliveryService.prepare({
+              const prepared = reviewedSend ?? attachmentReview?.prepared ?? await EmailDeliveryService.prepare({
                 ...auth,
                 draft: reviewedDraft,
                 idempotencyKey,
@@ -460,13 +526,19 @@ export function EmailDraftCard({
                   500,
                 );
               }
+              preparedActionId = prepared.actionId;
               onDeliveryPrepared?.(prepared.actionId, attemptId);
+              if (reviewedSend && canSendReviewed && !canSendReviewed()) {
+                throw new EmailDeliveryError("Review this draft again before sending.", 409, "DRAFT_CHANGED");
+              }
               sendRequestStarted = true;
               return EmailDeliveryService.send({
                 ...auth,
                 actionId: prepared.actionId,
-                draft: reviewedDraft,
-                attachmentToken: prepared.attachmentToken,
+                draft: reviewedSend ? { ...reviewedDraft, htmlBody: undefined } : reviewedDraft,
+                attachmentToken: "attachmentToken" in prepared ? prepared.attachmentToken : undefined,
+                senderToken: prepared.senderToken,
+                ...(reviewedSend ? { draftRef: reviewedSend.draftRef, revision: reviewedSend.revision } : {}),
               });
             })();
         if (outcome.outcomeUnknown) {
@@ -478,7 +550,29 @@ export function EmailDraftCard({
         }
         onSent(attemptId);
       } catch (cause) {
-        onSendFailed?.(deliveryFailure(cause, sendRequestStarted), attemptId);
+        const failure = deliveryFailure(cause, sendRequestStarted);
+        if (failure.code === "EMAIL_ACTION_OUTCOME_UNKNOWN" && preparedActionId && auth) {
+          try {
+            const recorded = await EmailDeliveryService.sendStatus({
+              ...auth, actionId: preparedActionId,
+            });
+            if (recorded.state === "sent") {
+              onSent(attemptId);
+              return;
+            }
+            if (["failed", "expired", "cancelled"].includes(recorded.state)) {
+              onSendFailed?.(new EmailDeliveryError(
+                "Mail was not sent. Review the draft before trying again.",
+                409,
+                "EMAIL_ACTION_NOT_SENT",
+              ), attemptId);
+              return;
+            }
+          } catch {
+            // The status read failed or raced with the send. Preserve unknown.
+          }
+        }
+        onSendFailed?.(failure, attemptId);
       }
     })();
   };
@@ -486,8 +580,11 @@ export function EmailDraftCard({
   const saveToGmailDrafts = async () => {
     if (busy || saveStartedRef.current || draft.driveFileId || sourceBoundReply) return;
     saveStartedRef.current = true;
+    const saveAttemptId = newIdempotencyKey();
+    onSaveStateChange?.("saving", saveAttemptId);
     setBusy("save");
     setError(null);
+    let outcome: GmailDraftSaveState = "idle";
     try {
       const auth = await withAuth();
       if (!auth) {
@@ -495,6 +592,7 @@ export function EmailDraftCard({
         return;
       }
       await EmailDeliveryService.saveGmailDraft({ ...auth, draft: { ...draft } });
+      outcome = "saved";
       setSavedToGmail(true);
     } catch (cause) {
       const failure = cause instanceof EmailDeliveryError
@@ -504,10 +602,13 @@ export function EmailDraftCard({
           );
       if (failure.code === "GMAIL_COMPOSE_PERMISSION_REQUIRED" || failure.status === 400) {
         saveStartedRef.current = false;
+      } else {
+        outcome = "outcome_unknown";
       }
       setError(failure);
     } finally {
       setBusy(null);
+      onSaveStateChange?.(outcome, saveAttemptId);
     }
   };
 
@@ -580,6 +681,11 @@ export function EmailDraftCard({
         </div>
       ) : (
         <div className="space-y-3 px-4 py-4 sm:px-5">
+          {reviewedSend ? (
+            <p className="break-words text-sm" data-testid="one-email-reviewed-sender">
+              <span className="font-medium">From </span>{reviewedSend.senderLabel}
+            </p>
+          ) : null}
           {sourceBoundReply ? (
             <>
               <div className="flex items-center gap-2 border-b border-border/60 py-1.5">
@@ -729,6 +835,9 @@ export function EmailDraftCard({
                     Reconnect Mail
                   </Link>
                 ) : null}
+                {error.needsGmailSendingEnabled ? (
+                  <Link className="font-medium underline" href="/one/gmail">Reconnect Mail</Link>
+                ) : null}
                 {error.needsGmailConnect ? (
                   onOpenConnections ? (
                     <button
@@ -793,7 +902,7 @@ export function EmailDraftCard({
           size="sm"
           className="gap-2 rounded-xl px-4 sm:min-w-32"
           onClick={() => void send()}
-          disabled={disabled || needsGeneratedDraft}
+          disabled={disabled || needsGeneratedDraft || sendUnavailable || Boolean(reviewedSend && reviewChangedRef.current)}
           data-testid="one-email-draft-send"
         >
           <Send className="h-3.5 w-3.5" />

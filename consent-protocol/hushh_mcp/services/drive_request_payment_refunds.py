@@ -1,4 +1,8 @@
-"""Durable full-refund reconciliation for paid requests with no delivered files."""
+"""Durable full and prorated refunds for paid document requests.
+
+A refund is always for the paid obligation's own amount: the claim carries it
+into the provider lookup, the create call and the final match.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +11,8 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from sqlalchemy import text
+
+from hushh_mcp.services.stripe_mode import configured_stripe_mode
 
 # Stripe can prune idempotency keys after 24 hours. Start this shorter window
 # before any provider call so a crash or delayed call cannot extend it.
@@ -18,28 +24,38 @@ _REFUND_CANDIDATES_SQL = """
   FROM drive_request_payment_obligations o
   LEFT JOIN drive_share_requests r ON r.request_id=o.request_id
   LEFT JOIN drive_request_payment_refunds f ON f.request_id=o.request_id
-  WHERE o.status='paid'
+  LEFT JOIN drive_request_owner_payouts p ON p.request_id=o.request_id
+  WHERE o.status='paid' AND o.stripe_mode=:stripe_mode
     AND (f.request_id IS NULL OR (f.status IN
       ('queued','dispatching','unknown','pending','manual_review')
       AND f.next_check_at<=clock_timestamp()
       AND (f.lease_expires_at IS NULL OR f.lease_expires_at<=clock_timestamp())))
-    AND ((o.erased_at IS NOT NULL AND o.reconciliation_required
-      AND NOT o.delivery_confirmed_at_erasure) OR
-      (r.payment_required=TRUE AND
-       (o.reconciliation_required OR r.status IN
+    AND ((p.status='awaiting_refund' AND p.refund_amount_cents>0
+      AND (r.request_id IS NOT NULL OR
+        (p.erased_at IS NOT NULL AND p.finalized_at IS NOT NULL))) OR
+      ((o.erased_at IS NOT NULL AND o.reconciliation_required
+      AND (NOT o.delivery_confirmed_at_erasure OR o.existing_access_waived_at IS NOT NULL)) OR
+      ((r.payment_required=TRUE OR o.existing_access_waived_at IS NOT NULL) AND
+       (o.reconciliation_required OR r.access_stop_requested_at IS NOT NULL OR r.status IN
          ('completed','partial','no_match','expired','cancelled','declined')
          OR r.expires_at<=clock_timestamp())
        AND NOT EXISTS (SELECT 1 FROM drive_bulk_share_effects e
       JOIN drive_bulk_shares b ON b.share_id=e.share_id
       WHERE b.origin_request_id=o.request_id
-        AND (e.state IN ('succeeded','preexisting','dispatching',
-                        'unknown','present_unattributed')
+        AND ((e.state IN ('succeeded','dispatching','unknown','present_unattributed')
+             OR (e.state='preexisting' AND o.existing_access_waived_at IS NULL))
              OR (e.state='failed' AND e.safe_error_code='permission_outcome_unknown')))
-       AND NOT EXISTS (SELECT 1 FROM drive_share_permission_operations p
+      AND NOT EXISTS (SELECT 1 FROM drive_share_permission_operations p
       WHERE p.request_id=o.request_id AND p.kind='grant'
         AND p.state IN ('succeeded','preexisting','dispatching',
-                        'unknown','present_unattributed'))))
+                        'unknown','present_unattributed')))))
 """
+
+
+def _refund_candidates_sql(*, v1_only: bool) -> str:
+    # The obligation survives request, batch, and search-job erasure. The
+    # mirror sets this marker from the exact approved V1 batch before charge.
+    return _REFUND_CANDIDATES_SQL + (" AND o.v1_statement_search=TRUE" if v1_only else "")
 
 
 def _retry_window_open(claim: dict) -> bool:
@@ -52,11 +68,14 @@ def _retry_window_open(claim: dict) -> bool:
     )
 
 
-def _claim_refunds(service, connection, *, limit: int) -> list[dict]:
+def _claim_refunds(service, connection, *, limit: int, v1_only: bool = False) -> list[dict]:
     candidates = (
         connection.execute(
-            text(f"SELECT o.request_id {_REFUND_CANDIDATES_SQL} ORDER BY o.paid_at LIMIT :scan"),
-            {"scan": limit * 4},
+            text(
+                f"SELECT o.request_id {_refund_candidates_sql(v1_only=v1_only)} "
+                "ORDER BY o.paid_at LIMIT :scan"
+            ),
+            {"scan": limit * 4, "stripe_mode": configured_stripe_mode()},
         )
         .mappings()
         .all()
@@ -83,16 +102,54 @@ def _claim_refunds(service, connection, *, limit: int) -> list[dict]:
                WHERE request_id=:request FOR UPDATE""",
             {"request": request_id},
         )
-        if order is None or order["status"] != "paid" or not order["stripe_payment_intent_id"]:
+        if (
+            order is None
+            or order.get("stripe_mode") != configured_stripe_mode()
+            or order["status"] != "paid"
+            or not order["stripe_payment_intent_id"]
+            or (v1_only and order.get("v1_statement_search") is not True)
+        ):
             continue
+        payout = service._row(
+            connection,
+            """SELECT status,refund_amount_cents,erased_at,finalized_at
+               FROM drive_request_owner_payouts
+               WHERE request_id=:request FOR UPDATE""",
+            {"request": request_id},
+        )
+        payout_refund = (
+            int(payout["refund_amount_cents"])
+            if payout is not None
+            and payout["status"] == "awaiting_refund"
+            and payout["refund_amount_cents"] is not None
+            and (
+                request is not None
+                or (payout["erased_at"] is not None and payout["finalized_at"] is not None)
+            )
+            else None
+        )
+        target_amount = payout_refund or int(order["amount_cents"])
+        if not 0 < target_amount <= int(order["amount_cents"]):
+            continue
+        partial_refund = target_amount < int(order["amount_cents"])
         if request is None:
-            if (
+            if partial_refund and payout is not None and payout["erased_at"] is not None:
+                # Erasure snapshots the terminal approved-file denominator
+                # before batches disappear. The owner cannot receive an
+                # automatic transfer, but the requester is still owed the
+                # undelivered portion of the paid charge.
+                if order["delivery_unsettled_at_erasure"]:
+                    continue
+            elif (
                 order["erased_at"] is None
                 or not order["reconciliation_required"]
-                or order["delivery_confirmed_at_erasure"]
+                or (
+                    order["delivery_confirmed_at_erasure"]
+                    and order["existing_access_waived_at"] is None
+                )
             ):
                 continue
-            if order["delivery_unsettled_at_erasure"]:
+            if not partial_refund and order["delivery_unsettled_at_erasure"]:
                 connection.execute(
                     text("""INSERT INTO drive_request_payment_refunds
                   (request_id,attempt_id,status,first_dispatch_at,next_check_at)
@@ -118,7 +175,7 @@ def _claim_refunds(service, connection, *, limit: int) -> list[dict]:
           EXISTS(SELECT 1 FROM drive_bulk_share_effects e
             JOIN drive_bulk_shares b ON b.share_id=e.share_id
             WHERE b.origin_request_id=:request
-              AND e.state IN ('succeeded','preexisting')) AS delivered,
+              AND (e.state='succeeded' OR (:count_preexisting AND e.state='preexisting'))) AS delivered,
           EXISTS(SELECT 1 FROM drive_bulk_share_effects e
             JOIN drive_bulk_shares b ON b.share_id=e.share_id
             WHERE b.origin_request_id=:request
@@ -133,37 +190,43 @@ def _claim_refunds(service, connection, *, limit: int) -> list[dict]:
               AND p.state IN ('dispatching','unknown','present_unattributed'))
             AS legacy_unsettled
             """,
-                {"request": request_id},
+                {
+                    "request": request_id,
+                    "count_preexisting": request.get("v1_live_request") is not True
+                    and order["existing_access_waived_at"] is None,
+                },
             )
             if (
-                effects["delivered"]
+                (effects["delivered"] and not partial_refund)
                 or effects["unsettled"]
-                or effects["legacy_delivered"]
+                or (effects["legacy_delivered"] and not partial_refund)
                 or effects["legacy_unsettled"]
             ):
                 continue
-        connection.execute(
-            text("""UPDATE drive_request_payment_obligations
-          SET reconciliation_required=TRUE,
-              updated_at=clock_timestamp()
-          WHERE request_id=:request"""),
-            {"request": request_id},
-        )
-        if request is not None:
+        if not partial_refund:
             connection.execute(
-                text("""UPDATE drive_request_payment_orders
+                text("""UPDATE drive_request_payment_obligations
               SET reconciliation_required=TRUE,
-                  reconciliation_reason=COALESCE(reconciliation_reason,'zero_delivery'),
-                  reconciliation_at=COALESCE(reconciliation_at,clock_timestamp()),
                   updated_at=clock_timestamp()
               WHERE request_id=:request"""),
                 {"request": request_id},
             )
+            if request is not None:
+                connection.execute(
+                    text("""UPDATE drive_request_payment_orders
+                  SET reconciliation_required=TRUE,
+                      reconciliation_reason=COALESCE(reconciliation_reason,'zero_delivery'),
+                      reconciliation_at=COALESCE(reconciliation_at,clock_timestamp()),
+                      updated_at=clock_timestamp()
+                  WHERE request_id=:request"""),
+                    {"request": request_id},
+                )
         connection.execute(
             text("""INSERT INTO drive_request_payment_refunds
-          (request_id,attempt_id,status) VALUES (:request,:attempt,'queued')
+          (request_id,attempt_id,status,amount_cents)
+          VALUES (:request,:attempt,'queued',:amount)
           ON CONFLICT (request_id) DO NOTHING"""),
-            {"request": request_id, "attempt": str(uuid4())},
+            {"request": request_id, "attempt": str(uuid4()), "amount": target_amount},
         )
         refund = service._row(
             connection,
@@ -172,6 +235,20 @@ def _claim_refunds(service, connection, *, limit: int) -> list[dict]:
             {"request": request_id},
         )
         if refund is None or refund["status"] in {"succeeded", "failed"}:
+            continue
+        if refund["amount_cents"] is None and not partial_refund:
+            # Pre-migration full refunds stored no amount; their authority is
+            # still the immutable paid order amount.
+            pass
+        elif refund["amount_cents"] != target_amount:
+            connection.execute(
+                text("""UPDATE drive_request_payment_refunds
+                  SET status='manual_review',safe_error_code='provider_mismatch',
+                      next_check_at=clock_timestamp()+interval '1 hour',
+                      updated_at=clock_timestamp()
+                  WHERE request_id=:request"""),
+                {"request": request_id},
+            )
             continue
         now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
         if refund["next_check_at"] > now or (
@@ -193,6 +270,8 @@ def _claim_refunds(service, connection, *, limit: int) -> list[dict]:
             {
                 "request_id": str(request_id),
                 "payment_intent": order["stripe_payment_intent_id"],
+                "amount_cents": target_amount,
+                "gross_amount_cents": int(order["amount_cents"]),
                 "attempt_id": str(refund["attempt_id"]),
                 "refund_id": refund["stripe_refund_id"],
                 "first_dispatch_at": dispatched["first_dispatch_at"],
@@ -223,7 +302,7 @@ def _provider_refund(service, claim: dict, key: str) -> tuple[dict | None, str |
             r
             for r in refunds
             if r.get("payment_intent") == intent
-            and r.get("amount") == 1000
+            and r.get("amount") == claim["amount_cents"]
             and r.get("currency") == "usd"
         ]
         if len(refunds) != 1 or len(exact) != 1:
@@ -233,7 +312,7 @@ def _provider_refund(service, claim: dict, key: str) -> tuple[dict | None, str |
         return None, "idempotency_window_elapsed"
     refund = api.Refund.create(
         payment_intent=intent,
-        amount=1000,
+        amount=claim["amount_cents"],
         metadata={"payment_kind": "drive_request", "request_id": claim["request_id"]},
         api_key=key,
         idempotency_key=f"drive-request-refund-{claim['request_id']}-{claim['attempt_id']}",
@@ -241,7 +320,15 @@ def _provider_refund(service, claim: dict, key: str) -> tuple[dict | None, str |
     return _stripe_dict(refund), None
 
 
-def _finish_refund(service, connection, claim: dict, refund: dict | None, error: str | None) -> str:
+def _finish_refund(
+    service,
+    connection,
+    claim: dict,
+    refund: dict | None,
+    error: str | None,
+    *,
+    v1_only: bool = False,
+) -> str:
     request_id = claim["request_id"]
     participant = service._row(
         connection,
@@ -282,6 +369,7 @@ def _finish_refund(service, connection, claim: dict, refund: dict | None, error:
         or row is None
         or str(row["attempt_id"]) != claim["attempt_id"]
         or (request is None and order["erased_at"] is None)
+        or (v1_only and order.get("v1_statement_search") is not True)
     ):
         return "gone"
     if row["status"] == "succeeded":
@@ -289,7 +377,7 @@ def _finish_refund(service, connection, claim: dict, refund: dict | None, error:
     if refund is not None:
         if (
             refund.get("payment_intent") != claim["payment_intent"]
-            or refund.get("amount") != 1000
+            or refund.get("amount") != claim["amount_cents"]
             or refund.get("currency") != "usd"
             or not isinstance(refund.get("id"), str)
         ):
@@ -336,7 +424,13 @@ def _finish_refund(service, connection, claim: dict, refund: dict | None, error:
         {"status": next_status, "refund": refund["id"], "request": request_id},
     )
     if next_status == "succeeded" and order["status"] == "paid":
-        if request is None:
+        gross_amount = claim.get("gross_amount_cents") or order.get("amount_cents")
+        if gross_amount is not None and claim["amount_cents"] < gross_amount:
+            # The delivered portion stays paid and its Viewer grant remains
+            # valid. The current refund amount is projected into the Feed.
+            if request is not None:
+                service._event(connection, request, "document_share_payment_refunded")
+        elif request is None:
             connection.execute(
                 text("""UPDATE drive_request_payment_obligations
               SET status='refunded',updated_at=clock_timestamp()
@@ -354,9 +448,11 @@ def _finish_refund(service, connection, claim: dict, refund: dict | None, error:
     return next_status
 
 
-async def reconcile_refunds(service, *, max_orders: int = 4) -> dict:
+async def reconcile_refunds(service, *, max_orders: int = 4, v1_only: bool = False) -> dict:
     if type(max_orders) is not int or not 1 <= max_orders <= 20:
         raise ValueError("invalid refund reconciliation bound")
+    if type(v1_only) is not bool:
+        raise ValueError("invalid refund reconciliation mode")
     from hushh_mcp.services.drive_request_payment_service import _config
 
     outcomes = {
@@ -370,7 +466,8 @@ async def reconcile_refunds(service, *, max_orders: int = 4) -> dict:
     has_candidate = await service._transaction(
         lambda connection: bool(
             connection.execute(
-                text(f"SELECT EXISTS(SELECT 1 {_REFUND_CANDIDATES_SQL})")
+                text(f"SELECT EXISTS(SELECT 1 {_refund_candidates_sql(v1_only=v1_only)})"),
+                {"stripe_mode": configured_stripe_mode()},
             ).scalar_one()
         )
     )
@@ -378,7 +475,7 @@ async def reconcile_refunds(service, *, max_orders: int = 4) -> dict:
         return outcomes
     key, _, _ = _config()
     claims = await service._transaction(
-        lambda connection: _claim_refunds(service, connection, limit=max_orders)
+        lambda connection: _claim_refunds(service, connection, limit=max_orders, v1_only=v1_only)
     )
     outcomes["claimed"] = len(claims)
     for claim in claims:
@@ -388,7 +485,7 @@ async def reconcile_refunds(service, *, max_orders: int = 4) -> dict:
             refund, error = None, "provider_unavailable"
         result = await service._transaction(
             lambda connection, claim=claim, refund=refund, error=error: _finish_refund(
-                service, connection, claim, refund, error
+                service, connection, claim, refund, error, v1_only=v1_only
             )
         )
         if result in outcomes:

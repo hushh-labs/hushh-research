@@ -2,7 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
+import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
 
 /**
  * Press contract in a real engine: a pointerdown on a control grows the
@@ -37,7 +37,10 @@ test.beforeAll(async () => {
         },
       },
     ],
-    resolve: { alias: [{ find: "@", replacement: root }] },
+    resolve: { alias: [
+      { find: "@/lib/services/api-service", replacement: path.join(root, "e2e/fixtures/press-ripple-boundaries.ts") },
+      { find: "@", replacement: root },
+    ] },
     define: {
       "process.env.NODE_ENV": JSON.stringify("production"),
       "process.env": "{}",
@@ -94,7 +97,53 @@ async function openFixture(page: Page, reducedMotion: "reduce" | "no-preference"
   );
   await page.addScriptTag({ content: script });
   await expect(page.getByTestId("press-ripple")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue with email", exact: true })).toBeVisible();
 }
+
+test("provider icons share the Google scale and labels share one start at phone and desktop widths", async ({ page }, testInfo) => {
+  for (const width of [320, 393, 402, 430, 1440]) {
+    await openFixture(page, "reduce");
+    await page.setViewportSize({ width, height: 900 });
+    await awaitProductFont(page);
+    const starts: { icon: number; label: number }[] = [];
+    for (const button of await page.getByTestId("auth-providers").getByRole("button").all()) {
+      const geometry = await button.evaluate(element => {
+        const box = element.getBoundingClientRect();
+        const group = element.querySelector("[data-auth-provider-content]")!.getBoundingClientRect();
+        const slot = element.querySelector("[data-auth-provider-icon]")!.getBoundingClientRect();
+        const art = element.querySelector("[data-auth-provider-icon] > :first-child")!;
+        let inkSize: number;
+        if (art.tagName.toLowerCase() === "svg") {
+          const svg = art as SVGSVGElement;
+          const ink = svg.getBBox();
+          const matrix = svg.getScreenCTM()!;
+          const style = getComputedStyle(svg);
+          const stroke = style.stroke === "none" ? 0 : parseFloat(style.strokeWidth);
+          inkSize = Math.max((ink.width + stroke) * Math.hypot(matrix.a, matrix.b),
+            (ink.height + stroke) * Math.hypot(matrix.c, matrix.d));
+        } else {
+          const ink = art.getBoundingClientRect();
+          inkSize = Math.max(ink.width, ink.height);
+        }
+        const label = element.querySelector("[data-auth-provider-content] > span:last-child")!.getBoundingClientRect();
+        return { box: box.toJSON(), group: group.toJSON(), slot: slot.toJSON(), label: label.toJSON(), inkSize };
+      });
+      expect(Math.abs(geometry.group.x + geometry.group.width / 2 - geometry.box.x - geometry.box.width / 2)).toBeLessThanOrEqual(1);
+      expect(Math.abs(geometry.slot.y + geometry.slot.height / 2 - geometry.label.y - geometry.label.height / 2)).toBeLessThanOrEqual(1);
+      expect(geometry.label.x - geometry.slot.right).toBeCloseTo(12, 0);
+      expect(geometry.slot.width).toBe(24);
+      expect(geometry.slot.height).toBe(24);
+      expect(geometry.inkSize).toBeCloseTo(22, 0);
+      expect(geometry.box.height).toBe(53);
+      expect(geometry.label.right).toBeLessThanOrEqual(geometry.box.right - 18);
+      expect(geometry.group.width).toBeLessThan(geometry.box.width);
+      starts.push({ icon: geometry.slot.x, label: geometry.label.x });
+    }
+    expect(Math.max(...starts.map(item => item.icon)) - Math.min(...starts.map(item => item.icon))).toBeLessThanOrEqual(1);
+    expect(Math.max(...starts.map(item => item.label)) - Math.min(...starts.map(item => item.label))).toBeLessThanOrEqual(1);
+    if (width === 393) await page.getByTestId("auth-providers").screenshot({ path: testInfo.outputPath("provider-cta-393.png") });
+  }
+});
 
 type PressReading = {
   /** md-ripple's own surface reports `.pressed` while the pointer is down. */
@@ -164,6 +213,9 @@ const TARGETS: Array<[string, (page: Page) => Locator]> = [
   ["stock Button", (page) => page.getByRole("button", { name: "Stock action" })],
   ["Create your One", (page) => page.getByRole("button", { name: "Create your One" })],
   ["Apple sign-in", (page) => page.getByRole("button", { name: "Continue with Apple" })],
+  ["Google sign-in", (page) => page.getByRole("button", { name: "Continue with Google" })],
+  ["Microsoft sign-in", (page) => page.getByRole("button", { name: "Continue with Microsoft" })],
+  ["Email sign-in", (page) => page.getByRole("button", { name: "Continue with email" })],
   [
     "follow-up chip",
     (page) =>
@@ -175,6 +227,45 @@ const TARGETS: Array<[string, (page: Page) => Locator]> = [
 ];
 
 const RIPPLED_CONTROLS = TARGETS.length + 4;
+
+test("welcome starters keep foreground text without a hover background", async ({ page, browserName }) => {
+  for (const motion of ["no-preference", "reduce"] as const) {
+    await openFixture(page, motion);
+    for (const dark of [false, true]) {
+      await page.locator("html").evaluate((element, enabled) => element.classList.toggle("dark", enabled), dark);
+      for (const width of [320, 768]) {
+        await page.setViewportSize({ width, height: 844 });
+        const buttons = page.getByTestId("starter-suggestions").getByRole("button");
+        const first = buttons.first();
+        const foreground = await first.evaluate((button) => {
+          const probe = document.createElement("span");
+          probe.style.color = "var(--foreground)";
+          button.append(probe);
+          const color = getComputedStyle(probe).color;
+          probe.remove();
+          return color;
+        });
+        await first.hover();
+        await expect(first).toHaveCSS("color", foreground);
+        await expect(first).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+        await expect(first.locator(':scope > span[aria-hidden="true"]')).toHaveCSS("color", foreground);
+        await expect.poll(() => first.evaluate((button) => {
+          const host = button.querySelector(".morphy-ripple-host")!;
+          const surface = host.querySelector("md-ripple")?.shadowRoot?.querySelector(".surface");
+          const flat = host.querySelector("[data-ripple-flat]");
+          return surface ? Number(getComputedStyle(surface, "::before").opacity) : flat ? Number(getComputedStyle(flat).opacity) : -1;
+        })).toBe(0);
+        await page.mouse.move(0, 0);
+        await first.focus();
+        // macOS WebKit uses Option+Tab to traverse buttons by default.
+        await first.press(process.platform === "darwin" && browserName === "webkit" ? "Alt+Tab" : "Tab");
+        await expect(buttons.nth(1)).toBeFocused();
+        expect(await buttons.nth(1).evaluate((button) => button.matches(":focus-visible"))).toBe(true);
+        await expect(buttons.nth(1)).not.toHaveCSS("box-shadow", "none");
+      }
+    }
+  }
+});
 
 test("starter suggestions retain compact spacing, aligned tracks and accessible targets", async ({ page }) => {
   await openFixture(page, "no-preference");

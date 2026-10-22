@@ -57,7 +57,7 @@ that file for the full record; this table is the index.
 | --- | --- | --- | --- |
 | `actor_identity_state` | `personal_metadata` | `iam-consent-governance` | 5 tables |
 | `agent_chat_encrypted_memory` | `personal_encrypted` | `backend-agents-operons` | 2 tables |
-| `direct_message_relationship_state` | `personal_metadata` | `iam-consent-governance` | 2 tables |
+| `direct_message_relationship_state` | `personal_metadata` | `iam-consent-governance` | 3 tables |
 | `direct_message_encrypted_content` | `personal_encrypted` | `iam-consent-governance` | 1 table |
 | `consent_authority_audit` | `audit_regulated` | `iam-consent-governance` | 3 tables |
 | `consent_export_workflows` | `workflow_state` | `iam-consent-governance` | 2 tables |
@@ -79,10 +79,10 @@ that file for the full record; this table is the index.
 | `one_email_kyc_workflow` | `workflow_state` | `backend-runtime-governance` | 4 tables |
 | `one_location_agent` | `workflow_state` | `iam-consent-governance` | 24 tables |
 | `one_location_named_circle_relationships` | `personal_metadata` | `iam-consent-governance` | 3 tables |
-| `pkm_default_available_projection` | `personal_projection` | `vault-pkm-governance` | 1 table |
-| `pkm_encrypted_memory` | `personal_encrypted` | `vault-pkm-governance` | 3 tables |
-| `pkm_metadata_and_scope` | `personal_metadata` | `vault-pkm-governance` | 5 tables |
-| `pkm_upgrade_workflows` | `workflow_state` | `vault-pkm-governance` | 5 tables |
+| `pkm_default_available_projection` | `personal_projection` | `security-audit` | 1 table |
+| `pkm_encrypted_memory` | `personal_encrypted` | `security-audit` | 3 tables |
+| `pkm_metadata_and_scope` | `personal_metadata` | `security-audit` | 5 tables |
+| `pkm_upgrade_workflows` | `workflow_state` | `security-audit` | 5 tables |
 | `preference_world_model` | `personal_metadata` | `iam-consent-governance` | 1 table |
 | `public_investor_reference` | `reference` | `backend-api-contracts` | 2 tables |
 | `relay_ticket_replay_guard` | `workflow_state` | `iam-consent-governance` | 1 table |
@@ -95,14 +95,14 @@ that file for the full record; this table is the index.
 | `trusted_device_authorization_workflows` | `workflow_state` | `iam-consent-governance` | 2 tables |
 | `trusted_device_audit` | `audit_regulated` | `iam-consent-governance` | 1 table |
 | `two_way_connection_graph` | `workflow_state` | `iam-consent-governance` | 3 tables |
-| `vault_key_material` | `personal_encrypted` | `vault-pkm-governance` | 2 tables |
+| `vault_key_material` | `personal_encrypted` | `security-audit` | 2 tables |
 | `connected_system_audit` *(customer0)* | `audit_regulated` | `iam-consent-governance` | 1 table |
 | `connected_system_workflows` *(customer0)* | `workflow_state` | `iam-consent-governance` | 2 tables |
 | `crm_schema_mapping_cache` *(customer0)* | `provider_cache` | `backend-agents-operons` | 2 tables |
-| `domain_reference_registry` *(transitional)* | `reference` | `vault-pkm-governance` | 1 table |
+| `domain_reference_registry` *(transitional)* | `reference` | `security-audit` | 1 table |
 | `enterprise_crm_registry` *(customer0)* | `reference` | `iam-consent-governance` | 3 tables |
 | `enterprise_crm_registry_audit` *(customer0)* | `audit_regulated` | `iam-consent-governance` | 1 table |
-| `legacy_memory_cutover` *(legacy_migration)* | `personal_encrypted` | `vault-pkm-governance` | 10 tables |
+| `legacy_memory_cutover` *(legacy_migration)* | `personal_encrypted` | `security-audit` | 10 tables |
 
 ## Identity Boundary Rule
 
@@ -214,6 +214,8 @@ unless the delta is exactly the declared UAT overlay).
   `participant_b_user_id`, `created_at`, and `last_message_at`.
 - `direct_message_blocks`: directed `blocker_user_id` /
   `blocked_user_id`, opaque `id`, and `created_at`.
+- `direct_message_reactions`: one participant-scoped emoji per message; a
+  later selection replaces that participant's earlier reaction.
 - Both are relationship metadata. The active canonical `connections` pair and
   either directed block are checked in a locking database trigger before a new
   conversation or message write. Circle membership is not queried.
@@ -226,11 +228,20 @@ unless the delta is exactly the declared UAT overlay).
 - `content_ciphertext` (`text`)
 - `content_iv` (`text`)
 - `content_algorithm` (`text`)
-- `created_at` / `read_at` (`timestamp with time zone`)
+- `created_at` / `delivered_at` / `read_at` / `edited_at` (`timestamp with time zone`)
+- `reply_to_message_id` (`uuid`, same-conversation parent)
+- participant-only and global deletion timestamps
 
 Message text is AES-256-GCM ciphertext under the server-managed direct-message
 key; the ciphertext field includes the authentication tag. Conversation history
-remains visible but no new message can be written after disconnect or block.
+has one receipt authority: nullable `messages.delivered_at` (migration 327).
+Only an authenticated recipient body acknowledgment or a read establishes it;
+the first timestamp cannot be cleared or rewritten. Legacy read timestamps
+still imply delivery. Voice-note WAV bytes use `direct_message_attachments`,
+with duration metadata in the existing encrypted envelope; no new store.
+History remains visible but no new message can be written after disconnect or block.
+The sender can edit or tombstone a sent message for both participants; either
+participant can hide a message only from their own history.
 
 ## Core Application Functions Observed
 

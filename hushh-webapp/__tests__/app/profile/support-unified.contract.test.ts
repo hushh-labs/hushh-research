@@ -5,6 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ApiService } from "@/lib/services/api-service";
 import { SupportDeliveryUncertainError, SupportService } from "@/lib/services/support-service";
+import { supportOutcomeToVoice } from "@/lib/profile/profile-action-outcomes";
+import { NativeSupportFence, validNativeSupportProjection, type NativeSupportProjection } from "@/lib/capacitor/native-profile-support-scene";
 
 const profileSource = () =>
   readFileSync(
@@ -20,7 +22,7 @@ describe("Profile Help & feedback unified support flow", () => {
     expect(source).toContain('label: "Problem"');
     expect(source).toContain('label: "Help"');
     expect(source).toContain('label: "Feedback"');
-    expect(source).toContain("<SegmentedTabs");
+    expect(source).toContain("<SegmentedControl");
     expect(source).toContain("What do you need?");
 
     expect(source).not.toContain("const supportActions");
@@ -53,7 +55,7 @@ describe("Profile Help & feedback unified support flow", () => {
     const source = profileSource();
 
     expect(source).toContain("supportMessageRef.current?.focus()");
-    expect(source).toContain("Add a few more details.");
+    expect(source).toContain("Write at least 10 characters.");
     expect(source).toContain('role="alert"');
     expect(source).toContain('supportComposerState.status === "sent"');
     expect(source).toContain("supportSuccessHeadingRef.current?.focus()");
@@ -108,6 +110,9 @@ describe("Support delivery receipt", () => {
     const fetch = vi.spyOn(ApiService, "apiFetch").mockRejectedValueOnce(new Error("connection lost"));
     await expect(SupportService.submitMessage(request)).rejects.toBeInstanceOf(SupportDeliveryUncertainError);
     fetch.mockRestore();
+    expect(supportOutcomeToVoice({ kind: "uncertain" })).toEqual({
+      status: "failed", summary: "Delivery could not be confirmed. Please wait before trying again.",
+    });
   });
 
   it("only accepts an explicit provider-accepted receipt", async () => {
@@ -117,5 +122,43 @@ describe("Support delivery receipt", () => {
     ));
     await expect(SupportService.submitMessage(request)).resolves.toMatchObject({ accepted: true });
     fetch.mockRestore();
+  });
+});
+
+describe("Private native support scene", () => {
+  const state = (): NativeSupportProjection => ({
+    documentId: "public-document", ownerEpoch: "public-owner", ownerGeneration: 1, revision: 1,
+    family: "profile", scene: "support", destinationId: "public-support-visit", updateSequence: 1, privacyGeneration: 2,
+    draftRevision: 0, acknowledgedEditRevision: 0, draft: { kind: "bug_report", message: "Synthetic report only" },
+    appearance: "light", accentHex: "#007aff", foregroundHex: "#111111", canSave: true, busy: false, sent: false,
+    error: null, replyLine: "Replies go to your verified account", placeholder: "What happened?", submitLabel: "Send report",
+    successTitle: "Report sent", successDescription: "Thanks for your report.",
+  });
+  it("rejects credential-shaped fields and stale/duplicate Send while accepting the current acknowledged edit", async () => {
+    const initial = state();
+    expect(validNativeSupportProjection(initial)).toBe(true);
+    expect(validNativeSupportProjection({ ...initial, vaultKey: "never admitted" } as NativeSupportProjection)).toBe(false);
+    expect(validNativeSupportProjection({ ...initial, draft: { ...initial.draft, token: "never admitted" } } as NativeSupportProjection)).toBe(false);
+    const fence = new NativeSupportFence(initial);
+    expect(fence.update(initial)).toBe(true);
+    const metadata = { documentId: initial.documentId, ownerEpoch: initial.ownerEpoch, ownerGeneration: initial.ownerGeneration,
+      revision: initial.revision, family: initial.family, scene: initial.scene, destinationId: initial.destinationId,
+      privacyGeneration: initial.privacyGeneration, updateSequence: initial.updateSequence, editRevision: 1 };
+    const event = { ...metadata, composing: false, draft: { kind: "support_request" as const, message: "A different synthetic message" } };
+    expect(fence.consumeEdit(event)).toBe(true);
+    const action = { ...metadata, sequence: 1, action: "save" as const };
+    const confirm = vi.fn().mockResolvedValue({ valid: true });
+    expect(await fence.consumeAction(action, confirm, () => true)).toBe(false);
+    expect(confirm).not.toHaveBeenCalled();
+    const next = { ...initial, updateSequence: 2, draftRevision: 1, acknowledgedEditRevision: 1, draft: event.draft };
+    expect(fence.update(next)).toBe(true);
+    const current = { ...action, updateSequence: 2 };
+    expect(fence.allows({ ...current, destinationId: "other-visit" })).toBe(false);
+    expect(fence.allows({ ...current, privacyGeneration: 3 })).toBe(false);
+    expect(await fence.consumeAction(current, confirm, () => true)).toBe(true);
+    expect(await fence.consumeAction(current, confirm, () => true)).toBe(false);
+    expect(confirm).toHaveBeenCalledTimes(1);
+    fence.retire();
+    expect(fence.consumeEdit({ ...event, editRevision: 2 })).toBe(false);
   });
 });

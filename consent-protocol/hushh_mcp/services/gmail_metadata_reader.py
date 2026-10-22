@@ -41,6 +41,13 @@ _BUDGET = 256 * 1024
 # bounds memory; an oversized mailbox result fails truthfully, never partially.
 _BODY_BUDGET = 4 * 1024 * 1024
 _DEADLINE = 20.0
+# Gmail documents rate-limit reasons inside a 403 JSON body. Only this small
+# bounded error body is inspected, and no provider text crosses the reader.
+_ERROR_BUDGET = 16 * 1024
+_RETRY_DELAY_SECONDS = 1.0
+_MIN_RETRY_REQUEST_SECONDS = 2.0
+_RETRYABLE_GET_STATUSES = frozenset({429, 500, 502, 503, 504})
+_RATE_LIMIT_REASONS = frozenset({"rateLimitExceeded", "userRateLimitExceeded"})
 _NUDGE_QUERY = "in:inbox category:primary newer_than:30d -in:spam -in:trash"
 # Per-message reads for one listing page run concurrently, bounded so a page
 # never opens more than this many provider requests at once.
@@ -226,6 +233,40 @@ def _coverage_scope(operation: str, query: str) -> str:
     return "search" if query else "newest"
 
 
+async def _forbidden_code(response: httpx.Response) -> str:
+    """Classify documented Gmail 403 reasons without trusting provider prose."""
+
+    if response.headers.get("content-encoding", "identity").lower() != "identity":
+        return "permission_denied"
+    content = bytearray()
+    async for chunk in response.aiter_raw():
+        if len(chunk) > _ERROR_BUDGET - len(content):
+            return "permission_denied"
+        content.extend(chunk)
+    try:
+        payload = json.loads(content)
+    except (ValueError, UnicodeError):
+        return "permission_denied"
+    error = payload.get("error") if isinstance(payload, dict) else None
+    reasons = error.get("errors") if isinstance(error, dict) else None
+    if not isinstance(reasons, list) or not reasons or len(reasons) > 8:
+        return "permission_denied"
+    if any(
+        not isinstance(item, dict) or not isinstance(item.get("reason"), str) for item in reasons
+    ):
+        return "permission_denied"
+    exact_reasons = {item["reason"] for item in reasons}
+    if exact_reasons <= _RATE_LIMIT_REASONS:
+        return "retryable"
+    if exact_reasons == {"dailyLimitExceeded"}:
+        return "quota_exceeded"
+    if exact_reasons == {"domainPolicy"}:
+        return "domain_policy"
+    if exact_reasons == {"insufficientPermissions"}:
+        return "reconnect_required"
+    return "permission_denied"
+
+
 class GmailMetadataReader:
     """One owner, one observed Gmail grant, one bounded read per instance."""
 
@@ -254,6 +295,7 @@ class GmailMetadataReader:
         self._remaining = _BUDGET
         self._message_ids: list[str] = []
         self._offered_message_ids: tuple[str, ...] = ()
+        self._deadline_at: float | None = None
 
     async def require_current(self) -> None:
         """Recheck after interpretation too; no stale content leaves the hop."""
@@ -397,7 +439,8 @@ class GmailMetadataReader:
         if reads_bodies:
             self._remaining = _BODY_BUDGET
         try:
-            async with asyncio.timeout(_DEADLINE):
+            self._deadline_at = asyncio.get_running_loop().time() + _DEADLINE
+            async with asyncio.timeout_at(self._deadline_at):
                 await self._require_access()
                 row = await asyncio.to_thread(
                     self._gmail._fetch_connection_row, user_id=self._user_id
@@ -405,6 +448,8 @@ class GmailMetadataReader:
                 if not row or row.get("status") == "disconnected":
                     raise GmailMetadataError("connect_required")
                 if row.get("status") != "connected" or row.get("revoked"):
+                    raise GmailMetadataError("reconnect_required")
+                if _SCOPE not in re.split(r"[\s,]+", str(row.get("scope_csv") or "")):
                     raise GmailMetadataError("reconnect_required")
                 access_token, row = await self._gmail._ensure_access_token(user_id=self._user_id)
                 self._observation = self._gmail._refresh_observation(row)
@@ -456,38 +501,68 @@ class GmailMetadataReader:
     ) -> dict[str, Any]:
         # A concurrent page is rechecked once by its caller before and after the
         # fan-out, so it holds one database connection rather than one per read.
-        if recheck:
-            await self.require_current()
-        async with client.stream(
-            "GET",
-            _BASE + path,
-            params=params,
-            headers={"Authorization": f"Bearer {token}", "Accept-Encoding": "identity"},
-        ) as response:
-            if response.status_code == 401:
-                # CAS against the exact grant. A stale rejection never disables
-                # an account connected while this request was in flight.
-                await asyncio.to_thread(
-                    self._gmail._mark_connection_needs_reauth,
-                    user_id=self._user_id,
-                    message="Reconnect Mail to continue.",
-                    observed=self._observation,
-                )
-                raise GmailMetadataError("reconnect_required")
-            if response.status_code == 403:
-                raise GmailMetadataError("permission_denied")
-            if response.status_code == 404:
-                raise GmailMetadataError("source_changed")
-            if response.status_code != 200:
-                raise GmailMetadataError("retryable")
-            if response.headers.get("content-encoding", "identity").lower() != "identity":
-                raise GmailMetadataError("invalid_response")
-            content = bytearray()
-            async for chunk in response.aiter_raw():
-                self._remaining -= len(chunk)
-                if self._remaining < 0:
-                    raise GmailMetadataError("response_too_large")
-                content.extend(chunk)
+        for attempt in range(2):
+            if recheck or attempt:
+                # Even a harmless GET must not retry against a changed grant.
+                await self.require_current()
+            retry_allowed = False
+            retry_delay = _RETRY_DELAY_SECONDS
+            async with client.stream(
+                "GET",
+                _BASE + path,
+                params=params,
+                headers={"Authorization": f"Bearer {token}", "Accept-Encoding": "identity"},
+            ) as response:
+                if response.status_code == 401:
+                    # CAS against the exact grant. A stale rejection never disables
+                    # an account connected while this request was in flight.
+                    await asyncio.to_thread(
+                        self._gmail._mark_connection_needs_reauth,
+                        user_id=self._user_id,
+                        message="Reconnect Mail to continue.",
+                        observed=self._observation,
+                    )
+                    raise GmailMetadataError("reconnect_required")
+                if response.status_code == 403:
+                    code = await _forbidden_code(response)
+                    retry_allowed = code == "retryable"
+                elif response.status_code == 404:
+                    raise GmailMetadataError("source_changed")
+                elif response.status_code != 200:
+                    code = "retryable"
+                    retry_allowed = response.status_code in _RETRYABLE_GET_STATUSES
+                else:
+                    if response.headers.get("content-encoding", "identity").lower() != "identity":
+                        raise GmailMetadataError("invalid_response")
+                    content = bytearray()
+                    async for chunk in response.aiter_raw():
+                        self._remaining -= len(chunk)
+                        if self._remaining < 0:
+                            raise GmailMetadataError("response_too_large")
+                        content.extend(chunk)
+                    break
+                # A provider wait longer than this turn's deadline is returned
+                # as retryable rather than silently ignored or slept through.
+                retry_after = response.headers.get("retry-after", "")
+                if retry_after:
+                    retry_delay = (
+                        max(retry_delay, float(retry_after))
+                        if len(retry_after) <= 3
+                        and retry_after.isascii()
+                        and retry_after.isdecimal()
+                        else _DEADLINE
+                    )
+            deadline_at = self._deadline_at
+            can_retry = (
+                attempt == 0
+                and retry_allowed
+                and deadline_at is not None
+                and asyncio.get_running_loop().time() + retry_delay + _MIN_RETRY_REQUEST_SECONDS
+                < deadline_at
+            )
+            if not can_retry:
+                raise GmailMetadataError(code)
+            await asyncio.sleep(retry_delay)
         try:
             payload = json.loads(content)
         except (ValueError, UnicodeError):

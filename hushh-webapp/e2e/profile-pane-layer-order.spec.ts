@@ -82,7 +82,7 @@ test.describe("profile pane layer order", () => {
 
     // Leave the reviewer fixture as it was found.
     await trigger.click();
-    await page.getByRole("option", { name: "iOS Blue" }).click();
+    await page.getByRole("option", { name: "Blue", exact: true }).click();
     await expect
       .poll(() =>
         page.evaluate(

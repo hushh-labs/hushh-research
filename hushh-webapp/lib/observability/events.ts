@@ -1,5 +1,6 @@
 import type { ObservabilityEnvironment } from "@/lib/observability/env";
 import type { RouteId } from "@/lib/observability/route-map";
+import type { LivingSourceInput } from "@/lib/pkm/living-source-records";
 
 export type ObservabilityPlatform = "web" | "ios" | "android";
 export type ObservabilityEventCategory = "funnel" | "feature" | "system";
@@ -170,6 +171,7 @@ export type ObservabilityEventName =
   | "ria_workspace_opened"
   | "mcp_ria_read_tool_called"
   | "profile_method_switch_result"
+  | "vault_unlock_result"
   | "account_delete_requested"
   | "account_delete_completed"
   | "account_reset_requested"
@@ -192,6 +194,7 @@ export type ObservabilityEventName =
   | "agent_pkm_context_resolved"
   | "agent_pkm_context_unavailable"
   | "agent_pkm_save_confirmation_completed"
+  | "live_memory_source_verified"
   | "one_location_foreground_retry"
   | "one_location_share_confirmed"
   | "one_location_contact_signal_synced"
@@ -231,6 +234,45 @@ export type DurationBucket =
   | "1s_3s"
   | "3s_10s"
   | "gte_10s";
+
+/**
+ * Minute-scale durations for background work that is measured in minutes,
+ * not milliseconds. `unknown` is a duration nobody could measure, which is
+ * not the same as a long one.
+ */
+export const MINUTE_DURATION_BUCKETS = [
+  "lt_1m",
+  "1m_5m",
+  "5m_15m",
+  "15m_1h",
+  "gte_1h",
+  "unknown",
+] as const;
+export type MinuteDurationBucket = (typeof MINUTE_DURATION_BUCKETS)[number];
+
+/** Non-overlapping bands, with no exact count above one. `unknown` is a count nobody could take. */
+export const COUNT_BUCKETS = ["0", "1", "2_5", "6_20", "gt_20", "unknown"] as const;
+export type CountBucket = (typeof COUNT_BUCKETS)[number];
+
+/** How a living source check ended: read in full, could not be read, or refused at a bound. */
+export const LIVE_MEMORY_SOURCE_OUTCOMES = ["verified", "unavailable", "capped"] as const;
+export type LiveMemorySourceOutcome = (typeof LIVE_MEMORY_SOURCE_OUTCOMES)[number];
+
+/**
+ * The admitted living source kinds. Never a record, a value or an owner.
+ * Listed here so the schema can refuse any other value at runtime; a kind
+ * admitted later fails to compile at the sync's emitter until it is added.
+ */
+export const LIVE_MEMORY_SOURCE_KINDS = [
+  "profile",
+  "consent",
+  "connection",
+  "curated_oauth_connector",
+  "document_earning",
+  "payout_activity",
+  "document_request_payment",
+] as const satisfies readonly LivingSourceInput["kind"][];
+export type LiveMemorySourceKind = (typeof LIVE_MEMORY_SOURCE_KINDS)[number];
 
 export type EventResult = "success" | "expected_error" | "error";
 export type CacheTier =
@@ -289,7 +331,15 @@ export type ConsentPendingCountBucket =
   | "11_plus";
 /** Whether a pending-consent load was a real screen view or a background warm. */
 export type ConsentPendingLoadSurface = "screen" | "warm";
-export type AuthMethod = "google" | "apple" | "reviewer" | "redirect" | "existing_session";
+export type AuthMethod =
+  | "google"
+  | "apple"
+  | "microsoft"
+  | "email"
+  | "enterprise_sso"
+  | "reviewer"
+  | "redirect"
+  | "existing_session";
 export type ConsentAction = "approve" | "deny" | "revoke";
 
 export interface EventContext {
@@ -297,6 +347,7 @@ export interface EventContext {
   platform: ObservabilityPlatform;
   event_category: ObservabilityEventCategory;
   app_version: string;
+  app_build?: string;
   route_id?: RouteId;
 }
 
@@ -338,6 +389,7 @@ const EVENT_CATEGORY_BY_NAME: Record<
   ria_workspace_opened: "system",
   mcp_ria_read_tool_called: "system",
   profile_method_switch_result: "system",
+  vault_unlock_result: "system",
   account_delete_requested: "system",
   account_delete_completed: "system",
   account_reset_requested: "system",
@@ -360,6 +412,7 @@ const EVENT_CATEGORY_BY_NAME: Record<
   agent_pkm_context_resolved: "system",
   agent_pkm_context_unavailable: "system",
   agent_pkm_save_confirmation_completed: "system",
+  live_memory_source_verified: "system",
   one_location_foreground_retry: "feature",
   one_location_share_confirmed: "feature",
   one_location_contact_signal_synced: "feature",
@@ -564,6 +617,11 @@ export interface EventPayloadMap {
   profile_method_switch_result: {
     result: EventResult;
   };
+  vault_unlock_result: {
+    method: "passphrase";
+    result: EventResult;
+    error_class?: string;
+  };
   account_delete_requested: {
     result: "success";
   };
@@ -724,6 +782,28 @@ export interface EventPayloadMap {
     saved_count_bucket: PkmFactCountBucket;
     failed_count_bucket: PkmFactCountBucket;
     has_active_recipients: boolean;
+  };
+  /**
+   * One living source was checked by the Live Memory background sync and the
+   * encrypted store succeeded. At most one per kind per build. A source reused
+   * from its freshness window, or left waiting on its retry delay, emits nothing,
+   * and the always-read profile is reported only when the build wrote a change,
+   * so a quiet wake emits nothing at all.
+   *
+   * Buckets only, each a closed set the schema enforces. No owner, record id,
+   * value, timestamp or exact count may be added: the lag bucket already says
+   * how long a committed change waited for its encrypted write, and that is the
+   * whole measurement.
+   */
+  live_memory_source_verified: {
+    kind: LiveMemorySourceKind;
+    outcome: LiveMemorySourceOutcome;
+    /** Commit-to-encrypted-write lag of the oldest change this check cleared. */
+    lag_bucket: MinuteDurationBucket;
+    /** Committed changes waiting on this source when the build ran. */
+    pending_bucket: CountBucket;
+    /** Failed reads in a row before this one. */
+    retry_bucket: CountBucket;
   };
   one_location_foreground_retry: {
     route_id: RouteId;

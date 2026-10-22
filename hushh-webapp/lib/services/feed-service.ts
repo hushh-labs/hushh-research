@@ -1,5 +1,7 @@
 import { ApiService } from "@/lib/services/api-service";
-import { currentFeedInvalidationEpoch } from "@/lib/cache/feed-invalidation-epoch";
+import { bumpFeedPresentationRevision, currentFeedInvalidationEpoch } from "@/lib/cache/feed-invalidation-epoch";
+import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {
   CACHE_KEYS,
   CACHE_TTL,
@@ -7,9 +9,16 @@ import {
 } from "@/lib/services/cache-service";
 
 export type FeedSourceDomain =
-  "consent" | "location" | "kai" | "kyc" | "connected_systems" | "connections";
+  | "consent"
+  | "location"
+  | "kai"
+  | "kyc"
+  | "connected_systems"
+  | "connections"
+  | "pwm";
 
 export type FeedEventType =
+  | "pwm_research"
   | "consent_requested"
   | "consent_granted"
   | "consent_revoked"
@@ -78,6 +87,7 @@ export type FeedEventType =
   | "drive_search_limited"
   | "drive_search_failed"
   | "drive_search_stopped"
+  | "document_share_request_sent"
   | "drive_share_succeeded"
   | "drive_share_failed"
   | "drive_share_unconfirmed"
@@ -120,6 +130,19 @@ export type FeedListResponse = {
   items: FeedItem[];
   next_cursor: string | null;
   unread_count: number;
+  /** Opaque owner received-message deletion revision; absent on older backends. */
+  history_revision?: string | null;
+};
+
+/** A removal the server stored for this account. */
+export type FeedDismissal = {
+  /** The Undo version; a later Clear replaces it. */
+  token: string;
+  /**
+   * Every row the server hid with this removal, including Drive rows the Feed
+   * was folding behind the removed row. Null from a server that predates it.
+   */
+  itemIds: string[] | null;
 };
 
 type ErrorPayload = {
@@ -143,6 +166,121 @@ async function authHeader(idToken: string): Promise<Record<string, string>> {
 }
 
 export class FeedService {
+  private static async postMutation<T>(options: {
+    idToken: string;
+    userId: string;
+    path: string;
+    body?: Record<string, string>;
+    isEffectCurrent?: () => boolean;
+  }): Promise<T> {
+    const response = await ApiService.apiFetch(options.path, {
+      method: "POST",
+      headers: {
+        ...(await authHeader(options.idToken)),
+        ...(options.body ? { "Content-Type": "application/json" } : {}),
+      },
+      ...(options.body ? { body: JSON.stringify(options.body) } : {}),
+      isEffectCurrent: options.isEffectCurrent,
+    });
+    const payload = (await response.json().catch(() => ({}))) as T &
+      ErrorPayload;
+    if (!response.ok) {
+      throw feedRequestError(payload, response.status);
+    }
+    // Also advances the Feed epoch: an older in-flight list/count response
+    // cannot refill the cache after this server mutation has settled.
+    CacheSyncService.onFeedChanged(options.userId);
+    bumpFeedPresentationRevision(options.userId);
+    CacheService.getInstance().invalidate(CACHE_KEYS.FEED_PRESENTATION(options.userId));
+    return payload as T;
+  }
+
+  static async dismiss(options: {
+    idToken: string;
+    userId: string;
+    itemId: string;
+    isEffectCurrent?: () => boolean;
+  }): Promise<FeedDismissal | null> {
+    const result = await this.postMutation<{
+      dismissal_token?: unknown;
+      dismissed_ids?: unknown;
+    }>({
+      ...options,
+      path: `/api/one/feed/${encodeURIComponent(options.itemId)}/dismiss`,
+    });
+    if (typeof result.dismissal_token !== "string") return null;
+    return {
+      token: result.dismissal_token,
+      itemIds: Array.isArray(result.dismissed_ids)
+        ? result.dismissed_ids.filter(
+            (id): id is string => typeof id === "string" && id.length > 0,
+          )
+        : null,
+    };
+  }
+
+  static async restore(options: {
+    idToken: string;
+    userId: string;
+    itemId: string;
+    dismissalToken: string;
+    isEffectCurrent?: () => boolean;
+  }): Promise<boolean> {
+    const result = await this.postMutation<{ restored?: unknown }>({
+      ...options,
+      path: `/api/one/feed/${encodeURIComponent(options.itemId)}/restore`,
+      body: { dismissal_token: options.dismissalToken },
+    });
+    return result.restored === true;
+  }
+
+  static async clear(options: {
+    idToken: string;
+    userId: string;
+    upToId: string;
+    isEffectCurrent?: () => boolean;
+  }): Promise<void> {
+    await this.postMutation<{ status: string }>({
+      idToken: options.idToken,
+      userId: options.userId,
+      isEffectCurrent: options.isEffectCurrent,
+      path: "/api/one/feed/clear",
+      // Preserve the full Postgres bigint on the wire.
+      body: { up_to_id: options.upToId },
+    });
+  }
+
+  /**
+   * Clear ended SOS cards from this account's Feed on every device. SOS cards
+   * come from vault-gated Location state, so this takes the vault owner token.
+   * Resolves with the ids the server holds as cleared; a live share is never
+   * cleared.
+   */
+  static async clearSosCards(options: {
+    vaultOwnerToken: string;
+    grantIds: string[];
+  }): Promise<string[]> {
+    const response = await ApiService.apiFetch("/api/one/feed/sos-cards/clear", {
+      method: "POST",
+      headers: {
+        ...(await authHeader(options.vaultOwnerToken)),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ grant_ids: options.grantIds }),
+    });
+    const payload = (await response.json().catch(() => ({}))) as {
+      cleared_grant_ids?: unknown;
+    } & ErrorPayload;
+    if (!response.ok) {
+      throw feedRequestError(payload, response.status);
+    }
+    return Array.isArray(payload.cleared_grant_ids)
+      ? payload.cleared_grant_ids.filter(
+          (id): id is string => typeof id === "string",
+        )
+      : [];
+  }
+
   /**
    * The first page (no cursor) is the only page cached: it's what a revisit
    * needs to render instantly, and it's what the mutation/poll paths below
@@ -155,14 +293,21 @@ export class FeedService {
     cursor?: string | null;
     limit?: number;
     force?: boolean;
+    isEffectCurrent?: () => boolean;
   }): Promise<FeedListResponse> {
+    const generation = getAuthSessionGeneration();
+    const isCurrent = () => getAuthSessionGeneration() === generation
+      && (options.isEffectCurrent?.() ?? true);
+    if (!isCurrent()) throw new DOMException("The Feed session changed.", "AbortError");
     const isFirstPage = !options.cursor;
     const firstPageUserId = isFirstPage ? options.userId : undefined;
     const cacheKey = firstPageUserId
       ? CACHE_KEYS.FEED_LIST(firstPageUserId)
       : null;
     const cache = CacheService.getInstance();
-    const epoch = firstPageUserId ? currentFeedInvalidationEpoch(firstPageUserId) : null;
+    const epoch = firstPageUserId
+      ? currentFeedInvalidationEpoch(firstPageUserId)
+      : null;
     if (cacheKey && !options.force) {
       const cached = cache.get<FeedListResponse>(cacheKey);
       if (cached) return cached;
@@ -177,6 +322,7 @@ export class FeedService {
       {
         method: "GET",
         headers: await authHeader(options.idToken),
+        isEffectCurrent: isCurrent,
       },
     );
     const payload = (await response
@@ -185,7 +331,11 @@ export class FeedService {
     if (!response.ok) {
       throw feedRequestError(payload, response.status);
     }
-    if (cacheKey && firstPageUserId && epoch === currentFeedInvalidationEpoch(firstPageUserId)) {
+    if (
+      isCurrent() && cacheKey &&
+      firstPageUserId &&
+      epoch === currentFeedInvalidationEpoch(firstPageUserId)
+    ) {
       cache.set(cacheKey, payload, CACHE_TTL.SHORT);
       // The list response and bottom-nav badge describe the same snapshot.
       // Seed both keyed projections together so opening Feed does not launch a
@@ -222,13 +372,15 @@ export class FeedService {
       throw feedRequestError(payload, response.status);
     }
     const count = payload.unread_count ?? 0;
-    if (epoch === currentFeedInvalidationEpoch(options.userId)) cache.set(cacheKey, count, CACHE_TTL.SHORT);
+    if (epoch === currentFeedInvalidationEpoch(options.userId))
+      cache.set(cacheKey, count, CACHE_TTL.SHORT);
     return count;
   }
 
   static async markRead(options: {
     idToken: string;
     upToId: string;
+    isEffectCurrent?: () => boolean;
   }): Promise<void> {
     const response = await ApiService.apiFetch("/api/one/feed/read", {
       method: "POST",
@@ -241,6 +393,7 @@ export class FeedService {
         // validates/coerces the request without crossing Number's 53-bit limit.
         up_to_id: options.upToId,
       }),
+      isEffectCurrent: options.isEffectCurrent,
     });
     if (!response.ok) {
       const payload = (await response.json().catch(() => ({}))) as ErrorPayload;

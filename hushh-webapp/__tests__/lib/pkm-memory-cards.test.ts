@@ -155,6 +155,15 @@ const metadata: PersonalKnowledgeModelMetadata = {
 };
 
 describe("PKM memory cards", () => {
+  it("does not present a business entity name as the person's name", () => {
+    const snapshot = buildPkmMemorySnapshot({ metadata, fullBlob: {
+      professional: { businesses: { entities: { demo: { name: "Demo Cafe" } } },
+        profile: { name: "Demo Person" } },
+    } });
+    expect(snapshot.cards.map(card => card.title)).toContain("Name: Demo Cafe");
+    expect(snapshot.cards.map(card => card.title)).toContain("Your name is Demo Person");
+    expect(snapshot.cards.map(card => card.title)).not.toContain("Your name is Demo Cafe");
+  });
   it("derives readable memory cards from decrypted PKM", () => {
     const snapshot = buildPkmMemorySnapshot({
       metadata,
@@ -340,8 +349,8 @@ describe("PKM memory cards", () => {
 
     it("keeps the wallet domain memory-visible while pruning its secrets subtree", () => {
       // Card summaries (nickname, network, last4) are Memory items like any
-      // other domain; PAN, CVV, and PIN live under `secrets`, which
-      // SECRET_KEY_PATTERN prunes before anything reaches a card or a model.
+      // other domain. Historical secrets and private artwork stay outside
+      // Memory, including its owner-facing view.
       expect(shouldSkipPkmMemoryKey("wallet")).toBe(false);
       expect(shouldSkipPkmMemoryKey("secrets")).toBe(true);
       const snapshot = buildPkmMemorySnapshot({
@@ -350,6 +359,7 @@ describe("PKM memory cards", () => {
           wallet: {
             summary: { card_1: { nickname: "Everyday Visa", brand: "visa", last4: "1111" } },
             secrets: { card_1: { pan: "4111111111111111", cvv: "123", pin: "1234" } },
+            artwork: { card_1: { source: "photo", image: "private-raster-marker" } },
           },
         },
       });
@@ -357,6 +367,7 @@ describe("PKM memory cards", () => {
       expect(rendered).toContain("Everyday Visa");
       expect(rendered).not.toContain("4111111111111111");
       expect(rendered).not.toContain("1234");
+      expect(rendered).not.toContain("private-raster-marker");
     });
   });
 

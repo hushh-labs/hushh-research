@@ -15,8 +15,12 @@ prove it runs inside the SQL, before ``LIMIT``, so pages stay full and
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Iterator
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -45,6 +49,11 @@ CREATE TABLE actor_identity_cache (
   email TEXT,
   phone_number TEXT,
   phone_verified BOOLEAN,
+  email_verified BOOLEAN DEFAULT FALSE,
+  source TEXT DEFAULT 'test',
+  last_synced_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
   photo_url TEXT,
   custom_photo_url TEXT
 );
@@ -136,11 +145,25 @@ def _person(
     vault: str | None = "active",
     discoverable: bool | None = None,
     trusted_by_owner: bool = False,
+    email: str | None = None,
+    phone: str | None = None,
+    phone_verified: bool = False,
 ) -> None:
-    params = {"uid": user_id, "name": name, "discoverable": discoverable}
+    params = {
+        "uid": user_id,
+        "name": name,
+        "discoverable": discoverable,
+        "email": email,
+        "phone": phone,
+        "phone_verified": phone_verified,
+    }
     conn.execute(text("INSERT INTO actor_profiles (user_id) VALUES (:uid)"), params)
     conn.execute(
-        text("INSERT INTO actor_identity_cache (user_id, display_name) VALUES (:uid, :name)"),
+        text(
+            "INSERT INTO actor_identity_cache"
+            " (user_id, display_name, email, phone_number, phone_verified)"
+            " VALUES (:uid, :name, :email, :phone, :phone_verified)"
+        ),
         params,
     )
     if discoverable is not None:
@@ -211,19 +234,15 @@ def test_directory_hides_only_strangers_without_an_active_vault_on_postgres(
     _person(connection, "trusted-no-vault", "Tess Trusted", vault=None, trusted_by_owner=True)
     _person(connection, "trusts-me", "Uma Reverse", vault=None)
     _trusted(connection, "trusts-me", OWNER)
-    # An opt-out hides a person from strangers. A trusted edge from the viewer
-    # or an active connection to them lifts it: "My connections" already lists
-    # that person, so a search that cannot find them contradicts the screen.
-    # Circle and contact-sync connections never mirrored a trusted edge, so the
-    # connection itself has to be enough (Abdul Rashid on UAT, 2026-10-03).
+    # A marketplace opt-out is not a request to leave the Connect directory, so
+    # it hides nobody by name -- stranger, connected, trusted or otherwise. It
+    # only keeps a person out of email and phone lookups (tested below).
     _person(connection, "opted-out", "Olive Optout", discoverable=False)
     _person(connection, "trusted-hidden", "Hana Hidden", discoverable=False, trusted_by_owner=True)
     _person(connection, "connected-hidden", "Cody Hidden", discoverable=False)
     _connected(connection, "connected-hidden")
-    # Negative control: a resolved connection is history, so the opt-out wins.
     _person(connection, "revoked-hidden", "Rhea Hidden", discoverable=False)
     _connected(connection, "revoked-hidden", status="revoked")
-    # Negative control: an unanswered request is not a connection either.
     _person(connection, "asked-hidden", "Asa Hidden", discoverable=False, vault="active")
     _requested(connection, OWNER, "asked-hidden")
     service = _Directory(connection)
@@ -232,11 +251,14 @@ def test_directory_hides_only_strangers_without_an_active_vault_on_postgres(
 
     assert [item["userId"] for item in listed["items"]] == [
         "active",
+        "asked-hidden",
         "connected-hidden",
         "connected",
         "trusted-hidden",
         "asked-me",
+        "opted-out",
         "asked-them",
+        "revoked-hidden",
         "trusted-no-vault",
         "trusts-me",
     ]
@@ -261,7 +283,16 @@ def test_directory_hides_only_strangers_without_an_active_vault_on_postgres(
         )
         if service.is_directory_candidate(owner_user_id=OWNER, candidate_user_id=uid)
     }
-    assert visible == {"active", "connected", "asked-them", "asked-me", "connected-hidden"}
+    assert visible == {
+        "active",
+        "connected",
+        "asked-them",
+        "asked-me",
+        "opted-out",
+        "connected-hidden",
+        "revoked-hidden",
+        "asked-hidden",
+    }
 
 
 @pytest.mark.parametrize("query", ["", "member"])
@@ -396,8 +427,213 @@ def test_bounded_directory_profile_lookup_keeps_visibility_and_empty_list_bounda
         candidate_user_ids=["visible", "hidden"],
         limit=50,
     )
-    assert [item["userId"] for item in result["items"]] == ["visible"]
+    # Names are not gated by the marketplace flag; the lookup stays bounded to
+    # the ids asked for.
+    assert [item["userId"] for item in result["items"]] == ["hidden", "visible"]
     assert (
         service.search_directory_candidates(owner_user_id=OWNER, candidate_user_ids=[])["items"]
         == []
     )
+
+
+def test_directory_email_typeahead_ranks_names_and_pages_contact_matches(connection, monkeypatch):
+    email = "mailbox.alias+tag@example.test"
+    _person(connection, OWNER, "Owner", email=email)
+    _person(connection, "target", "Zoe Peer", email=email)
+    _person(connection, "second", "Aaron Peer", email="mailbox.other@example.test")
+    _person(connection, "name", "Mailbox Person", email="unrelated@elsewhere.test")
+    _person(connection, "hidden", "Hidden Peer", email=email, discoverable=False)
+    _person(connection, "unfinished", "Unfinished Peer", email=email, vault=None)
+    _person(connection, "disabled", "Disabled Peer", email=email)
+    service = _Directory(connection)
+    monkeypatch.setattr(service, "_active_directory_user_ids", lambda ids: set(ids) - {"disabled"})
+
+    for length in range(1, len(email) + 1):
+        result = service.search_directory_candidates(owner_user_id=OWNER, query=email[:length])
+        ids = [item["userId"] for item in result["items"]]
+        assert "target" in ids, email[:length]
+        assert not {OWNER, "hidden", "unfinished", "disabled"}.intersection(ids)
+        assert all("phoneNumber" not in item and not item.get("email") for item in result["items"])
+
+    for query in ("MAILBOX.ALIAS@", "  ALIAS+TAG@EXAMPLE  ", "@example.test"):
+        result = service.search_directory_candidates(owner_user_id=OWNER, query=query)
+        expected = [] if query == "MAILBOX.ALIAS@" else ["target"]
+        if query == "@example.test":
+            expected = ["second", "target"]
+        assert [item["userId"] for item in result["items"]] == expected
+
+    pages = [
+        service.search_directory_candidates(
+            owner_user_id=OWNER, query="mailbox", page=page, limit=1
+        )
+        for page in range(1, 4)
+    ]
+    assert [page["items"][0]["userId"] for page in pages] == ["name", "second", "target"]
+    assert [page["hasMore"] for page in pages] == [True, True, False]
+    names = service.search_directory_candidates(
+        owner_user_id=OWNER, query="mailbox", limit=1, name_only=True
+    )
+    assert [item["userId"] for item in names["items"]] == ["name"]
+    assert names["hasMore"] is False
+
+
+def test_directory_contact_search_recovers_provider_names_before_paging(connection, monkeypatch):
+    _person(connection, "recovered", "", email="match@example.test")
+    _person(connection, "cached", "Zoe Peer", email="match@example.test")
+    service = _Directory(connection)
+    monkeypatch.setattr(
+        service,
+        "_directory_auth_profiles",
+        lambda ids: {"recovered": {"display_name": "Aaron Peer", "photo_url": None}},
+    )
+    first = service.search_directory_candidates(owner_user_id=OWNER, query="match@", limit=1)
+    second = service.search_directory_candidates(
+        owner_user_id=OWNER, query="match@", limit=1, page=2
+    )
+    assert [item["userId"] for item in first["items"]] == ["recovered"]
+    assert first["hasMore"] is True
+    assert [item["userId"] for item in second["items"]] == ["cached"]
+    assert second["hasMore"] is False
+
+
+@pytest.mark.parametrize(
+    ("phone", "national"),
+    [
+        ("+91 98765-43210", "9876543210"),
+        ("+1 (415) 555-0123", "4155550123"),
+        ("+44 7700 900123", "7700900123"),
+        ("+358 40 1234567", "401234567"),
+        ("+39 06 6982", "066982"),
+    ],
+)
+def test_directory_phone_typeahead_with_and_without_country_code(connection, phone, national):
+    _person(connection, "target", "Zoe Peer", phone=phone, phone_verified=True)
+    _person(connection, "unverified", "Unverified Peer", phone=phone, phone_verified=False)
+    _person(
+        connection, "hidden", "Hidden Peer", phone=phone, phone_verified=True, discoverable=False
+    )
+    _person(connection, "other", "Other Peer", phone="+33 612 345678", phone_verified=True)
+    service = _Directory(connection)
+    international = "".join(char for char in phone if char.isdigit())
+    for query in [
+        phone,
+        international,
+        national,
+        "00" + international,
+        f"{national[:3]} {national[3:6]}-{national[6:]}",
+    ]:
+        result = service.search_directory_candidates(owner_user_id=OWNER, query=query)
+        assert [item["userId"] for item in result["items"]] == ["target"], query
+        assert national not in str(result)
+        assert (
+            result["items"][0]["maskedPhone"]
+            == national[:2] + "*" * (len(national) - 4) + national[-2:]
+        )
+    for digits in (national, international):
+        for length in range(1, len(digits) + 1):
+            result = service.search_directory_candidates(owner_user_id=OWNER, query=digits[:length])
+            ids = [item["userId"] for item in result["items"]]
+            assert "target" in ids, digits[:length]
+            assert not {"unverified", "hidden"}.intersection(ids)
+    for query in ("+999" + national, "call " + national, "+", "()"):
+        assert service.search_directory_candidates(owner_user_id=OWNER, query=query)["items"] == []
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "09876543210",
+        "0091 (0) 98765",
+        "+91 (0) 98765",
+        "+९१ ९८७६५ ४३२१०",
+        "＋９１ ９８７６５ ４３２１０",
+        "+91\u200e 98765\u201143210",
+    ],
+)
+def test_directory_normalized_phone_variants_run_before_sql_pagination(connection, query):
+    _person(connection, "target", "Zoe Peer", phone="+919876543210", phone_verified=True)
+    _person(
+        connection, "unverified", "Unverified Peer", phone="+919876543210", phone_verified=False
+    )
+    _person(connection, "decoy", "Aaron Peer", phone="+14155550123", phone_verified=True)
+    result = _Directory(connection).search_directory_candidates(
+        owner_user_id=OWNER, query=query, limit=1
+    )
+    assert [item["userId"] for item in result["items"]] == ["target"]
+    assert result["hasMore"] is False
+    assert result["items"][0]["maskedPhone"] == "98******10"
+
+
+def test_directory_email_punctuation_is_literal(connection):
+    _person(connection, "target", "Target Peer", email="odd_%!+tag@example.test")
+    _person(connection, "decoy", "Other Peer", email="oddABtag@example.test")
+    service = _Directory(connection)
+    for query in ("_", "%", "%!", "odd_%!+", "odd_%!+tag@example.test"):
+        result = service.search_directory_candidates(owner_user_id=OWNER, query=query)
+        assert [item["userId"] for item in result["items"]] == ["target"], query
+
+
+@pytest.mark.parametrize("concurrent_claim", [False, True])
+async def test_missing_provider_phone_repair_becomes_searchable_without_replacing_claims(
+    connection, monkeypatch, concurrent_claim
+):
+    import hushh_mcp.services.actor_identity_service as identities
+
+    _person(connection, "target", "Zoe Peer", phone_verified=False)
+
+    class Adapter:
+        def statement(self, sql, args):
+            return connection.execute(
+                text(re.sub(r"\$(\d+)", lambda match: f":arg_{match[1]}", sql)),
+                {f"arg_{index}": value for index, value in enumerate(args, 1)},
+            )
+
+        async def execute(self, sql, *args):
+            self.statement(sql, args)
+
+        async def fetch(self, sql, *args):
+            return [dict(row) for row in self.statement(sql, args).mappings()]
+
+        async def fetchrow(self, sql, *args):
+            row = self.statement(sql, args).mappings().first()
+            return dict(row) if row else None
+
+        @asynccontextmanager
+        async def transaction(self):
+            with connection.begin_nested():
+                yield
+
+    @asynccontextmanager
+    async def acquire():
+        yield Adapter()
+
+    monkeypatch.setattr(
+        identities, "get_pool", AsyncMock(return_value=SimpleNamespace(acquire=acquire))
+    )
+    service = identities.ActorIdentityService()
+    monkeypatch.setattr(service, "_ensure_actor_spine", AsyncMock())
+    monkeypatch.setattr(service, "_sync_referral_qualification_best_effort", AsyncMock())
+    monkeypatch.setattr(
+        service, "get_many", AsyncMock(return_value={"target": {"phone_verified": False}})
+    )
+
+    async def provider(*args, **kwargs):
+        if concurrent_claim:
+            connection.execute(
+                text(
+                    "UPDATE actor_identity_cache SET phone_number='+14155550199', phone_verified=TRUE WHERE user_id='target'"
+                )
+            )
+        return SimpleNamespace(phone_number="+919876543210", disabled=False)
+
+    monkeypatch.setattr(service, "_get_firebase_user_record", provider)
+    await service.sync_verified_phone_from_firebase("target", missing_only=True)
+    phone = "+14155550199" if concurrent_claim else "+919876543210"
+    assert (
+        connection.execute(
+            text("SELECT phone_number FROM actor_identity_cache WHERE user_id='target'")
+        ).scalar_one()
+        == phone
+    )
+    result = _Directory(connection).search_directory_candidates(owner_user_id=OWNER, query=phone)
+    assert [item["userId"] for item in result["items"]] == ["target"]

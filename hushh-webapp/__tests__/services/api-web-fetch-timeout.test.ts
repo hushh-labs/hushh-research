@@ -24,6 +24,16 @@ describe("fetchWithWebTimeout", () => {
     vi.unstubAllGlobals();
   });
 
+  it("allows the native PWM source response to finish within the proxy budget", () => {
+    expect(webFetchTimeoutMsForPath("/api/one/world-model/source-reviews")).toBe(180_000);
+    expect(webFetchTimeoutMsForPath("/api/one/world-model/source-reviews?purpose=invitation")).toBe(180_000);
+    expect(webFetchTimeoutMsForPath("/api/one/world-model/jobs")).toBe(60_000);
+  });
+  it("outlasts the Location proposal proxy without extending other One requests", () => {
+    expect(webFetchTimeoutMsForPath("/api/one/agent-chat/proposals")).toBe(150_000);
+    expect(webFetchTimeoutMsForPath("/api/one/agent-chat/proposals?source=voice")).toBe(150_000);
+    expect(webFetchTimeoutMsForPath("/api/one/agent-chat/proposals/typed")).toBe(60_000);
+  });
   it("keeps the browser alive longer than the KYC scan proxy budget", () => {
     expect(
       webFetchTimeoutMsForPath("/api/one/email/information-requests/scan"),
@@ -48,6 +58,7 @@ describe("fetchWithWebTimeout", () => {
 
   it("lets a committing account deletion finish instead of aborting at 60 s", () => {
     expect(webFetchTimeoutMsForPath("/api/account/delete")).toBe(180_000);
+    expect(webFetchTimeoutMsForPath("/api/account/delete-lost-vault")).toBe(180_000);
     expect(webFetchTimeoutMsForPath("/api/account/session-status")).toBe(60_000);
   });
 

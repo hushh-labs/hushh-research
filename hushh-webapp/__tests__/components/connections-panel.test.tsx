@@ -21,6 +21,8 @@ const state = vi.hoisted(() => ({
   nativeStart: vi.fn(),
   nativePending: vi.fn(),
   nativeFinalize: vi.fn(),
+  verifyLiveDrive: vi.fn(),
+  liveBackground: vi.fn(),
   nativeCallback: vi.fn(),
   nativePickerStart: vi.fn(),
   nativePickerPending: vi.fn(),
@@ -69,6 +71,8 @@ vi.mock("@/lib/services/external-connector-service", () => ({
     startOAuthConnect: state.nativeStart,
     pendingNative: state.nativePending,
     finalizeNative: state.nativeFinalize,
+    verifyLiveDrive: state.verifyLiveDrive,
+    liveBackground: state.liveBackground,
     nativeDriveOAuthCallbackUri: state.nativeCallback,
     startNativePicker: state.nativePickerStart,
     pendingNativePicker: state.nativePickerPending,
@@ -81,6 +85,7 @@ vi.mock("@/lib/services/google-drive-picker-service", () => ({
   GoogleDrivePickerService: { choose: state.pick },
 }));
 import { ConnectorsPanel } from "@/components/agent/connectors-panel";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 const overview = (label = "drive@example.invalid") => ({
   features: {
     connections_panel_v2: true,
@@ -163,6 +168,8 @@ describe("Connectors owner and mutation fences", () => {
       connectorId: "google_drive",
       status: "connected",
     });
+    state.verifyLiveDrive.mockResolvedValue({ connectorId: "google_drive", status: "connected" });
+    state.liveBackground.mockResolvedValue(true);
     state.nativeCallback.mockReturnValue(
       "https://api.example.invalid/api/connectors/oauth/native/callback",
     );
@@ -174,6 +181,68 @@ describe("Connectors owner and mutation fences", () => {
     );
   });
   afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+
+  it.each([false, true])("recovers an authorized live Drive grant without another Google sign-in (native=%s)", async (native) => {
+    state.native = native;
+    const pending = { ...overview(), connectors: [{ ...overview().connectors[0],
+      profile: "live", status: "verifying" }] };
+    state.overview.mockResolvedValue(pending);
+    state.verifyLiveDrive.mockImplementation(async () => {
+      state.overview.mockResolvedValue({ ...pending, connectors: [{ ...pending.connectors[0], status: "connected" }] });
+      return { connectorId: "google_drive", status: "connected" };
+    });
+    render(<ConnectorsPanel {...props()} />);
+    await openDriveDetail();
+    if (!native) {
+      expect(await screen.findByText("Authorized · connection check needed")).toBeVisible();
+      fireEvent.click(screen.getByRole("button", { name: "Retry Drive" }));
+    }
+    await waitFor(() => expect(state.verifyLiveDrive).toHaveBeenCalledWith(expect.objectContaining({ vaultOwnerToken: "vault-a" })));
+    expect(await screen.findByText("Connected", { selector: '[role="status"]' })).toBeVisible();
+    expect(state.nativeStart).not.toHaveBeenCalled();
+    expect(state.nativeDrive).not.toHaveBeenCalled();
+  });
+
+  it("keeps a failed live verification authorized and never presents it as connected", async () => {
+    state.overview.mockResolvedValue({ ...overview(), connectors: [{ ...overview().connectors[0],
+      profile: "live", status: "verifying" }] });
+    state.verifyLiveDrive.mockRejectedValue(new Error("provider_unavailable"));
+    render(<ConnectorsPanel {...props()} />);
+    await openDriveDetail();
+    fireEvent.click(await screen.findByRole("button", { name: "Retry Drive" }));
+    await waitFor(() => expect(state.verifyLiveDrive).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Retry Drive" })).toBeEnabled());
+    expect(screen.getByText("Authorized · connection check needed")).toBeVisible();
+    expect(screen.queryByText("Connected", { selector: '[role="status"]' })).toBeNull();
+    expect(state.nativeStart).not.toHaveBeenCalled();
+  });
+
+  it("does not upgrade a selected-file grant through live verification during native recovery", async () => {
+    state.native = true;
+    state.overview.mockResolvedValue({ ...overview(), connectors: [{ ...overview().connectors[0],
+      profile: "selected", status: "verifying" }] });
+    render(<ConnectorsPanel {...props()} />);
+    await openDriveDetail();
+    expect(await screen.findByText("Authorized · choose files to verify")).toBeVisible();
+    expect(state.verifyLiveDrive).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Retry Drive" })).toBeNull();
+  });
+
+  it("shows sign-in recovery when the provider rejects the saved grant during verification", async () => {
+    const pending = { ...overview(), connectors: [{ ...overview().connectors[0],
+      profile: "live", status: "verifying" }] };
+    state.overview.mockResolvedValue(pending);
+    state.verifyLiveDrive.mockImplementation(async () => {
+      state.overview.mockResolvedValue({ ...pending, connectors: [{ ...pending.connectors[0], status: "needs_reauth" }] });
+      throw new Error("grant_rejected");
+    });
+    render(<ConnectorsPanel {...props()} />);
+    await openDriveDetail();
+    fireEvent.click(await screen.findByRole("button", { name: "Retry Drive" }));
+    expect(await screen.findByText("Sign-in needed", { selector: '[role="status"]' })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Connect Drive" })).toBeEnabled();
+    expect(screen.queryByText("Authorized · connection check needed")).toBeNull();
+  });
   it("does not carry a Mail disconnect confirmation into Drive details", async () => {
     // Profile's Back and a native return move the open connector without the
     // dialog's own Cancel; the question must not follow the person.
@@ -199,7 +268,7 @@ describe("Connectors owner and mutation fences", () => {
     state.nativeStart.mockResolvedValue({
       attemptId: "attempt_123456789012",
       connectorId: "google_drive",
-      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=test",
+      authorizeUrl: `https://accounts.google.com/o/oauth2/v2/auth?state=test&redirect_uri=${encodeURIComponent(`${window.location.origin}/one/profile/connectors/oauth/return`)}`,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
     vi.spyOn(window, "open").mockReturnValue(null);
@@ -227,7 +296,7 @@ describe("Connectors owner and mutation fences", () => {
     state.nativeStart.mockResolvedValue({
       attemptId: "attempt_123456789012",
       connectorId: "google_drive",
-      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=test",
+      authorizeUrl: `https://accounts.google.com/o/oauth2/v2/auth?state=test&redirect_uri=${encodeURIComponent(`${window.location.origin}/one/profile/connectors/oauth/return`)}`,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
     vi.spyOn(window, "open").mockReturnValue(null);
@@ -338,6 +407,29 @@ describe("Connectors owner and mutation fences", () => {
     expect(p.onExternalModalChange.mock.calls.length).toBe(before);
     expect(p.onExternalModalChange).toHaveBeenLastCalledWith(true);
   });
+  it("does not let a retired native return drain the reopened visit's picker queue", async () => {
+    state.native = true;
+    let finishOld!: (value: null) => void;
+    let finishCurrent!: (value: null) => void;
+    state.nativePending
+      .mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve; }))
+      .mockImplementationOnce(() => new Promise(resolve => { finishCurrent = resolve; }));
+    const p = props();
+    const view = render(<ConnectorsPanel {...p} />);
+    await waitFor(() => expect(state.nativePending).toHaveBeenCalledTimes(1));
+    view.rerender(<ConnectorsPanel {...p} open={false} />);
+    view.rerender(<ConnectorsPanel {...p} />);
+    await waitFor(() => expect(state.nativePending).toHaveBeenCalledTimes(2));
+    expect(state.nativePickerPending).not.toHaveBeenCalled();
+    await act(async () => { finishOld(null); });
+    // The old finally must not release the current return's single-flight lock.
+    try { expect(state.nativePickerPending).not.toHaveBeenCalled(); }
+    finally { await act(async () => { finishCurrent(null); }); }
+    await waitFor(() => expect(state.nativePickerPending).toHaveBeenCalledTimes(1));
+    expect(state.nativeFinalize).not.toHaveBeenCalled();
+    expect(state.nativePickerConfirm).not.toHaveBeenCalled();
+  });
+
   it("keeps selection alive through same-owner Vault Owner token renewal", async () => {
     let finish!: (value: unknown) => void;
     state.pick.mockImplementationOnce(
@@ -354,6 +446,7 @@ describe("Connectors owner and mutation fences", () => {
     );
     await waitFor(() => expect(finish).toBeTypeOf("function"));
     const signal = state.pick.mock.calls[0][1] as AbortSignal;
+    advanceVaultSessionEpoch();
     state.token = "vault-renewed";
     view.rerender(<ConnectorsPanel {...p} />);
     expect(signal.aborted).toBe(false);
@@ -490,7 +583,7 @@ describe("Connectors owner and mutation fences", () => {
 
       fireEvent.click(
         screen.getByRole("checkbox", {
-          name: /prepare these files while the app is closed/i,
+          name: "Agent One prepares these files while you’re away.",
         }),
       );
       const pendingCalls = state.nativePickerPending.mock.calls.length;
@@ -511,7 +604,7 @@ describe("Connectors owner and mutation fences", () => {
       );
       expect(
         screen.getByRole("checkbox", {
-          name: /prepare these files while the app is closed/i,
+          name: "Agent One prepares these files while you’re away.",
         }),
       ).toBeChecked();
       await waitFor(() =>

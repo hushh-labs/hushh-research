@@ -35,6 +35,7 @@ const OPERATIONAL_EVENTS: ReadonlySet<ObservabilityEventName> = new Set([
   "route_readiness_completed",
   "route_refresh_completed",
   "warmup_completed",
+  "live_memory_source_verified",
 ]);
 
 let gtagHitBudget = createGtagHitBudget();

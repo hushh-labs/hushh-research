@@ -68,6 +68,10 @@ Cloud Run app services no longer use the default compute service account.
   - `roles/secretmanager.secretAccessor`
   - `roles/aiplatform.user`
   - `roles/cloudsql.client`
+  - On `hushh-gemini-bridge`, the configured shared hosted Vertex project:
+    `roles/aiplatform.user` and `roles/serviceusage.serviceUsageConsumer`. The UAT
+    deploy's no-traffic runtime probe exercises this access before promotion. The
+    drive worker runs as this identity too.
 - `hushh-webapp-runtime@hushh-pda-uat.iam.gserviceaccount.com`
   - `roles/secretmanager.secretAccessor`
 

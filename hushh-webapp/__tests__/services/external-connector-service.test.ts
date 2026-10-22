@@ -14,9 +14,46 @@ import {
   ExternalConnectorService,
 } from "@/lib/services/external-connector-service";
 
+describe("ExternalConnectorService source reads", () => {
+  beforeEach(() => apiFetch.mockReset());
+
+  it("rejects a malformed connector inventory instead of recording an empty source", async () => {
+    apiFetch.mockResolvedValueOnce(Response.json({ features: {} }));
+    await expect(ExternalConnectorService.overview("owner-token", { sourceRead: true }))
+      .rejects.toThrow("Connector source read is incomplete");
+    expect(apiFetch).toHaveBeenCalledWith("/api/connectors", expect.objectContaining({
+      headers: { Authorization: "Bearer owner-token" },
+    }));
+
+    apiFetch.mockResolvedValueOnce(Response.json({ features: {} }));
+    await expect(ExternalConnectorService.overview("owner-token"))
+      .resolves.toMatchObject({ connectors: [] });
+  });
+
+  it("reads the package runtime capability and defaults closed when absent", async () => {
+    apiFetch.mockResolvedValueOnce(Response.json({ connectors: [], driveAgentPackagesEnabled: true }));
+    await expect(ExternalConnectorService.overview("owner-token"))
+      .resolves.toMatchObject({ driveAgentPackagesEnabled: true });
+    apiFetch.mockResolvedValueOnce(Response.json({ connectors: [] }));
+    await expect(ExternalConnectorService.overview("owner-token"))
+      .resolves.toMatchObject({ driveAgentPackagesEnabled: false });
+  });
+});
+
 describe("ExternalConnectorService native Drive OAuth", () => {
   beforeEach(() => apiFetch.mockReset());
   afterEach(() => vi.useRealTimers());
+
+  it("rechecks live Drive through the owner-authorized endpoint without replaying OAuth", async () => {
+    apiFetch.mockResolvedValue(Response.json({ connectorId: "google_drive", status: "connected" }));
+    const signal = new AbortController().signal;
+    const isEffectCurrent = () => true;
+    await expect(ExternalConnectorService.verifyLiveDrive({ vaultOwnerToken: "owner-token", signal,
+      isEffectCurrent })).resolves.toMatchObject({ status: "connected" });
+    expect(apiFetch).toHaveBeenCalledExactlyOnceWith("/api/connectors/google_drive/live/verify",
+      expect.objectContaining({ method: "POST", headers: { Authorization: "Bearer owner-token" },
+        signal, isEffectCurrent }));
+  });
 
   it("discards private OAuth delivery after vault authority changes", async () => {
     let current = true;

@@ -96,8 +96,11 @@ describe("Location area header contract (components/location/**)", () => {
   });
 
   it("every TaskFlowHeader title in the area matches a registered breadcrumb label", () => {
+    // Registered breadcrumb/action labels (oneLocationActionLabel and
+    // friends) live in the declarative graph top-shell-breadcrumbs.ts walks,
+    // not in top-shell-breadcrumbs.ts itself.
     const breadcrumbs = fs.readFileSync(
-      path.resolve(__dirname, "../../lib/navigation/top-shell-breadcrumbs.ts"),
+      path.resolve(__dirname, "../../lib/navigation/back-navigation-graph.ts"),
       "utf8",
     );
     const labels = new Set(

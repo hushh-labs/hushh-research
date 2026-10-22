@@ -56,6 +56,167 @@ Canonical pre-PR command:
 
 This command runs the same blocking local CI surface that feeds GitHub `PR Validation` and `CI Status Gate`. Use `./bin/hushh codex pre-pr --include-advisory` only when you intentionally want the wider non-blocking readiness lane too.
 
+## Automatic native release cadence
+
+`UAT Release Cadence` observes completed `Deploy to UAT` runs in a separate
+workflow. UAT never waits for that observer, a native build, production deployment,
+or Apple processing. The observer has its own short accounting lock; UAT and
+production retain their existing independent mutation locks.
+
+Native jobs read their governed environment configuration with `deployment: false`,
+so they do not create hosted UAT/production deployment records. The UAT target
+selector also excludes historical native records from its hosted baseline;
+rollback, rehearsal and unknown mutation records retain their fail-closed checks.
+
+The counter starts with the commit that introduces `config/release-cadence.json`.
+Every second distinct, healthy deployed source commit qualifies for a UAT-backed
+TestFlight build. Every fourth also qualifies for a production backend/frontend
+deployment and a production-backed iOS build. Failed, rolled-back and NO_OP runs,
+retries, repeated SHAs and pre-policy sources do not advance the counter. A
+frontend-only healthy receipt counts even when it inherits an older backend.
+The receipt's `sha` is authoritative; a dispatch's workflow HEAD is not its
+deployed source.
+
+Each milestone pins one green `main` SHA. Production deploy and archive are
+dispatched together. Before upload, the iOS job joins the exact recorded production
+run, requires its healthy same-SHA receipt, then rechecks live production backend
+provenance. Production builds explicitly select `backend_target=production`.
+The authorized cadence submits qualifying production builds to Apple and selects
+automatic publication after approval. Existing manual dispatches keep their
+prepare-only defaults. Automatic submission requires the existing privacy/export
+compliance attestations and configured production App Review contact/sign-in
+information; missing prerequisites block submission rather than weakening gates.
+
+Only macOS build/upload jobs share `ios-build-and-upload`, preventing build-number
+races across TestFlight and App Store. Apple processing, group assignment and
+App Store preparation run on Ubuntu. Signed archives, IPAs, keychains, credentials
+and raw build logs never pass through Actions artifacts. Newer pending milestones
+replace older work that has not started; active deployments and uploads are never
+cancelled by the observer. UAT may advance while a pinned binary finishes, so
+supported app/backend compatibility remains a release requirement. The shared
+GitHub-hosted runner limit can still cause scheduling delays; separate locks do
+not reserve runner capacity.
+
+Automatic release admission gives UAT precedence: queued, requested, pending,
+waiting or running UAT workflows defer new releases in the ledger. The observer
+exits immediately instead of sleeping on a runner, then retries on every terminal
+UAT result (including failure/cancellation), release completion or the hourly
+fallback. Failed UAT runs never advance the counter. Only one automatic release
+bundle is admitted at a time: either TestFlight, or production deploy plus its
+parallel App Store archive. Existing recorded starts keep a continuous stream of
+production candidates from starving TestFlight. The two production dispatches each recheck UAT;
+an intervening UAT request leaves a recoverable half-pair, without redispatching
+production. Active deployments, uploads and Apple processing finish normally.
+Manual release dispatches retain their existing operator contract.
+
+This is best-effort priority, not a runner reservation. The admission snapshot
+can race a new UAT request, an already admitted release may still occupy a slot,
+and other repositories share the organization quota. GitHub's standard hosted
+pool has no workflow priority or preemption setting; strict isolation requires
+dedicated UAT runner capacity.
+
+Accounting persists in the state-only `automation/release-cadence-state` branch.
+Fast-forward-only updates reject concurrent writers. A tiny immutable
+`release-cadence-authority` artifact certifies the ledger commit and state hash
+from each protected-main controller run. Both reconciliation and bot authorization
+require the newest certified checkpoint, rejecting forged or replayed branch
+state. The bot is not a member of either human dispatch cohort; each child is
+authorized only for its recorded run ID, workflow, milestone, source and complete
+input set. `config/ci-governance.json` owns the permitted controller for each
+surface. The cadence policy is a protected pipeline file.
+
+The dispatch validator accepts omitted or null `marketing_version`/`notes` only
+when the authorized value is blank, and typed booleans only for the lane's
+declared Boolean fields. Every nonempty value remains required and exact;
+unknown fields, changed source identities and changed switches fail closed.
+Mismatch diagnostics list only known field names and received types, never
+input values or caller-supplied unknown field names. A governed retry reuses the
+recorded failed child run rather than issuing a second release request.
+
+The 2/4 policy preserves the existing counter and certified sources. A one-time
+certified transition makes the latest newly eligible TestFlight milestone pending
+(count 2 when adoption occurs at count 2 or 3), without replaying older milestones.
+Already issued 4/8 requests retain their original lanes and authority; the new
+policy begins after any such request at the transition boundary. Recovery checks
+both policy periods. Missing transition metadata means the original 4/8 policy.
+
+Monitoring runs in GitHub inside the same observer job, after checkpoint
+publication. It adds no workflow, runner job, polling loop or UAT dependency.
+Completion events report failures and verified milestones when delivered. The
+observer also subscribes to the existing `capacity-maintenance-clock` repository
+dispatch, whose GitHub environment timer waits without a runner. This reuses its
+hourly broadcast without changing the clock, adding a producer job or touching
+UAT. The existing hourly cron remains a fallback; GitHub can delay scheduled runs.
+Only the repository bot's exact clock event is accepted on protected main; clock
+events cannot request full replay or checkpoint recovery. Unresolved recorded
+child failures are rechecked for governed retries without replaying settled
+release artifacts. More than 20 unresolved failures stops reconciliation for
+operator recovery rather than silently dropping history or growing polling work.
+The monitor uses only standard-library code and the existing
+repository token, with `issues: write` added for one bot-owned `UAT release monitor`
+issue assigned to `monitor_issue_assignee` in the policy. Notification delivery
+follows that person's GitHub notification settings.
+
+The issue keeps a bounded observation journal separate from the certified release
+ledger and links exact runs. Repeated unchanged results stay quiet. Notification
+transport failures remain visible in Actions and do not prevent already authorized
+children from running or change UAT's result. TestFlight reports prove upload and
+internal distribution; external Beta App Review may remain pending. App Store
+deferral is reported as deferral, and accepted review submission with
+`AFTER_APPROVAL` is distinct from later public publication. Only existing redacted
+receipts are read; monitoring needs no Apple or cloud credentials.
+
+UAT/release overlap reports use observed workflow/job timestamps. A UAT start
+during a release demonstrates progress for that sample; it does not prove reserved
+capacity or that every later job avoided queuing. A UAT with no started job after
+10 minutes during release activity raises a possible-contention warning. UAT's
+own concurrency and other organization jobs can also explain that delay. The
+monitor observes and reports; it never dispatches, cancels, retries or repairs a
+release.
+
+Every dispatch records intent first, then the exact run ID returned by the
+versioned REST API. A controller interrupted after dispatch reconciles the unique
+cadence marker instead of blindly posting again. A partial production pair resumes
+its pending app build without redispatching the deployment. Ambiguous dispatches,
+missing receipts, altered state and failed releases stop that release lane and
+remain visible in the Actions summary; they do not change UAT's result.
+
+The observer also runs a weekly full reconciliation for missed completion events
+and old successful reruns. While a public version is under review, Ubuntu
+preflight records a deferred receipt and allocates no Mac. An hourly observer
+revisits the latest deferred candidate without redeploying production; newer
+milestones supersede older deferred app candidates. TestFlight uses an independent
+beta version train and continues while public review is pending. History queries split before GitHub's filtered-query
+limit, and no historical build storm is created. To reconcile explicitly, a
+governed production operator may run:
+
+```bash
+gh workflow run release-cadence.yml --ref main -f full_reconcile=true
+```
+
+For an interrupted upload, use the existing `Resume TestFlight Distribution`
+workflow with the recorded upload run ID; do not build another binary just to
+retry Apple processing. For an ambiguous dispatch, first inspect its exact
+`Cadence <ordinal> <lane> · <origin-run-id>` marker and the latest certified
+checkpoint. Never reset or delete the state branch to restart the counter. A
+missing/expired checkpoint or a mismatch requires operator inspection before
+restoring certified state. If the trusted controller was interrupted after its
+Git update but before checkpoint publication, a production operator must inspect
+that controller's job, the current ledger diff and every dispatch marker first.
+After reviewing the exact state commit, recover through the protected controller:
+
+```bash
+gh api repos/hushh-labs/hushh-research/git/ref/heads/automation/release-cadence-state --jq .object.sha
+gh workflow run release-cadence.yml --ref main -f recover_checkpoint_sha=<reviewed-ledger-commit>
+```
+
+Recovery requires that exact head, independently rereads each successful UAT
+receipt, checks contiguous source counts and every milestone/child identity, then
+publishes a new certified checkpoint. It never blindly redispatches an uncertain
+request. Missing or expired source evidence blocks recertification. Set the
+policy's `enabled` switch to false to stop new
+automatic releases; existing manual workflows remain available.
+
 ## Monitoring Rule
 
 After any merge to `main`, bypass merge, deploy trigger, or manual workflow dispatch, keep monitoring the resulting GitHub workflow chain until it reaches a terminal state.
@@ -133,12 +294,29 @@ To prevent CI check-sprawl, only these queue/PR checks are hard-blocking by defa
 3. `scripts/ci/protocol-check.sh`
 4. `scripts/ci/integration-check.sh`
 
-Web validation is intentionally split:
+Web validation is intentionally split. The targeted node job runs once and the
+browser packs run across three Playwright shards; each job has a 30-minute budget.
+Individual interaction and performance assertions keep their own deadlines.
 
 1. PRs run `web-core` for install, preflight, docs/design contracts, typecheck, lint, and the required Next production build.
-2. PRs run `web-targeted` for deterministic changed-path contract packs such as voice gateway, cache, analytics, routes/surface map, phone verification, and Capacitor static parity. The job (`Web Targeted Contracts (node)` / `(browser)`) is a two-leg matrix: `WEB_TARGETED_PART=node` runs the Vitest and verifier packs without downloading a browser, and `WEB_TARGETED_PART=browser` runs the Playwright packs with `PLAYWRIGHT_WORKERS=3` (the Playwright config's CI worker count; one when unset). Each pack is classified by whether its npm script reaches `playwright`, so the legs partition the matched packs; a local run (`all`) still runs every pack. `scripts/ci/test_web_ci_lane_partition.py`, run by the governance check, proves the partition against the real script.
+2. PRs run `web-targeted` for deterministic changed-path contract packs such as voice gateway, cache, analytics, routes/surface map, phone verification, and Capacitor static parity. Its four jobs are `Web Targeted Contracts (node)` and `(browser-1-of-3)` through `(browser-3-of-3)`. `WEB_TARGETED_PART=node` runs the Vitest and verifier packs once without downloading a browser. The three `WEB_TARGETED_PART=browser` jobs run matched Playwright packs with `PLAYWRIGHT_WORKERS=3` and complementary `PLAYWRIGHT_SHARD=1/3`, `2/3` or `3/3`; the matrix aggregate must succeed for frontend changes. Each pack is classified by whether its npm script reaches `playwright`; a local unsharded run (`all`) still runs every pack. `scripts/ci/test_web_ci_lane_partition.py`, run by the governance check, proves the partition against the real script.
 3. PRs run `web-full-suite` (job `Web Full Suite (Vitest)`) for the whole Vitest suite (`npm run test:ci`, ~9,700 tests) plus the voice gateway, One Voice, surface-map, Capacitor static-parity and Capacitor plugin-contract checks. It runs in parallel with `web-core` as three Vitest shards (`WEB_FULL_SUITE_SHARD=<i>/3`, `vitest --shard`, jobs `Web Full Suite (Vitest) 1/3` to `3/3`); shard 1 also runs the contract verifiers, once. `CI Status Gate` reads the matrix's aggregate result, which is `success` only when every shard succeeded, and requires it to have **succeeded** (not merely not failed) whenever the frontend filter matches. Until 2026-09-26 this suite ran only in `Queue Validation`, which nothing merged through, so it gated no merge.
 4. `web-full` is `web-core` followed by `web-full-suite`, for local and exhaustive runs. The legacy `web` stage remains an alias for `web-full` so older local wrappers keep their exhaustive behavior.
+
+Flake budget: in CI each Playwright test gets one retry (`retries` in
+`hushh-webapp/playwright.config.ts`), so a test that fails twice fails its
+browser shard; the macOS `Web Editor Performance` lane uses the same config
+and budget. Each browser shard's `Install Playwright browsers` step, which
+also runs the web dependency install, is bounded at 8 minutes and retries a
+failed browser install once, so a stalled apt mirror or browser download
+fails the shard early instead of holding a runner to the job limit.
+
+Failed final Wallet layout runs retain `wallet-layout-failures-<matrix-label>`
+for seven days: only the synthetic workspace fixture's trace, failure screenshot
+and error context are admitted. This is not a blanket `test-results` upload;
+protected reviewer journeys must never enter these artifacts. Earlier browser
+commands can clear their output, so this receipt does not establish retention
+for every preceding pack or for first-attempt failures that pass their retry.
 
 Fail-fast contract:
 
@@ -150,7 +328,7 @@ Fail-fast contract:
 3. This intentionally saves CI minutes on governance failures. The tradeoff is
    that green runs start heavy jobs only after preflight completes.
 
-The local parity script mirrors the blocking pre-merge validation stages. On GitHub, `main` should require `CI Status Gate` as the blocking status check on PR and queue commits, block a pull request that is behind its base through `Base Freshness Gate` (named `Main Freshness Gate` in older text; it feeds `CI Status Gate`), trust `Main Post-Merge Smoke Gate` for deployment eligibility on the landed `main` SHA, and restrict queue bypass to the dedicated sanctioned owner cohort only.
+The local parity script mirrors the blocking pre-merge validation stages. On GitHub, `main` should require `CI Status Gate` as the blocking status check on PR and queue commits, block a pull request whose base is stale through `Base Freshness Gate` (named `Main Freshness Gate` in older text; it feeds `CI Status Gate`; bounded for pull requests into `main`, see [Base freshness on pull requests](#base-freshness-on-pull-requests)), trust `Main Post-Merge Smoke Gate` for deployment eligibility on the landed `main` SHA, and restrict queue bypass to the dedicated sanctioned owner cohort only.
 
 ### Protected pipeline surfaces
 
@@ -164,7 +342,7 @@ Core CI and deploy surfaces are sealed separately from blanket owner-review poli
   - `deploy/**`
   - `config/ci-governance.json`
 - Enforcement happens inside the blocking governance lane through [scripts/ci/verify-protected-pipeline-edits.py](../../../scripts/ci/verify-protected-pipeline-edits.py).
-- This does not change the repo-wide `0`-approval policy on `main`; it only seals core pipeline and CI authority to the sanctioned maintainer cohort.
+- This does not waive the required independent approval of the latest push on `main`; the separately governed review-bypass cohort remains explicit. It seals core pipeline and CI authority to the sanctioned maintainer cohort.
 
 ### PKM rollout blocker
 
@@ -200,10 +378,53 @@ reason. This is evidence only: authority checks, migrations, deployment
 provenance, runtime health, and directly affected frontend/backend checks remain
 mandatory regardless of the expensive-lane selection.
 
-Live Gemini/Vertex candidate checks are opt-in, not ordinary CI gates. UAT
+For reviewer BYOK, `required` selects execution; the existing UAT rollout
+classifier still records the result as advisory. A green step conclusion under
+`continue-on-error` is not a passing rehearsal: inspect the release receipt's
+`reviewer_byok` outcome. A healthy rollout does not satisfy reviewer acceptance
+when that proof is part of the task. The World Model background driver and its
+provider select this lane because automatic startup must respect read-only
+reviewer posture.
+
+For RCA acceptance, `repeat_reviewer_byok=true` repeats an already-selected
+baseline twice in independent browser lifetimes. It defaults to false, does not
+select an otherwise-skipped lane or authorize mutations, and records requested
+and completed pass counts in the release receipt. A failed pass stops that
+rehearsal; it does not change the existing advisory rollback policy.
+
+UAT backend provider admission runs Azure and Vertex synthetic checks in parallel.
+Either complete application capability bundle (or both) may pass; neither
+passing blocks. The bundle includes streamed structured text, images, PDFs,
+public search/source receipts, Location transcription/semantics, narration, Live
+audio with a function round trip, and application-compatible embeddings. Explicit
+PWM attribution/schema failures still block independently. Receipts bind the exact
+candidate image, runtime identity, provider generation and configuration.
+The UAT artifact collector reads the exact successful backend Cloud Build ID from
+structured CLI output, then retrieves the successful aggregate step's receipt
+from Cloud Logging. It does not depend on streamed build stdout. Collection has
+a bounded ingestion retry and verifies build, run, image, runtime identity and
+canonical configuration bindings before publishing a sanitized receipt. Missing,
+conflicting or foreign evidence writes a failure artifact and blocks promotion;
+it never changes provider selection or relaxes readiness. The current collector
+survives checkout of an older application SHA; an incompatible target fails
+closed with a diagnostic artifact. See
+[the deployment contract](../../../deploy/README.md) for capability and compatibility boundaries.
+
+Additional Gemini/Vertex candidate evaluations are opt-in, not ordinary CI gates. UAT
 dispatches default `run_live_model_checks=false`; explicitly setting it to
 `true` selects candidate-model readiness and synthetic PKM evaluation for a
-backend deployment. Direct backend Cloud Builds (including production) default
+backend deployment, plus the live RIA Stage-1 semantic probe. Both semantic
+verification attempts consume the same plan flag. Without the opt-in, the
+verifier records RIA as skipped with `live_model_checks_not_requested`; health,
+authentication, connector configuration and command recovery still run. An
+explicitly requested RIA transport timeout or negative result still blocks;
+only an actual provider-unavailable response is reported as degraded.
+The workflow retains the current verifier across checkout of an older approved
+application SHA, so that release also obeys the operator's explicit selection.
+Production also preserves `managed_provider_readiness.py` alongside the current
+Cloud Build definition. Its build-scoped receipt check remains required when
+the approved application SHA predates that release-tooling companion.
+Direct backend Cloud Builds (including production) default
 `_VERIFY_MANAGED_VERTEX_RUNTIME=false`; an operator may explicitly set it to
 `true`. Local PKM evaluation similarly requires
 `PKM_UPGRADE_STRUCTURE_AGENT_EVAL=1`. Omitted evaluation is **skipped**, not a
@@ -219,14 +440,27 @@ readiness or model calls caused by an explicitly exercised product journey.
 | Pull request | All branches (`**`) | `PR Validation` medium-depth CI (path-filtered) |
 | Merge queue | `main`, `integration/pr-train` | `Queue Validation` pass-through: reports `CI Status Gate` on the merge group only when its tree equals the PR head's tree and PR Validation passed on that head; plus `Base Freshness Gate` |
 | Push | `main` | `Main Post-Merge Smoke` compact deploy-authority smoke |
-| Manual | Any | `PR Validation` `workflow_dispatch` with scope: `frontend` \| `backend` \| `all` |
+| Manual | Any | `PR Validation` `workflow_dispatch` with scope `auto` (default) \| `all` \| `frontend` \| `backend`; see [Dispatched runs](#dispatched-runs) |
+| Schedule | `main` | `Editor Performance Nightly` runs the macOS editor lane's steps at 23:17 UTC and opens or comments on one issue when they fail |
 
-**Path filters:** `PR Validation` runs jobs only when relevant paths change (or when run manually with a scope). `Queue Validation` runs no lane of its own (see [The merge queue in practice](#the-merge-queue-in-practice)), and `Main Post-Merge Smoke` stays compact rather than path-filtered.
+**Path filters:** `PR Validation` runs jobs only when relevant paths change. A dispatched run with scope `auto` applies the same filters to the dispatched commit's changes against the default branch; `all`, `frontend` and `backend` choose the lanes by hand. `Queue Validation` runs no lane of its own (see [The merge queue in practice](#the-merge-queue-in-practice)), and `Main Post-Merge Smoke` stays compact rather than path-filtered.
 
 - **Frontend jobs** run when `hushh-webapp/**`, protected CI workflow files, `scripts/ci/orchestrate.sh`, or `scripts/ci/web-*.sh` change.
-- **Backend jobs** run when `consent-protocol/**`, `packages/hushh-mcp/**`, protected CI workflow files, or any `scripts/ci/**` file **except** `scripts/ci/web-*.sh` change.
-- **iOS native job** (`ios-native-check`) runs when the `ios` filter matches; that filter lists the web surfaces the XCUITests render alongside the native shell paths, and it is pinned by `consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py`, so a native test that starts rendering a new web surface fails CI until the filter names it. Inside the job, Swift package resolution is prefetched in the background while the native web export builds, the simulator boots in the background after the web export (not during it, so it never competes with `next build` for the runner's memory) while resolution and compilation run, and the authoritative `xcodebuild -resolvePackageDependencies` runs after `cap sync`. There is no Swift package `actions/cache`: pull-request caches are PR-scoped, so it never restored on a new PR, and each ~4.5GB save evicted the shared npm cache from the repository's 10GB budget.
+- **Backend jobs** run when `consent-protocol/**`, `packages/hushh-mcp/**`, protected CI workflow files, or backend/shared `scripts/ci/**` files change. Dedicated web-only lane scripts are excluded; `web-common.sh` also schedules the backend contracts that exercise its build defaults.
+- **iOS native job** (`ios-native-check`) runs when the `ios` filter matches; that filter lists the web surfaces the XCUITests render alongside the native shell paths, and it is pinned by `consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py`, so a native test that starts rendering a new web surface fails CI until the filter names it. Inside the job, the simulator boots in the background after the web export (not during it, so it never competes with `next build` for the runner's memory) while resolution and compilation run, and the authoritative `xcodebuild -resolvePackageDependencies` runs after `cap sync`, into a Swift package clone directory restored from `main` when `main` already resolved the same package graph (see [Build Caches](#build-caches)).
+- **Editor performance job** (`web-editor-performance-check`, `Web Editor Performance (macOS)`) runs when the `editor` filter matches, not on every frontend change. The filter lists what `npm run test:layout-editor-performance` builds and reads: the spec, the fixture it bundles and their transitive imports, `app/globals.css`, the inlined Plus Jakarta Sans font files, and the Playwright, TypeScript, Tailwind and PostCSS configs, `package.json` and `package-lock.json`. It took one of the org's five macOS slots on every frontend run, while its inputs changed in 78 of the 378 merged PRs that touched the frontend from 2026-10-01 to 2026-10-15. `consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py` derives those inputs from the job itself and fails when one would not schedule it, and `.github/workflows/editor-performance-nightly.yml` runs the same steps on `main` every night at 23:17 UTC and opens (or comments on) one `Editor performance nightly failed on main` issue when it fails.
 - **Integration job** runs when either frontend or backend paths change.
+
+The existing macOS performance job also runs the shared History motion contract
+in both Chromium and WebKit: first visibility under 100 ms, intermediate opening
+and exit frames, interrupted-drag alignment and unchanged surrounding layout.
+Its focused fixture mounts the real drawer/sidebar without unrelated agent or
+connector workflows. The Linux Connections pack keeps the other layout and
+interaction checks. Native collection verifies both timing identities reach
+macOS and that the remaining Connections identities still reach Linux. Disabling
+transitions or delaying opening beyond 100 ms must fail the timing test; dropping
+a drawer input from the path filter must fail its dependency guard. These browser
+checks do not replace physical Release frame-pacing qualification.
 
 **How `scripts/ci/` is split (2026-09-26).** Each file schedules the lanes that
 actually run it, instead of every lane:
@@ -234,15 +468,16 @@ actually run it, instead of every lane:
 | `scripts/ci/` file | Schedules | Why |
 |---|---|---|
 | `orchestrate.sh` | frontend and backend | dispatches every stage |
-| `web-*.sh` (`web-common.sh`, `web-core-check.sh`, `web-targeted-check.sh`, `web-full-suite-check.sh`, `web-full-check.sh`, `web-check.sh`) | frontend | the only `scripts/ci/` files the web lanes run |
+| `web-common.sh` | frontend and backend | shared web helper plus backend contracts for build-origin defaults |
+| `web-core-check.sh`, `web-targeted-check.sh`, `web-full-suite-check.sh`, `web-full-check.sh`, `web-check.sh` | frontend | dedicated web lane execution |
 | every other file, including any added later | backend | covers the protocol, MCP and integration lanes (`protocol-check.sh`, `verify-protocol-*`, `hushh-mcp-package-check.sh`, `integration-check.sh` and what it calls) and the deploy scripts the protocol test suite exercises directly |
 
-The backend side is written as `scripts/ci/**` minus `!scripts/ci/web-*.sh`, so
-a new script is backend by default rather than scheduling nothing. The filter
+The backend side includes `scripts/ci/**` and excludes the named web-only lane
+scripts, so a new script is backend by default rather than scheduling nothing. The filter
 step sets `predicate-quantifier: 'some-with-excludes'` for that `!` pattern;
-filters without a `!` pattern behave exactly as before. The iOS filter uses
-the same mechanism to leave out `hushh-webapp/components/onboarding/setup/**`,
-which nothing the CI-run XCUITest renders imports.
+filters without a `!` pattern behave exactly as before. The iOS filter includes
+the onboarding setup screens now reached through the login render graph, plus
+the shared Profile owner-state, Gemini and World Model controller inputs.
 
 Guards, both in the backend CI manifest:
 `consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py` derives
@@ -250,18 +485,71 @@ which `scripts/ci/` files each path-filtered job runs (through
 `orchestrate.sh <stage>` and everything those scripts reference, plus every
 script the lane's own code names) and fails when one of them would not
 schedule that job. `consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py`
-traces the XCUITest render path's imports and fails if it ever reaches
-`components/onboarding/setup/`.
+traces the XCUITest render path's imports and requires the reached onboarding
+screens and selected shared Profile inputs to schedule the native lane. It does
+not schedule iOS for every unrelated frontend change.
 
 One gap is known: the guard runs in the backend lane, so a PR that changes
 only `web-*.sh` does not run it. If such a PR makes a web script call a
 non-web `scripts/ci/` file, the guard catches it on the next backend-scheduling
 change, not in that PR. Add the called file to the frontend filter in the same
-change.
+change. The `editor` filter's guard has the same gap: a frontend-only PR that
+makes the editor lane import or read a file outside the filter does not run
+it. The next backend-scheduling change fails until the file is added, and the
+nightly run catches a regression that lands on `main` in the meantime. Add the
+file to the `editor` filter in the same change.
 
 ### Duplicate-Run Policy
 
-Feature and hotfix branches intentionally rely on `pull_request` CI only. `Base Freshness Gate` blocks a PR that is behind its base, and `main` then runs a smaller smoke bundle (`Main Post-Merge Smoke`) on the real landed SHA.
+Feature and hotfix branches intentionally rely on `pull_request` CI only. `Base Freshness Gate` blocks a PR whose merge-base is over 24 h old, or whose files `main` changed after the base its checks tested (see below), and `main` then runs a smaller smoke bundle (`Main Post-Merge Smoke`) on the real landed SHA.
+
+### Base freshness on pull requests
+
+`Base Freshness Gate` runs
+[scripts/git/check-main-sync.sh](../../../scripts/git/check-main-sync.sh). Since
+2026-10-15 it uses `MAIN_SYNC_MODE: bounded` for pull requests into `main`:
+
+1. A head that already contains the tip of `main` passes, as before.
+2. Otherwise it **blocks** when the merge-base is more than
+   `MAIN_SYNC_MAX_AGE_HOURS` (24) old, or when, after the base the PR's checks
+   tested, `main` changed a file the PR also changes. The log and the step
+   summary list up to 20 such paths. The tested base is the first parent of the
+   `refs/pull/N/merge` commit (`github.sha`) that every lane checks out. When it
+   cannot be resolved, the merge-base stands in, which counts every `main`
+   change the branch lacks.
+3. Otherwise it passes with a warning and a step summary: how many commits
+   behind, the tested base, the merge-base age, and that no file overlaps.
+
+A missing remote, a failed fetch or an unresolvable commit still fails the gate.
+
+Why: measured on 2026-10-14, `block` mode caused 30-57% of failed PR runs, and
+about 17% of runs were sync-only re-runs. `main` lands 24-57 merges a day
+against a ~25 minute green run, and the check fetches `main` when its job
+starts, so runner queueing alone made fresh pushes stale. It did not keep stale
+bases out either: 64% of merges landed behind `main` anyway, and `Main
+Post-Merge Smoke` was 324/0 green. The lanes already test the PR merged onto
+`main`. What they cannot see is a file both sides changed since, or a base old
+enough to drift, and bounded mode blocks exactly those.
+
+`block` mode, which fails any lag, stays in place for pull requests into
+`integration/pr-train`, on every merge group (`Queue Validation`), and in
+`scripts/ci/local-release-gate.sh`. Local pre-push stays `warn`. GitHub's own
+strict up-to-date rule on `main` (`require_strict_status_checks` in
+[config/ci-governance.json](../../../config/ci-governance.json)) is unchanged.
+
+### Dispatched runs
+
+`PR Validation` can be dispatched on any branch (`gh workflow run ci.yml --ref <branch>`). It publishes a distinct `Branch Validation Gate` that `deploy-dev.yml` accepts through `scripts/ci/require-deploy-sha-on-main.sh`.
+
+- `auto` (the default) runs the lanes the branch's changes select, through the same path filters a pull request uses, applied to the dispatched commit against its merge-base with the default branch. On the default branch itself there is no branch diff, so `auto` runs every lane.
+- `all` runs every lane.
+- `frontend` and `backend` run a subset of the lanes and are diagnostic only: `Branch Validation Gate` fails them.
+
+The default was `all` until 2026-10-15, which put iOS on one of the org's five macOS slots on every dispatch; one 30-minute dispatch loop made 59 of the 77 runs dispatched from 2026-10-07 to 2026-10-15.
+
+A dispatch publishes **Branch Validation Gate**, while a pull request retains **CI Status Gate**. Both use the same fail-closed aggregate and selected full suites. The separate name prevents a manual run from satisfying PR branch protection or replacing its verdict. PR Base Policy, Base Freshness Gate and merge-queue reuse still require the PR's own evidence. A branch may therefore qualify for dev even when its PR cannot be merged into the current base.
+
+Only `deploy-dev.yml` accepts the branch gate. Its exact-SHA preflight verifies branch reachability and binds the successful check to GitHub Actions, the canonical `ci.yml` workflow, `workflow_dispatch`, and the same check suite and SHA. Missing or failed provenance lookup refuses deployment. The API read is bounded to the latest 100 matching runs; an older unobserved receipt refuses rather than passing. UAT, production, queue selectors and branch-protection configuration do not accept this label. The reviewed workflow correction must be present on the branch before dispatch. `DCO` runs on dispatches too, over the branch's own commits since its merge-base with the default branch.
 
 ### The merge queue in practice
 
@@ -270,7 +558,8 @@ governed maintainer cohort, and those maintainers land PRs directly. No PR has
 entered the queue since 2026-09-01, the date of the last full `Queue
 Validation` run, and that run's `web-full` step was red in each of its last six
 runs. So the queue does **not** absorb stale-base risk; `Base Freshness Gate`
-on the PR is what blocks a stale branch.
+on the PR is what bounds it (see
+[Base freshness on pull requests](#base-freshness-on-pull-requests)).
 
 **Since 2026-09-26 the full Vitest suite gates every frontend PR** through the
 `Web Full Suite (Vitest)` lane in PR Validation, and `Queue Validation` is a
@@ -311,8 +600,8 @@ the workflow can then be deleted.
 |------|---------|----------|
 | Secret Scan | Detect leaked credentials/tokens early | `gitleaks` OSS CLI scans the event commit range, blocks on open GitHub secret-scanning alerts, and reports Dependabot backlog through the GitHub API |
 | Upstream Sync | Detect consent-protocol subtree drift against upstream | Advisory only; warnings are non-blocking |
-| Main Freshness Gate (job name `Base Freshness Gate`) | Block a branch that is behind its base | Blocking on pull requests (`MAIN_SYNC_MODE: block`, feeds `CI Status Gate`) and on `merge_group` |
-| CI Status Gate | Single required check for branch protection | Fails if any required job fails/cancels/times out; allows intentional `skipped` jobs, except that a lane whose paths changed (`Web Full Suite (Vitest)` for frontend, the iOS and Android native lanes) must have succeeded |
+| Main Freshness Gate (job name `Base Freshness Gate`) | Keep a branch's base fresh enough that what CI tested is what lands | Pull requests into `main`: `MAIN_SYNC_MODE: bounded`, blocking when the merge-base is over 24 h old or, after the base its checks tested, `main` changed a file the PR changes ([details](#base-freshness-on-pull-requests)). Pull requests into `integration/pr-train` and every `merge_group`: `block`, failing any lag. Feeds `CI Status Gate` |
+| CI Status Gate | Single required check for branch protection | Runs on every outcome (`if: always()`), because GitHub reads a skipped required check as a pass. Fails if any job fails, is cancelled or times out. Every lane the path filters (or a dispatch scope) select must have **succeeded**: Web Core, Web Targeted Contracts, Web Full Suite (Vitest) and Integration for frontend; Protocol, MCP Package and Integration for backend; the iOS and Android native lanes; Web Editor Performance (macOS) for `editor`. UI Contracts, Secret Scan, Governance, Path filters, Preflight Gate and DCO must succeed on every run, and a pull request also needs PR Base Policy and, into `main` or `integration/pr-train`, Base Freshness Gate. Lanes the filters did not select may be skipped. A dispatch publishes the separate dev-only `Branch Validation Gate` and fails for partial or unknown scopes ([Dispatched runs](#dispatched-runs)). Pinned by `consent-protocol/tests/test_ci_status_gate_fails_closed.py`, which runs the gate's own script |
 
 Operational note:
 
@@ -451,6 +740,49 @@ Deploy to UAT is expected to behave as a closed-loop release lane:
 7. roll back only the failing changed surface
 8. publish release artifacts with revisions, reports, and final status
 
+UAT and production revision retirement use the existing `Capacity Maintenance` workflow,
+run hourly. Releases never trigger it. Because GitHub delivered only 3-6 of its former
+cron's 24 daily runs on 2026-10-12..14, `Capacity Maintenance Clock` is now its only
+schedule: it checks both environments every hour without cloud credentials, wakes
+maintenance only when work is due with a repository dispatch scoped to the due
+environments (the scheduled pass's authority within that scope), and re-arms itself
+through the `capacity-maintenance-clock` environment's 60-minute wait timer, which holds no
+runner. A scoped pass's title lets the other environment's checkpoint guard skip it without
+reading its jobs. The deploy-SHA gate and the UAT target selector look up the post-merge gate
+by check name, so the clock's checks on an idle `main` head never crowd it out. An authorized operator
+can explicitly inspect or apply cleanup; manual requests are not coalesced with cron.
+Scheduled work keeps one active and one pending request without cancelling active
+mutations. Each environment still shares its deployment/rollback lock.
+
+Source-only checks before authentication and again under that lock skip settled and
+not-yet-due work. Each executing pass has a 300-second budget, including subprocesses,
+with teardown/checkpoint time reserved. No runner waits for request drainage: existing
+artifacts retain the deadline and partial progress for the next hourly pass. Drainage
+still covers the longest applicable request timeout plus 60 seconds. Unknown provider
+outcomes retain mutation intent and block conflicting deployments until reconciliation;
+a timeout does not prove that Google stopped the operation. No completion is claimed
+for partial or unresolved work. Cleanup outcome is separate from release health and
+capacity admission; diagnostic reporting does not add another unconditional cloud scan.
+Retained database-connected revisions remain in admission accounting until safe
+retirement. Zero minimum instances and aggregate SQL peaks do not prove that older
+generations have finished their admitted requests. A shortage defers deployment.
+
+Both UAT admission observers stop within five minutes and poll at most once a minute.
+Direct inventory checks under deployment locks also bound the entire process group
+to 295 seconds, with two seconds for forced teardown. Their timeouts remain verification
+failures; an unavailable inventory is not an observed capacity shortage.
+`DEFERRED_CAPACITY` retains the original SHA/scope for an operator retry, without
+starting maintenance or automatically resuming a deployment. See
+[the hosted maintenance contract](../../../deploy/README.md#hosted-revision-maintenance).
+Frontend-only UAT releases use a separate zero-increment SQL admission check that verifies the live web runtime and candidate revision; backend and paired releases retain the full connection budget gate.
+
+Before increasing database pools or tiers after a failed load stage, inspect the
+existing request query counts and acquisition timing. Drive's consent projection
+checks its rolling schema capabilities once inside each existing transaction;
+those checks are not cached across requests. Owner filters, revocation rules and
+projection totals still execute against the current schema. The PostgreSQL
+projection suite guards this query bound and its missing-schema and error cases.
+
 See [Branch Governance](./branch-governance.md).
 
 ---
@@ -459,12 +791,59 @@ See [Branch Governance](./branch-governance.md).
 
 | Tool | CI Version | Local requirement |
 |------|------------|-------------------|
-| Node.js | 20 | 20+ (run `./bin/hushh ci`) |
+| Node.js | 24 for web/Node lanes | Local preflight accepts 20+; use 24 to reproduce CI |
 | Python | 3.13 | 3.13 (CI asserts exactly 3.13) |
 | npm | latest | Use latest (script upgrades before run) |
 | uv | pinned by workflow | install `uv` locally and use `uv sync --frozen --group dev` |
 
 Using a different Node or Python locally can cause “pass locally, fail in CI” if behavior or dependencies differ.
+
+---
+
+## Build Caches
+
+GitHub scopes an Actions cache to the ref that saved it. An entry saved by a
+`pull_request` run lives under `refs/pull/<N>/merge`, and no other pull request
+can restore it. An entry saved on `main` can be restored by every pull request.
+All entries share the repository's 10 GB budget. GitHub evicts an entry that
+nobody restores for 7 days, and over 10 GB it evicts the least recently used
+entries first. At 20:00Z on 2026-10-14 the budget held 10.65 GB, and
+pull-request Next.js entries that no other pull request could restore were
+5.50 GB of it.
+
+The two large build caches are therefore saved on `main` only, and only when
+the key is new. `PR Validation` restores them with `actions/cache/restore`:
+
+| Cache | Saved by | Restored by | Key |
+|---|---|---|---|
+| Next.js build cache, the web app's `.next/cache` (~380-460 MB) | `Main Post-Merge Smoke`, on the first green push of each UTC day | `Web Core (Next.js)` | Node version, hash of `package-lock.json` and `next.config.ts`, and the UTC day. A miss falls back to the newest entry for the same lockfile. |
+| Swift package clones, `$RUNNER_TEMP/spm` (estimated 2.5-3 GB) | [`iOS Swift Package Cache`](../../../.github/workflows/ios-swift-package-cache.yml), daily at 05:37 UTC and on manual dispatch. On Sundays it also resolves from an empty directory when the entry exists, and saves nothing. | `iOS Native (Xcode)` | Xcode version, runner OS and architecture, and a hash of the project's `Package.resolved` plus the `CapApp-SPM/Package.swift` that `cap sync` generates. Exact match only. |
+
+Each day's Next.js entry stops being read once the next day's is saved, but it
+stays until it has gone 7 days unread, so up to a week of them (about 3 GB) can
+sit in the budget. They are the least recently used entries, so they are
+evicted first.
+
+The Swift package job skips the native web export. `cap sync ios` only needs an
+`index.html` in the web directory, and it generates the same `Package.swift`
+with or without the export. A pull request that changes the package graph
+resolves uncached until the next daily run saves the new graph; dispatch the
+workflow to re-seed sooner. The job's `setup-node` also saves the macOS npm
+cache on `main`, so the macOS pull-request lanes restore that entry instead of
+saving their own copies while their lockfile matches `main`.
+
+A pull request that restores the Swift package clones fetches nothing, so it
+no longer proves that every pin in `Package.resolved`, and every binary
+artifact those packages download, can still be fetched. Every Sunday, and on a
+dispatch with `cold` ticked, the job therefore resolves from an empty directory
+even when the entry exists. When a run fails, the workflow opens or comments on
+one issue, `iOS Swift Package Cache failed on main`. Pull requests that restore the
+entry stay green, but a pin that can no longer be fetched would fail every iOS
+pull request at the next graph change or eviction.
+
+`scripts/ci/test_ci_cache_scopes.py`, in the governance check, fails when a
+`PR Validation` job saves either cache, or when a restore stops looking up the
+path and key its saver writes.
 
 ---
 
@@ -606,7 +985,7 @@ Minimum checks for streaming changes:
 This script, which also powers `./bin/hushh codex pre-pr`:
 
 1. Validates required files (e.g. `package-lock.json`, `next.config.ts`, `pyproject.toml`, `uv.lock`, generated runtime artifacts, test files).
-2. Checks Node (24+) and Python (3.13) and uses `uv` as the canonical backend toolchain.
+2. Checks Node (20+ minimum; use 24 for CI parity) and Python (3.13) and uses `uv` as the canonical backend toolchain.
 3. Runs **frontend** checks: install, `tsc`, lint, Next build, audit-budget gate, curated test suite.
 4. Runs **backend** checks: shared parity verification, install, Ruff, mypy, Bandit, curated test suite.
 5. Runs **integration**: route/runtime contract verification.
@@ -826,3 +1205,9 @@ the suite actually ran.
 
 The gate is deliberately separate from the manifest: the manifest answers "which
 suites gate a merge", and the gate answers "can every test file still be loaded".
+
+## Combined UI Contracts gate
+
+Every PR runs one mandatory **UI Contracts** job before expensive lanes. It installs only the locked TypeScript parser, shares source reads, rejects Back/Search coverage and freshness drift, and verifies Surface Map, Gateway, Siri and Route Orchestration mirrors. It runs mutation regressions that prove either owner failure rejects the combined check. Target validation execution is 5–10 seconds; dependency downloads, checkout, runner startup and queue time are separate. The command prints its actual elapsed time. Preflight and CI Status require success; frontend changes also require Web Core and the full Vitest suite, which retain behavior coverage.
+
+Run `cd hushh-webapp && npm run ui:doctor` before edits. Follow the [contributor scaffold](../architecture/ui-contract-contributor-guide.md), review authored Back cases and Search actions, then run `npm run build:ui-contracts` and `npm run verify:ui-contracts`. The pre-push wrapper runs the same read-only fast check. It never repairs or stamps source. The previous individual package commands remain available for diagnosis.

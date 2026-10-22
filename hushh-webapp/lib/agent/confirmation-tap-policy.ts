@@ -1,4 +1,4 @@
-import type { KaiActionDefinition } from "@/lib/voice/kai-action-gateway";
+import type { KaiActionDefinition } from "@/lib/kai/actions/kai-action-gateway";
 
 /**
  * Whether a confirmation must be settled by an actual tap, never by a

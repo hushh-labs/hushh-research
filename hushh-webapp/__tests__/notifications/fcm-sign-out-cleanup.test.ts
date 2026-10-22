@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   native: false,
   unregister: vi.fn(),
+  clearPreview: vi.fn(),
   deleteNativeToken: vi.fn(),
   getRegistration: vi.fn(),
   register: vi.fn(),
@@ -16,12 +17,21 @@ vi.mock("@capacitor/core", () => ({
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: { unregisterPushToken: mocks.unregister },
 }));
-vi.mock("@capacitor-firebase/messaging", () => ({
-  FirebaseMessaging: { deleteToken: mocks.deleteNativeToken },
+vi.mock("@/lib/capacitor", () => ({
+  HushhNotifications: { deletePushToken: mocks.deleteNativeToken },
 }));
 vi.mock("@/lib/firebase/config", () => ({
   app: { options: { appId: "test", apiKey: "test", messagingSenderId: "test" } },
 }));
+
+vi.mock("@/lib/notifications/preview-keys", () => ({
+  notificationDeviceId: () => "b4f18e46-a50e-4de5-8fbe-2f353f08ca51",
+  clearNotificationDevice: mocks.clearPreview,
+  clearCurrentNotificationDevice: mocks.clearPreview,
+}));
+
+import { settleSignOutNotifications } from "@/lib/auth/sign-out-notifications";
+import type { User } from "firebase/auth";
 
 import { deleteFCMToken } from "@/lib/notifications/fcm-service";
 
@@ -38,6 +48,23 @@ describe("sign-out push cleanup", () => {
       configurable: true,
       value: { getRegistration: mocks.getRegistration, register: mocks.register },
     });
+  });
+
+  it("removes native preview keys even when obtaining a logout token rejects", async () => {
+    mocks.native = true;
+    const getIdToken = vi.fn().mockRejectedValue(new Error("offline"));
+    await settleSignOutNotifications({ uid: "owner", getIdToken } as unknown as User);
+    expect(mocks.clearPreview).toHaveBeenCalledWith("owner");
+    expect(mocks.unregister).not.toHaveBeenCalled();
+  });
+
+  it("starts local preview removal before a stalled logout token completes", async () => {
+    mocks.native = true;
+    let release!: (token: string) => void;
+    const getIdToken = vi.fn(() => new Promise<string>((resolve) => { release = resolve; }));
+    const cleanup = settleSignOutNotifications({ uid: "owner", getIdToken } as unknown as User);
+    await vi.waitFor(() => expect(mocks.clearPreview).toHaveBeenCalledWith("owner"));
+    release("token"); await cleanup;
   });
 
   it("clears an existing subscription without registering a worker during logout", async () => {
@@ -62,7 +89,7 @@ describe("sign-out push cleanup", () => {
     mocks.unregister.mockReturnValue(new Promise<void>((resolve) => { complete = resolve; }));
     const controller = new AbortController();
     const cleanup = deleteFCMToken("owner", "token", { signal: controller.signal });
-    expect(mocks.unregister).toHaveBeenCalledWith("owner", "token", undefined, controller.signal);
+    await vi.waitFor(() => expect(mocks.unregister).toHaveBeenCalledWith("owner", "token", undefined, expect.any(AbortSignal), "b4f18e46-a50e-4de5-8fbe-2f353f08ca51"));
     const localOperation = native ? mocks.deleteNativeToken : mocks.getRegistration;
     await vi.waitFor(() => expect(localOperation).toHaveBeenCalledOnce());
     controller.abort();

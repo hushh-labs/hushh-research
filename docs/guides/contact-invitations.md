@@ -1,23 +1,31 @@
 # Personal contact invitations
 
 One's contact results can open an in-app selection and review sheet on web,
-iOS and Android. Each contact starts unselected. Each compose action addresses
-one recipient, and the person confirms sending in their Messages or mail app.
-There is no Select All, background sending, contact upload or delivery receipt.
+iOS and Android. Each contact starts unselected; choose 1–15 destinations and
+review one common invitation. Mobile opens one Messages composer addressed to
+all selected phone numbers. Web opens one email draft with selected addresses in
+BCC. The person confirms Send in their own app. There is no Select All,
+background sending, SMS provider, contact upload or delivery receipt.
+
+A multi-recipient Messages draft may create a group conversation and expose
+participants' numbers. The review explains this before opening Messages. The
+sender is the device's selected messaging account/SIM, which may differ from the
+One profile number. Carrier charges and messaging-app limits still apply.
 
 ## Visual Map
 
 ```mermaid
 flowchart LR
   sync["Contact sync results"] --> select["Choose recipients in One"]
-  select --> review["Review personal messages"]
+  select --> review["Review common message and up to 15 recipients"]
   review -->|Back| select
-  review --> compose["Compose for one recipient"]
-  compose --> handoff["User confirms Send or Cancel in Messages/mail"]
-  handoff --> next["Return to One"]
-  next -->|Completed handoff: preview next contact| compose
-  next -->|Cancelled: retry same contact| compose
-  next --> finish["Skip or close"]
+  review --> native["iOS / Android: one Messages draft"]
+  review --> web["Web: one BCC email draft"]
+  native --> handoff["User checks recipients and confirms Send or Cancel"]
+  web --> handoff
+  handoff --> result["Return to retained selection and honest handoff status"]
+  result -->|Explicit retry| review
+  result --> finish["Done or close"]
 ```
 
 ## Build and rollback
@@ -44,8 +52,11 @@ migration. Older native binaries can still share/copy without the new composer.
 - Google People reads remain browser-only using the existing read-only scope.
   Email collection is flag-gated. Browser email capability is probed before
   the picker tap; the picker itself is never delayed by a capability await.
-- Session generations invalidate reads, referral preparation and old toast
-  actions on dismissal, resync, account change, route change, flag disable or
+- Contact-sync outcome toasts report connected and invitable counts without an
+  invitation action. Invitations start from the results drawer's “Invite contacts”
+  action; partial-sync recovery actions remain available in the toast.
+- Session generations invalidate reads, referral preparation and pending
+  handoffs on dismissal, resync, account change, route change, flag disable or
   session-provider unmount. Selection and destinations survive search,
   pagination and review/back within that session. The account/route-scoped
   provider also retains the current step and pending handoff while authentication
@@ -94,87 +105,83 @@ Connect retains rows and shows a refresh retry if the list read fails. Location
 waits for a pre-sync read to settle, invalidates, then reads fresh state using the
 current search. Neither recovery rereads contacts or repeats a committed sync.
 
-## Delivery contract
+## Composer contract
 
-`HushhInvitations.getCapabilities()` returns `{ sms: boolean }`.
-`composeSms({ recipient: string, body: string })` accepts one E.164 number and
-at most 2,000 UTF-16 code units. No new contact or background SMS permission is
-requested. iOS uses MessageUI; Android uses ACTION_SENDTO with `smsto:`.
+`HushhInvitations.getCapabilities()` returns
+`{ sms: boolean, maxSmsRecipients?: number }`. New iOS/Android binaries advertise
+15. `composeSmsBatch({ recipients: string[], body: string })` accepts 1–15 unique
+E.164 numbers and at most 2,000 UTF-16 code units. Native adapters independently
+reject malformed, duplicate, mixed-type, empty or oversized arrays; they never
+truncate. The legacy `composeSms({ recipient, body })` method remains compatible.
 
-Outcomes are `queued_or_sent`, `opened`, `cancelled`, `failed`, or `unavailable`.
-They must never become “delivered”. Web `mailto:` launches use one validated
-mailbox and encoded subject/body; launch is only `launch_requested`. The web
-SMS action prefills the number; a separate copy control supplies the text.
-Share/copy never assumes which recipient the user chose in another app.
+Batch actions require an affirmative capability with an integer maximum of at
+least 15. A legacy `{ sms: true }` response does not enable batch composition.
+Older binaries show update/copy recovery. No new contact or background SMS
+permission is requested. iOS sets MessageUI's recipients array; Android starts
+one ACTION_SENDTO intent with comma-separated `smsto:` numbers and `sms_body`.
+Android messaging apps may apply their own recipient/group limits; review all
+recipients in the external app. No alternative delimiter or composer is launched
+automatically after a successful handoff.
 
-Existing referral copy, attribution and generic-link fallback are reused.
-Each message adds a greeting using the selected contact's display name, with
-an exact preview with selectable text for each
-recipient. Missing names use the original invitation text. Names and personalized
-messages remain in session memory until the user hands them to another app.
-Link preparation has a bounded wait and a retry that preserves selection.
-Copy reports an "Invitation copied" toast and keeps the current recipient.
-Successful iOS Messages handoff or completed iOS/web sharing advances to the
-next contact preview, without opening another composer. Cancel or failure
-keeps the current contact for retry or Skip. Android SMS/share and web URL
-launches cannot establish whether the person sent or cancelled; these show
-"Done with this contact" for explicit advancement. Copy also exposes this
-action for invitations pasted manually. No advancement confirms delivery.
-If composer, share or clipboard access is unavailable, share/copy alternatives
-and selectable preview text remain accessible. Skip and the close button
-always provide an exit. External focus changes do not dismiss the sheet.
-Receiving an invitation does not grant a connection or location capability.
+Outcomes remain `queued_or_sent` (iOS Send), `opened` (Android launch),
+`cancelled`, `failed`, or `unavailable`. None establishes delivery or a
+per-recipient outcome. The user can edit recipients/body in the external app.
+Cancel/failure retains the whole selection; retry is explicit. Completed or
+ambiguous launches show Done and a reminder to check the external app before
+opening again. Share/copy never advances to another person or relaunches a
+composer. Copy feedback does not change a previous compose result.
+
+Web filters to valid email destinations, including the email of a mixed
+phone/email contact. Phone-only contacts are explained and excluded from email
+selection. If none are eligible, generic share/copy and link-preparation retry
+remain available. One encoded `mailto:?bcc=...&subject=...&body=...` draft keeps
+To/Cc empty. Mailbox validation rejects recipient/header injection and case
+variants cannot select the same mailbox twice. The encoded URI has an 8,000
+character application guard: oversized drafts fail explicitly without truncation.
+The browser handoff occurs on the tap and returns `launch_requested`, never
+sent. Mail clients can ignore BCC headers, so the review asks the user to verify
+BCC before sending. There is no fallback that puts addresses in To/Cc.
+
+The common text and existing referral attribution/generic-link fallback are
+reused without individual greetings. An exact selectable preview and recipient
+list precede the composer. Preparation has a bounded wait and retry that
+preserves selection. Search, pagination, review Back and auth-gate remounts keep
+the draft. Overlay Back unwinds result → review → selection; a pending handoff
+consumes Back. Close clears the session. Session guards are rechecked after the
+native capability await and before opening Messages, so late completion cannot
+launch with recipients from a closed session. External focus changes do not
+dismiss the sheet. Receiving an invitation grants no connection or location
+capability.
+
+The same session guard covers lazy native Share loading and clipboard recovery:
+closing the draft suppresses a later share launch or textarea-copy fallback.
+An operation already handed to the operating system or clipboard cannot be
+recalled; its late completion cannot update a cleared invitation session.
 
 ## Verification and release checklist
 
-Run `npm run verify:contact-invitations`, `npm run verify:connect-search`,
-`npm run verify:one-location`, `npm run verify:share-ladder`, typecheck,
-service-boundary and native plugin/static checks. Run `npm run cap:build` and
+Run `npm run verify:contact-invitations`, the Google contact-session regression,
+`npm run verify:connect-search`, typecheck, service-boundary and native plugin
+checks. The existing contact-invitation layout pack covers small phones,
+keyboard insets, batch review and result controls. Run `npm run cap:build` and
 native compilation on supported build hosts.
 
-Before enabling production, use designated test recipients on physical iPhone
-and Android devices: prefill one number, Send/Cancel/Retry, app return,
-unavailable handler and older-binary fallback. Exercise Google import and
-email-only recipients on desktop, plus browser share/copy and missing mail/SMS
-handlers. Do not send live invitations from automated tests.
+Use designated test recipients for physical iPhone and Android verification:
+1, 10 and 15 recipient prefills, common message/referral, Send/Cancel/discard,
+app return, group visibility, SIM/account choice, unavailable handler and
+older-binary fallback. On Android check Google Messages and supported vendor
+handlers. On web exercise Google import, mixed-channel and email-only contacts,
+no eligible emails, BCC across supported mail clients, missing mail handler,
+and clipboard/share failure. Automated tests never send live invitations.
 
-Invitation-return regression checks:
+Before release verify session cleanup on Close, logout, account/route change,
+resync, feature disable and provider unmount, including pending capability probes.
+Authentication remounts must retain the pending draft without a second handoff.
+Names, destinations, message bodies and intent/mailto URLs must stay out of
+API payloads, analytics, route URLs, logs and storage.
 
-- Select/deselect via name, number, whitespace and checkbox; preserve explicit
-  multi-destination choice, deduplication, search and pagination.
-- Select two contacts; return from iOS Messages Send and completed sharing:
-  show the next personalized preview and open no composer automatically.
-- Return using Cancel, X or discard: retain the current recipient and selection.
-- Temporarily unmount the page during a pending handoff and settle its promise:
-  restore the correct step after validation; never show contacts behind a gate.
-- Copy through the clipboard focus fallback: keep the sheet and show feedback.
-- Android/web ambiguous handoffs use explicit completion; repeated taps cannot
-  start duplicate composers. Retry, Skip and queue completion remain usable.
-- Logout, account/route changes, explicit close, resync and flag disable clear
-  recipients and ignore late callbacks, including their toasts.
-
-Impact: existing Connect and Location routes and public request/response shapes
-are preserved. Migration 205 adds disconnect-actor metadata for the explicit
-resync policy above; it must precede deployment of the updated backend. No cache
-keys or PKM contracts change. Invitation interfaces are client-local recipient
-callbacks and the native composer plugin. Apple requires individualized
-contact invitations: [App Review 5.1.2(v)](https://developer.apple.com/app-store/review/guidelines/#data-use-and-sharing).
-
-## Invitation-return follow-up verification (2026-09-10)
-
-- 50 invitation tests, 344 Connect tests (large-list timeout under concurrent
-  suite load passed its isolated 17-test rerun), 893 Location tests, 273 account
-  session tests and 62 share-ladder tests passed. These suite counts overlap.
-- TypeScript, focused ESLint, production web build, service boundary, docs,
-  design-system, route orchestration and native plugin/static checks passed.
-- Synthetic Chromium rehearsal at 390px and 1440px passed full-row selection,
-  Google import and matching, real clipboard with toast, preview/back, share
-  cancellation/retry, automatic next preview, email launch and queue cleanup.
-  No raw recipients appeared in captured API requests, logs or browser storage.
-- Native export remains blocked on this Windows host by `spawnSync npx ENOENT`.
-  Physical iOS/Android Send, discard, Cancel and app-return checks on a rebuilt
-  native bundle are still required. Automated gate-remount tests cover pending
-  handoffs resolving while the page is absent; they do not replace device tests.
+The historical verification below describes earlier single-recipient builds;
+it does not establish physical-device verification of the batch composer.
 
 ## Implementation verification (2026-09-09)
 

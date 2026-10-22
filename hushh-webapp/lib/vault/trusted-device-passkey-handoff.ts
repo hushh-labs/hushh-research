@@ -1,6 +1,10 @@
 import { VaultService, type VaultWrapper } from "@/lib/services/vault-service";
 import { authenticateWithPrf } from "@/lib/vault/prf-auth";
-import { isPasskeyRpIdCompatibleWithHost } from "@/lib/vault/passkey-rp";
+import {
+  isPasskeyRpIdCompatibleWithHost,
+  resolvePasskeyEnvironment,
+  type PasskeyEnvironment,
+} from "@/lib/vault/passkey-rp";
 import { wrapExportKeyForConnector } from "@/lib/vault/export-encrypt";
 
 export const TRUSTED_DEVICE_VAULT_HANDOFF_ALG = "X25519-AES256-GCM";
@@ -34,7 +38,7 @@ export function trustedDeviceVaultHandoffAad(params: {
   vaultKeyHash: string;
   wrapperId: string;
   rpId: string;
-  environment: "uat" | "production";
+  environment: PasskeyEnvironment;
   recipientPublicKey: string;
 }): string {
   return [
@@ -88,8 +92,12 @@ export async function buildTrustedDevicePasskeyHandoff(params: {
   expiresAt: number;
   recipientPublicKey: string;
   hostname: string;
-  environment: "uat" | "production";
+  environment: PasskeyEnvironment;
 }): Promise<TrustedDeviceVaultHandoff | null> {
+  const environment = resolvePasskeyEnvironment(params.hostname);
+  if (environment && environment !== params.environment) {
+    throw new Error("The passkey handoff environment does not match this host.");
+  }
   const vaultState = await VaultService.getVaultState(params.userId);
   const wrapper = compatiblePasskeyWrapper(
     vaultState.wrappers,

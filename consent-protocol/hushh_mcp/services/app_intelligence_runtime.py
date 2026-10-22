@@ -14,6 +14,7 @@ later, but no MCP transport runs in the realtime path.
 from __future__ import annotations
 
 import ast
+import asyncio
 import hashlib
 import hmac
 import importlib
@@ -24,6 +25,7 @@ import re
 import threading
 import time
 from collections.abc import Iterable, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from functools import lru_cache
@@ -38,6 +40,7 @@ from hushh_mcp.runtime_providers.factory import (
     VERTEX_ADC_AUTH_MODE,
     ManagedGeminiRuntimeBinding,
 )
+from hushh_mcp.runtime_settings import managed_ai_settings
 from hushh_mcp.services.action_gateway import (
     is_navigation_action,
     list_action_gateway_actions,
@@ -97,7 +100,8 @@ LOCATION_ONBOARDING_COMPLETION_RECEIPT_SCHEMA_VERSION = (
 CAPABILITY_RUN_RESUME_SUMMARY_LIMIT = MAX_CAPABILITY_RUN_RESUME_SUMMARIES
 MIN_RETRIEVAL_RESULTS = 4
 MAX_RETRIEVAL_RESULTS = 10
-LOCATION_BRAIN_EMBEDDING_MODEL = "gemini-embedding-001"
+
+LOCATION_BRAIN_EMBEDDING_MODEL = managed_ai_settings().embedding_model
 LOCATION_BRAIN_EMBEDDING_DIMENSIONS = 768
 _LOCATION_BRAIN_EMBEDDING_TIMEOUT_MS = 900
 _LOCATION_BRAIN_EMBEDDING_STARTUP_TIMEOUT_MS = 8_000
@@ -2625,6 +2629,8 @@ def _compile_service_onboarding_workflows(
             candidate_id
             for candidate_id in _clean_strings(route.get("action_ids"))
             if candidate_id in by_id
+            # The passive introduction is separate from the verified v2 runtime.
+            and not (service_id == "location" and candidate_id == "setup.finish_location_intro")
             and str((by_id[candidate_id].get("execution_target") or {}).get("status") or "")
             == "wired"
         ]
@@ -4882,7 +4888,11 @@ _LOCATION_BRAIN_SEMANTIC_CACHE: dict[str, Any] = {
     "vectors": (),
     "embedding_model": None,
     "dimensions": 0,
+    "embedding_profile": None,
 }
+_LOCATION_AZURE_EMBEDDING_WORKERS = ThreadPoolExecutor(
+    max_workers=4, thread_name_prefix="location-azure-embedding"
+)
 _LOCATION_BRAIN_EMBEDDING_CLIENT: Any | None = None
 _LOCATION_BRAIN_EMBEDDING_LOCK = threading.RLock()
 _LOCATION_BRAIN_SEMANTIC_CACHE_LOCK = threading.RLock()
@@ -4897,6 +4907,31 @@ _LOCATION_BRAIN_EMBEDDING_CIRCUIT: dict[str, float | int] = {
 
 class LocationBrainEmbeddingUnavailable(RuntimeError):
     """A bounded managed-embedding failure that must resolve to ``ASK``."""
+
+
+def _location_brain_embedding_profile() -> str:
+    from hushh_mcp.managed_ai_config import load_managed_runtime_policy, profile_hash
+
+    policy = load_managed_runtime_policy()
+    if policy is not None and policy["provider"] == "azure_openai":
+        descriptor = {
+            "provider": "azure_openai",
+            **policy["azure"]["embedding"],
+            "generation": policy["generation"],
+        }
+    else:
+        descriptor = {
+            "provider": "vertex",
+            "model": LOCATION_BRAIN_EMBEDDING_MODEL,
+            "project": managed_ai_settings().project,
+        }
+    return profile_hash(
+        {
+            **descriptor,
+            "dimensions": LOCATION_BRAIN_EMBEDDING_DIMENSIONS,
+            "preprocessing": "location-safe-passages-v1",
+        }
+    )
 
 
 def _location_brain_embedding_client() -> Any:
@@ -4949,9 +4984,11 @@ def _location_brain_embedding_values(response: Any, *, expected_count: int) -> l
         raise LocationBrainEmbeddingUnavailable("managed embedding response is incomplete")
     vectors: list[list[float]] = []
     for embedding in embeddings:
-        values = getattr(embedding, "values", None)
-        if values is None and isinstance(embedding, Mapping):
-            values = embedding.get("values")
+        values = (
+            embedding.get("values")
+            if isinstance(embedding, Mapping)
+            else getattr(embedding, "values", None)
+        )
         if not isinstance(values, list) or len(values) != LOCATION_BRAIN_EMBEDDING_DIMENSIONS:
             raise LocationBrainEmbeddingUnavailable("managed embedding dimensions are invalid")
         try:
@@ -4981,7 +5018,33 @@ def _embed_location_brain_texts(
     # provider.  Backpressure is an ASK, never a lexical/alias fallback.
     if not _LOCATION_BRAIN_EMBEDDING_REQUESTS.acquire(timeout=0.05):
         raise LocationBrainEmbeddingUnavailable("managed embedding is busy")
+    future = None
     try:
+        from hushh_mcp.runtime_providers.managed_azure import ManagedAzureBinding, embed_texts
+
+        azure = ManagedAzureBinding.from_environment()
+        if azure is not None:
+            profile = _location_brain_embedding_profile()
+
+            def work():
+                # Only this bounded worker owns a new event loop. The public
+                # synchronous port never blocks an application event loop on
+                # token-worker shutdown after its caller deadline.
+                return asyncio.run(embed_texts(azure, texts, timeout=timeout_ms / 1000))
+
+            future = _LOCATION_AZURE_EMBEDDING_WORKERS.submit(work)
+            # Keep capacity reserved until provider/auth cleanup actually exits,
+            # even if the waiting caller times out first.
+            future.add_done_callback(lambda _future: _LOCATION_BRAIN_EMBEDDING_REQUESTS.release())
+            raw_vectors = future.result(timeout=timeout_ms / 1000)
+            if _location_brain_embedding_profile() != profile:
+                raise LocationBrainEmbeddingUnavailable("managed embedding profile changed")
+            vectors = _location_brain_embedding_values(
+                {"embeddings": [{"values": value} for value in raw_vectors]},
+                expected_count=len(texts),
+            )
+            _record_location_brain_embedding_success()
+            return vectors
         from google.genai import types as genai_types
 
         response = _location_brain_embedding_client().models.embed_content(
@@ -4999,7 +5062,8 @@ def _embed_location_brain_texts(
         _record_location_brain_embedding_failure()
         raise LocationBrainEmbeddingUnavailable("managed embedding is unavailable") from exc
     finally:
-        _LOCATION_BRAIN_EMBEDDING_REQUESTS.release()
+        if future is None:
+            _LOCATION_BRAIN_EMBEDDING_REQUESTS.release()
     _record_location_brain_embedding_success()
     return vectors
 
@@ -5528,6 +5592,8 @@ def _location_brain_cache_matches(
         and _LOCATION_BRAIN_SEMANTIC_CACHE.get("candidate_ids") == candidate_ids
         and _LOCATION_BRAIN_SEMANTIC_CACHE.get("embedding_model") == LOCATION_BRAIN_EMBEDDING_MODEL
         and _LOCATION_BRAIN_SEMANTIC_CACHE.get("dimensions") == LOCATION_BRAIN_EMBEDDING_DIMENSIONS
+        and _LOCATION_BRAIN_SEMANTIC_CACHE.get("embedding_profile")
+        == _location_brain_embedding_profile()
         and isinstance(vectors, tuple)
         and len(vectors) == len(candidate_ids)
     )
@@ -5566,6 +5632,7 @@ def prewarm_location_brain_semantic_index(
                 "card_count": len(cards),
             }
 
+    embedding_profile = _location_brain_embedding_profile()
     vectors = _embed_location_brain_texts(
         [_location_brain_passage(card) for card in cards],
         task_type="RETRIEVAL_DOCUMENT",
@@ -5573,6 +5640,8 @@ def prewarm_location_brain_semantic_index(
     )
     if len(vectors) != len(cards):
         raise LocationBrainEmbeddingUnavailable("Location semantic index is incomplete")
+    if _location_brain_embedding_profile() != embedding_profile:
+        raise LocationBrainEmbeddingUnavailable("Location semantic embedding profile changed")
     with _LOCATION_BRAIN_SEMANTIC_CACHE_LOCK:
         _LOCATION_BRAIN_SEMANTIC_CACHE.update(
             {
@@ -5584,6 +5653,7 @@ def prewarm_location_brain_semantic_index(
                 "vectors": tuple(tuple(vector) for vector in vectors),
                 "embedding_model": LOCATION_BRAIN_EMBEDDING_MODEL,
                 "dimensions": LOCATION_BRAIN_EMBEDDING_DIMENSIONS,
+                "embedding_profile": embedding_profile,
             }
         )
     return {
@@ -5683,12 +5753,15 @@ def retrieve_location_brain_candidates(
                 "reason_code": "semantic_index_unavailable",
             }
         cached_vectors = tuple(_LOCATION_BRAIN_SEMANTIC_CACHE["vectors"])
+        embedding_profile = _LOCATION_BRAIN_SEMANTIC_CACHE["embedding_profile"]
     try:
         query_vector = _embed_location_brain_texts(
             [clean_query],
             task_type="RETRIEVAL_QUERY",
             timeout_ms=_LOCATION_BRAIN_EMBEDDING_TIMEOUT_MS,
         )[0]
+        if _location_brain_embedding_profile() != embedding_profile:
+            raise LocationBrainEmbeddingUnavailable("Location semantic embedding profile changed")
         ranked = sorted(
             (
                 (sum(left * right for left, right in zip(query_vector, vector, strict=True)), card)

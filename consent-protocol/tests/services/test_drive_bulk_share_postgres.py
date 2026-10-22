@@ -7,15 +7,21 @@ import base64
 import json
 import threading
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
+import httpx
 import pytest
 from sqlalchemy import text
 
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
-from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
+from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore, bulk_outcome_summary
+from hushh_mcp.services.drive_bulk_share_worker import DriveBulkShareWorker
+from hushh_mcp.services.drive_request_bulk_removal_store import managed_bulk_plan
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.google_drive_adapter import DRIVE_BASE, DRIVE_POLICY, LIVE_POLICY_HASH
+from hushh_mcp.services.google_drive_permission_adapter import GoogleDrivePermissionAdapter
 from tests.services.test_external_connector_lifecycle_postgres import (  # noqa: F401
     connector_postgres_url,
     lifecycle,
@@ -34,6 +40,12 @@ def bulk(lifecycle, monkeypatch):
     with lifecycle.db.engine.begin() as connection:
         connection.execute(text((MIGRATIONS / "251_drive_owner_search_jobs.sql").read_text()))
         connection.execute(text((MIGRATIONS / "254_drive_bulk_shares.sql").read_text()))
+        # This fixture has no payment ledgers. Mirror only migration 352's
+        # search marker needed by the V1 share queue.
+        connection.execute(
+            text("""ALTER TABLE drive_owner_search_jobs
+            ADD COLUMN v1_statement_search BOOLEAN NOT NULL DEFAULT FALSE""")
+        )
         # Migrations 256 and 259 also need share-request tables absent from this
         # generic bulk fixture. Mirror only their columns used without an origin.
         connection.execute(
@@ -52,12 +64,38 @@ def bulk(lifecycle, monkeypatch):
             text("""ALTER TABLE drive_bulk_shares
             ADD COLUMN progressive_batch BOOLEAN NOT NULL DEFAULT FALSE,
             ADD COLUMN approval_source TEXT,
+            ADD COLUMN v1_statement_search BOOLEAN NOT NULL DEFAULT FALSE,
             ADD CONSTRAINT drive_bulk_approval_source_check
               CHECK ((approved_at IS NULL AND approval_source IS NULL)
                 OR (approved_at IS NOT NULL AND approval_source IN ('owner','trusted_auto')))""")
         )
         connection.execute(
             text("ALTER TABLE drive_bulk_share_files ADD COLUMN origin_request_id UUID")
+        )
+        # The grant queue skips a request that still awaits payment. Mirror only
+        # the request and order columns due() reads (migrations 232, 262, 287,
+        # 298 and 356); this fixture's shares have no such request.
+        connection.execute(
+            text("""CREATE TABLE IF NOT EXISTS drive_share_requests (
+            request_id UUID PRIMARY KEY, status TEXT NOT NULL,
+            expires_at TIMESTAMPTZ NOT NULL,
+            payment_required BOOLEAN NOT NULL DEFAULT FALSE,
+            access_stop_requested_at TIMESTAMPTZ, access_expires_at TIMESTAMPTZ)""")
+        )
+        connection.execute(
+            text("""CREATE TABLE IF NOT EXISTS drive_request_payment_orders (
+            request_id UUID PRIMARY KEY, status TEXT NOT NULL, paid_at TIMESTAMPTZ,
+            reconciliation_required BOOLEAN NOT NULL DEFAULT FALSE,
+            stripe_mode TEXT NOT NULL)""")
+        )
+        # Migration 287's per-file removal ledger: the recipient's file lists
+        # hide removed files. Mirror only the columns that check reads.
+        connection.execute(
+            text("""CREATE TABLE IF NOT EXISTS drive_request_bulk_removals (
+            share_id UUID NOT NULL,
+            position INTEGER NOT NULL,
+            recipient_user_id TEXT NOT NULL,
+            UNIQUE (share_id,position,recipient_user_id))""")
         )
         connection.execute(
             text("""UPDATE external_mcp_connectors SET transport_kind='google_drive_rest',
@@ -132,6 +170,83 @@ def _seed_completed_search(store, count=2000):
             envelopes,
         )
     return job
+
+
+@pytest.mark.asyncio
+async def test_v1_delivery_queue_excludes_unmarked_auto_and_nonprogressive_shares(bulk):
+    """The isolated worker sees only an explicit V1 owner selection."""
+    cases = [
+        ("approved_v1", True, True, "owner"),
+        ("nonprogressive", True, False, "owner"),
+        ("automatic", True, True, "trusted_auto"),
+        ("unmarked", False, True, "owner"),
+    ]
+    shares = {}
+    with bulk.db.engine.begin() as connection:
+        for name, marked, progressive, approval_source in cases:
+            search = str(uuid4())
+            share = str(uuid4())
+            shares[name] = share
+            connection.execute(
+                text("""INSERT INTO drive_owner_search_jobs(
+                  job_id,user_id,client_request_id,request_digest,connection_generation,
+                  consent_version,status,checkpoint_envelope,v1_statement_search)
+                  VALUES(:search,'owner',:client,:digest,7,'drive-owner-search-v1',
+                    'completed','{}'::jsonb,:marked)"""),
+                {"search": search, "client": str(uuid4()), "digest": "a" * 64, "marked": marked},
+            )
+            connection.execute(
+                text("""INSERT INTO drive_bulk_shares(
+                  share_id,user_id,search_job_id,client_request_id,request_digest,
+                  connection_generation,search_revision,review_digest,status,file_count,
+                  recipient_count,excluded_envelope,origin_request_id,origin_request_revision,
+                  progressive_batch,approval_source,approved_at,v1_statement_search)
+                  VALUES(:share,'owner',:search,:client,:digest,7,1,:review,'queued',1,1,
+                    '{}'::jsonb,:origin,1,:progressive,:approval_source,clock_timestamp(),:v1)"""),
+                {
+                    "share": share,
+                    "search": search,
+                    "client": str(uuid4()),
+                    "digest": "b" * 64,
+                    "review": "c" * 64,
+                    "origin": str(uuid4()),
+                    "progressive": progressive,
+                    "approval_source": approval_source,
+                    "v1": marked and progressive and approval_source == "owner",
+                },
+            )
+            connection.execute(
+                text("""INSERT INTO drive_bulk_share_files(
+                  share_id,user_id,position,source_job_id,source_position,file_digest,
+                  metadata_envelope)
+                  VALUES(:share,'owner',1,:search,1,:digest,'{}'::jsonb)"""),
+                {"share": share, "search": search, "digest": "d" * 64},
+            )
+            connection.execute(
+                text("""INSERT INTO drive_bulk_share_recipients(
+                  share_id,user_id,recipient_user_id,identity_envelope)
+                  VALUES(:share,'owner','recipient-1','{}'::jsonb)"""),
+                {"share": share},
+            )
+            connection.execute(
+                text("""INSERT INTO drive_bulk_share_effects(
+                  share_id,user_id,position,recipient_user_id)
+                  VALUES(:share,'owner',1,'recipient-1')"""),
+                {"share": share},
+            )
+            connection.execute(
+                text("""INSERT INTO drive_bulk_share_notifications(
+                  share_id,user_id,recipient_user_id)
+                  VALUES(:share,'owner','recipient-1')"""),
+                {"share": share},
+            )
+
+    assert {str(row["share_id"]) for row in await bulk.due(v1_only=True)} == {shares["approved_v1"]}
+    assert {str(row["share_id"]) for row in await bulk.due_notifications(v1_only=True)} == {
+        shares["approved_v1"]
+    }
+    assert {str(row["share_id"]) for row in await bulk.due()} == set(shares.values())
+    assert {str(row["share_id"]) for row in await bulk.due_notifications()} == set(shares.values())
 
 
 @pytest.mark.asyncio
@@ -435,3 +550,495 @@ async def test_stop_serializes_pre_post_release_and_keeps_confirmed_inflight_rec
     )
     assert delivered["sharedCount"] == 1
     assert [item["name"] for item in delivered["files"]] == ["Financial document 2"]
+
+
+class _Stream(httpx.AsyncByteStream):
+    def __init__(self, payload):
+        self.data = json.dumps(payload).encode()
+
+    async def __aiter__(self):
+        yield self.data
+
+
+class _Drive:
+    """Synthetic Drive REST behind the real permission adapter.
+
+    Records every call. ``acl`` is what permissions.list returns per file; a
+    test edits it to show what Google holds after a create it answered.
+    ``list_failures`` holds statuses the next permissions.list calls answer.
+    """
+
+    def __init__(self, monkeypatch, create):
+        self.calls, self.acl, self.create = [], {}, create
+        self.list_failures = []
+        original = httpx.AsyncClient
+        monkeypatch.setattr(
+            httpx,
+            "AsyncClient",
+            lambda **kw: original(**kw, transport=httpx.MockTransport(self)),
+        )
+
+    def __call__(self, request):
+        file_id = request.url.path.split("/files/", 1)[1].split("/", 1)[0]
+        if request.method == "POST":
+            self.calls.append(("create", file_id, request.url.params["sendNotificationEmail"]))
+            status, payload = self.create(file_id)
+        elif request.url.path.endswith("/permissions"):
+            self.calls.append(("list", file_id, None))
+            if self.list_failures:
+                status = self.list_failures.pop(0)
+                payload = {"error": {"code": status}}
+            else:
+                status, payload = 200, {"permissions": list(self.acl.get(file_id, ()))}
+        else:
+            self.calls.append(("inspect", file_id, None))
+            status, payload = (
+                200,
+                {
+                    "id": file_id,
+                    "name": f"Financial document {file_id.removeprefix('file-')}",
+                    "mimeType": "application/pdf",
+                    "trashed": False,
+                    "modifiedTime": "2026-09-27T00:00:00Z",
+                    "capabilities": {"canShare": True},
+                },
+            )
+        return httpx.Response(status, stream=_Stream(payload))
+
+    def creates(self):
+        return [call for call in self.calls if call[0] == "create"]
+
+
+def _google_error(status, reason, message="Bad Request"):
+    return status, {
+        "error": {
+            "code": status,
+            "message": message,
+            "errors": [{"domain": "global", "reason": reason, "message": message}],
+        }
+    }
+
+
+_SHARED_WITHOUT_EMAIL = (
+    'Bad Request. User message: "Sorry, the items were successfully shared but emails '
+    'could not be sent to recipient1@example.com."'
+)
+_NO_GOOGLE_ACCOUNT = (
+    'Bad Request. User message: "You are trying to invite recipient1@example.com. Since '
+    "there is no Google account associated with this email address, you must check the "
+    '"Notify people" box to invite this recipient."'
+)
+_ACL_CHANGE_NOT_ALLOWED = 'Bad Request. User message: "ACL change not allowed."'
+
+
+def _viewer(file_id, *, role="reader"):
+    return {
+        "id": f"permission-{file_id}",
+        "type": "user",
+        "role": role,
+        "emailAddress": "recipient1@example.com",
+    }
+
+
+async def _approved_share(bulk, count=1):
+    review = await bulk.create_review(
+        user_id="owner",
+        search_job_id=_seed_completed_search(bulk, count=count),
+        client_request_id=str(uuid4()),
+        recipients=[
+            {
+                "userId": "recipient-1",
+                "name": "Recipient 1",
+                "email": "recipient1@example.com",
+                "subject": "subject-1",
+                "kind": "verified_email",
+            }
+        ],
+        excluded=[],
+    )
+    await bulk.approve(
+        user_id="owner",
+        share_id=review["shareId"],
+        revision=review["revision"],
+        review_digest=review["reviewDigest"],
+    )
+    return review["shareId"]
+
+
+def _worker(bulk):
+    return DriveBulkShareWorker(
+        store=bulk,
+        adapter=GoogleDrivePermissionAdapter(),
+        oauth=SimpleNamespace(
+            current_credential=AsyncMock(
+                return_value=(
+                    {"connection_generation": 7},
+                    {
+                        "accessToken": "synthetic-token",
+                        "subject": "owner-google",
+                        "oauthClientId": "synthetic-client",
+                    },
+                )
+            )
+        ),
+        verify_recipient=AsyncMock(),
+        wake=AsyncMock(),
+    )
+
+
+def _row(share, position=1):
+    return {
+        "user_id": "owner",
+        "share_id": share,
+        "position": position,
+        "recipient_user_id": "recipient-1",
+    }
+
+
+def _effect(bulk, share, position=1):
+    with bulk.db.engine.begin() as connection:
+        row = connection.execute(
+            text("""SELECT *,EXTRACT(EPOCH FROM next_at-clock_timestamp()) AS wait
+            FROM drive_bulk_share_effects WHERE share_id=:share AND position=:position"""),
+            {"share": share, "position": position},
+        ).mappings()
+        return dict(row.one())
+
+
+def _due_now(bulk, share, position=1):
+    with bulk.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_bulk_share_effects
+            SET next_at=clock_timestamp()-INTERVAL '1 second'
+            WHERE share_id=:share AND position=:position"""),
+            {"share": share, "position": position},
+        )
+
+
+def _requester_summary(bulk, share, total=1):
+    with bulk.db.engine.begin() as connection:
+        return bulk_outcome_summary(
+            connection, share_id=share, total=total, recipient_user_id="recipient-1"
+        )
+
+
+def _receipt(bulk, share, position=1):
+    return bulk._open(
+        _effect(bulk, share, position)["receipt_envelope"],
+        user_id="owner",
+        resource_id=f"{share}:{position}:recipient-1",
+        purpose="bulk-share-receipt",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "answer,listed,state,code,managed",
+    [
+        # Google's 400 after a real share: the exact grant becomes One's own.
+        (
+            _google_error(400, "invalidSharingRequest", _SHARED_WITHOUT_EMAIL),
+            _viewer("file-1"),
+            "succeeded",
+            None,
+            True,
+        ),
+        # B has no Google account: no grant exists, and B is told why.
+        (
+            _google_error(400, "invalidSharingRequest", _NO_GOOGLE_ACCOUNT),
+            None,
+            "failed",
+            "recipient_needs_google_account",
+            False,
+        ),
+        (
+            _google_error(400, "invalidSharingRequest", _ACL_CHANGE_NOT_ALLOWED),
+            None,
+            "failed",
+            "drive_policy_blocked",
+            False,
+        ),
+        # A grant that exists wins over any wording Google used.
+        (
+            _google_error(400, "invalidSharingRequest", _NO_GOOGLE_ACCOUNT),
+            _viewer("file-1"),
+            "succeeded",
+            None,
+            True,
+        ),
+        # Negative controls: a different role is never adopted, and a generic
+        # uncertain write keeps the existing unattributed reconciliation.
+        (
+            _google_error(400, "invalidSharingRequest", _SHARED_WITHOUT_EMAIL),
+            _viewer("file-1", role="writer"),
+            "present_unattributed",
+            "permission_outcome_unknown",
+            False,
+        ),
+        (
+            (503, {"error": {"code": 503}}),
+            _viewer("file-1"),
+            "present_unattributed",
+            "permission_outcome_unknown",
+            False,
+        ),
+    ],
+    ids=[
+        "shared_without_email",
+        "no_google_account",
+        "policy",
+        "grant_wins",
+        "other_role",
+        "generic_unknown",
+    ],
+)
+async def test_invalid_sharing_answer_is_reconciled_before_it_settles(
+    bulk, monkeypatch, answer, listed, state, code, managed
+):
+    share = await _approved_share(bulk)
+    drive = _Drive(monkeypatch, create=lambda file_id: answer)
+    worker = _worker(bulk)
+
+    assert await worker._effect(_row(share)) == "unknown"
+    pending = _effect(bulk, share)
+    assert pending["state"] == "unknown"
+    assert pending["safe_error_code"] == "permission_outcome_unknown"
+    # Until reconciled, B sees "checking", never a refusal or a success.
+    assert _requester_summary(bulk, share)["counts"]["unknown"] == 1
+
+    if listed is not None:
+        drive.acl["file-1"] = [listed]
+    _due_now(bulk, share)
+    assert await worker._effect(_row(share)) == state
+
+    settled = _effect(bulk, share)
+    assert (settled["state"], settled["safe_error_code"]) == (state, code)
+    receipt = _receipt(bulk, share)
+    plan = managed_bulk_plan(
+        receipt=receipt,
+        file={"id": "file-1"},
+        recipient={"email": "recipient1@example.com"},
+    )
+    # A managed grant can be removed by Stop or expiry; nothing else can.
+    assert (plan is not None) is managed
+    if managed:
+        assert receipt["permission_id"] == "permission-file-1"
+        assert receipt["issuer"] == {"subject": "owner-google", "oauthClientId": "synthetic-client"}
+    # One POST, read-only reconciliation, and never a per-file email.
+    assert drive.creates() == [("create", "file-1", "false")]
+    assert [call[0] for call in drive.calls] == ["inspect", "list", "create", "list"]
+    assert await bulk.due() == []
+    summary = _requester_summary(bulk, share)
+    if code in {"recipient_needs_google_account", "drive_policy_blocked"}:
+        assert summary["counts"]["failed"] == 1
+        # Released clients parse only codes they know; the exact one is additive.
+        assert summary["issues"] == [{"reasonCode": "permission_rejected", "count": 1}]
+        assert summary["issueDetails"] == [{"reasonCode": code, "count": 1}]
+    if state == "succeeded":
+        assert summary["counts"]["shared"] == 1 and summary["issues"] == []
+        assert "issueDetails" not in summary
+
+
+@pytest.mark.asyncio
+async def test_plain_bad_request_is_rejected_once_and_never_retried(bulk, monkeypatch):
+    share = await _approved_share(bulk)
+    drive = _Drive(monkeypatch, create=lambda file_id: _google_error(400, "badRequest"))
+    worker = _worker(bulk)
+
+    assert await worker._effect(_row(share)) == "failed"
+    effect = _effect(bulk, share)
+    assert (effect["state"], effect["safe_error_code"]) == ("failed", "permission_rejected")
+    assert effect["receipt_envelope"] is None
+    _due_now(bulk, share)
+    assert await bulk.due() == []
+    assert await worker._effect(_row(share)) == "not_claimed"
+    # No reconciliation read and no second POST for a plain refusal.
+    assert [call[0] for call in drive.calls] == ["inspect", "list", "create"]
+    assert _requester_summary(bulk, share)["issues"] == [
+        {"reasonCode": "permission_rejected", "count": 1}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_sharing_rate_limit_waits_minutes_and_rechecks_absence_before_any_post(
+    bulk, monkeypatch
+):
+    share = await _approved_share(bulk, count=2)
+    limited = _google_error(403, "sharingRateLimitExceeded", "Rate Limit Exceeded")
+    drive = _Drive(monkeypatch, create=lambda file_id: limited)
+    worker = _worker(bulk)
+
+    assert await worker._effect(_row(share, 1)) == "queued"
+    first = _effect(bulk, share, 1)
+    assert (first["state"], first["safe_error_code"]) == ("queued", "sharing_rate_limited")
+    assert 280 < first["wait"] <= 300
+    # The limit is the owner's: the batch's other file waits too.
+    assert 280 < _effect(bulk, share, 2)["wait"] <= 300
+    assert await bulk.due() == []
+    assert await worker._effect(_row(share, 1)) == "not_claimed"
+    assert len(drive.creates()) == 1
+
+    # Google holds the grant after all: the absence check finds it, no POST.
+    drive.acl["file-1"] = [_viewer("file-1")]
+    _due_now(bulk, share, 1)
+    assert await worker._effect(_row(share, 1)) == "preexisting"
+    assert [call[0] for call in drive.calls[-2:]] == ["inspect", "list"]
+    assert len(drive.creates()) == 1
+
+    # Each refusal waits longer (5, 10, 20, 40 minutes); a fifth settles.
+    for expected in (300, 600, 1200, 2400):
+        _due_now(bulk, share, 2)
+        before = len(drive.calls)
+        assert await worker._effect(_row(share, 2)) == "queued"
+        # Every attempt checks absence immediately before its POST.
+        assert [call[0] for call in drive.calls[before:]] == ["inspect", "list", "create"]
+        assert expected - 20 < _effect(bulk, share, 2)["wait"] <= expected
+    _due_now(bulk, share, 2)
+    assert await worker._effect(_row(share, 2)) == "failed"
+    assert (_effect(bulk, share, 2)["state"], _effect(bulk, share, 2)["safe_error_code"]) == (
+        "failed",
+        "sharing_rate_limited",
+    )
+    assert len(drive.creates()) == 6
+    assert {call[2] for call in drive.creates()} == {"false"}
+    summary = _requester_summary(bulk, share, total=2)
+    assert summary["counts"]["alreadyShared"] == 1
+    assert summary["issues"] == [{"reasonCode": "provider_unavailable", "count": 1}]
+    assert summary["issueDetails"] == [{"reasonCode": "sharing_rate_limited", "count": 1}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure,state",
+    [
+        # Quota or a 5xx can pass: the read repeats later, however many of the
+        # effect's attempts the refusals used.
+        (503, "unknown"),
+        (429, "unknown"),
+        # Negative control: an unreadable file keeps the five-attempt bound.
+        (404, "failed"),
+    ],
+    ids=["unavailable", "read_rate_limited", "unreadable"],
+)
+async def test_refusals_then_an_uncertain_post_never_end_on_one_failed_read(
+    bulk, monkeypatch, failure, state
+):
+    share = await _approved_share(bulk)
+    limited = _google_error(403, "sharingRateLimitExceeded", "Rate Limit Exceeded")
+    answers = [limited] * 4 + [_google_error(400, "invalidSharingRequest", _SHARED_WITHOUT_EMAIL)]
+    drive = _Drive(monkeypatch, create=lambda file_id: answers.pop(0))
+    worker = _worker(bulk)
+    for _ in range(4):
+        assert await worker._effect(_row(share)) == "queued"
+        _due_now(bulk, share)
+    # The fifth POST: Google created the grant but answered invalidSharingRequest.
+    assert await worker._effect(_row(share)) == "unknown"
+    assert _effect(bulk, share)["attempts"] == 5
+    drive.acl["file-1"] = [_viewer("file-1")]
+    drive.list_failures.append(failure)
+    _due_now(bulk, share)
+    assert await worker._effect(_row(share)) == state
+    effect = _effect(bulk, share)
+    assert (effect["state"], effect["safe_error_code"]) == (state, "permission_outcome_unknown")
+    if state == "failed":
+        assert await bulk.due() == []
+        assert len(drive.creates()) == 5
+        return
+    # A longer wait, then the next read records the grant as One's own, so
+    # Stop and expiry can remove it.
+    assert 3500 < effect["wait"] <= 3600
+    assert await bulk.due() == []
+    _due_now(bulk, share)
+    assert await worker._effect(_row(share)) == "succeeded"
+    plan = managed_bulk_plan(
+        receipt=_receipt(bulk, share),
+        file={"id": "file-1"},
+        recipient={"email": "recipient1@example.com"},
+    )
+    assert plan is not None
+    # Reconciliation only reads: five creates, all before the uncertainty.
+    assert len(drive.creates()) == 5
+
+
+# The codes in BULK_REASON_CODES of every app released before 2026-10-17.
+# Those apps bundle their web assets and refuse any other code.
+_RELEASED_CLIENT_REASONS = frozenset(
+    {
+        "source_changed",
+        "source_not_shareable",
+        "recipient_changed",
+        "connection_changed",
+        "stopped",
+        "sharing_unavailable",
+        "date_range_required",
+        "retry_limit",
+        "provider_unavailable",
+        "permission_rejected",
+        "permission_outcome_unknown",
+        "permission_catalog_incomplete",
+        "unavailable",
+    }
+)
+
+
+def test_every_public_reason_reaches_released_clients_as_a_code_they_parse():
+    from hushh_mcp.services.drive_bulk_share_store import (
+        _SAFE_REASONS,
+        legacy_bulk_reason,
+        safe_bulk_reason,
+    )
+
+    for code in [*_SAFE_REASONS, "private_provider_message", None]:
+        assert legacy_bulk_reason(code) in _RELEASED_CLIENT_REASONS
+        # A code they already know passes through unchanged.
+        if safe_bulk_reason(code) in _RELEASED_CLIENT_REASONS:
+            assert legacy_bulk_reason(code) == safe_bulk_reason(code)
+    assert legacy_bulk_reason("recipient_needs_google_account") == "permission_rejected"
+    assert legacy_bulk_reason("drive_policy_blocked") == "permission_rejected"
+    assert legacy_bulk_reason("sharing_rate_limited") == "provider_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_owner_outcomes_keep_released_codes_with_the_exact_code_beside_them(
+    bulk, monkeypatch
+):
+    share = await _approved_share(bulk, count=3)
+    answers = {
+        "file-1": _google_error(403, "shareOutNotPermitted", "Sharing outside not permitted"),
+        "file-2": _google_error(400, "badRequest"),
+        "file-3": _google_error(403, "sharingRateLimitExceeded", "Rate Limit Exceeded"),
+    }
+    _Drive(monkeypatch, create=lambda file_id: answers[file_id])
+    worker = _worker(bulk)
+    assert [await worker._effect(_row(share, position)) for position in (1, 2, 3)] == [
+        "failed",
+        "failed",
+        "queued",
+    ]
+
+    page = await bulk.files(user_id="owner", share_id=share)
+    assert {item["position"]: item["outcomes"] for item in page["files"]} == {
+        1: [
+            {
+                "status": "failed",
+                "reasonCode": "permission_rejected",
+                "reasonDetail": "drive_policy_blocked",
+            }
+        ],
+        # Negative control: a code every client knows carries no detail.
+        2: [{"status": "failed", "reasonCode": "permission_rejected"}],
+        3: [
+            {
+                "status": "queued",
+                "reasonCode": "provider_unavailable",
+                "reasonDetail": "sharing_rate_limited",
+            }
+        ],
+    }
+    view = await bulk.review(user_id="owner", share_id=share)
+    assert view["issues"] == [{"reasonCode": "permission_rejected", "count": 2}]
+    assert view["issueDetails"] == [
+        {"reasonCode": "drive_policy_blocked", "count": 1},
+        {"reasonCode": "permission_rejected", "count": 1},
+    ]
+    assert {item["reasonCode"] for item in view["issues"]} <= _RELEASED_CLIENT_REASONS

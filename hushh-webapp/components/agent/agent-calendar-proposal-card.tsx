@@ -8,6 +8,8 @@ import {
   UsersThreeIcon,
 } from "@/components/icons";
 
+import { useState } from "react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 
 export type CalendarProposalAction = "create" | "reschedule" | "cancel";
@@ -22,8 +24,10 @@ export type AgentCalendarProposalCardProps = {
   title: string | null;
   startAt: string | null;
   endAt: string | null;
+  timeZone?: string;
   attendees: string[];
   location: string | null;
+  description?: string | null;
   sendUpdates: boolean;
   googleMeet?: boolean;
   conflicts: CalendarProposalConflict[];
@@ -31,6 +35,9 @@ export type AgentCalendarProposalCardProps = {
   busy?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  timeOptions?: string[];
+  onChangeTime?: (startAt: string) => void;
+  validationError?: string | null;
 };
 
 const VERB_LABEL: Record<CalendarProposalAction, string> = {
@@ -39,7 +46,7 @@ const VERB_LABEL: Record<CalendarProposalAction, string> = {
   cancel: "Cancel",
 };
 
-function formatDateTime(value: string | null): string {
+function formatDateTime(value: string | null, timeZone?: string): string {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -47,26 +54,29 @@ function formatDateTime(value: string | null): string {
     weekday: "short",
     month: "short",
     day: "numeric",
+    timeZone,
     hour: "numeric",
     minute: "2-digit",
   });
 }
 
-function formatTimeOnly(value: string | null): string {
+function formatTimeOnly(value: string | null, timeZone?: string): string {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleTimeString(undefined, {
+    timeZone,
     hour: "numeric",
     minute: "2-digit",
   });
 }
 
 /** "Sat, Sep 20, 3:00 PM – 3:30 PM"; falls back to just the start when there's no end. */
-function formatRange(startAt: string | null, endAt: string | null): string {
+function formatRange(startAt: string | null, endAt: string | null, timeZone?: string): string {
   if (!startAt) return "";
-  const start = formatDateTime(startAt);
-  const end = endAt ? formatTimeOnly(endAt) : "";
+  const start = formatDateTime(startAt, timeZone);
+  const day = (value: string) => new Date(value).toLocaleDateString("en-CA", { timeZone });
+  const end = endAt ? day(startAt) === day(endAt) ? formatTimeOnly(endAt, timeZone) : formatDateTime(endAt, timeZone) : "";
   return end ? `${start} – ${end}` : start;
 }
 
@@ -89,8 +99,10 @@ export function AgentCalendarProposalCard({
   title,
   startAt,
   endAt,
+  timeZone,
   attendees,
   location,
+  description,
   sendUpdates,
   googleMeet = false,
   conflicts,
@@ -98,9 +110,18 @@ export function AgentCalendarProposalCard({
   busy,
   onConfirm,
   onCancel,
+  onChangeTime,
+  timeOptions = [],
+  validationError,
 }: AgentCalendarProposalCardProps) {
+  const [changingTime, setChangingTime] = useState(false);
   const isCancel = action === "cancel";
-  const range = formatRange(startAt, endAt);
+  let displayZone = timeZone;
+  try { new Intl.DateTimeFormat(undefined, { timeZone: displayZone }).format(); }
+  catch { displayZone = undefined; }
+  const seconds = startAt && endAt ? Math.round((Date.parse(endAt) - Date.parse(startAt)) / 1000) : 0;
+  const duration = seconds > 0 ? `${Math.floor(seconds / 60)} min${seconds % 60 ? ` ${seconds % 60} sec` : ""}` : "";
+  const range = [formatRange(startAt, endAt, displayZone), displayZone, duration].filter(Boolean).join(" · ");
   const attendeeText = attendeeSummary(attendees);
 
   return (
@@ -157,7 +178,7 @@ export function AgentCalendarProposalCard({
         {attendeeText ? (
           <div className="flex items-start gap-2.5 text-foreground">
             <UsersThreeIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-            <p className="break-words text-muted-foreground">
+            <p className="min-w-0 [overflow-wrap:anywhere] text-muted-foreground">
               {attendees.length === 1 ? "Guest: " : "Guests: "}
               {attendeeText}
               {sendUpdates
@@ -172,6 +193,7 @@ export function AgentCalendarProposalCard({
             <p className="break-words">{location}</p>
           </div>
         ) : null}
+        {description ? <div className="space-y-1"><p className="font-semibold">Description</p><p className="whitespace-pre-wrap [overflow-wrap:anywhere] text-muted-foreground">{description}</p></div> : null}
         {!attendeeText ? (
           <p className="text-muted-foreground">
             {sendUpdates
@@ -203,6 +225,13 @@ export function AgentCalendarProposalCard({
         </div>
       ) : null}
 
+      {validationError ? <p role="alert" className="mt-4 text-sm text-destructive">{validationError}</p> : null}
+      {changingTime && onChangeTime ? <div className="mt-4">
+        {timeOptions.length ? <Select onValueChange={value => { setChangingTime(false); onChangeTime(value); }}>
+          <SelectTrigger aria-label="Choose a start inside your free window" className="w-full"><SelectValue placeholder="Choose a time" /></SelectTrigger>
+          <SelectContent>{timeOptions.map(start => <SelectItem key={start} value={start}>{formatDateTime(start, displayZone)}</SelectItem>)}</SelectContent>
+        </Select> : <p className="text-sm text-muted-foreground">This window has passed. Ask One to find a new available time.</p>}
+      </div> : null}
       <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
         <Button
           data-testid="agent-calendar-proposal-cancel"
@@ -214,11 +243,12 @@ export function AgentCalendarProposalCard({
         >
           Not now
         </Button>
+        {onChangeTime && !isCancel ? <Button size="standard" variant="secondary" disabled={busy} className="w-full sm:w-auto" onClick={() => setChangingTime(value => !value)}>Change time</Button> : null}
         <Button
           data-testid="agent-calendar-proposal-confirm"
           size="standard"
           variant={isCancel ? "destructive" : "default"}
-          disabled={busy}
+          disabled={busy || !!validationError || changingTime}
           className="w-full sm:w-auto"
           onClick={onConfirm}
         >

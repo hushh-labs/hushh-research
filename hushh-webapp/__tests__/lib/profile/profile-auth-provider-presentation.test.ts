@@ -26,3 +26,30 @@ describe("Profile auth-provider presentation", () => {
     expect(shouldUseGoogleBrandMark("google", "not-an-email")).toBe(false);
   });
 });
+
+
+describe("Email domain brand presentation", () => {
+  it("matches only complete recognized domains, never lookalikes", async () => {
+    const { resolveEmailDomainBrand, EMAIL_DOMAIN_BRANDS } = await import("@/lib/profile/email-domain-brands");
+    expect(EMAIL_DOMAIN_BRANDS).toHaveLength(50);
+    expect(resolveEmailDomainBrand("  person@HUSHH.AI  ")?.name).toBe("Hushh");
+    expect(resolveEmailDomainBrand("person@microsoft.com")?.name).toBe("Microsoft");
+    for (const domain of ["gmail.com", "googlemail.com", "google.com"]) {
+      expect(resolveEmailDomainBrand(`person@${domain}`)?.name).toBe("Google");
+    }
+    for (const domain of ["icloud.com", "me.com", "mac.com", "apple.com"]) {
+      expect(resolveEmailDomainBrand(`person@${domain}`)?.name).toBe("Apple");
+    }
+    for (const domain of ["outlook.com", "hotmail.com", "live.com"]) {
+      expect(resolveEmailDomainBrand(`person@${domain}`)?.name).toBe("Microsoft");
+    }
+    expect(resolveEmailDomainBrand("person@hushh.ai.attacker.com")).toBeUndefined();
+    expect(resolveEmailDomainBrand("person@not-hushh.ai")).toBeUndefined();
+    expect(resolveEmailDomainBrand("person@@hushh.ai")).toBeUndefined();
+    expect(resolveEmailDomainBrand(null)).toBeUndefined();
+    expect(resolveEmailDomainBrand("person@example.com")).toBeUndefined();
+    for (const brand of EMAIL_DOMAIN_BRANDS) {
+      expect(brand.src.startsWith("/brand/")).toBe(true);
+    }
+  });
+});

@@ -5,9 +5,11 @@ import { join } from "node:path";
 import React from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
+import type { GmailConnectionStatus } from "@/lib/services/gmail-receipts-service";
 
 const state = vi.hoisted(() => ({
-  user: { uid: "owner-a", getIdToken: vi.fn() },
+  user: { uid: "owner-a", email: "login@example.invalid", getIdToken: vi.fn() },
   token: "synthetic-owner-token" as string | null,
   overview: vi.fn(),
   startOAuthConnect: vi.fn(),
@@ -17,10 +19,12 @@ const state = vi.hoisted(() => ({
   push: vi.fn(),
   calendarRefresh: vi.fn(),
   calendarDisconnect: vi.fn(),
-  calendar: { connected: false, loaded: true, error: null as string | null, status: { status: "disconnected" } },
+  calendar: { connected: false, loaded: true, error: null as string | null, status: { status: "disconnected" } as Partial<GoogleCalendarStatus> },
   financial: { data: null as { data: Record<string, unknown> } | null, loading: false, error: null as string | null },
-  gmailStatus: { connected: false, compose_permission_granted: false } as Record<string, boolean>,
+  gmailStatus: { connected: false, compose_permission_granted: false } as Partial<GmailConnectionStatus>,
+  gmailError: false,
   connectGmail: vi.fn(),
+  gmailStartConnect: vi.fn(),
   startNativeConnect: vi.fn(),
   completeNativeConnect: vi.fn(),
   calendarStartConnect: vi.fn(),
@@ -32,7 +36,8 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: state.push }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: state.user }) }));
-vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: state.token, vaultKey: state.token ? "synthetic-key" : null }) }));
+vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: state.token, vaultKey: state.token ? "synthetic-key" : null,
+  getVaultKey: () => state.token ? "synthetic-key" : null, getVaultOwnerToken: () => state.token }) }));
 vi.mock("@/lib/calendar/use-calendar-connection-status", () => ({ useCalendarConnectionStatus: () => ({ ...state.calendar, refresh: state.calendarRefresh }) }));
 vi.mock("@/lib/services/google-calendar-service", () => ({
   GoogleCalendarService: {
@@ -48,7 +53,7 @@ vi.mock("@/lib/profile/gmail-connector-store", () => ({
   useGmailConnectorStatus: () => ({
     status: state.gmailStatus,
     loadingStatus: false,
-    statusError: false,
+    statusError: state.gmailError,
     disconnectGmail: vi.fn(),
     refreshStatus: vi.fn(),
   }),
@@ -64,10 +69,12 @@ vi.mock("@/lib/services/external-connector-service", () => ({
   },
 }));
 vi.mock("@/components/consent/trusted-document-rules", () => ({
-  TrustedDocumentRules: () => null,
+  TrustedDocumentRulesView: () => null,
+  useTrustedDocumentRules: () => ({ rules: [], busy: false, message: "", mutationPending: () => false }),
 }));
 vi.mock("@/lib/services/gmail-receipts-service", () => ({
   GmailReceiptsService: {
+    startConnect: state.gmailStartConnect,
     startNativeConnect: state.startNativeConnect,
     completeNativeConnect: state.completeNativeConnect,
     recordConsentFailure: vi.fn(),
@@ -87,7 +94,8 @@ vi.mock("@/components/icons", () => ({
 }));
 
 import { Capacitor } from "@capacitor/core";
-import { ConnectorsPanel } from "@/components/agent/connectors-panel";
+import { ConnectorsPanel, type ConnectorsPanelPresentation } from "@/components/agent/connectors-panel";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 const callbacks = {
   onBack: vi.fn(),
@@ -122,7 +130,7 @@ describe("supported connector catalog", () => {
     state.calendarRefresh.mockReset();
     state.calendarDisconnect.mockReset().mockResolvedValue({ connected: false, status: "disconnected" });
     state.calendarStartConnect.mockReset().mockResolvedValue({
-      authorize_url: "https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar",
+      authorize_url: "https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fgoogle%2Foauth%2Freturn",
       redirect_uri: "http://localhost:3000/one/profile/google/oauth/return",
       expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
     });
@@ -134,6 +142,11 @@ describe("supported connector catalog", () => {
     state.calendar = { connected: false, loaded: true, error: null, status: { status: "disconnected" } };
     state.financial = { data: null, loading: false, error: null };
     state.gmailStatus = { connected: false, compose_permission_granted: false };
+    state.gmailError = false;
+    state.gmailStartConnect.mockReset();
+    state.startNativeConnect.mockReset();
+    state.completeNativeConnect.mockReset();
+    state.connectGmail.mockReset();
     Object.values(callbacks).forEach((callback) => callback.mockClear());
   });
   afterEach(cleanup);
@@ -294,7 +307,7 @@ describe("supported connector catalog", () => {
     } as unknown as Window;
     vi.spyOn(window, "open").mockReturnValue(popup);
     state.startOAuthConnect.mockResolvedValue({
-      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=synthetic",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=synthetic&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fconnectors%2Foauth%2Freturn",
       attemptId: "synthetic-attempt-id",
       connectorId: "google_drive",
       // The server grants ten minutes, but its clock is 30 seconds ahead.
@@ -449,7 +462,7 @@ describe("supported connector catalog", () => {
         value: { origin: "https://uat.one.hushh.ai", assign },
       });
       state.startOAuthConnect.mockReset().mockResolvedValue({
-        authorizeUrl: "https://mcp.hubspot.com/oauth/authorize/user?state=signed",
+        authorizeUrl: "https://mcp.hubspot.com/oauth/authorize/user?state=signed&redirect_uri=https%3A%2F%2Fuat.one.hushh.ai%2Fone%2Fprofile%2Fconnectors%2Foauth%2Freturn",
         expiresAt: new Date(Date.now() + 600_000).toISOString(),
         attemptId: "attempt-abcdefghijklmnopqrstuvwxyz0123456789",
         connectorId: "hubspot",
@@ -569,7 +582,7 @@ describe("supported connector catalog", () => {
     it("offers a second curated provider with no provider-specific frontend code", async () => {
       state.overview.mockResolvedValue(withFlag([hubspot, notion]));
       state.startOAuthConnect.mockReset().mockResolvedValue({
-        authorizeUrl: "https://mcp.notion.com/authorize?state=signed",
+        authorizeUrl: "https://mcp.notion.com/authorize?state=signed&redirect_uri=https%3A%2F%2Fuat.one.hushh.ai%2Fone%2Fprofile%2Fconnectors%2Foauth%2Freturn",
         expiresAt: new Date(Date.now() + 600_000).toISOString(),
         attemptId: "attempt-abcdefghijklmnopqrstuvwxyz0123456789",
         connectorId: "notion",
@@ -586,7 +599,7 @@ describe("supported connector catalog", () => {
       fireEvent.click(await screen.findByRole("button", { name: "Connect Notion" }));
       await waitFor(() =>
         expect(providerPopup.location.replace).toHaveBeenCalledExactlyOnceWith(
-          "https://mcp.notion.com/authorize?state=signed",
+          "https://mcp.notion.com/authorize?state=signed&redirect_uri=https%3A%2F%2Fuat.one.hushh.ai%2Fone%2Fprofile%2Fconnectors%2Foauth%2Freturn",
         ),
       );
       expect(state.startOAuthConnect).toHaveBeenCalledWith(
@@ -649,7 +662,7 @@ describe("supported connector catalog", () => {
 
     describe("signs in inside the session", () => {
       const ATTEMPT_KEY = "one_curated_popup_attempt_v1";
-      const AUTHORIZE_URL = "https://mcp.hubspot.com/oauth/authorize/user?state=signed";
+      const AUTHORIZE_URL = "https://mcp.hubspot.com/oauth/authorize/user?state=signed&redirect_uri=https%3A%2F%2Fuat.one.hushh.ai%2Fone%2Fprofile%2Fconnectors%2Foauth%2Freturn";
       const fakePopup = () =>
         ({
           closed: false,
@@ -769,10 +782,11 @@ describe("supported connector catalog", () => {
         expect(assign).not.toHaveBeenCalled();
       });
 
-      it("closes the popup when the panel unmounts mid sign-in", async () => {
+      it.each(["unmount", "close"] as const)("closes the popup when the panel leaves by %s mid sign-in", async (ending) => {
         const view = await connectHubspot();
         await waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
-        view.unmount();
+        if (ending === "unmount") view.unmount();
+        else view.rerender(panel(false));
         await waitFor(() => expect(popup.close).toHaveBeenCalled());
         expect(assign).not.toHaveBeenCalled();
       });
@@ -795,6 +809,7 @@ describe("supported connector catalog", () => {
         // on the provider's consent page at that moment must not lose the window.
         const view = await connectHubspot();
         await waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
+        advanceVaultSessionEpoch();
         state.token = "renewed-owner-token";
         view.rerender(panel());
         await waitFor(() => expect(state.overview).toHaveBeenLastCalledWith("renewed-owner-token"));
@@ -942,6 +957,23 @@ describe("supported connector catalog", () => {
       />,
     );
     expect(await screen.findByRole("region", { name: "Calendar details" })).toBeInTheDocument();
+    view.rerender(
+      <ConnectorsPanel open={false} surface="profile" activeConnector="calendar"
+        onActiveConnectorChange={onActiveConnectorChange} {...callbacks} />,
+    );
+    // Leaving the feature is not a query write back into the previous panel.
+    expect(onActiveConnectorChange).toHaveBeenCalledExactlyOnceWith("calendar");
+  });
+
+  it.each(["instagram", "linkedin"])("offers %s as a public-link draft without granting a connection", async (id) => {
+    render(<ConnectorsPanel open surface="profile" {...callbacks} />);
+    const name = id === "instagram" ? "Instagram" : "LinkedIn";
+    fireEvent.click(await screen.findByRole("button", { name: `Connect ${name}`, exact: true }));
+    expect(screen.getByText(/Your profile should be a public figure/)).toBeInTheDocument();
+    const input = screen.getByRole("textbox", { name: "Profile link" });
+    fireEvent.change(input, { target: { value: `https://www.${id}.com/example` } });
+    expect(input).toHaveValue(`https://www.${id}.com/example`);
+    expect(state.startOAuthConnect).not.toHaveBeenCalled();
   });
 
   it("offers explicit Gmail draft permission only for a connected account without it", async () => {
@@ -954,6 +986,28 @@ describe("supported connector catalog", () => {
     render(panel());
     fireEvent.click(await screen.findByRole("button", { name: "Gmail" }));
     expect(screen.queryByRole("button", { name: "Enable Gmail drafts" })).not.toBeInTheDocument();
+  });
+
+  it("requests the Gmail send grant during the first native connection", async () => {
+    vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
+    state.startNativeConnect.mockResolvedValue({ configured: true, server_client_id: "native-client", purpose: "send" });
+    state.connectGmail.mockResolvedValue({ serverAuthCode: "one-time-code" });
+    state.completeNativeConnect.mockResolvedValue(undefined);
+    try {
+      render(panel());
+      fireEvent.click(await screen.findByRole("button", { name: "Connect Gmail" }));
+      await waitFor(() => expect(state.startNativeConnect).toHaveBeenCalledWith({
+        idToken: "synthetic-firebase-token", userId: "owner-a", purpose: "send",
+      }));
+      expect(state.connectGmail).toHaveBeenCalledWith({
+        serverClientId: "native-client", purpose: "send", preserveSend: false, preserveModify: false,
+      });
+      expect(state.completeNativeConnect).toHaveBeenCalledWith({
+        idToken: "synthetic-firebase-token", userId: "owner-a", serverAuthCode: "one-time-code", purpose: "send",
+      });
+    } finally {
+      vi.mocked(Capacitor.isNativePlatform).mockRestore();
+    }
   });
 
   // The backend refuses a native grant that drops a scope the connection holds,
@@ -1012,6 +1066,92 @@ describe("supported connector catalog", () => {
     expect(connected.getByText("Plaid")).toBeInTheDocument();
     expect(screen.queryByText("Duplicate Calendar")).not.toBeInTheDocument();
     expect(screen.queryByText("Duplicate Plaid")).not.toBeInTheDocument();
+  });
+
+  it.each(["drawer", "profile"] as const)("shows separate Google account identities in the %s", async (surface) => {
+    state.gmailStatus = { connected: true, google_email: "mail@example.invalid" };
+    state.calendar = {
+      connected: true, loaded: true, error: null,
+      status: { status: "connected", google_email: "schedule@example.invalid" },
+    };
+    state.overview.mockResolvedValue({
+      connectors: [{ ...catalogItem, connectorId: "google_drive", status: "connected", profile: "live", accountLabel: "files@example.invalid" }],
+      features: { connections_panel_v2: true, google_drive_connection: true },
+    });
+    render(surface === "profile" ? <ConnectorsPanel open surface="profile" {...callbacks} /> : panel());
+    expect(await screen.findByText("Connected as files@example.invalid")).toBeInTheDocument();
+    expect(screen.getByText("Connected as mail@example.invalid")).toBeInTheDocument();
+    expect(screen.getByText("Connected as schedule@example.invalid")).toBeInTheDocument();
+    if (surface === "profile") {
+      expect(screen.getByTestId("profile-connector-row-calendar")).toHaveTextContent("Connected as schedule@example.invalid");
+    } else {
+      fireEvent.click(screen.getByRole("button", { name: "Calendar", exact: true }));
+      expect(within(screen.getByRole("region", { name: "Calendar details" })).getByText("Connected as schedule@example.invalid")).toBeInTheDocument();
+    }
+  });
+
+  it("retains each account while sign-in needs to be refreshed", async () => {
+    state.gmailStatus = { connected: true, needs_reauth: true, google_email: "mail@example.invalid" };
+    state.calendar = {
+      connected: false, loaded: true, error: null,
+      status: { status: "needs_reauth", google_email: "schedule@example.invalid" },
+    };
+    render(panel());
+    expect(await screen.findByText("Sign-in needed · mail@example.invalid")).toBeInTheDocument();
+    expect(screen.getByText("Sign-in needed · schedule@example.invalid")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Calendar", exact: true }));
+    expect(within(screen.getByRole("region", { name: "Calendar details" })).getByText("Sign-in needed · schedule@example.invalid")).toBeInTheDocument();
+  });
+
+  it("keeps the recovery cue when sign-in is needed but an email is missing", async () => {
+    state.gmailStatus = { connected: true, needs_reauth: true, google_email: null };
+    state.calendar = { connected: false, loaded: true, error: null, status: { status: "needs_reauth", google_email: "  " } };
+    render(panel());
+    expect(await screen.findAllByText("Sign-in needed · account details unavailable")).toHaveLength(2);
+  });
+
+  it("does not use the app login address when provider identity is unavailable", async () => {
+    state.gmailStatus = { connected: true };
+    state.calendar = { connected: true, loaded: true, error: null, status: { status: "connected" } };
+    render(panel());
+    expect(await screen.findAllByText("Account details unavailable")).toHaveLength(2);
+    expect(screen.queryByText(/login@example.invalid/)).not.toBeInTheDocument();
+  });
+
+  it("hides old provider identities when disconnected or status is unavailable", async () => {
+    state.gmailStatus = { connected: true, google_email: "mail@example.invalid" };
+    state.calendar = { connected: true, loaded: true, error: null, status: { status: "connected", google_email: "schedule@example.invalid" } };
+    const view = render(panel());
+    expect(await screen.findByText("Connected as mail@example.invalid")).toBeInTheDocument();
+    state.gmailStatus = { connected: false, google_email: "mail@example.invalid" };
+    state.calendar = { connected: false, loaded: true, error: null, status: { status: "disconnected", google_email: "schedule@example.invalid" } };
+    view.rerender(panel());
+    expect(screen.queryByText(/mail@example.invalid|schedule@example.invalid/)).not.toBeInTheDocument();
+    state.gmailStatus.connected = true;
+    state.gmailError = true;
+    state.calendar.connected = true;
+    state.calendar.error = "Status unavailable";
+    view.rerender(panel());
+    expect(screen.queryByText(/mail@example.invalid|schedule@example.invalid/)).not.toBeInTheDocument();
+  });
+
+  it("shows Drive authorization without claiming verification is complete", async () => {
+    state.overview.mockResolvedValue({
+      connectors: [{ ...catalogItem, connectorId: "google_drive", status: "verifying", profile: "live", accountLabel: "files@example.invalid" }],
+      features: { connections_panel_v2: true, google_drive_connection: true, google_drive_live: true },
+    });
+    render(panel());
+    expect(await screen.findByText("Authorized · files@example.invalid")).toBeInTheDocument();
+    expect(screen.queryByText("Connected as files@example.invalid")).not.toBeInTheDocument();
+  });
+
+  it("finds a connector by its connected account email", async () => {
+    state.gmailStatus = { connected: true, google_email: "mail@example.invalid" };
+    state.calendar = { connected: true, loaded: true, error: null, status: { status: "connected", google_email: "schedule@example.invalid" } };
+    render(panel());
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search connectors" }), { target: { value: "schedule@example.invalid" } });
+    expect(screen.getByRole("button", { name: "Calendar", exact: true })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Gmail", exact: true })).not.toBeInTheDocument();
   });
 
   it("filters the real connector list and restores it when search is cleared", async () => {
@@ -1206,6 +1346,65 @@ describe("supported connector catalog", () => {
     expect(state.push).not.toHaveBeenCalled();
   });
 
+  it("retains one connector owner across body replacement and rejects retired presentation actions", async () => {
+    let shown: ConnectorsPanelPresentation | null = null;
+    let showWeb = false;
+    const present = (model: ConnectorsPanelPresentation) => {
+      shown = model;
+      return showWeb ? model.webBody : <div data-testid="replacement-body" />;
+    };
+    const latest = () => {
+      if (!shown) throw new Error("Presentation not ready");
+      return shown;
+    };
+    const entry = (model: ConnectorsPanelPresentation, id: string) =>
+      model.catalog.groups.flatMap(group => group.entries).find(item => item.id === id)!;
+    const renderPanel = () => <ConnectorsPanel open {...callbacks} render={present} />;
+    const view = render(renderPanel());
+    await waitFor(() => expect(latest().catalog.status).toBe("ready"));
+    expect(screen.queryByText("Gmail")).not.toBeInTheDocument();
+    const first = latest();
+    act(() => entry(first, "gmail").onOpen?.());
+    await waitFor(() => expect(latest().selectedConnector?.id).toBe("gmail"));
+    expect(latest().detail).toMatchObject({ kind: "gmail", status: "Not connected", connected: false, sendAllowed: false, draftsAllowed: false });
+    const originalMail = latest().detail;
+    // A retired list cannot change the current detail or start another read.
+    await act(async () => {
+      entry(first, "calendar").onOpen?.();
+      await first.catalog.retry();
+    });
+    expect(latest().selectedConnector?.id).toBe("gmail");
+    expect(state.overview).toHaveBeenCalledTimes(1);
+    showWeb = true;
+    view.rerender(renderPanel());
+    expect(await screen.findByRole("region", { name: "Gmail" })).toBeInTheDocument();
+    expect(state.overview).toHaveBeenCalledTimes(1);
+    const retired = latest();
+    act(() => { if (originalMail?.kind === "gmail") originalMail.connect?.run(); });
+    expect(state.gmailStartConnect).not.toHaveBeenCalled();
+    view.unmount();
+    await act(async () => { await retired.catalog.retry(); if (retired.detail?.kind === "gmail") retired.detail.connect?.run(); });
+    expect(state.overview).toHaveBeenCalledTimes(1);
+    expect(state.gmailStartConnect).not.toHaveBeenCalled();
+  });
+
+  it("admits the retained Profile link editor and revokes it immediately on live vault lock", async () => {
+    let shown: ConnectorsPanelPresentation | undefined;
+    render(<ConnectorsPanel open surface="profile" activeConnector="instagram" {...callbacks}
+      render={model => { shown = model; return <div />; }} />);
+    await waitFor(() => expect(shown?.detail?.kind).toBe("social"));
+    const detail = shown?.detail;
+    if (detail?.kind !== "social") throw new Error("Social detail not admitted");
+    expect(detail.current()).toBe(true);
+    const revision = detail.inputRevision();
+    expect(detail.changeLink("https://www.instagram.com/synthetic/", revision)).toBe(true);
+    // The platform getters change before a React rerender or effect cleanup.
+    state.token = null;
+    expect(detail.current()).toBe(false);
+    expect(detail.changeLink("https://www.instagram.com/retired/", revision + 1)).toBe(false);
+    expect(state.startOAuthConnect).not.toHaveBeenCalled();
+  });
+
   it("rejects a delayed catalog after same-owner token rotation", async () => {
     let finish!: (value: ReturnType<typeof overview>) => void;
     state.overview.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
@@ -1222,7 +1421,9 @@ describe("supported connector catalog", () => {
   it("rejects a prior panel session's response after close and reopen", async () => {
     let finish!: (value: ReturnType<typeof overview>) => void;
     state.overview.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
-    const view = render(panel());
+    const view = render(panel(false));
+    expect(state.overview).not.toHaveBeenCalled();
+    view.rerender(panel());
     await waitFor(() => expect(state.overview).toHaveBeenCalledTimes(1));
     view.rerender(panel(false));
     view.rerender(panel());
@@ -1306,7 +1507,7 @@ describe("supported connector catalog", () => {
       );
       await waitFor(() =>
         expect(popup.location.replace).toHaveBeenCalledExactlyOnceWith(
-          "https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar",
+          "https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fgoogle%2Foauth%2Freturn",
         ),
       );
       expect(state.calendarStartConnect).toHaveBeenCalledExactlyOnceWith({
@@ -1372,7 +1573,6 @@ describe("supported connector catalog", () => {
         window.dispatchEvent(new StorageEvent("storage", {
           key: SETTLEMENT_KEY,
           newValue: JSON.stringify({ ...settlement(attempt.attemptId), sentAt: Date.now() }),
-          storageArea: window.localStorage,
         }));
       });
       expect(await screen.findByText("Calendar connected.")).toBeInTheDocument();
@@ -1475,7 +1675,7 @@ describe("supported connector catalog", () => {
       return view;
     };
 
-    it("explains default-on automatic Trusted Circle sharing before starting full Drive access", async () => {
+    it("explains request sharing before starting full Drive access with packages off", async () => {
       state.overview.mockResolvedValue({
         ...liveDrive(),
         connectors: [{ ...liveDrive().connectors[0], status: "not_connected" }],
@@ -1484,11 +1684,8 @@ describe("supported connector catalog", () => {
       fireEvent.click(await screen.findByRole("button", { name: "Review Google Drive access" }));
       expect(state.startOAuthConnect).not.toHaveBeenCalled();
       const drive = screen.getByRole("region", { name: "Google Drive" });
-      const disclosure = within(drive).getByText(/Full Drive access turns on background reads by default unless you turned them off/);
+      const disclosure = within(drive).getByText("Full Drive access lets One find and share matching files for approved document requests. You can turn background access off anytime.");
       expect(disclosure).toBeVisible();
-      expect(within(drive).getByText(/send excerpts to Gemini, and share matching originals for document requests from accepted Trusted Circle members without asking again/)).toBeVisible();
-      expect(within(drive).getByText(/requester can open a file only after Google confirms access/)).toBeVisible();
-      expect(within(drive).getByText(/Turn background access off anytime; your choice is saved/)).toBeVisible();
       const connect = within(drive).getByRole("button", { name: "Connect Drive" });
       expect(connect).toBeEnabled();
       expect(disclosure.compareDocumentPosition(connect) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -1499,8 +1696,7 @@ describe("supported connector catalog", () => {
       await openDrive();
       const toggle = await screen.findByRole("switch", { name: "Background Drive access" });
       expect(toggle).toHaveAttribute("aria-checked", "true");
-      expect(screen.getByText(/On by default. One may read Drive files, send excerpts to Gemini/)).toBeInTheDocument();
-      expect(screen.getByText("On. Relevant work can continue while you’re away.")).toBeInTheDocument();
+      expect(screen.getByText("Agent One works while you’re away.")).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Retry Drive" })).not.toBeInTheDocument();
       expect(screen.getByText("Sharing and approval")).toBeInTheDocument();
       expect(screen.getByText(/Sharing a file needs your approval, document trust, or an accepted connection in your Trusted Circle/)).toBeInTheDocument();
@@ -1508,8 +1704,8 @@ describe("supported connector catalog", () => {
       fireEvent.click(toggle);
       await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "false"));
       expect(state.setLiveBackground).toHaveBeenLastCalledWith("synthetic-owner-token", false);
-      expect(screen.getByText("Off. New automatic document requests wait until you turn this on.")).toBeInTheDocument();
-      expect(await screen.findByText("Background Drive access is off. New automatic document requests will wait.")).toBeInTheDocument();
+      expect(screen.getByText("Paused while you’re away.")).toBeInTheDocument();
+      expect(await screen.findByText("Background Drive access is off.")).toBeInTheDocument();
       fireEvent.click(toggle);
       await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
       expect(state.setLiveBackground).toHaveBeenLastCalledWith("synthetic-owner-token", true);
@@ -1539,6 +1735,62 @@ describe("supported connector catalog", () => {
         ),
       ).toBeInTheDocument();
       expect(toggle).toHaveAttribute("aria-checked", "true");
+    });
+
+    /** The caption under "Background Drive access", read from the row itself. */
+    const backgroundCaption = () =>
+      screen
+        .getByText("Background Drive access", { selector: '[data-slot="settings-row-title"]' })
+        .closest("[data-row-layout]")
+        ?.querySelector('[data-slot="settings-row-description"]')?.textContent;
+
+    it.each(["same", "reopen", "renew"] as const)("retains the pending setting and reconciles its saved state (%s)", async (mode) => {
+      const rebind = mode !== "same";
+      state.overview.mockResolvedValue(liveDrive());
+      state.liveBackground.mockResolvedValue(!rebind);
+      let finish!: (enabled: boolean) => void;
+      state.setLiveBackground.mockReturnValueOnce(new Promise<boolean>((resolve) => { finish = resolve; }));
+      const view = await openDrive();
+      const toggle = await screen.findByRole("switch", { name: "Background Drive access" });
+      await waitFor(() => expect(toggle).toBeEnabled());
+      fireEvent.click(toggle);
+      await waitFor(() => expect(backgroundCaption()).toBe("Saving…"));
+      expect(toggle).toHaveAttribute("aria-checked", String(!rebind));
+      if (rebind) {
+        if (mode === "reopen") view.rerender(<ConnectorsPanel open={false} initialConnector="google_drive" {...callbacks} />);
+        else { advanceVaultSessionEpoch(); state.token = "renewed-owner-token"; }
+        view.rerender(<ConnectorsPanel open initialConnector="google_drive" {...callbacks} />);
+        await waitFor(() => expect(backgroundCaption()).toBe("Saving…"));
+        expect(screen.queryByRole("switch", { name: "Background Drive access" })).not.toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Disconnect Drive" })).toBeDisabled();
+      }
+      state.liveBackground.mockResolvedValue(rebind);
+      await act(async () => finish(rebind));
+      await waitFor(() => expect(screen.getByRole("switch", { name: "Background Drive access" })).toHaveAttribute("aria-checked", String(rebind)));
+      expect(backgroundCaption()).toBe(rebind ? "Agent One works while you’re away." : "Paused while you’re away.");
+      expect(state.setLiveBackground).toHaveBeenCalledTimes(1);
+      if (rebind) expect(state.liveBackground.mock.calls.length).toBeGreaterThan(1);
+      if (mode === "renew") expect(state.liveBackground).toHaveBeenLastCalledWith("renewed-owner-token");
+    });
+
+    it.each([
+      { was: "on", saved: true, text: "Couldn’t turn off. Try again." },
+      { was: "off", saved: false, text: "Couldn’t turn on. Try again." },
+    ])("leaves the switch $was and says so in the row when the change fails", async ({ saved, text }) => {
+      state.overview.mockResolvedValue(liveDrive());
+      state.liveBackground.mockResolvedValue(saved);
+      state.setLiveBackground.mockRejectedValueOnce(new Error("synthetic failure"));
+      await openDrive();
+      const toggle = await screen.findByRole("switch", { name: "Background Drive access" });
+      await waitFor(() => expect(toggle).toBeEnabled());
+      fireEvent.click(toggle);
+      await waitFor(() => expect(backgroundCaption()).toBe(text));
+      expect(toggle).toHaveAttribute("aria-checked", String(saved));
+      expect(toggle).toBeEnabled();
+      // Trying again and succeeding replaces the failure with the saved state.
+      fireEvent.click(toggle);
+      await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", String(!saved)));
+      expect(backgroundCaption()).toBe(saved ? "Paused while you’re away." : "Agent One works while you’re away.");
     });
 
     it("shows an unknown state and offers retry when the current setting cannot be read", async () => {

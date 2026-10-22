@@ -1,0 +1,114 @@
+name: "Editor Performance Nightly"
+
+# PR Validation runs the macOS editor latency lane (web-editor-performance-check
+# in ci.yml) only when its `editor` path filter matches: the files the lane's
+# focused editor and History fixtures import, the files they read, and the configs and
+# lockfile that build them. It used to run on every frontend change, holding
+# one of the org's five macOS slots each time, while its inputs changed in 78 of
+# the 378 merged PRs that touched the frontend from 2026-10-01 to 2026-10-15.
+#
+# A path filter cannot see what no file names: a runner image or browser
+# update, or an input the filter's guard
+# (consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py)
+# has not learned yet. This runs the same steps on main every night, so a
+# regression that slipped past the filter surfaces within a day, on one open
+# issue that collects every failing night. The guard also pins these steps to
+# the PR lane's, so the two cannot drift apart.
+
+on:
+  schedule:
+    # 23:17 UTC, off the hour. On 2026-10-14 PR Validation started no run
+    # between 21:00 and 23:59 UTC, against 29-36 an hour from 13:00 to 17:00.
+    - cron: "17 23 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: editor-performance-nightly
+  cancel-in-progress: false
+
+env:
+  # The Node major PR Validation uses (ci.yml NODE_VERSION).
+  NODE_VERSION: "24"
+
+jobs:
+  web-editor-performance:
+    name: "Web Editor Performance (macOS, nightly)"
+    # A fork's schedule must not spend macOS minutes or file issues.
+    if: github.repository == 'hushh-labs/hushh-research'
+    runs-on: macos-15
+    timeout-minutes: 20
+    outputs:
+      sha: ${{ steps.tested.outputs.sha }}
+    steps:
+      # Always main, whichever branch a manual run starts from: this is the
+      # backstop for main, and PR Validation already covers branches.
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Record the tested commit
+        id: tested
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: hushh-webapp/package-lock.json
+
+      - name: Install web dependencies and browsers
+        working-directory: hushh-webapp
+        run: |
+          npm ci
+          npx playwright install chromium webkit
+
+      - name: Verify editor latency and drawer motion on macOS
+        working-directory: hushh-webapp
+        run: npm run test:layout-editor-performance
+
+  report-failure:
+    name: "File the nightly failure"
+    needs: [web-editor-performance]
+    # A failed or timed-out (cancelled) run, but not one cancelled by hand.
+    if: >-
+      !cancelled() &&
+      (needs['web-editor-performance'].result == 'failure' ||
+      needs['web-editor-performance'].result == 'cancelled')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # The only job that writes, and it writes issues only.
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the tracking issue
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TITLE: "Editor performance nightly failed on main"
+          RESULT: ${{ needs['web-editor-performance'].result }}
+          TESTED_SHA: ${{ needs['web-editor-performance'].outputs.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          body="${RUNNER_TEMP}/editor-performance-nightly.md"
+          {
+            printf 'The nightly macOS editor latency run ended `%s` on main at %s.\n\n' "$RESULT" "${TESTED_SHA:-an unrecorded commit}"
+            printf 'Run: %s\n\n' "$RUN_URL"
+            printf '%s\n' 'It runs `npm run test:layout-editor-performance` in hushh-webapp: typing into a 100 KB paste must stay within 17 ms (one 60 Hz frame) of a same-run native textarea at p95, and under 120 ms per keystroke, at 320, 393 and 1440 px in Chromium and WebKit.'
+            printf '%s\n' 'The same required lane verifies History first visibility under 100 ms, intermediate opening/closing frames and interrupted-drag geometry in both engines. Linux retains the other Connections layout and behavior contracts.'
+            printf '%s\n' 'PR Validation runs this lane only when its `editor` path filter matches, so the change that broke it may not have run it. Reproduce on a Mac: `cd hushh-webapp && npm ci && npx playwright install chromium webkit && npm run test:layout-editor-performance`.'
+            printf '\n%s\n' 'Every failing night adds a comment here. Close this issue once a nightly run passes.'
+          } > "$body"
+          # Deduplicated by exact title among open issues.
+          existing="$(gh issue list --state open --search "\"${TITLE}\" in:title" --limit 50 \
+            --json number,title --jq '[.[] | select(.title == $ENV.TITLE)][0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file "$body"
+            echo "Commented on #${existing}."
+          else
+            gh issue create --title "$TITLE" --body-file "$body"
+          fi

@@ -1,3 +1,4 @@
+import { isAnswerRequestEntry } from "@/lib/consent/answer-request-consent";
 /**
  * One owner-facing request, however many rows the server stored for it.
  *
@@ -81,6 +82,7 @@ function bundleIdOf(entry: ConsentCenterEntry): string | null {
 export function isInlineDecidableConsentEntry(
   entry: ConsentCenterEntry,
 ): boolean {
+  if (isAnswerRequestEntry(entry)) return false;
   if (entry.kind !== "incoming_request") return false;
   if (!entry.scope) return false;
   const next = String(entry.allowed_next_action || "").trim();
@@ -100,6 +102,7 @@ export function isInlineDecidableConsentEntry(
  * (as opposed to outgoing asks, connection requests, or someone else's lane).
  */
 export function isOwnerConsentQueueEntry(entry: ConsentCenterEntry): boolean {
+  if (isAnswerRequestEntry(entry)) return false;
   if (entry.bundle_items && entry.bundle_items.length > 0) return true;
   return isInlineDecidableConsentEntry(entry);
 }
@@ -137,9 +140,7 @@ function buildRequest(
   const labels = Array.from(
     new Set(
       members.length
-        ? members.map((member) =>
-            consentEntryInformationLabel(member),
-          )
+        ? members.map((member) => consentEntryInformationLabel(member))
         : fallbackLabels,
     ),
   );
@@ -341,7 +342,12 @@ export type ActiveConsentRow =
 
 /** A person's information grant; location, Drive, Mail and marketplace keep their own rows. */
 function isPersonGrant(entry: ConsentCenterEntry): boolean {
-  if (entry.counterpart_type !== "person" || !entry.scope || !entry.counterpart_id) return false;
+  if (
+    entry.counterpart_type !== "person" ||
+    !entry.scope ||
+    !entry.counterpart_id
+  )
+    return false;
   if (isDriveSharingEntry(entry)) return false;
   if (isLocationConsent(entry.metadata, entry.scope)) return false;
   if (isCircleMemberInviteConsent(entry.metadata)) return false;
@@ -350,10 +356,13 @@ function isPersonGrant(entry: ConsentCenterEntry): boolean {
 }
 
 function requestLabel(members: ConsentCenterEntry[]): string {
-  const fromServer = members.map((member) => String(member.bundle_label || "").trim()).find(Boolean);
+  const fromServer = members
+    .map((member) => String(member.bundle_label || "").trim())
+    .find(Boolean);
   if (fromServer) return fromServer;
-  const labels = [...new Set(members.map((member) =>
-    consentEntryInformationLabel(member)))];
+  const labels = [
+    ...new Set(members.map((member) => consentEntryInformationLabel(member))),
+  ];
   if (labels.length <= 1) return labels[0] ?? "";
   return `${labels[0]} and ${labels.length - 1} more`;
 }
@@ -369,13 +378,19 @@ function requestLabel(members: ConsentCenterEntry[]): string {
  * within ACTIVE_REQUEST_WINDOW_MS of each other are the same request. Order
  * follows the input; a group that ends with one member stays a plain row.
  */
-export function groupActiveConsentEntries(entries: ConsentCenterEntry[]): ActiveConsentRow[] {
+export function groupActiveConsentEntries(
+  entries: ConsentCenterEntry[],
+): ActiveConsentRow[] {
   const order: string[] = [];
-  const groups = new Map<string, { bundleId: string | null; members: ConsentCenterEntry[] }>();
-  const windows: Array<{ key: string; counterpart: string; anchorMs: number }> = [];
-  entries.forEach((entry, index) => {
+  const groups = new Map<
+    string,
+    { bundleId: string | null; members: ConsentCenterEntry[] }
+  >();
+  const windows: Array<{ key: string; counterpart: string; anchorMs: number }> =
+    [];
+  entries.forEach((entry) => {
     if (!isPersonGrant(entry)) {
-      const key = `single:${index}`;
+      const key = `single:${JSON.stringify([entry.kind, entry.id])}`;
       order.push(key);
       groups.set(key, { bundleId: null, members: [entry] });
       return;
@@ -387,10 +402,18 @@ export function groupActiveConsentEntries(entries: ConsentCenterEntry[]): Active
     } else {
       const counterpart = String(entry.counterpart_id);
       const grantedMs = parseConsentInstant(entry.issued_at);
-      const window = grantedMs === null ? undefined : windows.find((candidate) =>
-        candidate.counterpart === counterpart && Math.abs(candidate.anchorMs - grantedMs) <= ACTIVE_REQUEST_WINDOW_MS);
+      const window =
+        grantedMs === null
+          ? undefined
+          : windows.find(
+              (candidate) =>
+                candidate.counterpart === counterpart &&
+                Math.abs(candidate.anchorMs - grantedMs) <=
+                  ACTIVE_REQUEST_WINDOW_MS,
+            );
       if (window) key = window.key;
-      else if (grantedMs === null) key = `single:${index}`;
+      else if (grantedMs === null)
+        key = `single:${JSON.stringify([entry.kind, entry.id])}`;
       else {
         key = `window:${counterpart}:${grantedMs}`;
         windows.push({ key, counterpart, anchorMs: grantedMs });
@@ -406,7 +429,8 @@ export function groupActiveConsentEntries(entries: ConsentCenterEntry[]): Active
   });
   return order.map((key) => {
     const group = groups.get(key)!;
-    if (group.members.length === 1) return { kind: "single" as const, entry: group.members[0]! };
+    if (group.members.length === 1)
+      return { kind: "single" as const, entry: group.members[0]! };
     return {
       kind: "request" as const,
       key,

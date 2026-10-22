@@ -14,7 +14,11 @@ from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.exc import SQLAlchemyError
 
-from api.consent_listener import subscribe_consent_queue, unsubscribe_consent_queue
+from api.consent_listener import (
+    LOCAL_RESYNC_EVENT_TYPE,
+    subscribe_consent_queue,
+    unsubscribe_consent_queue,
+)
 from api.middleware import require_vault_owner_token
 from api.middlewares.rate_limit import limiter
 from hushh_mcp.services.circle_chat_service import MAX_SEQUENCE, CircleChatError, CircleChatService
@@ -24,7 +28,7 @@ from hushh_mcp.services.one_location_circle_service import (
 )
 
 logger = logging.getLogger(__name__)
-MAX_REQUEST_BYTES = 7_250_000
+MAX_REQUEST_BYTES = 9_000_000
 # Authenticated automatic reads: 4 sessions x 4 coalesced refreshes/sec x
 # 60 seconds = 960, plus manual pagination/roster headroom. Write/image abuse
 # budgets remain independent; every read still authorizes membership.
@@ -39,7 +43,7 @@ class PrivateChatRoute(APIRoute):
         async def bounded(request: Request):
             headers = {"Cache-Control": "private, no-store"}
             try:
-                if request.method in {"POST", "PUT"}:
+                if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
                     maximum = 430000 if request.url.path.endswith("/photo") else MAX_REQUEST_BYTES
                     declared = request.headers.get("content-length", "0")
                     if not declared.isdigit() or int(declared) > maximum:
@@ -101,6 +105,7 @@ class Recipient(StrictModel):
 
 
 class SendMessage(StrictModel):
+    replyToMessageId: UUID | None = None
     clientMessageId: UUID
     rosterVersion: str = Field(min_length=64, max_length=64, pattern=r"^[a-f0-9]+$")
     ciphertext: str = Field(min_length=22, max_length=24000, pattern=_B64)
@@ -110,9 +115,30 @@ class SendMessage(StrictModel):
     )
     imageIv: str | None = Field(default=None, min_length=16, max_length=16, pattern=_B64)
     recipients: list[Recipient] = Field(min_length=1, max_length=100)
+    notificationPreviews: dict[UUID, Annotated[str, Field(max_length=2600)]] = Field(
+        default_factory=dict, max_length=500
+    )
 
     @model_validator(mode="after")
     def attachment_pair(self):
+        import json
+
+        from cryptography.hazmat.primitives.asymmetric.ec import SECP256R1, EllipticCurvePublicKey
+
+        for key_id, sealed in self.notificationPreviews.items():
+            envelope = json.loads(sealed)
+            if not isinstance(envelope, list) or len(envelope) != 4 or envelope[0] != str(key_id):
+                raise ValueError("Invalid preview envelope")
+            for value in envelope[1:]:
+                if not isinstance(value, str):
+                    raise ValueError("Invalid preview encoding")
+                raw = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+                if base64.urlsafe_b64encode(raw).decode().rstrip("=") != value:
+                    raise ValueError("Invalid preview encoding")
+            point = base64.urlsafe_b64decode(envelope[1] + "=")
+            EllipticCurvePublicKey.from_encoded_point(SECP256R1(), point)
+            if len(envelope[2]) != 16 or not 22 <= len(envelope[3]) <= 2422:
+                raise ValueError("Invalid preview size")
         if (self.imageCiphertext is None) != (self.imageIv is None):
             raise ValueError("Image ciphertext and IV must be supplied together.")
         for value in [self.ciphertext, self.imageCiphertext]:
@@ -129,6 +155,39 @@ class SendMessage(StrictModel):
 
 class ReadMessage(StrictModel):
     sequence: int = Field(gt=0, le=MAX_SEQUENCE)
+
+
+class ResolveMessages(StrictModel):
+    messageIds: list[UUID] = Field(min_length=1, max_length=40)
+
+
+class MessageUpdates(StrictModel):
+    messageIds: list[UUID] = Field(min_length=1, max_length=600)
+
+
+class EditMessage(StrictModel):
+    ciphertext: str = Field(min_length=22, max_length=24000, pattern=_B64)
+    iv: str = Field(min_length=16, max_length=16, pattern=_B64)
+    expectedRevision: int = Field(ge=0, le=MAX_SEQUENCE, strict=True)
+
+    @model_validator(mode="after")
+    def canonical(self):
+        for value in [self.ciphertext, self.iv]:
+            raw = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+            if base64.urlsafe_b64encode(raw).decode().rstrip("=") != value:
+                raise ValueError("Noncanonical ciphertext")
+        return self
+
+
+class DeleteMessage(StrictModel):
+    scope: Literal["me", "everyone"]
+    tombstone: EditMessage | None = None
+
+    @model_validator(mode="after")
+    def scoped(self):
+        if (self.scope == "everyone") != (self.tombstone is not None):
+            raise ValueError("Global deletion requires a client-encrypted tombstone")
+        return self
 
 
 class Preference(StrictModel):
@@ -250,9 +309,11 @@ async def chat_wait(
     changed = False
     read_changed = False
     receipts_changed = False
+    reactions_changed = False
+    membership_changed = False
     photo_changed = False
     try:
-        queue = await subscribe_consent_queue(user)
+        queue = await subscribe_consent_queue(user, snapshot_resets=True)
         current = await asyncio.to_thread(_call, response, "revision", owner, circle)
         if current["latestSequence"] == after:
             try:
@@ -264,10 +325,21 @@ async def chat_wait(
                             event = await asyncio.wait_for(queue.get(), timeout=0.5)
                         except TimeoutError:
                             continue
+                        if event.get("type") == LOCAL_RESYNC_EVENT_TYPE:
+                            # LISTEN reconnect/overflow means any snapshot may
+                            # be stale. Reread through current membership; never
+                            # replay queued content or wait for the 20s timeout.
+                            changed = read_changed = receipts_changed = True
+                            reactions_changed = membership_changed = photo_changed = True
+                            break
                         if str(event.get("circle_id") or "") == str(circle):
                             changed = True
                             read_changed = event.get("type") == "location_circle_chat_read"
                             receipts_changed = event.get("type") == "location_circle_chat_receipts"
+                            reactions_changed = event.get("type") == "location_circle_chat_reaction"
+                            membership_changed = (
+                                event.get("type") == "location_circle_chat_membership"
+                            )
                             photo_changed = event.get("type") == "location_circle_photo_updated"
                             break
             except TimeoutError:
@@ -277,6 +349,8 @@ async def chat_wait(
             "changed": changed,
             "readChanged": read_changed,
             "receiptsChanged": receipts_changed,
+            "reactionsChanged": reactions_changed,
+            "membershipChanged": membership_changed,
             "photoChanged": photo_changed,
         }
     finally:
@@ -300,6 +374,64 @@ def chat_send(
     return _call(response, "send", owner, circle, payload.model_dump(mode="json"))
 
 
+@router.post("/{circle}/chat/messages/resolve")
+@limiter.limit(AUTOMATIC_READ_LIMIT)
+def chat_resolve(
+    request: Request,
+    response: Response,
+    circle: UUID,
+    payload: ResolveMessages,
+    owner: dict = Depends(require_vault_owner_token),
+):
+    return _call(response, "resolve", owner, circle, [str(item) for item in payload.messageIds])
+
+
+@router.post("/{circle}/chat/messages/updates")
+@limiter.limit(AUTOMATIC_READ_LIMIT)
+def chat_updates(
+    request: Request,
+    response: Response,
+    circle: UUID,
+    payload: MessageUpdates,
+    owner: dict = Depends(require_vault_owner_token),
+):
+    return _call(response, "updates", owner, circle, [str(item) for item in payload.messageIds])
+
+
+@router.patch("/{circle}/chat/messages/{message}")
+@limiter.limit("30/minute")
+def chat_edit(
+    request: Request,
+    response: Response,
+    circle: UUID,
+    message: UUID,
+    payload: EditMessage,
+    owner: dict = Depends(require_vault_owner_token),
+):
+    return _call(response, "mutate", owner, circle, str(message), payload.model_dump())
+
+
+@router.delete("/{circle}/chat/messages/{message}")
+@limiter.limit("30/minute")
+def chat_delete(
+    request: Request,
+    response: Response,
+    circle: UUID,
+    message: UUID,
+    payload: DeleteMessage,
+    owner: dict = Depends(require_vault_owner_token),
+):
+    return _call(
+        response,
+        "mutate",
+        owner,
+        circle,
+        str(message),
+        payload.tombstone.model_dump() if payload.tombstone else {},
+        scope=payload.scope,
+    )
+
+
 @router.get("/{circle}/chat/messages/{message}/image")
 @limiter.limit("120/minute")
 def chat_image(
@@ -310,6 +442,32 @@ def chat_image(
     owner: dict = Depends(require_vault_owner_token),
 ):
     return _call(response, "image", owner, circle, str(message))
+
+
+@router.put("/{circle}/chat/messages/{message}/reactions/{emoji}")
+@limiter.limit("60/minute")
+def chat_react(
+    request: Request,
+    response: Response,
+    circle: UUID,
+    message: UUID,
+    emoji: str,
+    owner: dict = Depends(require_vault_owner_token),
+):
+    return _call(response, "react", owner, circle, str(message), emoji, True)
+
+
+@router.delete("/{circle}/chat/messages/{message}/reactions/{emoji}")
+@limiter.limit("60/minute")
+def chat_unreact(
+    request: Request,
+    response: Response,
+    circle: UUID,
+    message: UUID,
+    emoji: str,
+    owner: dict = Depends(require_vault_owner_token),
+):
+    return _call(response, "react", owner, circle, str(message), emoji, False)
 
 
 @router.get("/{circle}/chat/keys/{key}")

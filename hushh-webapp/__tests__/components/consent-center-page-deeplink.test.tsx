@@ -9,7 +9,7 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConsentCenterPage } from "@/components/consent/consent-center-page";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
@@ -77,6 +77,12 @@ vi.mock("@/hooks/use-auth", () => ({
 
 vi.mock("@/components/consent/document-share-review", () => ({
   DocumentShareReview: ({ requestId }: { requestId: string }) => <div data-testid="private-document-review">{requestId}</div>,
+}));
+
+vi.mock("@/components/consent/answer-request-card", () => ({
+  AnswerRequestCard: ({ requestId }: { requestId: string }) => (
+    <div data-testid="answer-request-card">{requestId}</div>
+  ),
 }));
 
 vi.mock("@/components/consent/drive-query-request-card", () => ({
@@ -186,7 +192,7 @@ vi.mock("@/lib/consent", () => ({
   }),
 }));
 
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
   usePublishVoiceSurfaceMetadata: vi.fn(),
   useVoiceSurfaceControlTracking: () => ({
     activeControlId: null,
@@ -196,6 +202,15 @@ vi.mock("@/lib/voice/voice-surface-metadata", () => ({
 
 vi.mock("@/lib/cache/request-audit-log", () => ({
   logRequestAudit: vi.fn(),
+}));
+
+// These cases exercise route entry and consent events. The independently
+// tested pending-request poll uses an aligned wall clock and can fire just
+// after mount, making a bookkeeping event look like it triggered a fetch.
+// Keep that timer out of these call-count assertions; leave event handling real.
+vi.mock("@/lib/feed/use-feed-live-refresh", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/feed/use-feed-live-refresh")>(),
+  useFeedPendingConsentRefresh: vi.fn(),
 }));
 
 vi.mock("@/lib/services/cache-service", () => ({
@@ -726,6 +741,87 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(JSON.stringify(metadata)).not.toContain("consent_deny");
   });
 
+  // Request scope is a separate journey from the Drive document workflow: a
+  // question about this person's memory, priced and approved by them. The
+  // recipient reported being shown the Drive "Document request / Google Drive"
+  // review instead, so both roles are proven here from the row they tap.
+  it.each([
+    ["owner", "incoming_request", "awaiting_owner"],
+    ["requester", "outgoing_request", "approved"],
+  ] as const)(
+    "opens a %s's Request scope row in its own card and keeps the lane in the URL",
+    async (role, kind, status) => {
+      const id = "22222222-2222-4222-8222-222222222222";
+      const entry = {
+        id: `answer_request:${id}`,
+        // The bare uuid the generic consent path also uses. Selecting the row
+        // by this instead of `id` dropped the lane, and the request fell
+        // through to the generic approve/deny path, which grants the scopes
+        // without showing the question, its scopes or the price.
+        request_id: id,
+        kind,
+        status,
+        action: "ANSWER_REQUEST_REVIEW",
+        scope: null,
+        scope_description: "Request scope",
+        counterpart_type: "person",
+        counterpart_id: role === "owner" ? "requester-uid" : "owner-uid",
+        counterpart_label: role === "owner" ? "Asked by Smrithi" : "Asked of Smrithi",
+        issued_at: 1_790_000_000_000,
+        metadata: {
+          request_source: "answer_request",
+          role,
+          direction: role === "owner" ? "incoming" : "outgoing",
+          request_status: status,
+          payment_status: null,
+        },
+      };
+      mocks.search = "tab=pending";
+      mocks.listEntries.mockResolvedValue(pendingListResponse(entry));
+      const { rerender } = render(<ConsentCenterPage />);
+      fireEvent.click(await screen.findByText(entry.counterpart_label));
+      expect(mocks.replace).toHaveBeenCalledWith(
+        expect.stringContaining(`requestId=answer_request%3A${id}`),
+        { scroll: false },
+      );
+      mocks.search = `tab=pending&requestId=answer_request%3A${id}`;
+      rerender(<ConsentCenterPage />);
+      expect(await screen.findByTestId("answer-request-card")).toHaveTextContent(id);
+      // The reported screen, named exactly: this request is never the Drive
+      // document workflow and never borrows its words.
+      expect(screen.queryByTestId("private-document-review")).toBeNull();
+      expect(screen.queryByTestId("drive-query-card")).toBeNull();
+      expect(screen.queryByText("Document request")).toBeNull();
+      expect(screen.queryByText("Google Drive")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Don't allow" })).toBeNull();
+      expect(mocks.lookupPendingRequests).not.toHaveBeenCalled();
+      expect(mocks.handleApprove).not.toHaveBeenCalled();
+      expect(mocks.handleDeny).not.toHaveBeenCalled();
+    },
+  );
+
+  it("routes a cold Request scope link to its own card, never the document review", async () => {
+    const id = "22222222-2222-4222-8222-222222222222";
+    mocks.search = `tab=pending&requestId=answer_request%3A${id}&notificationAction=approve`;
+    render(<ConsentCenterPage />);
+    expect(await screen.findByTestId("answer-request-card")).toHaveTextContent(id);
+    expect(screen.getByRole("dialog", { name: "Request scope" })).toBeVisible();
+    expect(screen.queryByTestId("private-document-review")).toBeNull();
+    expect(screen.queryByText("Document request")).toBeNull();
+    expect(screen.queryByText("Google Drive")).toBeNull();
+    // The generic lookup does not know this source and answered "missing",
+    // which hid a live request behind a resolving state.
+    expect(mocks.lookupPendingRequests).not.toHaveBeenCalled();
+    expect(mocks.handleApprove).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
+    // Allow/Don't allow is not this request's decision: the owner approves the
+    // scopes and sets a price inside the card.
+    expect(screen.queryByText(/Allow was selected in the notification/)).toBeNull();
+    const metadata = vi.mocked(usePublishVoiceSurfaceMetadata).mock.lastCall?.[0];
+    expect(JSON.stringify(metadata)).not.toContain("consent_approve");
+  });
+
   it("rediscovers sent requests in their own projection and preserves that view when closing detail", async () => {
     const id = "11111111-1111-4111-8111-111111111111";
     mocks.search = `tab=pending&requestView=sent&requestId=document_share_request%3A${id}`;
@@ -735,10 +831,31 @@ describe("ConsentCenterPage requestId deep links", () => {
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     await waitFor(() => expect(mocks.replace).toHaveBeenCalled());
     expect(await screen.findByRole("button", { name: "Sent documents" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("consent-request-direction")).toHaveAttribute(
+      "data-request-direction",
+      "sent",
+    );
     expect(mocks.replace.mock.lastCall?.[0]).toContain("requestView=sent");
     expect(mocks.replace.mock.lastCall?.[0]).not.toContain("requestId=");
     fireEvent.click(screen.getByRole("button", { name: "Received" }));
     expect(mocks.replace.mock.lastCall?.[0]).not.toContain("requestView=sent");
+  });
+
+  it("does not replace the route when Received is already selected", async () => {
+    mocks.search = "tab=pending";
+    mocks.listEntries.mockResolvedValue(emptyListResponse());
+
+    render(<ConsentCenterPage />);
+
+    const received = await screen.findByRole("button", { name: "Received" });
+    expect(received).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(received);
+
+    // A same-URL replace re-renders the mounted pager and its list resource,
+    // which is the source of the visible title/button jitter reported on this
+    // tab. The active direction is already the desired state, so navigation
+    // must remain untouched.
+    expect(mocks.replace).not.toHaveBeenCalled();
   });
 
   it("keeps Northstar's material decision terms once without duplicate controls", async () => {
@@ -1197,6 +1314,33 @@ describe("ConsentCenterPage requestId deep links", () => {
     ]);
   });
 
+  it("keeps the visible request list usable when the secondary summary read fails", async () => {
+    // Summary counts are a secondary projection. A transient summary timeout
+    // must not turn a healthy Requests surface into a blocking service error.
+    mocks.search = "tab=pending";
+    mocks.getSummary.mockRejectedValueOnce(new Error("Internal server error"));
+    mocks.listEntries.mockResolvedValue(
+      pendingListResponse({
+        id: "drive-request-1",
+        request_id: "drive-request-1",
+        kind: "incoming_request",
+        status: "pending",
+        action: "DOCUMENT_SHARE_REVIEW",
+        counterpart_type: "investor",
+        counterpart_label: "Abdul Rashid",
+        scope_description: "Google Drive files",
+      }),
+    );
+
+    render(<ConsentCenterPage />);
+
+    expect(await screen.findByText("Abdul Rashid")).toBeVisible();
+    expect(screen.queryByText("Consent service is unavailable")).toBeNull();
+    expect(
+      screen.queryByText(/did not return the latest access state/i),
+    ).toBeNull();
+  });
+
   it("does not auto-select the first row or open the detail panel after switching tabs", async () => {
     // Regression: selectedEntryFromList fell back to items[0] whenever no
     // requestId/bundleId was in the URL. With no selection open, every tab's
@@ -1512,6 +1656,86 @@ describe("ConsentCenterPage requestId deep links", () => {
         expect.objectContaining({ force: true }),
       );
     });
+  });
+
+  it("keeps warm request rows mounted when a live refresh prepends another request", async () => {
+    mocks.search = "tab=requests";
+    const entry = (id: string, label: string) => ({
+      id,
+      request_id: id,
+      kind: "incoming_request",
+      status: "pending",
+      action: "REQUESTED",
+      counterpart_type: "developer",
+      counterpart_label: label,
+    });
+    const oldEntries = [
+      entry("req_one", "First requester"),
+      entry("req_two", "Second requester"),
+    ];
+    let resolveRefresh:
+      | ((value: ReturnType<typeof emptyListResponse>) => void)
+      | undefined;
+    const refresh = new Promise<ReturnType<typeof emptyListResponse>>(
+      (resolve) => {
+        resolveRefresh = resolve;
+      },
+    );
+    mocks.getSummary.mockResolvedValue({
+      ...summaryResponse(),
+      counts: { pending: 2, active: 0, previous: 0 },
+    });
+    mocks.listEntries.mockImplementation(({ force }: { force?: boolean }) =>
+      force
+        ? refresh
+        : Promise.resolve({
+            ...emptyListResponse(),
+            total: 2,
+            items: oldEntries,
+          }),
+    );
+
+    render(<ConsentCenterPage />);
+    const firstRow = (await screen.findByText("First requester")).closest(
+      '[data-testid="settings-row"]',
+    );
+    const secondRow = screen.getByText("Second requester").closest(
+      '[data-testid="settings-row"]',
+    );
+    expect(firstRow).not.toBeNull();
+    expect(secondRow).not.toBeNull();
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("consent-action-complete", {
+          detail: { action: "approve", requestId: "unrelated-request" },
+        }),
+      );
+    });
+    await waitFor(() =>
+      expect(mocks.listEntries).toHaveBeenCalledWith(
+        expect.objectContaining({ surface: "pending", force: true }),
+      ),
+    );
+    expect(firstRow?.isConnected).toBe(true);
+    expect(secondRow?.isConnected).toBe(true);
+    expect(screen.queryByText("Loading consent entries")).toBeNull();
+    expect(screen.queryByText("No requests need your review.")).toBeNull();
+
+    await act(async () => {
+      resolveRefresh?.({
+        ...emptyListResponse(),
+        total: 3,
+        items: [entry("req_new", "New requester"), ...oldEntries],
+      });
+      await refresh;
+    });
+    expect(await screen.findByText("New requester")).toBeTruthy();
+    expect(
+      screen.getByText("First requester").closest('[data-testid="settings-row"]'),
+    ).toBe(firstRow);
+    expect(
+      screen.getByText("Second requester").closest('[data-testid="settings-row"]'),
+    ).toBe(secondRow);
   });
 
   it("does not force-refresh (and flicker) the list on a non-mutation consent-state-changed event", async () => {

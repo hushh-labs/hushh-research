@@ -30,7 +30,10 @@ from hushh_mcp.services.contact_sync_contract import (
     CONTACT_SYNC_PREFERENCE_ENABLED,
     contact_sync_preference_state,
 )
-from hushh_mcp.services.email_delivery_queue_service import get_email_delivery_queue_service
+from hushh_mcp.services.email_delivery_queue_service import (
+    EmailDeliveryQueueUnavailable,
+    get_email_delivery_queue_service,
+)
 from hushh_mcp.services.kai_invite_email_service import get_kai_invite_email_service
 from hushh_mcp.services.ria_verification import (
     FinraVerificationAdapter,
@@ -795,9 +798,10 @@ _RIA_LICENSE_VERIFICATION_REUSE_TTL = timedelta(hours=24)
 
 
 class RIAIAMPolicyError(Exception):
-    def __init__(self, message: str, status_code: int = 400):
+    def __init__(self, message: str, status_code: int = 400, *, code: str | None = None):
         super().__init__(message)
         self.status_code = status_code
+        self.code = code
 
 
 class IAMSchemaNotReadyError(Exception):
@@ -5284,7 +5288,7 @@ class RIAIAMService:
                 await self._ensure_vault_user_row(conn, user_id)
 
                 # ria_profiles.user_id already FK-proves that actor_profiles exists.
-                # Avoid locking that row before actor_identity_cache cleanup so this
+                # Avoid locking that row before actor_identity_cache so this
                 # path keeps the same identity-then-profile lock order as contact sync.
                 profile_row = await conn.fetchrow(
                     "SELECT id FROM ria_profiles WHERE user_id = $1", user_id
@@ -5392,15 +5396,20 @@ class RIAIAMService:
                         "DELETE FROM ria_license_verifications WHERE user_id = $1",
                         "ria_license_verifications",
                     ),
-                    (
-                        "DELETE FROM actor_identity_cache WHERE user_id = $1",
-                        "actor_identity_cache",
-                    ),
                 ):
                     try:
                         await conn.execute(stmt, user_id)
                     except asyncpg.exceptions.UndefinedTableError:
                         logger.warning("%s unavailable during RIA delete; skipping", label)
+
+                # Signup verification and account identity belong to the surviving
+                # One account. A Google Firebase user may have no phone field to
+                # recover a deleted app-level claim. Preserve identity and retain
+                # the identity-before-profile row lock order used by contact sync.
+                await conn.fetchrow(
+                    "SELECT user_id FROM actor_identity_cache WHERE user_id = $1 FOR UPDATE",
+                    user_id,
+                )
 
                 # (3) Marketplace public projection: keep as an investor listing if
                 # the user opted in, else remove so the deleted RIA disappears from
@@ -7860,26 +7869,29 @@ class RIAIAMService:
                 },
             )
 
-        await queue_service.enqueue(
-            kind="invite_email",
-            send_callable=lambda: invite_email_service.send_ria_invite(
-                target_email=normalized_target_email,
-                target_display_name=target_display_name,
-                advisor_name=advisor_name,
-                firm_name=firm_name,
-                invite_token=invite_token,
-                invite_path=invite_path,
-                expires_at=expires_at,
-                reason=reason,
-            ),
-            on_success=_mark_success,
-            on_failure=_mark_failure,
-            context={
-                "invite_id": invite_id,
-                "invite_token": invite_token,
-                "target_email": normalized_target_email,
-            },
-        )
+        try:
+            await queue_service.enqueue(
+                kind="invite_email",
+                send_callable=lambda: invite_email_service.send_ria_invite(
+                    target_email=normalized_target_email,
+                    target_display_name=target_display_name,
+                    advisor_name=advisor_name,
+                    firm_name=firm_name,
+                    invite_token=invite_token,
+                    invite_path=invite_path,
+                    expires_at=expires_at,
+                    reason=reason,
+                ),
+                on_success=_mark_success,
+                on_failure=_mark_failure,
+                context={
+                    "invite_id": invite_id,
+                    "invite_token": invite_token,
+                    "target_email": normalized_target_email,
+                },
+            )
+        except EmailDeliveryQueueUnavailable as exc:
+            await _mark_failure(exc)
 
     async def set_ria_marketplace_discoverability(
         self,

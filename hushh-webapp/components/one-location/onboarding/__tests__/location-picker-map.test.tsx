@@ -131,11 +131,10 @@ describe("LocationPickerMap", () => {
 
     const confirm = screen.getByRole("button", { name: "Confirm location" });
     const actions = screen.getByTestId("location-picker-actions");
-    expect(actions).toHaveClass("mx-auto", "w-full", "max-w-[320px]");
+    expect(actions).toHaveClass("mx-auto", "w-fit", "max-w-full");
     expect(actions.className).not.toContain("bg-background");
-    expect(actions.className).toContain(
-      "pb-[max(1.5rem,env(safe-area-inset-bottom))]",
-    );
+    // The enclosing modal owns the safe-area inset; adding it here doubles it.
+    expect(actions.className).not.toContain("safe-area-inset-bottom");
     expect(confirm.querySelector("svg")).toBeNull();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
   });
@@ -265,6 +264,33 @@ describe("LocationPickerMap", () => {
       address: "Bengaluru address 560001, India",
     });
     vi.useRealTimers();
+  });
+
+  it("recovers the interactive map when the SDK arrives after the fallback timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      mapsStatus.current = "loading";
+      const onConfirm = vi.fn();
+      const props = {
+        initialLatitude: 28.6139, initialLongitude: 77.209,
+        reverseGeocode: vi.fn().mockResolvedValue("Updated address"),
+        onConfirm, onCancel: vi.fn(),
+      };
+      const view = render(<LocationPickerMap {...props} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+      expect(screen.getByText(/interactive map isn't available/i)).toBeTruthy();
+      mapsStatus.current = "ready";
+      view.rerender(<LocationPickerMap {...props} />);
+      expect(mapConstructor).toHaveBeenCalledTimes(1);
+      expect(screen.queryByText(/interactive map isn't available/i)).toBeNull();
+      currentCenter = { lat: 28.6142, lng: 77.2094 };
+      act(() => { listeners.get("dragstart")?.(); listeners.get("idle")?.(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(350); });
+      fireEvent.click(screen.getByRole("button", { name: "Confirm location" }));
+      expect(onConfirm).toHaveBeenCalledWith({ latitude: 28.6142, longitude: 77.2094, address: "Updated address" });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("lets the owner continue manually when the provider map is unavailable", () => {

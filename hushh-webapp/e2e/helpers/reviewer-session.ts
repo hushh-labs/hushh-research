@@ -80,7 +80,7 @@ export async function waitForReviewerVault(
 ): Promise<void> {
   const unlockInput = page.locator("#unlock-passphrase");
   const unlockButton = page
-    .getByRole("button", { name: /unlock with passphrase/i })
+    .getByRole("button", { name: /unlock with password/i })
     .first();
   const deadline = Date.now() + timeoutMs;
   let manualUnlockSubmitted = false;

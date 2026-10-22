@@ -30,6 +30,8 @@ export const ACCOUNT_DELETION_OUTCOME_UNCERTAIN_MESSAGE =
 export const AUTH_SESSION_INVALIDATION_CODES = [
   "account_not_found",
   "account_deleted",
+  "account_deleted_ready_to_start_fresh",
+  "account_deletion_finishing",
   "account_deletion_uncertain",
   "session_invalid",
 ] as const;
@@ -40,7 +42,7 @@ export type AuthSessionInvalidationCode =
 /** Codes that can be inferred from a credential/backend response alone. */
 export type AuthCredentialInvalidationCode = Exclude<
   AuthSessionInvalidationCode,
-  "account_deleted" | "account_deletion_uncertain"
+  "account_deleted" | "account_deleted_ready_to_start_fresh" | "account_deletion_finishing" | "account_deletion_uncertain"
 >;
 
 type BackendAccountLifecycleCode =
@@ -127,6 +129,16 @@ const LANDING_NOTICES: Record<
     code: "account_deleted",
     message: "Account deleted. You have been securely signed out.",
     toastId: "auth-session-account-deleted",
+  },
+  account_deleted_ready_to_start_fresh: {
+    code: "account_deleted_ready_to_start_fresh",
+    message: "Your old account is deleted. Continue below to start fresh.",
+    toastId: "auth-session-account-deleted-ready",
+  },
+  account_deletion_finishing: {
+    code: "account_deletion_finishing",
+    message: "Your information is deleted. We are finishing account removal. Contact support if you cannot start again soon.",
+    toastId: "auth-session-account-deletion-finishing",
   },
   account_deletion_uncertain: {
     code: "account_deletion_uncertain",

@@ -44,8 +44,8 @@ import {
 } from "@/lib/one-voice/session-store";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
-import { resolveNavigationJourney } from "@/lib/voice/navigation-journey";
-import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { resolveNavigationJourney } from "@/lib/kai/actions/navigation-journey";
+import { getVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { toReportedOsPermission } from "@/components/location/location-publisher-bridge";
 
 function afterPaint(): Promise<void> {

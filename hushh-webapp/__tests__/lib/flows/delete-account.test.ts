@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   mockDeleteAccount,
+  mockDeleteLostVaultAccount,
   mockOnAccountDeleted,
   mockClearForUser,
   mockClearDeviceSecrets,
@@ -15,6 +16,7 @@ const {
   mockRevokeAllVaultPlaid,
 } = vi.hoisted(() => ({
   mockDeleteAccount: vi.fn(),
+  mockDeleteLostVaultAccount: vi.fn(),
   mockOnAccountDeleted: vi.fn(),
   mockClearForUser: vi.fn(),
   mockClearDeviceSecrets: vi.fn(),
@@ -43,7 +45,10 @@ vi.mock("@/lib/auth/session-invalidation", () => ({
 }));
 
 vi.mock("@/lib/services/account-service", () => ({
-  AccountService: { deleteAccount: mockDeleteAccount },
+  AccountService: {
+    deleteAccount: mockDeleteAccount,
+    deleteLostVaultAccount: mockDeleteLostVaultAccount,
+  },
 }));
 
 vi.mock("@/lib/services/api-service", () => ({
@@ -83,6 +88,7 @@ import {
   DELETE_ACCOUNT_OUTCOME_UNCERTAIN_MESSAGE,
   accountDeletionErrorMessage,
   executeVerifiedAccountDeletion,
+  executeLostVaultAccountDeletion,
   isHandledAccountDeletionOutcome,
 } from "@/lib/flows/delete-account";
 import { ApiError } from "@/lib/services/api-client";
@@ -175,7 +181,7 @@ describe("executeVerifiedAccountDeletion", () => {
     expect(
       mockPublishAccountDeletionToSiblingTabs.mock.invocationCallOrder[0],
     ).toBeLessThan(mockOnAccountDeleted.mock.invocationCallOrder[0]!);
-    expect(mockClearForUser).toHaveBeenCalledWith("user_123");
+    expect(mockClearForUser).toHaveBeenCalledWith("user_123", { deleteDurableReceipts: true });
     expect(mockClearDeviceSecrets).toHaveBeenCalledWith("user_123");
     expect(mockSetOnboardingRequiredCookie).toHaveBeenCalledWith(false);
     expect(mockSetOnboardingFlowActiveCookie).toHaveBeenCalledWith(false);
@@ -225,7 +231,7 @@ describe("executeVerifiedAccountDeletion", () => {
     ).resolves.toBeUndefined();
 
     expect(mockOnAccountDeleted).toHaveBeenCalledWith("user_123");
-    expect(mockClearForUser).toHaveBeenCalledWith("user_123");
+    expect(mockClearForUser).toHaveBeenCalledWith("user_123", { deleteDurableReceipts: true });
     expect(mockDispatchAuthSessionInvalidated).toHaveBeenCalledWith({
       code: "account_deleted",
       path: "account_delete_confirmed",
@@ -300,7 +306,7 @@ describe("executeVerifiedAccountDeletion", () => {
         path: "account_delete_uncertain_outcome",
         userId: "user_123",
       });
-      expect(mockClearForUser).toHaveBeenCalledWith("user_123");
+      expect(mockClearForUser).toHaveBeenCalledWith("user_123", { deleteDurableReceipts: true });
     },
   );
 
@@ -335,7 +341,7 @@ describe("executeVerifiedAccountDeletion", () => {
     expect(mockPublishAccountDeletionToSiblingTabs).toHaveBeenCalledWith(
       "user_123",
     );
-    expect(mockClearForUser).toHaveBeenCalledWith("user_123");
+    expect(mockClearForUser).toHaveBeenCalledWith("user_123", { deleteDurableReceipts: true });
   });
 
   it("fails closed when a lost-response probe sees a pre-commit active snapshot", async () => {
@@ -425,7 +431,7 @@ describe("executeVerifiedAccountDeletion", () => {
       path: "account_delete_uncertain_outcome",
       userId: "user_123",
     });
-    expect(mockClearForUser).toHaveBeenCalledWith("user_123");
+    expect(mockClearForUser).toHaveBeenCalledWith("user_123", { deleteDurableReceipts: true });
     expect(mockClearDeviceSecrets).toHaveBeenCalledWith("user_123");
   });
 
@@ -551,7 +557,7 @@ describe("executeVerifiedAccountDeletion", () => {
       path: "account_delete_uncertain_outcome",
       userId: "user_123",
     });
-    expect(mockClearForUser).toHaveBeenCalledWith("user_123");
+    expect(mockClearForUser).toHaveBeenCalledWith("user_123", { deleteDurableReceipts: true });
   });
 
   it("refuses to delete when the supplied Firebase identity changed", async () => {
@@ -725,5 +731,32 @@ describe("banks sealed in the vault are revoked before the account is erased", (
     expect(mockDispatchAuthSessionInvalidated).not.toHaveBeenCalled();
     expect(mockClearForUser).not.toHaveBeenCalled();
     expect(isAccountDeletionActive("uid-paused")).toBe(false);
+  });
+
+  it.each([
+    [true, "account_deleted_ready_to_start_fresh"],
+    [false, "account_deletion_finishing"],
+  ])("reports locked-vault deletion readiness %s at sign-out", async (ready, code) => {
+    mockDeleteLostVaultAccount.mockResolvedValue({
+      success: true,
+      account_deleted: true,
+      ready_to_start_fresh: ready,
+    });
+
+    await executeLostVaultAccountDeletion({
+      userId: "user_123",
+      sessionUser: makeSessionUser(),
+      firebaseIdToken: "fresh-provider-token",
+    });
+
+    expect(mockDeleteLostVaultAccount).toHaveBeenCalledWith({
+      firebaseIdToken: "fresh-provider-token",
+      phoneIdToken: undefined,
+    });
+    expect(mockDispatchAuthSessionInvalidated).toHaveBeenCalledWith({
+      code,
+      path: "account_delete_confirmed",
+      userId: "user_123",
+    });
   });
 });

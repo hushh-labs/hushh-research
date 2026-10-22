@@ -60,7 +60,6 @@ import { trackEvent } from "@/lib/observability/client";
 import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
 import { trackRiaVerificationStatusChanged } from "@/lib/observability/ria-events";
 import { resolveAppEnvironment } from "@/lib/app-env";
-import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 
 const LICENSE_VERIFICATION_TIMEOUT_MS = 90_000;
@@ -1092,11 +1091,6 @@ export default function RiaOnboardingPage({
     toast.success("Bio drafted. Review the draft before submitting your profile.");
   }
 
-  function handleAskKaiUpdateAnything() {
-    openKaiCommandBar();
-    toast.info("Command bar opened");
-  }
-
   const isEnriching = Boolean(draft.scrapeJobId && scrapePollingRef.current);
   const nativeTestDataState =
     loading || !draftReady
@@ -1232,7 +1226,6 @@ export default function RiaOnboardingPage({
             fullStreetAddress={draft.fullStreetAddress}
             advisoryAccessReady={advisoryAccessReady}
             onEditSection={handleEditSection}
-            onAskKaiUpdateAnything={handleAskKaiUpdateAnything}
           />
         );
       default:

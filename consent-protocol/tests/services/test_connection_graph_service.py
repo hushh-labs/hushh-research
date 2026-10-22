@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from sqlalchemy import create_engine, text
 
 from hushh_mcp.services.connection_graph_service import (
     ORIGIN_CIRCLE_MEMBER,
@@ -14,6 +15,7 @@ from hushh_mcp.services.connection_graph_service import (
     USER_MANAGEABLE_ORIGIN_KINDS,
     ConnectionGraphService,
     ensure_connection_origin,
+    list_connection_graph_viewer_ids,
     lock_connection_graph_users,
     revoke_circle_origins,
 )
@@ -54,6 +56,54 @@ def test_canonical_pair_validates_and_sorts():
         ConnectionGraphService.canonical_pair("same", "same")
     with pytest.raises(ValueError):
         ConnectionGraphService.canonical_pair("", "user-b")
+
+
+def test_graph_viewers_cover_both_endpoints_and_live_circles_without_unrelated_accounts():
+    engine = create_engine("sqlite://")
+    with engine.begin() as conn:
+        for definition in (
+            "connections (user_a_id TEXT, user_b_id TEXT, status TEXT)",
+            "trusted_connections (owner_user_id TEXT, trusted_user_id TEXT, status TEXT)",
+            "connection_requests (requester_user_id TEXT, addressee_user_id TEXT, status TEXT)",
+            "one_location_circles (id TEXT, owner_user_id TEXT, status TEXT)",
+            "one_location_circle_memberships (circle_id TEXT, user_id TEXT, status TEXT)",
+        ):
+            conn.execute(text("CREATE TABLE " + definition))
+        conn.execute(
+            text(
+                "INSERT INTO connections VALUES ('a','owner','active'), ('owner','b','active'), ('owner','revoked','revoked'), ('x','unrelated','active')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO trusted_connections VALUES ('owner','a','active'), ('legacy','owner','active')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO connection_requests VALUES ('pending','owner','pending'), ('owner','accepted','accepted')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO one_location_circles VALUES ('own','owner','active'), ('joined','host','active'), ('closed','closed-host','revoked')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO one_location_circle_memberships VALUES ('own','member','active'), ('own','left','left'), ('joined','owner','active'), ('joined','co-member','active'), ('closed','owner','active'), ('closed','closed-member','active')"
+            )
+        )
+
+        expected = {"a", "b", "legacy", "member", "host", "co-member"}
+        assert list_connection_graph_viewer_ids(conn, user_id="owner") == expected
+        assert list_connection_graph_viewer_ids(
+            conn, user_id="owner", include_pending_requests=True
+        ) == expected | {"pending"}
+        assert list_connection_graph_viewer_ids(
+            conn, user_id="owner", table_exists=lambda table: table == "connections"
+        ) == {"a", "b"}
+    engine.dispose()
 
 
 def test_graph_mutation_user_locks_are_transaction_scoped_and_ordered():

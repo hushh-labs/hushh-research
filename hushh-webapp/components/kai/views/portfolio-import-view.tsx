@@ -156,6 +156,7 @@ export function PortfolioImportView({
         <SettingsGroup
           embedded
           separatorInset
+          rowSizing="uniform"
           testId="portfolio-import-source-options"
         >
         <SettingsRow

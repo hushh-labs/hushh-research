@@ -22,9 +22,12 @@ import uuid
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
+from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, Protocol
+
+from pydantic import ValidationError
 
 from hushh_mcp.one_voice import protocol
 from hushh_mcp.one_voice.config import OneVoiceLiveConfig
@@ -48,6 +51,7 @@ from hushh_mcp.one_voice.tools.base import (
     Rejected,
     ScreenContext,
     ToolContext,
+    ToolPolicy,
     ToolResult,
     ToolSpec,
     arg_refs,
@@ -55,13 +59,19 @@ from hushh_mcp.one_voice.tools.base import (
 )
 from hushh_mcp.one_voice.tools.executor import (
     CONFIRMATION_WAITING,
+    LOOKUP_TOOLS,
     PENDING_ACTION_EXISTS,
     STORAGE_UNAVAILABLE,
     ToolCallOutcome,
     ToolExecutor,
 )
+from hushh_mcp.one_voice.tools.mail_compose import ComposeResult, MailComposeRuntime
 from hushh_mcp.one_voice.tools.session import OPENABLE_SCREENS
-from hushh_mcp.services.gmail_delivery_service import GmailDeliveryError, get_owner_send_action
+from hushh_mcp.runtime_providers.factory import ManagedGeminiRuntimeBinding
+from hushh_mcp.services.gmail_delivery_service import (
+    GmailDeliveryError,
+    reconcile_owner_send_action,
+)
 from hushh_mcp.services.gmail_reply_source_service import open_reply_source_ref
 
 logger = logging.getLogger(__name__)
@@ -115,6 +125,15 @@ CLIENT_STEP_GRACE_SECONDS = 5
 # A question accepted behind a stalled provider turn must not wait until the
 # session's general idle close and disappear without an answer.
 QUEUED_TEXT_MAX_WAIT_SECONDS = 30.0
+# Total interactive budgets include retrieval, interpretation and narration.
+_READ_TIMEOUT_SECONDS = {"read_mail": 45.0, "read_calendar": 25.0}
+_READ_OFFER_FIELDS = {
+    "read_mail": ("offered_mail", "offered_mail_selected_ordinal"),
+    "read_calendar": ("offered_calendar_events", "offered_calendars"),
+}
+READ_NARRATION_TIMEOUT_SECONDS = 8.0
+READ_SETTLEMENT_TIMEOUT_SECONDS = 3.0
+READ_CLOSE_TIMEOUT_SECONDS = 1.0
 PCM16_16K_BYTES_PER_SECOND = 32_000
 _NOT_SUCCESS = {
     "rejected",
@@ -175,6 +194,7 @@ _NAME_EDIT_MESSAGES = {
 _AWAITING_DEVICE = frozenset(
     {
         "draft_open_requested",
+        "review_requested",
         protocol.LOCATION_UPDATES_PENDING,
         "scope_review_required",
         protocol.SOS_GRANTS_CREATED,
@@ -185,6 +205,7 @@ _AWAITING_DEVICE = frozenset(
 _CONFIRMED_CONTINUATION_STEPS = frozenset(
     {
         "open_mail_draft",
+        "mail_draft_outcome",
         "publish_location_envelopes",
         "set_location_updates",
         "account_lifecycle",
@@ -291,6 +312,22 @@ class TurnPerf:
     pending_created: int = 0
     pending_reused: int = 0
     pending_cancelled: int = 0
+
+
+@dataclass
+class _ReadExecution:
+    call_id: str
+    generation: int
+    origin_turn_id: str
+    task: asyncio.Task[None] | None = None
+    reason: str | None = None
+    published: bool = False
+    response: dict[str, Any] | None = None
+    narration_turn_id: str | None = None
+    previous_offers: dict[str, Any] = field(default_factory=dict)
+    counted_ok: bool = False
+    provider_response_started: bool = False
+    provider_response_completed: bool = False
 
 
 def _spaced(text: str) -> str:
@@ -403,6 +440,7 @@ class VoiceSession:
         self._pending_voice_turn_id: str | None = None
         self._pending_turn_ids: dict[str, str] = {}
         self._latest_input_turn_id: str | None = None
+        self._conflicted_confirmation_input: str | None = None
         # Live can end a provider turn after a tool call, then continue the
         # same person's request in a fresh provider turn. Wire frames keep
         # that fresh turn ID so the client can display them after model_end;
@@ -438,6 +476,18 @@ class VoiceSession:
         self._hold_chain = False
         # Set from the auth frame before any tool runs; UTC until then.
         self._client_timezone = "UTC"
+        self._mail_review_supported = False
+        self._playback_acknowledgements = False
+        self._mail_input_generation = 0
+        self._read_input_generation = 0
+        self._read_admission: ContextVar[int | None] = ContextVar("read_admission", default=None)
+        self._active_read: _ReadExecution | None = None
+        self._cancelled_read_calls: deque[str] = deque(maxlen=128)
+        self._mail_input_active = False
+        self._mail_approval_input: ContextVar[tuple[int, bool] | None] = ContextVar(
+            "mail_approval_input", default=None
+        )
+        self._mail_capture_segment = False
         self.started_at = clock()
         self.last_activity = clock()
         self.audio_in_bytes = 0
@@ -448,7 +498,16 @@ class VoiceSession:
         # reports with. The report only names a send action; the outcome is
         # always re-read from the ledger through ``_mail_delivery_status``.
         self.mail_deliveries: dict[str, dict[str, Any]] = {}
-        self._mail_delivery_status = mail_delivery_status or get_owner_send_action
+        self._mail_delivery_status = mail_delivery_status or reconcile_owner_send_action
+        # A tap arrives on the client pump, while the reviewed send may wait on
+        # recipient/Gmail I/O. Keep that execution out of the receive loop so
+        # corrections and cancellation can revoke its admission in time.
+        self._mail_execution_tasks: set[asyncio.Task[None]] = set()
+        # Repeated taps for one card share the first tap's admission. A second
+        # tap must not revoke a send that is already proving or claiming the
+        # same card; new input or a different card gets a fresh generation.
+        self._mail_confirm_admissions: dict[str, tuple[int, bool]] = {}
+        self._mail_pending_ids: set[str] = set()
         self.pending_receipts: dict[str, str] = {}
         # Answered typed name edits by operation id: a resend gets the same
         # name_edit.result back and never proposes a second card.
@@ -473,6 +532,12 @@ class VoiceSession:
         self._provider_activity_end_at: float | None = None
         self._provider_activity_source: str | None = None
         self._provider_activity_started = False
+        self._provider_tags_cache: str | None = None
+        self._provider_connect_attempted = False
+        self._provider_connected = False
+        self._playback_items: dict[str, str] = {}
+        self._provider_input_turns: dict[str, str] = {}
+        self._observed_provider_input: str | None = None
 
     # -- state guards (raise instead of assert; the relay must never run
     #    a frame before auth or a provider before the socket is ready) --------
@@ -631,11 +696,12 @@ class VoiceSession:
             if 0 <= elapsed_ms <= 120_000:
                 perf.provider_activity_end_at = self._provider_activity_end_at
                 logger.info(
-                    "one_voice.latency session=%s turn=%s phase=provider_activity_end_to_transcript source=%s ms=%d",
+                    "one_voice.latency session=%s turn=%s phase=provider_activity_end_to_transcript source=%s ms=%d %s",
                     self.session_id,
                     input_turn_id,
                     self._provider_activity_source,
                     elapsed_ms,
+                    self._provider_tags(),
                 )
         self._provider_activity_end_at = None
         self._provider_activity_source = None
@@ -697,20 +763,53 @@ class VoiceSession:
             ratios,
         )
 
+    def _provider_tags(self) -> str:
+        """Bounded provider dimensions for voice telemetry; never user content.
+
+        The explicit project pins UAT voice to its billing project. When that
+        override is absent, use the same binding resolver as the Live client.
+        Telemetry must not stop a session if a local test has no ADC project.
+        """
+        if self._provider_tags_cache is None:
+            if self.config.provider == "azure_openai":
+                self._provider_tags_cache = f"provider=azure_openai live_model={self.config.model_id} live_location={self.config.location}"
+                return self._provider_tags_cache
+            project = self.config.vertex_project
+            if project is None:
+                try:
+                    project = ManagedGeminiRuntimeBinding.from_environment().project
+                except (RuntimeError, ValueError):
+                    project = None
+            self._provider_tags_cache = (
+                f"provider=vertex_ai vertex_project={project or 'unresolved'} "
+                f"live_model={self.config.model_id} live_location={self.config.location}"
+            )
+        return self._provider_tags_cache
+
     def _log_latency(self, phase: str, started: float | None, turn_id: str | None = None) -> None:
         if started is None:
             return
         logger.info(
-            "one_voice.latency session=%s turn=%s phase=%s ms=%d",
+            "one_voice.latency session=%s turn=%s phase=%s ms=%d %s",
             self.session_id,
             turn_id or self.turn.turn_id,
             phase,
             int((self.clock() - started) * 1000),
+            self._provider_tags(),
         )
 
     async def _close(self, code: int, reason: str) -> None:
         if self._closed:
             return
+        # Revoke unclaimed voice approval before closing the transport. Mail
+        # execution tasks continue draining so their final provider fence can
+        # record a superseded attempt or preserve an already-posted outcome;
+        # the input_active callback also observes ``_closed`` below, so a close
+        # does not masquerade as a new user utterance in telemetry.
+        self._mail_input_active = False
+        self._mail_confirm_admissions.clear()
+        self._mail_pending_ids.clear()
+        self._cancel_read("session_closed")
         self._closed = True
         self.close_code = code
         self.close_reason = reason
@@ -718,6 +817,73 @@ class VoiceSession:
             await self.transport.close(code, reason)
         except Exception:  # noqa: BLE001 - already closing
             pass
+
+    def _track_mail_execution(self, pending: PendingAction, *, origin_turn_id: str | None) -> None:
+        """Run a reviewed send without blocking client-frame intake.
+
+        The task deliberately keeps running after socket close: once a delivery
+        has reached the ledger, cancelling the coroutine could strand a
+        ``sending`` row without a truthful outcome. The wrapper suppresses late
+        transport errors and removes itself from the bounded task set.
+        """
+        task = asyncio.create_task(
+            self._execute_mail_pending(pending, origin_turn_id=origin_turn_id),
+            name=f"one-voice-mail-send:{getattr(pending, 'id', 'unknown')}",
+        )
+        self._mail_execution_tasks.add(task)
+
+        def _finished(done: asyncio.Task[None]) -> None:
+            self._mail_execution_tasks.discard(done)
+            self._mail_confirm_admissions.pop(getattr(pending, "id", ""), None)
+            if not done.cancelled():
+                try:
+                    done.exception()
+                except Exception:  # noqa: BLE001 - done task is already logged by wrapper
+                    pass
+
+        task.add_done_callback(_finished)
+
+    def _admit_confirm(self, pending_action_id: str) -> tuple[int, bool]:
+        existing = self._mail_confirm_admissions.get(pending_action_id)
+        if existing is not None:
+            return existing
+        self._mail_input_generation += 1
+        admission = (self._mail_input_generation, self._mail_input_active)
+        self._mail_confirm_admissions[pending_action_id] = admission
+        return admission
+
+    def _track_confirm(
+        self, frame: protocol.ConfirmActionFrame, admission: tuple[int, bool]
+    ) -> None:
+        task = asyncio.create_task(
+            self._confirm_by_tap(frame, admission=admission),
+            name=f"one-voice-confirm:{frame.pending_action_id}",
+        )
+
+        def _finished(done: asyncio.Task[None]) -> None:
+            self._mail_pending_ids.discard(frame.pending_action_id)
+            if not done.cancelled():
+                try:
+                    done.exception()
+                except Exception:  # noqa: BLE001
+                    pass
+
+        task.add_done_callback(_finished)
+
+    async def _execute_mail_pending(
+        self, pending: PendingAction, *, origin_turn_id: str | None
+    ) -> None:
+        # ToolExecutor stores its prepared snapshot on the context while the
+        # handler runs. A shallow context copy prevents a concurrent read/edit
+        # from replacing that snapshot underneath the send.
+        execution_ctx = replace(self.ctx, prepared=None)
+        try:
+            outcome = await self.executor.execute_pending(execution_ctx, pending)
+            await self._after_execution(outcome, source="tap", origin_turn_id=origin_turn_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - ledger outcome remains authoritative
+            logger.warning("one_voice.mail_execution_failed")
 
     async def _fail(self, code: int, error_code: str, message: str) -> None:
         try:
@@ -742,12 +908,20 @@ class VoiceSession:
             from hushh_mcp.runtime_providers.dependency_health import classify_provider_error
 
             reason = classify_provider_error(exc)
+            if self._provider_connect_attempted and not self._provider_connected:
+                logger.warning(
+                    "one_voice.provider_binding session=%s status=connect_failed error=%s %s",
+                    self.session_id,
+                    type(exc).__name__,
+                    self._provider_tags(),
+                )
             logger.warning(
-                "one_voice.session.failed class=%s error=%s session=%s failures=%s",
+                "one_voice.session.failed class=%s error=%s session=%s failures=%s %s",
                 reason,
                 type(exc).__name__,
                 self.session_id,
                 json.dumps(_failure_fingerprints(exc), separators=(",", ":")),
+                self._provider_tags(),
             )
             try:
                 await self._send(
@@ -778,6 +952,8 @@ class VoiceSession:
         # A hint for resolving relative dates, not authority. AuthResult is the
         # route's authority object and stays untouched.
         self._client_timezone = frame.timezone or "UTC"
+        self._mail_review_supported = "mail_draft_review" in (frame.client.get("features") or [])
+        self._playback_acknowledgements = "audio_playback" in (frame.client.get("features") or [])
         return auth
 
     async def _open_conversation(self, auth: AuthResult) -> None:
@@ -799,6 +975,13 @@ class VoiceSession:
             firebase_id_token=auth.firebase_id_token,
             timezone=self._client_timezone,
         )
+        self.ctx.services["mail_compose"] = MailComposeRuntime(
+            review_supported=self._mail_review_supported,
+            input_generation=lambda: self._mail_input_generation,
+            input_active=lambda: self._mail_input_active or self._closed,
+            approval_input=self._mail_approval_input.get,
+        )
+        self.ctx.services["mail_delivery_status"] = self._mail_delivery_status
         self._display_name = auth.display_name
         # Not guarded on purpose: a session that cannot say which cards are open
         # must not start, or a card shown in an earlier session could be
@@ -809,12 +992,15 @@ class VoiceSession:
         self._pending_turn_ids.update(
             (row.id, row.origin_turn_id) for row in open_rows if row.origin_turn_id is not None
         )
+        self._mail_pending_ids.update(
+            row.id for row in open_rows if row.tool_name == "send_reviewed_mail"
+        )
         await self._send(
             protocol.session_ready(
                 session_id=self.session_id,
                 conversation_id=self.claims.conversation_id,
                 model=self.config.model_id,
-                resumed=self.conversation.session_count > 1,
+                resumed=self.conversation.session_count > 1 and self.config.provider == "vertex",
                 idle_timeout_ms=self.config.idle_close_seconds * 1000,
                 session_max_ms=self.config.session_max_seconds * 1000,
                 pending_actions=[row.public() for row in open_rows],
@@ -824,7 +1010,9 @@ class VoiceSession:
     async def _run_live(self) -> None:
         from hushh_mcp.one_voice.instruction import build_instruction
 
-        declarations = registry.declarations()
+        declarations = registry.runtime_declarations(
+            mail_review_supported=self._mail_review_supported
+        )
         # Nothing else observes this list. It is assembled here and handed to the
         # provider; no endpoint returns it and no client frame carries it, so
         # without this line a running deployment cannot be asked which
@@ -847,17 +1035,32 @@ class VoiceSession:
             screen_ids=list(OPENABLE_SCREENS),
             screen_id=self.ctx.screen.screen_id,
             display_name=self._display_name,
-            resumed=self.conversation.session_count > 1,
+            resumed=self.conversation.session_count > 1 and self.config.provider == "vertex",
             # The owner's zone, so "tomorrow at 9" means their 9. The session
             # clock is monotonic, so the instruction reads the wall clock itself.
             timezone=self._client_timezone,
         )
         live_config = {
+            "playback_acknowledgements": self._playback_acknowledgements,
             "system_instruction": instruction,
             "tool_declarations": declarations,
-            "resumption_handle": self.conversation.live_resumption_handle,
+            "resumption_handle": self.conversation.live_resumption_handle
+            if self.config.provider == "vertex"
+            else None,
         }
+        connect_started_at = self.clock()
+        self._provider_connect_attempted = True
         async with self.live_factory(self.config.model_id, live_config) as live:
+            self._provider_connected = True
+            # The client receives session.ready before provider setup. Record
+            # that separate wait so connection time does not disappear into a
+            # long websocket request or get mistaken for response generation.
+            self._log_latency("provider_connect", connect_started_at)
+            logger.info(
+                "one_voice.provider_binding session=%s status=connected %s",
+                self.session_id,
+                self._provider_tags(),
+            )
             self.live = live
             await self._send(protocol.voice_state("listening"))
             try:
@@ -968,36 +1171,92 @@ class VoiceSession:
 
     # -- client → provider ---------------------------------------------------
 
-    async def _pump_client(self) -> None:
-        while not self._closed:
-            try:
-                raw = await self.transport.receive()
-            except SessionClosed:
-                raise
-            except Exception:  # noqa: BLE001 - socket gone
-                await self._close(protocol.CLOSE_ENDED, "client_disconnected")
-                raise SessionClosed(protocol.CLOSE_ENDED, "client_disconnected")
-            try:
-                frame = protocol.parse_client_frame(raw)
-            except protocol.FrameError as exc:
-                await self._send(protocol.error("protocol", str(exc)))
-                continue
-            try:
-                await self._handle_client_frame(frame)
-            except _STORAGE_ERRORS as exc:
-                # Whatever this frame asked for did not happen; the card or
-                # setting stays as it was, and the person can simply try again.
-                # A device's own step report is not something they did, so it
-                # gets no "try again" (storage recovers that row on its own).
-                self._storage_failed("frame", exc)
-                if not isinstance(frame, protocol.ClientStepResultFrame):
-                    await self._send(
-                        protocol.error(
-                            "storage_unavailable", "That didn't go through. Please try again."
-                        )
-                    )
+    def _observe_client_mail_input(self, frame: Any) -> tuple[int, bool] | None:
+        # Observe only protocol facts at intake. Ordered dispatch still owns
+        # edits, proof, CAS and all generic tool execution.
+        if isinstance(frame, (protocol.TextFrame, protocol.InterruptFrame)):
+            self._observed_provider_input = None
+            self._read_input_generation += 1
+            self._cancel_read("newer_question")
+        elif isinstance(frame, protocol.EndFrame):
+            self._cancel_read("session_closed")
+        if isinstance(frame, protocol.ConfirmActionFrame):
+            return self._admit_confirm(frame.pending_action_id)
+        if isinstance(
+            frame,
+            (
+                protocol.TextFrame,
+                protocol.CancelActionFrame,
+                protocol.InterruptFrame,
+                protocol.MailDraftChangedFrame,
+            ),
+        ):
+            self._mail_input_generation += 1
+            if isinstance(frame, (protocol.TextFrame, protocol.CancelActionFrame)):
+                self._mail_input_active = False
+        if isinstance(frame, protocol.EndFrame):
+            self._mail_input_active = True
+        return None
 
-    async def _handle_client_frame(self, frame: Any) -> None:
+    async def _pump_client(self) -> None:
+        queue: asyncio.Queue[Any] = asyncio.Queue(maxsize=128)
+
+        async def receive() -> None:
+            while not self._closed:
+                try:
+                    raw = await self.transport.receive()
+                except SessionClosed as exc:
+                    self._mail_input_active = True
+                    await queue.put(exc)
+                    return
+                except Exception:
+                    self._mail_input_active = True
+                    await queue.put(SessionClosed(protocol.CLOSE_ENDED, "client_disconnected"))
+                    return
+                try:
+                    frame = protocol.parse_client_frame(raw)
+                except protocol.FrameError as exc:
+                    await self._send(protocol.error("protocol", str(exc)))
+                    continue
+                admission = self._observe_client_mail_input(frame)
+                if queue.full():
+                    self._mail_input_generation += 1
+                await queue.put((frame, admission))
+
+        # Intake is independent of proof/storage I/O; effects remain ordered.
+        intake = asyncio.create_task(receive())
+        try:
+            while not self._closed:
+                queued = await queue.get()
+                if isinstance(queued, SessionClosed):
+                    await self._close(queued.code, queued.reason)
+                    raise queued
+                frame, admission = queued
+                try:
+                    await self._handle_client_frame(
+                        frame, input_observed=True, mail_admission=admission
+                    )
+                except _STORAGE_ERRORS as exc:
+                    self._storage_failed("frame", exc)
+                    if not isinstance(frame, protocol.ClientStepResultFrame):
+                        await self._send(
+                            protocol.error(
+                                "storage_unavailable", "That didn't go through. Please try again."
+                            )
+                        )
+        finally:
+            intake.cancel()
+            await asyncio.gather(intake, return_exceptions=True)
+
+    async def _handle_client_frame(
+        self,
+        frame: Any,
+        *,
+        input_observed: bool = False,
+        mail_admission: tuple[int, bool] | None = None,
+    ) -> None:
+        if not input_observed:
+            mail_admission = self._observe_client_mail_input(frame)
         if isinstance(frame, protocol.AudioFrame):
             size = len(frame.data) * 3 // 4
             if size > protocol.MAX_AUDIO_FRAME_BYTES:
@@ -1013,11 +1272,12 @@ class VoiceSession:
         if isinstance(frame, protocol.PerfFrame):
             # Telemetry is optional and must not extend the idle deadline.
             logger.info(
-                "one_voice.client_perf session=%s turn=%s metric=%s ms=%d",
+                "one_voice.client_perf session=%s turn=%s metric=%s ms=%d %s",
                 self.session_id,
                 frame.turn_id if frame.turn_id in self._issued_turn_ids else "none",
                 frame.metric,
                 frame.duration_ms,
+                self._provider_tags(),
             )
             return
         self._touch()
@@ -1080,7 +1340,12 @@ class VoiceSession:
                         {"kind": "pending_shown", "pending_action_id": shown.id}
                     )
         elif isinstance(frame, protocol.ConfirmActionFrame):
-            await self._confirm_by_tap(frame)
+            if frame.pending_action_id in self._mail_pending_ids:
+                self._track_confirm(
+                    frame, mail_admission or self._admit_confirm(frame.pending_action_id)
+                )
+            else:
+                await self._confirm_by_tap(frame, admission=mail_admission)
         elif isinstance(frame, protocol.CancelActionFrame):
             await self._cancel(frame)
         elif isinstance(frame, protocol.CandidateChooseFrame):
@@ -1094,6 +1359,8 @@ class VoiceSession:
             )
         elif isinstance(frame, protocol.ClientStepResultFrame):
             await self._client_step_result(frame)
+        elif isinstance(frame, protocol.MailDraftChangedFrame):
+            await self._mail_draft_changed(frame, input_observed=True)
         elif isinstance(frame, protocol.MailDeliveryResultFrame):
             await self._settle_mail_delivery(frame)
         elif isinstance(frame, protocol.UiSettledFrame):
@@ -1110,7 +1377,22 @@ class VoiceSession:
                     }
                 )
         elif isinstance(frame, protocol.InterruptFrame):
-            await self._send(protocol.turn("interrupted", turn_id=self.turn.turn_id))
+            interrupt = getattr(self.live, "interrupt", None)
+            if interrupt is not None:
+                await interrupt()
+            if self.config.provider == "azure_openai":
+                # Azure fences the cancelled response's terminal event. Settle
+                # this relay turn here so the next typed input can be sent.
+                await self._handle_live_event(LiveEvent(kind="interrupted"))
+            else:
+                await self._send(protocol.turn("interrupted", turn_id=self.turn.turn_id))
+        elif isinstance(frame, protocol.PlaybackFrame):
+            acknowledge = getattr(self.live, "acknowledge_playback", None)
+            if acknowledge is not None and self._playback_items.get(frame.item_id) == frame.turn_id:
+                try:
+                    await acknowledge(frame.item_id, frame.played_ms)
+                except ValueError:
+                    await self._send(protocol.error("protocol", "invalid_playback_position"))
         elif isinstance(frame, protocol.EndFrame):
             await self._close(protocol.CLOSE_ENDED, "ended")
             raise SessionClosed(protocol.CLOSE_ENDED, "ended")
@@ -1238,7 +1520,25 @@ class VoiceSession:
 
     # -- confirmations -------------------------------------------------------
 
-    async def _confirm_by_tap(self, frame: protocol.ConfirmActionFrame) -> None:
+    async def _confirm_by_tap(
+        self,
+        frame: protocol.ConfirmActionFrame,
+        *,
+        admission: tuple[int, bool] | None = None,
+    ) -> None:
+        # A tap is new owner input. Bind it before proof/storage awaits and
+        # never clear speech that arrives while those checks are pending.
+        admitted_value = admission or self._admit_confirm(frame.pending_action_id)
+        admitted = self._mail_approval_input.set(admitted_value)
+        try:
+            await self._confirm_by_tap_admitted(frame)
+        finally:
+            self._mail_approval_input.reset(admitted)
+
+    async def _confirm_by_tap_admitted(self, frame: protocol.ConfirmActionFrame) -> None:
+        if self._closed:
+            self._mail_confirm_admissions.pop(frame.pending_action_id, None)
+            return
         spec = None
         row = await self.pending.get(
             user_id=self.ctx.user_id, pending_action_id=frame.pending_action_id
@@ -1262,6 +1562,7 @@ class VoiceSession:
                         else "Sign-in proof is invalid or names another account.",
                     )
                 )
+                self._mail_confirm_admissions.pop(frame.pending_action_id, None)
                 return
         if frame.firebase_id_token:
             self.ctx.firebase_id_token = frame.firebase_id_token
@@ -1289,6 +1590,13 @@ class VoiceSession:
         self._bump(confirmations_completed=1)
         if origin_turn_id is not None:
             await self._send(protocol.voice_state("executing", turn_id=origin_turn_id))
+        if confirmed.tool_name == "send_reviewed_mail":
+            # The CAS above is the admission point. The task inherits the
+            # ContextVar snapshot captured by _confirm_by_tap, while this pump
+            # immediately returns to receive typed edits/cancellation frames.
+            self._track_mail_execution(confirmed, origin_turn_id=origin_turn_id)
+            return
+        self._mail_confirm_admissions.pop(frame.pending_action_id, None)
         outcome = await self.executor.execute_pending(self.ctx, confirmed)
         await self._after_execution(outcome, source="tap", origin_turn_id=origin_turn_id)
 
@@ -1310,6 +1618,7 @@ class VoiceSession:
                 if await self.pending.cancel(user_id=self.ctx.user_id, pending_action_id=row.id):
                     cancelled.append(row.id)
         for pending_id in cancelled:
+            self._mail_pending_ids.discard(pending_id)
             origin_turn_id = self._pending_turn_ids.get(pending_id)
             self.pending_receipts.pop(pending_id, None)
             self._pending_turn_ids.pop(pending_id, None)
@@ -1626,6 +1935,54 @@ class VoiceSession:
         if step.get("kind") == "account_lifecycle":
             await self._settle_account_lifecycle_step(step, frame)
             return
+        if step.get("kind") == "review_mail_draft":
+            owner = self.ctx.services.get("mail_compose")
+            matched = (
+                frame.status == "ok"
+                and frame.payload.get("mounted") is True
+                and frame.payload.get("draft_ref") == step.get("draft_ref")
+                and frame.payload.get("revision") == step.get("revision")
+                and frame.payload.get("action_id") == (step.get("prepared") or {}).get("action_id")
+                and self.clock() <= float(step.get("expires_at") or 0)
+            )
+            draft_only = matched and not step.get("prepared")
+            reviewed = bool(
+                matched
+                and not draft_only
+                and owner
+                and owner.mark_reviewed(
+                    step["draft_ref"], step["revision"], frame.payload["action_id"]
+                )
+            )
+            if not reviewed and not draft_only and owner:
+                await owner.invalidate(
+                    self.ctx, str(step.get("draft_ref") or ""), int(step.get("revision") or 0)
+                )
+            if frame.payload.get("reason") == "superseded_edit":
+                return
+            await self._inject_event(
+                {
+                    "kind": "mail_review",
+                    "status": "review_ready"
+                    if reviewed
+                    else "needs_input"
+                    if draft_only
+                    else "review_unavailable",
+                    "reason_code": step.get("reason_code") if draft_only else None,
+                    "draft_ref": step.get("draft_ref"),
+                    "revision": step.get("revision"),
+                    "spoken_facts": [
+                        "The email and sending account are open for review. Ask for send-specific approval before sending."
+                        if reviewed
+                        else "The draft is open, but it needs the missing detail or sending prerequisite. Nothing was sent."
+                        if draft_only
+                        else "I couldn't verify the current email review. Nothing was sent."
+                    ],
+                }
+            )
+            return
+        if step.get("kind") == "mail_draft_outcome":
+            return
         if step.get("kind") == "open_mail_draft":
             await self._settle_mail_draft_step(step, frame)
             return
@@ -1676,6 +2033,84 @@ class VoiceSession:
                 )
         if not self._origin_is_stale(str(step.get("origin_turn_id") or "") or None):
             await self._inject_event(event)
+
+    async def _retire_compose_pending(self, draft_ref: str) -> None:
+        rows = await self.pending.list_open(
+            user_id=self.ctx.user_id, conversation_id=self.ctx.conversation_id
+        )
+        for row in rows:
+            if row.tool_name == "send_reviewed_mail" and row.args.get("draft_ref") == draft_ref:
+                retired = await self.pending.cancel(
+                    user_id=self.ctx.user_id, pending_action_id=row.id
+                )
+                if retired is not None:
+                    self._mail_pending_ids.discard(row.id)
+                    await self._send(
+                        protocol.pending_resolved(
+                            pending_action_id=row.id, status="cancelled", result_public=None
+                        )
+                    )
+
+    async def _mail_draft_changed(
+        self, frame: protocol.MailDraftChangedFrame, *, input_observed: bool = False
+    ) -> None:
+        owner = self.ctx.services.get("mail_compose")
+        if not isinstance(owner, MailComposeRuntime) or not owner.review_supported:
+            return
+        current = owner.current(frame.draft_ref, frame.revision)
+        if isinstance(current, Rejected):
+            return
+        # Local input fences old authority before storage/normalization can fail.
+        if not input_observed:
+            self._observe_client_mail_input(frame)
+        current.rendered = False
+        await self._retire_compose_pending(frame.draft_ref)
+        result: ToolResult | None
+        if frame.closed:
+            result = await owner.cancel(self.ctx, frame.draft_ref, frame.revision)
+        elif frame.draft is None:
+            result = await owner.invalidate(self.ctx, frame.draft_ref, frame.revision)
+            if result is None:
+                return
+        else:
+            try:
+                fields = protocol.MailDraftFields.model_validate(frame.draft)
+            except ValidationError:
+                await owner.invalidate(self.ctx, frame.draft_ref, frame.revision)
+                result = owner.result(
+                    current,
+                    status="needs_input",
+                    reason_code="invalid_draft",
+                    spoken_facts=[
+                        "Correct the draft fields before reviewing this email. Nothing was sent."
+                    ],
+                )
+            else:
+                result = await owner.edit(
+                    self.ctx,
+                    frame.draft_ref,
+                    frame.revision,
+                    fields.model_dump(),
+                    operation_id=frame.operation_id,
+                )
+        if isinstance(result, ComposeResult):
+            if result.client_step is not None:
+                result.client_step["operation_id"] = frame.operation_id
+            else:
+                result.client_step = {
+                    "kind": "mail_draft_outcome",
+                    "draft_ref": result.draft_ref,
+                    "revision": result.revision,
+                    "status": result.status,
+                    "action_id": current.prepared.get("action_id"),
+                    "reason_code": result.reason_code,
+                    "operation_id": frame.operation_id,
+                }
+            await self._after_execution(
+                ToolCallOutcome(result=result),
+                source="typed_mail_edit",
+                origin_turn_id=self._latest_input_turn_id,
+            )
 
     async def _settle_mail_draft_step(
         self, step: dict[str, Any], frame: protocol.ClientStepResultFrame
@@ -1802,6 +2237,9 @@ class VoiceSession:
             "issued_at": datetime.now(timezone.utc),
             "expires_at": self.clock() + MAIL_DELIVERY_TTL_SECONDS,
             "reports": 0,
+            "action_id": (payload.get("prepared") or {}).get("action_id"),
+            "draft_ref": payload.get("draft_ref"),
+            "revision": payload.get("revision"),
         }
         return delivery_ref
 
@@ -1813,6 +2251,8 @@ class VoiceSession:
         send), a reply that landed outside its thread, or a send still in flight.
         """
         if row is None:
+            return "unverified"
+        if delivery.get("action_id") and row.get("action_id") != delivery["action_id"]:
             return "unverified"
         created = row.get("created_at")
         if not isinstance(created, datetime):
@@ -2117,22 +2557,113 @@ class VoiceSession:
 
     # -- provider → client ---------------------------------------------------
 
+    def _observe_mail_input(self, event: LiveEvent) -> None:
+        """Fence an older approval when capture advances, without interpreting speech.
+
+        Observation runs at stream intake, independently of an awaited tool. It
+        does not choose a tool, edit content, or grant approval.
+        """
+        if event.input_item_id:
+            if event.kind == "activity_start":
+                self._observed_provider_input = event.input_item_id
+            elif event.input_item_id != self._observed_provider_input:
+                return  # A late transcript may be recorded but grants no current input authority.
+        previous_generation = self._mail_input_generation
+        if event.kind == "activity_start":
+            self._mail_input_generation += 1
+            self._mail_input_active = True
+            self._mail_capture_segment = True
+        elif event.kind == "activity_end":
+            self._mail_input_active = False
+        elif event.kind == "input_transcript" and event.text:
+            if not self._mail_capture_segment:
+                self._mail_input_generation += 1
+            self._mail_capture_segment = not bool(event.finished)
+            self._mail_input_active = not bool(event.finished)
+        elif event.kind == "interrupted":
+            self._mail_input_generation += 1
+        if previous_generation != self._mail_input_generation:
+            self._read_input_generation += 1
+            self._cancel_read("newer_question")
+        if event.kind == "tool_cancel":
+            self._cancelled_read_calls.extend(event.cancelled_ids)
+            if self._active_read and self._active_read.call_id in event.cancelled_ids:
+                self._cancel_read("provider_cancelled")
+        elif event.kind == "go_away":
+            self._cancel_read("session_closed")
+
     async def _pump_live(self) -> None:
         events: AsyncIterator[LiveEvent] = self.live.events()
-        async for event in events:
-            if self._closed:
-                break
+        queue: asyncio.Queue[tuple[LiveEvent, tuple[int, bool], int] | None] = asyncio.Queue(
+            maxsize=128
+        )
+
+        async def receive() -> None:
             try:
-                await self._handle_live_event(event)
-            except _STORAGE_ERRORS as exc:
-                self._storage_failed("event", exc)
+                async for event in events:
+                    if self._closed:
+                        break
+                    self._observe_mail_input(event)
+                    admission = (self._mail_input_generation, self._mail_input_active)
+                    if queue.full():
+                        # Intake cannot see the next utterance while a tool's
+                        # backlog is full. Revoke the older approval before
+                        # applying backpressure; this never grants consent.
+                        self._mail_input_generation += 1
+                    await queue.put((event, admission, self._read_input_generation))
+                await queue.put(None)
+            finally:
+                close = getattr(events, "aclose", None)
+                if close is not None:
+                    await close()
+
+        async def dispatch() -> None:
+            while not self._closed:
+                queued = await queue.get()
+                if queued is None:
+                    return
+                event, admission, read_generation = queued
+                try:
+                    await self._handle_live_event(
+                        event,
+                        input_observed=True,
+                        mail_admission=admission,
+                        read_generation=read_generation,
+                    )
+                except _STORAGE_ERRORS as exc:
+                    self._storage_failed("event", exc)
+
+        async with asyncio.TaskGroup() as pumps:
+            intake = pumps.create_task(receive())
+            try:
+                await dispatch()
+            finally:
+                # A closed dispatcher cannot drain the queue or wake a reader
+                # waiting on the provider. Never leave either holding us open.
+                intake.cancel()
         if not self._closed:
             await self._close(protocol.CLOSE_PROVIDER_UNAVAILABLE, "provider_closed")
             raise SessionClosed(protocol.CLOSE_PROVIDER_UNAVAILABLE, "provider_closed")
 
-    async def _handle_live_event(self, event: LiveEvent) -> None:
+    async def _handle_live_event(
+        self,
+        event: LiveEvent,
+        *,
+        input_observed: bool = False,
+        mail_admission: tuple[int, bool] | None = None,
+        read_generation: int | None = None,
+    ) -> None:
+        if not input_observed:
+            self._observe_mail_input(event)
+        mail_admission = mail_admission or (self._mail_input_generation, self._mail_input_active)
         kind = event.kind
         if kind == "activity_start":
+            if event.input_item_id:
+                self._provider_input_turns[event.input_item_id] = (
+                    self.turn.turn_id if not self.turn.input_seen else uuid.uuid4().hex[:12]
+                )
+                if len(self._provider_input_turns) > 128:
+                    self._provider_input_turns.pop(next(iter(self._provider_input_turns)))
             self._provider_activity_end_at = None
             self._provider_activity_source = None
             self._provider_activity_started = True
@@ -2175,15 +2706,32 @@ class VoiceSession:
                 )
             self.turn.audio_chunks += 1
             self.audio_out_chunks += 1
+            if event.audio_item_id:
+                self._playback_items[event.audio_item_id] = self.turn.turn_id
+                if len(self._playback_items) > 128:
+                    self._playback_items.pop(next(iter(self._playback_items)))
             await self._send(
                 protocol.audio_out(
                     event.audio_b64,
                     turn_id=self.turn.turn_id,
                     origin_turn_id=self.turn.turn_id,
+                    item_id=event.audio_item_id,
                 )
             )
         elif kind == "input_transcript" and event.text:
             self._touch()
+            if event.input_item_id:
+                correlated = self._provider_input_turns.get(event.input_item_id)
+                if correlated is None:
+                    raise ValueError("Unmatched provider input transcript")
+                if event.input_item_id != self._observed_provider_input:
+                    await self._send_transcript(
+                        "input", event.text, finished=bool(event.finished), turn_id=correlated
+                    )
+                    return
+                self._input_segment_id = correlated
+                if correlated != self.turn.turn_id:
+                    await self._place_new_input(correlated)
             input_turn_id = self._input_segment_id
             if input_turn_id is None:
                 input_turn_id = (
@@ -2252,8 +2800,17 @@ class VoiceSession:
         elif kind == "tool_call":
             self._touch()
             self.turn.input_seen = True
-            for call in event.function_calls:
-                await self._dispatch_tool_call(call)
+            admitted = self._mail_approval_input.set(mail_admission)
+            read_admitted = self._read_admission.set(
+                self._read_input_generation if read_generation is None else read_generation
+            )
+            try:
+                refused = await self._conflicting_batch_calls(event.function_calls)
+                for index, call in enumerate(event.function_calls):
+                    await self._dispatch_tool_call(call, rejection=refused.get(index))
+            finally:
+                self._mail_approval_input.reset(admitted)
+                self._read_admission.reset(read_admitted)
         elif kind == "tool_cancel":
             pass
         elif kind == "resumption" and event.resumption_handle:
@@ -2642,7 +3199,239 @@ class VoiceSession:
             self._bump(narration_without_receipt=1)
             logger.info("one_voice.narration_without_receipt session=%s", self.session_id)
 
-    async def _dispatch_tool_call(self, call: dict[str, Any]) -> None:
+    async def _conflicting_batch_calls(self, calls: list[dict[str, Any]]) -> dict[int, Rejected]:
+        """Refuse contradictory controls before any call can consume approval.
+
+        This compares declared tools and pending identities, never utterances.
+        Independent reads and a confirmation followed by a different action
+        keep their existing behavior.
+        """
+
+        def pending_identity(value: Any) -> str:
+            text = str(value or "").strip()
+            try:
+                return str(uuid.UUID(text))
+            except ValueError:
+                return text
+
+        confirms = {
+            index: pending_identity((call.get("args") or {}).get("pending_action_id"))
+            for index, call in enumerate(calls)
+            if call.get("name") == "confirm_pending_action"
+        }
+        if not confirms or len(calls) < 2:
+            return {}
+        try:
+            rows = await self.pending.list_open(
+                user_id=self.ctx.user_id, conversation_id=self.ctx.conversation_id
+            )
+        except PendingActionStorageError:
+            self._conflicted_confirmation_input = self._turn_input_origins.get(
+                self.turn.turn_id, self.turn.turn_id
+            )
+            # No action in an unchecked batch may use an approval. Reads may
+            # still run through their own normal authority checks.
+            return {
+                index: Rejected(
+                    reason_code=STORAGE_UNAVAILABLE,
+                    spoken_facts=["I couldn't check that confirmation. Please try again."],
+                )
+                for index in confirms
+            }
+        by_id = {pending_identity(row.id): row for row in rows}
+        conflicts: set[int] = set()
+        for index, pending_id in confirms.items():
+            row = by_id.get(pending_id)
+            current = registry.get_tool(row.tool_name) if row else None
+            if row is None or current is None:
+                continue
+            for other_index, call in enumerate(calls):
+                if other_index == index:
+                    continue
+                name = str(call.get("name") or "")
+                spec = registry.get_tool(name)
+                lookup = LOOKUP_TOOLS.get(name)
+                cancels = (
+                    name == "cancel_pending_action"
+                    and pending_identity((call.get("args") or {}).get("pending_action_id"))
+                    == pending_id
+                )
+                corrects = (
+                    spec is not None
+                    and spec.policy.needs_confirmation
+                    and (spec.correction_key == current.correction_key or spec.preempts_pending)
+                )
+                edits_mail = (
+                    current.name == "send_reviewed_mail"
+                    and name == "edit_mail_draft"
+                    and (call.get("args") or {}).get("draft_ref") == row.args.get("draft_ref")
+                )
+                if (
+                    cancels
+                    or corrects
+                    or edits_mail
+                    or (lookup and current.stale_on_lookup(lookup))
+                ):
+                    conflicts.update((index, other_index))
+        if conflicts:
+            self._conflicted_confirmation_input = self._turn_input_origins.get(
+                self.turn.turn_id, self.turn.turn_id
+            )
+            logger.info("one_voice.tool.batch_conflict count=%d", len(conflicts))
+        return {
+            index: Rejected(
+                reason_code="conflicting_confirmation",
+                spoken_facts=[
+                    "That answer both approved and changed the waiting action. "
+                    "Nothing in that action ran. Ask whether to change it or go ahead."
+                ],
+            )
+            for index in conflicts
+        }
+
+    def _cancel_read(self, reason: str) -> None:
+        read = self._active_read
+        if read is None or read.reason is not None:
+            return
+        read.reason = reason
+        if reason in {"newer_question", "provider_cancelled"}:
+            self._superseded_turn_ids.add(read.origin_turn_id)
+        if read.task is not None:
+            read.task.cancel()
+
+    def _check_read_current(self) -> None:
+        read = self._active_read
+        if read is None:
+            return
+        if read.generation != self._read_input_generation and read.reason is None:
+            read.reason = "newer_question"
+        if read.reason is not None:
+            raise asyncio.CancelledError
+
+    async def _dispatch_read(self, **kwargs: Any) -> None:
+        """Keep ordered dispatch, with intake able to retire only safe reads."""
+        name = kwargs["name"]
+        call_id = kwargs["call_id"]
+        origin_turn_id = kwargs["origin_turn_id"]
+        generation = self._read_admission.get()
+        read = _ReadExecution(
+            call_id=str(call_id or ""),
+            generation=self._read_input_generation if generation is None else generation,
+            origin_turn_id=origin_turn_id,
+        )
+        self._active_read = read
+        try:
+            if read.call_id and read.call_id in self._cancelled_read_calls:
+                read.reason = "provider_cancelled"
+            self._check_read_current()
+
+            async def execute() -> None:
+                async with asyncio.timeout(_READ_TIMEOUT_SECONDS[name]):
+                    await self._dispatch_tool_call_inner(**kwargs)
+
+            read.task = asyncio.create_task(execute(), name=f"one-voice-read:{name}")
+            await read.task
+            self._check_read_current()
+            return
+        except TimeoutError:
+            read.reason = "read_timeout"
+        except asyncio.CancelledError:
+            current = asyncio.current_task()
+            if read.reason is None or (current is not None and current.cancelling()):
+                raise
+        finally:
+            if read.task is not None and not read.task.done():
+                read.task.cancel()
+                await asyncio.gather(read.task, return_exceptions=True)
+            if read.previous_offers and not read.published:
+                for name_field, previous_offer in read.previous_offers.items():
+                    setattr(self.ctx.entities, name_field, previous_offer)
+            self._active_read = None
+        try:
+            async with asyncio.timeout(READ_SETTLEMENT_TIMEOUT_SECONDS):
+                await self._settle_read(read, name=name, call_id=call_id)
+        except TimeoutError:
+            # A cancelled write has an uncertain delivery outcome. Do not
+            # retry it on the same unhealthy socket or hold the input pump.
+            logger.info("one_voice.read.settlement_timeout tool=%s", name)
+            try:
+                async with asyncio.timeout(READ_CLOSE_TIMEOUT_SECONDS):
+                    await self._close(
+                        protocol.CLOSE_PROVIDER_UNAVAILABLE, "read_settlement_timeout"
+                    )
+            except TimeoutError:
+                pass  # _close marks the session closed before transport I/O.
+            raise SessionClosed(
+                protocol.CLOSE_PROVIDER_UNAVAILABLE, "read_settlement_timeout"
+            ) from None
+
+    async def _send_read_response(
+        self, read: _ReadExecution, *, call_id: Any, name: str, response: dict[str, Any]
+    ) -> None:
+        read.provider_response_started = True
+        async with asyncio.timeout(READ_SETTLEMENT_TIMEOUT_SECONDS):
+            await self.live.send_tool_response(call_id=call_id, name=name, response=response)
+        read.provider_response_completed = True
+
+    async def _settle_read(self, read: _ReadExecution, *, name: str, call_id: Any) -> None:
+        origin_turn_id = read.origin_turn_id
+        if read.previous_offers and not read.published:
+            try:
+                async with asyncio.timeout(2):
+                    await self._persist_entities()
+            except TimeoutError:
+                logger.info("one_voice.read.offer_restore_timeout")
+        if self._closed or read.reason == "session_closed":
+            return
+        if read.provider_response_started and not read.provider_response_completed:
+            raise TimeoutError
+        if read.narration_turn_id is not None:
+            await self._send(protocol.turn("interrupted", turn_id=read.narration_turn_id))
+        self._narration_owns_response = False
+        self._narration_origin_turn_id = None
+        timed_out = read.reason == "read_timeout"
+        if timed_out and not read.published and read.counted_ok:
+            self.turn.ok_results = max(0, self.turn.ok_results - 1)
+            self.turn.not_ok_results += 1
+            self._bump(tool_results_ok=-1, tool_results_rejected=1)
+        result = {
+            "status": "rejected"
+            if timed_out
+            else ("superseded" if read.reason == "newer_question" else "cancelled"),
+            "reason_code": read.reason,
+            "spoken_facts": ["That read took too long. Please try again."] if timed_out else [],
+        }
+        # A deadline during narration cannot erase a successfully shown answer.
+        if timed_out and read.published and read.response is not None:
+            response = dict(read.response)
+            if read.narration_turn_id is not None:
+                response["spoken_facts"] = []
+                self._narration_owns_response = True
+                self._narration_origin_turn_id = origin_turn_id
+        else:
+            await self._send(
+                protocol.tool_result(
+                    call_id=str(call_id or "") or None,
+                    tool=name,
+                    result_public=result,
+                    turn_id=origin_turn_id,
+                )
+            )
+            response = result
+        if not read.provider_response_completed:
+            await self._send_read_response(read, call_id=call_id, name=name, response=response)
+        self._reply_owed = timed_out
+        self._reply_owed_to = "tool" if timed_out else "none"
+        await self._send(protocol.voice_state("listening", turn_id=origin_turn_id))
+        if timed_out:
+            self._bump(read_timeouts=1)
+        else:
+            self._bump(reads_cancelled=1)
+        logger.info("one_voice.read.settled tool=%s reason=%s", name, read.reason)
+
+    async def _dispatch_tool_call(
+        self, call: dict[str, Any], *, rejection: Rejected | None = None
+    ) -> None:
         name = str(call.get("name") or "")
         call_id = call.get("id")
         args = dict(call.get("args") or {})
@@ -2665,21 +3454,39 @@ class VoiceSession:
                 origin_turn_id,
             )
             self._awaiting_first_tool = False
+        admitted = self._mail_approval_input.set(
+            self._mail_approval_input.get()
+            or (self._mail_input_generation, self._mail_input_active)
+        )
         try:
-            await self._dispatch_tool_call_inner(
-                name=name, call_id=call_id, args=args, origin_turn_id=origin_turn_id
+            spec = registry.get_tool(name)
+            dispatch = (
+                self._dispatch_read
+                if name in _READ_TIMEOUT_SECONDS
+                and spec is not None
+                and spec.policy == ToolPolicy.read
+                else self._dispatch_tool_call_inner
+            )
+            await dispatch(
+                name=name,
+                call_id=call_id,
+                args=args,
+                origin_turn_id=origin_turn_id,
+                rejection=rejection,
             )
         finally:
+            self._mail_approval_input.reset(admitted)
             self._tool_response_at = self.clock()
             perf = self._perf_for_turn(origin_turn_id)
             if perf is not None:
                 perf.tool_response_at = self._tool_response_at
             logger.info(
-                "one_voice.latency session=%s turn=%s phase=tool tool=%s ms=%d",
+                "one_voice.latency session=%s turn=%s phase=tool tool=%s ms=%d %s",
                 self.session_id,
                 origin_turn_id,
                 name[:80],
                 int((self._tool_response_at - dispatch_started) * 1000),
+                self._provider_tags(),
             )
 
     async def _dispatch_tool_call_inner(
@@ -2689,12 +3496,38 @@ class VoiceSession:
         call_id: Any,
         args: dict[str, Any],
         origin_turn_id: str,
+        rejection: ToolResult | None = None,
     ) -> None:
         self.turn.tool_calls += 1
         self._bump(tool_calls=1)
         self._count_turn_perf(origin_turn_id, "tool_calls")
         spec = registry.get_tool(name)
         self._log_unprompted_tool(spec, origin_turn_id)
+        if (
+            rejection is None
+            and name == "confirm_pending_action"
+            and self._conflicted_confirmation_input
+            == (self._turn_input_origins.get(origin_turn_id, origin_turn_id))
+        ):
+            # An unrelated read/tool response cannot turn an ambiguous answer
+            # into consent. A new owner input is required, including for a
+            # same-turn retry or a replacement review created in that turn.
+            rejection = Rejected(
+                reason_code="conflicting_confirmation",
+                spoken_facts=["Ask for a fresh confirmation after clarifying the change."],
+            )
+        if rejection is None and name == "edit_mail_draft":
+            owner = self.ctx.services.get("mail_compose")
+            draft_ref, revision = args.get("draft_ref"), args.get("revision")
+            if (
+                isinstance(owner, MailComposeRuntime)
+                and isinstance(draft_ref, str)
+                and type(revision) is int
+            ):
+                current = owner.current(draft_ref, revision)
+                if not isinstance(current, Rejected):
+                    rejection = await owner.invalidate(self.ctx, draft_ref, revision)
+                    await self._retire_compose_pending(draft_ref)
         await self._send(
             protocol.tool_started(
                 call_id=str(call_id or ""),
@@ -2706,7 +3539,11 @@ class VoiceSession:
                 turn_id=origin_turn_id,
             )
         )
-        held = await self._held_card(spec, origin_turn_id, name=name)
+        held = (
+            ToolCallOutcome(result=rejection, spec=spec)
+            if rejection is not None
+            else await self._held_card(spec, origin_turn_id, name=name)
+        )
         if isinstance(held, PendingAction):
             await self._answer_held(held, name=name, call_id=call_id, origin_turn_id=origin_turn_id)
             return
@@ -2718,20 +3555,53 @@ class VoiceSession:
         if not fail_closed:
             self._hold_chain = False
         await self._send(protocol.voice_state("executing", turn_id=self.turn.turn_id))
+        if (
+            held is None
+            and spec is not None
+            and spec.policy.needs_confirmation
+            and name
+            not in {
+                "send_reviewed_mail",
+                "send_mail",
+                "reply_mail",
+                "schedule_mail",
+                "cancel_scheduled_mail",
+                "send_draft",
+            }
+        ):
+            rows = await self.pending.list_open(
+                user_id=self.ctx.user_id, conversation_id=self.ctx.conversation_id
+            )
+            owner = self.ctx.services.get("mail_compose")
+            for row in rows:
+                if row.tool_name == "send_reviewed_mail" and isinstance(owner, MailComposeRuntime):
+                    draft_ref, revision = row.args.get("draft_ref"), row.args.get("revision")
+                    if isinstance(draft_ref, str) and type(revision) is int:
+                        await owner.invalidate(self.ctx, draft_ref, revision)
+                        await self._retire_compose_pending(draft_ref)
+        read = self._active_read if name in _READ_TIMEOUT_SECONDS else None
+        execution_ctx = self.ctx
+        if read is not None:
+            self._check_read_current()
+            # A cancelled handler cannot replace the offer the owner last saw.
+            execution_ctx = replace(self.ctx, entities=self.ctx.entities.model_copy(deep=True))
         outcome = (
             held
             if held is not None
-            else await self.executor.call(self.ctx, name, args, origin_turn_id=origin_turn_id)
+            else await self.executor.call(execution_ctx, name, args, origin_turn_id=origin_turn_id)
         )
+        if read is not None:
+            self._check_read_current()
         if outcome.timings:
             # Executor phases only (store reads, prepare, handler), as short
             # key=ms pairs; the result status is bounded vocabulary.
             logger.info(
-                "one_voice.latency session=%s turn=%s phase=exec status=%s steps=%s",
+                "one_voice.latency session=%s turn=%s phase=exec status=%s steps=%s %s",
                 self.session_id,
                 origin_turn_id,
                 str(outcome.result.status)[:40],
                 ",".join(f"{key}:{value}" for key, value in sorted(outcome.timings.items())),
+                self._provider_tags(),
             )
         public = outcome.result.public()
         if (
@@ -2830,6 +3700,8 @@ class VoiceSession:
             )
             return
         if outcome.pending is not None and outcome.result.status == "confirmation_required":
+            if outcome.pending.tool_name == "send_reviewed_mail":
+                self._mail_pending_ids.add(outcome.pending.id)
             self._pending_turn_ids[outcome.pending.id] = origin_turn_id
             if outcome.receipt_token:
                 self.pending_receipts[outcome.pending.id] = outcome.receipt_token
@@ -2907,6 +3779,8 @@ class VoiceSession:
                 self.turn.not_ok_results += 1
             elif ok:
                 self.turn.ok_results += 1
+                if read is not None:
+                    read.counted_ok = True
                 self._bump(tool_results_ok=1)
             else:
                 self.turn.not_ok_results += 1
@@ -2916,7 +3790,18 @@ class VoiceSession:
         # A read_mail result makes its Open button actionable immediately. Save
         # the offered message IDs before publishing that result so a fast tap's
         # HTTP resolver observes the same list the person just saw.
+        if read is not None:
+            self._check_read_current()
+            for name_field in _READ_OFFER_FIELDS[name]:
+                read.previous_offers[name_field] = getattr(self.ctx.entities, name_field)
+                setattr(self.ctx.entities, name_field, getattr(execution_ctx.entities, name_field))
+            self.ctx.entities.offer_revision = max(
+                self.ctx.entities.offer_revision, execution_ctx.entities.offer_revision
+            )
+            read.response = outcome.result.model_public()
         await self._persist_entities()
+        if read is not None:
+            self._check_read_current()
         await self._send(
             protocol.tool_result(
                 call_id=str(call_id or "") or None,
@@ -2925,6 +3810,8 @@ class VoiceSession:
                 turn_id=origin_turn_id,
             )
         )
+        if read is not None:
+            read.published = True
         # The client frame above carries the full result. The model gets its own
         # projection, which for an external-content read is a receipt rather
         # than the mail itself.
@@ -2938,11 +3825,16 @@ class VoiceSession:
             else False
         )
         response = outcome.result.model_public()
+        if read is not None:
+            self._check_read_current()
         if narrated:
             # The digest has been said. Leaving the count sentence in would have
             # One announce the same turn twice, in two different voices of its own.
             response = {**response, "spoken_facts": []}
-        await self.live.send_tool_response(call_id=call_id, name=name, response=response)
+        if read is not None:
+            await self._send_read_response(read, call_id=call_id, name=name, response=response)
+        else:
+            await self.live.send_tool_response(call_id=call_id, name=name, response=response)
         # Live still speaks about this result, possibly in a fresh provider turn;
         # after a narration that is the short acknowledgement the narration holds.
         self._reply_owed = True
@@ -2963,9 +3855,18 @@ class VoiceSession:
         visible result is already on screen, and the screen and the speaker are
         separate outcomes.
         """
-        from hushh_mcp.one_voice.config import voice_mail_narration_enabled
+        from hushh_mcp.one_voice.config import (
+            voice_calendar_narration_enabled,
+            voice_mail_narration_enabled,
+        )
+        from hushh_mcp.one_voice.tools.calendar import CalendarReadResult
 
-        if not voice_mail_narration_enabled():
+        enabled = (
+            voice_calendar_narration_enabled()
+            if isinstance(result, CalendarReadResult)
+            else voice_mail_narration_enabled()
+        )
+        if not enabled:
             return False
         digest = ""
         try:
@@ -2989,23 +3890,34 @@ class VoiceSession:
         # Its own turn id: the player schedules per turn, and a narration is not
         # part of the model's turn.
         turn_id = uuid.uuid4().hex[:12]
+        read = self._active_read
         spoken = False
         try:
-            async for chunk in narrate_digest_stream(digest, voice_name=voice_name()):
-                if self._origin_is_stale(origin_turn_id):
-                    break
-                await self._send(
-                    protocol.audio_out(
-                        base64.b64encode(chunk.audio).decode("ascii"),
-                        turn_id=turn_id,
-                        narration=True,
-                        origin_turn_id=origin_turn_id,
+            async with asyncio.timeout(READ_NARRATION_TIMEOUT_SECONDS):
+                async for chunk in narrate_digest_stream(
+                    digest, voice_name=voice_name(), provider=self.config.provider
+                ):
+                    if read is not None:
+                        self._check_read_current()
+                    if self._origin_is_stale(origin_turn_id):
+                        break
+                    if read is not None:
+                        read.narration_turn_id = turn_id
+                    await self._send(
+                        protocol.audio_out(
+                            base64.b64encode(chunk.audio).decode("ascii"),
+                            turn_id=turn_id,
+                            narration=True,
+                            origin_turn_id=origin_turn_id,
+                        )
                     )
-                )
-                spoken = True
-                self._narration_owns_response = True
-                self._narration_origin_turn_id = origin_turn_id
-                self._touch()
+                    spoken = True
+                    self._narration_owns_response = True
+                    self._narration_origin_turn_id = origin_turn_id
+                    self._touch()
+        except TimeoutError:
+            logger.info("one_voice.read.narration_timeout")
+            return spoken
         except NarrationUnavailable as exc:
             # Named, not detailed: a provider message can echo the digest.
             logger.info("Narration unavailable: %s", exc.reason)
@@ -3082,7 +3994,7 @@ class VoiceSession:
         if isinstance(step, dict) and step.get("kind"):
             step_id = uuid.uuid4().hex[:12]
             payload = {k: v for k, v in step.items() if k != "kind"}
-            if step["kind"] == "open_mail_draft":
+            if step["kind"] in {"open_mail_draft", "review_mail_draft"}:
                 payload["delivery_ref"] = self._issue_mail_delivery(payload, origin_turn_id)
             timeout_s = int(step.get("timeout_s") or CLIENT_STEP_TIMEOUT_SECONDS)
             requested_at = self.clock()

@@ -6,8 +6,8 @@ import {
   getVoiceSurfaceMetadata,
   publishVoiceSurfaceMetadata,
   type VoiceInteractionLayerV1,
-} from "@/lib/voice/voice-surface-metadata";
-import type { AppRuntimeState } from "@/lib/voice/voice-types";
+} from "@/lib/kai/actions/voice-surface-metadata";
+import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
 
 const PUBLISHERS = ["route", "chrome", "layer_one", "layer_two", "next_route"];
 

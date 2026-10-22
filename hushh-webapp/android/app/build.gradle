@@ -103,6 +103,8 @@ dependencies {
     // Firebase Auth
     implementation platform('com.google.firebase:firebase-bom:33.7.0')
     implementation 'com.google.firebase:firebase-auth'
+    // The app owns the background chat renderer; match the messaging plugin SDK.
+    implementation 'com.google.firebase:firebase-messaging:25.0.1'
     
     // Google Sign-In
     implementation 'com.google.android.gms:play-services-auth:21.3.0'

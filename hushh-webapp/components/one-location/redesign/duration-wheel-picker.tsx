@@ -5,6 +5,7 @@ import useEmblaCarousel from "embla-carousel-react";
 import type { EmblaCarouselType, EmblaOptionsType } from "embla-carousel";
 
 import { cn } from "@/lib/utils";
+import { DURATION_SELECTED_OPTION_CLASSNAME } from "./duration-option-styles";
 
 // Not "24" -- once a literal 24 hours became reachable on the wheel (see
 // MAX_HOURS below), the wheel could legitimately emit the string "24"
@@ -607,7 +608,7 @@ export function DurationWheelPicker({
           className={cn(
             "min-h-11 rounded-full border px-4 text-sm font-medium transition-colors touch-manipulation",
             openEnded
-              ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+              ? DURATION_SELECTED_OPTION_CLASSNAME
               : "border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] text-[color:var(--app-label)] hover:border-[color:var(--app-accent-ring)] hover:bg-[color:var(--app-neutral-fill-strong)]",
           )}
         >

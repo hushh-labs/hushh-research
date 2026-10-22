@@ -1,8 +1,9 @@
 "use client";
 
-import { openOAuthWindow } from "@/lib/connections/oauth-window";
+import { assertOAuthReturnOrigin, openOAuthWindow } from "@/lib/connections/oauth-window";
 
 const ATTEMPT_KEY = "one_google_oauth_popup_attempt_v1";
+const FALLBACK_ATTEMPT_KEY = "one_google_oauth_popup_attempt_fallback_v1";
 const SETTLEMENT_KEY = "one_google_oauth_popup_settlement_v1";
 const MAX_AGE_MS = 15 * 60 * 1000;
 
@@ -43,9 +44,22 @@ export function persistGoogleOAuthSameWindowAttempt(
   }
 }
 
-export function clearGoogleOAuthAttempt(): void {
+export function clearGoogleOAuthAttempt(attemptId?: string): void {
   try {
-    storage(window)?.removeItem(ATTEMPT_KEY);
+    const stores: [Storage | null, string][] = [
+      [storage(window), ATTEMPT_KEY],
+      [window.localStorage, FALLBACK_ATTEMPT_KEY],
+    ];
+    for (const [store, key] of stores) {
+      try {
+        const raw = store?.getItem(key);
+        if (!attemptId || (raw && JSON.parse(raw).attemptId === attemptId)) {
+          store?.removeItem(key);
+        }
+      } catch {
+        // One corrupt marker must not prevent cleanup of the other store.
+      }
+    }
   } catch {
     /* stale browser state is best-effort cleanup */
   }
@@ -89,6 +103,14 @@ export function openGoogleOAuthPopup(
       popup.close();
       return null;
     }
+    // Google COOP can discard the popup's sessionStorage and opener. Only
+    // bounded correlation metadata survives in the originating site's store.
+    const fallback = JSON.stringify(attempt);
+    window.localStorage.setItem(FALLBACK_ATTEMPT_KEY, fallback);
+    if (window.localStorage.getItem(FALLBACK_ATTEMPT_KEY) !== fallback) {
+      popup.close();
+      return null;
+    }
     popup.document.title = "Connecting Google";
     popup.focus();
     return popup;
@@ -102,13 +124,15 @@ export function navigateGoogleOAuthPopup(
   popup: Window,
   authorizeUrl: string,
 ): void {
+  assertOAuthReturnOrigin(authorizeUrl);
   popup.location.replace(authorizeUrl);
 }
 
 export function readGoogleOAuthPopupAttempt(): GoogleOAuthPopupAttempt | null {
   try {
     const parsed = JSON.parse(
-      storage(window)?.getItem(ATTEMPT_KEY) || "",
+      storage(window)?.getItem(ATTEMPT_KEY) ||
+      window.localStorage.getItem(FALLBACK_ATTEMPT_KEY) || "",
     ) as Partial<GoogleOAuthPopupAttempt>;
     if (
       parsed.version === 1 &&
@@ -176,6 +200,7 @@ export function settleGoogleOAuthPopup(
   } catch {
     /* best effort */
   }
+  clearGoogleOAuthAttempt(attempt.attemptId);
   window.setTimeout(() => window.close(), 0);
 }
 

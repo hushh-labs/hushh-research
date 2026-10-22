@@ -31,6 +31,14 @@ def test_region_is_normalized_not_matched_literally() -> None:
     validate_card_summary_entry(_entry(issuing_region="india", brand="rupay"))
 
 
+@pytest.mark.parametrize("region", [None, "", "  "])
+@pytest.mark.parametrize("brand", ["visa", "rupay", "other"])
+def test_issuing_region_is_optional_but_not_invented(brand, region) -> None:
+    validate_wallet_card_envelope(
+        {"card_count": 1, "cards": [_entry(brand=brand, issuing_region=region)]}
+    )
+
+
 @pytest.mark.parametrize(
     ("brand", "region"),
     [("rupay", "US"), ("mir", "IN"), ("elo", "US"), ("verve", "BR")],
@@ -64,8 +72,9 @@ def test_bad_fields_are_refused(field, value, code) -> None:
 
 
 def test_envelope_refuses_secret_shaped_keys_anywhere() -> None:
-    with pytest.raises(ValueError, match="contains_secret_key"):
-        validate_wallet_card_envelope({"cards": [], "extra": {"cvv": "123"}})
+    for key in ("cvv", "manual_cvv", "securityCode", "security_code"):
+        with pytest.raises(ValueError, match="contains_secret_key"):
+            validate_wallet_card_envelope({"cards": [], "extra": {key: "007"}})
     with pytest.raises(ValueError, match="contains_secret_key"):
         validate_wallet_card_envelope({"secrets": {}})
 

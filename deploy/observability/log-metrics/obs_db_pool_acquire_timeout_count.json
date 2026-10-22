@@ -1,0 +1,5 @@
+{
+  "name": "obs_db_pool_acquire_timeout_count",
+  "description": "Asyncpg and SQLAlchemy database pool acquire timeouts in backend logs",
+  "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"__BACKEND_SERVICE__\" AND (textPayload:\"db.pool_acquire_timeout\" OR textPayload:\"QueuePool limit of size\" OR jsonPayload.message:\"db.pool_acquire_timeout\")"
+}

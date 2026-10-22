@@ -15,9 +15,11 @@ import {
   TAKEOVER_OVERLAY_Z_CLASSNAME,
   TAKEOVER_SURFACE_Z_CLASSNAME,
 } from "@/components/one-location/onboarding/save-location-sheet-layout";
-import { destinationKey } from "@/lib/contacts/invitation-candidates";
+import {
+  destinationKey,
+  MAX_INVITATION_RECIPIENTS,
+} from "@/lib/contacts/invitation-candidates";
 import type { ContactInvitationController } from "@/lib/contacts/use-contact-invitations";
-import { personalizeInvitation } from "@/lib/contacts/personalize-invitation";
 import {
   ContactInvitationsService,
   invitationBody,
@@ -28,27 +30,29 @@ import {
   CONTACT_INVITE_FOOTER_CLASSNAME,
   CONTACT_INVITE_HEADER_CLASSNAME,
   CONTACT_INVITE_LIST_CLASSNAME,
-  CONTACT_INVITE_LIST_TRAILING_INSET_CLASSNAME,
+  CONTACT_INVITE_PRIMARY_ACTION_CLASSNAME,
+  CONTACT_INVITE_SECONDARY_ACTION_CLASSNAME,
   CONTACT_INVITE_SEARCH_CLASSNAME,
   CONTACT_INVITE_SURFACE_CLASSNAME,
   CONTACT_INVITE_TITLE_CLASSNAME,
 } from "@/components/connections/contact-sheet-layout";
 
-const PAGE_SIZE = 50;
 const OUTCOME_TEXT: Record<InvitationOutcome, string> = {
   queued_or_sent: "Handed to Messages. Delivery is not confirmed.",
-  opened: "Messages opened. Sending is confirmed in that app.",
+  opened:
+    "Messages opened. Check all recipients and tap Send there. One cannot confirm sending or delivery.",
   launch_requested:
-    "Requested your messaging app. If it did not open, copy or share the invitation below.",
-  cancelled: "Cancelled. You can retry or skip this recipient.",
-  failed: "The message could not be handed off. Retry, copy or share it.",
+    "Email draft requested. Check that all selected addresses are in BCC, then send in your email app. If nothing opened, copy the invitation.",
+  cancelled: "Cancelled. Your selection is saved here; you can try again.",
+  failed:
+    "The message could not be handed off. Try again or copy the invitation.",
   unavailable:
-    "Messages is unavailable here. Copy or share the invitation instead.",
+    "Messages is unavailable or this app version does not support batch invitations. Update One or copy the invitation.",
   "native-share":
-    "Invitation handed to the share sheet. Delivery is not confirmed.",
+    "Share sheet opened. Choose recipients there; sending and delivery are not confirmed.",
   "web-share":
-    "Invitation handed to the share sheet. Delivery is not confirmed.",
-  copied: "Invitation copied. Paste it into your chosen conversation.",
+    "Share sheet opened. Choose recipients there; sending and delivery are not confirmed.",
+  copied: "Invitation copied. Paste it into your chosen conversation or email.",
 };
 
 export function ContactInvitationSheet({
@@ -61,45 +65,44 @@ export function ContactInvitationSheet({
   takeover?: boolean;
 }) {
   const {
+    native,
+    candidates,
     step,
     setStep,
     query,
     setQuery,
-    previewId,
-    setPreviewId,
     visible,
     setVisible,
     choices,
     setChoices,
     selected,
     setSelected,
-    processed,
-    skipped,
     outcome,
+    handoffOutcome,
     error,
     busy,
     busyRef,
     queue,
-    current,
-    next,
     act,
   } = controller.draft;
-  const [smsAvailable, setSmsAvailable] = useState(false);
+  const [smsAvailable, setSmsAvailable] = useState<boolean | null>(null);
   const selectionId = useId();
-  const alive = useRef(true);
+  const listRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    alive.current = true;
-    void ContactInvitationsService.canComposeSms().then((available) => {
-      if (alive.current) setSmsAvailable(available);
+    if (listRef.current) listRef.current.scrollTop = 0;
+  }, [step]);
+  useEffect(() => {
+    let alive = true;
+    void ContactInvitationsService.canComposeBatchSms().then((available) => {
+      if (alive) setSmsAvailable(available);
     });
     return () => {
-      alive.current = false;
+      alive = false;
     };
   }, []);
-
   const filtered = useMemo(() => {
     const search = query.trim().toLowerCase();
-    return controller.candidates.filter(
+    return candidates.filter(
       (candidate) =>
         !search ||
         candidate.displayName.toLowerCase().includes(search) ||
@@ -107,24 +110,25 @@ export function ContactInvitationSheet({
           destination.value.toLowerCase().includes(search),
         ),
     );
-  }, [query, controller.candidates]);
-  const selectedKeys = new Set(Object.values(selected).map(destinationKey));
-  const previewCandidate =
-    step === "queue"
-      ? current
-      : (queue.find((candidate) => candidate.id === previewId) ?? queue[0]);
-  const previewShare =
-    controller.share && previewCandidate
-      ? personalizeInvitation(controller.share, previewCandidate.displayName)
-      : null;
-
+  }, [query, candidates]);
+  const selectedKeys = new Set(
+    Object.values(selected).map((destination) =>
+      destinationKey(destination).toLowerCase(),
+    ),
+  );
+  const atLimit = queue.length >= MAX_INVITATION_RECIPIENTS;
   const finish = () => {
     controller.clear();
     onFinish();
   };
-  const hasFooter = step !== "queue" || !current;
-  const needsCompletionConfirmation =
-    outcome && !["cancelled", "failed", "unavailable"].includes(outcome);
+  const back = () => {
+    if (busyRef.current) return;
+    setStep(step === "queue" ? "review" : "select");
+  };
+  const handedOff =
+    handoffOutcome &&
+    ["queued_or_sent", "opened", "launch_requested"].includes(handoffOutcome);
+
   return (
     <Sheet
       modal
@@ -136,14 +140,15 @@ export function ContactInvitationSheet({
       <SheetContent
         side="bottom"
         dragDismiss={false}
-        // Native composers, share sheets, and the clipboard fallback can all
-        // move focus outside the WebView dialog without dismissing this task.
         onFocusOutside={(event) => event.preventDefault()}
         onPointerDownOutside={(event) => {
           if (busyRef.current) event.preventDefault();
         }}
         onEscapeKeyDown={(event) => {
-          if (busyRef.current) event.preventDefault();
+          if (busyRef.current || step !== "select") {
+            event.preventDefault();
+            back();
+          }
         }}
         overlayClassName={takeover ? TAKEOVER_OVERLAY_Z_CLASSNAME : undefined}
         className={cn(
@@ -157,14 +162,12 @@ export function ContactInvitationSheet({
               ? "Invite your contacts"
               : step === "review"
                 ? "Review invitations"
-                : "Personal invitations"}
+                : "Your invitation"}
           </SheetTitle>
           <SheetDescription>
             {step === "select"
-              ? // Kept to one line of privacy so the list below keeps its room;
-                // the no-match caveat sits under the heading it explains.
-                "Contact details stay in this session on your device."
-              : "Send a personal invitation, one contact at a time."}
+              ? "Choose up to 15. Contact details stay on your device."
+              : "One message for all selected contacts."}
           </SheetDescription>
         </SheetHeader>
         {step === "select" ? (
@@ -175,17 +178,15 @@ export function ContactInvitationSheet({
               value={query}
               onChange={(event) => {
                 setQuery(event.target.value);
-                setVisible(PAGE_SIZE);
+                setVisible(50);
               }}
             />
           </div>
         ) : null}
         <div
+          ref={listRef}
           data-contact-invite-list
-          className={cn(
-            CONTACT_INVITE_LIST_CLASSNAME,
-            !hasFooter && CONTACT_INVITE_LIST_TRAILING_INSET_CLASSNAME,
-          )}
+          className={CONTACT_INVITE_LIST_CLASSNAME}
         >
           {step === "select" ? (
             <>
@@ -221,7 +222,9 @@ export function ContactInvitationSheet({
                             : undefined);
                         const duplicate =
                           chosen &&
-                          selectedKeys.has(destinationKey(chosen)) &&
+                          selectedKeys.has(
+                            destinationKey(chosen).toLowerCase(),
+                          ) &&
                           !selected[candidate.id];
                         return (
                           <li key={candidate.id}>
@@ -233,25 +236,20 @@ export function ContactInvitationSheet({
                                 id={`${selectionId}-${candidate.id}`}
                                 aria-label={`Select ${candidate.displayName}`}
                                 checked={Boolean(selected[candidate.id])}
-                                disabled={!chosen || Boolean(duplicate)}
-                                onCheckedChange={(checked) => {
+                                disabled={
+                                  !chosen ||
+                                  Boolean(duplicate) ||
+                                  (atLimit && !selected[candidate.id])
+                                }
+                                onCheckedChange={(checked) =>
                                   setSelected((previous) => {
                                     const updated = { ...previous };
-                                    if (checked && chosen) {
-                                      if (
-                                        Object.entries(previous).some(
-                                          ([id, destination]) =>
-                                            id !== candidate.id &&
-                                            destinationKey(destination) ===
-                                              destinationKey(chosen),
-                                        )
-                                      )
-                                        return previous;
+                                    if (checked && chosen)
                                       updated[candidate.id] = chosen;
-                                    } else delete updated[candidate.id];
+                                    else delete updated[candidate.id];
                                     return updated;
-                                  });
-                                }}
+                                  })
+                                }
                               />
                               <span className="min-w-0 flex-1">
                                 <span className="block break-words text-sm font-medium">
@@ -259,7 +257,7 @@ export function ContactInvitationSheet({
                                 </span>
                                 <span className="block break-all text-sm text-muted-foreground">
                                   {chosen?.value ??
-                                    "Choose a number or mail below"}
+                                    `Choose ${native ? "a number" : "an email"} below`}
                                 </span>
                                 {duplicate ? (
                                   <span className="block text-xs text-muted-foreground">
@@ -286,7 +284,7 @@ export function ContactInvitationSheet({
                                 }}
                               >
                                 <option value="">
-                                  Choose a number or mail
+                                  Choose {native ? "a number" : "an email"}
                                 </option>
                                 {candidate.destinations.map((destination) => (
                                   <option
@@ -307,14 +305,76 @@ export function ContactInvitationSheet({
               })}
               {!filtered.length ? (
                 <p className="py-6 text-sm text-muted-foreground">
-                  No contacts match your search.
+                  {query.trim()
+                    ? "No contacts match your search."
+                    : native
+                      ? "No contacts with a valid phone number are available to invite."
+                      : "No contacts with an email address are available to invite. Sync Google contacts with emails, or share your invitation link."}
+                </p>
+              ) : null}
+              {candidates.length < controller.candidates.length ? (
+                <p className="mt-3 text-xs text-muted-foreground">
+                  {native
+                    ? "Only contacts with a phone number appear here."
+                    : "Only contacts with an email address appear here. Phone-only contacts can be invited from the One mobile app."}
+                </p>
+              ) : null}
+              {atLimit ? (
+                <p role="status" className="mt-3 text-sm text-muted-foreground">
+                  15 contacts selected. Remove one to choose another.
+                </p>
+              ) : null}
+              {!candidates.length && controller.share ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    className="min-h-11"
+                    disabled={busy}
+                    onClick={() => void act("share")}
+                  >
+                    Share link instead
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="min-h-11"
+                    disabled={busy}
+                    onClick={() => void act("copy")}
+                  >
+                    Copy invitation
+                  </Button>
+                </div>
+              ) : null}
+              {!candidates.length && controller.preparing ? (
+                <p role="status">Preparing invitation…</p>
+              ) : null}
+              {!candidates.length && controller.error ? (
+                <div className="mt-3">
+                  <p role="alert">{controller.error}</p>
+                  <Button
+                    variant="outline"
+                    className="mt-2 min-h-11"
+                    disabled={controller.preparing || busy}
+                    onClick={() => void controller.retryPreparation()}
+                  >
+                    Retry invitation link
+                  </Button>
+                </div>
+              ) : null}
+              {!candidates.length && outcome ? (
+                <p role="status" className="mt-3 text-sm">
+                  {OUTCOME_TEXT[outcome]}
+                </p>
+              ) : null}
+              {!candidates.length && error ? (
+                <p role="alert" className="mt-3 text-sm">
+                  {error}
                 </p>
               ) : null}
               {filtered.length > visible ? (
                 <Button
                   variant="outline"
                   className="mt-3 min-h-11"
-                  onClick={() => setVisible((count) => count + PAGE_SIZE)}
+                  onClick={() => setVisible((count) => count + 50)}
                 >
                   Show more contacts
                 </Button>
@@ -322,6 +382,26 @@ export function ContactInvitationSheet({
             </>
           ) : (
             <>
+              {busy ? (
+                <p role="status" className="mt-3 text-sm">
+                  Preparing invitation…
+                </p>
+              ) : outcome ? (
+                <p role="status" className="mt-3 text-sm">
+                  {OUTCOME_TEXT[outcome]}
+                </p>
+              ) : null}
+              {error ? (
+                <p role="alert" className="mt-3 text-sm">
+                  {error}
+                </p>
+              ) : null}
+              {handedOff ? (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Before opening again, check your app to avoid sending the same
+                  invitation twice.
+                </p>
+              ) : null}
               {controller.preparing ? (
                 <p role="status">Preparing invitation…</p>
               ) : null}
@@ -331,75 +411,55 @@ export function ContactInvitationSheet({
                   <Button
                     className="mt-2 min-h-11"
                     variant="outline"
-                    disabled={controller.preparing}
+                    disabled={controller.preparing || busy}
                     onClick={() => void controller.retryPreparation()}
                   >
                     Retry invitation link
                   </Button>
                 </div>
               ) : null}
-              {previewShare ? (
-                <div className="rounded-xl bg-muted/40 p-3">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="break-words text-sm font-medium">
-                        {step === "queue"
-                          ? previewCandidate?.displayName
-                          : `Message preview for ${previewCandidate?.displayName}`}
-                      </p>
-                      <p className="break-all text-xs text-muted-foreground">
-                        {previewCandidate &&
-                          selected[previewCandidate.id]?.value}
-                      </p>
-                    </div>
-                    {step === "queue" ? (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="min-h-11 shrink-0"
-                        disabled={busy}
-                        onClick={() => void act("copy")}
-                      >
-                        Copy invitation
-                      </Button>
-                    ) : null}
-                  </div>
+              {controller.share ? (
+                <div className="rounded-2xl bg-muted/40 px-4 py-3.5">
+                  <p className="text-[15px] font-semibold leading-5">
+                    Message preview
+                  </p>
                   <textarea
-                    aria-label={`Invitation message for ${previewCandidate?.displayName}`}
+                    aria-label="Invitation message"
                     readOnly
                     rows={5}
-                    className="w-full resize-y select-text rounded-md bg-transparent text-sm leading-relaxed focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
-                    value={invitationBody(previewShare)}
+                    className="mt-3 block w-full resize-none select-text appearance-none rounded-none border-0 border-t border-border/70 bg-transparent p-0 pt-3 text-[15px] leading-6 [text-indent:0] focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+                    value={invitationBody(controller.share)}
                   />
                 </div>
               ) : null}
-              {step === "review" ? (
-                <ul className="mt-3 divide-y divide-border">
-                  {queue.map((candidate) => (
-                    <li
-                      key={candidate.id}
-                      className="flex items-center gap-3 py-3"
-                    >
-                      <button
-                        type="button"
-                        className="min-h-11 min-w-0 flex-1 rounded-md text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
-                        aria-label={`Preview message for ${candidate.displayName}`}
-                        aria-pressed={previewCandidate?.id === candidate.id}
-                        onClick={() => setPreviewId(candidate.id)}
-                      >
-                        <p className="break-words text-sm font-medium">
-                          {candidate.displayName}
-                        </p>
-                        <p className="break-all text-sm text-muted-foreground">
-                          {selected[candidate.id]?.value}
-                        </p>
-                        <span className="text-xs text-primary underline">
-                          Preview message
-                        </span>
-                      </button>
+              <p className="mt-3 text-sm text-muted-foreground">
+                {native
+                  ? "Opens one Messages draft from your device’s messaging account. This may create a group: recipients can see each other’s numbers. Check recipients and tap Send there. Carrier charges may apply."
+                  : "Opens one email draft with the selected addresses in BCC. Check BCC and send from your email account. Your email app must support BCC links."}
+              </p>
+              <h3 className="mt-4 text-sm font-medium">
+                {queue.length} selected{" "}
+                {queue.length === 1 ? "contact" : "contacts"}
+              </h3>
+              <ul className="mt-1 divide-y divide-border">
+                {queue.map((candidate) => (
+                  <li
+                    key={candidate.id}
+                    className="flex items-center gap-3 py-2"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="break-words text-sm font-medium">
+                        {candidate.displayName}
+                      </p>
+                      <p className="break-all text-sm text-muted-foreground">
+                        {selected[candidate.id]?.value}
+                      </p>
+                    </div>
+                    {step === "review" ? (
                       <Button
                         variant="ghost"
-                        className="min-h-11"
+                        className="-mr-2 min-h-11 shrink-0"
+                        disabled={busy}
                         aria-label={`Remove ${candidate.displayName}`}
                         onClick={() =>
                           setSelected((previous) => {
@@ -411,131 +471,86 @@ export function ContactInvitationSheet({
                       >
                         Remove
                       </Button>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <>
-                  <p className="mt-3 text-sm" aria-live="polite">
-                    {processed.size} processed · {skipped.size} skipped ·{" "}
-                    {queue.length - processed.size - skipped.size} remaining
-                  </p>
-                  {current ? (
-                    <div className="mt-4">
-                      {selected[current.id]?.kind === "phone" &&
-                      !ContactInvitationsService.isNative() ? (
-                        <p className="mt-2 text-sm text-muted-foreground">
-                          Copy the invitation first. Open Messages fills the
-                          number; paste the message there.
-                        </p>
-                      ) : null}
-                      {outcome ? (
-                        <p role="status" className="mt-3 text-sm">
-                          {OUTCOME_TEXT[outcome]}
-                        </p>
-                      ) : null}
-                      {error ? (
-                        <p role="alert" className="mt-3 text-sm">
-                          {error}
-                        </p>
-                      ) : null}
-                      <div className="mt-4 flex flex-col gap-2">
-                        {needsCompletionConfirmation ? (
-                          <Button disabled={busy} onClick={() => next(false)}>
-                            Done with this contact
-                          </Button>
-                        ) : null}
-                        <Button
-                          variant={
-                            needsCompletionConfirmation ? "outline" : "default"
-                          }
-                          disabled={
-                            busy ||
-                            !controller.share ||
-                            (selected[current.id]?.kind === "phone" &&
-                              ContactInvitationsService.isNative() &&
-                              !smsAvailable)
-                          }
-                          onClick={() => void act("compose")}
-                        >
-                          {selected[current.id]?.kind === "email"
-                            ? "Open mail"
-                            : "Open Messages"}
-                        </Button>
-                        <div className="flex gap-2">
-                          <Button
-                            variant="ghost"
-                            className="min-h-11 flex-1"
-                            disabled={busy || !controller.share}
-                            onClick={() => void act("share")}
-                          >
-                            Share invitation
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            className="min-h-11"
-                            disabled={busy}
-                            onClick={() => next(true)}
-                          >
-                            Skip
-                          </Button>
-                        </div>
-                      </div>
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        When sharing, choose the recipient in your sharing app.
-                      </p>
-                      {!smsAvailable && ContactInvitationsService.isNative() ? (
-                        <p className="mt-2 text-sm text-muted-foreground">
-                          Direct Messages is unavailable. You can still copy or
-                          share.
-                        </p>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <p className="mt-4">Your invitation queue is complete.</p>
-                  )}
-                </>
-              )}
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+              {native && smsAvailable === false ? (
+                <p role="status" className="mt-3 text-sm text-muted-foreground">
+                  Batch Messages is unavailable. Update One and check your
+                  messaging app. You can still copy the invitation.
+                </p>
+              ) : null}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  variant="ghost"
+                  className="min-h-11"
+                  disabled={busy || !controller.share}
+                  onClick={() => void act("copy")}
+                >
+                  Copy invitation
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="min-h-11"
+                  disabled={busy || !controller.share}
+                  onClick={() => void act("share")}
+                >
+                  Share link instead
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Sharing the link lets you choose recipients in another app.
+              </p>
             </>
           )}
         </div>
-        {hasFooter ? (
-          <div className={CONTACT_INVITE_FOOTER_CLASSNAME}>
-            {step === "select" ? (
-              <Button
-                className="min-h-11 flex-1"
-                disabled={!queue.length}
-                onClick={() => setStep("review")}
-              >
-                Review {queue.length} invitations
-              </Button>
-            ) : step === "review" ? (
-              <>
+        <div className={CONTACT_INVITE_FOOTER_CLASSNAME}>
+          {step === "select" ? (
+            <Button
+              className={CONTACT_INVITE_PRIMARY_ACTION_CLASSNAME}
+              disabled={!queue.length}
+              onClick={() => setStep("review")}
+            >
+              Review {queue.length}{" "}
+              {queue.length === 1 ? "invitation" : "invitations"}
+            </Button>
+          ) : (
+            <>
+              {step === "review" || !handedOff ? (
                 <Button
-                  variant="outline"
-                  className="min-h-11"
-                  onClick={() => setStep("select")}
-                >
-                  Back to selection
-                </Button>
-                <Button
-                  className="min-h-11 flex-1"
+                  className={CONTACT_INVITE_PRIMARY_ACTION_CLASSNAME}
                   disabled={
-                    !queue.length || !controller.share || controller.preparing
+                    busy ||
+                    !queue.length ||
+                    !controller.share ||
+                    controller.preparing ||
+                    (native && smsAvailable !== true)
                   }
-                  onClick={() => setStep("queue")}
+                  onClick={() => void act("compose")}
                 >
-                  Continue with {queue.length} invitations
+                  {native ? "Open Messages" : "Open email"} · {queue.length}{" "}
+                  {queue.length === 1 ? "contact" : "contacts"}
                 </Button>
-              </>
-            ) : null}
-            {step === "queue" ? (
-              <Button className="min-h-11 flex-1" onClick={finish}>
-                Done
+              ) : (
+                <Button
+                  className={CONTACT_INVITE_PRIMARY_ACTION_CLASSNAME}
+                  onClick={finish}
+                >
+                  Done
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                className={CONTACT_INVITE_SECONDARY_ACTION_CLASSNAME}
+                disabled={busy}
+                onClick={back}
+              >
+                {step === "review" ? "Back to selection" : "Back to review"}
               </Button>
-            ) : null}
-          </div>
-        ) : null}
+            </>
+          )}
+        </div>
       </SheetContent>
     </Sheet>
   );

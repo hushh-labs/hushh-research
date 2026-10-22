@@ -17,19 +17,19 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Check, Loader2, Search, Send, Share2, UserPlus } from "@/components/icons";
+import { Check, Loader2, Send, Share2, UserPlus } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
-  SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { AdaptiveSheetContent, TaskSurfaceToolbar, TaskSurfaceBody, TaskSurfaceFooter, taskSurfaceStyles } from "@/lib/morphy-ux/ui/task-surfaces";
+import { SheetCount, SheetSearch } from "@/components/app-ui/sheet-parts";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { EmptyState } from "@/components/one-location/redesign/primitives";
-import { LOCATION_SEARCH_INPUT_CLASSNAME } from "@/components/one-location/redesign/selectors";
 import type {
   OneLocationCircleEligibleConnection,
   OneLocationCircleEligibleConnections,
@@ -42,7 +42,7 @@ import {
 } from "@/lib/one-location/people-search";
 import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
 import { cn } from "@/lib/utils";
-import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
+import { connectPersonName, connectPersonSelectionDetail } from "@/lib/connections/person-label";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import {
   CIRCLE_INVITE_BATCH_LIMIT,
@@ -276,38 +276,19 @@ export function CircleInvitePeopleSheet({
         }
       }}
     >
-      <SheetContent
-        side="bottom"
-        // Same pair as the Circle detail sheet: keep the drag gesture off a
-        // scrollable list, and keep the keyboard height inside the max-height
-        // so the search field does not leave the screen when the keyboard opens.
-        dragDismiss={false}
-        className="mx-auto flex max-h-[calc(88dvh-var(--kb-height,0px))] w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6"
+      <AdaptiveSheetContent size="lg" data-circle-invite-picker dragDismiss={false} className={taskSurfaceStyles.people}
       >
-        <SheetHeader className="text-left">
+        <SheetHeader>
           <SheetTitle>Add people to {circleName}</SheetTitle>
           <SheetDescription>
-            Choose existing connections. They join only after accepting the
-            Circle invitation; no second Connect request is needed.
+            Choose connections. They join after accepting.
           </SheetDescription>
         </SheetHeader>
 
-        <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4">
-          <label className="relative block">
-            <span className="sr-only">Search connections</span>
-            <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search connections"
-              className={cn(
-                LOCATION_SEARCH_INPUT_CLASSNAME,
-                "h-12 rounded-full bg-muted/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70",
-              )}
-            />
-          </label>
+        <div data-circle-invite-content className="contents">
+          <TaskSurfaceToolbar><SheetSearch value={search} onValueChange={setSearch} placeholder="Search connections" /></TaskSurfaceToolbar>
 
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <TaskSurfaceBody data-circle-invite-results>
             {loading ? (
               <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-5 w-5 animate-spin" />
@@ -315,7 +296,7 @@ export function CircleInvitePeopleSheet({
               </div>
             ) : loadError ? (
               <div className="space-y-3 rounded-2xl bg-muted/45 p-4">
-                <p className="text-sm text-muted-foreground">{loadError}</p>
+                <p data-profile-role="description" className="text-sm text-muted-foreground">{loadError}</p>
                 <Button
                   type="button"
                   variant="outline"
@@ -330,6 +311,7 @@ export function CircleInvitePeopleSheet({
                 {remainingCapacity > 0 && filtered.length ? (
                   <SettingsGroup
                     title="Your connections"
+                    className="circle-invite-group"
                     description={
                       remainingCapacity > CIRCLE_INVITE_BATCH_LIMIT
                         ? `Invite up to ${CIRCLE_INVITE_BATCH_LIMIT} people at a time. ${remainingCapacity} Circle slots remain.`
@@ -351,34 +333,33 @@ export function CircleInvitePeopleSheet({
                           leading={
                             <ConnectionPersonAvatar
                               photoUrl={connection.photoUrl ?? null}
-                              label={connection.displayName}
+                              label={connectPersonName(connection)}
                               verified={Boolean(connection.isRia)}
+                              fromContacts={connection.connectedFromContacts}
                             />
                           }
                           title={
-                            <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                              <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">
-                                {connection.displayName}
-                              </span>
-                              {connection.connectedFromContacts ? (
-                                <ContactSourceBadge />
-                              ) : null}
+                            <span className="flex min-w-0 items-center gap-1.5">
+                              <span className="min-w-0 truncate">{connectPersonName(connection)}</span>
                             </span>
                           }
-                          description="Connected on One"
+                          description={connectPersonSelectionDetail(connection)}
+                          describeContent
                           ariaPressed={selected}
-                          ariaLabel={`${selected ? "Deselect" : "Select"} ${connection.displayName} for Circle invitation${connection.connectedFromContacts ? ", connected from your contacts" : ""}`}
+                          ariaLabel={`${selected ? "Deselect" : "Select"} ${connectPersonName(connection)} for Circle invitation${connection.connectedFromContacts ? ", connected from your contacts" : ""}`}
                           disabled={!selected && atCapacity}
                           trailing={
-                            <span
-                              className={cn(
-                                "flex h-6 w-6 items-center justify-center rounded-full border",
-                                selected
-                                  ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
-                                  : "border-border bg-background",
-                              )}
-                            >
-                              {selected ? <Check className="h-4 w-4" /> : null}
+                            <span className="flex shrink-0 items-center gap-3">
+                              <span
+                                className={cn(
+                                  "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border",
+                                  selected
+                                    ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+                                    : "border-border bg-background",
+                                )}
+                              >
+                                {selected ? <Check className="h-4 w-4" /> : null}
+                              </span>
                             </span>
                           }
                           onClick={() =>
@@ -434,6 +415,7 @@ export function CircleInvitePeopleSheet({
       {pendingInvites.length ? (
         <SettingsGroup
           title="Pending invitations"
+          className="circle-invite-group"
           description="Cancel anytime before acceptance."
         >
                     {pendingInvites.map((invite) => (
@@ -442,7 +424,7 @@ export function CircleInvitePeopleSheet({
                         icon={Send}
                         // Awaiting acceptance is PENDING, not an action.
                         iconTone="orange"
-                        title={invite.inviteeDisplayName || "One connection"}
+                        title={connectPersonName({ displayName: invite.inviteeDisplayName }, "One connection")}
                         description="Waiting for them to join"
                         trailing={
                           <Button
@@ -465,8 +447,10 @@ export function CircleInvitePeopleSheet({
                 ) : null}
               </div>
             )}
-          </div>
+          </TaskSurfaceBody>
 
+          <TaskSurfaceFooter>
+          <SheetCount>{selectedConnections.size} selected</SheetCount>
           <Button
             type="button"
             disabled={
@@ -478,10 +462,8 @@ export function CircleInvitePeopleSheet({
             }
             isLoading={submitting}
             onClick={() => void sendInvites()}
-            className={cn(
-              "h-12 w-full shrink-0 rounded-full text-base font-semibold",
-              BLOCKED_CTA,
-            )}
+            size="compact"
+            className={BLOCKED_CTA}
           >
             {selectedConnections.size
               ? `Invite ${selectedConnections.size} ${
@@ -489,8 +471,9 @@ export function CircleInvitePeopleSheet({
                 }`
               : "Select people"}
           </Button>
+          </TaskSurfaceFooter>
         </div>
-      </SheetContent>
+      </AdaptiveSheetContent>
     </Sheet>
   );
 }

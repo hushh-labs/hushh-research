@@ -7,8 +7,10 @@
   Keys mirror the proven, gitignored build/TestFlight/ExportOptions-AppStoreConnect-40.plist
   that shipped builds 37-40, with two deliberate choices for CI:
     * destination = upload  -> the export step uploads to TestFlight in-place
-      (no altool/pilot follow-up). The dry_run job path rewrites this to
-      "export" via PlistBuddy so it archives + signs without uploading.
+      (no altool/pilot follow-up). The shared export helper first uses
+      destination=export to verify production APNs in the real signed IPA.
+      Dry runs stop there; uploads use the same archive/signing options with
+      destination=upload. Xcode may repackage that archive during upload.
     * manageAppVersionAndBuildNumber = false -> keep the build number that the
       workflow computes (scripts/ci/resolve-ios-build-number.py, injected as
       CURRENT_PROJECT_VERSION) authoritative; do not let Xcode auto-bump it.

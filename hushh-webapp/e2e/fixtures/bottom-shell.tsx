@@ -7,6 +7,7 @@ import { INITIAL_VOICE_SESSION_STATE } from "../../lib/one-voice/session-types";
 import { AgentDockProvider, AgentDockPortal } from "../../components/agent/agent-dock";
 import { AgentBarSurface } from "../../components/agent/agent-bar-surface";
 import { ShellActionSurface } from "../../components/app-ui/shell-action-surface";
+import { Mic, Send } from "../../components/icons";
 
 /**
  * The persistent bottom chrome exactly as `app/providers.tsx` mounts it: the
@@ -75,16 +76,16 @@ function Page() {
           <button data-testid="fixture-mode" onClick={() => setVoice(value => !value)}>Switch input mode</button>
         </div> : null}
       </main>
-      <AppBottomShell model={{ navigationHidden: false, agentBarHidden: chat }} />
+      <AppBottomShell model={{ navigationHidden: false, agentBarHidden: chat || dataset.reserveFullDock === "true", includeComposerHeight: dataset.reserveFullDock === "true" }} />
       {chat ? <AgentDockPortal enabled visible={!voice}>
         <form data-agent-chat-composer-form="root" onSubmit={event => event.preventDefault()}>
           <AgentBarSurface embedded className="agent-chat-composer-surface agent-chat-composer-compact flex min-w-0 items-end gap-2 overflow-hidden">
             <div className="relative flex min-h-0 min-w-0 flex-1 items-center">
-              <textarea ref={field} aria-label="Message One" placeholder="Message One..." rows={1} value={draft} onChange={event => setDraft(event.target.value)} className="agent-chat-composer-field block w-full min-w-0 resize-none overflow-y-auto border-0 bg-transparent text-[16px] break-words [overflow-wrap:anywhere]" />
+              <textarea ref={field} aria-label="Message One" placeholder="Message One..." rows={1} value={draft} onChange={event => setDraft(event.target.value)} className="agent-chat-composer-field block w-full min-w-0 resize-none overflow-y-auto border-0 bg-transparent text-[16px] text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-muted-foreground/70 break-words [overflow-wrap:anywhere]" />
             </div>
             <div className="agent-chat-composer-actions flex shrink-0 items-center gap-1">
-              <ShellActionSurface aria-label="Start voice mode">Mic</ShellActionSurface>
-              <ShellActionSurface type="submit" aria-label="Send message">Send</ShellActionSurface>
+              <ShellActionSurface data-agent-composer-action="mic" aria-label="Start voice mode"><Mic className="size-4" /></ShellActionSurface>
+              <ShellActionSurface data-agent-composer-action="send" type="submit" className="text-[color:var(--app-accent-fg)]" aria-label="Send message"><Send className="size-4" /></ShellActionSurface>
             </div>
           </AgentBarSurface>
         </form>

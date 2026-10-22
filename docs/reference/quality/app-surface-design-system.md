@@ -184,11 +184,29 @@ The law, which holds for every signed-in route:
    visible body heading suppresses that fallback chip, so its title remains in
    one place below the back-only bar. Nested pages whose trail already names
    the screen pass `titleVisuallyHidden` and draw the title once, in the bar.
+8. Browser Back dismisses a Reset/Delete confirmation above Profile before
+   moving the pane underneath. `useWebHistoryBack` registers during layout,
+   delegates dismissal to the owning alert, and restores the original pane
+   entry by history traversal. Cancel, Escape, and popup dismissal preserve
+   the pane's metadata and existing Forward history.
 
 `PkmSettingsShell` is not a second shell. It is a composition of exactly these
 primitives, and surfaces that use it are conformant.
 
 ## Shell Contract
+
+Agent workspace headings opt into `AppPageShell headerContentSpacing="compact"`.
+Their next content or tab slot consumes `--page-header-section-gap` once: 0px
+on phones and 6px from 640px upward. Nested hub stacks, body tab rails and
+custom heading/action layouts use this same token instead of adding local
+margins or padding. The 56px segmented rail retains its 10px inset above the
+visible pill, giving a 10px/16px heading-to-pill gap. Calendar's connection
+hero centers its action 24px below the heading. Its collage keeps a 420px cap
+on mobile and grows to 480px from the desktop breakpoint. Unknown Calendar
+connection evidence renders a neutral checking state; only confirmed
+disconnection shows the connect hero. A failed check offers retry, and the
+disconnect action uses `--app-destructive`. General page headers retain their
+standard spacing.
 
 1. The top shell is the single authority for header clearance.
 2. The top shell is one public visual component with three route-declared
@@ -275,6 +293,9 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
     The top row, contextual tabs, and top mask all follow the same live scroll
     progress variables directly; do not add an independent CSS transition that
     continues after the gesture or makes the edge lag the bottom compositor.
+    On the `/one` Agents dashboard, desktop widths from 768px keep the One
+    brand and Profile control visible while content scrolls. Mobile retains
+    the existing scroll collapse and upward-scroll restoration.
 31. `AppBottomShell` is the only persistent bottom compositor. It owns the
     safe-area stack and scroll-hide transform, and renders bottom navigation
     and Agent Bar as separate accessible slots without a full-width fade. Keep route
@@ -348,6 +369,13 @@ Rules:
     reading column: three desktop tracks and one phone track. Keep text left
     aligned, surfaces borderless, and press feedback flat. Response follow-ups
     remain compact text rows. Both fill the composer for review; neither sends.
+12. Bounded settings/navigation lists prefer concise, single-line supporting
+    copy—or title-only rows when a subtitle adds nothing. If related siblings
+    need mixed line counts, `SettingsGroup rowSizing="uniform"` gives them the
+    tallest readable sibling's height at the current width and text size. The
+    real inner action/ripple surface must fill that height. Do not add filler
+    descriptions, fixed maximum heights or global truncation to force symmetry.
+    Information-heavy lists retain the default `content` sizing and wrapping.
 
 ## Agent Chat Stream Surface Contract
 
@@ -363,10 +391,10 @@ Rules:
    - `Thinking` only for optional provider telemetry when available.
    - `Response` only for real assistant/model text from SSE `token` frames or explicit final assistant text.
 3. Do not show placeholder text such as `Preparing response` inside the `Response` region. Waiting states belong to `Progress` or a small status line outside the response body.
-4. Do not nest cards inside cards. The active stream panel is one flat surface; progress, thinking, marketplace opportunities, and response content are sections inside it.
+4. Do not nest cards inside cards. The active stream panel is one flat surface; progress, thinking, marketplace opportunities, and response content are sections inside it. Chat Activity is a plain disclosure without a permanent fill, border or elevation. `AppStreamPanel` defaults Activity to this plain appearance so chat callers do not need a presentation override. Keep its count, event list, keyboard focus and 44px target; preserve the shared surface default for other progress sections.
 5. Progress, thinking, and marketplace opportunity lists must use bounded internal scroll with `max-height`, `min-height: 0`, `overflow-y: auto`, and `overscroll-contain`. Long assistant answers use the main chat scroll, not a tiny nested response box.
 6. Marketplace opportunity accordions in Agent Chat receive workspace-preloaded data. The accordion may show a lightweight loading row only while the workspace fetch is genuinely pending.
-7. Mobile chat history uses the shared shell glass family (`chrome-glass-surface` / `.bar-glass` semantics) and flat bottom-nav/top-bar control recipes. Do not ship a flat white drawer or show desktop collapse controls in mobile mode.
+7. Chat history titles wrap completely, including long unbroken labels, while preserving age and action targets. Mobile chat history and Profile use the opaque theme canvas for their reading surfaces, with shared pane geometry and flat bottom-nav/top-bar control recipes. Keep the modal scrim behind the pane; do not let it tint the reading background or show desktop collapse controls in mobile mode. New chat is a plain action with no resting fill, border or elevation; retain its 44px target, press feedback and keyboard focus.
 8. Agent Chat session continuity is a surface contract: a cold app launch opens
    a blank Chat without selecting the latest saved conversation. In-app route
    navigation resumes the selected `conversationId` for that browser runtime;
@@ -386,6 +414,22 @@ Rules:
 11. An AG-UI interrupt is an awaiting-review lifecycle, not completion. Keep
     the turn and its Activity visible until the person resolves or cancels the
     authored HITL surface and the resumed run reaches a terminal event.
+
+12. Puppy One shares One's opening-copy recipe, message bubble primitive,
+    768px reading measure, 20px turn gap, and compact composer field typography.
+    Keep connection-state copy at the opening chat scale and its paragraph gap
+    at 12px. Verify computed fonts, line heights and insets in Chromium and
+    WebKit; class-name checks cannot prove visual parity. Conversations, device
+    authority and streaming state remain owned by their existing runtimes.
+13. One's browser and recovery Chat header retains the portrait above its name:
+    104px on desktop, 52–64px on phones. On the narrowest phones, shift it only
+    enough to avoid the existing 44px action targets. Keep the mode toggle
+    anchored across One/Puppy switches, the phone model picker in One's profile,
+    and coherent native chrome on its existing compact header reservation.
+    Circle selection rows show available connection date/time, contact source
+    and verified-advisor context without exposing contact strings. Missing
+    context says `Connection details unavailable`; identical metadata does not
+    establish a person's identity.
 
 ## Page Header Contract
 
@@ -428,13 +472,14 @@ Rules:
 
 ## Search and Filter Surface Contract
 
-Use the shared command/search surface for app-wide agent search and route action discovery.
+App-wide Search is disabled and archived under `archive/app-wide-search/`.
+Existing page-local filters remain available.
 
 Rules:
 
-1. Signed-in mode dashboards and workspaces should expose global search through `KaiCommandBarGlobal`, not route-local floating search bars.
+1. Do not mount the archived global palette or add replacement app-wide Search launchers.
 2. Route-local search is allowed only when it filters a visible local collection such as a table, receipt list, holdings list, CRM record list, or settings list.
-3. Local filters must stay inside the surface they filter and must not replace the global command/search surface.
+3. Local filters must stay inside the surface they filter.
 4. Persist query state only when it is part of the route contract, shareable URL, or recovery path; otherwise keep transient filter state local to the component.
 5. Search empty/loading/error states should use existing list/table/surface primitives and Sonner for transient failures, not page-level banners that shift layout.
 6. Mobile search overlays must respect `--top-shell-reserved-height`, bottom command chrome, and the shared scroll root; do not add raw viewport or safe-area math in route files.
@@ -446,7 +491,7 @@ The signed-in bottom navigation is a shared shell surface, not a route-local tab
 
 The iOS 26+ native wrapper is the presentation exception: Apple's standard
 `UITabBar` replaces the DOM segments only after native acknowledgement. The
-same React action resolver and five-item sequence remain authoritative; web,
+same React action resolver and four-item sequence remain authoritative; web,
 Android and older wrappers retain the segmented control. The native bar and
 web voice slot remain pinned, with measured bottom clearance and one home
 inset. Shared overlay mounts, vault/session gates, keyboard and native privacy
@@ -455,7 +500,7 @@ state must isolate native controls as well as DOM controls. See the
 
 Rules:
 
-1. The primary bottom navigation is fixed and constant on all signed-in standard routes: `Chat`, `One`, `Connect`, `Feed`, and `Search`, in that order. `Chat` is the canonical `/` route. Search is part of the same segmented control and opens `KaiCommandBarGlobal`; it does not route to `/agent` or open an agent overlay.
+1. The primary bottom navigation is fixed and constant on all signed-in standard routes: `Chat`, `One`, `Connect`, and `Feed`, in that order. `Chat` is the canonical `/` route. App-wide Search is disabled: no palette mount, Search segment, keyboard/event launcher, or URL-based activation remains. Inert source snapshots live in `archive/app-wide-search/`.
 2. Profile remains the rightmost signed-in top-bar action, using the signed-in image or shared generic fallback.
 3. Finance owns `Market`, `Portfolio`, and `Analysis`; RIA owns `Home`,
    `Clients`, and `Picks`. The central route registry remains the selection
@@ -471,7 +516,7 @@ Rules:
    `/one/kai?tab=analysis`; route inventories normalize those URLs to
    the shared pathname without discarding their tab state.
 6. Use canonical route constants through `lib/navigation/app-bottom-nav.ts` and `lib/navigation/*-route-tabs.ts`; route files must not build their own shell navigation arrays.
-7. The Agent Bar and five-segment bottom navigation share the measured bottom-chrome stack with a 6px resting join. The five navigation segments use the shared frame and remain centered with equal widths on both wide and narrow screens. Do not add component- or route-local offsets.
+7. The Agent Bar and bottom navigation share the measured bottom-chrome stack with a 6px resting join. Navigation segments use the shared frame and remain centered with equal widths. Messages uses a consistent 30% list / 70% conversation split from 768px upward, using `--app-messages-sidebar-width` for both People and Circles. Narrow split panes put the list title and its actions on separate rows with aligned pane headers. Short landscape phone viewports below 1024px wide and 500px high retain one pane at a time. Messages uses the same viewport-centered column, width cap and safe-area insets as other pages in both split and single-pane modes; the selected conversation's message composer replaces the launcher. Both lists and conversations reserve the measured dock so their last rows remain reachable above it and the keyboard. Do not offset individual bars or create route-local fixed chrome.
 8. Bottom active state uses fill and icon-color contrast. Avoid hover bounce, active icon scaling, or springy overshoot that shifts attention away from the current route.
 9. Use familiar symmetric icons for global anchors. Agent/search entry points should read as search or conversation access, not decorative sparkle automation.
 10. The pending-consent count belongs on the One utility only; never duplicate it onto Profile or a workspace tab.
@@ -633,6 +678,12 @@ skill at `references/foundation-design-system.md`.
 
 Every floating surface that takes modal focus shares one backdrop language so opening a surface gives the same dimming and blur thump.
 
+App-owned `NativeFeaturePage` content uses the shared feature-page layer below
+sheets and dialogs, even though it reuses Dialog for focus and Back ownership.
+Its page/scrim consume `--z-feature-page`/`--z-feature-page-overlay`; nested
+primitives keep their normal tokens. Do not lift all sheets or create local
+z-index overrides to correct an incorrectly layered parent page.
+
 Rules:
 
 1. The canonical scrim is `bg-[color:var(--app-scrim-color)]` with `backdrop-filter` and `-webkit-backdrop-filter` set to `var(--app-scrim-filter)`, sitting directly below its surface. Desktop gets a 24% dim with a 12px blur; touch screens (`pointer: coarse`) get a 40% dim with a lighter 4px blur. The smaller touch radius keeps the background visibly out of focus without restoring the full-screen 12px filter that starved sheet motion in the Galaxy S24 Ultra trace (2026-09-22). Radix overlays (`DialogOverlay`, sheet, drawer, alert dialog) and `PopoverContent withBackdrop` all carry it; never restate the values.
@@ -641,7 +692,16 @@ Rules:
 3. Modal popovers inherit the same backdrop by default; non-modal anchored popovers stay flat. `PopoverContent withBackdrop` remains an explicit override. The scrim renders as `data-slot="popover-scrim"` and animates through the shared `overlay-scrim-in` / `overlay-scrim-out` keyframes registered in `globals.css`. Do not hand-roll a popover scrim with ad hoc opacity or blur values.
 4. Scrim animation tokens (`--motion-overlay-*`) are shared. Do not override per-surface enter/exit durations, and honor the reduced-motion media query already wired in `globals.css`. Sheets (`sheet-content`, `sheet-overlay`) use the shared `--motion-sheet-*` tier instead (300ms enter on the iOS sheet curve, 200ms exit), because they travel most of the screen; that tier is also app-wide, never per surface. The sheet surface slides on its own `sheet-surface-enter` / `sheet-surface-exit` keyframes, which animate only `transform` and `opacity`; the shared tw-animate `enter` / `exit` keyframes also animate `filter`, so sheets do not use them.
 5. Non-modal helper popovers (tooltips, inline hint bubbles, hover cards) do not take a backdrop. Reserve `withBackdrop` for surfaces that should pull focus away from the page.
-   The Agent Chat history drawer (`AgentConnectionsDrawer`) uses this same scrim. Its panel and scrim portal to the body above the chat header and fixed bottom bar; opening it must not move the transcript or navigation.
+   The shared place-saving modal suppresses persistent DOM and native chrome
+   throughout its map, address, and summary steps using the existing scoped
+   chrome-suppression hook. Native Maps requires a transparent picker surface,
+   so layering alone cannot conceal the Agent Bar underneath. Closing the modal
+   releases its own suppression without releasing an enclosing onboarding flow.
+   This focused flow keeps its primary action first and its quiet secondary
+   action below it on phone and desktop: Confirm pin, then Skip for now; Save
+   location, then Skip for now. The surface or pinned footer owns the bottom
+   safe-area padding once; action groups do not add another inset.
+   The Agent Chat history drawer (`AgentConnectionsDrawer`) uses this same scrim. Its panel and scrim portal to the body above the chat header and fixed bottom bar; opening it must not move the transcript or navigation. Chats and Profile share the bounded side-pane geometry: a safe-area-aware 12–18px outer inset, 430px maximum width, 820px maximum height, and 25px corners. Chats mirrors Profile at the left edge; its close control uses the same 44px target, 16px glyph, and 20px content inset. Profile Back and Close retain 44px hit targets with 34.32px painted circles (22% smaller) and proportionally reduced glyphs. Their slots only position controls; they do not paint a second background or rotate on hover. Ripples clip to the smaller circular surface. Screen gaps remain covered by the modal scrim. Both frames share an opaque light/dark theme canvas and Profile's border, sheen, and row hover/focus feedback. The canvas stays opaque so the dimmed page cannot wash through it. Chats' inner controls and portaled actions menu use the same material tokens; reduced transparency and motion retain the shared accessibility fallbacks. Native Android keeps the same theme canvas and solid card tokens under its existing blur-free policy. Conversation selection uses the existing Profile ripple without changing its navigation owner. The mounted Chats frame clips decoration without becoming a focus-scroll container and retires rendering after its exit; its gesture owner temporarily exposes the frame during a pull.
    `AppChatHistoryEdgeGesture` owns both directions: pull right on the Chat
    body to open, or left on the drawer/list or backdrop to close. The panel
    transform and scrim opacity follow the finger; release settles through the
@@ -666,6 +726,38 @@ Rules:
    entity title and one concise metadata line. The body begins with new evidence;
    it must not repeat that identity block, title, subtitle, or implementation
    diagnostics in a nested card.
+
+### Task surface anatomy
+
+`lib/morphy-ux/ui/task-surfaces.tsx` composes the stock Sheet, Drawer, Dialog
+and AlertDialog families. Those primitives retain focus, open state, gestures,
+Back handling, native isolation, motion and portal ownership. New task layouts
+use shared header, toolbar, scrolling body and footer regions; features supply
+controlled content and existing action callbacks. `components/app-ui/sheet-parts`
+provides search, counts and controlled person rows using the existing controls.
+Use the canonical SegmentedTabs for local views.
+
+The task canvas is opaque in both themes. The previous screen is obscured by
+the existing shared blurred/dimmed scrim; do not replace it with a dim-only
+artifact overlay or put glass on the foreground. Native Android retains its
+measured blur-free fallback, credential gates retain their opaque backdrop,
+and non-modal map surfaces retain their explicit overlay policy.
+
+Task corners are 24px, insets are 16px on phones and 24px from 768px, titles
+are 20/28 semibold, descriptions 14/20, and controls have 44px targets. People
+rows use 36px avatars and 20px selection marks. `AdaptiveSheetContent` explicitly
+opts a bottom Sheet into desktop centering at 768px without remounting the
+form; ordinary anchored sheets retain their side. People pickers opt into a
+stable bounded height. Small forms remain content-sized. Keyboard/native
+seats cap the frame; short or enlarged-content tasks scroll the whole frame
+with reachable actions rather than clipping the body. Footer safe-area
+padding is applied once. Existing drag options must be passed through;
+inner-scroll pickers keep their existing drag opt-out.
+
+AdaptiveDetailSurface adopts this anatomy for its Sheet and desktop Dialog
+presentations; its default phone fullscreen Drawer transport remains owned
+by that component. Reference examples do not authorize new routes, mutations,
+relationship semantics, navigation chrome or a parallel overlay implementation.
 
 ## Activity And Notification Contract
 
@@ -864,9 +956,26 @@ Rules:
    - do not use generic `Sparkles` as a fallback for AI, optimize, onboarding, or premium semantics
 3. For application-owned surfaces, import icons from `@/components/icons`. The registry owns official Phosphor geometry, native viewBoxes, and default weight so that shell, route, and Profile treatments stay visually aligned. Do not use dynamic icon loading for normal page chrome.
 4. Icon emphasis must match text emphasis in active and highlighted states.
+   All key aliases, password fields and the shell's vault unlock control use `AccentedKeyIcon`:
+   the original canonical outline key artwork with Profile ink and a blue accent
+   pinpoint. Keys have no translucent interior fill and ignore legacy yellow/gray
+   colour overrides.
+   Field keys remain 18px and the shell key remains 20px.
+   Chat's To-do, Get the app and Connectors shortcuts reuse Profile's
+   `--ios-account-label` structural ink and `--ios-account-accent` action details.
+   To-do keeps its 850ms paper fold/text redraw; Get the app keeps its 850ms
+   masked arrow/tray animation. Connectors uses the approved kit's four-loop
+   Weave, preserving its 1040ms unfold, quarter-turn, interlace and settling.
+   Two blue and two ink loops alternate, carrying their colour assignment
+   between quarter-turns so completion and replay have no colour reset.
+   Whole-row hover, keyboard focus and activation/tap play one finite cycle;
+   labels and glyph bounds stay anchored. Re-entry during playback is ignored.
+   Reduced motion is static, including live preference changes. Actions remain
+   immediate. The paper's soft hover circle is a separate layer. Dark mode
+   follows the same Profile tokens.
 5. Prefer relative icons that describe the section or action directly.
 6. When building custom icon wells or icon-bearing surfaces, preserve the canonical Phosphor assumptions:
-   - native `viewBox="0 0 256 256"` and the registry's duotone geometry
+   - native `viewBox="0 0 256 256"` and the registry's regular outline geometry, without translucent interior fills
    - visually centered composition
    - similar optical weight across sibling headers and actions
 7. Refer to:
@@ -885,14 +994,14 @@ Rules:
 8. Empty or single-page list views must not render pagination chrome.
 9. Shared paginated list primitives should provide direct page-number navigation plus optional instant list-level swipe. Do not reimplement carousel-like paging per route.
 10. A stock-analysis preview is a reversible decision state. It must retain a
-    visible path to the recommendations/history view and to the shared stock
-    search; a selected ticker must never trap a person in a preview or require
+    visible path to the recommendations/history view and research starters;
+    a selected ticker must never trap a person in a preview or require
     browser navigation to research a different stock.
 
 ## RIA Information Architecture
 
 1. `RIA` is a lightweight workspace shell, not a second dense operations dashboard.
-2. RIA workspace navigation lives in the top shell: `Home / Clients / Picks`. The fixed bottom navigation remains `Chat / One / Connect / Feed / Search`; Profile remains the rightmost top-bar action.
+2. RIA workspace navigation lives in the top shell: `Home / Clients / Picks`. The fixed bottom navigation remains `Chat / One / Connect / Feed`; Profile remains the rightmost top-bar action.
 3. `/one/consent` is the single consent/request workspace for both investor and RIA personas.
 4. `/ria/requests` remains only as a compatibility alias into `/one/consent`, not as a second consent system.
 5. The shell contextualizes `/one/consent` as `One > Consent Center`; legacy `/consents` preserves inbound links by redirecting to that canonical URL.

@@ -185,6 +185,133 @@ Any new semantic backend feature must declare:
 
 If a feature cannot provide that declaration, it is not agent-only compliant.
 
+### Declared: Drive request package assessment
+
+- Owner: the existing Documents `agent_documents_suggestions` gene, with explicit
+  `document_assessment` and `package_assessment` task modes in
+  `hushh_mcp/agents/documents/agent.yaml`; no parallel router or direct model prompt.
+- Output: `DocumentBatchAssessment` and `PackageAssessment` in
+  `hushh_mcp/services/drive_request_package_assessment.py`. The gene decides
+  relevance, content periods, inclusion, coverage, confidence (0–100 assessment,
+  not a probability), importance (1–500) and editable estimated USD cents (50–50000).
+- Validators check supplied document identity, exact same-document quotation,
+  source references, provider-version binding, calendar validity, bounded context,
+  typed money, and consistency with explicit truncation/unreadable evidence. They
+  reject invalid output; they never invent relevance, substitute prices, approve
+  sharing, or treat the model's confidence as measured accuracy. The caller owns
+  consent, current provider versions, request revision and exact package approval.
+- Live eval before promotion: `scripts/eval_drive_package_assessment.py --reps 3`
+  uses 12 synthetic gold-labeled cases, both real model stages and 36 repetitions.
+  Every exact document/package decision and money bound must pass, with zero
+  false acceptance or missing expected included file. It reports abstention,
+  precision, recall, latency and errors. Mock tests and model self-confidence do
+  not satisfy that gate. This is bounded synthetic evidence, not a calibration,
+  production-corpus recall measurement or empirical market-price validation.
+
+### Declared: deterministic Drive request search terms (owner decision)
+
+- Decision: on 2026-10-17 the org admin and product owner removed the Gemini
+  request planner from the Drive request flow, because the shared Gemini quota
+  is repeatedly exhausted and paused. This is a recorded **skip** of the
+  `agent_documents_live_search` stage, not a silent substitution.
+- Replacement: `hushh_mcp/services/drive_request_brain.py` turns the request
+  phrase into Drive discovery literals (typed words, a document-type synonym
+  lexicon, plural/singular forms, an owner-vocabulary spelling hint, date
+  phrases inside the picked dates removed as an advisory period, and
+  head-of-phrase kind words as MIME kinds). It is also the title-evidence
+  rule for automatic sharing, so that rule is deliberately narrow: only the
+  words the requester typed, their plural/singular forms and exact synonyms
+  ("pay slip" for "payslip", a cased "MoM") count. Loose lexicon clues
+  ("salary", "call", "card", "premium") and owner-vocabulary spelling fixes
+  only discover candidates for owner review. A request with no subject word
+  fails closed (`narrow_selection_required`) unless it explicitly asks for a
+  listing. The picked request dates, kind fences and
+  `drive_request_review_policy` still decide what may be shared.
+- Record: every plan freezes `request_plan_source` (`deterministic_brain` or
+  `model`) and the brain's concepts in the encrypted search checkpoint, and the
+  planner logs `drive_request.plan source=deterministic_brain` with counts only.
+- Rollback: `DRIVE_REQUEST_GEMINI_PLANNER_ENABLED=true` restores the
+  manifest-backed planner (default off); its model-failure fallback stays
+  recorded in `planner_fallback`.
+
+### Declared: request-local semantic Drive search
+
+- Owner: Documents `agent_documents_request_search` plans a
+  `SemanticLiveSearchModelPlan` independently of the legacy live-search
+  instruction; its `semantic_query` is a strict versioned disjunction of
+  conjunctions. Documents `agent_documents_request_assessment` assesses candidates through
+  `generic_request_candidate_v1`. Both instructions live in
+  `hushh_mcp/agents/documents/agent.yaml`; no service-local semantic prompt or
+  lexical substitute participates in this policy.
+- Admission: only new UAT requests seal `semantic_search_policy_version=1`.
+  `DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED=false` stops new enrollment. Historical
+  and refunded requests keep their original contracts. This supersedes the
+  October 17 deterministic-planner decision only for the enrolled cohort.
+- Host validation: validate and escape the complete interpretation, retain
+  provider content hits independently of filenames, and assess a durable bounded
+  candidate queue under the existing search lease. Only source-bound positive
+  observations commit as eligible results. Unresolved identities require input;
+  model/provider failure remains unavailable; incomplete reads cannot establish
+  an exhausted empty result. Scores and spelling clues grant no authority.
+- Failed output may receive one bounded correction using only schema-owned
+  field locations, error types and closed evidence-integrity rules. A transient
+  provider failure retries the same prompt, without semantic correction feedback.
+  Both assessor attempts share the original model deadline and recheck current
+  authority; a valid exclusion or uncertainty is never retried to change its meaning.
+- Source, request revision, connection generation, original purpose, plan digest
+  and assessment-policy digest bind encrypted evidence. The permission worker
+  checks the assessed provider version, current consent and payment separately.
+  Requests start at revision `0`; candidate evidence preserves that exact
+  nonnegative revision. Positive review revisions remain a separate contract.
+  Selected dates retain title → created → modified precedence by default;
+  explicit created/modified or content-period intent remains distinct.
+- Promotion evidence: production-function regression tests plus the opt-in
+  `consent-protocol/scripts/eval_drive_semantic_request.py` exercise independently labelled
+  synthetic planner and assessor cases. Report all-attempt precision/recall,
+  abstentions, errors and latency. These checks do not prove complete Google UI
+  parity, OCR accuracy on arbitrary originals or production-corpus recall.
+
+### Declared: Continuous Drive evidence and reusable packets
+
+- Owner: existing Documents `agent_documents_suggestions` gene in
+  `hushh_mcp/agents/documents/agent.yaml`; modes `page_facts`, `document_facts`,
+  `canonical_packet`, and `packet_verification`. Request matching retains its
+  existing document/package modes. No keyword router decides relevance.
+- Output: `DocumentPageFacts`, `DocumentFacts`, `PacketAssessment`, and
+  `PacketVerification` in `services/drive_packet_contract.py`. Meaning, canonical
+  grouping, coverage, importance and suggested prices remain model decisions.
+- Validators account for every supplied page, exact page/unit quotation,
+  source/facts versions, complete processing, bounded context and approved
+  identities. Consolidation cannot invent citations; unfinished evidence cannot
+  be ready. A simpler provider JSON grammar avoids measured Vertex complexity
+  errors; all original Pydantic limits still apply to returned output.
+- Live evaluation: original PDFs, including image-only scans, through real OCR,
+  fact extraction, request selection and a separate runtime verifier using
+  `consent-protocol/scripts/eval_drive_pipeline.py` and
+  `consent-protocol/scripts/drive_pipeline_model_adapter.py`.
+  Independent fixture labels never enter model inputs. Preserve every failure,
+  report all-attempt denominators, model/prompt/schema/extraction versions and
+  latency. Synthetic results are a regression gate, never the 99.9% proof.
+- Permission and commerce: explicit collection processing consent is separate
+  from summary publication and exact buyer approval. Existing purchase/delivery
+  workers retain authority. A runtime checker is not an independent gold label.
+
+### Declared: Soul.md reconciliation profile
+
+- Owners: existing Memory Segmentation, Intent, Merge and PKM Structure agents;
+  manifests in `consent-protocol/hushh_mcp/agents/{memory_segmentation,memory_intent,memory_merge,pkm_structure}/agent.yaml`.
+- Output: existing stage schemas; Soul structure payload contains exactly
+  `soul_text` (complete attributed fact) and `soul_section` (Facts, Preferences,
+  Commitments). Merge owns create/extend/correct/delete/no-op and exact targeting.
+- Validators reject unknown targets, oversized snapshots, invalid payloads,
+  credential material and export paths; they never select a replacement target
+  or rewrite a successful model's fact. Skipped no-op stages remain traced.
+- The browser validates the offered bullet again before RAM mutation and cloud
+  CAS. Masked or ambiguous targets are refused rather than partially replaced.
+- Promotion evidence: synthetic full-pipeline/negative-control tests are the UAT
+  contract gate; owner verification of live correction, deletion and attribution
+  is required before claiming live-model quality or production readiness.
+
 ### Declared: first-connect insights
 
 - Owning agent: `agent_one`, gene `one_first_connect_insights`.
@@ -197,6 +324,109 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
   A model failure is recorded as `failed` and retried after an hour.
 - Live eval before promotion: none yet. Mocked contract tests only; extraction
   quality on real mailboxes and calendars is unmeasured.
+
+### Declared: Magic Intelligence
+
+- Owning agent: `agent_one`, bounded task `one_profile_research`; its existing
+  `google_search` child supplies public evidence. No new top-level router.
+  Magic Intelligence researches the owner's public personal profile after
+  onboarding; business information is optional.
+- Manifest path: `consent-protocol/hushh_mcp/agents/one/agent.yaml`.
+- Structured output: `ProfileReport` in `hushh_mcp/one_adk/profile_research.py`;
+  match status, name, concise summary, up to four sections and eight facts per
+  section, each with confidence and HTTPS source links.
+- Single-shot discovery: `run_profile_discovery` calls the existing grounded
+  research task once with all available full owner identifiers. The separate
+  `one_profile_verify` agent, score computation and numerical release gate are
+  removed. The researcher owns match status, statements, summary and categorical
+  source uncertainty; the host validates source/schema/authority without
+  upgrading meaning or forcing a match.
+- Execution is bounded to one 160-second discovery deadline and one Search child
+  call (up to three logical model calls). There are no query permutations or
+  automatic research retries. Existing 200-second jobs, key/lease limits and the
+  three-start/hour admission limit remain unchanged.
+- The child request preserves the owner's name, full verified email and full
+  verified phone together, unchanged and JSON-quoted. Missing fields stay missing.
+  Native Google grounding may reformulate its internal queries, as authorized;
+  received grounding/source references remain required, but literal query
+  receipt matching is not an acceptance condition. No private-account tools,
+  caller-selected identities, PKM authority or sharing grants are added.
+- Profile retrieval intent is authored in the existing Search child's manifest,
+  so an exact identifier-only child request still asks for roles, education,
+  projects and public activities. Identifiers are anchors, not a mandatory
+  conjunction or a requirement for contacts to be published. A coherent cited
+  candidate without a secure owner link remains uncertain; missing public
+  contacts alone must not turn findings into no-match. This is agent guidance,
+  not a host-side override of the report or a second confidence stage.
+- The sole research slot is charged before provider dispatch under revision and
+  ciphertext CAS. Interrupted or failed charged tasks cannot replay it for the
+  same identity/policy/window. Failures return terminal unavailable without
+  invented confidence or no-match evidence. Old seven-mask and scored checkpoint
+  states are recognized only during migration: a changed policy binding prevents
+  their release, preserves paid-start history, and admits one new-policy slot.
+  Frontend decoders retain old metadata compatibility, never a current score gate.
+- Raw compatibility Search strategy: the authored task starts with the public name, using an
+  organizational email domain only as a hint. It keeps full email/phone as
+  private matching context, without requiring a public contact match. At most
+  one follow-up fits the existing five-call/160-second task budget: broader
+  targeted public-name recovery for an unmatched first pass, or focused missing education,
+  projects, competitions, leadership and achievements after a credible match.
+  The model chooses queries and facts; host code does not fabricate coverage.
+  Attendance, organization and winning are distinct, historical sources do not
+  establish current roles, and duplicate facts belong in one section only.
+  Namesake candidates remain separate; a report contains one coherent person,
+  not unrelated candidates relabelled as uncertain. Occurrence lists and
+  answer-site assertions alone cannot establish biographical claims.
+  Search calls run sequentially so each attempt carries only its own receipts;
+  the host rejects parallel tool calls and more than two Search attempts.
+  The tool result exposes whether Search execution was observed; a refusal
+  cannot be treated as proof that a profile does not exist.
+- The internal model contract selects short source refs exposed by the Search
+  child. Host transport resolves only those exact invocation-local refs to
+  received URLs; facts, confidence, titles and order stay model-authored. The
+  public report retains `sources:{title,url}`, with no ref field or URL guessing.
+- Validator rejects unknown fields, duplicate sections, unsupported URLs and
+  incoherent no-match results. Every cited URL must have a Search grounding
+  receipt exposed to the model. Unknown refs, parent-only metadata and raw-URL
+  fallbacks cannot authorize a citation. A no-match report also needs Search execution evidence; an offline
+  answer or refusal is unavailable, not proof of absence. Empty results show
+  an explanation and Skip, without preparing memory. Failed research can retry.
+  Host policy does not rewrite facts or choose their meaning.
+- Admission: current first-party owner/chat key, completed account setup,
+  fresh Firebase identity plus the canonical onboarding name when Firebase's
+  name is absent, verified contact identifiers, bounded owner checks and
+  `ONE_PROFILE_RESEARCH_ENABLED` (default off). Background drafts use bounded
+  person-key encrypted checkpoints in the existing session store, private
+  no-store responses and a session-only chat card; they bypass transcript
+  persistence, PKM writes and automatic memory capture. Cached release binds
+  current identity and authored research policy; policy changes preserve the
+  three-starts/hour research budget rather than resetting it.
+- Independence: personal research has its own flag and generic owner/setup
+  admission and private-response utilities. It never requires Business
+  Intelligence, a company record, or company ownership. Career, education and
+  public personal findings can form a complete card; business is optional.
+- Wire boundary: `POST /api/one/profile-research` takes no identity body;
+  owner identity is selected at ingress. It returns `status`, `pkm_written:false`
+  and, when offered, `report` plus bounded Google Search suggestions. The
+  platform-aware One API transport supports both web and native callers.
+  The compatible synchronous POST retains three requests/hour and a 40-second
+  deadline. The authenticated POST/GET jobs path detaches a 200-second execution
+  from browser polling, with at most three actual research starts/hour. No
+  provider error text is returned.
+- Saving: checked/edited statements go through the existing semantic PKM
+  preview. Only final confirmation writes ciphertext. Reconciliation includes
+  relevant existing personal and business entities. A known business keeps its
+  pinned UID, including retargeted scopes; the writer rechecks current origin
+  on conflict retries. Stable review scopes use owner-bound commit receipts to
+  recover lost responses. New public business facts can be kept through this
+  same review; they do not mint directory provenance or assert verified
+  ownership. Sharing changes require acknowledgement.
+- Licensed use: the operator confirmed the Google agreement permits these
+  owner-reviewed research findings to be saved in PKM.
+- Live eval before promotion: synthetic installed-ADK and host boundary tests
+  only. Before enabling the flag, evaluate owner-consented public profiles,
+  common-name/no-match/conflicting evidence, citation attribution, and exact
+  web/native review/save flows. No live quality or device proof is claimed.
 
 ### Declared: explicit memory save from chat
 
@@ -297,12 +527,45 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
 - Validator: `validate_owner_style` refuses unknown keys, wrong types and oversize
   values (400 on the chat route, `invalid` from the tool); it never clips or
   substitutes a value. Sanitizing removes control and format characters only.
-- Authority: none. The tool writes nothing; the owner commits in Settings. The
+- Authority: the tool writes nothing. An explicit owner-chosen preferred name
+  returns `preferred_name_update_ready` only for admitted typed chat. The live
+  device commits only that name after successful turn completion through
+  `one_chat_preferred_name`; current-owner, vault-session, conversation and turn
+  checks run before effects. Cancellation, conflicting results and stale turns
+  do not dispatch a write. An already-dispatched write may still commit; a
+  replaced session suppresses cache publication and acknowledgement. A newer
+  name also replaces the pending onboarding name draft so final setup Save
+  cannot restore the older choice. Other style values require Settings Save. The
   prompt section is rendered from server templates, owner text is a quoted
   literal, and no tool gate reads the style state
   (`tests/test_one_owner_style.py` asserts unchanged authorization decisions).
 - Live eval before promotion: none yet. Mocked contract tests only; whether One
   follows each template turn after turn is unmeasured.
+
+### Declared: explicit onboarding preferred-name answer
+
+- Owning agent and manifest: `agent_one`, `agents/one/agent.yaml`. While the
+  device's Something else name question is active, One assesses the reply using
+  `propose_style_settings` with `onboarding_action` and `onboarding_request_id`.
+  No host name-shaped, keyword or regex classifier decides meaning.
+- Output: `onboarding_name_assessed`, the matching request id, and a decision
+  (`name`, `skip`, `clarify`, `other`). Only `name` carries `preferred_name`.
+  This is distinct from the ordinary `offer_ready` Settings proposal.
+- Validators: authenticated typed-chat vault admission, current screen nonce,
+  closed action choices, no other style fields, and the existing 64-character
+  name bound. The nonce grants no authority. Missing or invalid output never
+  triggers a fallback name extraction.
+- Authority: the person's answer to the explicit name-entry question permits
+  the device's existing onboarding writer to merge only that name into encrypted
+  `identity.communication_preferences`. It commits after successful turn completion,
+  with current-owner, vault-session, question and turn checks before storage.
+  Skip, ambiguity, unrelated replies, cancellation and stale results write nothing.
+  Ordinary chat uses the separate preferred-name device contract above; other
+  writing preferences still require Settings confirmation.
+- Evidence: backend tool tests in `tests/test_one_owner_style.py` and frontend
+  onboarding, stream and browser regression tests. Live semantic behavior remains
+  unmeasured until evaluated with the deployed model; mocked decisions prove
+  validation and persistence, not the model's interpretation accuracy.
 
 ### Declared: consent scope catalog search (contract C4)
 
@@ -422,6 +685,66 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
   extraction and responsive fixtures prove contracts only; until this live gate
   passes, browser/iOS/Android receipt readers remain demoted rollback code rather
   than a parallel production authority.
+
+### Declared: Email receipts read from saved receipt memory
+
+- Owning agent: `agent_email_read_planner`. From the owner's current request alone
+  it decides that the question is about their own receipts, invoices, bills or
+  purchases (`read_receipts`) and not a search of their mail, and it chooses the
+  window, status, identifier kind, merchant and "show more". No phrase table,
+  regular expression or keyword list on the device, in the route or in host code
+  selects the operation. One's runtime Mail instruction only states which tool
+  to call; the planner's authored instruction owns the distinction between "show
+  my receipts" and "find emails mentioning receipts".
+- Manifest path: `consent-protocol/hushh_mcp/agents/email/agent.yaml`.
+- Structured output: `MailReadPlan` in
+  `consent-protocol/hushh_mcp/services/email_delegated_read.py`. `operation:
+  "read_receipts"` plus flat `receipt_since`, `receipt_until`, `receipt_statuses`,
+  `receipt_identifier_kinds`, `receipt_merchant`, `receipt_window_label` and
+  `receipt_more` (no nested objects, which Vertex rejected for `MailItemGist`).
+- Validator: `consent-protocol/hushh_mcp/services/receipt_memory_read.py`. Dates
+  must be real `YYYY-MM-DD` calendar dates with `since` not after `until`;
+  statuses and identifier kinds must be members of the closed sets; a malformed
+  plan is refused as `invalid_argument`, never repaired, widened or turned into
+  an inbox search. The read builds no Gmail reader, so a receipts plan cannot
+  reach `search_inbox`, and `read_receipts` is admitted only for typed chat (One
+  Live Voice refuses it). The interpreter stage is deliberately not run: every
+  amount, date, status and identifier in the answer is copied from the owner's
+  saved index and formatted by code, and a model re-writing one of them is the
+  failure this avoids. That skip is recorded, not silent
+  (`one_voice.mail.latency stage=interpret status=skipped`, `coverage.source =
+  receipt_memory`). Only the planner's own fields choose the window and filters;
+  code filters, sorts newest first, pages by ten, and omits any value the index
+  does not hold. A missing, malformed, empty, or older-than-seven-days index is
+  "not ready" with the exact sentence `Your receipt memory is not ready yet. Sync
+  and save your receipts in Mail.` and the generated `route.profile_receipts`
+  action; it is never reported as an empty mailbox. A "show more" continues a
+  server-held position (`hussh:receipt_cursor`: filters and an offset, never a
+  receipt) that expires after thirty minutes and is void after a new save.
+- Authority and storage: the index is derived on the owner's device from the same
+  canonical rows Mail > Receipts renders (`buildRecentReceiptRows`), never from
+  the retired `kai_gmail_receipts` table. It is saved only by the owner-confirmed
+  `gmail_receipt_memory_save_button` writer into the private
+  `shopping.receipts_memory._canonical_index` branch (leading underscore: never a
+  shareable path, Memory card or prompt-packet fact) and holds only an opaque
+  reference, merchant, amount and currency, category, lifecycle status,
+  transaction date, typed order/invoice/receipt/PNR identifiers, one grounded
+  short detail and a generated-at time. No subject, preview, body, sender
+  address, provider id, signed source handle or link is stored. The server never
+  holds the vault key: the device sends the decrypted index beside a typed turn
+  as `forwardedProps.receiptMemory`; the route validates it against a closed
+  schema, holds it only as an expiring request secret for that turn, and shows it
+  to no model.
+- Live eval before production promotion: the planner's operation choice is
+  measured only by mocked contract tests. On an owner mailbox with a saved
+  receipt memory, run requests such as "show my receipts", "receipts from the
+  last 2 months", "recent invoices", "what purchases did I make", "show overdue
+  bills" and "show more" and confirm `read_receipts` with the right window and
+  filters every time; run "find emails mentioning receipts", "emails from Amazon
+  about my order" and "what does the Supabase invoice email say" and confirm
+  `search_inbox` or `read_message`, never `read_receipts`. Include a missing,
+  stale and truncated memory, a locked vault, and a second page. Until then the
+  Email Mail-read kill switch (`GMAIL_CHAT_READS`) remains the rollback.
 
 
 ### Declared: typed-chat message reactions
@@ -623,3 +946,92 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
   the same input that proposed the card, refused as `card_not_shown`, which
   is recorded like a person's yes (structure cannot tell it from a yes given
   with the request, such as "call it Home instead, yes").
+
+
+### Declared: default-on Personal World Model research
+
+- Owning agent: One's `one_personal_world_model` manifest specialist, entered by
+  the authenticated `ensure` call after setup is resolved and the vault is
+  unlocked. Research is on by default after setup discloses it; `ensure` creates
+  a missing preference row as enabled and never flips an existing `enabled=false`
+  opt-out. It chooses source queries, identity pivots, evidence interpretation,
+  fact support, coverage gaps and plain-English summaries.
+- Owner decisions: `ensure` and `POST /jobs` accept bounded `owner_decisions`
+  (`confirmed`/`rejected`, at most 50 statements of 1 to 600 characters each),
+  stored in the sealed job state under `inputs` and passed to the specialist as
+  data. The authored manifest instruction tells the model not to propose those
+  claims or equivalents again and never to infer an opposite. The model decides
+  equivalence; host code only validates the bounds, and the client hides only
+  drafts whose claim key exactly matches a decided key.
+- Host contract: verified owner/setup/vault authority; exact contact matching for
+  invitation claims; bounded durable attempts, timeouts, response schemas and
+  receipt resolution. These checks cannot promote an uncertain candidate or
+  manufacture a numerical confidence probability. Python rejects inconsistent
+  identity/report enums; it does not recompute a successful semantic answer.
+- Persistence: an owner's Yes, Edit, Remove or No is written in the browser to
+  the encrypted Soul.md domain `one_memory` through the existing compare-and-set
+  writer. Yes saves the exact statement, Edit only the owner's wording, Remove
+  deletes the bullet, and No writes no bullet and never an opposite. Private
+  `_pwm_claims` metadata keeps decisions and is never sent to a model as memory.
+  Independently supplied source facts use the existing exact review mutation;
+  their source references resolve only from received tool receipts. Draft
+  generation IDs and CAS fences reject stale dismissal/completion. The page
+  shows saved owner decisions; it does not synthesize new claims.
+- Failure: missing provider, exhausted budget, invalid output or authority loss
+  yields unavailable/disabled; never inferred no-match. The job records terminal
+  state and attempt charges without logging identity or query contents.
+- Evidence: checkpoint/revocation/completion tests, default-preference and
+  `owner_decisions` bound tests, and invitation authority tests exercise
+  production services. Live precision, preference attribution and
+  latency require consented live evaluation through managed Vertex.
+- Native Google responses stay view-only: grounded answer text, grounding URLs and
+  titles, and search-suggestion HTML are never persisted to memory, and
+  `/source-reviews/complete` refuses a display-only draft with 409. Search
+  suggestions are still displayed with the grounded findings. Independently
+  supplied permitted URL Context sources produce a separate `ProfileReport`
+  review draft. Successful requested-URL receipts, purpose bounds and exact
+  selection protect that save path. The same manifest owns both modes; the host
+  never turns grounded links into crawl inputs.
+- Structured intelligence contracts: `QueryPlan`, `IdentityAssessment`, and
+  `WorldModelReport` in `one_adk/world_model_contracts.py`. Evidence existence,
+  candidate membership, conflict conditions and topic receipt checks validate
+  model output; they do not choose queries or generate replacement interpretations.
+- Scope and exact prompt: [Personal World Model KT](../../../docs/reference/one/personal-world-model.md).
+- Azure UAT: GPT-5 mini owns planning, candidate assessment, attribution and report
+  meaning using that same manifest. Adapter instructions select the execution
+  stage and conservative citation-only identity boundary; native JSON schema and
+  host validation reject malformed or unreceived evidence, not semantic
+  duplicates. Provisional extraction, compilation and final fact review use
+  bounded instruction blocks authored in the same PWM manifest, with no
+  retrieval, identity-verification or save authority; it does not inherit the
+  whole research task's unrelated duties. The model chooses which distinct
+  findings remain. Fact review returns immutable fact IDs and a summary; the host
+  resolves that subset without rewriting any statement, topic, confidence or
+  citation, then revalidates the original evidence contract. Its charged result
+  is bound to the checkpointed intermediate report, so resume never silently
+  reruns compilation. Selecting zero claims preserves the assessed identity;
+  an empty matched/uncertain report is valid, while no-match still forbids claims. Stage
+  instruction and reasoning changes enter the existing policy fingerprint.
+  Candidate/source ID namespaces and observed-attempt gates enforce evidence
+  provenance, not meaning.
+  The policy fingerprint includes active stage instructions and transport bounds,
+  invalidating old drafts while preserving paid-attempt accounting. The existing
+  no-traffic candidate probe evaluates six synthetic attribution cases and the
+  production output schemas through the real primary gateway. Live owner precision and nonprofessional/social
+  coverage remain separate quality questions; no claim count proves them.
+
+### UAT Drive query-match delivery policy v2
+
+New UAT requester-origin automatic document requests seal policy version 2.
+The existing Documents planner remains the sole author of the complete typed
+search expression. The host compiles all supported predicates to Drive query
+syntax without substituting a successful model field or dropping a condition.
+This interaction delivers provider-search matches, so the document-content
+assessor stage is intentionally not applicable; it is recorded as such in
+`drive_query_matches_v1` provenance and closed operational telemetry. This is
+an explicit delivery-policy change, not a claimed successful or failed content
+assessment. No content-verification score, citation or fingerprint is invented.
+Provider-inexpressible content-period or account-relationship requests require
+clarification. Existing v1/package assessments and their byte-exact manifest
+policy hash remain unchanged. Permission, consent, date scope, payment and
+external-effect idempotency remain independently authoritative.

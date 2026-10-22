@@ -11,6 +11,7 @@ from google.auth.exceptions import TransportError
 
 from api.middleware import (
     require_firebase_auth,
+    require_firebase_auth_read_only,
     require_vault_owner_token,
 )
 from api.routes import account
@@ -24,7 +25,21 @@ from hushh_mcp.services.account_service import (
     PERSONAL_AGENT_DEPROVISION_REQUIRED_MESSAGE,
     AccountService,
 )
-from hushh_mcp.services.actor_identity_service import ActorIdentityService
+from hushh_mcp.services.actor_identity_service import (
+    ActorIdentityPhoneClaimConflictError,
+    ActorIdentityService,
+    ActorIdentitySyncUnavailableError,
+)
+
+
+@pytest.fixture(autouse=True)
+def _stub_test_phone_start_lookup(monkeypatch):
+    """Route unit tests stub the read; real SQL is covered by PostgreSQL tests."""
+
+    async def available(self, *, user_id, phone_number):
+        return True
+
+    monkeypatch.setattr(ActorIdentityService, "can_claim_test_phone", available)
 
 
 def _build_app() -> FastAPI:
@@ -436,6 +451,70 @@ def test_upload_account_avatar_requires_firebase_auth():
     response = client.post("/api/account/avatar", json={"image_data_url": data_url})
 
     assert response.status_code == 401
+
+
+@pytest.mark.parametrize(
+    "failure,status",
+    [
+        (None, 200),
+        (ValueError, 409),
+        (ActorIdentityPhoneClaimConflictError, 409),
+        (ActorIdentitySyncUnavailableError, 503),
+    ],
+)
+def test_identity_refresh_explicit_native_phone_intent_is_owner_scoped(
+    monkeypatch, failure, status
+):
+    calls = []
+
+    async def finalize(self, uid, phone):
+        calls.append((uid, phone))
+        if failure:
+            raise failure()
+        return {"user_id": uid, "phone_verified": True, "phone_number": phone}
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "authenticated-owner"
+    monkeypatch.setattr(ActorIdentityService, "finalize_verified_phone_from_firebase", finalize)
+    client = TestClient(app)
+    response = client.post(
+        "/api/account/identity/refresh",
+        json={"verified_phone_number": "+919000000001", "user_id": "other-owner"},
+    )
+    assert response.status_code == status
+    assert calls == [("authenticated-owner", "+919000000001")]
+    if status == 200:
+        assert response.json()["identity"]["phone_number"] == "+919000000001"
+    else:
+        assert "identity" not in response.json()
+    assert (
+        client.post(
+            "/api/account/identity/refresh", json={"verified_phone_number": "9000000001"}
+        ).status_code
+        == 422
+    )
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("failure", [ActorIdentitySyncUnavailableError, ConnectionError])
+def test_strict_identity_refresh_fails_closed_instead_of_returning_cached_identity(
+    monkeypatch, failure
+):
+    async def sync(self, firebase_uid, *, force=False, require_success=False):
+        assert force is True
+        if require_success:
+            raise failure()
+        return {"user_id": firebase_uid, "phone_verified": True, "phone_number": "+12025550101"}
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
+    monkeypatch.setattr(ActorIdentityService, "sync_from_firebase", sync)
+    client = TestClient(app)
+    assert client.post("/api/account/identity/refresh").status_code == 200
+    response = client.post("/api/account/identity/refresh?require_success=true&force=false")
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "IDENTITY_PROVIDER_UNAVAILABLE"
+    assert "identity" not in response.json()
 
 
 def test_upload_account_avatar_accepts_valid_image_data_url(monkeypatch):
@@ -1023,6 +1102,75 @@ def test_start_uat_test_phone_verification_requires_prod_challenge_secret(monkey
     assert response.json()["eligible"] is False
 
 
+@pytest.mark.parametrize("environment", ["uat", "production"])
+def test_test_phone_owner_conflict_uses_real_otp_and_confirmation_rechecks(
+    monkeypatch, environment
+):
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+16505550101")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CODE", "000000")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET", "challenge-secret")
+    monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_ENABLED", "true")
+    monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_NUMBERS", "+16505550101")
+    monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_CODE", "000000")
+    monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET", "challenge-secret")
+
+    async def unavailable(self, *, user_id, phone_number):
+        return False
+
+    async def conflict(self, **kwargs):
+        raise ActorIdentityPhoneClaimConflictError()
+
+    monkeypatch.setattr(ActorIdentityService, "can_claim_test_phone", unavailable)
+    monkeypatch.setattr(ActorIdentityService, "claim_verified_phone", conflict)
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
+    client = TestClient(app)
+    start = client.post("/api/account/phone/uat-test/start", json={"phone_number": "+16505550101"})
+    assert start.status_code == 200
+    assert start.json()["eligible"] is False
+    # An older/racing challenge must still be refused at the mutation boundary.
+    response = client.post(
+        "/api/account/phone/uat-test/confirm",
+        json={
+            "phone_number": "+16505550101",
+            "verification_code": "000000",
+            "verification_id": account._create_uat_phone_test_verification_id("+16505550101"),
+        },
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "PHONE_TEST_NUMBER_IN_USE"
+
+
+@pytest.mark.parametrize(
+    "path,payload",
+    [
+        ("/api/account/phone/claim", {"phone_id_token": "phone-proof"}),
+        (
+            "/api/account/phone/uat-test/confirm",
+            {
+                "phone_number": "+16505550101",
+                "verification_code": "000000",
+                "verification_id": "challenge",
+            },
+        ),
+    ],
+)
+def test_phone_claim_rejects_changed_token_owner_before_verification_or_mutation(
+    monkeypatch, path, payload
+):
+    async def must_not_run(*args, **kwargs):
+        pytest.fail("Changed-owner phone verification must stop before proof/mutation")
+
+    monkeypatch.setattr(account, "_verify_phone_claim_id_token", must_not_run)
+    monkeypatch.setattr(ActorIdentityService, "claim_verified_phone", must_not_run)
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "new-owner"
+    response = TestClient(app).post(path, json={**payload, "expected_user_id": "old-owner"})
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "PHONE_VERIFICATION_ACCOUNT_CHANGED"
+
+
 def test_confirm_uat_test_phone_verification_persists_verified_phone(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+16505550101")
@@ -1231,12 +1379,259 @@ def test_delete_account_requires_vault_owner_token():
     assert response.status_code == 401
 
 
+def _lost_vault_app(
+    monkeypatch,
+    *,
+    phone: str | None = None,
+    firebase_phone: str | None = None,
+    provider: str = "google.com",
+):
+    from firebase_admin import auth as firebase_auth
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth_read_only] = lambda: "user_123"
+
+    async def _identity(_self, _user_ids):
+        return {
+            "user_123": {
+                "phone_number": phone,
+                "phone_verified": phone is not None,
+            }
+        }
+
+    monkeypatch.setattr(ActorIdentityService, "get_many", _identity)
+    monkeypatch.setattr(account, "get_firebase_auth_app", lambda: object())
+    monkeypatch.setattr(
+        firebase_auth,
+        "get_user",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            provider_data=[SimpleNamespace(provider_id=provider)],
+            phone_number=firebase_phone,
+        ),
+    )
+    return app
+
+
+def test_lost_vault_options_mask_linked_phone_and_do_not_require_vault(monkeypatch):
+    app = _lost_vault_app(monkeypatch, phone="+15551239876")
+    response = TestClient(app).get("/api/account/delete-lost-vault/options")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.json() == {
+        "phone_available": True,
+        "phone_hint": "••76",
+        "providers": ["google.com"],
+    }
+
+
+def test_lost_vault_options_require_firebase_phone_when_shadow_has_no_claim(monkeypatch):
+    app = _lost_vault_app(monkeypatch, firebase_phone="+15551239876")
+    response = TestClient(app).get("/api/account/delete-lost-vault/options")
+
+    assert response.status_code == 200
+    assert response.json()["phone_available"] is True
+    assert response.json()["phone_hint"] == "••76"
+
+
+def test_lost_vault_delete_cannot_bypass_firebase_phone_when_shadow_has_no_claim(
+    monkeypatch,
+):
+    from firebase_admin import auth as firebase_auth
+
+    app = _lost_vault_app(monkeypatch, firebase_phone="+15551239876")
+    deleted = []
+
+    async def _delete(_self, user_id: str, target: str = "both"):
+        deleted.append((user_id, target))
+        return {"success": True, "account_deleted": True}
+
+    monkeypatch.setattr(AccountService, "delete_account", _delete)
+    monkeypatch.setattr(
+        firebase_auth,
+        "verify_id_token",
+        lambda *_args, **_kwargs: {
+            "uid": "user_123",
+            "auth_time": account.time.time(),
+            "firebase": {"sign_in_provider": "google.com"},
+        },
+    )
+    response = TestClient(app).post(
+        "/api/account/delete-lost-vault",
+        headers={"Authorization": "Bearer fresh-provider-token"},
+        json={"method": "provider"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "ACCOUNT_DELETE_PHONE_PROOF_REQUIRED"
+    assert deleted == []
+
+
+def test_lost_vault_delete_requires_fresh_provider_proof_and_erases_full_account(monkeypatch):
+    from firebase_admin import auth as firebase_auth
+
+    app = _lost_vault_app(monkeypatch)
+    deleted = []
+
+    async def _delete(_self, user_id: str, target: str = "both"):
+        deleted.append((user_id, target))
+        return {"success": True, "account_deleted": True, "details": {}}
+
+    async def _delete_firebase(_user_id: str):
+        return "deleted"
+
+    monkeypatch.setattr(AccountService, "delete_account", _delete)
+    monkeypatch.setattr(account, "_delete_firebase_auth_user", _delete_firebase)
+    monkeypatch.setattr(
+        firebase_auth,
+        "verify_id_token",
+        lambda *_args, **_kwargs: {
+            "uid": "user_123",
+            "auth_time": account.time.time(),
+            "firebase": {"sign_in_provider": "google.com"},
+        },
+    )
+    response = TestClient(app).post(
+        "/api/account/delete-lost-vault",
+        headers={"Authorization": "Bearer fresh-provider-token"},
+        json={"method": "provider"},
+    )
+
+    assert response.status_code == 200
+    assert deleted == [("user_123", "both")]
+    assert response.json()["ready_to_start_fresh"] is True
+    assert response.json()["details"]["firebase_auth_user"] == "deleted"
+
+
+def test_lost_vault_delete_fails_closed_for_stale_provider_or_missing_phone_proof(monkeypatch):
+    from firebase_admin import auth as firebase_auth
+
+    app = _lost_vault_app(monkeypatch, phone="+15551239876")
+    deleted = []
+
+    async def _delete(_self, user_id: str, target: str = "both"):
+        deleted.append((user_id, target))
+        return {"success": True, "account_deleted": True}
+
+    monkeypatch.setattr(AccountService, "delete_account", _delete)
+    claims = {
+        "uid": "user_123",
+        "auth_time": account.time.time() - 600,
+        "firebase": {"sign_in_provider": "google.com"},
+    }
+    monkeypatch.setattr(firebase_auth, "verify_id_token", lambda *_args, **_kwargs: claims)
+    client = TestClient(app)
+    stale = client.post(
+        "/api/account/delete-lost-vault",
+        headers={"Authorization": "Bearer stale-provider-token"},
+        json={"method": "phone", "phone_id_token": "phone-token"},
+    )
+    assert stale.status_code == 401
+    assert stale.json()["detail"]["code"] == "ACCOUNT_DELETE_REAUTH_REQUIRED"
+
+    claims["auth_time"] = account.time.time()
+    no_phone = client.post(
+        "/api/account/delete-lost-vault",
+        headers={"Authorization": "Bearer fresh-provider-token"},
+        json={"method": "provider"},
+    )
+    assert no_phone.status_code == 403
+    assert no_phone.json()["detail"]["code"] == "ACCOUNT_DELETE_PHONE_PROOF_REQUIRED"
+
+    claims.update(
+        {
+            "phone_number": "+15550000000",
+            "firebase": {"sign_in_provider": "phone"},
+        }
+    )
+    # A phone token for another number never authorizes erasure, even with a
+    # fresh provider session. Distinguish the two signed token payloads.
+    monkeypatch.setattr(
+        firebase_auth,
+        "verify_id_token",
+        lambda token, **_kwargs: (
+            {
+                "uid": "user_123",
+                "auth_time": account.time.time(),
+                "firebase": {"sign_in_provider": "google.com"},
+            }
+            if token == "fresh-provider-token"
+            else claims
+        ),
+    )
+    wrong_phone = client.post(
+        "/api/account/delete-lost-vault",
+        headers={"Authorization": "Bearer fresh-provider-token"},
+        json={"method": "phone", "phone_id_token": "wrong-phone-token"},
+    )
+    assert wrong_phone.status_code == 401
+    assert wrong_phone.json()["detail"]["code"] == "ACCOUNT_DELETE_PHONE_PROOF_INVALID"
+    assert deleted == []
+
+    # Phone proof cannot stand in for a fresh federated proof of the signed-in UID.
+    phone_only = client.post(
+        "/api/account/delete-lost-vault",
+        headers={"Authorization": "Bearer wrong-phone-token"},
+        json={"method": "phone", "phone_id_token": "wrong-phone-token"},
+    )
+    assert phone_only.status_code == 401
+    assert phone_only.json()["detail"]["code"] == "ACCOUNT_DELETE_REAUTH_REQUIRED"
+    assert deleted == []
+
+
+def test_lost_vault_delete_accepts_matching_fresh_phone_and_reports_pending_identity(monkeypatch):
+    from firebase_admin import auth as firebase_auth
+
+    app = _lost_vault_app(monkeypatch, phone="+15551239876")
+    deleted = []
+
+    async def _delete(_self, user_id: str, target: str = "both"):
+        deleted.append((user_id, target))
+        return {"success": True, "account_deleted": True, "details": {}}
+
+    async def _quarantine(_user_id: str):
+        return "quarantined"
+
+    monkeypatch.setattr(AccountService, "delete_account", _delete)
+    monkeypatch.setattr(account, "_delete_firebase_auth_user", _quarantine)
+    monkeypatch.setattr(
+        firebase_auth,
+        "verify_id_token",
+        lambda token, **_kwargs: (
+            {
+                "uid": "user_123",
+                "auth_time": account.time.time(),
+                "firebase": {"sign_in_provider": "google.com"},
+            }
+            if token == "provider-token"
+            else {
+                "uid": "phone-session-uid",
+                "phone_number": "+15551239876",
+                "auth_time": account.time.time(),
+                "firebase": {"sign_in_provider": "phone"},
+            }
+        ),
+    )
+    response = TestClient(app).post(
+        "/api/account/delete-lost-vault",
+        headers={"Authorization": "Bearer provider-token"},
+        json={"method": "phone", "phone_id_token": "phone-token"},
+    )
+
+    assert response.status_code == 200
+    assert deleted == [("user_123", "both")]
+    assert response.json()["ready_to_start_fresh"] is False
+    assert response.json()["details"]["firebase_auth_user"] == "quarantined"
+
+
 def test_delete_firebase_auth_user_retries_once_before_success(monkeypatch):
     from firebase_admin import auth as firebase_auth
 
     delete_calls: list[tuple[str, object]] = []
     sleep_calls: list[float] = []
-    firebase_app = object()
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("APP_RUNTIME_PROFILE", "prod")
+    firebase_app = SimpleNamespace(project_id="hushh-pda")
 
     def _mock_delete_user(user_id: str, *, app: object):
         delete_calls.append((user_id, app))
@@ -1252,7 +1647,7 @@ def test_delete_firebase_auth_user_retries_once_before_success(monkeypatch):
     monkeypatch.setattr(
         AccountDeletionLifecycleService,
         "record_cleanup_outcome",
-        lambda **_kwargs: None,
+        lambda _self, **_kwargs: True,
     )
 
     status = asyncio.run(account._delete_firebase_auth_user("user_123"))
@@ -1262,13 +1657,63 @@ def test_delete_firebase_auth_user_retries_once_before_success(monkeypatch):
     assert sleep_calls == [lifecycle_module._FIREBASE_DELETE_RETRY_DELAY_SECONDS]
 
 
+@pytest.mark.parametrize("setup_recovers", [True, False])
+def test_delete_firebase_setup_failure_settles_cleanup_intent(monkeypatch, setup_recovers):
+    from unittest.mock import MagicMock
+
+    from firebase_admin import auth as firebase_auth
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("APP_RUNTIME_PROFILE", "prod")
+    firebase_app = SimpleNamespace(project_id="hushh-pda")
+    setup_calls = []
+    outcomes = []
+
+    def initialize():
+        setup_calls.append(True)
+        if not setup_recovers or len(setup_calls) == 1:
+            raise ValueError("private credential setup detail")
+        return firebase_app
+
+    async def no_sleep(_delay):
+        return None
+
+    delete, disable, revoke = MagicMock(), MagicMock(), MagicMock()
+    monkeypatch.setattr(lifecycle_module, "get_firebase_auth_app", initialize)
+    monkeypatch.setattr(lifecycle_module.asyncio, "sleep", no_sleep)
+    monkeypatch.setattr(firebase_auth, "delete_user", delete)
+    monkeypatch.setattr(firebase_auth, "update_user", disable)
+    monkeypatch.setattr(firebase_auth, "revoke_refresh_tokens", revoke)
+    monkeypatch.setattr(
+        AccountDeletionLifecycleService,
+        "record_cleanup_outcome",
+        lambda _self, **kwargs: outcomes.append(kwargs["attempt"]) or True,
+    )
+
+    status = asyncio.run(account._delete_firebase_auth_user("user_123"))
+
+    assert len(outcomes) == 1
+    assert outcomes[0].outcome == status
+    if setup_recovers:
+        assert status == "deleted"
+        delete.assert_called_once_with("user_123", app=firebase_app)
+    else:
+        assert status == "quarantine_incomplete"
+        assert outcomes[0].failure_class == "ValueError"
+        delete.assert_not_called()
+    disable.assert_not_called()
+    revoke.assert_not_called()
+
+
 def test_delete_firebase_auth_user_quarantines_after_bounded_failures(monkeypatch):
     from firebase_admin import auth as firebase_auth
 
     delete_calls: list[str] = []
     disabled_users: list[str] = []
     revoked_users: list[str] = []
-    firebase_app = object()
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("APP_RUNTIME_PROFILE", "prod")
+    firebase_app = SimpleNamespace(project_id="hushh-pda")
 
     def _mock_delete_user(user_id: str, *, app: object):
         assert app is firebase_app
@@ -1299,7 +1744,7 @@ def test_delete_firebase_auth_user_quarantines_after_bounded_failures(monkeypatc
     monkeypatch.setattr(
         AccountDeletionLifecycleService,
         "record_cleanup_outcome",
-        lambda **_kwargs: None,
+        lambda _self, **_kwargs: True,
     )
 
     status = asyncio.run(account._delete_firebase_auth_user("user_123"))
@@ -1473,43 +1918,47 @@ def test_export_account_data_requires_vault_owner_token():
 
 
 def test_export_account_data_returns_service_payload(monkeypatch):
-    async def _mock_export(self, user_id: str):
+    class Export:
+        closed = False
+        produced = False
+        remaining_seconds = 240.0
+
+        def __iter__(self):
+            yield b'{"success":true,"requested_target":"account","data":{"actor_profile":{"user_id":"user_123"},"encrypted_vault_keys":[]}}'
+
+        def close(self):
+            self.closed = True
+
+        def confirm_produced(self):
+            self.produced = True
+
+    export = Export()
+
+    def prepare(self, user_id):
         assert user_id == "user_123"
-        return {
-            "success": True,
-            "requested_target": "account",
-            "data": {
-                "actor_profile": {"user_id": "user_123"},
-                "encrypted_vault_keys": [],
-            },
-        }
+        return export
 
     app = _build_app()
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "user_123"}
-    monkeypatch.setattr(AccountService, "export_data", _mock_export)
-
-    client = TestClient(app)
-    response = client.get("/api/account/export")
+    monkeypatch.setattr(AccountService, "prepare_export", prepare)
+    response = TestClient(app).get("/api/account/export?user_id=another_owner")
 
     assert response.status_code == 200
-    payload = response.json()
-    assert payload["success"] is True
-    assert payload["requested_target"] == "account"
-    assert payload["data"]["actor_profile"]["user_id"] == "user_123"
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.json()["data"]["actor_profile"]["user_id"] == "user_123"
+    assert export.closed
+    assert export.produced
 
 
 def test_export_account_data_maps_failure_to_500(monkeypatch):
-    async def _mock_export(self, user_id: str):
+    def prepare(self, user_id):
         assert user_id == "user_123"
-        return {"success": False, "error": "boom"}
+        raise RuntimeError("raw database error")
 
     app = _build_app()
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "user_123"}
-    monkeypatch.setattr(AccountService, "export_data", _mock_export)
-
-    client = TestClient(app)
-    response = client.get("/api/account/export")
-
+    monkeypatch.setattr(AccountService, "prepare_export", prepare)
+    response = TestClient(app).get("/api/account/export")
     assert response.status_code == 500
     assert response.json()["detail"] == "Account export failed"
 

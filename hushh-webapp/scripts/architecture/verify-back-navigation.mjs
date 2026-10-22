@@ -1,0 +1,129 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { ts, createUiSourceIndex } from './ui-source-index.mjs';
+import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
+import { syncReviewReceipt } from './ui-review-receipts.mjs';
+
+// Existing specialised owners only. New calls, files or aliases fail the ratchet.
+const reviewedHistoryOwners = new Map([
+  ['lib/navigation/profile-pane.ts', 3], // Its tested, bounded pane-depth history is the owner.
+  ['lib/navigation/web-history-back.ts', 1], // Inverse traversal of a consumed Profile pop; never selects an application parent.
+  ['components/one-location/location-immersive-map.tsx', 1], // Existing check-in overlay history; separate from route Back.
+  ['app/register-phone/page.tsx', 1], // Auth-owned entry recovery.
+  ['app/not-found.tsx', 1], // Unknown-route recovery.
+  ['app/global-error.tsx', 1], // Failed app tree cannot use the mounted navigation owner.
+]);
+
+export function historyBypasses(source, file = 'screen.tsx') {
+  // A call/alias needs one of these tokens. Escaped identifiers still use AST.
+  if (!/\b(?:back|go)\b|\\[ux]/.test(source)) return [];
+  const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+  const calls = [];
+  const owners = new Set(['router', 'history', 'window.history', 'globalThis.history']);
+  const methods = new Set();
+  function aliases(node) {
+    if (ts.isVariableDeclaration(node) && node.initializer) {
+      const initializer = node.initializer.getText(ast);
+      if (ts.isIdentifier(node.name) && (owners.has(initializer) || /^useRouter\(\)$/.test(initializer))) owners.add(node.name.text);
+      if (ts.isIdentifier(node.name) && [...owners].some(owner => initializer === `${owner}.back` || initializer === `${owner}.go`)) methods.add(node.name.text);
+      if (ts.isObjectBindingPattern(node.name) && owners.has(initializer)) {
+        for (const element of node.name.elements) if (['back', 'go'].includes(element.propertyName?.getText(ast) ?? element.name.getText(ast))) methods.add(element.name.getText(ast));
+      }
+    }
+    ts.forEachChild(node, aliases);
+  }
+  aliases(ast);
+  function visit(node) {
+    if (ts.isCallExpression(node) && methods.has(node.expression.getText(ast))) calls.push(node.getText(ast));
+    if (ts.isCallExpression(node) && (ts.isPropertyAccessExpression(node.expression) || ts.isElementAccessExpression(node.expression))) {
+      const target = node.expression.expression.getText(ast);
+      const method = ts.isPropertyAccessExpression(node.expression) ? node.expression.name.text : node.expression.argumentExpression?.text;
+      const isOwner = owners.has(target) || /(^|\.)(history|router)$/.test(target);
+      if ((method === 'back' && isOwner) || (method === 'go' && isOwner) || (['call','apply','bind'].includes(method) && (methods.has(target) || [...owners].some(owner => target === `${owner}.back` || target === `${owner}.go`)))) calls.push(node.getText(ast));
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(ast);
+  return calls;
+}
+export function validateHistoryBypasses(sources) {
+  for (const [file, source] of sources) {
+    const calls = historyBypasses(source, file);
+    if (calls.length > (reviewedHistoryOwners.get(file) ?? 0)) throw new Error(`Back hierarchy bypass in ${file}: ${calls.join(', ')}`);
+  }
+}
+export function backSourceRevision(sources, entries) {
+  const hash = createHash('sha256');
+  for (const [file, source] of [...sources].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
+    if (file.startsWith('lib/generated/')) continue;
+    hash.update(file + '\0' + source.replace(/\r\n?/g, '\n') + '\0');
+  }
+  const authored = structuredClone(entries);
+  for (const entry of authored) if (entry.backVerification) delete entry.backVerification.sourceRevision;
+  hash.update(JSON.stringify(authored));
+  return hash.digest('hex');
+}
+export async function verifyBackNavigation(root, stamp = false, index = createUiSourceIndex(root)) {
+  const contractPath = path.join(root, 'lib/navigation/app-route-layout.contract.json');
+  const entries = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  const byRoute = new Map();
+  const byPath = new Map();
+  for (const entry of entries) {
+    if (byRoute.has(entry.route)) throw new Error(`Duplicate authored Back route: ${entry.route}`);
+    byRoute.set(entry.route, entry);
+    const pathname = entry.route.split('?')[0];
+    if (!byPath.has(pathname)) byPath.set(pathname, entry);
+  }
+  const sources = new Map();
+  for (const dir of ['app','components','lib']) {
+    for (const file of index.files) {
+      if (!file.startsWith(path.join(root, dir) + path.sep) || file.split(path.sep).includes('__tests__') || !/\.[jt]sx?$/.test(file)) continue;
+      sources.set(path.relative(root, file).split(path.sep).join('/'), index.read(file));
+    }
+  }
+  for (const file of sources.keys()) {
+    if (!/\/page\.[jt]sx?$/.test(file) || !file.startsWith('app/')) continue;
+    const route = '/' + file.slice(4).replace(/(^|\/)page\.[jt]sx?$/, '').split('/').filter(part => !part.startsWith('(')).join('/');
+    const entry = byPath.get(route);
+    if (!entry?.backVerification?.cases?.length) throw new Error(`New route needs authored Back verification: ${file}`);
+  }
+  const location = sources.get('components/one-location/redesign/location-redesign-hub.tsx');
+  const ast = ts.createSourceFile('hub.tsx', location, ts.ScriptTarget.Latest, true);
+  let actions = [];
+  function visit(node) {
+    if (ts.isVariableDeclaration(node) && node.name.getText(ast) === 'FLOW_TO_ACTION' && node.initializer && ts.isObjectLiteralExpression(node.initializer)) actions = node.initializer.properties.filter(ts.isPropertyAssignment).map(property => property.initializer.text);
+    ts.forEachChild(node, visit);
+  }
+  visit(ast);
+  if (!actions.length) throw new Error('Location action authority changed; review Back coverage extraction');
+  const cases = byRoute.get('/one/location')?.backVerification?.cases ?? [];
+  const scenarios = new Set(cases.map(item => {
+    const query = new URL(item.href, 'https://app.test').searchParams;
+    return JSON.stringify([query.get('action'), query.get('view')]);
+  }));
+  for (const action of actions) {
+    for (const view of ['now', 'people', 'links']) {
+      if (!scenarios.has(JSON.stringify([action, view]))) throw new Error(`Location Back scenario missing: action=${action}&view=${view}`);
+    }
+  }
+  validateHistoryBypasses(sources);
+  const revision = backSourceRevision(sources, entries);
+  const rootContract = byRoute.get('/')?.backVerification;
+  if (!rootContract) throw new Error('The application root must own Back verification');
+  if (stamp) {
+    let migrated = false;
+    for (const entry of entries) {
+      if (Object.hasOwn(entry.backVerification || {}, 'sourceRevision')) {
+        delete entry.backVerification.sourceRevision;
+        migrated = true;
+      }
+    }
+    if (migrated) await fs.writeFile(contractPath, JSON.stringify(entries, null, 2) + '\n');
+  } else if (entries.some(entry => Object.hasOwn(entry.backVerification || {}, 'sourceRevision'))) {
+    throw new Error('Back source review is stale: migrate legacy source stamps with npm run build:ui-contracts.');
+  }
+  await syncReviewReceipt(root, 'back', revision, { route_count: entries.length, source_module_count: sources.size }, !stamp, [...sources.keys()]);
+  console.log(`Back contracts cover ${entries.length} routes, ${cases.length} Location scenarios; new history bypasses rejected.`);
+}
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await verifyBackNavigation(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..'), process.argv.includes('--stamp-reviewed-source'));

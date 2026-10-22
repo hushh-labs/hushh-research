@@ -39,6 +39,24 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 - [ ] Missing identity shadows resolve before admission; unavailable bootstrap
   or identity reads show recovery without inventing an unverified-phone claim.
   OTP entry survives token refresh, and account switching clears the old flow.
+- [ ] A saved backend phone remains visible when the primary provider is
+  phone-less, returns an older number, or republishes after view-cache expiry.
+  Temporary identity failures offer Retry rather than Add/verification. Verify
+  recovery after online/foreground, bounded retries and unmount cleanup.
+  From another screen, phone recovery must offer the canonical Account route;
+  Retry runs only after its unavailable-phone control is mounted and signed in.
+- [ ] A delayed identity response cannot overwrite a newer phone claim, including
+  logout/login to the same UID. Concurrent name/avatar saves still execute and
+  reconcile stale readbacks. Foreground recovery preserves a sent OTP.
+- [ ] A passive backend provider snapshot cannot replace a saved E.164 phone,
+  even when an OTP claim commits during its lookup. Native completion sends
+  explicit finalization intent; wrong owner/phone and conflicting ownership are
+  rejected without changing either binding. First verification and replacement
+  still succeed with matching fresh provider proof.
+- [ ] A genuine full negative identity after a phone binding transfer clears
+  the old owner's number; resolver calls and later provider updates cannot
+  resurrect it after cache expiry. Degraded legacy projections are not removal
+  evidence, and a late empty lookup cannot undo a later confirmed absence.
 
 
 1. Persona switch restores `last_active_persona`.
@@ -50,6 +68,10 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
    Chat card rereads authority before browser-local encrypted readback. Wrong
    bundle, revoked grant, locked vault, and unavailable export must not reveal
    values; notification delivery must not become approval or read authority.
+   A queued pre-event publication must not consume a matching status-change
+   event: reread backend authority even when pending is already queued. A
+   forged approval event with a still-pending backend result cannot approve
+   access or continue Chat; repeated actual approvals continue it once.
    The Connections tab shows active people from the canonical relationship
    page with their first-connected date, not resolved request logs. A failed
    relationship read is retryable and must not appear as an empty graph;
@@ -239,6 +261,26 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 5. ADK/A2A compliance checks pass.
 
 ## Exit Criteria
+
+### Independent email and Microsoft authentication
+
+1. Automatic exact-domain admission, current evidence, revocation and shared
+   budgets precede every OTP submission. Optional CA evidence cannot approve alone.
+2. The existing mail API sends from `one@hushh.ai`; record inbox receipt separately
+   from API acceptance. No WorkOS or customer-admin dependency is introduced.
+3. Single-use proof, persisted failures, browser binding, resend supersession and
+   lock-wait expiry races pass real Postgres checks.
+4. OTP signs existing verified-primary-email accounts in directly with the same
+   UID. Unverified primary emails, disabled/deleted accounts and deprovisioned
+   WorkOS-created accounts stay blocked; active origin alone is not a restriction.
+5. Erasure removes email credentials; retention continues with issuance disabled.
+   Vault reset preserves enrollment. Authentication grants no consent or vault key.
+6. Personal/company Microsoft, repeat OTP UID and vault-locked behavior need live
+   acceptance. Web checks do not certify native or voice return paths.
+
+See [Independent Email Authentication](./independent-email-auth.md).
+
+### Overall exit
 
 1. All checklist sections pass.
 2. No open P0/P1 IAM defects.

@@ -61,6 +61,14 @@ steps:
   # their canonical names so the first deploy after provisioning picks them up
   # with no change to this file.
   #
+  # WorkOS enterprise SSO follows the same optional rule. This step body is within
+  # a few characters of Cloud Build's 10,000-character arg cap, so its bindings
+  # live in deploy/sso/bind_workos.sh, sourced after add_secret and add_env exist.
+  # Missing secrets are skipped and the routes answer 404 until WORKOS_SSO_ENABLED
+  # is true, so deploying this file changes nothing by itself. The source line
+  # tolerates a missing script because production deploys this file over the older
+  # commit it is asked to release or roll back to, which has no deploy/sso/.
+  #
   # Runtime identity may differ from deploy identity: the dev environment
   # deploys with _DEPLOY_ENV=dev (labels, provenance) but runs with
   # ENVIRONMENT=uat so behavior gates replicate UAT exactly.
@@ -75,6 +83,7 @@ steps:
   # --max/--min: service-level limits bound aggregate database fan-out across
   # traffic splits. Revision min-instances=0 prevents no-traffic/retired
   # revisions from pinning their own warm database pools.
+  # CPU stays allocated between requests for action-search warmup and chat.
   # Step 3a: Validate the runtime identity + managed-Vertex IAM prerequisites.
   # Split out of the deploy step: Cloud Build caps one step arg at 10,000 chars
   # and the deploy body was 142 over after the INTELLIGENCE_* secret wiring.
@@ -89,6 +98,21 @@ steps:
       - "-c"
       - |
         set -euo pipefail
+        case "${_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE}" in
+          false) ;;
+          true)
+            if [[ "$PROJECT_ID" != "hushh-pda-uat" || "${_DEPLOY_ENV}" != "uat" ||
+                  "${_DEPLOY_SOURCE}" != "deploy-uat" || "${_DEPLOY_SHA}" != "a8e36651c17f6a0837530840fbeaf0ec3bbfcdf2" ||
+                  "${_CLOUD_RUN_NO_TRAFFIC}" != "true" || "${_VERIFY_MANAGED_VERTEX_RUNTIME}" != "true" ||
+                  ! "${_IMAGE_REFERENCE}" =~ ^gcr\.io/hushh-pda-uat/consent-protocol@sha256:[0-9a-f]{64}$ ||
+                  ! "${_GITHUB_RUN_ID}" =~ ^[0-9]+$ || "${_CLOUD_RUN_TAG}" != "account-deletion-${_GITHUB_RUN_ID}" ||
+                  "$(date -u +%Y-%m-%d)" > "2026-10-17" ]]; then
+              echo "Invalid one-time UAT Vertex probe exception." >&2
+              exit 1
+            fi
+            ;;
+          *) echo "Invalid Vertex probe exception flag." >&2; exit 1 ;;
+        esac
         if [[ -z "${_RUNTIME_SERVICE_ACCOUNT}" ]]; then
           echo "_RUNTIME_SERVICE_ACCOUNT is required." >&2
           exit 1
@@ -104,112 +128,72 @@ steps:
             genai_project_id="hushh-pda-uat"
           fi
         fi
-        if [[ "${genai_project_id}" != "$PROJECT_ID" ]]; then
-          case "${_DEPLOY_ENV}:${genai_project_id}" in
-            dev:hushh-pda-uat|uat:hushh-vertex-personal54|production:hushh-vertex-personal54) ;;
-            *)
-              echo "Cross-project managed Vertex target is not allowlisted." >&2
-              exit 1
-              ;;
-          esac
+        # Validate every surface against the packaged profile; no project overrides.
+        expected_config_hash=$(python3 scripts/ops/managed_ai_config.py --environment "${_DEPLOY_ENV}" --format hash)
+        if [[ "${_MANAGED_AI_CONFIG_HASH}" != "${expected_config_hash}" ]]; then echo "Managed AI profile hash mismatch." >&2; exit 1; fi
+        expected_genai_project=$(python3 -c 'import json,sys; print(json.load(open("consent-protocol/config/managed-ai-runtime.json"))["environments"][sys.argv[1]]["project"])' "${_DEPLOY_ENV}")
+        if [[ "${genai_project_id}" != "${expected_genai_project}" || -n "${_HUSHH_ONE_CHAT_VERTEX_PROJECT}" || -n "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" ]]; then
+          echo "Managed AI deployment disagrees with its checked-in profile." >&2
+          exit 1
         fi
         gcloud iam service-accounts describe "${_RUNTIME_SERVICE_ACCOUNT}" \
           --project="$PROJECT_ID" >/dev/null
-        vertex_api_name="$(gcloud services list --enabled \
-          --project="${genai_project_id}" \
-          --filter='config.name=aiplatform.googleapis.com' \
-          --format='value(config.name)' | head -n 1)"
-        if [[ "${vertex_api_name}" != "aiplatform.googleapis.com" ]]; then
-          echo "Vertex AI API must be enabled in ${genai_project_id}." >&2
-          exit 1
-        fi
-        runtime_vertex_role="$(gcloud projects get-iam-policy "${genai_project_id}" \
-          --flatten='bindings[].members' \
-          --filter="bindings.role=roles/aiplatform.user AND bindings.members=serviceAccount:${_RUNTIME_SERVICE_ACCOUNT}" \
-          --format='value(bindings.role)' | head -n 1)"
-        if [[ "${runtime_vertex_role}" != "roles/aiplatform.user" ]]; then
-          echo "${_RUNTIME_SERVICE_ACCOUNT} must have roles/aiplatform.user in ${genai_project_id}." >&2
-          exit 1
-        fi
-        if [[ "${genai_project_id}" != "$PROJECT_ID" ]]; then
-          runtime_service_usage_role="$(gcloud projects get-iam-policy "${genai_project_id}" \
-            --flatten='bindings[].members' \
-            --filter="bindings.role=roles/serviceusage.serviceUsageConsumer AND bindings.members=serviceAccount:${_RUNTIME_SERVICE_ACCOUNT}" \
-            --format='value(bindings.role)' | head -n 1)"
-          if [[ "${runtime_service_usage_role}" != "roles/serviceusage.serviceUsageConsumer" ]]; then
-            echo "${_RUNTIME_SERVICE_ACCOUNT} must have roles/serviceusage.serviceUsageConsumer in ${genai_project_id}." >&2
+        # UAT's cross-project release runs a mandatory no-traffic candidate
+        # probe as the runtime identity before promotion. Cloud Build's separate
+        # build identity need not read managed AI API state or IAM policy.
+        # Other environments retain the static preflight. UAT cannot fall back
+        # to an administrative read when its required candidate proof is absent.
+        if [[ "${_DEPLOY_ENV}" == "uat" && "${genai_project_id}" != "$PROJECT_ID" ]]; then
+          if [[ "$PROJECT_ID" != "hushh-pda-uat" || "${_CLOUD_RUN_NO_TRAFFIC}" != "true" || "${_VERIFY_MANAGED_VERTEX_RUNTIME}" != "true" ]] || \
+            ! [[ "${_IMAGE_REFERENCE}" =~ ^gcr\.io/hushh-pda-uat/consent-protocol@sha256:[0-9a-f]{64}$ && "${_DEPLOY_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "UAT cross-project Vertex requires a no-traffic candidate, immutable image, exact SHA and successful runtime probe." >&2
             exit 1
           fi
-        fi
-    id: "verify-runtime-iam"
-
-  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
-    entrypoint: "bash"
-    args:
-      - "-c"
-      - |
-        set -euo pipefail
-        genai_project_id="${_GENAI_PROJECT_ID}"
-        if [[ -z "${genai_project_id}" ]]; then
-          genai_project_id="$PROJECT_ID"
-          if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
-            genai_project_id="hushh-pda-uat"
+          echo "UAT cross-project Vertex access will be verified by the required runtime-identity candidate probe."
+        else
+          vertex_api_name="$(gcloud services list --enabled \
+            --project="${genai_project_id}" \
+            --filter='config.name=aiplatform.googleapis.com' \
+            --format='value(config.name)' | head -n 1)"
+          if [[ "${vertex_api_name}" != "aiplatform.googleapis.com" ]]; then
+            echo "Vertex AI API must be enabled in ${genai_project_id}." >&2
+            exit 1
+          fi
+          runtime_vertex_role="$(gcloud projects get-iam-policy "${genai_project_id}" \
+            --flatten='bindings[].members' \
+            --filter="bindings.role=roles/aiplatform.user AND bindings.members=serviceAccount:${_RUNTIME_SERVICE_ACCOUNT}" \
+            --format='value(bindings.role)' | head -n 1)"
+          if [[ "${runtime_vertex_role}" != "roles/aiplatform.user" ]]; then
+            echo "${_RUNTIME_SERVICE_ACCOUNT} must have roles/aiplatform.user in ${genai_project_id}." >&2
+            exit 1
+          fi
+          if [[ "${genai_project_id}" != "$PROJECT_ID" ]]; then
+            runtime_service_usage_role="$(gcloud projects get-iam-policy "${genai_project_id}" \
+              --flatten='bindings[].members' \
+              --filter="bindings.role=roles/serviceusage.serviceUsageConsumer AND bindings.members=serviceAccount:${_RUNTIME_SERVICE_ACCOUNT}" \
+              --format='value(bindings.role)' | head -n 1)"
+            if [[ "${runtime_service_usage_role}" != "roles/serviceusage.serviceUsageConsumer" ]]; then
+              echo "${_RUNTIME_SERVICE_ACCOUNT} must have roles/serviceusage.serviceUsageConsumer in ${genai_project_id}." >&2
+              exit 1
+            fi
           fi
         fi
-        add_secret() {
-          local secret_name="$1"
-          local env_name="$2"
-          [[ -z "${secret_name}" ]] && return
-          if gcloud secrets describe "${secret_name}" --project="$PROJECT_ID" >/dev/null 2>&1; then
-            secrets="${secrets},${env_name}=${secret_name}:latest"
-          fi
-        }
-
-        secrets="APP_SIGNING_KEY=${_APP_SIGNING_KEY_SECRET}:latest,VAULT_DATA_KEY=${_VAULT_DATA_KEY_SECRET}:latest,FIREBASE_ADMIN_CREDENTIALS_JSON=${_FIREBASE_ADMIN_CREDENTIALS_SECRET}:latest,APP_FRONTEND_ORIGIN=${_APP_FRONTEND_ORIGIN_SECRET}:latest,BACKEND_RUNTIME_CONFIG_JSON=${_BACKEND_RUNTIME_CONFIG_JSON_SECRET}:latest,DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest"
-        if [[ -n "${_PLAID_CLIENT_ID_SECRET}" ]]; then
-          secrets="${secrets},PLAID_CLIENT_ID=${_PLAID_CLIENT_ID_SECRET}:latest"
-        fi
-        if [[ -n "${_PLAID_SECRET_SECRET}" ]]; then
-          secrets="${secrets},PLAID_SECRET=${_PLAID_SECRET_SECRET}:latest"
-        fi
-        if [[ -n "${_PLAID_ACCESS_TOKEN_KEY_SECRET}" ]]; then
-          secrets="${secrets},PLAID_ACCESS_TOKEN_KEY=${_PLAID_ACCESS_TOKEN_KEY_SECRET}:latest"
-        fi
-        if [[ "${_DRIVE_REQUEST_PAYMENTS_ENABLED}" == "true" ]]; then
-          for required_secret in "${_STRIPE_SECRET_KEY_SECRET}" "${_STRIPE_WEBHOOK_SECRET_SECRET}"; do
-            if [[ -z "${required_secret}" ]] || ! gcloud secrets describe "${required_secret}" --project="$PROJECT_ID" >/dev/null 2>&1; then
-              echo "Drive request payments require both Stripe secrets in the deploy project." >&2
+        if [[ "${_PKM_ANSWER_PAYMENTS_ENABLED}" == "true" || "${_ANSWER_WORK_DRAIN_ENABLED}" == "true" ]]; then
+          for answer_secret in "${_PKM_ANSWER_STRIPE_SECRET_KEY_SECRET}" "${_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET}"; do
+            if [[ -z "${answer_secret}" ]] || ! gcloud secrets describe "${answer_secret}" --project="$PROJECT_ID" >/dev/null 2>&1; then
+              echo "Answer payments require their own Stripe secret bindings." >&2
               exit 1
             fi
           done
+          if [[ "${_PKM_ANSWER_PAYMENTS_ENABLED}" == "true" && "${_PKM_ANSWER_COMPOSER_ENABLED}" != "true" ]]; then
+            echo "Paid answers require the reviewed composer flag." >&2
+            exit 1
+          fi
         fi
-        for n in FINNHUB_API_KEY PMP_API_KEY NEWSAPI_KEY GMAIL_OAUTH_CLIENT_ID GMAIL_OAUTH_CLIENT_SECRET GMAIL_OAUTH_REDIRECT_URI GMAIL_OAUTH_TOKEN_KEY GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET GOOGLE_OAUTH_REDIRECT_URI GOOGLE_OAUTH_TOKEN_KEY GOOGLE_DRIVE_OAUTH_CLIENT_ID GOOGLE_DRIVE_OAUTH_CLIENT_SECRET GOOGLE_DRIVE_PICKER_API_KEY EXTERNAL_CONNECTOR_CREDENTIAL_KEY DRIVE_DOCUMENT_KEY_V1 DRIVE_SHARING_KEY_V1 STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET OPENAI_API_KEY GOOGLE_MAPS_API_KEY OMNIGATEWAY_CLIENT_ID OMNIGATEWAY_CLIENT_SECRET OMNIGATEWAY_EXT_CRM_CLIENT_ID OMNIGATEWAY_EXT_CRM_CLIENT_SECRET HUSHH_DEVELOPER_TOKEN HUSHH_UAT_PHONE_TEST_NUMBERS HUSHH_UAT_PHONE_TEST_CODE HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET HUSHH_PROD_PHONE_TEST_NUMBERS HUSHH_PROD_PHONE_TEST_CODE HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET REVIEWER_UID REVIEWER_VAULT_PASSPHRASE RIA_INTELLIGENCE_VERIFY_BASE_URL RIA_IDENTITY_BASE_URL RIA_IDENTITY_API_KEY INTELLIGENCE_API_BASE_URL INTELLIGENCE_API_KEY SUPPORT_EMAIL_TEST_TO SUPPORT_EMAIL_MODE SUPPORT_EMAIL_DELEGATED_USER SUPPORT_EMAIL_FROM GOOGLE_SERVICE_ACCOUNT_EMAIL GOOGLE_PRIVATE_KEY RIA_CLAIM_TEST_NUMBERS RIA_CLAIM_TEST_CODE RIA_CLAIM_TEST_EMAILS ONE_EMAIL_WATCH_RENEW_TOKEN WALLET_API_KEY; do
-          v="_${n}_SECRET"
-          add_secret "${!v}" "${n}"
-        done
-        # Curated OAuth connectors (config/curated_connectors/*.json): the deploy
-        # passes the '+'-joined secret names derived from the checked-in manifests.
-        # Secret name == environment variable name, so nothing is mapped per provider.
-        for s in $(echo "${_CURATED_CONNECTOR_SECRETS}" | tr '+' ' '); do
-          add_secret "$s" "$s"
-        done
-        add_secret "${_DIRECT_MESSAGE_ENCRYPTION_KEY_V1_SECRET}" "DIRECT_MESSAGE_ENCRYPTION_KEY_V1"
-        add_secret ADVISORS_API_KEY ADVISORS_API_KEY
-        add_secret INSURANCE_AGENTS_API_KEY INSURANCE_AGENTS_API_KEY
-        add_secret NWS_NEARBY_API_KEY NWS_NEARBY_API_KEY
-        add_secret NWS_NEARBY_V4_API_KEY NWS_NEARBY_V4_API_KEY
-        add_secret NWS_NEARBY_V4_ACTOR_HMAC_KEY NWS_NEARBY_V4_ACTOR_HMAC_KEY
-        add_secret "${_HUSHH_TECH_LAUNCH_PEPPER_SECRET}" "HUSSH_TECH_LAUNCH_PEPPER"
-        add_secret "${_RATE_LIMIT_STORAGE_URI_SECRET}" "RATE_LIMIT_STORAGE_URI"
-        add_secret "${_WALLET_PASS_CERT_PEM_SECRET}" "WALLET_PASS_CERT_PEM"
-        add_secret "${_WALLET_PASS_KEY_PEM_SECRET}" "WALLET_PASS_KEY_PEM"
-        add_secret "${_WALLET_PASS_WWDR_PEM_SECRET}" "WALLET_PASS_WWDR_PEM"
-
-        runtime_environment="${_RUNTIME_ENVIRONMENT}"
-        if [[ -z "${runtime_environment}" ]]; then
-          runtime_environment="${_DEPLOY_ENV}"
+        if [[ "${_PKM_ANSWER_PAYMENTS_ENABLED}" == "true" && "${_PKM_ANSWER_STRIPE_MODE}" == "live" && "${_PKM_ANSWER_LIVE_PROVIDER_REVIEWED}" != "true" ]]; then
+          echo "Live answers require verified provider retention and owner disclosure before admission." >&2
+          exit 1
         fi
-
         require_non_negative_int() {
           local name="$1"
           local value="$2"
@@ -242,8 +226,90 @@ steps:
           exit 1
         fi
 
+    id: "verify-runtime-iam"
+
+  # Curated OAuth connectors (config/curated_connectors/*.json): the deploy
+  # passes the '+'-joined secret names derived from the checked-in manifests.
+  # Secret name == environment variable name, so nothing is mapped per provider.
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        genai_project_id="${_GENAI_PROJECT_ID}"
+        if [[ -z "${genai_project_id}" ]]; then
+          genai_project_id="$PROJECT_ID"
+          if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+            genai_project_id="hushh-pda-uat"
+          fi
+        fi
+        add_secret() {
+          local secret_name="$1" env_name="$2"
+          [[ -z "${secret_name}" ]] && return
+          if gcloud secrets describe "${secret_name}" --project="$PROJECT_ID" >/dev/null 2>&1; then
+            secrets="${secrets},${env_name}=${secret_name}:latest"
+          fi
+        }
+        secrets="$${BASE_SECRET_BINDINGS}"
+        if [[ -n "${_PLAID_CLIENT_ID_SECRET}" ]]; then
+          secrets="${secrets},PLAID_CLIENT_ID=${_PLAID_CLIENT_ID_SECRET}:latest"
+        fi
+        if [[ -n "${_PLAID_SECRET_SECRET}" ]]; then
+          secrets="${secrets},PLAID_SECRET=${_PLAID_SECRET_SECRET}:latest"
+        fi
+        if [[ -n "${_PLAID_ACCESS_TOKEN_KEY_SECRET}" ]]; then
+          secrets="${secrets},PLAID_ACCESS_TOKEN_KEY=${_PLAID_ACCESS_TOKEN_KEY_SECRET}:latest"
+        fi
+        if [[ "${_DRIVE_REQUEST_PAYMENTS_ENABLED}" == "true" || "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED}" == "true" ]]; then
+          for required_secret in "${_STRIPE_SECRET_KEY_SECRET}" "${_STRIPE_WEBHOOK_SECRET_SECRET}"; do
+            if [[ -z "${required_secret}" ]] || ! gcloud secrets describe "${required_secret}" --project="$PROJECT_ID" >/dev/null 2>&1; then
+              echo "Drive request payments and owner payouts require both Stripe secrets in the deploy project." >&2
+              exit 1
+            fi
+          done
+        fi
+        if [[ "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED}" == "true" ]]; then
+          if [[ -z "${_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET}" ]] || ! gcloud secrets describe "${_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET}" --project="$PROJECT_ID" >/dev/null 2>&1; then
+            echo "Document owner payouts require the Stripe Connect webhook secret in the deploy project." >&2
+            exit 1
+          fi
+        fi
+        add_secret "${_PKM_ANSWER_STRIPE_SECRET_KEY_SECRET}" "PKM_ANSWER_STRIPE_SECRET_KEY"
+        add_secret "${_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET}" "PKM_ANSWER_STRIPE_WEBHOOK_SECRET"
+        add_secret "${_PKM_ANSWER_STRIPE_TEST_SECRET_KEY_SECRET}" "PKM_ANSWER_STRIPE_TEST_SECRET_KEY"
+        add_secret "${_PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_SECRET}" "PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET"
+        add_secret "${_PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_SECRET}" "PKM_ANSWER_STRIPE_LIVE_SECRET_KEY"
+        add_secret "${_PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_SECRET}" "PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET"
+        source deploy/drive/verify_hashcoin_config.sh "$PROJECT_ID"
+        for n in FINNHUB_API_KEY PMP_API_KEY NEWSAPI_KEY GMAIL_OAUTH_CLIENT_ID GMAIL_OAUTH_CLIENT_SECRET GMAIL_OAUTH_REDIRECT_URI GMAIL_OAUTH_TOKEN_KEY GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET GOOGLE_OAUTH_REDIRECT_URI GOOGLE_OAUTH_TOKEN_KEY GOOGLE_DRIVE_OAUTH_CLIENT_ID GOOGLE_DRIVE_OAUTH_CLIENT_SECRET GOOGLE_DRIVE_PICKER_API_KEY EXTERNAL_CONNECTOR_CREDENTIAL_KEY DRIVE_DOCUMENT_KEY_V1 DRIVE_SHARING_KEY_V1 STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET STRIPE_CONNECT_WEBHOOK_SECRET OPENAI_API_KEY STRIPE_CONNECT_SECRET_KEY STRIPE_CONNECT_TEST_WEBHOOK_SECRET GOOGLE_MAPS_API_KEY OMNIGATEWAY_CLIENT_ID OMNIGATEWAY_CLIENT_SECRET OMNIGATEWAY_EXT_CRM_CLIENT_ID OMNIGATEWAY_EXT_CRM_CLIENT_SECRET HUSHH_DEVELOPER_TOKEN HUSHH_UAT_PHONE_TEST_NUMBERS HUSHH_UAT_PHONE_TEST_CODE HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET HUSHH_PROD_PHONE_TEST_NUMBERS HUSHH_PROD_PHONE_TEST_CODE HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET REVIEWER_UID REVIEWER_VAULT_PASSPHRASE REVIEWER_COUNTERPART_UID REVIEWER_COUNTERPART_VAULT_PASSPHRASE RIA_INTELLIGENCE_VERIFY_BASE_URL RIA_IDENTITY_BASE_URL RIA_IDENTITY_API_KEY INTELLIGENCE_API_BASE_URL INTELLIGENCE_API_KEY SUPPORT_EMAIL_TEST_TO SUPPORT_EMAIL_MODE SUPPORT_EMAIL_DELEGATED_USER SUPPORT_EMAIL_FROM GOOGLE_SERVICE_ACCOUNT_EMAIL GOOGLE_PRIVATE_KEY RIA_CLAIM_TEST_NUMBERS RIA_CLAIM_TEST_CODE RIA_CLAIM_TEST_EMAILS ONE_EMAIL_WATCH_RENEW_TOKEN WALLET_API_KEY; do
+          v="_${n}_SECRET"
+          add_secret "${!v}" "${n}"
+        done
+        for s in $(echo "${_CURATED_CONNECTOR_SECRETS}" | tr '+' ' '); do
+          add_secret "$s" "$s"
+        done
+        add_secret "${_DIRECT_MESSAGE_ENCRYPTION_KEY_V1_SECRET}" "DIRECT_MESSAGE_ENCRYPTION_KEY_V1"
+        add_secret ADVISORS_API_KEY ADVISORS_API_KEY
+        add_secret INSURANCE_AGENTS_API_KEY INSURANCE_AGENTS_API_KEY
+        source deploy/email-auth/bind_secrets.sh "${_DEPLOY_ENV}"
+        source deploy/plg/bind_secrets.sh "${_DEPLOY_ENV}" "$PROJECT_ID"
+        add_secret NWS_NEARBY_API_KEY NWS_NEARBY_API_KEY
+        add_secret NWS_NEARBY_V4_API_KEY NWS_NEARBY_V4_API_KEY
+        add_secret NWS_NEARBY_V4_ACTOR_HMAC_KEY NWS_NEARBY_V4_ACTOR_HMAC_KEY
+        add_secret "${_HUSHH_TECH_LAUNCH_PEPPER_SECRET}" "HUSSH_TECH_LAUNCH_PEPPER"
+        add_secret "${_RATE_LIMIT_STORAGE_URI_SECRET}" "RATE_LIMIT_STORAGE_URI"
+        add_secret "${_WALLET_PASS_CERT_PEM_SECRET}" "WALLET_PASS_CERT_PEM"
+        add_secret "${_WALLET_PASS_KEY_PEM_SECRET}" "WALLET_PASS_KEY_PEM"
+        add_secret "${_WALLET_PASS_WWDR_PEM_SECRET}" "WALLET_PASS_WWDR_PEM"
+        runtime_environment="${_RUNTIME_ENVIRONMENT}"
+        if [[ -z "${runtime_environment}" ]]; then
+          runtime_environment="${_DEPLOY_ENV}"
+        fi
         env_vars=(
           "ENVIRONMENT=${runtime_environment}"
+          "DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED=${_DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED}"
+          "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER=${_DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER}"
           "HUSHH_DEPLOY_ENV=${_DEPLOY_ENV}"
           "HUSHH_DEPLOY_SOURCE=${_DEPLOY_SOURCE}"
           "HUSHH_DEPLOY_SHA=${_DEPLOY_SHA}"
@@ -252,8 +318,6 @@ steps:
           "GOOGLE_GENAI_USE_VERTEXAI=true"
           "GOOGLE_CLOUD_PROJECT=${PROJECT_ID}"
           "GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}"
-          "GOOGLE_CLOUD_LOCATION=global"
-          "HUSHH_VERTEX_LOCATIONS=global,us,eu"
           "CONSENT_API_PUBLIC_ORIGIN=${_CONSENT_API_PUBLIC_ORIGIN}"
           "DB_POOL_MIN_SIZE=${_DB_POOL_MIN_SIZE}"
           "DB_POOL_MAX_SIZE=${_DB_POOL_MAX_SIZE}"
@@ -263,24 +327,36 @@ steps:
           "RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS=${_RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS}"
           "RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS=${_RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS}"
         )
+        if [[ "${_DEPLOY_ENV}" == "uat" ]]; then env_vars+=("HUSHH_UAT_MANAGED_TEXT_PROVIDER=azure_openai" "HUSHH_UAT_MANAGED_AI_PROVIDER=azure_openai"); fi
         add_env() {
-          local env_name="$1"
-          local env_value="$2"
-          if [[ -n "${env_value}" ]]; then
-            env_vars+=("${env_name}=${env_value}")
+          local name="$1" value="$2"
+          if [[ -n "${value}" ]]; then
+            env_vars+=("${name}=${value}")
           fi
         }
-        for n in ONE_EMAIL_ADDRESS ONE_EMAIL_DELEGATED_USER ONE_EMAIL_PUBSUB_TOPIC ONE_EMAIL_WEBHOOK_AUDIENCE ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL ONE_EMAIL_WEBHOOK_AUTH_ENABLED ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL ACCOUNT_DELETION_CLEANUP_AUDIENCE ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL DRIVE_WORK_DRAIN_ENABLED DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE DRIVE_REQUEST_PAYMENTS_ENABLED ONE_EMAIL_KYC_DEFAULT_SCOPE ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED ONE_WALLET_CARD_ENABLED WALLET_PASS_PROVIDER APP_REVIEW_MODE HUSSH_GEMINI_TEXT_MODEL HUSHH_PROD_PHONE_TEST_ENABLED ONE_VOICE_LIVE_ENABLED VERTEX_LIVE_MODEL_ID VERTEX_LIVE_LOCATION; do
+        for n in ONE_EMAIL_ADDRESS ONE_EMAIL_DELEGATED_USER ONE_EMAIL_PUBSUB_TOPIC ONE_EMAIL_WEBHOOK_AUDIENCE ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL ONE_EMAIL_WEBHOOK_AUTH_ENABLED ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL ACCOUNT_DELETION_CLEANUP_AUDIENCE ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL DRIVE_WORK_DRAIN_ENABLED DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE DRIVE_REQUEST_PAYMENTS_ENABLED DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED DRIVE_REQUEST_HASHCOINS_ENABLED DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED STRIPE_MODE STRIPE_CONNECT_MODE ONE_EMAIL_KYC_DEFAULT_SCOPE ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED ONE_WALLET_CARD_ENABLED WALLET_CARD_ACCESS_ENABLED WALLET_PASS_PROVIDER APP_REVIEW_MODE HUSSH_GEMINI_TEXT_MODEL HUSHH_PROD_PHONE_TEST_ENABLED ONE_VOICE_LIVE_ENABLED ONE_VOICE_CALENDAR_NARRATION_ENABLED VERTEX_LIVE_MODEL_ID VERTEX_LIVE_LOCATION; do
+          v="_${n}"
+          add_env "${n}" "${!v}"
+        done
+        for n in PKM_ANSWER_REQUESTS_ENABLED PKM_ANSWER_PAYMENTS_ENABLED PKM_ANSWER_COMPOSER_ENABLED PKM_ANSWER_LIVE_PROVIDER_REVIEWED PKM_ANSWER_STRIPE_MODE ANSWER_WORK_DRAIN_ENABLED ANSWER_WORK_DRAIN_AUDIENCE; do
           v="_${n}"
           add_env "${n}" "${!v}"
         done
         add_env "KAI_ANALYZE_DURABLE_RUN_STORE" "${_KAI_ANALYZE_DURABLE_RUN_STORE}"
+        add_env "HUSHH_ONE_CHAT_VERTEX_PROJECT" "${_HUSHH_ONE_CHAT_VERTEX_PROJECT}"
+        add_env "HUSHH_ONE_VOICE_VERTEX_PROJECT" "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}"
         add_env "CONSENT_WEB_FALLBACK_ENABLED" "${_CONSENT_WEB_FALLBACK_ENABLED}"
         add_env "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"
-
+        source deploy/sso/bind_workos.sh || :
         env_var_string="$(IFS='|'; echo "${env_vars[*]}")"
         deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID},account-deletion-contract=v201"
-
+        if [[ "${_ONE_VOICE_LIVE_ENABLED}" == "true" ]]; then
+          deploy_labels="${deploy_labels},one-voice-vertex-project=${_HUSHH_ONE_VOICE_VERTEX_PROJECT}"
+          if [[ -n "${_VERTEX_LIVE_MODEL_ID}" ]]; then
+            live_model_label="$(printf '%s' "${_VERTEX_LIVE_MODEL_ID}" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_-' '-' | cut -c1-63)"
+            deploy_labels="${deploy_labels},one-voice-live-model=${live_model_label}"
+          fi
+        fi
         image_reference="${_IMAGE_REFERENCE}"
         if [[ -z "${image_reference}" ]]; then
           image_reference="gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG}"
@@ -289,7 +365,6 @@ steps:
           echo "Prebuilt backend deploy requires an immutable sha256 image digest." >&2
           exit 1
         fi
-
         cmd=(
           gcloud run deploy "${_BACKEND_SERVICE}"
           "--image=${image_reference}"
@@ -302,10 +377,6 @@ steps:
           "--cpu=${_CLOUD_RUN_CPU}"
           "--timeout=3600"
           "--concurrency=${_CLOUD_RUN_CONCURRENCY}"
-          # CPU stays allocated between requests. Throttled, the startup
-          # action-search warmup crawled at 37-78s per batch and each new
-          # instance's first chat turn waited 13-50s before its first model
-          # call (measured 2026-09-27).
           "--no-cpu-throttling"
           "--session-affinity"
           "--max=${_CLOUD_RUN_MAX_INSTANCES}"
@@ -316,23 +387,21 @@ steps:
           "--set-env-vars=^|^${env_var_string}"
           "--set-secrets=${secrets}"
         )
-
         if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then
           cmd+=("--no-traffic")
           if [[ -n "${_CLOUD_RUN_TAG}" ]]; then
             cmd+=("--tag=${_CLOUD_RUN_TAG}")
           fi
         fi
-
         if [[ -n "${_CLOUDSQL_INSTANCES}" ]]; then
           cmd+=("--add-cloudsql-instances=${_CLOUDSQL_INSTANCES}")
         fi
         if [[ -n "${_VPC_CONNECTOR}" ]]; then
           cmd+=("--vpc-connector=${_VPC_CONNECTOR}" "--vpc-egress=private-ranges-only")
         fi
-
         "${cmd[@]}"
     env:
+      - "BASE_SECRET_BINDINGS=APP_SIGNING_KEY=${_APP_SIGNING_KEY_SECRET}:latest,VAULT_DATA_KEY=${_VAULT_DATA_KEY_SECRET}:latest,FIREBASE_ADMIN_CREDENTIALS_JSON=${_FIREBASE_ADMIN_CREDENTIALS_SECRET}:latest,APP_FRONTEND_ORIGIN=${_APP_FRONTEND_ORIGIN_SECRET}:latest,BACKEND_RUNTIME_CONFIG_JSON=${_BACKEND_RUNTIME_CONFIG_JSON_SECRET}:latest,DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest"
       - "_ONE_EMAIL_ADDRESS=${_ONE_EMAIL_ADDRESS}"
       - "_ONE_EMAIL_DELEGATED_USER=${_ONE_EMAIL_DELEGATED_USER}"
       - "_ONE_EMAIL_PUBSUB_TOPIC=${_ONE_EMAIL_PUBSUB_TOPIC}"
@@ -350,14 +419,22 @@ steps:
       - "_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=${_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL}"
       - "_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=${_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE}"
       - "_DRIVE_REQUEST_PAYMENTS_ENABLED=${_DRIVE_REQUEST_PAYMENTS_ENABLED}"
+      - "_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED=${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED}"
+      - "_STRIPE_MODE=${_STRIPE_MODE}"
+      - "_STRIPE_CONNECT_MODE=${_STRIPE_CONNECT_MODE}"
+      - "_DRIVE_REQUEST_HASHCOINS_ENABLED=${_DRIVE_REQUEST_HASHCOINS_ENABLED}"
+      - "_DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED=${_DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED}"
       - "_ONE_EMAIL_KYC_DEFAULT_SCOPE=${_ONE_EMAIL_KYC_DEFAULT_SCOPE}"
       - "_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=${_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED}"
       - "_ONE_WALLET_CARD_ENABLED=${_ONE_WALLET_CARD_ENABLED}"
+      - "_WALLET_CARD_ACCESS_ENABLED=${_WALLET_CARD_ACCESS_ENABLED}"
       - "_WALLET_PASS_PROVIDER=${_WALLET_PASS_PROVIDER}"
+      - "_WORKOS_CONFIG=${_WORKOS_SSO_ENABLED}|${_WORKOS_REDIRECT_URI}|${_WORKOS_REDIRECT_ORIGINS}"
       - "_APP_REVIEW_MODE=${_APP_REVIEW_MODE}"
       - "_HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}"
       - "_HUSHH_PROD_PHONE_TEST_ENABLED=${_HUSHH_PROD_PHONE_TEST_ENABLED}"
       - "_ONE_VOICE_LIVE_ENABLED=${_ONE_VOICE_LIVE_ENABLED}"
+      - "_ONE_VOICE_CALENDAR_NARRATION_ENABLED=${_ONE_VOICE_CALENDAR_NARRATION_ENABLED}"
       - "_VERTEX_LIVE_MODEL_ID=${_VERTEX_LIVE_MODEL_ID}"
       - "_VERTEX_LIVE_LOCATION=${_VERTEX_LIVE_LOCATION}"
       - "_FINNHUB_API_KEY_SECRET=${_FINNHUB_API_KEY_SECRET}"
@@ -380,6 +457,9 @@ steps:
       - "_DRIVE_SHARING_KEY_V1_SECRET=${_DRIVE_SHARING_KEY_V1_SECRET}"
       - "_STRIPE_SECRET_KEY_SECRET=${_STRIPE_SECRET_KEY_SECRET}"
       - "_STRIPE_WEBHOOK_SECRET_SECRET=${_STRIPE_WEBHOOK_SECRET_SECRET}"
+      - "_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET=${_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET}"
+      - "_STRIPE_CONNECT_SECRET_KEY_SECRET=${_STRIPE_CONNECT_SECRET_KEY_SECRET}"
+      - "_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET=${_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET}"
       - "_OPENAI_API_KEY_SECRET=${_OPENAI_API_KEY_SECRET}"
       - "_GOOGLE_MAPS_API_KEY_SECRET=${_GOOGLE_MAPS_API_KEY_SECRET}"
       - "_OMNIGATEWAY_CLIENT_ID_SECRET=${_OMNIGATEWAY_CLIENT_ID_SECRET}"
@@ -396,6 +476,8 @@ steps:
       - "_HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET_SECRET=${_HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET_SECRET}"
       - "_REVIEWER_UID_SECRET=${_REVIEWER_UID_SECRET}"
       - "_REVIEWER_VAULT_PASSPHRASE_SECRET=${_REVIEWER_VAULT_PASSPHRASE_SECRET}"
+      - "_REVIEWER_COUNTERPART_UID_SECRET=${_REVIEWER_COUNTERPART_UID_SECRET}"
+      - "_REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET=${_REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET}"
       - "_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=${_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET}"
       - "_RIA_IDENTITY_BASE_URL_SECRET=${_RIA_IDENTITY_BASE_URL_SECRET}"
       - "_RIA_IDENTITY_API_KEY_SECRET=${_RIA_IDENTITY_API_KEY_SECRET}"
@@ -412,20 +494,183 @@ steps:
       - "_RIA_CLAIM_TEST_EMAILS_SECRET=${_RIA_CLAIM_TEST_EMAILS_SECRET}"
       - "_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=${_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET}"
       - "_WALLET_API_KEY_SECRET=${_WALLET_API_KEY_SECRET}"
+      - "_PKM_ANSWER_REQUESTS_ENABLED=${_PKM_ANSWER_REQUESTS_ENABLED}"
+      - "_PKM_ANSWER_PAYMENTS_ENABLED=${_PKM_ANSWER_PAYMENTS_ENABLED}"
+      - "_PKM_ANSWER_COMPOSER_ENABLED=${_PKM_ANSWER_COMPOSER_ENABLED}"
+      - "_PKM_ANSWER_LIVE_PROVIDER_REVIEWED=${_PKM_ANSWER_LIVE_PROVIDER_REVIEWED}"
+      - "_PKM_ANSWER_STRIPE_MODE=${_PKM_ANSWER_STRIPE_MODE}"
+      - "_ANSWER_WORK_DRAIN_ENABLED=${_ANSWER_WORK_DRAIN_ENABLED}"
+      - "_ANSWER_WORK_DRAIN_AUDIENCE=${_ANSWER_WORK_DRAIN_AUDIENCE}"
     id: "deploy-backend"
 
-  # Candidate-image GenAI probe under the exact runtime identity. This runs
-  # before the calling workflow can promote a no-traffic revision when the
-  # operator explicitly opts in. Direct backend builds do not make paid model
-  # calls by default; schema, authority, provenance and health gates still run.
+  # UAT Azure PWM must prove federation, strict schema and attribution from the
+  # exact no-traffic candidate image and runtime identity before promotion.
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: "bash"
     args:
       - "-c"
       - |
         set -euo pipefail
+        finish_provider_probe() {
+          probe_status=$?
+          trap - EXIT
+          READINESS_STEP_EXIT="${probe_status}" python3 scripts/ci/managed_provider_readiness.py record --provider=azure_openai --job="${job_name:-}" || true
+          if [[ -n "${job_name:-}" ]]; then
+            gcloud run jobs delete "${job_name}" --project="$PROJECT_ID" --region="${_REGION}" --quiet >/dev/null 2>&1 || true
+          fi
+          exit "${probe_status}"
+        }
+        trap finish_provider_probe EXIT
+        if [[ "${_DEPLOY_ENV}" != "uat" ]]; then
+          exit 0
+        fi
+        pwm_provider="$(python3 - <<'PY'
+        import json
+        from pathlib import Path
+        config = json.loads(Path("consent-protocol/config/managed-ai-runtime.json").read_text())
+        print(config.get("pwm_research_uat", config["pwm_research"])["provider"])
+        PY
+        )"
+        if [[ "${pwm_provider}" != "azure_openai_web_search" ]]; then
+          exit 0
+        fi
+        if [[ "$PROJECT_ID" != "hushh-pda-uat" || "${_REGION}" != "us-central1" ||
+              "${_CLOUD_RUN_NO_TRAFFIC}" != "true" ||
+              "${_RUNTIME_SERVICE_ACCOUNT}" != "consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com" ||
+              ! "${_IMAGE_REFERENCE}" =~ ^gcr\.io/hushh-pda-uat/consent-protocol@sha256:[0-9a-f]{64}$ ]]; then
+          echo "Azure PWM UAT requires the exact no-traffic candidate image and runtime identity." >&2
+          exit 1
+        fi
+        job_name="azure-pwm-${BUILD_ID}"
+        # The execution-bound collector finalizer owns cleanup.
+        gcloud run jobs deploy "${job_name}" \
+          --project="$PROJECT_ID" --region="${_REGION}" \
+          --image="${_IMAGE_REFERENCE}" \
+          --service-account="${_RUNTIME_SERVICE_ACCOUNT}" \
+          --set-secrets="APP_SIGNING_KEY=${_APP_SIGNING_KEY_SECRET}:latest,VAULT_DATA_KEY=${_VAULT_DATA_KEY_SECRET}:latest" \
+          --command=python3 --args=scripts/verify_azure_pwm_runtime.py \
+          --set-env-vars=ENVIRONMENT=uat,HUSHH_UAT_MANAGED_AI_PROVIDER=azure_openai,HUSHH_UAT_MANAGED_TEXT_PROVIDER=azure_openai,ONE_VOICE_LIVE_ENABLED=true \
+          --cpu=2 --memory=2Gi --max-retries=0 --task-timeout=420s --quiet
+        if ! gcloud run jobs execute "${job_name}" \
+          --project="$PROJECT_ID" --region="${_REGION}" --wait --quiet; then
+          echo "Azure PWM UAT runtime probe execution failed." >&2
+          exit 1
+        fi
+        execution_name="$(gcloud run jobs executions list \
+          --job="${job_name}" --project="$PROJECT_ID" --region="${_REGION}" \
+          --limit=1 --sort-by='~metadata.creationTimestamp' \
+          --format='value(metadata.name)')"
+        if [[ -z "${execution_name}" ]]; then
+          echo "Azure PWM UAT runtime probe execution is missing." >&2
+          exit 1
+        fi
+        probe_entries=""
+        for _attempt in 1 2 3 4 5 6; do
+          probe_entries="$(gcloud logging read \
+            "resource.type=cloud_run_job AND labels.\"run.googleapis.com/execution_name\"=\"${execution_name}\" AND (jsonPayload.azure_pwm_runtime_probe_result:* OR jsonPayload.azure_pwm_runtime_probe_stage=primary_http OR jsonPayload.azure_managed_text_contract:* OR textPayload:azure_managed_text_contract OR textPayload:azure_pwm_runtime_probe_result OR textPayload:primary_http)" \
+            --project="$PROJECT_ID" --limit=10 --freshness=1h \
+            --format=json 2>/dev/null || true)"
+          if PROBE_ENTRIES="${probe_entries}" python3 - <<'PY'
+        import json, os
+        try:
+            entries = json.loads(os.environ["PROBE_ENTRIES"])
+            values = []
+            for entry in entries:
+                payload = entry.get("jsonPayload")
+                if payload is None:
+                    try:
+                        payload = json.loads(entry.get("textPayload", ""))
+                    except json.JSONDecodeError:
+                        continue
+                values.append(payload)
+            terminal = any(isinstance(value, dict) and "azure_pwm_runtime_probe_result" in value for value in values)
+            primary = any(isinstance(value, dict) and value.get("azure_pwm_runtime_probe_stage") == "primary_http" for value in values)
+            managed = any(isinstance(value, dict) and value.get("azure_managed_text_contract") == "ok" for value in values)
+            failed = any(isinstance(value, dict) and value.get("azure_pwm_runtime_probe_result") == "failed" for value in values)
+            raise SystemExit(0 if failed or terminal and primary and managed else 1)
+        except (ValueError, TypeError):
+            raise SystemExit(1)
+        PY
+          then
+            break
+          fi
+          sleep 5
+        done
+        PROBE_ENTRIES="${probe_entries}" python3 - <<'PY'
+        import json
+        import os
+        try:
+            entries = json.loads(os.environ["PROBE_ENTRIES"])
+        except (KeyError, json.JSONDecodeError):
+            raise SystemExit("Azure PWM UAT runtime probe verdict is missing") from None
+        verdicts = []
+        for entry in entries:
+            payload = entry.get("jsonPayload")
+            if payload is None and isinstance(entry.get("textPayload"), str):
+                try:
+                    payload = json.loads(entry["textPayload"])
+                except json.JSONDecodeError:
+                    continue
+            verdicts.append(payload)
+        if {"azure_pwm_runtime_probe_result": "ok"} not in verdicts:
+            raise SystemExit("Azure PWM UAT runtime probe did not pass")
+        primary = [item for item in verdicts if isinstance(item, dict)
+            and item.get("azure_pwm_runtime_probe_stage") == "primary_http"
+            and item.get("result") == "ok" and item.get("http_status") == 200]
+        if len(primary) != 1:
+            raise SystemExit("Azure primary HTTP200 structured receipt is missing")
+        print(json.dumps({"azure_primary_structured_readiness": "ok", "http_status": 200,
+            "deployment": primary[0]["deployment"]}))
+        if not any(isinstance(item, dict) and item.get("azure_managed_text_contract") == "ok" and item.get("scopes") == 2 for item in verdicts):
+            raise SystemExit("Shared Azure primary text contract receipt is missing")
+        print(json.dumps({"azure_managed_text_contract": "ok", "scopes": 2}))
+        PY
+        echo "Azure PWM UAT runtime probe passed."
+    allowFailure: true
+    waitFor: ["deploy-backend"]
+    env:
+      - "READINESS_BUILD_ID=${BUILD_ID}"
+      - "READINESS_SOURCE_SHA=${_DEPLOY_SHA}"
+      - "READINESS_IMAGE=${_IMAGE_REFERENCE}"
+      - "READINESS_RUNTIME_ACCOUNT=${_RUNTIME_SERVICE_ACCOUNT}"
+      - "READINESS_PROJECT=${PROJECT_ID}"
+      - "READINESS_REGION=${_REGION}"
+      - "READINESS_GITHUB_RUN=${_GITHUB_RUN_ID}"
+      - "READINESS_ENVIRONMENT=${_DEPLOY_ENV}"
+      - "READINESS_SERVICE=${_BACKEND_SERVICE}"
+      - "READINESS_TAG=${_CLOUD_RUN_TAG}"
+      - "READINESS_LEGACY_EXCEPTION=${_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE}"
+    id: "verify-azure-pwm-runtime"
+
+  # Candidate-image GenAI probe under the exact runtime identity. This runs
+  # before the calling workflow can promote a no-traffic revision when the
+  # operator explicitly opts in. Direct backend builds do not make paid model
+  # calls by default; schema, authority, provenance and health gates still run.
+  # The unique probe job emits a structured receipt to Cloud Logging. Its
+  # execution-scoped lookup tolerates ingestion lag; missing receipts block.
+  # Keep prose outside the bash arg because Cloud Build caps it at 10,000 chars.
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        finish_provider_probe() {
+          probe_status=$?
+          trap - EXIT
+          READINESS_STEP_EXIT="${probe_status}" python3 scripts/ci/managed_provider_readiness.py record --provider=vertex --job="${job_name:-}" || true
+          if [[ -n "${job_name:-}" ]]; then
+            gcloud run jobs delete "${job_name}" --project="$PROJECT_ID" --region="${_REGION}" --quiet >/dev/null 2>&1 || true
+          fi
+          exit "${probe_status}"
+        }
+        trap finish_provider_probe EXIT
+        if [[ "${_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE}" == "true" ]]; then
+          echo "WARNING: user-authorized one-time UAT Vertex probe skip; managed Chat and Voice are unverified by this release gate."
+          exit 0
+        fi
         case "${_VERIFY_MANAGED_VERTEX_RUNTIME}" in
-          true) ;;
+          true) probe_mode=full ;;
           false)
             echo "Skipping managed Vertex candidate probe: live model checks were not requested."
             exit 0
@@ -446,21 +691,21 @@ steps:
         if [[ -z "${image_reference}" ]]; then
           image_reference="gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG}"
         fi
-        job_name="${_BACKEND_SERVICE}-genai-readiness"
-        # This isolated model probe sends only synthetic requests. Clear any
-        # retained job secrets so it cannot inherit a retired Live key or
-        # application signing/vault authority from an earlier deployment.
+        job_name="genai-ready-${BUILD_ID}"
+        # The execution-bound collector finalizer owns cleanup.
         gcloud run jobs deploy "${job_name}" \
           --project="$PROJECT_ID" \
           --region="${_REGION}" \
           --image="${image_reference}" \
           --service-account="${_RUNTIME_SERVICE_ACCOUNT}" \
-          --clear-secrets \
+          --set-secrets="APP_SIGNING_KEY=${_APP_SIGNING_KEY_SECRET}:latest,VAULT_DATA_KEY=${_VAULT_DATA_KEY_SECRET}:latest" \
           --command="python3" \
           --args="scripts/verify_managed_vertex_runtime.py" \
-          --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}|ONE_VOICE_LIVE_ENABLED=${_ONE_VOICE_LIVE_ENABLED}|VERTEX_LIVE_MODEL_ID=${_VERTEX_LIVE_MODEL_ID}|VERTEX_LIVE_LOCATION=${_VERTEX_LIVE_LOCATION}" \
+          --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}|HUSHH_ONE_CHAT_VERTEX_PROJECT=${_HUSHH_ONE_CHAT_VERTEX_PROJECT}|HUSHH_ONE_VOICE_VERTEX_PROJECT=${_HUSHH_ONE_VOICE_VERTEX_PROJECT}|HUSHH_MANAGED_VERTEX_PROBE_MODE=${probe_mode}|HUSHH_UAT_MANAGED_AI_PROVIDER=vertex|HUSHH_UAT_MANAGED_TEXT_PROVIDER=vertex|ENVIRONMENT=${_DEPLOY_ENV}|HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}|ONE_VOICE_LIVE_ENABLED=${_ONE_VOICE_LIVE_ENABLED}|VERTEX_LIVE_MODEL_ID=${_VERTEX_LIVE_MODEL_ID}|VERTEX_LIVE_LOCATION=${_VERTEX_LIVE_LOCATION}" \
+          --cpu=2 \
+          --memory=2Gi \
           --max-retries=0 \
-          --task-timeout=90s \
+          --task-timeout=420s \
           --quiet
         set +e
         gcloud run jobs execute "${job_name}" \
@@ -470,23 +715,6 @@ steps:
           --quiet
         execute_status=$?
         set -e
-        if [[ "${execute_status}" -eq 0 ]] \
-           && [[ "${_DEPLOY_ENV}" != "production" || "${_ONE_VOICE_LIVE_ENABLED}" != "true" ]]; then
-          echo "Managed Vertex candidate probe passed."
-          exit 0
-        fi
-
-        # `gcloud run jobs execute` surfaces the execution's exit STATUS only --
-        # the probe's stdout lands in Cloud Logging, not in this build log. So
-        # the verdict has to be read back from the job's logs before we can tell
-        # a provider outage from a candidate defect.
-        #
-        # Scope the read to THIS execution. Filtering only by job name reads
-        # whichever line is newest at query time, and Cloud Logging ingestion
-        # lags the job's exit by seconds -- so the first attempt returned the
-        # PREVIOUS execution's verdict and the build acted on a stale answer.
-        # Observed 2026-08-20: a run whose 9 probes all classified
-        # provider_unavailable was failed on the prior run's application_broken.
         execution_name="$(gcloud run jobs executions list \
           --job="${job_name}" \
           --project="$PROJECT_ID" \
@@ -497,8 +725,6 @@ steps:
 
         probe_line=""
         if [[ -n "${execution_name}" ]]; then
-          # Ingestion lag is normally a few seconds; wait bounded rather than
-          # guessing, because an empty read is treated as blocking below.
           for _attempt in 1 2 3 4 5 6; do
             probe_line="$(gcloud logging read \
               "resource.type=cloud_run_job AND labels.\"run.googleapis.com/execution_name\"=\"${execution_name}\" AND textPayload:managed_vertex_probe_result" \
@@ -530,13 +756,75 @@ steps:
         PY
         )"
 
-        # A successful release must prove that production's enabled One Voice
-        # can open its pinned Live session before the candidate gets traffic.
-        # The general provider-outage advisory still applies to other probes.
+        azure_uat_resource_exhaustion=false
+        if [[ "${_DEPLOY_ENV}" == "uat" && "$PROJECT_ID" == "hushh-pda-uat" &&
+              "${_CLOUD_RUN_NO_TRAFFIC}" == "true" &&
+              "${_DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER}" == "azure_openai" &&
+              "${genai_project_id}" != "$PROJECT_ID" ]]; then
+          pwm_provider="$(python3 - <<'PY'
+        import json
+        from pathlib import Path
+
+        config = json.loads(Path("consent-protocol/config/managed-ai-runtime.json").read_text())
+        print(config.get("pwm_research_uat", config["pwm_research"])["provider"])
+        PY
+          )"
+          if [[ "${pwm_provider}" == "azure_openai_web_search" ]]; then
+            azure_uat_resource_exhaustion=true
+          fi
+        fi
+
         if [[ "${_DEPLOY_ENV}" == "production" && "${_ONE_VOICE_LIVE_ENABLED}" == "true" ]]; then
           printf '%s\n' "${probe_line}" | python3 scripts/ci/assert_one_voice_live_probe.py \
             --model "${_VERTEX_LIVE_MODEL_ID}" \
             --location "${_VERTEX_LIVE_LOCATION}"
+        fi
+        if [[ -n "${_MANAGED_AI_CONFIG_HASH}" ]]; then
+          PROBE_LINE="${probe_line}" EXPECTED_CONFIG_HASH="${_MANAGED_AI_CONFIG_HASH}" EXPECTED_CHAT_PROJECT="${_GENAI_PROJECT_ID}" AZURE_UAT_RESOURCE_EXHAUSTION="${azure_uat_resource_exhaustion}" python3 - <<'PY'
+        import json
+        import os
+
+        line = os.environ.get("PROBE_LINE", "")
+        marker = "managed_vertex_probe_result"
+        try:
+            verdict = json.loads(line.split(marker, 1)[1].strip())
+        except (IndexError, json.JSONDecodeError):
+            raise SystemExit("One chat Vertex readiness verdict is missing") from None
+        if verdict.get("config_hash") != os.environ["EXPECTED_CONFIG_HASH"]:
+            raise SystemExit("Candidate image managed AI profile does not match deployment")
+        if verdict.get("one_chat_project") != os.environ["EXPECTED_CHAT_PROJECT"]:
+            raise SystemExit("One chat Vertex target does not match deployment")
+        if os.environ["AZURE_UAT_RESOURCE_EXHAUSTION"] != "true" and verdict.get("one_chat_probe_ok") is not True:
+            raise SystemExit("One chat Vertex target did not pass its runtime-identity probe")
+        PY
+        fi
+        if [[ "${_ONE_VOICE_LIVE_ENABLED}" == "true" ]]; then
+          PROBE_LINE="${probe_line}" EXPECTED_VOICE_PROJECT="${_GENAI_PROJECT_ID}" EXPECTED_VOICE_MODEL="${_VERTEX_LIVE_MODEL_ID}" EXPECTED_VOICE_LOCATION="${_VERTEX_LIVE_LOCATION}" AZURE_UAT_RESOURCE_EXHAUSTION="${azure_uat_resource_exhaustion}" python3 - <<'PY'
+        import json
+        import os
+
+        line = os.environ.get("PROBE_LINE", "")
+        marker = "managed_vertex_probe_result"
+        try:
+            verdict = json.loads(line.split(marker, 1)[1].strip())
+        except (IndexError, json.JSONDecodeError):
+            raise SystemExit("One voice Vertex readiness verdict is missing") from None
+        if (
+            verdict.get("one_voice_project") != os.environ["EXPECTED_VOICE_PROJECT"]
+            or verdict.get("live_model") != os.environ["EXPECTED_VOICE_MODEL"]
+            or verdict.get("live_location") != os.environ["EXPECTED_VOICE_LOCATION"]
+        ):
+            raise SystemExit("One voice Vertex target does not match deployment")
+        if os.environ["AZURE_UAT_RESOURCE_EXHAUSTION"] != "true" and verdict.get("one_voice_probe_ok") is not True:
+            raise SystemExit("One voice Vertex target did not pass its runtime-identity probe")
+        PY
+        fi
+        if [[ "${_DEPLOY_ENV}" == "uat" && "${genai_project_id}" != "$PROJECT_ID" ]]; then
+          verdict_mode="$(PROBE_LINE="${probe_line}" EXECUTE_STATUS="${execute_status}" AZURE_UAT_RESOURCE_EXHAUSTION="${azure_uat_resource_exhaustion}" VOICE_ENABLED="${_ONE_VOICE_LIVE_ENABLED}" EXPECTED_CONFIG_HASH="${_MANAGED_AI_CONFIG_HASH}" EXPECTED_CHAT_PROJECT="${_GENAI_PROJECT_ID}" EXPECTED_VOICE_MODEL="${_VERTEX_LIVE_MODEL_ID}" EXPECTED_VOICE_LOCATION="${_VERTEX_LIVE_LOCATION}" python3 scripts/ci/assert_uat_managed_vertex_probe.py)"
+          if [[ "${verdict_mode}" == "resource_exhausted" ]]; then
+            echo "WARNING: UAT Azure Drive release proceeds with managed Vertex resource exhaustion. Vertex models remain unverified and may be unavailable."
+            exit 0
+          fi
         fi
         if [[ "${execute_status}" -eq 0 ]]; then
           echo "Managed Vertex candidate probe passed."
@@ -565,7 +853,48 @@ steps:
           echo "No probe verdict was recoverable from the job logs; treating as blocking." >&2
         fi
         exit 1
+    allowFailure: true
+    waitFor: ["deploy-backend"]
+    env:
+      - "READINESS_BUILD_ID=${BUILD_ID}"
+      - "READINESS_SOURCE_SHA=${_DEPLOY_SHA}"
+      - "READINESS_IMAGE=${_IMAGE_REFERENCE}"
+      - "READINESS_RUNTIME_ACCOUNT=${_RUNTIME_SERVICE_ACCOUNT}"
+      - "READINESS_PROJECT=${PROJECT_ID}"
+      - "READINESS_REGION=${_REGION}"
+      - "READINESS_GITHUB_RUN=${_GITHUB_RUN_ID}"
+      - "READINESS_ENVIRONMENT=${_DEPLOY_ENV}"
+      - "READINESS_SERVICE=${_BACKEND_SERVICE}"
+      - "READINESS_TAG=${_CLOUD_RUN_TAG}"
+      - "READINESS_LEGACY_EXCEPTION=${_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE}"
     id: "verify-managed-vertex-runtime"
+
+
+  # The required aggregate admits a usable provider; both checks still run.
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        python3 scripts/ci/managed_provider_readiness.py evaluate
+        if [[ "${_DEPLOY_ENV}" == "uat" ]]; then
+          python3 scripts/ci/managed_provider_readiness.py select
+        fi
+    waitFor: ["verify-azure-pwm-runtime", "verify-managed-vertex-runtime"]
+    env:
+      - "READINESS_BUILD_ID=${BUILD_ID}"
+      - "READINESS_SOURCE_SHA=${_DEPLOY_SHA}"
+      - "READINESS_IMAGE=${_IMAGE_REFERENCE}"
+      - "READINESS_RUNTIME_ACCOUNT=${_RUNTIME_SERVICE_ACCOUNT}"
+      - "READINESS_PROJECT=${PROJECT_ID}"
+      - "READINESS_REGION=${_REGION}"
+      - "READINESS_GITHUB_RUN=${_GITHUB_RUN_ID}"
+      - "READINESS_ENVIRONMENT=${_DEPLOY_ENV}"
+      - "READINESS_SERVICE=${_BACKEND_SERVICE}"
+      - "READINESS_TAG=${_CLOUD_RUN_TAG}"
+      - "READINESS_LEGACY_EXCEPTION=${_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE}"
+    id: "verify-managed-provider-readiness"
 
 # NOTE: no top-level `images:` block — `docker buildx build --push` (Step 1) already
 # pushes every tag. Listing images here would make Cloud Build try to re-push them from
@@ -578,6 +907,9 @@ substitutions:
   _BACKEND_SERVICE: consent-protocol
   _RUNTIME_SERVICE_ACCOUNT: ""
   _GENAI_PROJECT_ID: ""
+  _MANAGED_AI_CONFIG_HASH: ""
+  _HUSHH_ONE_CHAT_VERTEX_PROJECT: ""
+  _HUSHH_ONE_VOICE_VERTEX_PROJECT: ""
   _REGION: us-central1
   _CLOUDSQL_INSTANCES: ""
   _VPC_CONNECTOR: ""
@@ -597,6 +929,7 @@ substitutions:
   # one regional Vertex endpoint. Set all three only after the lane's
   # allowed-models policy admits the id; see scripts/discover_vertex_live_models.py.
   _ONE_VOICE_LIVE_ENABLED: "false"
+  _ONE_VOICE_CALENDAR_NARRATION_ENABLED: "false"
   _VERTEX_LIVE_MODEL_ID: ""
   _VERTEX_LIVE_LOCATION: ""
   _FINNHUB_API_KEY_SECRET: ""
@@ -622,8 +955,34 @@ substitutions:
   _EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET: ""
   _DRIVE_DOCUMENT_KEY_V1_SECRET: ""
   _DRIVE_SHARING_KEY_V1_SECRET: ""
+  # Request intake and owner review. Independent of the payment flags and
+  # open by default: an active connection is already the gate for asking, and
+  # a default-closed flag in front of it only ships a dead control. Set the
+  # environment's repository variable to "false" to close intake.
+  _PKM_ANSWER_REQUESTS_ENABLED: "true"
+  _PKM_ANSWER_PAYMENTS_ENABLED: "false"
+  _PKM_ANSWER_COMPOSER_ENABLED: "false"
+  _PKM_ANSWER_LIVE_PROVIDER_REVIEWED: "false"
+  _PKM_ANSWER_STRIPE_MODE: "test"
+  _PKM_ANSWER_STRIPE_SECRET_KEY_SECRET: ""
+  _PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET: ""
+  _PKM_ANSWER_STRIPE_TEST_SECRET_KEY_SECRET: ""
+  _PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_SECRET: ""
+  _PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_SECRET: ""
+  _PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_SECRET: ""
+  _ANSWER_WORK_DRAIN_ENABLED: "false"
+  _ANSWER_WORK_DRAIN_AUDIENCE: ""
+  _STRIPE_MODE: ""
+  _STRIPE_CONNECT_MODE: ""
+  _DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED: "false"
+  _DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER: "gemini"
+  _DRIVE_REQUEST_HASHCOINS_ENABLED: "false"
+  _DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED: "false"
+  _STRIPE_CONNECT_SECRET_KEY_SECRET: ""
+  _STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET: ""
   _STRIPE_SECRET_KEY_SECRET: ""
   _STRIPE_WEBHOOK_SECRET_SECRET: ""
+  _STRIPE_CONNECT_WEBHOOK_SECRET_SECRET: ""
   _OPENAI_API_KEY_SECRET: ""
   _GOOGLE_MAPS_API_KEY_SECRET: GOOGLE_MAPS_API_KEY
   _OMNIGATEWAY_CLIENT_ID_SECRET: OMNIGATEWAY_CLIENT_ID
@@ -642,6 +1001,8 @@ substitutions:
   _HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET_SECRET: ""
   _REVIEWER_UID_SECRET: ""
   _REVIEWER_VAULT_PASSPHRASE_SECRET: ""
+  _REVIEWER_COUNTERPART_UID_SECRET: ""
+  _REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET: ""
   _RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET: ""
   _RIA_IDENTITY_BASE_URL_SECRET: ""
   _RIA_IDENTITY_API_KEY_SECRET: ""
@@ -667,6 +1028,12 @@ substitutions:
   _WALLET_API_KEY_SECRET: ""
   # local | service. Empty/local keeps in-process signing.
   _WALLET_PASS_PROVIDER: ""
+  # WorkOS enterprise SSO. Empty keeps the feature off (routes answer 404).
+  # The redirect URI is the web /login URL registered in the WorkOS dashboard.
+  _WORKOS_SSO_ENABLED: ""
+  _WORKOS_REDIRECT_URI: ""
+  # Comma-separated origins SSO may return to (every hostname the app is served on).
+  _WORKOS_REDIRECT_ORIGINS: ""
   _ONE_EMAIL_ADDRESS: ""
   _ONE_EMAIL_DELEGATED_USER: ""
   _ONE_EMAIL_PUBSUB_TOPIC: ""
@@ -687,12 +1054,16 @@ substitutions:
   # New trusted-auto requests are gated only after an operator supplies both
   # Stripe secrets and deliberately enables this per environment.
   _DRIVE_REQUEST_PAYMENTS_ENABLED: "false"
+  # Only newly enrolled orders can settle to owners; production stays off until
+  # a separately governed launch enables it for that environment.
+  _DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED: "false"
   _DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID: ""
   _DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL: ""
   _DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE: ""
   _ONE_EMAIL_KYC_DEFAULT_SCOPE: ""
   _ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED: "true"
   _ONE_WALLET_CARD_ENABLED: ""
+  _WALLET_CARD_ACCESS_ENABLED: "false"
   # Wallet subagent (agent_wallet) roster flag. Empty/false keeps it out of the tree.
   _APP_REVIEW_MODE: ""
   _HUSHH_PROD_PHONE_TEST_ENABLED: ""
@@ -729,6 +1100,7 @@ substitutions:
   # Direct backend builds remain conservative. The UAT workflow explicitly
   # overrides this from its authoritative changed-SHA verification plan.
   _VERIFY_MANAGED_VERTEX_RUNTIME: "false"
+  _SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE: "false"
   _IMAGE_TAG: v2.1.0
   _DEPLOY_ENV: manual
   _DEPLOY_SOURCE: manual

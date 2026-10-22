@@ -1,7 +1,7 @@
 """Save My Soul (SOS) tools: emergency contacts, alert arming, delivery, stop.
 
 Canonical contract (``OneLocationAgentService``): a Save My Soul alert is one
-8-hour grant per phone-verified SMS contact, written with ``share_kind="sos"``
+8-hour grant per receiving-ready SMS contact, written with ``share_kind="sos"``
 (legacy reason marker ``sos_panic``). The server never holds a position: the
 location envelope is encrypted on the device, so ``trigger_save_my_soul`` can
 only *arm* the alert and hand the client a ``publish_location_envelopes``
@@ -55,6 +55,7 @@ from hushh_mcp.services.one_location_agent_service import (
     OneLocationAgentService,
 )
 from hushh_mcp.services.one_location_circle_service import OneLocationCircleError
+from hushh_mcp.services.one_location_sms_readiness import refresh_sms_recipient_identities
 
 SOS_SHARE_KIND = "sos"
 SOS_DURATION_HOURS = 8
@@ -195,14 +196,14 @@ def _emergency_contacts_sync(service: Any, user_id: str) -> list[EmergencyContac
         row = by_id.get(contact_id) or {}
         key_id = str(row.get("keyId") or "") or None
         phone_verified = bool(row.get("phoneVerified"))
-        has_key = bool(row.get("canReceiveLocation")) and key_id is not None
+        has_key = bool(row.get("canReceiveLocation") and row.get("publicKeyJwk") and key_id)
         contacts.append(
             EmergencyContactView(
                 user_id=contact_id,
                 display_name=_speakable_name(row.get("displayName")),
                 phone_verified=phone_verified,
                 has_location_key=has_key,
-                sos_ready=phone_verified and has_key,
+                sos_ready=has_key,
                 key_id=key_id,
             )
         )
@@ -210,6 +211,7 @@ def _emergency_contacts_sync(service: Any, user_id: str) -> list[EmergencyContac
 
 
 async def _emergency_contacts(service: Any, user_id: str) -> list[EmergencyContactView]:
+    await refresh_sms_recipient_identities(service, owner_user_id=user_id)
     return await asyncio.to_thread(_emergency_contacts_sync, service, user_id)
 
 
@@ -483,7 +485,6 @@ class _Armed:
     active: list[SosGrantView] = field(default_factory=list)
     armed: list[SosGrantView] = field(default_factory=list)
     skipped_no_key: list[EmergencyContactView] = field(default_factory=list)
-    skipped_not_verified: list[EmergencyContactView] = field(default_factory=list)
     failed: list[dict[str, str]] = field(default_factory=list)
     first_error: Exception | None = None
 
@@ -547,9 +548,6 @@ def _arm_under_lock(
             if not contact.has_location_key:
                 outcome.skipped_no_key.append(contact)
                 continue
-            if not contact.phone_verified:
-                outcome.skipped_not_verified.append(contact)
-                continue
             try:
                 grant = service.create_grant(
                     owner_user_id=user_id,
@@ -559,7 +557,7 @@ def _arm_under_lock(
                     duration_mode=SOS_DURATION_MODE,
                     reason=note or SOS_LEGACY_REASON,
                     share_kind=SOS_SHARE_KIND,
-                    require_recipient_phone_verified=True,
+                    require_recipient_phone_verified=False,
                     enforce_connection=False,
                 )
             except Exception as exc:  # noqa: BLE001 - one contact must not sink the others
@@ -588,6 +586,7 @@ async def trigger_save_my_soul(ctx: ToolContext, args: TriggerSaveMySoulInput) -
     service = _service(ctx)
     note = _normalize_note(args.note)
     try:
+        await refresh_sms_recipient_identities(service, owner_user_id=ctx.user_id)
         result = await asyncio.to_thread(_arm_sync, service, ctx.user_id, ctx.prepared, note)
     except ServiceError as exc:
         return _rejected(exc)
@@ -609,9 +608,9 @@ async def trigger_save_my_soul(ctx: ToolContext, args: TriggerSaveMySoulInput) -
             ],
         )
     armed = result.armed
-    left_out: list[str | None] = [
-        contact.display_name for contact in result.skipped_no_key + result.skipped_not_verified
-    ] + [row["display_name"] or None for row in result.failed]
+    left_out: list[str | None] = [contact.display_name for contact in result.skipped_no_key] + [
+        row["display_name"] or None for row in result.failed
+    ]
     if not armed:
         if result.first_error is not None and isinstance(result.first_error, ServiceError):
             return _rejected(result.first_error)
@@ -636,7 +635,6 @@ async def trigger_save_my_soul(ctx: ToolContext, args: TriggerSaveMySoulInput) -
         grant_ids=grant_ids,
         armed=armed,
         skipped_no_key=result.skipped_no_key,
-        skipped_not_phone_verified=result.skipped_not_verified,
         failed=result.failed,
         note=note,
         client_step={
@@ -1050,6 +1048,12 @@ async def add_emergency_contact(ctx: ToolContext, args: EmergencyContactInput) -
             spoken_facts=[f"{person.display_name} is already one of your emergency contacts."],
         )
     try:
+        await refresh_sms_recipient_identities(
+            service,
+            owner_user_id=ctx.user_id,
+            recipient_user_id=person.user_id,
+            adding_contact=True,
+        )
         after = list(
             await asyncio.to_thread(
                 service.add_sms_contact, owner_user_id=ctx.user_id, contact_user_id=person.user_id
@@ -1086,23 +1090,6 @@ async def add_emergency_contact(ctx: ToolContext, args: EmergencyContactInput) -
                     "added. Remove someone first."
                 ],
             )
-        if code == "LOCATION_RECIPIENT_UNAVAILABLE":
-            try:
-                row = await _recipient_row(service, ctx.user_id, person.user_id)
-            except ServiceError:
-                row = None
-            phone_verified = bool(row.get("phoneVerified")) if row else person.phone_verified
-            if not phone_verified:
-                return AddEmergencyContactResult(
-                    status="not_phone_verified",
-                    reason_code=code,
-                    needs="setup",
-                    person_user_id=person.user_id,
-                    display_name=person.display_name,
-                    spoken_facts=[
-                        f"{person.display_name} hasn't verified their phone. {exc.message}"
-                    ],
-                )
         return _rejected(exc)
     if person.user_id not in after:
         return Rejected(
@@ -1222,7 +1209,7 @@ TOOLS: tuple[ToolSpec, ...] = (
         output_model=SaveMySoulStatusResult,
         description=(
             "Read Save My Soul (SMS) status: the emergency contacts by name, whether each is "
-            "phone-verified and can receive an encrypted location, whether an alert is active "
+            "ready to receive an encrypted location, whether an alert is active "
             "now and how many live shares it holds, and the person's default for a bare "
             "emergency phrase. Use it for 'who will get my alert', 'is it active', or before "
             "editing emergency contacts (it offers the roster's ids for confirm_person). Reads "
@@ -1305,8 +1292,8 @@ TOOLS: tuple[ToolSpec, ...] = (
         description=(
             "Add a confirmed person to the emergency contacts who receive future Save My Soul "
             "alerts. Takes a canonical person id only (resolve and confirm the person first). "
-            "The person must be a connection with a verified phone who has finished Location "
-            "setup; otherwise the result says which of those is missing. Adding never sends an "
+            "The person must be a connection with an active receiving key in One; "
+            "phone verification and Location onboarding are not required. Adding never sends an "
             "alert, and never adds a whole circle."
         ),
         handler=add_emergency_contact,

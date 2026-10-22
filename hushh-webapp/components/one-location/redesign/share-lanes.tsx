@@ -12,11 +12,14 @@
  * is this and how do I end it" three different ways.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { ChevronDown, Siren } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { TYPOGRAPHY_CLASSNAMES } from "@/components/app-ui/typography";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   grantLaneLabel,
   type OneLocationGrantLaneGroup,
@@ -26,6 +29,9 @@ import type { OneLocationGrant } from "@/lib/one-location/types";
 import { cn } from "@/lib/utils";
 import {
   ACTIVE_SHARE_CHANGE_TIME_CLASSNAME,
+  ACTIVE_SHARE_CATEGORY_ROW_CLASSNAME,
+  ACTIVE_SHARE_COMPARISON_CELL_CLASSNAME,
+  ACTIVE_SHARE_COMPARISON_GRID_CLASSNAME,
   ACTIVE_SHARE_LANE_ACTIONS_CLASSNAME,
   ACTIVE_SHARE_LANE_ROW_CLASSNAME,
   ACTIVE_SHARE_STOP_CLASSNAME,
@@ -52,6 +58,8 @@ export function ShareLaneRow({
   onChangeEndTime,
   formatEndsAt,
   action = "stop",
+  layout = "list",
+  avatar,
 }: {
   grant: OneLocationGrant;
   counterpartName: string;
@@ -69,27 +77,57 @@ export function ShareLaneRow({
    * real, and the copy has to say which one the tap is.
    */
   action?: "stop" | "remove";
+  layout?: "list" | "comparison" | "category";
+  avatar?: ReactNode;
 }) {
   const isSms = isSmsTriggeredGrant(grant);
   const removing = action === "remove";
+  const comparison = layout === "comparison";
+  const category = layout === "category";
+  const stopLabel = removing
+    ? "Stop viewing"
+    : comparison || category
+      ? isSms ? "Stop SMS" : "Stop"
+      : "Stop";
+  const changeTimeControl = !isSms && onChangeEndTime ? (
+    <Button
+      type="button"
+      variant="ghost"
+      size="compact"
+      className={cn(ACTIVE_SHARE_CHANGE_TIME_CLASSNAME, (comparison || category) && "justify-start px-0")}
+      onClick={(event) => onChangeEndTime(event.currentTarget)}
+      disabled={stopping}
+      data-share-duration-grant-id={grant.id}
+      aria-label={`Change end time for ${counterpartName}`}
+    >
+      {grant.durationMode === "until_stopped" ? "Set end time" : "Change time"}
+    </Button>
+  ) : null;
   return (
     <div
-      className={ACTIVE_SHARE_LANE_ROW_CLASSNAME}
+      className={category ? ACTIVE_SHARE_CATEGORY_ROW_CLASSNAME : comparison ? ACTIVE_SHARE_COMPARISON_CELL_CLASSNAME : ACTIVE_SHARE_LANE_ROW_CLASSNAME}
       data-testid="one-location-share-lane"
       data-share-lane={isSms ? "sos" : "ordinary"}
       data-grant-id={grant.id}
     >
-      <div className="min-w-0 flex-1">
-        <p className="flex min-w-0 items-center gap-1.5 truncate text-[15px] font-medium text-foreground">
-          {isSms ? (
+      {category ? <div className="col-start-1 row-start-1 flex items-center">{avatar}</div> : null}
+      <div className={cn("min-w-0 flex-1", comparison && "flex flex-wrap items-center justify-between gap-x-2", category && (isSms ? "col-start-2 row-start-1" : "col-start-2 col-span-2 row-start-1"))}>
+        <p className={cn(
+          TYPOGRAPHY_CLASSNAMES.rowLabel,
+          "flex min-w-0 items-center gap-1.5 text-foreground",
+          comparison && "@min-[46rem]:sr-only",
+          (comparison || category) && "ui-text-row-label-compact",
+          comparison && isSms && "text-[color:var(--app-destructive)]",
+        )}>
+          {isSms && !category ? (
             <Siren
               className="h-3.5 w-3.5 shrink-0 text-[color:var(--app-destructive)]"
               aria-hidden="true"
             />
           ) : null}
-          {grantLaneLabel(grant)}
+          {category ? counterpartName : comparison && isSms ? "SMS" : grantLaneLabel(grant)}
         </p>
-        <p className={cn(MUTED_TEXT, "truncate text-[13px]")}>
+        <p className={cn(TYPOGRAPHY_CLASSNAMES.rowDescription, MUTED_TEXT, "[overflow-wrap:anywhere]", (comparison || category) && "ui-text-row-description-compact")}>
           {grant.durationMode === "until_stopped" ? (
             "Until you stop"
           ) : formatEndsAt && grant.expiresAt ? (
@@ -98,25 +136,16 @@ export function ShareLaneRow({
             <ShareCountdownText expiresAt={grant.expiresAt} />
           )}
         </p>
+        {comparison ? changeTimeControl : null}
       </div>
-      <div className={ACTIVE_SHARE_LANE_ACTIONS_CLASSNAME}>
-        {onChangeEndTime ? (
-          <button
-            type="button"
-            className={ACTIVE_SHARE_CHANGE_TIME_CLASSNAME}
-            onClick={(event) => onChangeEndTime(event.currentTarget)}
-            disabled={stopping}
-            aria-label={`Change end time for ${counterpartName}`}
-          >
-            {grant.durationMode === "until_stopped"
-              ? "Set end time"
-              : "Change time"}
-          </button>
-        ) : null}
+      <div className={category ? cn("flex min-w-0 items-center", isSms ? "col-start-3 row-start-1 justify-end" : "col-start-2 col-span-2 row-start-2 flex-wrap justify-between gap-x-2 gap-y-1") : comparison ? "flex shrink-0 items-center justify-end" : ACTIVE_SHARE_LANE_ACTIONS_CLASSNAME}>
+        {!comparison ? changeTimeControl : null}
         {onStop ? (
-        <button
+        <Button
           type="button"
-          className={ACTIVE_SHARE_STOP_CLASSNAME}
+          variant="ghost"
+          size="compact"
+          className={cn(ACTIVE_SHARE_STOP_CLASSNAME, category && "sm:ml-auto")}
           onClick={onStop}
           disabled={stopping}
           aria-label={
@@ -129,10 +158,128 @@ export function ShareLaneRow({
                 : `Stop the location share with ${counterpartName}`
           }
         >
-          {stopping ? "Stopping…" : removing ? "Stop viewing" : "Stop"}
-        </button>
+          {stopping ? "Stopping…" : stopLabel}
+        </Button>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+/** Manage sharing keeps identity separate from each independently revocable share. */
+export function ActiveShareComparison({
+  groups,
+  recipientName,
+  renderAvatar,
+  onStopGrant,
+  revokingGrantId,
+  onChangeEndTime,
+}: {
+  groups: OneLocationGrantLaneGroup[];
+  recipientName: (grant: OneLocationGrant) => string;
+  renderAvatar: (group: OneLocationGrantLaneGroup, name: string) => ReactNode;
+  onStopGrant: (grantId: string) => void;
+  revokingGrantId: string | null;
+  onChangeEndTime: (grantId: string, trigger: HTMLElement) => void;
+}) {
+  const isMobile = useIsMobile();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [narrowContainer, setNarrowContainer] = useState(false);
+  useEffect(() => {
+    if (!containerRef.current || typeof ResizeObserver === "undefined") return;
+    // Follow the comparison's 46rem container breakpoint, including tablet
+    // gutters and larger text, without mounting a second set of live controls.
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry) return;
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+      setNarrowContainer(entry.contentRect.width < 46 * rem);
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
+  if (isMobile || narrowContainer) {
+    return (
+      <div ref={containerRef} className="space-y-6" data-testid="one-location-share-comparison" data-share-layout="categories">
+        {(["ordinaryGrant", "smsGrant"] as const).map((channel) => {
+          const channelGroups = groups.filter((group) => group[channel]);
+          if (!channelGroups.length) return null;
+          const isSms = channel === "smsGrant";
+          return (
+            <SettingsGroup
+              key={channel}
+              testId={isSms ? "one-location-sms-shares" : "one-location-ordinary-shares"}
+              title={isSms ? <span className="text-[color:var(--app-destructive)]">SMS</span> : "Location shares"}
+              titleAction={<span className={cn(TYPOGRAPHY_CLASSNAMES.rowDescription, MUTED_TEXT)}>{channelGroups.length}</span>}
+              headingClassName="mt-0"
+              density="compact"
+              separatorInset
+            >
+              {channelGroups.flatMap((group) => group.grants
+                .filter((grant) => isSmsTriggeredGrant(grant) === isSms)
+                .map((grant) => {
+                  const name = recipientName(grant);
+                  return <SettingsRow key={grant.id} title={
+                  <ShareLaneRow
+                    grant={grant}
+                    layout="category"
+                    avatar={renderAvatar(group, name)}
+                    counterpartName={name}
+                    stopping={revokingGrantId === grant.id}
+                    onStop={() => onStopGrant(grant.id)}
+                    onChangeEndTime={!isSms ? (trigger) => onChangeEndTime(grant.id, trigger) : undefined}
+                  />
+                } />;
+                }))}
+            </SettingsGroup>
+          );
+        })}
+      </div>
+    );
+  }
+  return (
+    <div ref={containerRef} className="@container" data-testid="one-location-share-comparison" data-share-layout="comparison">
+      <div aria-hidden="true" className={cn(
+        ACTIVE_SHARE_COMPARISON_GRID_CLASSNAME,
+        TYPOGRAPHY_CLASSNAMES.rowDescription,
+        "mb-2 hidden px-4 text-[color:var(--app-secondary-label)] @min-[46rem]:grid",
+      )}>
+        <span>Person</span><span>Location share</span><span className="text-[color:var(--app-destructive)]">SMS</span>
+      </div>
+      <SettingsGroup separatorInset density="compact">
+        {groups.map((group) => {
+          const name = recipientName(group.primaryGrant);
+          return (
+            <SettingsRow key={group.counterpartUserId} className="[--settings-row-py:8px]" title={
+              <div className={ACTIVE_SHARE_COMPARISON_GRID_CLASSNAME}>
+                <div className="flex min-w-0 items-center gap-3">
+                  {renderAvatar(group, name)}
+                  <span className={cn(TYPOGRAPHY_CLASSNAMES.rowLabel, "ui-text-row-label-compact min-w-0 [overflow-wrap:anywhere]")}>{name}</span>
+                </div>
+                {[false, true].map((isSms) => {
+                  const grants = group.grants.filter((grant) => isSmsTriggeredGrant(grant) === isSms);
+                  return grants.length ? (
+                    <div key={String(isSms)} className="min-w-0 space-y-1">
+                      {grants.map((grant) => <ShareLaneRow
+                        key={grant.id}
+                        grant={grant}
+                        layout="comparison"
+                        counterpartName={name}
+                        stopping={revokingGrantId === grant.id}
+                        onStop={() => onStopGrant(grant.id)}
+                        onChangeEndTime={!isSms ? (trigger) => onChangeEndTime(grant.id, trigger) : undefined}
+                      />)}
+                    </div>
+                  ) : (
+                  <span key={String(isSms)} className={cn(TYPOGRAPHY_CLASSNAMES.rowDescription, "hidden text-[color:var(--app-secondary-label)] @min-[46rem]:block")}>
+                    <span aria-hidden="true">—</span><span className="sr-only">No active share</span>
+                  </span>
+                  );
+                })}
+              </div>
+            } />
+          );
+        })}
+      </SettingsGroup>
     </div>
   );
 }

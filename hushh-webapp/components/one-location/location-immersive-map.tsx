@@ -32,17 +32,12 @@ import { toast } from "sonner";
 
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import {
-  MAP_CONSENT_HEADING_ICON_CLASSNAME,
-  MAP_CONSENT_HEADING_ROW_CLASSNAME,
-  MAP_CONSENT_HEADING_TITLE_CLASSNAME,
-  MAP_CONSENT_PANEL_BOTTOM_PADDING,
-  MAP_CONSENT_PANEL_CLASSNAME,
-  MAP_CONSENT_SUPPORTING_LINE,
-  MAP_CONSENT_TITLE,
   MAP_RENDERER_CLASSNAME,
   MAP_SURFACE_CLASSNAME,
 } from "@/components/one-location/map-consent-panel-layout";
+import { MapPersonAvatarMarker } from "@/components/one-location/map-person-avatar-marker";
 import { MapNameLabels } from "@/components/one-location/map-name-labels";
+import { MapRendererAccess } from "@/components/one-location/map-renderer-access";
 import {
   MapSelfAvatarLegend,
   MapSelfAvatarMarker,
@@ -90,6 +85,11 @@ import {
 import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
 import { neutralWorldCamera } from "@/lib/one-location/map-world-view";
 import {
+  attachWebPersonAvatarHosts,
+  webPersonMarkerPlaceholder,
+  type WebPersonAvatarBatch,
+} from "@/lib/one-location/web-person-avatar-markers";
+import {
   createWebSelfAvatarOverlay,
   type WebSelfAvatarOverlay,
 } from "@/lib/one-location/web-self-avatar-overlay";
@@ -119,13 +119,17 @@ import type {
 } from "@/lib/one-location/types";
 import { getPlatform, isNative } from "@/lib/capacitor/platform";
 import { ROUTES } from "@/lib/navigation/routes";
-import { pushAndroidBackHandler } from "@/lib/navigation/android-back";
+import { useBackLayer } from "@/lib/navigation/back-layers";
 import {
   isLocationMapDemoAvailable,
   isLocationMapDemoEnabled,
   locationMapDemoPeople,
 } from "@/lib/testing/location-map-demo";
 import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
+import {
+  appInteractionCoordinator,
+  useInteractionIntents,
+} from "@/lib/interaction/interaction-intent-coordinator";
 import { motionDurations, motionEasings } from "@/lib/morphy-ux/motion";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { useVault } from "@/lib/vault/vault-context";
@@ -252,6 +256,7 @@ type MapCameraEvent = {
 
 type RenderMarker = {
   key: string;
+  avatarUrl?: string | null;
   point: PlainLocationPoint;
   label: string;
   /**
@@ -300,14 +305,8 @@ const STALE_TINT = { r: 142, g: 142, b: 147, a: 255 } as const;
 const SELF_TINT = { r: 0, g: 122, b: 255, a: 255 } as const;
 /** Green (--app-success). A live check-in is a settled positive fact. */
 const PLACE_ACTIVE_TINT = { r: 52, g: 199, b: 89, a: 255 } as const;
-/**
- * Orange (--app-warning). The venue is chosen but the check-in has not
- * happened yet — "Checking in at", not "Checked in at". Deliberately not the
- * neutral grey, which on this same map already means "gone quiet", and not
- * the accent, which would make the place pin indistinguishable from the
- * "you" pin the legend exists to tell it apart from.
- */
-const PLACE_PENDING_TINT = { r: 255, g: 149, b: 0, a: 255 } as const;
+/** Apple blue for a chosen venue; shape and label distinguish it from you. */
+const PLACE_PENDING_TINT = SELF_TINT;
 
 /** The CSS form of a pin tint, so a legend swatch cannot drift from its pin. */
 function tintCss(tint: { r: number; g: number; b: number }): string {
@@ -529,6 +528,9 @@ function markerSignature(markers: RenderMarker[]): string {
     .map((marker) =>
       [
         marker.key,
+        marker.label,
+        marker.shortLabel,
+        marker.avatarUrl ?? "",
         marker.point.latitude.toFixed(6),
         marker.point.longitude.toFixed(6),
         marker.point.capturedAt,
@@ -748,9 +750,15 @@ export function LocationImmersiveMap({
     : null;
   const mapElement = useRef<HTMLElement | null>(null);
   const mapRef = useRef<GoogleMap | null>(null);
+  // SDK minZoom is fixed for this renderer instance; compatibility fits use it too.
+  const mapMinimumZoomRef = useRef(0);
+  const placeholderCameraRetiredRef = useRef(false);
   const [webAvatarOverlay, setWebAvatarOverlay] =
     useState<WebSelfAvatarOverlay | null>(null);
   const webAvatarOverlayRef = useRef<WebSelfAvatarOverlay | null>(null);
+  const webPersonAvatarBatchRef = useRef<WebPersonAvatarBatch | null>(null);
+  const [webPersonAvatarHosts, setWebPersonAvatarHosts] =
+    useState<ReadonlyMap<string, HTMLElement>>(new Map());
   const topControlsRef = useRef<HTMLElement | null>(null);
   const peopleTrayRef = useRef<HTMLElement | null>(null);
   // Measures the tray's real rendered pieces -- the toggle header and the
@@ -787,6 +795,7 @@ export function LocationImmersiveMap({
   const markerSignatureRef = useRef("");
   const initialDemoModeRef = useRef(initialDemoMode);
   const closeRequestedRef = useRef(false);
+  const closeNavigationIdRef = useRef<string | null>(null);
   const nearbyHistoryPreparedRef = useRef(false);
   // Whether the person has dismissed the sheet on check-in's own route. Held in
   // a ref, not the URL: the route-sync effect below re-runs whenever Next hands
@@ -808,6 +817,10 @@ export function LocationImmersiveMap({
   // Coordinates stay gated until the server confirms consent for this account.
   // The device mirror must never override a revoked or outdated server value.
   const [acceptedRenderer, setAcceptedRenderer] = useState(false);
+  const [rendererPreparationPending, setRendererPreparationPending] = useState(!initialDemoMode);
+  const [rendererPreparationError, setRendererPreparationError] = useState<string | null>(null);
+  const [rendererPreparationRetry, setRendererPreparationRetry] = useState(0);
+  const rendererAcceptanceInFlightRef = useRef(false);
   const [preferences, setPreferences] = useState<OneLocationMapPreferences>({
     presenceMode: "ghost",
   });
@@ -930,6 +943,7 @@ export function LocationImmersiveMap({
   const [searchQuery, setSearchQuery] = useState("");
   const [trayExpanded, setTrayExpanded] = useState(true);
   const [closing, setClosing] = useState(false);
+  const interactionIntents = useInteractionIntents();
   const [mapReady, setMapReady] = useState(false);
   const [entryLocationSettled, setEntryLocationSettled] = useState(false);
   const [status, setStatus] = useState<
@@ -956,6 +970,7 @@ export function LocationImmersiveMap({
     string | null
   >(null);
   const [nearbyCheckInOpen, setNearbyCheckInOpen] = useState(false);
+  const [checkInStartupReady, setCheckInStartupReady] = useState(false);
   const [nearbySearchPoint, setNearbySearchPoint] =
     useState<PlainLocationPoint | null>(null);
   const [nearbyPlaceFocus, setNearbyPlaceFocus] =
@@ -1113,7 +1128,7 @@ export function LocationImmersiveMap({
         consumeNearbyPrivateReturn(surfaceResumeToken);
         const resumedUrl = new URL(window.location.href);
         resumedUrl.searchParams.delete(NEARBY_PRIVATE_RESUME_PARAM);
-        window.history.replaceState(window.history.state, "", resumedUrl.href);
+        window.history.replaceState(null, "", resumedUrl.href);
       }
       nearbyHistoryPreparedRef.current = true;
       return;
@@ -1124,7 +1139,7 @@ export function LocationImmersiveMap({
       const resumed = consumeNearbyPrivateReturn(resumeToken);
       const resumedUrl = new URL(window.location.href);
       resumedUrl.searchParams.delete(NEARBY_PRIVATE_RESUME_PARAM);
-      window.history.replaceState(window.history.state, "", resumedUrl.href);
+      window.history.replaceState(null, "", resumedUrl.href);
       if (resumed) {
         nearbyHistoryPreparedRef.current = true;
         return;
@@ -1137,8 +1152,8 @@ export function LocationImmersiveMap({
     actionUrl.searchParams.delete(NEARBY_PRIVATE_RESUME_PARAM);
     const plainMapUrl = new URL(actionUrl.href);
     plainMapUrl.searchParams.delete("action");
-    window.history.replaceState(window.history.state, "", plainMapUrl.href);
-    window.history.pushState(window.history.state, "", actionUrl.href);
+    window.history.replaceState(null, "", plainMapUrl.href);
+    window.history.pushState(null, "", actionUrl.href);
     nearbyHistoryPreparedRef.current = true;
   }, [isCheckInSurface, nearbyCheckInAvailable, router, searchParams]);
 
@@ -1158,6 +1173,7 @@ export function LocationImmersiveMap({
     // itself would only stack a duplicate history entry.
     if (isCheckInSurface) {
       checkInSheetDismissedRef.current = false;
+      setCheckInStartupReady(false);
       setNearbyCheckInOpen(true);
       return;
     }
@@ -1424,7 +1440,7 @@ export function LocationImmersiveMap({
     refreshInFlightRef.current = true;
     const refreshGeneration = ++refreshGenerationRef.current;
     const preferenceRevision = preferenceRevisionRef.current;
-    setStatus("loading");
+    setStatus((current) => current === "unavailable" ? current : "loading");
     try {
       if (demoMode) {
         const demoMarkers = locationMapDemoPeople().map((person) => ({
@@ -1434,7 +1450,7 @@ export function LocationImmersiveMap({
         }));
         markerSignatureRef.current = markerSignature(demoMarkers);
         setMarkers(demoMarkers);
-        setStatus("ready");
+        setStatus((current) => current === "unavailable" ? current : "ready");
         return;
       }
       const state = await OneLocationService.getMapState(vaultOwnerToken);
@@ -1450,6 +1466,7 @@ export function LocationImmersiveMap({
                 marker.envelope.id ||
                 `${marker.grant.id}:${marker.envelope.capturedAt}`,
               point,
+              avatarUrl: marker.grant.ownerPhotoUrl ?? null,
               label: displayLabel(marker),
               shortLabel: displayShortLabel(marker),
               kind: "person",
@@ -1486,14 +1503,14 @@ export function LocationImmersiveMap({
         markerSignatureRef.current = nextSignature;
         setMarkers(nextMarkers);
       }
-      setStatus("ready");
+      setStatus((current) => current === "unavailable" ? current : "ready");
     } catch {
       if (
         mountedRef.current &&
         rendererReadyRef.current &&
         refreshGenerationRef.current === refreshGeneration
       ) {
-        setStatus("error");
+        setStatus((current) => current === "unavailable" ? current : "error");
       }
     } finally {
       if (refreshGenerationRef.current === refreshGeneration) {
@@ -1550,9 +1567,15 @@ export function LocationImmersiveMap({
             GOOGLE_MAPS_RENDERER_CONSENT_VERSION;
           setPreferences(next);
           setAcceptedRenderer(accepted);
+          setRendererPreparationPending(false);
+          setRendererPreparationError(null);
           writeCachedRendererConsentAccepted(auth.userId, accepted);
         })
-        .catch(() => undefined);
+        .catch(() => {
+          if (!mountedRef.current || preferenceRevisionRef.current !== revision) return;
+          setRendererPreparationPending(false);
+          setRendererPreparationError("Your map could not be prepared. Check your connection and try again.");
+        });
     });
   }, [auth.userId, demoMode, vaultOwnerToken]);
 
@@ -1590,35 +1613,38 @@ export function LocationImmersiveMap({
     };
   }, []);
 
-  // Renderer consent is durable metadata, not a coordinate permission. Read it
-  // before showing the disclosure so returning people do not have to accept on
-  // every Map entry; no envelope is decrypted in this bootstrap step.
+  // Open the neutral renderer directly, but only read existing acceptance.
+  // Reopening or retrying must never replace revoked/outdated consent.
   useEffect(() => {
-    if (!vaultOwnerToken || !auth.userId) return;
+    const userId = auth.userId;
+    if (!vaultOwnerToken || !userId) return;
     const revision = ++preferenceRevisionRef.current;
     if (demoMode) {
       setPreferences({ presenceMode: "ghost" });
+      setRendererPreparationPending(false);
       return;
     }
     let cancelled = false;
-    void OneLocationService.getMapState(vaultOwnerToken)
-      .then((state) => {
+    setRendererPreparationPending(true);
+    setRendererPreparationError(null);
+    void OneLocationService.getMapPreferences(vaultOwnerToken)
+      .then((current) => {
         if (cancelled || preferenceRevisionRef.current !== revision) return;
-        setPreferences(state.preferences);
-        const accepted =
-          state.preferences.rendererConsentVersion ===
-          GOOGLE_MAPS_RENDERER_CONSENT_VERSION;
+        const accepted = current.rendererConsentVersion === GOOGLE_MAPS_RENDERER_CONSENT_VERSION;
+        setPreferences(current);
         setAcceptedRenderer(accepted);
-        writeCachedRendererConsentAccepted(auth.userId, accepted);
+        setRendererPreparationPending(false);
+        writeCachedRendererConsentAccepted(userId, accepted);
       })
       .catch(() => {
-        // The disclosure remains available; do not misrepresent a transient
-        // bootstrap error as a location or consent failure.
+        if (cancelled || preferenceRevisionRef.current !== revision) return;
+        setRendererPreparationPending(false);
+        setRendererPreparationError("Your map could not be prepared. Check your connection and try again.");
       });
     return () => {
       cancelled = true;
     };
-  }, [auth.userId, demoMode, vaultOwnerToken]);
+  }, [auth.userId, demoMode, rendererPreparationRetry, vaultOwnerToken]);
 
   useEffect(() => {
     markerSignatureRef.current = "";
@@ -1741,6 +1767,8 @@ export function LocationImmersiveMap({
         config: {
           center: initialCenter,
           zoom: initialZoom,
+          // Keep the renderer from shrinking the world below its viewport.
+          minZoom: worldView.zoom,
           disableDefaultUI: true,
           // `styles` is deliberately NOT passed.
           //
@@ -1764,6 +1792,8 @@ export function LocationImmersiveMap({
         return;
       }
       mapRef.current = map;
+      mapMinimumZoomRef.current = worldView.zoom;
+      placeholderCameraRetiredRef.current = false;
       if (!isNative()) {
         try {
           const overlay = await createWebSelfAvatarOverlay(
@@ -1926,6 +1956,9 @@ export function LocationImmersiveMap({
           await map.setOnCameraMoveStartedListener((event) => {
             if (!currentInstance()) return;
             if (event.isGesture && rendererReadyRef.current) {
+              // Native reports genuine gestures; Web also labels programmatic
+              // center_changed as gestures, so placeholder ownership uses DOM input.
+              if (isNative()) placeholderCameraRetiredRef.current = true;
               cameraGestureSinceSettle = true;
               cameraReportsAuthorizedRef.current = true;
               cameraCommandGenerationRef.current += 1;
@@ -1981,6 +2014,9 @@ export function LocationImmersiveMap({
       webAvatarOverlayRef.current?.destroy();
       webAvatarOverlayRef.current = null;
       setWebAvatarOverlay(null);
+      webPersonAvatarBatchRef.current?.destroy();
+      webPersonAvatarBatchRef.current = null;
+      setWebPersonAvatarHosts(new Map());
       if (cameraFrameRef.current !== null) {
         window.cancelAnimationFrame(cameraFrameRef.current);
         cameraFrameRef.current = null;
@@ -2294,6 +2330,12 @@ export function LocationImmersiveMap({
    * label bubbles that stand for four people with the name of one.
    */
   const clusteringActive = rendererMarkers.length > 8;
+  const personAvatarMarkers = useMemo(
+    () => isCheckInSurface ? [] : markers.filter(
+      marker => webPersonAvatarHosts.has(marker.key) || !clusteringActive,
+    ),
+    [isCheckInSurface, markers, webPersonAvatarHosts, clusteringActive],
+  );
 
   /**
    * The names floating over the pins.
@@ -2338,6 +2380,14 @@ export function LocationImmersiveMap({
               radiusPx: SELF_AVATAR_MARKER_SIZE_PX / 2,
             }
           : undefined,
+      reservedMarkers: (!clusteringActive && (webPersonAvatarHosts.size > 0 || selfPinDrawnAsAvatar))
+        ? personAvatarMarkers.map(marker => ({
+            key: marker.key,
+            point: marker.point,
+            radiusPx: SELF_AVATAR_MARKER_SIZE_PX / 2,
+            offsetYPx: -SELF_AVATAR_MARKER_SIZE_PX / 2,
+          }))
+        : [],
       minAnchorDistancePx: clusteringActive
         ? MAP_NAME_LABEL_CLUSTERED_ANCHOR_DISTANCE_PX
         : MAP_NAME_LABEL_MIN_ANCHOR_DISTANCE_PX,
@@ -2355,6 +2405,8 @@ export function LocationImmersiveMap({
     status,
     visibleMarkers,
     webAvatarOverlay,
+    webPersonAvatarHosts,
+    personAvatarMarkers,
   ]);
 
   useEffect(() => {
@@ -2544,6 +2596,27 @@ export function LocationImmersiveMap({
     // edge of the map is spoken for, so all three have to re-run the measure.
   }, [isCheckInSurface, mapReady, nearbyCheckInOpen, rendererReady]);
 
+  useEffect(() => {
+    const element = mapElement.current;
+    if (!element || !mapReady || isNative()) return;
+    const retirePlaceholder = () => {
+      if (rendererReadyRef.current) placeholderCameraRetiredRef.current = true;
+    };
+    const onMapKeyDown = (event: KeyboardEvent) => {
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End", "+", "-", "="].includes(event.key)) {
+        retirePlaceholder();
+      }
+    };
+    element.addEventListener("pointerdown", retirePlaceholder, { passive: true });
+    element.addEventListener("wheel", retirePlaceholder, { passive: true });
+    element.addEventListener("keydown", onMapKeyDown, true);
+    return () => {
+      element.removeEventListener("pointerdown", retirePlaceholder);
+      element.removeEventListener("wheel", retirePlaceholder);
+      element.removeEventListener("keydown", onMapKeyDown, true);
+    };
+  }, [mapReady]);
+
   /**
    * Keep the neutral world view filling the box after the box changes size.
    *
@@ -2551,15 +2624,18 @@ export function LocationImmersiveMap({
    * rotation or a window resize changes the arithmetic, and a taller box at the
    * same zoom is exactly how the blank strip above the map comes back.
    *
-   * Deliberately narrow: it runs only while `rendererReady` is false — the
-   * consent screen, whose camera is a placeholder for a location the app has
-   * not been given and has not asked for. Once there is a real position to
-   * show, the camera belongs to the person and to `focusSelfPoint`, and nothing
-   * here may move it.
+   * Only the placeholder camera is ours to adjust. It can remain visible after
+   * consent while the first location is still pending. A real focus, people
+   * frame, or gesture retires it; resizing may never take that camera back.
    */
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapReady || rendererReady) return;
+    if (!map || !mapReady) return;
+    // Real coordinates and actual user input permanently retire this placeholder.
+    if (rendererReady && (mapSelfMarker || visibleMarkers.length || nearbySearchPoint || displayedPlaceFocus)) {
+      placeholderCameraRetiredRef.current = true;
+    }
+    if (rendererReady && placeholderCameraRetiredRef.current) return;
     if (!(mapBox.width > 0) || !(mapBox.height > 0)) return;
     const worldView = neutralWorldCamera({
       width: mapBox.width,
@@ -2573,7 +2649,7 @@ export function LocationImmersiveMap({
         animate: false,
       })
       .catch(() => undefined);
-  }, [mapBox.height, mapBox.width, mapReady, rendererReady]);
+  }, [mapBox.height, mapBox.width, mapReady, rendererReady, mapSelfMarker, visibleMarkers.length, nearbySearchPoint, displayedPlaceFocus]);
 
   // The tray body's rendered box is height-clamped by its scroll container,
   // so its own size never reflects how tall its content actually is. Track
@@ -2782,7 +2858,7 @@ export function LocationImmersiveMap({
         settledCameraRevisionRef.current === nearbyFrameCommand.cameraRevision
       ) {
         cameraReportsAuthorizedRef.current = true;
-        setSettledCameraZoom(fittedZoom);
+        setSettledCameraZoom(Math.max(mapMinimumZoomRef.current, fittedZoom));
       }
     }).catch(() => {
       // Place discovery remains usable from the drawer if an older renderer
@@ -2989,6 +3065,7 @@ export function LocationImmersiveMap({
       initialFrameCommandRef.current = initialFrameCommand;
     }
     let cancelled = false;
+    const avatarController = new AbortController();
     const enqueue = (command: () => Promise<void>): Promise<void> => {
       const next = markerCommandRef.current
         .catch(() => undefined)
@@ -2997,6 +3074,10 @@ export function LocationImmersiveMap({
       return next;
     };
     void enqueue(async () => {
+      if (cancelled || generation !== markerGenerationRef.current || mapRef.current !== map) return;
+      webPersonAvatarBatchRef.current?.destroy();
+      webPersonAvatarBatchRef.current = null;
+      setWebPersonAvatarHosts(new Map());
       if (markerIdsRef.current.length) {
         const stale = markerIdsRef.current;
         markerIdsRef.current = [];
@@ -3009,6 +3090,11 @@ export function LocationImmersiveMap({
       ) {
         return;
       }
+      const avatarTitles = new Map(rendererMarkers.flatMap(marker =>
+        !isNative() && webAvatarOverlay && marker.kind === "person"
+          ? [[marker.key, `one-private-pin-${crypto.randomUUID()}`] as const]
+          : [],
+      ));
       const mapMarkers: Marker[] = rendererMarkers.map((marker) => {
         // Labels stay in the local HTML tray/search index. The native Google
         // renderer receives coordinates and a generic accessibility title,
@@ -3024,12 +3110,9 @@ export function LocationImmersiveMap({
             lat: marker.point.latitude,
             lng: marker.point.longitude,
           },
-          // `title` is only safe to send on native, where it fills the info
-          // window that opens on tap. The web renderer feeds it to the pin's
-          // *glyph* instead -- a slot meant for one character -- so any real
-          // title is painted across the map beside the pin. A place name plus
-          // its full postal address made a banner of it. Web keeps the plain
-          // coloured pin; the drawer already names both points in HTML.
+          // Native uses generic info-window copy. Web uses an opaque locator
+          // with a neutral icon until local avatar content replaces it. Never
+          // let a real label enter the web pin's single-character glyph slot.
           ...(isNative()
             ? {
                 title,
@@ -3038,7 +3121,13 @@ export function LocationImmersiveMap({
                     ? "Your check-in place"
                     : "Sharing privately now",
               }
-            : {}),
+            : avatarTitles.has(marker.key)
+              ? {
+                  title: avatarTitles.get(marker.key),
+                  iconUrl: webPersonMarkerPlaceholder(isStaleAt(marker.capturedAt, freshnessSeconds, staleClockMs)),
+                  iconSize: { width: 44, height: 44 },
+                }
+              : {}),
           // Grey once the position is older than live. tintColor is the only
           // per-pin styling this bridge exposes -- `title` cannot carry it,
           // because the web renderer paints titles across the map as a glyph
@@ -3065,6 +3154,16 @@ export function LocationImmersiveMap({
         if (ids.length) await map.removeMarkers(ids).catch(() => undefined);
         return;
       }
+      const batch = mapElement.current && avatarTitles.size
+        ? await attachWebPersonAvatarHosts(mapElement.current, avatarTitles, avatarController.signal)
+        : null;
+      if (cancelled || generation !== markerGenerationRef.current || !rendererReadyRef.current || mapRef.current !== map) {
+        batch?.destroy();
+        if (ids.length) await map.removeMarkers(ids).catch(() => undefined);
+        return;
+      }
+      webPersonAvatarBatchRef.current = batch;
+      setWebPersonAvatarHosts(batch?.hosts ?? new Map());
       markerIdsRef.current = ids;
       // Indexed against `rendererMarkers`, not `visibleMarkers`: the owner is
       // a separately managed renderer circle and has no marker-click id.
@@ -3119,7 +3218,7 @@ export function LocationImmersiveMap({
                 initialFrameCommand.cameraRevision
             ) {
               cameraReportsAuthorizedRef.current = true;
-              setSettledCameraZoom(targetZoom);
+              setSettledCameraZoom(Math.max(mapMinimumZoomRef.current, targetZoom));
             }
           },
           fittingBox,
@@ -3130,6 +3229,7 @@ export function LocationImmersiveMap({
     });
     return () => {
       cancelled = true;
+      avatarController.abort();
     };
     // staleClockMs and freshnessSeconds are dependencies because a pin has to
     // change colour while nothing else changes at all. Without them the tint
@@ -3145,26 +3245,44 @@ export function LocationImmersiveMap({
     visibleMarkers,
     freshnessSeconds,
     staleClockMs,
+    webAvatarOverlay,
   ]);
 
+  const retryRendererPreparation = useCallback(() => {
+    setRendererPreparationPending(true);
+    setRendererPreparationError(null);
+    setRendererPreparationRetry((attempt) => attempt + 1);
+  }, []);
+
   const acceptRenderer = useCallback(async () => {
-    if (!vaultOwnerToken) return;
+    const userId = auth.userId;
+    if (!vaultOwnerToken || !userId || rendererPreparationPending || rendererAcceptanceInFlightRef.current) return;
+    rendererAcceptanceInFlightRef.current = true;
     const revision = ++preferenceRevisionRef.current;
+    setRendererPreparationPending(true);
+    setRendererPreparationError(null);
     try {
       const next = await OneLocationService.updateMapPreferences({
         vaultOwnerToken,
         rendererConsentVersion: GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
       });
-      if (!mountedRef.current || preferenceRevisionRef.current !== revision)
-        return;
+      if (!mountedRef.current || preferenceRevisionRef.current !== revision) return;
+      if (next.rendererConsentVersion !== GOOGLE_MAPS_RENDERER_CONSENT_VERSION) {
+        throw new Error("Renderer acceptance was not confirmed");
+      }
       setPreferences(next);
       setAcceptedRenderer(true);
-      writeCachedRendererConsentAccepted(auth.userId, true);
-      if (auth.userId) publishOneLocationMapPreferences(auth.userId, next);
+      setRendererPreparationPending(false);
+      writeCachedRendererConsentAccepted(userId, true);
+      publishOneLocationMapPreferences(userId, next);
     } catch {
-      toast.error("Your Map could not be prepared.");
+      if (!mountedRef.current || preferenceRevisionRef.current !== revision) return;
+      setRendererPreparationPending(false);
+      setRendererPreparationError("Your map could not be prepared. Check your connection and try again.");
+    } finally {
+      rendererAcceptanceInFlightRef.current = false;
     }
-  }, [auth.userId, vaultOwnerToken]);
+  }, [auth.userId, rendererPreparationPending, vaultOwnerToken]);
 
   const setPresence = useCallback(async () => {
     if (!vaultOwnerToken) return;
@@ -3455,24 +3573,6 @@ export function LocationImmersiveMap({
         ? "Private sharing with 1 person"
         : `Private sharing with ${privateShareCount} people`;
 
-  /**
-   * Only when it adds something the title cannot -- and the outgoing count no
-   * longer qualifies.
-   *
-   * This line used to read "Sharing with 1" under a title reading "No one
-   * sharing yet": two true statements about two different audiences, stacked
-   * as though they were one, which reads as a contradiction and was reported
-   * as one. The fix is not to reword it here. The sheet below now states both
-   * audiences in full, in their own labelled rows -- and this header only
-   * renders while the sheet is expanded, so keeping the count here as well
-   * would print the same fact twice on the same screen.
-   *
-   * What stays is the nearby radius, which nothing else says.
-   */
-  const peopleDrawerSubtitle = nearbyPresenceState.presence
-    ? `Within ${nearbyPresenceState.presence.radiusMeters} m · exact spots stay private`
-    : null;
-
   const privateShareHint = !privateShareCountKnown
     ? "Checking your active shares…"
     : privateShareCount > 0
@@ -3580,42 +3680,64 @@ export function LocationImmersiveMap({
         await closingMap.destroy().catch(() => undefined);
       });
     }
-    beginRouteTransition(
-      ROUTES.ONE_LOCATION,
-      () => router.replace(ROUTES.ONE_LOCATION, { scroll: false }),
-      "tap",
-      "full",
-    );
-    // Guaranteed exit: if the SPA route transition is interrupted (observed on
-    // native, where the map layer/transition could leave the close affordance
-    // inert), force a hard navigation to the Location dashboard so the user is
-    // never trapped in the full-screen map.
-    //
-    // The escape hatch is armed against the route we are leaving, whichever it
-    // is. Hard-coding Your Map's path silently disarmed it on check-in's own
-    // route -- the one screen where the X is now the primary way out, because
-    // dismissing the sheet deliberately leaves you standing here.
-    if (!isNative() || typeof window === "undefined") return;
-    const exitingFrom = window.location.pathname;
-    window.setTimeout(() => {
-      if (typeof window === "undefined") return;
-      if (window.location.pathname !== exitingFrom) return;
-      window.location.assign(ROUTES.ONE_LOCATION);
-    }, 1_200);
+    try {
+      beginRouteTransition(
+        ROUTES.ONE_LOCATION,
+        () => router.replace(ROUTES.ONE_LOCATION, { scroll: false }),
+        "tap",
+        "full",
+      );
+    } catch {
+      // Reduced-motion navigation can reject before an intent can be captured.
+      // Keep a user-controlled exit available without reloading or auto-retry.
+      closeRequestedRef.current = false;
+      closeNavigationIdRef.current = null;
+      setClosing(false);
+      toast.error("Couldn’t leave the map. Try again.");
+      return;
+    }
+    closeNavigationIdRef.current =
+      appInteractionCoordinator.getSnapshot().find(
+        (intent) =>
+          intent.kind === "navigation" &&
+          intent.target === ROUTES.ONE_LOCATION &&
+          (intent.status === "accepted" || intent.status === "committing"),
+      )?.id ?? null;
+    // The shared navigation owner handles delayed settlement and cancellation.
+    // A route-local hard reload would discard the memory-only unlocked vault
+    // and could fire after this map unmounts or another navigation supersedes it.
   }, [router]);
 
-  // Back goes through the app-wide owner (lib/navigation/android-back.ts),
-  // which closes an open sheet first; this screen only claims what is left.
   useEffect(() => {
-    if (!isNative() || getPlatform() !== "android") return;
-    return pushAndroidBackHandler(() => {
+    const intent = interactionIntents.find(
+      (candidate) => candidate.id === closeNavigationIdRef.current,
+    );
+    if (
+      !intent ||
+      !["cancelled", "rejected", "superseded"].includes(intent.status)
+    ) {
+      return;
+    }
+    // Only the owning transition's terminal outcome permits another attempt.
+    // Never automatically replay navigation or recreate the destroyed map.
+    closeNavigationIdRef.current = null;
+    closeRequestedRef.current = false;
+    setClosing(false);
+  }, [interactionIntents]);
+
+  // All Back surfaces share the map owner, after the topmost sheet has dismissed.
+  useBackLayer(
+    isCheckInSurface ? ROUTES.ONE_LOCATION_CHECK_IN : ROUTES.ONE_LOCATION_MAP,
+    100,
+    () => {
       if (nearbyCheckInOpen) {
         closeNearbyCheckIn();
-        return;
+        return true;
       }
       closeMap();
-    });
-  }, [closeMap, closeNearbyCheckIn, nearbyCheckInOpen]);
+      return true;
+    },
+  );
 
   const toggleDemoPeople = useCallback(() => {
     if (!demoAvailable) return;
@@ -3720,7 +3842,7 @@ export function LocationImmersiveMap({
               settledCameraRevisionRef.current === cameraRevision
             ) {
               cameraReportsAuthorizedRef.current = true;
-              setSettledCameraZoom(targetZoom);
+              setSettledCameraZoom(Math.max(mapMinimumZoomRef.current, targetZoom));
             }
           },
           fittingBox,
@@ -3797,6 +3919,23 @@ export function LocationImmersiveMap({
         keyboard-only control while the separately managed renderer circle
         stays tied to the coordinate.
       */}
+      {rendererReady && mapReady && status !== "unavailable" && !closing
+        ? personAvatarMarkers.map(person => (
+            <MapPersonAvatarMarker
+              key={person.grantId ?? person.key}
+              rendererElement={webPersonAvatarHosts.get(person.key) ?? null}
+              point={person.point}
+              camera={mapCamera}
+              viewport={mapBox}
+              avatarUrl={person.avatarUrl ?? null}
+              displayName={person.label}
+              accessibleLabel={`Location of ${person.label}`}
+              stale={isStaleAt(person.capturedAt, freshnessSeconds, staleClockMs)}
+              showAvatar={selfPinDrawnAsAvatar}
+              onSelect={() => { void focusMarker(person).catch(() => undefined); }}
+            />
+          ))
+        : null}
       {rendererReady &&
       mapSelfMarker &&
       mapReady &&
@@ -4175,7 +4314,7 @@ export function LocationImmersiveMap({
           </span>
         </div>
       ) : null}
-      {status !== "unavailable" && !mapReady ? (
+      {status !== "unavailable" && (!mapReady || rendererPreparationPending || (isCheckInSurface && nearbyCheckInOpen && !checkInStartupReady)) ? (
         // The map now starts initializing as soon as this screen opens --
         // before consent it's a neutral world view with zero markers, no
         // different in privacy terms from Preview-with-fictional-people,
@@ -4190,6 +4329,8 @@ export function LocationImmersiveMap({
         <div
           className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-[#eef2f7] px-6 text-center dark:bg-[#10151d]"
           data-testid="one-location-map-loading"
+          role="status"
+          aria-live="polite"
         >
           <div
             aria-hidden="true"
@@ -4218,82 +4359,20 @@ export function LocationImmersiveMap({
           )}
         </div>
       ) : null}
-      {/*
-        `status !== "unavailable"` for the same reason as the branch below:
-        consenting to a renderer that cannot start is a decision with no
-        outcome. When the map is broken the screen says so and keeps its close
-        control, instead of offering a Continue that leads back to the same
-        blank canvas.
-      */}
-      {!rendererReady && !isCheckInSurface && status !== "unavailable" ? (
+      {!rendererReady && !rendererPreparationPending && rendererPreparationError ? (
         <section
-          className={MAP_CONSENT_PANEL_CLASSNAME}
-          data-testid="one-location-map-disclosure"
-          style={{ paddingBottom: MAP_CONSENT_PANEL_BOTTOM_PADDING }}
+          role="alert"
+          data-testid="one-location-map-preparation-error"
+          className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-[color:var(--app-primary-surface)] px-6 text-center"
         >
-          {/* The pin and the title on one line. Upstream landed the same
-              fix while this branch was in review -- geometry in
-              `map-consent-panel-layout.ts`, measured by
-              `e2e/one-location-map-consent-panel.layout.spec.ts`. */}
-          <div className={MAP_CONSENT_HEADING_ROW_CLASSNAME}>
-            <MapPin className={MAP_CONSENT_HEADING_ICON_CLASSNAME} />
-            <h1 className={MAP_CONSENT_HEADING_TITLE_CLASSNAME}>
-              {MAP_CONSENT_TITLE}
-            </h1>
-          </div>
-          {/*
-            This is the renderer-consent gate: accepting it writes
-            GOOGLE_MAPS_RENDERER_CONSENT_VERSION. That record is unchanged —
-            what changed is how much of it this screen reads out.
-
-            It used to carry three sentences: private shares are opened on this
-            device, Google Maps is told the minimum, and Nearby Check-In is a
-            separate opt-in. Two of those are not decisions a person standing
-            here can act on, and the third belongs to another feature:
-
-            - The renderer sentence describes how the map is fed. It is true and
-              it is architecture. Nothing on this screen changes because of it.
-            - The Nearby Check-In sentence explains a DIFFERENT feature's
-              consent on the screen before that feature. It is still stated, in
-              its strong form and with "Nearby" and "only" intact, on Location
-              Settings (`redesign/location-redesign-hub.tsx`) — the surface
-              where Check-In is actually turned on. Deleting it there would be a
-              real loss; deleting it here is not.
-
-            What survives is the promise the person is being asked to trust:
-            nothing on this map leaves until they share it. If a disclosure ever
-            has to grow again, it belongs on Location Settings beside the other
-            one, not back in this paragraph.
-          */}
-          <p
-            className="mt-2 text-sm leading-6 text-muted-foreground"
-            data-testid="map-consent-support"
-          >
-            {MAP_CONSENT_SUPPORTING_LINE}
+          <p className="max-w-sm text-sm text-[color:var(--app-secondary-label)]">
+            {rendererPreparationError}
           </p>
-          <Button
-            size="prominent"
-            className={`mt-4 w-full ${MAP_ACCENT_ACTIVE_CLASSNAME}`}
-            onClick={() => void acceptRenderer()}
-          >
-            Continue
-          </Button>
-          {demoAvailable ? (
-            <Button
-              size="standard"
-              className="mt-2 w-full"
-              variant="secondary"
-              data-testid="one-location-map-demo-preview"
-              onClick={toggleDemoPeople}
-            >
-              <UsersRound className="h-4 w-4" />
-              {/* "not real people" is not lost with the shorter label: tapping
-                  this raises the "Showing fictional people…" toast, and the map
-                  carries a Demo badge for as long as the preview is on. */}
-              See a demo
-            </Button>
-          ) : null}
+          <Button size="standard" onClick={retryRendererPreparation}>Try again</Button>
         </section>
+      ) : null}
+      {!rendererReady && !rendererPreparationPending && !rendererPreparationError && mapReady && status !== "unavailable" && !(isCheckInSurface && nearbyCheckInOpen) ? (
+        <MapRendererAccess onAccept={() => void acceptRenderer()} />
       ) : null}
       {/*
         Was `rendererReady && status === "unavailable"`, which left one state
@@ -4306,8 +4385,11 @@ export function LocationImmersiveMap({
         The placeholder says nothing private -- it is a grid, a pin and "Maps
         isn't available" -- so there is no reason it should have waited for
         consent to say the map is broken.
+
+        A preference-read failure owns the recovery surface until it settles;
+        the unavailable placeholder must not cover that surface's retry action.
       */}
-      {status === "unavailable" ? (
+      {status === "unavailable" && !(!rendererReady && !rendererPreparationPending && rendererPreparationError) ? (
         // Full-bleed styled fallback. Previously only a small bottom card sat
         // over the (blank) native canvas, so most of Your Map read as a blank
         // white screen when the Maps key was missing. Cover the whole surface
@@ -4476,11 +4558,6 @@ export function LocationImmersiveMap({
                     </span>
                   ) : null}
                 </span>
-                {peopleDrawerSubtitle ? (
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {peopleDrawerSubtitle}
-                  </span>
-                ) : null}
               </span>
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--app-accent-surface)] text-[var(--app-accent-deep)] transition-colors group-hover:bg-[var(--app-accent-surface-strong)] dark:text-[var(--app-accent-bright)]">
                 <ChevronDown className="h-4 w-4" />
@@ -4516,7 +4593,7 @@ export function LocationImmersiveMap({
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <span className="sr-only">Find a person</span>
                   <Input
-                    className="h-11 rounded-full border-border/60 bg-muted/80 pl-9 pr-4"
+                    className="h-11 rounded-full border-border/60 bg-muted/80 pl-9 pr-4 focus-visible:ring-2 focus-visible:ring-inset"
                     data-testid="one-location-map-search"
                     inputMode="search"
                     placeholder="Search"
@@ -4701,7 +4778,7 @@ export function LocationImmersiveMap({
                               {person.label}
                             </span>
                             {lastSeen ? (
-                              <span className="max-w-28 truncate text-[11px] text-muted-foreground">
+                              <span className={cn("max-w-28 truncate text-[11px]", selectedPerson ? "text-white" : "text-muted-foreground")}>
                                 {lastSeen}
                               </span>
                             ) : null}
@@ -5010,6 +5087,9 @@ export function LocationImmersiveMap({
       !demoMode ? (
         <NearbyCheckInSheet
           open={nearbyCheckInOpen}
+          presentationReady={isCheckInSurface ? checkInStartupReady && (mapReady || status === "unavailable") && !rendererPreparationPending && !rendererPreparationError : true}
+          onStartupReadyChange={setCheckInStartupReady}
+          rendererAccess={!rendererReady && !rendererPreparationPending && !rendererPreparationError && mapReady && status !== "unavailable" ? <MapRendererAccess inline onAccept={() => void acceptRenderer()} /> : undefined}
           ownerId={auth.userId}
           vaultOwnerToken={vaultOwnerToken}
           vaultKey={vaultKey}

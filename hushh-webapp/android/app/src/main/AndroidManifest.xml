@@ -20,9 +20,14 @@
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
         android:theme="@style/AppTheme">
+        <service android:name="io.capawesome.capacitorjs.plugins.firebase.messaging.MessagingService" tools:node="remove" />
+        <service android:name=".plugins.HushhNotifications.ChatMessagingService" android:exported="false">
+            <intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter>
+        </service>
         <!-- Credential Manager uses this Digital Asset Links declaration to
              authorize the canonical native passkey relying party. -->
         <meta-data android:name="asset_statements" android:resource="@string/asset_statements" />
+        <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="hushh_activity_alerts_v1" />
         <!-- Restricted Android Maps SDK key is generated from the build
              environment. Never point this at the web or backend Maps key. -->
         <meta-data android:name="com.google.android.geo.API_KEY" android:value="@string/google_maps_key" />
@@ -119,6 +124,7 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />

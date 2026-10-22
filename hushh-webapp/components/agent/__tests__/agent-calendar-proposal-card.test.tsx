@@ -13,6 +13,7 @@ describe("AgentCalendarProposalCard", () => {
         endAt="2026-08-11T10:30:00+05:30"
         attendees={["person@example.com"]}
         location="Room 4"
+        description="Review the quarterly roadmap"
         sendUpdates
         googleMeet
         conflicts={[]}
@@ -25,6 +26,7 @@ describe("AgentCalendarProposalCard", () => {
     expect(screen.getByTestId("agent-calendar-proposal-card")).toBeTruthy();
     expect(screen.getByText("Planning")).toBeTruthy();
     expect(screen.getByText("Room 4")).toBeTruthy();
+    expect(screen.getByText("Review the quarterly roadmap")).toBeTruthy();
     expect(screen.getByText(/Guest: person@example.com/)).toBeTruthy();
     expect(screen.getByText(/invite will be emailed/)).toBeTruthy();
     expect(screen.getByText("Google Meet link will be included")).toBeTruthy();

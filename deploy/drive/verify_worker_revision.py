@@ -7,6 +7,9 @@ import os
 import sys
 from typing import Any
 
+_REVISION_MAX_SCALE = "autoscaling.knative.dev/maxScale"
+_REVISION_MIN_SCALE = "autoscaling.knative.dev/minScale"
+
 
 def _digest(image: Any) -> str | None:
     if not isinstance(image, str) or image.count("@") != 1:
@@ -17,6 +20,30 @@ def _digest(image: Any) -> str | None:
     return digest
 
 
+def _verify_scaling(
+    revision: dict[str, Any], *, max_instances: str | None, concurrency: str | None
+) -> None:
+    """Hold the candidate to the per-revision shape the connection budget counts.
+
+    The budget reserves maxScale x workers x pool for every retained revision.
+    Warm capacity comes from the service-level minimum, which follows traffic;
+    a revision-level minimum would keep every tagged rollback revision warm.
+    Concurrency is pinned because the worker's memory-heavy child limits are
+    per request, not per process.
+    """
+    annotations = (revision.get("metadata") or {}).get("annotations") or {}
+    observed = (revision.get("spec") or {}).get("containerConcurrency")
+    if (
+        max_instances is None
+        or concurrency is None
+        or annotations.get(_REVISION_MAX_SCALE) != max_instances
+        or annotations.get(_REVISION_MIN_SCALE, "0") != "0"
+        or type(observed) is not int
+        or str(observed) != concurrency
+    ):
+        raise ValueError("Drive worker revision scaling mismatch")
+
+
 def verify_revision(
     revision: dict[str, Any],
     *,
@@ -24,6 +51,11 @@ def verify_revision(
     app_image: str,
     scanner_index_digest: str,
     scanner_amd64_digest: str,
+    drain_enabled: str | None = None,
+    semantic_model_provider: str | None = None,
+    managed_text_provider: str | None = None,
+    max_instances: str | None = None,
+    concurrency: str | None = None,
 ) -> None:
     """Accept only the reviewed app and either pinned ClamAV manifest form.
 
@@ -49,6 +81,44 @@ def verify_revision(
     }:
         raise ValueError("Drive worker container set mismatch")
     images = {item["name"]: item.get("image") for item in containers}
+    if managed_text_provider is not None:
+        worker = next(item for item in containers if item["name"] == "drive-worker")
+        selected = [
+            item.get("value")
+            for item in worker.get("env", [])
+            if item.get("name") == "HUSHH_UAT_MANAGED_TEXT_PROVIDER"
+        ]
+        if managed_text_provider not in {"azure_openai", "vertex"} or selected != [
+            managed_text_provider
+        ]:
+            raise ValueError("Drive worker managed text provider mismatch")
+        full = [
+            item.get("value")
+            for item in worker.get("env", [])
+            if item.get("name") == "HUSHH_UAT_MANAGED_AI_PROVIDER"
+        ]
+        if full != [managed_text_provider]:
+            raise ValueError("Drive worker managed capability provider mismatch")
+    if semantic_model_provider is not None:
+        worker = next(item for item in containers if item["name"] == "drive-worker")
+        providers = [
+            item.get("value")
+            for item in worker.get("env", [])
+            if item.get("name") == "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER"
+        ]
+        if semantic_model_provider not in {"gemini", "azure_openai"} or providers != [
+            semantic_model_provider
+        ]:
+            raise ValueError("Drive worker semantic model provider mismatch")
+    if drain_enabled is not None:
+        worker = next(item for item in containers if item["name"] == "drive-worker")
+        flags = [
+            item.get("value")
+            for item in worker.get("env", [])
+            if item.get("name") == "DRIVE_WORK_DRAIN_ENABLED"
+        ]
+        if drain_enabled not in {"true", "false"} or flags != [drain_enabled]:
+            raise ValueError("Drive worker background processing state mismatch")
     if images["drive-worker"] != app_image:
         raise ValueError("Drive worker app image mismatch")
     if _digest(images["clamav"]) not in {
@@ -56,6 +126,8 @@ def verify_revision(
         scanner_amd64_digest,
     }:
         raise ValueError("Drive worker scanner image digest mismatch")
+    if max_instances is not None or concurrency is not None:
+        _verify_scaling(revision, max_instances=max_instances, concurrency=concurrency)
 
 
 def main() -> int:
@@ -67,6 +139,11 @@ def main() -> int:
             app_image=os.environ["EXPECTED_APP_IMAGE"],
             scanner_index_digest=os.environ["EXPECTED_SCANNER_INDEX_DIGEST"],
             scanner_amd64_digest=os.environ["EXPECTED_SCANNER_AMD64_DIGEST"],
+            drain_enabled=os.environ.get("EXPECTED_DRAIN_ENABLED"),
+            semantic_model_provider=os.environ.get("EXPECTED_SEMANTIC_MODEL_PROVIDER"),
+            managed_text_provider=os.environ.get("EXPECTED_MANAGED_TEXT_PROVIDER"),
+            max_instances=os.environ.get("EXPECTED_MAX_INSTANCES"),
+            concurrency=os.environ.get("EXPECTED_CONCURRENCY"),
         )
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
         print(f"Drive worker candidate provenance failed: {exc}", file=sys.stderr)

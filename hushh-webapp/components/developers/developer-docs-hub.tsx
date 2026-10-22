@@ -65,7 +65,8 @@ import {
   AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
-import { PageHeader, SectionHeader } from "@/components/app-ui/page-sections";
+import { KnowledgeSectionHeader } from "@/components/app-ui/knowledge-section-header";
+import { SectionHeader } from "@/components/app-ui/page-sections";
 import {
   SurfaceCard,
   SurfaceCardContent,
@@ -1384,8 +1385,8 @@ export function DeveloperDocsHub({
   return (
     <TooltipProvider>
       <AppPageShell
-        width="reading"
-        className="relative isolate pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] pt-0 sm:pb-10 md:pb-8"
+        width="agent"
+        className="relative isolate"
         nativeTest={{
           routeId: "/developers",
           marker: "native-route-developers",
@@ -1394,21 +1395,19 @@ export function DeveloperDocsHub({
         }}
       >
         <AppPageHeaderRegion>
-          <PageHeader
-            eyebrow="Developers"
+          <KnowledgeSectionHeader
             title="Hussh Consent MCP"
             description="A five-tool, consent-first connection for agents and product experiences."
-            descriptionFullWidth
             icon={Cable}
-            accent="developers"
+            tone="green"
           />
         </AppPageHeaderRegion>
 
-        <AppPageContentRegion className="mt-5">
+        <AppPageContentRegion className="mt-4 min-w-0 space-y-4">
           <div className="min-w-0 space-y-6">
             <section
               id="start"
-              className="scroll-mt-24 border-y border-border/60 py-5"
+              className="scroll-mt-24 py-5"
             >
               <div className="space-y-1">
                 <h2 className="text-base font-semibold tracking-tight text-foreground sm:text-lg">
@@ -1469,7 +1468,7 @@ export function DeveloperDocsHub({
                 <Accordion
                   type="single"
                   collapsible
-                  className="border-y border-border/65"
+                  className="border-0"
                 >
                   <AccordionItem value="advanced-start" className="border-b-0">
                     <AccordionTrigger className="py-4 text-sm font-semibold hover:no-underline">
@@ -1498,7 +1497,7 @@ export function DeveloperDocsHub({
 
             <section
               aria-labelledby="developer-reference-heading"
-              className="border-y border-border/60"
+              className="border-0"
             >
               <header className="space-y-1 px-1 py-4 sm:px-2">
                 <h2

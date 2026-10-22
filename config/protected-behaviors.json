@@ -330,7 +330,7 @@
     },
     {
       "name": "confirming-a-place-in-onboarding-turns-location-on",
-      "summary": "Saving and labelling a place during Location onboarding sets the live preview on, so the hub the person is redirected to does not greet them with \"Location off\" seconds after they granted permission and dropped a pin.",
+      "summary": "Confirming a saved place from the Now banner enables the live preview, unless a newer Location toggle intent supersedes the save. The moved workspace flow preserves the existing confirmation-to-preview regression lock.",
       "fixed_by": "fix/location-polish-round3",
       "why_it_needs_a_lock": [
         "Onboarding captures a position DIRECTLY rather than through",
@@ -352,7 +352,7 @@
           "assertion_pattern": "expect\\(",
           "min_assertions": 400,
           "required_titles": [
-            "turns location on once a place is confirmed in onboarding"
+            "saves the banner place securely and turns the Location preview on"
           ]
         }
       ]

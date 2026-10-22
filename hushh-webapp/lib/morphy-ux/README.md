@@ -37,7 +37,7 @@ surrounding section instead.
 ## Accent system (single switchable identity)
 
 All accent color flows through the `--app-accent-*` CSS family declared in
-`app/globals.css`: iOS Blue by default, Molten Gold under
+`app/globals.css`: Blue by default, Molten Gold under
 `html[data-accent="gold"]` (user preference in Profile → Preferences → Accent,
 managed by `lib/theme/accent.ts`, applied pre-paint by the inline script in
 `app/layout.tsx`). Rules:
@@ -81,8 +81,10 @@ Morphy adopts the Apple web design principles as enforceable grammar
 4. **Elevation doctrine.** No shadows on chrome; elevation = surface change +
    backdrop blur (`--app-blur-frosted`). The single photographic shadow is
    `--app-shadow-product`, reserved for imagery resting on a surface.
-5. **Fonts are system-stack only.** `--font-app-*` resolves SF Pro on Apple
-   platforms; never bundle Apple font files.
+5. **Product text uses Plus Jakarta Sans.** `--font-app-*` loads the self-hosted
+   400, 600 and 700 faces; unsupported glyphs use the platform fallback. Code
+   and uppercase metadata use the system monospace stack. Never bundle Apple
+   font files.
 
 ## Motion system (single source of truth)
 
@@ -92,7 +94,7 @@ easings in a component — reference the tokens so the whole app shares one fram
 
 ### Tokens
 
-- Durations: `--motion-duration-xs|sm|md|lg|xl|xxl` (120 → 600ms).
+- Durations: `--motion-duration-xs|sm|md|lg|xl|xxl` (75 → 150ms).
 - Easings: `--motion-ease-standard|accelerate|decelerate|emphasized`.
 - Overlay set (dialog/popover/sheet/menu/tooltip):
   - `--motion-overlay-enter-duration` / `--motion-overlay-enter-ease`
@@ -121,7 +123,7 @@ easings in a component — reference the tokens so the whole app shares one fram
 
 ### Route transitions
 
-The shared route envelope uses opacity-only exit (120ms) and enter (160ms),
+The shared route envelope uses opacity-only exit (60ms) and enter (90ms),
 with no additional transition delay. Keep the hook timers and CSS route tokens
 aligned. Public Explore tabs belong only to the top-level workspace, not its
 detail routes; exiting the public workspace returns to `/`.

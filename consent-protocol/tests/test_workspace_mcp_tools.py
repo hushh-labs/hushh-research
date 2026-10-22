@@ -73,7 +73,7 @@ async def test_native_drive_uses_existing_live_credential_and_narrows_catalog(na
     resolved = await tools.resolve_native_drive_connection(context())
     oauth.current_credential.assert_awaited_once_with(user_id="owner-a", required_profile="live")
     assert resolved.binding.generation == row["connection_generation"]
-    assert resolved.binding.credential_version == row["credential_version"]
+    assert resolved.binding.credential_version == 1
     assert resolved.binding.authority_revision == (
         secret["subject"],
         tools.LIVE_POLICY_HASH,
@@ -93,6 +93,45 @@ async def test_native_drive_uses_existing_live_credential_and_narrows_catalog(na
         "search_files", {"files": [{"id": "synthetic", "snippet": "omit"}]}
     )
     assert result["files"] == [{"id": "synthetic"}]
+
+
+@pytest.mark.parametrize("changed", ["generation", "subject", "profile", "policy"])
+async def test_lazy_drive_binding_survives_refresh_but_rejects_changed_authority(
+    native_drive, changed
+):
+    from hushh_mcp.one_adk.governed_mcp_toolset import GovernedMcpToolset
+
+    row, secret, oauth = native_drive
+    catalog = await tools.resolve_native_drive_connection(context(), metadata_only=True)
+    oauth.current_credential.assert_awaited_once_with(
+        user_id="owner-a", required_profile="live", refresh=False
+    )
+    assert catalog.headers == {}
+    toolset = GovernedMcpToolset(
+        binding=catalog.binding,
+        resolve_connection=tools.resolve_native_drive_connection,
+        authorize_call=AsyncMock(),
+    )
+    try:
+        # Metadata was observed before the next execution refreshed OAuth.
+        row["credential_version"] += 1
+        secret["accessToken"] = "refreshed-synthetic-token"
+        assert await toolset._current_headers(context()) == {
+            "Authorization": "Bearer refreshed-synthetic-token"
+        }
+        if changed == "generation":
+            row["connection_generation"] += 1
+        elif changed == "subject":
+            secret["subject"] = "changed-subject"
+        elif changed == "profile":
+            secret["profile"] = "selected"
+        else:
+            row["verified_policy_hash"] = "changed-policy"
+        with pytest.raises(ExternalMcpError) as error:
+            await toolset._current_headers(context())
+        assert error.value.code == "MCP_CONNECTION_CHANGED"
+    finally:
+        await toolset.close()
 
 
 @pytest.mark.parametrize("tool_name", ["search_files", "list_recent_files"])
@@ -139,7 +178,10 @@ async def test_native_drive_rejects_wrong_profile_and_stale_authority(
 
 
 @pytest.mark.parametrize("provider", ["gmail", "calendar"])
-async def test_native_workspace_uses_existing_owner_read_grant(monkeypatch, provider):
+@pytest.mark.parametrize("metadata_only", [False, True])
+async def test_native_workspace_uses_existing_owner_read_grant(
+    monkeypatch, provider, metadata_only
+):
     monkeypatch.setattr(tools, "_owner", AsyncMock(return_value="owner-a"))
     binding = (
         ("owner-a", "gmail", "account-a", "connected-at", "grant-rev")
@@ -152,12 +194,17 @@ async def test_native_workspace_uses_existing_owner_read_grant(monkeypatch, prov
     monkeypatch.setattr(tools, "GmailReceiptsService", lambda: gmail)
     monkeypatch.setattr(tools, "get_google_connection_service", lambda: calendar)
 
-    resolved = await tools.resolve_native_workspace_connection(context(), provider)
+    resolved = await tools.resolve_native_workspace_connection(
+        context(), provider, metadata_only=metadata_only
+    )
     assert resolved.binding.owner_id == "owner-a"
     assert resolved.binding.authority_revision == binding
-    assert resolved.headers == {"Authorization": "Bearer read-token"}
+    assert resolved.headers == ({} if metadata_only else {"Authorization": "Bearer read-token"})
     assert "read-token" not in repr(resolved)
-    if provider == "gmail":
+    if metadata_only:
+        gmail.get_read_access_token.assert_not_awaited()
+        calendar.access_token.assert_not_awaited()
+    elif provider == "gmail":
         gmail.get_read_access_token.assert_awaited_once_with(user_id="owner-a")
         calendar.access_token.assert_not_called()
     else:
@@ -522,7 +569,7 @@ async def test_grant_binding_is_owned_by_connector_services(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("operation", ["discover", "read"])
-@pytest.mark.parametrize("changed_revision", [None, "connection_revision", "grant_revision"])
+@pytest.mark.parametrize("changed_revision", [None, "refresh_token_ciphertext", "grant_revision"])
 async def test_calendar_uses_actual_service_binding_and_rechecks_both_revisions(
     monkeypatch, operation, changed_revision
 ):
@@ -531,7 +578,7 @@ async def test_calendar_uses_actual_service_binding_and_rechecks_both_revisions(
         "provider_subject": "synthetic-subject",
         "connection_status": "connected",
         "connected_at": "synthetic-time",
-        "connection_revision": "connection-1",
+        "refresh_token_ciphertext": "connection-1",
         "grant_status": "connected",
         "scope_csv": " ".join(google.scopes("calendar", "read")),
         "grant_revision": "grant-1",

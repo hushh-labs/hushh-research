@@ -15,6 +15,7 @@ vi.mock("@/lib/services/one-kyc-client-zk-service", () => ({
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/lib/vault/session-epoch", () => ({
   snapshotVaultSessionEpoch: () => state.epoch,
+  subscribeVaultSessionEpoch: () => () => {},
   isVaultSessionEpochCurrent: (epoch: number) => epoch === state.epoch,
 }));
 vi.mock("@/lib/services/person-profile-service", () => ({

@@ -1,15 +1,29 @@
 """Finite consented preparation drain; no ambient or persisted owner session."""
 
 import asyncio
+import os
 from collections import Counter
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_suggestion_service import DriveSuggestionService
 
 
+def _agent_packages_enabled() -> bool:
+    return os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower() == "true"
+
+
 class DriveSuggestionWorker:
-    def __init__(self, service=None):
+    def __init__(self, service=None, *, packages=None):
         self.service = service or DriveSuggestionService()
+        self._create_packages = service is None
+        self.packages = packages
+
+    def _package_service(self):
+        if self.packages is None and self._create_packages:
+            from hushh_mcp.services.drive_request_package_service import DriveRequestPackageService
+
+            self.packages = DriveRequestPackageService()
+        return self.packages
 
     async def _jobs(self, max_jobs):
         attempted = 0
@@ -27,15 +41,62 @@ class DriveSuggestionWorker:
                 attempted += int(enabled)
                 yield row, enabled
 
-    async def run(self, *, max_jobs=8, deadline_seconds=540):
+    async def run(self, *, max_jobs=8, deadline_seconds=540, v1_only=False):
         if (
             type(max_jobs) is not int
             or not 1 <= max_jobs <= 20
             or type(deadline_seconds) is not int
             or not 1 <= deadline_seconds <= 540
+            or type(v1_only) is not bool
         ):
             raise ValueError("invalid worker bounds")
         counts = Counter()
+        if v1_only:
+            # V1 reuses request-scoped content evaluation only. It never runs
+            # the legacy selected-file suggestion queue or catalog builders.
+            packages = self._package_service()
+            result = (
+                await packages.run(
+                    max_jobs=max_jobs, deadline_seconds=deadline_seconds, v1_only=True
+                )
+                if packages is not None
+                else {"not_claimed": 1}
+            )
+            for outcome, count in result.items():
+                counts[
+                    {
+                        "queued": "package_queued",
+                        "ready": "review_ready",
+                        "no_match": "no_ready_files",
+                        "not_claimed": "not_claimed",
+                        "deadline": "deadline",
+                    }.get(outcome, "unavailable")
+                ] += count
+            return {"schema_version": "drive.suggestions.worker.v1", "outcomes": dict(counts)}
+        packages = self._package_service() if _agent_packages_enabled() else None
+        if packages is not None:
+            # A separate finite task prevents either legacy or package traffic
+            # from starving the other; neither branch can extend this deadline.
+            async with asyncio.TaskGroup() as group:
+                package_run = group.create_task(
+                    packages.run(max_jobs=max_jobs, deadline_seconds=deadline_seconds)
+                )
+                legacy_run = group.create_task(
+                    DriveSuggestionWorker(self.service).run(
+                        max_jobs=max_jobs, deadline_seconds=deadline_seconds
+                    )
+                )
+            counts.update(legacy_run.result()["outcomes"])
+            for status, count in package_run.result().items():
+                target = {
+                    "queued": "package_queued",
+                    "ready": "review_ready",
+                    "no_match": "no_ready_files",
+                    "not_claimed": "not_claimed",
+                    "deadline": "deadline",
+                }.get(status, "unavailable")
+                counts[target] += count
+            return {"schema_version": "drive.suggestions.worker.v1", "outcomes": dict(counts)}
         try:
             async with asyncio.timeout(deadline_seconds):
                 # Durable inspection timestamps rotate even excluded or

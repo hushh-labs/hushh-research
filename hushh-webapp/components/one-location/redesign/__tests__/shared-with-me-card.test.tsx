@@ -36,6 +36,7 @@ describe("SharedWithMeCard", () => {
       }),
     ).toHaveLength(1);
     expect(viewButton.getAttribute("aria-expanded")).toBe("false");
+    expect(viewButton.querySelectorAll("svg")).toHaveLength(2);
     const previewRegion = document.getElementById(
       viewButton.getAttribute("aria-controls") ?? "",
     );
@@ -65,6 +66,7 @@ describe("SharedWithMeCard", () => {
     const mapFrame = screen.getByTestId("shared-location-map-frame");
     const actions = screen.getByTestId("shared-location-card-actions");
     expect(hideButton.getAttribute("aria-expanded")).toBe("true");
+    expect(hideButton.querySelectorAll("svg")).toHaveLength(1);
     expect(hideButton).not.toBeDisabled();
     expect(previewRegion?.hidden).toBe(false);
     expect(
@@ -81,7 +83,7 @@ describe("SharedWithMeCard", () => {
       "border-[color:var(--app-card-border-strong)]",
     );
     expect(recenterButton).toHaveAttribute("title", "Reset map view");
-    expect(actions).toHaveClass("mt-2", "flex-row", "py-1.5");
+    expect(actions).toHaveClass("mt-1", "flex-row", "py-1", "sm:mt-1.5");
     expect(
       screen.getByRole("link", {
         name: "Open shared location in Google Maps",

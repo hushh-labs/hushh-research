@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 from enum import Enum
 from typing import Mapping, Optional
@@ -385,21 +384,24 @@ DEFAULT_TRUST_LINK_EXPIRY_MS = 1000 * 60 * 60 * 24 * 30  # 30 days
 #
 # One switch: HUSSH_GEMINI_TEXT_MODEL moves every text agent to a new generation
 # at once (manifests say `gemini-default` and resolve here). The default is the
-# last generation proven in every lane; a lane flips the switch through the
-# `_HUSSH_GEMINI_TEXT_MODEL` deploy substitution once its Vertex allowed-models
-# policy admits the new id. Founder rule 2026-09-14: the Gemini catalog
+# configured release target; each lane proves model availability under its own
+# runtime identity before traffic promotion. Its Vertex allowed-models policy
+# must admit the configured id. Founder rule 2026-09-14: the Gemini catalog
 # (runtime_providers/model_catalog.py and registry.py) lists only the last two
 # releases at all times; a roll-forward replaces the oldest, never adds a third.
 # Every text manifest, the memory chain included, names `gemini-default`; only
 # the Live head pins a model directly, and that pin stays explicit in its manifest.
-# Founder decision 2026-09-27: 3.7 Flash was timing out in chat; 3.6 Flash is the default.
-FLEET_TEXT_MODEL_DEFAULT = "gemini-3.6-flash"
+# Owner decision 2026-10-15: 3.8 Flash passed bounded runtime and quality probes.
+FLEET_TEXT_MODEL_DEFAULT = "gemini-3.8-flash"
 
 
-def fleet_text_model_from_env(environ: "Mapping[str, str] | None" = None) -> str:
+def fleet_text_model_from_env(overrides: "Mapping[str, str] | None" = None) -> str:
     """The switched fleet text model: HUSSH_GEMINI_TEXT_MODEL, else the proven default."""
-    source = os.environ if environ is None else environ
-    return (source.get("HUSSH_GEMINI_TEXT_MODEL") or "").strip() or FLEET_TEXT_MODEL_DEFAULT
+    if overrides is not None:
+        return (overrides.get("HUSSH_GEMINI_TEXT_MODEL") or "").strip() or FLEET_TEXT_MODEL_DEFAULT
+    from hushh_mcp.runtime_settings import managed_ai_settings
+
+    return managed_ai_settings().text_model
 
 
 GEMINI_MODEL = fleet_text_model_from_env()

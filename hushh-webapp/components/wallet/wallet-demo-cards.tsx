@@ -1,71 +1,107 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Image from "next/image";
 import { WalletCardFace } from "@/components/wallet/wallet-card-face";
-import { cardNetworkLabel } from "@/components/wallet/card-network-mark";
-import { TYPOGRAPHY_CLASSNAMES } from "@/components/app-ui/typography";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
-import { formatCardExpiry, formatCardNumber } from "@/lib/wallet/wallet-card-presentation";
+import type { WalletCardPayload } from "@/lib/services/wallet-card-service";
+import { buildWalletCardSvg, walletCardImageFields, walletCardImageKey, NWS_SAMPLE_DESCRIPTION, type WalletCardImageKind } from "@/lib/wallet/wallet-card-image";
 import styles from "./wallet-demo-cards.module.css";
 
-/** Fixed illustration records, never accepted as saved Wallet cards. */
-const DEMOS = [
-  { name: "Everyday", brand: "visa", number: "0000000000004242", month: 12, finish: "platinum", tier: "Platinum" },
-  { name: "Travel", brand: "mastercard", number: "0000000000004444", month: 9, finish: "gold", tier: "Signature" },
-  { name: "Rewards", brand: "visa", number: "0000000000001234", month: 6, finish: "graphite", tier: "Black" },
+export type WalletDemoProfile = {
+  presentation?: "shared";
+  ownerId?: string;
+  shareToken?: string | null;
+  displayName: string | null;
+  shareUrl: string | null;
+  cardPayload?: WalletCardPayload | null;
+  memberSince?: string | null;
+  walletId?: string | null;
+  referralUrl?: string | null;
+};
+
+/** System cards have stable identities separate from encrypted payment records. */
+const AGENT_CARDS = [
+  { id: "agent-one-profile", name: "Agent One Profile", kind: "Profile", finish: "profile" },
+  { id: "agent-one-referral", name: "Agent One Referral", kind: "Referral", finish: "referral" },
+  { id: "agent-one-nws", name: "Agent One NWS", kind: "NWS", finish: "nws" },
 ] as const;
 
-export const WALLET_DEMO_CARDS: WalletCardSummary[] = DEMOS.map((demo, index) => ({
-  cardId: `demo-${index}`,
-  nickname: `${demo.name} - Demo`,
-  brand: demo.brand,
-  last4: demo.number.slice(-4),
-  expiryMonth: demo.month,
-  expiryYear: 2030,
-  issuingRegion: "Sample card",
+// Compatibility export: these are now live identity surfaces, not sample bank cards.
+export const WALLET_DEMO_CARDS: WalletCardSummary[] = AGENT_CARDS.map((card) => ({
+  cardId: card.id,
+  nickname: card.name,
+  brand: "other",
+  last4: "",
+  expiryMonth: 0,
+  expiryYear: 0,
+  issuingRegion: "",
   createdAt: "",
 }));
 
-function demoFor(cardId: string) {
-  const index = WALLET_DEMO_CARDS.findIndex((card) => card.cardId === cardId);
-  return DEMOS[index];
+export function isAgentWalletCard(cardId: string): boolean {
+  return AGENT_CARDS.some((card) => card.id === cardId);
 }
 
-/** Only the preview branch calls this; real cards never receive these numbers. */
-export function WalletDemoCardFace({ summary }: { summary: WalletCardSummary }) {
-  const demo = demoFor(summary.cardId);
-  if (!demo) return <WalletCardFace summary={summary} collection />;
-  return (
-    <div className={`${styles.face} ${styles[demo.finish]}`} data-demo-card="true">
-      <WalletCardFace summary={summary} collection revealed={{ pan: demo.number, cardholderName: "Alex Sample" }} />
+export function WalletDemoCardFace({ summary, profile, onArtworkLoad }: { summary: WalletCardSummary; profile?: WalletDemoProfile | null; onArtworkLoad?: () => void }) {
+  const card = AGENT_CARDS.find((item) => item.id === summary.cardId);
+  if (!card) return <WalletCardFace summary={summary} collection />;
+  return <WalletAgentCardImage kind={card.finish} name={card.name} profile={profile} onArtworkLoad={onArtworkLoad} />;
+}
+
+function WalletAgentCardImage({ kind, name, profile, onArtworkLoad }: {
+  kind: WalletCardImageKind; name: string; profile?: WalletDemoProfile | null; onArtworkLoad?: () => void;
+}) {
+  const requestKey = walletCardImageKey(kind, profile);
+  const [image, setImage] = useState<{ key: string; url: string; loaded: boolean } | null>(null);
+  const [failedKey, setFailedKey] = useState<string | null>(null);
+  const fields = walletCardImageFields(profile);
+  useEffect(() => {
+    const controller = new AbortController();
+    let objectUrl: string | null = null;
+    void buildWalletCardSvg({ kind, profile, signal: controller.signal }).then((svg) => {
+      if (controller.signal.aborted) return;
+      objectUrl = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+      setImage({ key: requestKey, url: objectUrl, loaded: false });
+      setFailedKey(null);
+    }).catch(() => {
+      if (!controller.signal.aborted) setFailedKey(requestKey);
+    });
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+    // requestKey is the complete, immutable projection of visible owner values.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestKey]);
+
+  // A changed owner/link hides the prior image during render, before effects run.
+  const currentImage = image?.key === requestKey ? image : null;
+  const ready = currentImage?.loaded === true;
+  return <div className={`@container ${styles.face}`}>
+    <div data-testid="wallet-card-face" data-agent-card={kind} data-revealed="false" data-artwork-ready={ready} className={`${styles.artworkFrame} ${styles[kind]}`}>
+      {!ready ? <div className={styles.placeholder} aria-hidden="true"><strong>AGENT ONE</strong><span>{kind.toUpperCase()}</span></div> : null}
+      {currentImage ? <Image unoptimized loading="eager" key={currentImage.url} src={currentImage.url} alt={`${name}${kind === "nws" ? ". " + NWS_SAMPLE_DESCRIPTION : ""}`} width="1080" height="681" decoding="sync" draggable={false} className={styles.artwork} style={{ visibility: ready ? "visible" : "hidden" }} onLoad={() => {
+        setImage((value) => value?.url === currentImage.url ? { ...value, loaded: true } : value);
+        onArtworkLoad?.();
+      }} onError={() => setFailedKey(requestKey)} /> : null}
+      {failedKey === requestKey ? <span className="sr-only">The card image could not be loaded. Open details to view your card.</span> : null}
+      {kind === "nws" ? <span className="sr-only">{NWS_SAMPLE_DESCRIPTION}</span> : null}
+      <dl className="sr-only">
+        <div><dt>Name</dt><dd>{fields.username}</dd></div>
+        {fields.memberSince ? <div><dt>Member since</dt><dd>{fields.memberSince}</dd></div> : null}
+        {fields.walletId ? <div><dt>Wallet ID</dt><dd>{fields.walletId}</dd></div> : null}
+      </dl>
     </div>
-  );
+  </div>;
 }
 
-export function WalletDemoCardDetails({ cardId }: { cardId: string }) {
-  const demo = demoFor(cardId);
-  const summary = WALLET_DEMO_CARDS.find((card) => card.cardId === cardId);
-  if (!demo || !summary) return null;
-  const fields = [
-    ["Card number", formatCardNumber(summary.brand, demo.number)],
-    ["Cardholder", "Alex Sample"],
-    ["Network", cardNetworkLabel(summary.brand)],
-    ["Valid until", formatCardExpiry(summary.expiryMonth, summary.expiryYear)],
-  ];
-  return (
-    <section aria-label="Demo card details" aria-live="polite" className={styles.details} data-testid="wallet-demo-details">
-      <div key={cardId} className="motion-step-enter space-y-4">
-        <div className="space-y-1">
-          <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Sample card · {demo.tier}</p>
-          <h3 className={TYPOGRAPHY_CLASSNAMES.mediumRowLabel}>{demo.name} card</h3>
-        </div>
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-4">
-          {fields.map(([label, value], index) => (
-            <div key={label} className={index === 0 ? "col-span-2 min-w-0" : "min-w-0"}>
-              <dt className={TYPOGRAPHY_CLASSNAMES.helperText}>{label}</dt>
-              <dd className="mt-1 break-words text-sm font-medium tabular-nums text-foreground">{value}</dd>
-            </div>
-          ))}
-        </dl>
-        <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Demo only. These sample details cannot be used for payments.</p>
-      </div>
-    </section>
-  );
+/** Kept for the Add illustration: owner details use WalletCardWorkspace. */
+export function WalletDemoCardDetails({ cardId, profile }: { cardId: string; profile?: WalletDemoProfile | null }) {
+  const card = AGENT_CARDS.find((item) => item.id === cardId);
+  if (!card) return null;
+  return <section aria-label={`${card.name} details`} className={styles.details} data-testid="wallet-demo-details">
+    <h3 className="ui-text-section-title">{card.name}</h3>
+    <p className="mt-1 text-sm text-muted-foreground">{profile?.displayName || "Your profile, ready to share."}</p>
+  </section>;
 }

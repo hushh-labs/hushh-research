@@ -1,5 +1,16 @@
 # Gemini Runtime Configuration
 
+## Current managed profile contract
+
+Managed chat, PWM, Live, and embeddings now resolve the checked-in
+[managed AI profile](../../../consent-protocol/config/managed-ai-runtime.json).
+UAT selects `hushh-vertex-personal54`, the same managed project as production, since 2026-10-15, when the Hussh billing account's dunning deny suspended `hussh-511311`; per-surface chat/voice project overrides are retired.
+Hosted revisions use this packaged profile; local development may use explicit
+overrides. The deploy compiler and candidate readiness compare its normalized
+hash. See [PWM KT](./personal-world-model.md) for paths and endpoint behavior.
+Historical environment-specific details below predate this central contract.
+
+
 ## Visual Context
 
 This is the AI access configuration boundary beneath the
@@ -34,13 +45,10 @@ Every text agent manifest names the alias `gemini-default`; the alias resolves t
 `constants.GEMINI_MODEL`, which reads `HUSSH_GEMINI_TEXT_MODEL` (deploy substitution
 `_HUSSH_GEMINI_TEXT_MODEL`) and falls back to `FLEET_TEXT_MODEL_DEFAULT`. One value moves
 the whole fleet; a lane may flip it only after its project's Vertex
-`constraints/vertexai.allowedModels` policy admits the id. UAT runs `gemini-3.8-flash`
-(admitted in `hushh-pda-uat` on 2026-09-02); production stays on the default until its
-allowlist changes. Every text agent, including the memory chain, names the alias
-(founder directive 2026-09-02: the fleet runs Flash; founder rule 2026-09-14: the catalog
-lists only the last two Gemini releases, today `gemini-3.8-flash` and `gemini-3.7-flash`, and
-a roll-forward replaces the older one, never adds a third; `gemini-3.1-pro-preview` and
-`gemini-3.1-flash-lite` are retired). The Live head is pinned by
+`constraints/vertexai.allowedModels` policy admits the id. UAT and production currently
+pin `gemini-3.6-flash`. The runtime registry supports `gemini-3.6-flash` and
+`gemini-3.7-flash`; One offers only 3.6 because 3.7 timed out in measured chat turns.
+Every text agent, including the memory chain, names the alias. The Live head is pinned by
 `VERTEX_LIVE_MODEL_ID` (an exact id read once at request time, no manifest alias)
 and runs only in `VERTEX_LIVE_LOCATION` while `ONE_VOICE_LIVE_ENABLED` is on.
 `tests/test_fleet_text_model_switch.py` refuses any manifest that pins a Flash generation.
@@ -66,7 +74,7 @@ fleet model like everything else.
 
 ### Who chooses the model (2026-09-02)
 
-The environment names a default, never the only possibility. A turn resolves its model
+The environment names the default. A turn resolves its model
 at call time through `hushh_mcp/services/model_preference_service.py`, highest tier first:
 
 1. **the person's own choice** — `one_model_preferences` (migration 196), set from Agent
@@ -74,14 +82,14 @@ at call time through `hushh_mcp/services/model_preference_service.py`, highest t
    the served catalog on write;
 2. **the lane default** — `HUSSH_GEMINI_TEXT_MODEL`, read by module attribute rather than
    copied into any consumer;
-3. **`FLEET_TEXT_MODEL_DEFAULT`** — 3.8 Flash. Every lane that can serve it runs it;
-   production pins 3.7 in its workflow until its allowed-models policy admits 3.8.
+3. **`FLEET_TEXT_MODEL_DEFAULT`** — 3.6 Flash, the current fallback.
 
 The catalog of choices lives in `hushh_mcp/runtime_providers/model_catalog.py` and is
-derived from the provider registry, so adding a generation is one registry row plus one
-entry in `FLEET_TEXT_MODEL_CHOICES`; no client release and no browser environment variable
-is involved. `GET /api/one/models/preference` serves the list, what the person chose, and
-what is actually running.
+derived from the provider registry. It currently exposes only 3.6, so the model picker
+is hidden. A future model change needs project-specific access and latency proof before
+its registry and catalog entries are updated; no client release or browser environment
+variable is involved. `GET /api/one/models/preference` serves the list, what the person
+chose, and what is actually running.
 
 Two failure rules keep a preference from ever costing a turn: a choice that outlived its
 catalog entry degrades to the lane default (and stays visible so a surface can explain

@@ -64,6 +64,7 @@ export async function saveChatOnboardingPreferences(params: {
   vaultOwnerToken: string | null;
   name: string | null;
   tone: ChatOnboardingTone | null;
+  beforeEffect?: () => Promise<void>;
 }): Promise<boolean> {
   if (!params.name && !params.tone) return true;
   if (params.tone && !(params.tone in CHAT_ONBOARDING_TONE_LABEL)) return false;
@@ -73,6 +74,7 @@ export async function saveChatOnboardingPreferences(params: {
     domain: CHAT_ONBOARDING_PKM_DOMAIN,
     vaultKey: params.vaultKey,
     vaultOwnerToken: params.vaultOwnerToken,
+    beforeEffect: params.beforeEffect,
     confirmation: {
       confirmedByUser: true,
       surface: "chat",

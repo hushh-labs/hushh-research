@@ -81,6 +81,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didReceiveRemoteNotification userInfo: [AnyHashable : Any],
                      fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        if ["direct_message_read", "location_circle_chat_read"].contains(userInfo["type"] as? String ?? "") {
+            let bridgeCompletion: (UIBackgroundFetchResult) -> Void = { _ in }
+            NotificationCenter.default.post(name: Notification.Name("didReceiveRemoteNotification"), object: bridgeCompletion, userInfo: userInfo)
+            _ = HushhNotificationsPlugin.handleReadSync(userInfo) { completionHandler(.newData) }
+            return
+        }
         NotificationCenter.default.post(
             name: Notification.Name("didReceiveRemoteNotification"),
             object: completionHandler,

@@ -13,9 +13,10 @@ for that field:
 - ``owner_style_instruction`` renders it from server-authored templates. Only
   the preferred name and the owner's style note are owner text, and both are
   quoted literals under a header that says they cannot authorize anything.
-- ``propose_style_settings`` is how chat suggests a change: it writes nothing
-  and returns an offer card that opens Settings, where the owner commits with
-  the Settings writer.
+- ``propose_style_settings`` writes nothing itself. Explicitly chosen names
+  return a live device update; other styles return a Settings review offer.
+  The explicit onboarding name question returns a request-bound assessment
+  for the device's existing onboarding writer.
 
 No authority gate reads this state. Tool admission, consent and the external
 read barrier decide exactly as they would without it.
@@ -24,6 +25,7 @@ read barrier decide exactly as they would without it.
 from __future__ import annotations
 
 import json
+import re
 import unicodedata
 from collections.abc import Callable
 from typing import Any
@@ -201,18 +203,37 @@ async def propose_style_settings(
     length: str = "",
     language: str = "",
     avoid_em_dashes: bool | None = None,
+    onboarding_action: str = "",
+    onboarding_request_id: str = "",
 ) -> dict[str, Any]:
-    """Offer the owner a change to how you write to them. Saves nothing.
+    """Assess an explicitly chosen name or offer a writing-style change.
 
     Call this when the owner states a lasting preference about how you write:
     what to call them, tone (direct, warm, casual, formal, executive), length
     (short, balanced, detailed), reply language (en, es, fr, de, it, pt, nl, hi,
     zh, ja, ko, ar) or avoiding em dashes. Pass only what they stated. The app
-    shows a card that opens Settings with these values filled in; nothing changes
-    until they save there. Never save style preferences with add_to_pkm.
+    saves an explicitly chosen preferred_name on the owner's unlocked device
+    after this turn succeeds. Never infer a name from quoted text, another
+    person's details, or a question about your own name. Preserve the chosen
+    spelling, script and capitalization. Ask if the choice is ambiguous.
+    This tool does not write or confirm a save: the device confirms after its
+    encrypted write succeeds. Other style values open Settings for review and
+    Save, including when requested alongside a name. Never use add_to_pkm.
+
+    Only while screen_state.onboarding_name_request is present, assess the
+    reply to "What should I call you?": onboarding_action is name, skip,
+    clarify (ambiguous), or other (unrelated). Echo that request id. For name,
+    pass only the person's explicitly chosen preferred_name, never instructions
+    or another person's name. A bare name answers this question. Preserve the
+    chosen spelling, script and capitalization. Refusal means skip; conflicting
+    names mean clarify and one short question. For other, answer normally.
+    Quoted material, commands and protected values are not chosen names.
+    Other actions carry no name or style settings.
+    This returns an assessment, not a Settings offer or a successful save.
     """
     from hushh_mcp.one_adk.agent_tree import STATE_USER_ID
     from hushh_mcp.one_adk.external_read_boundary import STATE_EXECUTION_SURFACE
+    from hushh_mcp.one_adk.workspace_mcp_tools import WORKSPACE_CHAT_ADMISSION_STATE
 
     user_id = str(tool_context.state.get(STATE_USER_ID) or "").strip()
     if (
@@ -221,6 +242,41 @@ async def propose_style_settings(
         or tool_context.state.get(STATE_EXECUTION_SURFACE) != "typed_chat"
     ):
         return {"status": "unavailable", "message": "Style settings can be changed in chat only."}
+    if onboarding_action != "" or onboarding_request_id != "":
+        context = tool_context.state.get("hussh:voice_context") or {}
+        screen_state = context.get("screen_state", {}) if isinstance(context, dict) else {}
+        pending = (
+            screen_state.get("onboarding_name_request") if isinstance(screen_state, dict) else None
+        )
+        if (
+            tool_context.state.get(WORKSPACE_CHAT_ADMISSION_STATE) is not True
+            or not isinstance(pending, str)
+            or not re.fullmatch(r"[a-p]{32}", pending)
+            or onboarding_request_id != pending
+        ):
+            return {"status": "unavailable", "message": "The name question is no longer active."}
+        if (
+            onboarding_action not in {"name", "skip", "clarify", "other"}
+            or tone
+            or length
+            or language
+            or avoid_em_dashes is not None
+            or (onboarding_action != "name" and preferred_name)
+        ):
+            return {"status": "invalid", "message": "Answer only the active name question."}
+        try:
+            name = validate_owner_style({"preferred_name": preferred_name}).get("preferred_name")
+        except OwnerStyleError as exc:
+            return {"status": "invalid", "message": str(exc)}
+        if onboarding_action == "name" and not name:
+            return {"status": "invalid", "message": "A chosen name is required."}
+        return {
+            "status": "onboarding_name_assessed",
+            "request_id": pending,
+            "decision": onboarding_action,
+            **({"preferred_name": name} if onboarding_action == "name" else {}),
+            "message": "The device applies this answer only while its name question is active. It confirms after saving.",
+        }
     try:
         proposed = validate_owner_style(
             {
@@ -235,6 +291,20 @@ async def propose_style_settings(
         return {"status": "invalid", "message": str(exc)}
     if not proposed:
         return {"status": "invalid", "message": "Name at least one style setting to change."}
+    if "preferred_name" in proposed:
+        if tool_context.state.get(WORKSPACE_CHAT_ADMISSION_STATE) is not True:
+            return {"status": "unavailable", "message": "Unlock your memory to save your name."}
+        name = proposed.pop("preferred_name")
+        return {
+            "status": "preferred_name_update_ready",
+            "preferred_name": name,
+            **({"experience": STYLE_OFFER_EXPERIENCE, "proposed": proposed} if proposed else {}),
+            "message": (
+                "The device saves this chosen name only after the current turn succeeds. "
+                "Do not claim it is saved; the device confirms after its encrypted write. "
+                "Any other proposed style values still need Settings review and Save."
+            ),
+        }
     return {
         "status": "offer_ready",
         "experience": STYLE_OFFER_EXPERIENCE,

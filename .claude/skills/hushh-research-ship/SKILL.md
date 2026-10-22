@@ -101,10 +101,12 @@ non-admin, 2026-08-28 admin) have now merged without it.
 
 ### Also learned in that run
 
-- **Every merge invalidates every other open branch.** The `Base Freshness Gate`
-  blocks any branch behind `origin/main`, so a queue of N PRs is N cycles of
-  `git merge origin/main` → push → wait for green → merge. Budget for it, and
-  batch-refresh branches you have already proved conflict-free with
+- **A merge only invalidates the open branches it overlaps.** Since 2026-10-15
+  the `Base Freshness Gate` on PRs into `main` is bounded: a branch behind
+  `origin/main` passes unless its merge-base is over 24 h old or, after the
+  base its checks tested, `main` changed one of its files; the job lists those
+  files. Sync just those branches (`git merge origin/main` → push → wait for
+  green), and check the rest stay conflict-free with
   `git merge-tree --write-tree origin/main origin/<branch>`.
 - **Contract edits need two regenerations, not one.** Changing any
   `*.voice-action-contract.json` requires `npm run build:voice-gateway`, and the

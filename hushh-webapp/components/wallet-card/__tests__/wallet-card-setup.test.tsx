@@ -57,8 +57,9 @@ describe("WalletCardSetup", () => {
     renderSetup();
 
     expect(
-      screen.getByRole("heading", { name: "Shared information" }),
-    ).toBeVisible();
+      screen.queryByRole("heading", { name: "Shared information" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Photo")).not.toBeInTheDocument();
     expect(screen.queryByText("Shared by default")).not.toBeInTheDocument();
     expect(
       screen.queryByText("Only this information will be shared."),
@@ -105,8 +106,8 @@ describe("WalletCardSetup", () => {
     fireEvent.change(linkedinInput, {
       target: { value: "https://www.linkedin.com/in/ankit" },
     });
-    fireEvent.click(screen.getByRole("tab", { name: "Mail" }));
-    fireEvent.click(screen.getByRole("tab", { name: "LinkedIn" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Mail" }));
+    fireEvent.click(screen.getByRole("radio", { name: "LinkedIn" }));
 
     expect(screen.getByLabelText("LinkedIn profile")).toHaveValue(
       "https://www.linkedin.com/in/ankit",

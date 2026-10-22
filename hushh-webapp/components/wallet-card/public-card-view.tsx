@@ -1,4 +1,5 @@
 "use client";
+import { WALLET_DEMO_CARDS, WalletDemoCardFace } from "@/components/wallet/wallet-demo-cards";
 
 /**
  * Public Wallet Profile card — the surface a stranger sees after scanning the
@@ -17,23 +18,30 @@
  * - No analytics: this module imports nothing from the observability layer.
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
-  Briefcase,
-  Download,
+  Check,
+  ChevronRight,
   ExternalLink,
   Globe,
   Mail,
-  MapPin,
   Phone,
   type LucideIcon,
 } from "@/components/icons";
 
+import { ProfileAccountMailIcon, ProfileAccountPhoneIcon } from "@/components/profile/profile-your-account-icons";
+import { ProfilePaneBriefcaseIcon, ProfilePaneGlobeIcon } from "@/components/profile/profile-pane-icons";
+import { ProfileInnerLinkIcon } from "@/components/profile/profile-inner-icons";
+import { ProfileSecondaryLocationIcon } from "@/components/profile/profile-secondary-icons";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { WalletCardQr } from "./wallet-card-qr";
+import styles from "./public-card-view.module.css";
+import {
+  pickWalletAvatarUrl,
+  WALLET_AVATAR_READ_LIMIT,
+} from "@/lib/services/wallet-card-avatar";
 
 /** Mirrors the server-side `preferred_contact` closed set. */
 export type WalletCardPreferredContact =
@@ -76,10 +84,10 @@ const MAX_LENGTHS = {
   phone: 32,
   url: 300,
   preferredContact: 16,
-  avatarUrl: 2048,
   timestamp: 64,
 } as const;
 
+const MAX_HTTPS_AVATAR_LENGTH = 2048;
 const MAX_SKILLS = 12;
 const VCARD_LINE_LIMIT = 75;
 
@@ -249,12 +257,13 @@ export function normalizePublicWalletCard(
     // A portfolio identical to the website would render the same link twice.
     portfolio: portfolioRaw && portfolioRaw !== website ? portfolioRaw : null,
     preferredContact: pickPreferredContact(source),
-    avatarUrl: safeHttpsUrl(
+    avatarUrl: pickWalletAvatarUrl(
       pickString(
         source,
         ["avatarUrl", "avatar_url", "photoUrl", "photo_url"],
-        MAX_LENGTHS.avatarUrl,
+        WALLET_AVATAR_READ_LIMIT,
       ),
+      (value) => (value && value.length <= MAX_HTTPS_AVATAR_LENGTH ? safeHttpsUrl(value) : null),
     ),
     updatedAt: pickString(
       source,
@@ -379,7 +388,7 @@ function buildActions(card: PublicWalletCard): CardAction[] {
   if (card.email) {
     actions.push({
       id: "email",
-      label: "Mail",
+      label: card.email,
       href: mailtoHref(card.email),
       icon: Mail,
       external: false,
@@ -388,7 +397,7 @@ function buildActions(card: PublicWalletCard): CardAction[] {
   if (card.phone) {
     actions.push({
       id: "phone",
-      label: "Call",
+      label: card.phone,
       href: telHref(card.phone),
       icon: Phone,
       external: false,
@@ -449,198 +458,136 @@ function initialsFor(fullName: string | null): string {
   return `${first}${last}`.toUpperCase();
 }
 
-function formatUpdatedLabel(value: string | null): string | null {
-  if (!value) return null;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(parsed);
-}
-
-function ActionLink({
-  action,
-  emphasis,
-}: {
-  action: CardAction;
-  emphasis: "primary" | "secondary";
-}) {
-  const Icon = action.icon;
+function ActionLink({ action }: { action: CardAction }) {
+  const Icon = action.icon === Mail ? ProfileAccountMailIcon : action.icon === Phone ? ProfileAccountPhoneIcon : action.icon === Globe ? ProfilePaneGlobeIcon : action.icon === ExternalLink ? ProfileInnerLinkIcon : action.icon;
   return (
-    <Button
-      asChild
-      variant={emphasis === "primary" ? "default" : "outline"}
-      className="h-12 w-full justify-start gap-3 px-4 text-[15px]"
+    <a
+      href={action.href}
+      className={styles.contactLink}
+      {...(action.external
+        ? { target: "_blank", rel: "noopener noreferrer" }
+        : {})}
     >
-      <a
-        href={action.href}
-        {...(action.external
-          ? { target: "_blank", rel: "noopener noreferrer" }
-          : {})}
-      >
-        <Icon className="size-[18px]" aria-hidden="true" />
-        <span className="truncate">{action.label}</span>
-        {action.external ? (
-          <span className="sr-only">(opens in a new tab)</span>
-        ) : null}
-      </a>
-    </Button>
+      <Icon className="size-3.5 shrink-0 text-foreground [&_.profile-account-icon-accent]:stroke-[var(--app-accent)] [&_.profile-pane-icon-accent]:stroke-[var(--app-accent)]" aria-hidden="true" />
+      <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{action.label}</span>
+      <ChevronRight className="size-4 shrink-0 text-[var(--app-accent)]" aria-hidden="true" />
+      {action.external ? (
+        <span className="sr-only">(opens in a new tab)</span>
+      ) : null}
+    </a>
   );
 }
 
 /* ------------------------------------------------------------------- view */
 
-export function PublicWalletCardView({ card }: { card: PublicWalletCard }) {
+export function publicProfileQrUrl(value?: string | null): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    const local = ["localhost", "127.0.0.1"].includes(url.hostname);
+    if (url.protocol !== "https:" && !(local && url.protocol === "http:")) return null;
+    if (url.username || url.password || url.search || url.hash) return null;
+    return /^\/c\/[A-Za-z0-9_-]{16,128}$/.test(url.pathname) ? url.href : null;
+  } catch { return null; }
+}
+
+export function PublicWalletCardView({ card, embedded = false, profileUrl, visualCard = false }: {
+  card: PublicWalletCard;
+  embedded?: boolean;
+  /** Timed sharing uses the actual face with only its permitted name. */
+  visualCard?: boolean;
+  /** Existing authorized share link; never derived from private account fields. */
+  profileUrl?: string | null;
+}) {
   const actions = useMemo(() => buildActions(card), [card]);
   const initials = useMemo(() => initialsFor(card.fullName), [card.fullName]);
-  const updatedLabel = useMemo(
-    () => formatUpdatedLabel(card.updatedAt),
-    [card.updatedAt],
-  );
-  const [saveError, setSaveError] = useState<string | null>(null);
-
-  const handleSaveContact = useCallback(() => {
-    if (typeof window === "undefined" || typeof document === "undefined") {
-      return;
-    }
-    try {
-      const blob = new Blob([buildVCard(card)], {
-        type: "text/vcard;charset=utf-8",
-      });
-      const objectUrl = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = objectUrl;
-      anchor.download = vCardFileName(card);
-      anchor.rel = "noopener";
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
-      setSaveError(null);
-    } catch {
-      setSaveError(
-        "We couldn't create the contact file. Use one of the links above instead.",
-      );
-    }
-  }, [card]);
-
-  const [primaryAction, ...secondaryActions] = actions;
   const hasDetails = Boolean(card.summary) || card.skills.length > 0;
   const hasMeta = Boolean(card.organisation) || Boolean(card.locationLabel);
+  const qrUrl = publicProfileQrUrl(profileUrl);
 
   return (
-    <article className="space-y-6 rounded-[var(--app-card-radius-standard)] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] p-5 shadow-[var(--shadow-xs)] sm:p-7">
-      <header className="flex flex-col items-center gap-3 text-center">
-        <Avatar className="size-20 border border-border/60 sm:size-24">
+    <article className={styles.card} data-embedded={embedded || undefined} data-testid="visitor-profile-card">
+      {visualCard ? <div className="mx-auto w-full max-w-[420px]" data-testid="shared-profile-card-face">
+        <h1 className="sr-only">{card.fullName || "Shared profile"}</h1>
+        <WalletDemoCardFace summary={WALLET_DEMO_CARDS[0]!} profile={{ presentation: "shared", displayName: card.fullName, shareUrl: null }} />
+        {card.headline ? <p className={styles.headline}>{card.headline}</p> : null}
+      </div> : <header className={styles.identity}>
+        <Avatar className={styles.photo}>
           {card.avatarUrl ? (
-            <AvatarImage src={card.avatarUrl} alt="" />
+            <AvatarImage src={card.avatarUrl} alt="" className="object-cover" />
           ) : null}
           <AvatarFallback className="text-xl font-medium">
-            {initials || <Briefcase className="size-7" aria-hidden="true" />}
+            {initials || <ProfilePaneBriefcaseIcon className="size-7" aria-hidden="true" />}
           </AvatarFallback>
         </Avatar>
 
+        <div className={styles.heading}>
         {card.fullName ? (
-          <h1 className="break-words text-[26px] font-medium leading-[1.15] tracking-tight sm:text-[30px]">
-            {card.fullName}
+          <h1 className={styles.name}>
+            {card.fullName}{" "}
+            <span
+              role="img"
+              aria-label="Hushh profile badge"
+              title="Hushh profile · not identity verification"
+              className="inline-flex size-3.5 align-middle items-center justify-center rounded-full bg-[color:var(--app-accent)] text-white"
+            >
+              <Check className="size-2.5" strokeWidth={3} aria-hidden="true" />
+            </span>
           </h1>
         ) : (
           <h1 className="sr-only">Shared profile</h1>
         )}
 
         {card.headline ? (
-          <p className="break-words text-base leading-6 text-muted-foreground">
+          <p className={styles.headline}>
             {card.headline}
           </p>
         ) : null}
 
+        </div>
+      </header>}
+
         {hasMeta ? (
-          <p className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-sm leading-6 text-muted-foreground">
+          <p className={styles.meta}>
             {card.organisation ? (
               <span className="inline-flex items-center gap-1.5">
-                <Briefcase className="size-3.5" aria-hidden="true" />
+                <ProfilePaneBriefcaseIcon className="size-3.5 shrink-0" aria-hidden="true" />
                 {card.organisation}
               </span>
             ) : null}
             {card.locationLabel ? (
               <span className="inline-flex items-center gap-1.5">
-                <MapPin className="size-3.5" aria-hidden="true" />
+                <ProfileSecondaryLocationIcon className="size-3.5 shrink-0 text-foreground [&_.profile-pane-icon-accent]:stroke-[var(--app-accent)]" aria-hidden="true" />
                 {card.locationLabel}
               </span>
             ) : null}
           </p>
         ) : null}
-      </header>
-
-      <section aria-labelledby="wallet-card-actions-heading" className="space-y-2">
-        <h2 id="wallet-card-actions-heading" className="sr-only">
-          Ways to get in touch
-        </h2>
-
-        {primaryAction ? (
-          <ActionLink action={primaryAction} emphasis="primary" />
-        ) : null}
-        {secondaryActions.map((action) => (
-          <ActionLink key={action.id} action={action} emphasis="secondary" />
-        ))}
-
-        <div className="space-y-1.5 pt-1">
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={handleSaveContact}
-            aria-describedby="wallet-card-save-hint"
-            className="h-12 w-full justify-start gap-3 px-4 text-[15px]"
-          >
-            <Download className="size-[18px]" aria-hidden="true" />
-            Save contact
-          </Button>
-          <p
-            id="wallet-card-save-hint"
-            className="px-1 text-xs leading-5 text-muted-foreground"
-          >
-            Downloads a contact file. On iPhone, open it and tap Create New
-            Contact.
-          </p>
-          {saveError ? (
-            <p role="alert" className="px-1 text-xs leading-5 text-destructive">
-              {saveError}
-            </p>
-          ) : null}
-        </div>
-      </section>
 
       {hasDetails ? (
-        <section aria-labelledby="wallet-card-details-heading" className="space-y-4">
-          <h2 id="wallet-card-details-heading" className="sr-only">
-            About
-          </h2>
-          {card.summary ? (
-            <p className="break-words text-sm leading-6 text-foreground/90">
-              {card.summary}
-            </p>
-          ) : null}
-          {card.summary && card.skills.length > 0 ? <Separator /> : null}
+        <section aria-labelledby="wallet-card-details-heading" className={styles.section}>
+          <h2 id="wallet-card-details-heading" className={styles.sectionLabel}>About</h2>
+          {card.summary ? <p className={styles.summary}>{card.summary}</p> : null}
           {card.skills.length > 0 ? (
-            <ul className="flex flex-wrap gap-2">
-              {card.skills.map((skill) => (
-                <li key={skill}>
-                  <Badge variant="secondary" className="px-2.5 py-1 text-xs">
-                    {skill}
-                  </Badge>
-                </li>
-              ))}
+            <ul className={styles.skills}>
+              {card.skills.map(skill => <li key={skill}><Badge variant="secondary" className={styles.skill}>{skill}</Badge></li>)}
             </ul>
           ) : null}
         </section>
       ) : null}
+      {actions.length > 0 ? (
+        <section aria-labelledby="wallet-card-actions-heading" className={styles.section}>
+          <h2 id="wallet-card-actions-heading" className={styles.sectionLabel}>Connect</h2>
+          <div className={styles.contacts}>{actions.map(action => <ActionLink key={action.id} action={action} />)}</div>
+        </section>
+      ) : null}
+      {qrUrl ? <figure className={styles.qr}>
+        <div className={styles.qrImage}><WalletCardQr value={qrUrl} label="Profile QR code" /></div>
+        <figcaption><span>Scan to connect</span><p>Open this shared profile</p></figcaption>
+      </figure> : null}
 
-      <footer className="space-y-1 border-t border-border/60 pt-4 text-center text-xs leading-5 text-muted-foreground">
-        <p>Shared from Hussh One</p>
-        {updatedLabel ? <p>Updated {updatedLabel}</p> : null}
-      </footer>
+
+
     </article>
   );
 }
@@ -649,21 +596,23 @@ export function PublicWalletCardView({ card }: { card: PublicWalletCard }) {
 export function PublicWalletCardSkeleton() {
   return (
     <div
-      className="space-y-6 rounded-[var(--app-card-radius-standard)] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] p-5 shadow-[var(--shadow-xs)] sm:p-7"
+      className={styles.card}
       role="status"
       aria-live="polite"
       aria-busy="true"
     >
       <span className="sr-only">Loading profile.</span>
-      <div className="flex flex-col items-center gap-3">
-        <Skeleton className="size-20 rounded-full sm:size-24" />
-        <Skeleton className="h-7 w-48 rounded-lg" />
-        <Skeleton className="h-4 w-36 rounded-lg" />
+      <div className={styles.identity}>
+        <Skeleton className={styles.photo} />
+        <div className="min-w-0 space-y-2">
+        <Skeleton className="h-7 w-48 max-w-full rounded-lg" />
+        <Skeleton className="h-4 w-36 max-w-full rounded-lg" />
+        </div>
       </div>
       <div className="space-y-2">
-        <Skeleton className="h-12 w-full rounded-full" />
-        <Skeleton className="h-12 w-full rounded-full" />
-        <Skeleton className="h-12 w-full rounded-full" />
+        <Skeleton className="h-11 w-full rounded-lg" />
+        <Skeleton className="h-11 w-full rounded-lg" />
+        <Skeleton className="h-11 w-full rounded-lg" />
       </div>
       <Skeleton className="h-16 w-full rounded-xl" />
     </div>

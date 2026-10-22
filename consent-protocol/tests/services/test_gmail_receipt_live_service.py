@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
@@ -17,6 +18,66 @@ from hushh_mcp.services.gmail_receipt_cutover import receipt_storage_writes_enab
 from hushh_mcp.services.gmail_receipts_service import GmailApiError, GmailReceiptsService
 
 TEST_CONSENT_TOKEN = "synthetic-vault-owner-token"  # noqa: S105 -- inert test authority
+
+
+@pytest.fixture(autouse=True)
+def receipt_owner_locks(monkeypatch):
+    # Simulate PostgreSQL session ownership shared by separate service instances.
+    held = set()
+
+    @asynccontextmanager
+    async def connection():
+        owned = set()
+
+        class Connection:
+            async def fetchval(self, sql, key):
+                assert sql == "SELECT pg_try_advisory_lock($1)"
+                if key in held:
+                    return False
+                held.add(key)
+                owned.add(key)
+                return True
+
+        try:
+            yield Connection()
+        finally:
+            held.difference_update(owned)
+
+    monkeypatch.setattr(live_receipts_module, "dedicated_connection", connection)
+    return held
+
+
+@pytest.mark.parametrize("outcome", ["success", "failure", "cancel"])
+async def test_owner_scan_is_fenced_across_service_instances_and_released(outcome):
+    first, second = _service([]), _service([])
+    entered, finish = asyncio.Event(), asyncio.Event()
+
+    async def slow_page(**kwargs):
+        entered.set()
+        await finish.wait()
+        if outcome == "failure":
+            raise GmailApiError("invalid", status_code=502, code="GMAIL_RECEIPT_EXTRACTION_INVALID")
+        return {"items": []}
+
+    first._scan_page = slow_page
+    pending = asyncio.create_task(_scan(first))
+    await entered.wait()
+    with pytest.raises(GmailApiError) as duplicate:
+        await _scan(second)
+    assert duplicate.value.code == "GMAIL_RECEIPT_SCAN_IN_PROGRESS"
+    assert duplicate.value.status_code == 409
+    if outcome == "cancel":
+        pending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+    else:
+        finish.set()
+        if outcome == "failure":
+            with pytest.raises(GmailApiError):
+                await pending
+        else:
+            await pending
+    assert (await _scan(second))["items"] == []
 
 
 def test_receipt_document_identifiers_require_exact_evidence_and_keep_types():
@@ -64,6 +125,37 @@ async def test_document_merchant_is_quote_bound_not_registry_only():
     assert item["merchant_name"] == "Example Software"
     assert item["merchant_domain"] is None  # Never invent a logo domain.
     assert item["amount"] == 20
+
+
+async def test_quoted_merchant_normalizes_the_length_checked_in_its_evidence():
+    from api.routes.kai.gmail import GmailLiveReceiptScanResponse
+
+    name = "X" * 199
+    quoted_name = f" {name} "
+    quote = f"Receipt from{quoted_name}"
+    service = _service(
+        [
+            _message(
+                "quoted-name",
+                subject="Your receipt",
+                sender="billing@example.test",
+                body=f"{quote}. Amount Paid USD 20.00",
+            )
+        ]
+    )
+
+    async def extract(payload, _user, _token):
+        return {
+            **_model_for(payload),
+            "merchant_name": quoted_name,
+            "merchant_evidence_id": "merchant:document",
+            "merchant_evidence": quote,
+        }
+
+    service._extractor = extract
+    scan = GmailLiveReceiptScanResponse.model_validate(await _scan(service)).model_dump()
+    assert scan["items"][0]["merchant_name"] == name
+    assert scan["items"][0]["merchant_domain"] is None
 
 
 async def test_unverified_optional_merchant_does_not_abort_receipt_page():
@@ -299,8 +391,12 @@ class _Gmail(GmailReceiptsService):
     def db(self):  # pragma: no cover - a call is itself the regression
         raise AssertionError("live receipt reads must not access the legacy receipt database")
 
-    async def get_read_access_token(self, *, user_id):
+    async def get_read_access_token(self, *, user_id, force_refresh=False):
         assert user_id == "owner"
+        if force_refresh:
+            self.forced_refreshes = getattr(self, "forced_refreshes", 0) + 1
+            self.row["token_updated_at"] = f"synthetic-version-{self.forced_refreshes + 1}"
+            return "refreshed-access"
         return "synthetic-access"
 
     async def read_grant_binding(self, *, user_id):
@@ -549,6 +645,40 @@ async def test_scan_revalidates_owner_authority_before_publishing_results():
 
     assert caught.value.code == "GMAIL_RECEIPT_VAULT_REQUIRED"
     assert checks == 2
+
+
+async def test_queued_scan_rechecks_revoked_access_before_any_provider_read():
+    provider = MagicMock(return_value=_response({"messages": []}))
+    service = GmailLiveReceiptsService(
+        gmail=_Gmail(),
+        source_secret=b"s" * 32,
+        transport=httpx.MockTransport(provider),
+        extractor=_extractor,
+    )
+    service._scan_connections = asyncio.Semaphore(0)
+    revoked = False
+
+    async def current_access():
+        if revoked:
+            raise GmailApiError(
+                "Open your private vault.", status_code=403, code="GMAIL_RECEIPT_VAULT_REQUIRED"
+            )
+
+    task = asyncio.create_task(
+        service.scan(
+            user_id="owner",
+            consent_token=TEST_CONSENT_TOKEN,
+            require_access=current_access,
+        )
+    )
+    await asyncio.sleep(0)
+    provider.assert_not_called()
+    revoked = True
+    service._scan_connections.release()
+    with pytest.raises(GmailApiError) as caught:
+        await task
+    assert caught.value.code == "GMAIL_RECEIPT_VAULT_REQUIRED"
+    provider.assert_not_called()
 
 
 async def test_scan_caps_page_size_and_extraction_concurrency():
@@ -896,7 +1026,68 @@ async def test_provider_timeout_is_typed_and_never_partial_empty():
     with pytest.raises(GmailApiError) as caught:
         await _scan(service)
     assert caught.value.code == "GMAIL_PROVIDER_UNAVAILABLE"
+    assert caught.value.status_code == 503
     assert "poison" not in str(caught.value)
+
+
+async def test_rejected_deep_provider_cursor_is_permanent_and_not_generic_502():
+    calls = []
+
+    def provider(request):
+        calls.append(request)
+        if request.url.params.get("pageToken"):
+            return _response({"error": {"message": "private provider details"}}, status=400)
+        return _response({"messages": [], "nextPageToken": "first-page-token"})
+
+    service = GmailLiveReceiptsService(
+        gmail=_Gmail(),
+        source_secret=b"s" * 32,
+        transport=httpx.MockTransport(provider),
+        extractor=_extractor,
+    )
+    first = await _scan(service)
+    with pytest.raises(GmailApiError) as caught:
+        await _scan(service, page=2, cursor=first["next_cursor"])
+    assert caught.value.code == "GMAIL_RECEIPT_CURSOR_EXPIRED"
+    assert caught.value.status_code == 409
+    assert caught.value.provider_status_code == 400
+    assert "private" not in str(caught.value)
+    assert len(calls) == 2
+
+
+async def test_rejected_first_page_is_not_misclassified_as_cursor_expiry():
+    service = GmailLiveReceiptsService(
+        gmail=_Gmail(),
+        source_secret=b"s" * 32,
+        transport=httpx.MockTransport(lambda request: _response({}, status=400)),
+        extractor=_extractor,
+    )
+    with pytest.raises(GmailApiError) as caught:
+        await _scan(service)
+    assert caught.value.code == "GMAIL_RECEIPT_INVALID_RESPONSE"
+    assert caught.value.provider_status_code == 400
+
+
+async def test_valid_but_expired_owner_cursor_can_start_fresh_while_forgery_stays_invalid():
+    service = _service([])
+    authority = await service._authority(user_id="owner", require_access=_allowed)
+    payload = {
+        "page": 2,
+        "per_page": 6,
+        "before": int(datetime.now(timezone.utc).timestamp()) - 7201,
+        "token": "provider-token",
+        "seen": [],
+    }
+    cursor = service._scan_cursor(authority, payload)
+    with pytest.raises(GmailApiError) as expired:
+        await _scan(service, page=2, cursor=cursor)
+    assert expired.value.code == "GMAIL_RECEIPT_CURSOR_EXPIRED"
+    assert expired.value.status_code == 409
+    with pytest.raises(GmailApiError) as forged:
+        await _scan(service, page=2, cursor=cursor + "forged")
+    assert forged.value.code == "GMAIL_RECEIPT_INVALID_RESPONSE"
+    assert forged.value.status_code == 400
+    assert (await _scan(service))["items"] == []
 
 
 async def test_model_timeout_is_typed_and_never_returns_partial_rows(monkeypatch):
@@ -920,7 +1111,9 @@ async def test_model_timeout_is_typed_and_never_returns_partial_rows(monkeypatch
     assert caught.value.code == "GMAIL_RECEIPT_EXTRACTION_TIMEOUT"
 
 
-async def test_transient_extractor_unavailable_is_retried_once(monkeypatch):
+@pytest.mark.parametrize("failure", ["unavailable", "timeout"])
+async def test_one_message_model_failure_is_asked_once_more(monkeypatch, failure):
+    # Only a transient provider failure asks the message again.
     message = _message(
         "msg-model-retry",
         subject="Receipt for order #RETRY-100",
@@ -933,6 +1126,8 @@ async def test_transient_extractor_unavailable_is_retried_once(monkeypatch):
         nonlocal attempts
         attempts += 1
         if attempts == 1:
+            if failure == "timeout":
+                await asyncio.sleep(1)
             raise GmailApiError(
                 "Receipt extraction is temporarily unavailable.",
                 status_code=503,
@@ -943,12 +1138,61 @@ async def test_transient_extractor_unavailable_is_retried_once(monkeypatch):
     service = _service([message])
     service._extractor = transient_extractor
     monkeypatch.setattr(live_receipts_module, "_EXTRACTOR_RETRY_DELAY_SECONDS", 0)
+    monkeypatch.setattr(live_receipts_module, "_EXTRACTOR_TIMEOUT_SECONDS", 0.05)
 
     result = await _scan(service)
 
     assert attempts == 2
     assert result["returned_count"] == 1
     assert result["items"][0]["amount"] == 10.0
+
+
+@pytest.mark.parametrize(
+    "code", ["GMAIL_RECEIPT_EXTRACTION_INVALID", "GMAIL_RECEIPT_EXTRACTION_UNVERIFIED"]
+)
+async def test_permanent_extraction_failure_is_not_retried(code):
+    service = _service(
+        [
+            _message(
+                "permanent",
+                subject="Your receipt",
+                sender="Apple <orders@apple.com>",
+                body="Order total: USD 10.00",
+            )
+        ]
+    )
+    extractor = AsyncMock(side_effect=GmailApiError("invalid", status_code=502, code=code))
+    service._extractor = extractor
+    with pytest.raises(GmailApiError) as caught:
+        await _scan(service)
+    assert caught.value.code == code
+    extractor.assert_awaited_once()
+
+
+@pytest.mark.parametrize("wrapped", [False, True])
+async def test_actual_extractor_adapter_keeps_invalid_json_permanent(monkeypatch, wrapped):
+    invalid = json.JSONDecodeError("invalid", "", 0)
+    failure = RuntimeError("wrapped") if wrapped else invalid
+    if wrapped:
+        failure.__cause__ = invalid
+    runner = AsyncMock(side_effect=failure)
+    monkeypatch.setattr(live_receipts_module, "run_email_gene", runner)
+    service = _service(
+        [
+            _message(
+                "permanent-json",
+                subject="Your receipt",
+                sender="Apple <orders@apple.com>",
+                body="Order total: USD 10.00",
+            )
+        ]
+    )
+    service._extractor = service._run_extractor
+    with pytest.raises(GmailApiError) as caught:
+        await _scan(service)
+    assert caught.value.code == "GMAIL_RECEIPT_EXTRACTION_INVALID"
+    runner.assert_awaited_once()
+    assert runner.call_args.kwargs["retry_on_failure"] is False
 
 
 async def test_persistent_extractor_unavailable_remains_typed(monkeypatch):
@@ -978,6 +1222,65 @@ async def test_persistent_extractor_unavailable_remains_typed(monkeypatch):
 
     assert attempts == 2
     assert caught.value.code == "GMAIL_RECEIPT_EXTRACTION_UNAVAILABLE"
+
+
+@pytest.mark.parametrize("refresh_outcome", ["accepted", "still_rejected", "other_account"])
+async def test_gmail_rejecting_an_unexpired_token_refreshes_once_for_the_same_grant(
+    refresh_outcome,
+):
+    # Measured on UAT: Gmail answered 401 to a token whose recorded expiry had
+    # not passed, and every scan failed as "reconnect" without a refresh.
+    message = _message(
+        "msg-token-refresh",
+        subject="Receipt for order #TOKEN-100",
+        sender="Apple <orders@apple.com>",
+        body="Order total: USD 10.00",
+    )
+    seen_tokens: list[str] = []
+
+    def handler(request: httpx.Request):
+        token = request.headers["Authorization"].removeprefix("Bearer ")
+        seen_tokens.append(token)
+        if token != "refreshed-access" or refresh_outcome == "still_rejected":
+            return _response({"error": "invalid_credentials"}, status=401)
+        if request.url.path.endswith("/messages"):
+            return _response({"messages": [{"id": message["id"]}]})
+        return _response(message)
+
+    gmail = _Gmail()
+    if refresh_outcome == "other_account":
+        original = gmail.get_read_access_token
+
+        async def switching_refresh(*, user_id, force_refresh=False):
+            token = await original(user_id=user_id, force_refresh=force_refresh)
+            if force_refresh:
+                gmail.row["google_sub"] = "different-account"
+            return token
+
+        gmail.get_read_access_token = switching_refresh
+    service = GmailLiveReceiptsService(
+        gmail=gmail,
+        transport=httpx.MockTransport(handler),
+        source_secret=b"s" * 32,
+        extractor=_extractor,
+    )
+
+    if refresh_outcome == "accepted":
+        result = await _scan(service)
+        assert result["returned_count"] == 1
+        assert gmail.forced_refreshes == 1
+        assert seen_tokens[0] == "synthetic-access"
+        assert set(seen_tokens[1:]) == {"refreshed-access"}
+        return
+
+    with pytest.raises(GmailApiError) as caught:
+        await _scan(service)
+    assert gmail.forced_refreshes == 1
+    assert caught.value.code == (
+        "GMAIL_REAUTH_REQUIRED"
+        if refresh_outcome == "still_rejected"
+        else "GMAIL_CONNECTION_CHANGED"
+    )
 
 
 async def test_overall_timeout_releases_owner_even_when_child_delays_cancellation(monkeypatch):
@@ -1381,3 +1684,93 @@ async def test_detail_is_account_bound_and_returns_only_labelled_bounded_excerpt
             require_access=_allowed,
         )
     assert caught.value.code == "GMAIL_RECEIPT_NOT_FOUND"
+
+
+async def test_shortest_provider_id_roundtrips_through_scan_detail_and_api_contracts():
+    from api.routes.kai.gmail import GmailLiveReceiptDetailResponse, GmailLiveReceiptScanResponse
+
+    service = _service(
+        [
+            _message(
+                "a",
+                subject="Your receipt",
+                sender="Apple <orders@apple.com>",
+                body="Grand Total USD 42.10",
+            )
+        ]
+    )
+    scan = GmailLiveReceiptScanResponse.model_validate(await _scan(service)).model_dump()
+    locator = scan["items"][0]["durable_source_ref"]
+    # One provider-ID byte plus the AES-GCM nonce and tag encode to 39 characters.
+    assert len(locator[5:]) == 39
+    authority = await service._authority(user_id="owner", require_access=_allowed)
+    assert service._open_locator(authority, locator) == "a"
+    detail = GmailLiveReceiptDetailResponse.model_validate(
+        await service.detail(
+            user_id="owner",
+            source_id=locator,
+            consent_token=TEST_CONSENT_TOKEN,
+            require_access=_allowed,
+        )
+    ).model_dump()
+    assert detail["item"]["gmail_message_id"] == "a"
+    assert detail["item"]["amount_decimal"] == "42.1"
+
+
+async def test_durable_source_locator_is_sealed_owner_account_and_connection_bound():
+    from api.routes.kai.gmail import (
+        GmailLiveReceiptDetailResponse,
+        GmailLiveReceiptScanResponse,
+    )
+
+    message = _message(
+        "private-provider-id",
+        subject="Your receipt",
+        sender="Apple <orders@apple.com>",
+        body="Grand Total USD 42.10",
+    )
+    service = _service([message])
+    scan = await _scan(service)
+    item = scan["items"][0]
+    # Exercise the API contract with real service output, including the
+    # storage fields. Stubbed route payloads missed this response mismatch.
+    serialized_scan = GmailLiveReceiptScanResponse.model_validate(scan).model_dump()
+    assert serialized_scan["items"][0]["durable_source_ref"] == item["durable_source_ref"]
+    assert serialized_scan["items"][0]["amount_decimal"] == "42.1"
+    assert item["amount_decimal"] == "42.1"
+    locator = item["durable_source_ref"]
+    assert locator.startswith("grs1_") and "private-provider-id" not in locator
+    assert "private-provider-id".encode() not in base64.urlsafe_b64decode(
+        locator[5:] + "=" * (-len(locator[5:]) % 4)
+    )
+    detail = await service.detail(
+        user_id="owner",
+        source_id=locator,
+        consent_token=TEST_CONSENT_TOKEN,
+        require_access=_allowed,
+    )
+    assert detail["item"]["source_id"] == locator and detail["item"]["amount"] == 42.1
+    serialized_detail = GmailLiveReceiptDetailResponse.model_validate(detail).model_dump()
+    assert serialized_detail["item"]["durable_source_ref"].startswith("grs1_")
+    assert serialized_detail["item"]["amount_decimal"] == "42.1"
+    authority = await service._authority(user_id="owner", require_access=_allowed)
+    from dataclasses import replace
+
+    assert service._open_locator(replace(authority, user_id="other-owner"), locator) is None
+    for owner, handle, connection in [
+        (
+            "owner",
+            locator[:-2] + ("aa" if locator[-2:] != "aa" else "bb"),
+            "2026-10-04T00:00:00+00:00",
+        ),
+        ("owner", locator, "2026-10-13T00:00:00+00:00"),
+    ]:
+        service._gmail.row["connected_at"] = connection
+        with pytest.raises(GmailApiError) as rejected:
+            await service.detail(
+                user_id=owner,
+                source_id=handle,
+                consent_token=TEST_CONSENT_TOKEN,
+                require_access=_allowed,
+            )
+        assert rejected.value.code == "GMAIL_RECEIPT_NOT_FOUND"

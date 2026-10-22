@@ -145,7 +145,7 @@ async function buildFixture(): Promise<string> {
     `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>One Location live share actions</title>
 <style>${productFontStyle()}</style>
 <link rel="stylesheet" href="fixture.css"></head>
-<body style="margin:0;background:#f2f2f7;color:#1c1c1e;--app-accent:#0a84ff;--app-secondary-label:#6e6e73;--app-neutral-fill:rgba(0,0,0,.055);--app-neutral-fill-strong:rgba(0,0,0,.09);--font-app-body:InterVariable,Arial,sans-serif">
+<body style="margin:0;background:#f2f2f7;color:#1c1c1e;--app-accent:#0a84ff;--app-secondary-label:#6e6e73;--app-neutral-fill:rgba(0,0,0,.055);--app-neutral-fill-strong:rgba(0,0,0,.09);--font-app-body:&quot;Plus Jakarta Sans&quot;,Arial,sans-serif">
 <div style="display:flex;flex-direction:column;gap:12px;padding:12px">
 ${cards}
 </div></body></html>`,
@@ -353,7 +353,7 @@ test.describe("One Location live share card layout", () => {
         fontFamily: cs.fontFamily,
         fontVariantNumeric: cs.fontVariantNumeric,
         fontFeatureSettings: cs.fontFeatureSettings,
-        interLoaded: document.fonts.check(`${cs.fontSize} "InterVariable"`),
+        productFontLoaded: document.fonts.check(`${cs.fontWeight} ${cs.fontSize} "Plus Jakarta Sans"`),
       };
     });
 
@@ -365,20 +365,17 @@ test.describe("One Location live share card layout", () => {
       `the clock never received tabular figures — computed: ${JSON.stringify(why)}`,
     ).toContain("tabular-nums");
     expect(
-      why.interLoaded,
+      why.productFontLoaded,
       `the clock is not rendering in the product font — computed: ${JSON.stringify(why)}`,
     ).toBe(true);
 
     /*
      * THE PIXEL CONSEQUENCE, only where the measurement means something.
      *
-     * On a Linux CI runner this same fixture reports 94.5 / 90.5 / 94.5 / 94.5:
-     * every string identical except the one made of 1s, 1px narrow per glyph.
-     * The diagnosis above rules out the three causes worth acting on — the face
-     * is loaded, `tabular-nums` is computed, and the shipped InterVariable
-     * carries `tnum` (checked with fontTools). What is left is Linux Chromium's
-     * own shaping of a variable font at 34px, which is not a platform this
-     * product runs on and not something the repository can fix.
+     * Browser shaping can differ even when the shipped face is loaded and
+     * `tabular-nums` is computed. The structural assertion above catches the
+     * product regression on every platform; the strict width check runs in the
+     * rendering engines used by the shipped app.
      *
      * Asserting it there would test the runner. Asserting it on macOS Chromium
      * and on WebKit — the engine iOS ships — tests the product, so that is

@@ -9,6 +9,7 @@ from google.adk.tools.mcp_tool.mcp_tool import McpTool
 
 from hushh_mcp.one_adk import mcp_turn_scope as turn_module
 from hushh_mcp.one_adk import registered_mcp_toolset as module
+from hushh_mcp.one_adk.governed_mcp_toolset import McpConnectionBinding
 from hushh_mcp.one_adk.mcp_call_approval import review_or_resume_call
 from hushh_mcp.one_adk.mcp_turn_scope import mcp_turn_scope
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
@@ -50,6 +51,13 @@ def registry(monkeypatch):
     value = SimpleNamespace(list_active_connectors=AsyncMock(return_value=[definition()]))
     monkeypatch.setattr(module, "get_external_connector_registry_service", lambda: value)
     return value
+
+
+@pytest.fixture(autouse=True)
+def _clear_discovery_failures():
+    module._DISCOVERY_FAILURES.clear()
+    yield
+    module._DISCOVERY_FAILURES.clear()
 
 
 async def test_native_view_is_owner_scoped_and_clears_sdk_retained_catalog(registry):
@@ -649,6 +657,151 @@ async def test_failed_connector_is_not_waited_on_again_in_the_same_turn(registry
     assert [item.name for item in first] == [item.name for item in second]
 
 
+@pytest.mark.parametrize("changed", ["generation", "configuration", "owner"])
+async def test_timed_out_catalog_cools_down_across_turns_until_binding_changes(
+    registry, monkeypatch, changed
+):
+    """A failed tools/list must not delay every subsequent ordinary reply."""
+    from dataclasses import replace
+
+    monkeypatch.setenv("MCP_DISCOVERY_TIMEOUT_SECONDS", "0.02")
+    binding = McpConnectionBinding("owner", "custom", 1, 1, "https://example.com/mcp")
+
+    async def blocked_catalog(_context):
+        await asyncio.Event().wait()
+
+    native = SimpleNamespace(binding=binding, get_tools=AsyncMock(side_effect=blocked_catalog))
+    view = module.RegisteredMcpToolset()
+    for _ in range(2):
+        async with mcp_turn_scope("thread") as scope:
+            scope.acquire = AsyncMock(return_value=native)
+            found = await view.get_tools(context())
+            assert len(found) == 1 and found[0].name.startswith("connector_unavailable_")
+            # Backoff never replaces fresh authority/connection resolution.
+            scope.acquire.assert_awaited_once()
+    assert native.get_tools.await_count == 1
+
+    owner = "other" if changed == "owner" else "owner"
+    native.binding = replace(
+        binding,
+        owner_id=owner,
+        generation=2 if changed == "generation" else 1,
+        authority_revision=("vault", "changed") if changed == "configuration" else (),
+    )
+    registry.list_active_connectors.return_value = [definition(owner=owner)]
+    native.get_tools.side_effect = None
+    native.get_tools.return_value = [SimpleNamespace(name="mcp_recovered", description="Read")]
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = AsyncMock(return_value=native)
+        found = await view.get_tools(context(owner))
+    assert [item.name for item in found] == ["mcp_recovered"]
+    assert native.get_tools.await_count == 2
+
+
+async def test_discovery_cooldown_expires_and_does_not_replace_revocation(registry, monkeypatch):
+    monkeypatch.setattr(module, "_DISCOVERY_RETRY_SECONDS", 0.02)
+    native = SimpleNamespace(
+        binding=McpConnectionBinding("owner", "custom", 1, 1, "https://example.com/mcp"),
+        get_tools=AsyncMock(side_effect=TimeoutError),
+    )
+    view = module.RegisteredMcpToolset()
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = AsyncMock(return_value=native)
+        assert (await view.get_tools(context()))[0].name.startswith("connector_unavailable_")
+
+    # Negative control: a pending retry delay cannot retain revoked authority.
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = AsyncMock(
+            side_effect=ExternalMcpError("Revoked", code="MCP_OWNER_MISMATCH")
+        )
+        assert await view.get_tools(context()) == []
+        scope.acquire.assert_awaited_once()
+    assert native.get_tools.await_count == 1
+
+    await asyncio.sleep(0.03)
+    native.get_tools.side_effect = None
+    native.get_tools.return_value = [SimpleNamespace(name="mcp_recovered", description="Read")]
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = AsyncMock(return_value=native)
+        assert [item.name for item in await view.get_tools(context())] == ["mcp_recovered"]
+    assert native.get_tools.await_count == 2
+
+
+async def test_slow_credential_refresh_is_lazy_and_cools_down_with_real_toolset(
+    registry, monkeypatch
+):
+    """Synthetic cold/warm timing: production scope/toolset, no provider I/O."""
+    monkeypatch.setenv("MCP_DISCOVERY_TIMEOUT_SECONDS", "0.1")
+    binding = McpConnectionBinding("owner", "custom", 1, 1, "https://example.com/mcp")
+    refreshes = 0
+
+    async def resolve(_context, _connector_id, *, metadata_only=False):
+        nonlocal refreshes
+        if metadata_only:
+            from hushh_mcp.one_adk.governed_mcp_toolset import ResolvedMcpConnection
+
+            return ResolvedMcpConnection(binding, {})
+        refreshes += 1
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(turn_module, "resolve_registered_connection", resolve)
+    view = module.RegisteredMcpToolset()
+
+    async def turn():
+        started = asyncio.get_running_loop().time()
+        async with mcp_turn_scope("thread", owner_id="owner"):
+            found = await view.get_tools(context())
+        assert len(found) == 1 and found[0].name.startswith("connector_unavailable_")
+        return (asyncio.get_running_loop().time() - started) * 1000
+
+    cold_ms = await turn()
+    warm_ms = await turn()
+    assert refreshes == 1
+    # Negative control reproduces the previous every-turn retry policy.
+    module._DISCOVERY_FAILURES.clear()
+    retry_control_ms = await turn()
+    assert refreshes == 2
+    print(
+        f"synthetic_connector_discovery cold_ms={cold_ms:.1f} "
+        f"warm_ms={warm_ms:.1f} retry_control_ms={retry_control_ms:.1f}"
+    )
+
+
+@pytest.mark.parametrize("cancelled_by_owner", [False, True])
+async def test_aggregate_budget_defers_retry_but_owner_cancellation_does_not(
+    registry, monkeypatch, cancelled_by_owner
+):
+    monkeypatch.setattr(module, "mcp_call_timeout_seconds", lambda: 0.02)
+    monkeypatch.setattr(module, "mcp_discovery_timeout_seconds", lambda: 0.2)
+    started = asyncio.Event()
+
+    async def blocked_catalog(_context):
+        started.set()
+        await asyncio.Event().wait()
+
+    native = SimpleNamespace(
+        binding=McpConnectionBinding("owner", "custom", 1, 1, "https://example.com/mcp"),
+        get_tools=AsyncMock(side_effect=blocked_catalog),
+    )
+    view = module.RegisteredMcpToolset()
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = AsyncMock(return_value=native)
+        discovery = asyncio.create_task(view.get_tools(context()))
+        await started.wait()
+        if cancelled_by_owner:
+            discovery.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await discovery
+        else:
+            assert (await discovery)[0].name.startswith("connector_unavailable_")
+
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = AsyncMock(return_value=native)
+        assert (await view.get_tools(context()))[0].name.startswith("connector_unavailable_")
+        scope.acquire.assert_awaited_once()
+    assert native.get_tools.await_count == (2 if cancelled_by_owner else 1)
+
+
 async def test_stand_in_name_is_stable_unique_and_never_a_provider_tool_name(registry):
     registry.list_active_connectors.return_value = [definition("a"), definition("b")]
     async with mcp_turn_scope("thread") as scope:
@@ -676,6 +829,7 @@ async def test_a_connector_is_listed_once_per_turn_not_once_per_model_step(regis
         first = await view.get_tools(context())
         second = await view.get_tools(context())
         third = await view.get_tools(context())
+        assert registry.list_active_connectors.await_count == 1
         assert toolset.get_tools.await_count == 1
         assert scope.acquire.await_count == 1
     assert [t.name for t in first] == [t.name for t in second] == [t.name for t in third]

@@ -50,4 +50,14 @@ export const CONTACT_INVITE_LIST_TRAILING_INSET_CLASSNAME =
 
 /** Pinned action row; the home-indicator inset lives in its padding. */
 export const CONTACT_INVITE_FOOTER_CLASSNAME =
-  "flex shrink-0 flex-wrap gap-2 border-t border-border px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6";
+  "flex shrink-0 flex-col gap-1 border-t border-border px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6";
+
+/**
+ * The footer is one column: the action that moves forward on top at full
+ * width, the way back directly under it at the same width and height. A short
+ * outlined "Back" parked above a wide primary read as two unrelated controls.
+ */
+export const CONTACT_INVITE_PRIMARY_ACTION_CLASSNAME =
+  "h-12 min-h-12 w-full rounded-full text-[17px] font-semibold";
+export const CONTACT_INVITE_SECONDARY_ACTION_CLASSNAME =
+  "h-12 min-h-12 w-full rounded-full text-[17px] font-medium text-muted-foreground";

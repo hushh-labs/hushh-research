@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { cn } from "@/lib/utils";
 import { DurationWheelPicker } from "./duration-wheel-picker";
+import { DURATION_SELECTED_OPTION_CLASSNAME } from "./duration-option-styles";
 
 export type DurationRung = { value: string; label: string };
 
@@ -121,7 +122,7 @@ export const DURATION_COMPACT_CELL_CLASS = "rounded-full px-3";
 export const DURATION_CELL_OFF_CLASS =
   "border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] text-[color:var(--app-label)] hover:border-[color:var(--app-accent-ring)] hover:bg-[color:var(--app-neutral-fill-strong)]";
 export const DURATION_CELL_ON_CLASS =
-  "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]";
+  DURATION_SELECTED_OPTION_CLASSNAME;
 
 /**
  * "2h 45m" / "1h" / "45m" — six glyphs at most, so a live custom value still
@@ -148,6 +149,7 @@ export function DurationPresetPicker({
   centered = false,
   compact = false,
   labelledBy,
+  activeClassName,
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -182,7 +184,9 @@ export function DurationPresetPicker({
    */
   compact?: boolean;
   labelledBy?: string;
+  activeClassName?: string;
 }) {
+  const selectedClassName = activeClassName ?? DURATION_CELL_ON_CLASS;
   const isUntilStop = allowUntilStop && value === untilStopValue;
   const isCustomValue =
     !isUntilStop && !rungs.some((rung) => rung.value === value);
@@ -236,7 +240,7 @@ export function DurationPresetPicker({
               className={cn(
                 DURATION_CELL_CLASS,
                 compact && DURATION_COMPACT_CELL_CLASS,
-                active ? DURATION_CELL_ON_CLASS : DURATION_CELL_OFF_CLASS,
+                active ? selectedClassName : DURATION_CELL_OFF_CLASS,
               )}
             >
               {rung.label}
@@ -252,7 +256,7 @@ export function DurationPresetPicker({
             className={cn(
               DURATION_CELL_CLASS,
               compact && DURATION_COMPACT_CELL_CLASS,
-              customPressed ? DURATION_CELL_ON_CLASS : DURATION_CELL_OFF_CLASS,
+              customPressed ? selectedClassName : DURATION_CELL_OFF_CLASS,
             )}
           >
             {isCustomValue ? compactDurationLabel(value) : "Custom"}
@@ -279,7 +283,7 @@ export function DurationPresetPicker({
               DURATION_CELL_CLASS,
               compact && DURATION_COMPACT_CELL_CLASS,
               centered && "col-span-2 sm:col-span-1",
-              isUntilStop ? DURATION_CELL_ON_CLASS : DURATION_CELL_OFF_CLASS,
+              isUntilStop ? selectedClassName : DURATION_CELL_OFF_CLASS,
             )}
           >
             Until I stop

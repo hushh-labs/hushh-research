@@ -47,12 +47,12 @@ export default function DeleteAccountPage() {
         </p>
 
         <h2 className={sectionHeading}>Delete it in the app</h2>
-        <p className={bodyText}>This is the fastest way, and it takes effect right away.</p>
+        <p className={bodyText}>This is the fastest way. We’ll show you when it is complete.</p>
         <ol className="mt-3 list-decimal space-y-2 pl-6 text-[16px] leading-6 text-[color:var(--app-secondary-label)]">
           <li>Open Hussh One and sign in.</li>
-          <li>Go to Profile.</li>
-          <li>Tap Delete account. If your vault is locked, unlock it first.</li>
-          <li>Confirm. You’re signed out once the deletion finishes.</li>
+          <li>Open Profile, or choose Delete account and start fresh on the locked-vault screen.</li>
+          <li>Verify your identity and review what will be removed. A locked vault does not require its password or recovery key.</li>
+          <li>Confirm. You’re signed out when your One information is removed. Sign-in cleanup may continue afterward.</li>
         </ol>
 
         <h2 className={sectionHeading}>Ask us to delete it without the app</h2>
@@ -72,7 +72,7 @@ export default function DeleteAccountPage() {
           Before we delete anything, we confirm the request came from the
           account owner. We reply to the email or phone number already on the
           account, and we only proceed once you confirm from there. We will
-          never ask for your password, your vault passphrase, or a verification
+          never ask for your sign-in password, your vault password, or a verification
           code sent to you by text. Don’t include them in your email.
         </p>
         <p className={bodyText}>
@@ -98,8 +98,8 @@ export default function DeleteAccountPage() {
         <h2 className={sectionHeading}>Google, banks, and other services</h2>
         <ul className={listText}>
           <li>
-            Before anything is deleted, we disconnect the banks you linked
-            through Plaid. If that fails, nothing is deleted and the app asks
+            When your vault is open, we disconnect banks linked through Plaid
+            before deletion. If that fails, nothing is deleted and the app asks
             you to try again.
           </li>
           <li>
@@ -121,9 +121,9 @@ export default function DeleteAccountPage() {
             settings.
           </li>
           <li>
-            If you ask us by email, we can’t open your vault, so we can’t
-            disconnect your banks for you. Remove the connection in your
-            bank’s or Plaid’s settings.
+            If your vault is locked, we can’t open its sealed bank tokens or
+            disconnect those banks for you. Remove One or Plaid access in your
+            bank’s or Plaid’s settings, whether you delete in the app or by email.
           </li>
         </ul>
 

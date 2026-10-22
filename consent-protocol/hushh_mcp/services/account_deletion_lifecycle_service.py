@@ -13,7 +13,11 @@ from typing import Literal, cast
 
 from sqlalchemy import text
 
-from api.utils.firebase_admin import get_firebase_auth_app
+from api.utils.firebase_admin import (
+    FirebaseAuthorityError,
+    assert_firebase_identity_mutation_allowed,
+    get_firebase_auth_app,
+)
 from db.db_client import get_db_connection
 from hushh_mcp.config import APP_SIGNING_KEY
 
@@ -188,6 +192,33 @@ class AccountDeletionLifecycleService:
                     ),
                     {"user_id": user_id, "namespace": namespace},
                 )
+
+    @staticmethod
+    async def active_projection_user_ids(conn, *, user_ids: Iterable[str]) -> set[str]:
+        """Hold the canonical deletion barriers for one bounded private read page.
+
+        The caller owns an asyncpg READ COMMITTED transaction and its deadlines.
+        Read the tombstones only after any exclusive deletion has committed.
+        No profile, identity or enrollment is created by this projection.
+        """
+        normalized = AccountDeletionLifecycleService._normalize_user_ids(user_ids)
+        if len(normalized) > 50:
+            raise ValueError("projection page exceeds lifecycle bound")
+        for namespace in (_CONNECTION_GRAPH_LOCK_NAMESPACE, _ACCOUNT_LIFECYCLE_LOCK_NAMESPACE):
+            for user_id in normalized:
+                await conn.execute(
+                    "SELECT pg_advisory_xact_lock_shared(hashtextextended($1, $2))",
+                    user_id,
+                    namespace,
+                )
+        hashes = {account_deletion_user_hash(uid): uid for uid in normalized}
+        deleted = await conn.fetch(
+            "SELECT user_id_hash FROM account_deletion_tombstones WHERE user_id_hash=ANY($1::text[])",
+            list(hashes),
+            timeout=5,
+        )
+        retired = {row["user_id_hash"] for row in deleted}
+        return {uid for digest, uid in hashes.items() if digest not in retired}
 
     @staticmethod
     def _normalize_user_ids(user_ids: Iterable[str]) -> tuple[str, ...]:
@@ -975,22 +1006,23 @@ class AccountDeletionLifecycleService:
 
         last_error: BaseException | None = None
         for attempt_number in range(1, _FIREBASE_DELETE_MAX_ATTEMPTS + 1):
-            if intent_kind == "phone_orphan":
-                if expected_phone_digest is None:
-                    return FirebaseCleanupAttempt(
-                        "protected",
-                        classification=_PHONE_CLASSIFICATION_PROOF_MISSING,
-                    )
-                validation_result = await self._revalidate_phone_orphan_cleanup(
-                    normalized,
-                    expected_phone_digest=expected_phone_digest,
-                )
-                if validation_result is not None:
-                    return validation_result
             try:
+                firebase_app = get_firebase_auth_app()
+                assert_firebase_identity_mutation_allowed(firebase_app)
+                if intent_kind == "phone_orphan":
+                    if expected_phone_digest is None:
+                        return FirebaseCleanupAttempt(
+                            "protected",
+                            classification=_PHONE_CLASSIFICATION_PROOF_MISSING,
+                        )
+                    validation_result = await self._revalidate_phone_orphan_cleanup(
+                        normalized,
+                        expected_phone_digest=expected_phone_digest,
+                    )
+                    if validation_result is not None:
+                        return validation_result
                 from firebase_admin import auth as firebase_auth
 
-                firebase_app = get_firebase_auth_app()
                 await asyncio.wait_for(
                     asyncio.to_thread(
                         firebase_auth.delete_user,
@@ -1004,6 +1036,10 @@ class AccountDeletionLifecycleService:
                     classification=(
                         _PHONE_CLASSIFICATION_REVALIDATED if intent_kind == "phone_orphan" else None
                     ),
+                )
+            except FirebaseAuthorityError:
+                return FirebaseCleanupAttempt(
+                    "retry_pending", classification="firebase_authority_mismatch"
                 )
             except Exception as exc:
                 if exc.__class__.__name__ == "UserNotFoundError":
@@ -1047,6 +1083,16 @@ class AccountDeletionLifecycleService:
         )
         return quarantine_result
 
+    async def quarantine_firebase_identity(self, user_id: str) -> FirebaseCleanupAttempt:
+        """Disable the Firebase user and revoke its refresh tokens; never delete it.
+
+        The public entry to the quarantine the deletion cleanup already uses, for
+        callers that must end an identity's access without erasing the account
+        (enterprise deprovisioning). ``outcome`` is ``quarantined`` or ``not_found``
+        when finished, anything else means retry.
+        """
+        return await self._quarantine_firebase_identity(user_id, last_error=None)
+
     async def _quarantine_firebase_identity(
         self,
         user_id: str,
@@ -1057,6 +1103,11 @@ class AccountDeletionLifecycleService:
             from firebase_admin import auth as firebase_auth
 
             firebase_app = get_firebase_auth_app()
+            assert_firebase_identity_mutation_allowed(firebase_app)
+        except FirebaseAuthorityError:
+            return FirebaseCleanupAttempt(
+                "quarantine_incomplete", classification="firebase_authority_mismatch"
+            )
         except Exception as exc:
             return FirebaseCleanupAttempt("quarantine_incomplete", _failure_class(exc))
 

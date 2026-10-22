@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 
-import { absoluteUrl, PUBLIC_ROUTES } from "@/lib/seo/site";
+import { absoluteUrl, PUBLIC_ROUTES, PUBLIC_LEGAL_ROUTES, PUBLIC_CANONICAL_PATHS, isProductionIndexing } from "@/lib/seo/site";
 import { BLOG_POSTS } from "@/lib/research/blog";
 
 /**
@@ -10,18 +10,17 @@ import { BLOG_POSTS } from "@/lib/research/blog";
  * route is given the highest priority; entry/marketing surfaces follow.
  */
 export default function sitemap(): MetadataRoute.Sitemap {
-  const lastModified = new Date();
+  if (!isProductionIndexing()) return [];
 
   return [
-    ...PUBLIC_ROUTES.map((route) => ({
-    url: absoluteUrl(route),
-    lastModified,
-    changeFrequency: route === "/" ? "daily" : "weekly",
-    priority: route === "/" ? 1 : 0.7,
+    ...[...PUBLIC_ROUTES, ...PUBLIC_LEGAL_ROUTES].map((route) => ({
+      url: absoluteUrl(PUBLIC_CANONICAL_PATHS[route] ?? route),
+      changeFrequency: route === "/" ? "daily" : "weekly",
+      priority: route === "/" ? 1 : 0.7,
     } as const)),
     ...BLOG_POSTS.map((post) => ({
       url: absoluteUrl(`/blog/${post.slug}`),
-      lastModified,
+      lastModified: new Date(post.date),
       changeFrequency: "monthly" as const,
       priority: 0.6,
     })),

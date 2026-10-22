@@ -12,6 +12,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { ApiService } from "@/lib/services/api-service";
 import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 import { buildTrustedDevicePasskeyHandoff } from "@/lib/vault/trusted-device-passkey-handoff";
+import { resolvePasskeyEnvironment } from "@/lib/vault/passkey-rp";
 
 function requiredParam(
   params: { get(name: string): string | null },
@@ -79,9 +80,7 @@ export default function TrustedDeviceAuthorizePage() {
             recipientPublicKey: handoffPublicKey,
             hostname: window.location.hostname,
             environment:
-              window.location.hostname === "one.hushh.ai"
-                ? "production"
-                : "uat",
+              resolvePasskeyEnvironment(window.location.hostname) ?? "uat",
           });
           if (handoff) {
             const attachResponse =
@@ -131,9 +130,9 @@ export default function TrustedDeviceAuthorizePage() {
         </h1>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
           Approve this private computer as an extension of One. The vault
-          passphrase remains local to Hermes and is never sent to Hussh. When
+          password remains local to Hermes and is never sent to Hussh. When
           this browser can use an existing One passkey, Touch ID can secure the
-          device without asking for the passphrase again. Each signed device
+          device without asking for the password again. Each signed device
           proof can issue a short-lived vault-owner capability for protected
           actions, including confirmed PKM writes.
         </p>

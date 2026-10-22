@@ -10,8 +10,8 @@ import {
 import {
   SettingsGroup,
   SettingsRow,
-  SegmentedTabs,
 } from "@/components/app-ui/settings-ui";
+import { SegmentedControl } from "@/lib/morphy-ux/ui/segmented-control";
 import type {
   PortfolioFreshness,
   PortfolioSource,
@@ -151,12 +151,13 @@ export function PortfolioSourceSwitcher({
           stackTrailingOnMobile
           trailing={
             sourceOptions.length > 1 ? (
-              <SegmentedTabs
+              <SegmentedControl
+                ariaLabel="Portfolio source"
                 value={activeSource}
                 onValueChange={requestSourceChange}
                 options={sourceOptions}
                 disabled={interactionBusy || !canChangePortfolioSource}
-                className="w-full sm:w-[18rem]"
+                className="min-h-11 w-full sm:w-[18rem]"
               />
             ) : undefined
           }
@@ -219,7 +220,7 @@ export function PortfolioSourceSwitcher({
 
       {/* Every way in, on this screen, whatever is active. */}
       {onManageConnections || onImportStatement ? (
-        <SettingsGroup title="Add a source" separatorInset testId="portfolio-source-add-group">
+        <SettingsGroup title="Add a source" rowSizing="uniform" separatorInset testId="portfolio-source-add-group">
           {onManageConnections ? (
             <SettingsRow
               icon={Building2}
@@ -237,7 +238,7 @@ export function PortfolioSourceSwitcher({
               icon={Upload}
               iconTone="accent"
               title={activeSource === "statement" && hasStatementSnapshots ? "Import another statement" : "Upload a statement"}
-              description="PDF or CSV from your brokerage; editable once imported."
+              description="PDF or CSV; editable after import."
               onClick={onImportStatement}
               disabled={interactionBusy}
               chevron

@@ -1,0 +1,26 @@
+.body.body {
+  padding: 16px var(--task-surface-pad) max(16px, env(safe-area-inset-bottom, 0px));
+}
+
+.extension {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 0 var(--task-surface-pad) max(16px, env(safe-area-inset-bottom, 0px));
+}
+
+/* The mobile grab handle is hidden at sm; it must no longer offset desktop chrome. */
+@media (min-width: 640px) {
+  .rail.rail:has(> :global([data-slot="sheet-drag-handle"])) :global([data-slot="sheet-header"]) {
+    padding-top: 20px;
+  }
+  .rail.rail:has(> :global([data-slot="sheet-drag-handle"])) :global([data-slot="sheet-close"]) {
+    top: 16px;
+  }
+}
+
+@media (min-width: 768px) {
+  .rail.rail.rail {
+    border-radius: 24px 0 0 24px;
+  }
+}

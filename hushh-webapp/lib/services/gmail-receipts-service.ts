@@ -2,6 +2,7 @@ import { trackEvent } from "@/lib/observability/client";
 import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from "@/lib/services/auth-service";
 import { CACHE_TTL, CacheService } from "@/lib/services/cache-service";
+import { clearCachedGmailReceipts } from "@/lib/profile/gmail-receipts-cache";
 import {
   buildGmailNudgesPath,
   buildGmailReceiptsPath,
@@ -19,6 +20,7 @@ const MAX_LIVE_RECEIPTS_PER_PAGE = 6;
 // seconds don't each trigger their own network round trip.
 const gmailStatusCacheKey = (userId: string) =>
   `gmail_connection_status_${userId}`;
+const gmailStatusCacheGenerations = new Map<string, number>();
 
 function trackGmailEventForOwner(
   userId: string,
@@ -140,6 +142,9 @@ export interface GmailSyncQueueResponse {
 
 export interface ReceiptListItem {
   id: number;
+  /** Server-sealed routing locator. Never conveys authorization. */
+  durable_source_ref?: string;
+  amount_decimal?: string | null;
   /** Stable, account-bound identity used for backend detail selection. */
   source_id?: string;
   receipt_key?: string;
@@ -339,6 +344,7 @@ interface ErrorEnvelope {
     | {
         message?: string;
         code?: string;
+        retryable?: boolean;
       };
   message?: string;
   error?: string;
@@ -347,12 +353,15 @@ interface ErrorEnvelope {
 export class GmailReceiptRequestError extends Error {
   readonly status: number;
   readonly code: string | null;
+  readonly retryable: boolean;
 
-  constructor(message: string, status: number, code: string | null) {
+  constructor(message: string, status: number, code: string | null, retryable?: boolean) {
     super(message);
     this.name = "GmailReceiptRequestError";
     this.status = status;
     this.code = code;
+    this.retryable = retryable ?? (code === "GMAIL_RECEIPT_SCAN_IN_PROGRESS" ||
+      RETRYABLE_RECEIPT_SCAN_CODES.has(String(code)));
   }
 }
 
@@ -361,9 +370,14 @@ export function isReceiptScanInProgressError(
 ): error is GmailReceiptRequestError {
   return (
     error instanceof GmailReceiptRequestError &&
+    error.retryable &&
     error.status === 409 &&
     error.code === "GMAIL_RECEIPT_SCAN_IN_PROGRESS"
   );
+}
+
+export function isReceiptScanContinuationExpiredError(error: unknown): error is GmailReceiptRequestError {
+  return error instanceof GmailReceiptRequestError && error.code === "GMAIL_RECEIPT_CURSOR_EXPIRED";
 }
 
 // A page that failed for one of these reasons can be read again with the same
@@ -375,8 +389,6 @@ const RETRYABLE_RECEIPT_SCAN_CODES = new Set([
   "GMAIL_RECEIPT_SCAN_TIMEOUT",
   "GMAIL_RECEIPT_EXTRACTION_TIMEOUT",
   "GMAIL_RECEIPT_EXTRACTION_UNAVAILABLE",
-  "GMAIL_RECEIPT_EXTRACTION_INVALID",
-  "GMAIL_RECEIPT_EXTRACTION_UNVERIFIED",
 ]);
 
 export function isRetryableReceiptScanPageError(
@@ -384,7 +396,26 @@ export function isRetryableReceiptScanPageError(
 ): error is GmailReceiptRequestError {
   return (
     error instanceof GmailReceiptRequestError &&
+    error.retryable &&
     RETRYABLE_RECEIPT_SCAN_CODES.has(String(error.code))
+  );
+}
+
+// The saved Mail login was rejected (revoked, expired or removed), or reading
+// was never granted. Reading again can never succeed, so these are never
+// retried: the owner has to reconnect Mail first.
+const RECONNECT_RECEIPT_SCAN_CODES = new Set([
+  "GMAIL_REAUTH_REQUIRED",
+  "GMAIL_NOT_CONNECTED",
+  "GMAIL_READ_PERMISSION_REQUIRED",
+]);
+
+export function isReceiptConnectionLostError(
+  error: unknown,
+): error is GmailReceiptRequestError {
+  return (
+    error instanceof GmailReceiptRequestError &&
+    RECONNECT_RECEIPT_SCAN_CODES.has(String(error.code))
   );
 }
 
@@ -409,8 +440,13 @@ function isNullableString(value: unknown): value is string | null {
   return value === null || typeof value === "string";
 }
 
-function invalidLiveReceiptResponse(): Error {
-  return new Error("Mail receipt scan returned an invalid response.");
+function invalidLiveReceiptResponse(): GmailReceiptRequestError {
+  return new GmailReceiptRequestError(
+    "Mail receipt scan returned an invalid response.",
+    500,
+    "GMAIL_RECEIPT_INVALID_RESPONSE",
+    false,
+  );
 }
 
 function isSourceEvidenceList(value: unknown): value is GmailReceiptSourceEvidence[] {
@@ -439,6 +475,8 @@ function isSourceEvidenceList(value: unknown): value is GmailReceiptSourceEviden
 
 function parseLiveReceiptItem(value: unknown): GmailLiveReceiptItem {
   if (!isRecord(value)) throw invalidLiveReceiptResponse();
+  if ((value.durable_source_ref != null && (typeof value.durable_source_ref !== "string" || !/^grs1_[A-Za-z0-9_-]{39,310}$/.test(value.durable_source_ref))) ||
+      (value.amount_decimal != null && (typeof value.amount_decimal !== "string" || !/^\d{1,12}(?:\.\d{1,2})?$/.test(value.amount_decimal)))) throw invalidLiveReceiptResponse();
   if (value.source_evidence != null && !isSourceEvidenceList(value.source_evidence)) {
     throw invalidLiveReceiptResponse();
   }
@@ -606,6 +644,7 @@ async function extractLiveReceiptError(
   const raw = await response.text().catch(() => "");
   let message = fallback;
   let code: string | null = null;
+  let retryable: boolean | undefined;
   try {
     const payload = (raw ? JSON.parse(raw) : null) as ErrorEnvelope | null;
     const detail =
@@ -625,10 +664,11 @@ async function extractLiveReceiptError(
       typeof detail?.code === "string" && detail.code.length <= 100
         ? detail.code
         : null;
+    retryable = typeof detail?.retryable === "boolean" ? detail.retryable : undefined;
   } catch {
     message = raw.trim() || fallback;
   }
-  return new GmailReceiptRequestError(message, response.status, code);
+  return new GmailReceiptRequestError(message, response.status, code, retryable);
 }
 
 function parseLiveReceiptDetailResponse(
@@ -761,6 +801,7 @@ export class GmailReceiptsService {
   }): Promise<GmailConnectionStatus> {
     const cache = CacheService.getInstance();
     const cacheKey = gmailStatusCacheKey(params.userId);
+    const cacheGeneration = gmailStatusCacheGenerations.get(cacheKey) || 0;
     if (!params.force) {
       const cached = cache.get<GmailConnectionStatus>(cacheKey);
       if (cached) return cached;
@@ -783,7 +824,9 @@ export class GmailReceiptsService {
     }
 
     const status = (await response.json()) as GmailConnectionStatus;
-    cache.set(cacheKey, status, CACHE_TTL.SHORT);
+    if ((gmailStatusCacheGenerations.get(cacheKey) || 0) === cacheGeneration) {
+      cache.set(cacheKey, status, CACHE_TTL.SHORT);
+    }
     return status;
   }
 
@@ -813,6 +856,8 @@ export class GmailReceiptsService {
             login_hint: params.loginHint || null,
             include_granted_scopes: params.includeGrantedScopes,
             purpose: params.purpose || "read",
+            redirect_uri: typeof window === "undefined" ? undefined
+              : `${window.location.origin}/one/profile/gmail/oauth/return`,
           }),
         },
       );
@@ -964,6 +1009,8 @@ export class GmailReceiptsService {
             user_id: params.userId,
             code: params.code,
             state: params.state,
+            redirect_uri: typeof window === "undefined" ? undefined
+              : `${window.location.origin}/one/profile/gmail/oauth/return`,
           }),
         },
       );
@@ -1014,8 +1061,23 @@ export class GmailReceiptsService {
       );
     }
 
+    const status = (await response.json()) as GmailConnectionStatus;
+    if (status.connected !== false) {
+      trackGmailEventForOwner(params.userId, "gmail_disconnect_result", { result: "error" });
+      throw new Error("Mail could not be disconnected. Check and retry.");
+    }
+
+    // Every disconnect entry point uses this service. Clear both caches only
+    // after the backend confirms it removed the connection and receipt rows.
+    const cacheKey = gmailStatusCacheKey(params.userId);
+    gmailStatusCacheGenerations.set(
+      cacheKey,
+      (gmailStatusCacheGenerations.get(cacheKey) || 0) + 1,
+    );
+    CacheService.getInstance().invalidate(cacheKey);
+    clearCachedGmailReceipts(params.userId);
     trackGmailEventForOwner(params.userId, "gmail_disconnect_result", { result: "success" });
-    return (await response.json()) as GmailConnectionStatus;
+    return status;
   }
 
   static async reconcile(params: {
@@ -1158,7 +1220,9 @@ export class GmailReceiptsService {
           "Failed to scan Mail for receipts.",
         );
       }
-      const payload: unknown = await response.json();
+      const payload: unknown = await response.json().catch(() => {
+        throw invalidLiveReceiptResponse();
+      });
       const parsed = parseLiveReceiptScanResponse(payload, { page, perPage });
       trackGmailEventForOwner(params.userId, "gmail_receipts_loaded", {
         result: "success",

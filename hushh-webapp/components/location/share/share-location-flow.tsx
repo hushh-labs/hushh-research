@@ -60,7 +60,7 @@ import type {
   PlainLocationPoint,
 } from "@/lib/one-location/types";
 import { apiErrorCode } from "@/lib/services/api-client";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { cn } from "@/lib/utils";
 
 export const SHARING_OFF_CODE = "LOCATION_SHARING_OFF";

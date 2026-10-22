@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const storage = vi.hoisted(() => ({ loadDomainData: vi.fn(), loadDomainSnapshot: vi.fn(), storeRuntimeSecret: vi.fn(), removeRuntimeSecret: vi.fn() }));
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({ PersonalKnowledgeModelService: storage }));
 import { loadCustomConnectorConfigurations, loadCustomConnectorSnapshot, saveCustomConnectorConfiguration, saveCustomConnectorOAuthResult, removeCustomConnectorConfiguration, removeInvalidCustomConnectorConfiguration, parseCustomConnectorConfiguration, projectCustomConnectorTurnConfigurations, bearerAuthorizationValue, isVaultOwnerCredential } from "@/lib/connections/custom-connector-configuration";
+import { dispatchLocalPkmDomainChanged } from "@/lib/pkm/pkm-domain-change-events";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 const access = { userId: "synthetic-owner", vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-token" };
 const confirmation = { confirmedByUser: true as const, surface: "web" as const, source: "connector_test" };
@@ -129,6 +131,7 @@ describe("vault-backed custom connector configuration", () => {
     expect(() => parseCustomConnectorConfiguration({ ...record, blockedTools: [{ id: blockedTool.id, fingerprint: "changed" }] })).toThrow();
   });
   beforeEach(() => {
+    advanceVaultSessionEpoch();
     vi.resetAllMocks();
     storage.loadDomainData.mockResolvedValue(null);
   });
@@ -139,12 +142,47 @@ describe("vault-backed custom connector configuration", () => {
     expect(storage.storeRuntimeSecret).toHaveBeenCalledWith({ ...access, confirmation,
       credentialRef: `pkm:runtime_secrets.connectors.${record.connectorId}`, secret: JSON.stringify(saved), expectedValue: null });
   });
-  it("reads without retaining a module-level cache", async () => {
+  it("reuses the decrypted connector catalog for the unlocked vault session", async () => {
     storage.loadDomainData.mockResolvedValueOnce({ connectors: { [record.connectorId]: JSON.stringify(record) } })
       .mockResolvedValueOnce(null);
     expect(await loadCustomConnectorConfigurations(access)).toEqual([record]);
+    expect(await loadCustomConnectorConfigurations(access)).toEqual([record]);
+    expect(storage.loadDomainData).toHaveBeenCalledTimes(1);
+  });
+  it("invalidates the unlocked-session cache on connector-domain or vault changes", async () => {
+    storage.loadDomainData
+      .mockResolvedValueOnce({ connectors: { [record.connectorId]: JSON.stringify(record) } })
+      .mockResolvedValue({ connectors: {} });
+    expect(await loadCustomConnectorConfigurations(access)).toEqual([record]);
+    dispatchLocalPkmDomainChanged({
+      userId: access.userId,
+      domain: "profile",
+      dataVersion: 2,
+      updatedAt: null,
+      operation: "stored",
+    });
+    expect(await loadCustomConnectorConfigurations(access)).toEqual([record]);
+    expect(storage.loadDomainData).toHaveBeenCalledTimes(1);
+    dispatchLocalPkmDomainChanged({
+      userId: access.userId,
+      domain: "runtime_secrets",
+      dataVersion: 2,
+      updatedAt: null,
+      operation: "stored",
+    });
     expect(await loadCustomConnectorConfigurations(access)).toEqual([]);
-    expect(storage.loadDomainData).toHaveBeenCalledTimes(2);
+    advanceVaultSessionEpoch();
+    expect(await loadCustomConnectorConfigurations(access)).toEqual([]);
+    expect(storage.loadDomainData).toHaveBeenCalledTimes(3);
+  });
+  it("never retries an in-flight read with a key from an expired vault session", async () => {
+    let resolve!: (value: Record<string, unknown>) => void;
+    storage.loadDomainData.mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    const pending = loadCustomConnectorConfigurations(access);
+    advanceVaultSessionEpoch();
+    resolve({ connectors: { [record.connectorId]: JSON.stringify(record) } });
+    await expect(pending).rejects.toThrow("Connector settings could not be read.");
+    expect(storage.loadDomainData).toHaveBeenCalledTimes(1);
   });
   it.each(["not-json", JSON.stringify({ ...record, connectorId: `custom_${"b".repeat(32)}` }), "x".repeat(32001)])(
     "rejects corrupt or mismatched stored records without echoing content", async serialized => {

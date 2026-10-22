@@ -29,6 +29,7 @@ from api.middleware import (
 from api.middlewares.rate_limit import RateLimits, limiter
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
+from hushh_mcp.hushh_adk.single_turn import bind_single_turn_request_labels
 from hushh_mcp.one_voice import protocol
 from hushh_mcp.one_voice.config import (
     PROTOCOL_VERSION,
@@ -48,7 +49,10 @@ from hushh_mcp.one_voice.tools.base import (
 )
 from hushh_mcp.one_voice.tools.executor import ToolExecutor
 from hushh_mcp.runtime_providers.dependency_health import classify_provider_error
-from hushh_mcp.runtime_providers.factory import build_managed_live_client
+from hushh_mcp.runtime_providers.factory import (
+    bind_managed_vertex_project,
+    build_managed_live_client,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -71,17 +75,32 @@ class VoiceReadinessResponse(BaseModel):
     ws_path: str = "/api/one/voice/live"
 
 
-_readiness_cache: tuple[float, VoiceReadinessResponse] | None = None
+_readiness_cache: dict[tuple, tuple[float, VoiceReadinessResponse]] = {}
 
 
 def reset_readiness_cache() -> None:
-    global _readiness_cache
-    _readiness_cache = None
+    _readiness_cache.clear()
 
 
 async def _probe_live_connect(config: OneVoiceLiveConfig) -> None:
     """Open and immediately close one Live session. No audio, no output."""
-    client = build_managed_live_client(model=config.model_id, location=config.location)
+    if config.provider == "azure_openai":
+        cfg = build_live_config(
+            system_instruction="Synthetic readiness only.",
+            tool_declarations=[],
+            voice_name="coral",
+            resumption_handle=None,
+        )
+        async with connect_live(config, cfg) as live:
+            async for event in live.events():
+                if event.kind == "setup_complete":
+                    return
+        raise RuntimeError("Azure Live setup was not acknowledged")
+    client = build_managed_live_client(
+        model=config.model_id,
+        location=config.location,
+        vertex_project=config.vertex_project,
+    )
     # Native-audio Live models refuse a TEXT-only session; opening with AUDIO and
     # closing immediately proves availability without sending or receiving audio.
     live_config = genai_types.LiveConnectConfig(response_modalities=[genai_types.Modality.AUDIO])
@@ -89,22 +108,37 @@ async def _probe_live_connect(config: OneVoiceLiveConfig) -> None:
         return
 
 
-async def compute_readiness() -> VoiceReadinessResponse:
-    """Evaluate the flag, the contract, and (when enabled) a cached connect probe."""
-    global _readiness_cache
+async def compute_readiness(*, playback: bool = False) -> VoiceReadinessResponse:
+    """Probe the configured processor for every supported client protocol.
+
+    The optional playback hint remains wire-compatible; acknowledgements refine
+    interrupted context, not processor selection or authentication.
+    """
     now = time.monotonic()
-    if _readiness_cache and now - _readiness_cache[0] <= _READINESS_TTL_SECONDS:
-        return _readiness_cache[1]
     try:
         config = OneVoiceLiveConfig.from_environment()
     except OneVoiceConfigError:
         logger.warning("one_voice.readiness reason=not_configured")
         response = VoiceReadinessResponse(enabled=False, status="not_configured")
-        _readiness_cache = (now, response)
         return response
     if not config.enabled:
         # Not cached: turning the flag on must take effect on the next request.
         return VoiceReadinessResponse(enabled=False, status="disabled")
+    from hushh_mcp.managed_ai_config import load_managed_runtime_policy
+
+    policy = load_managed_runtime_policy()
+    key = (
+        config.provider,
+        config.model_id,
+        config.location,
+        config.vertex_project,
+        policy["generation"] if policy else None,
+    )
+    cached = _readiness_cache.get(key)
+    if cached is not None and now - cached[0] <= _READINESS_TTL_SECONDS:
+        return cached[1]
+    if len(_readiness_cache) >= 8:
+        _readiness_cache.clear()
     try:
         await asyncio.wait_for(
             _probe_live_connect(config), timeout=_READINESS_PROBE_TIMEOUT_SECONDS
@@ -120,7 +154,7 @@ async def compute_readiness() -> VoiceReadinessResponse:
             model=config.model_id,
             location=config.location,
         )
-        _readiness_cache = (now, response)
+        _readiness_cache[key] = (now, response)
         return response
     response = VoiceReadinessResponse(
         enabled=True,
@@ -128,7 +162,7 @@ async def compute_readiness() -> VoiceReadinessResponse:
         model=config.model_id,
         location=config.location,
     )
-    _readiness_cache = (now, response)
+    _readiness_cache[key] = (now, response)
     return response
 
 
@@ -136,6 +170,7 @@ async def compute_readiness() -> VoiceReadinessResponse:
 @limiter.limit(RateLimits.AGENT_CHAT)
 async def voice_readiness(
     request: Request,
+    playback: bool = Query(default=False),
     _firebase_uid: str = Depends(require_firebase_auth),
 ) -> VoiceReadinessResponse:
     """Cached, output-suppressed proof that a Live session can be opened.
@@ -144,7 +179,7 @@ async def voice_readiness(
     provider outage reports ``provider_unavailable`` and hides the control; it
     never falls back to another model or region.
     """
-    return await compute_readiness()
+    return await compute_readiness(playback=playback)
 
 
 # --------------------------------------------------------------------------
@@ -261,13 +296,19 @@ def _live_factory(config: OneVoiceLiveConfig):
 
     @asynccontextmanager
     async def _factory(model: str, live_config: dict[str, Any]):
+        if model != config.model_id:
+            raise ValueError("Voice session model does not match its configured processor")
         cfg = build_live_config(
             system_instruction=str(live_config["system_instruction"]),
             tool_declarations=list(live_config["tool_declarations"]),
             voice_name=voice_name(),
             resumption_handle=live_config.get("resumption_handle"),
         )
-        async with connect_live(config, cfg) as live:
+        async with connect_live(
+            config,
+            cfg,
+            playback_acknowledgements=live_config.get("playback_acknowledgements") is True,
+        ) as live:
             yield live
 
     return _factory
@@ -373,7 +414,20 @@ async def voice_live(websocket: WebSocket, ticket: str = Query(default="")) -> N
     if previous is not None:
         await previous._close(protocol.CLOSE_REPLACED, "replaced")
     try:
-        await session.run()
+        # ContextVars follow VoiceSession's child tasks, including tool narration,
+        # without changing the process-wide project used by unrelated chat turns.
+        # Vertex GenerateContent supports request labels for the nested ADK
+        # text genes. Live connect does not; its attribution is in server logs.
+        request_labels = (
+            {"environment": "uat", "component": "one_voice"}
+            if (os.getenv("HUSHH_DEPLOY_ENV") or "").strip().lower() == "uat"
+            else None
+        )
+        with (
+            bind_managed_vertex_project(config.vertex_project),
+            bind_single_turn_request_labels(request_labels),
+        ):
+            await session.run()
     finally:
         async with _active_lock:
             if _active_sessions.get(claims.user_id) is session:

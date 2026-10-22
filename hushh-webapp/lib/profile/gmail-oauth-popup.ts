@@ -1,6 +1,6 @@
 "use client";
 
-import { openOAuthWindow } from "@/lib/connections/oauth-window";
+import { assertOAuthReturnOrigin, openOAuthWindow } from "@/lib/connections/oauth-window";
 
 const STORAGE_KEY = "one_gmail_oauth_popup_attempt_v1";
 const FALLBACK_ATTEMPT_KEY = "one_gmail_oauth_popup_attempt_fallback_v1";
@@ -137,10 +137,24 @@ export function readGmailOAuthPopupAttempt(): GmailOAuthPopupAttempt | null {
 
 export function clearGmailOAuthPopupAttempt(
   target?: Window | null,
+  expectedAttemptId?: string,
 ): void {
   const resolvedTarget = target ?? (typeof window === "undefined" ? null : window);
-  getStorage(resolvedTarget)?.removeItem(STORAGE_KEY);
-  getFallbackStorage(resolvedTarget)?.removeItem(FALLBACK_ATTEMPT_KEY);
+  const clear = (storage: Storage | null, key: string) => {
+    if (!storage) return;
+    if (expectedAttemptId !== undefined) {
+      try {
+        const raw = storage.getItem(key);
+        const value = raw ? JSON.parse(raw) : null;
+        if (value?.attemptId !== expectedAttemptId) return;
+      } catch { return; }
+    }
+    storage.removeItem(key);
+  };
+  // Session and fallback storage can belong to different overlapping attempts.
+  // An old popup may clear only its own correlation, not the newer attempt.
+  clear(getStorage(resolvedTarget), STORAGE_KEY);
+  clear(getFallbackStorage(resolvedTarget), FALLBACK_ATTEMPT_KEY);
 }
 
 /**
@@ -167,7 +181,12 @@ export function openGmailOAuthPopup(
     if (popup.document.body) {
       popup.document.body.textContent = "Opening secure Google sign-in…";
       popup.document.body.style.cssText =
-        "margin:0;display:grid;min-height:100vh;place-items:center;background:#0a0a0a;color:#f5f5f5;font:16px system-ui,sans-serif;";
+        'margin:0;display:grid;min-height:100vh;place-items:center;background:#0a0a0a;color:#f5f5f5;font:400 16px "Plus Jakarta Sans",system-ui,sans-serif;';
+      if (popup.document.head) {
+        const fontStyle = popup.document.createElement("style");
+        fontStyle.textContent = '@font-face{font-family:"Plus Jakarta Sans";src:url("/fonts/PlusJakartaSans/plus-jakarta-sans-latin-400-normal.woff2") format("woff2");font-style:normal;font-weight:400;font-display:swap;}';
+        popup.document.head.appendChild(fontStyle);
+      }
     }
     popup.focus();
   } catch {
@@ -181,6 +200,7 @@ export function navigateGmailOAuthPopup(
   popup: Window,
   authorizeUrl: string,
 ): void {
+  assertOAuthReturnOrigin(authorizeUrl);
   popup.location.replace(authorizeUrl);
 }
 

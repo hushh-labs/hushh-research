@@ -23,82 +23,53 @@ import { toast } from "sonner";
  */
 export async function downloadTextFile(
   content: string,
-  filename: string
+  filename: string,
+  isEffectCurrent: () => boolean = () => true,
 ): Promise<boolean> {
-  const platform = Capacitor.getPlatform();
-  const isNative = Capacitor.isNativePlatform();
+  return downloadFileBlob(new Blob([content], { type: "text/plain" }), filename, isEffectCurrent);
+}
 
-  console.log("[Download] Starting download for:", filename);
-  console.log("[Download] Platform:", platform, "isNative:", isNative);
-
-  // Native platforms: Use Filesystem to write to Documents
-  if (isNative) {
+/** Same guarded handoff for byte-composed files; never stringify a bulk backup. */
+export async function downloadFileBlob(
+  content: Blob,
+  filename: string,
+  isEffectCurrent: () => boolean = () => true,
+): Promise<boolean> {
+  if (!isEffectCurrent()) return false;
+  if (Capacitor.isNativePlatform()) {
     try {
-      // Dynamic import to avoid bundling issues on web
-      const { Filesystem, Directory, Encoding } = (await import(
-        "@capacitor/filesystem"
-      )) as typeof import("@capacitor/filesystem");
-
-      console.log("[Download] Writing file to Documents directory...");
-
-      // Write to Documents directory - accessible on both platforms
-      const result = await Filesystem.writeFile({
-        path: filename,
-        data: content,
-        directory: Directory.Documents,
-        encoding: Encoding.UTF8,
-      });
-
-      console.log("[Download] File written successfully:", result.uri);
-
-      // The written file lives in a directory the person cannot browse to, so
-      // it is only really "saved" once they have put it somewhere themselves.
-      const { Share } = (await import(
-        "@capacitor/share"
-      )) as typeof import("@capacitor/share");
-
-      try {
-        await Share.share({
-          title: filename,
-          files: [result.uri],
-          dialogTitle: "Save your file",
-        });
-      } catch (shareError) {
-        // Cancelling the sheet lands here too, and a cancel is not a save.
-        console.warn("[Download] Share sheet dismissed or failed:", shareError);
-        toast.error("Not saved yet. Choose a destination, or copy it instead.", {
-          duration: 6000,
-        });
-        return false;
-      }
-
-      toast.success("Saved", { duration: 5000 });
+      // Reuse the owned file handoff: unique sanitized Cache path, an authority
+      // check after asynchronous preparation, and deletion after share/cancel.
+      // Do not retain readable exports or recovery material in Documents.
+      const { shareFile } = await import("@/lib/share/share-file");
+      await shareFile({ file: new File([content], filename, { type: content.type }),
+        title: "Save your file", isEffectCurrent });
+      if (isEffectCurrent()) toast.success("Saved", { duration: 5000 });
       return true;
-    } catch (error) {
-      console.error("[Download] Native save failed:", error);
-      toast.error("Failed to save file. Please try again or use copy instead");
-      // Fall through to web method as backup
+    } catch {
+      if (isEffectCurrent()) toast.error("Not saved yet. Choose a destination, or copy it instead.", { duration: 6000 });
+      // Never replay a cancelled or uncertain native handoff as a web download.
+      return false;
     }
   }
 
-  // Web fallback (also used if native fails)
+  let url: string | null = null;
+  let anchor: HTMLAnchorElement | null = null;
   try {
-    console.log("[Download] Using web fallback...");
-    const blob = new Blob([content], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    console.log("[Download] Web download triggered");
+    if (!isEffectCurrent()) return false;
+    url = URL.createObjectURL(content);
+    anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
     return true;
-  } catch (error) {
-    console.error("[Download] All download methods failed:", error);
-    toast.error("Failed to download file");
+  } catch {
+    if (isEffectCurrent()) toast.error("Failed to download file");
     return false;
+  } finally {
+    anchor?.remove();
+    if (url) URL.revokeObjectURL(url);
   }
 }
 

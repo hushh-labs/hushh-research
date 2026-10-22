@@ -8,9 +8,11 @@ import type {
 } from "@/lib/services/gmail-receipts-service";
 import { formatLocalDateTime } from "@/lib/utils/local-date-time";
 import {
+  extractReceiptSenderDomain,
   isVerifiedReceiptLogoDomain,
   normalizeReceiptSenderDomain,
-  resolveVerifiedReceiptMerchant,
+  resolveVerifiedReceiptMerchantBrand,
+  type VerifiedReceiptMerchantKey,
 } from "@/lib/mail/receipt-merchant-registry";
 
 export { extractReceiptSenderDomain } from "@/lib/mail/receipt-merchant-registry";
@@ -20,8 +22,10 @@ export const UNAVAILABLE_RECEIPT_AMOUNT = "—";
 
 export type ResolvedReceiptMerchant = {
   merchantId: string | null;
+  brandKey: VerifiedReceiptMerchantKey | null;
   displayName: string;
   logoDomain: string | null;
+  homepageUrl: string | null;
   category: ReceiptCategory | null;
   displayKind: "merchant" | "category" | "generic";
 };
@@ -34,6 +38,7 @@ export type RecentReceiptRow = {
   category: ReceiptCategory | null;
   displayKind: "merchant" | "category" | "generic";
   logoDomain: string | null;
+  brandKey?: VerifiedReceiptMerchantKey | null;
   amount: number | null;
   currency: string | null;
   searchText: string;
@@ -216,22 +221,28 @@ export function resolveReceiptMerchant(
   const merchantDomain = normalizeReceiptSenderDomain(
     String(receipt.merchant_domain || ""),
   );
-  const verifiedBrand = merchantDomain
-    ? resolveVerifiedReceiptMerchant(merchantDomain)
-    : null;
+  const senderDomain = extractReceiptSenderDomain(receipt.from_email);
+  const verifiedBrand = resolveVerifiedReceiptMerchantBrand({
+    merchantName,
+    merchantDomain: receipt.merchant_domain,
+    senderDomain,
+    senderDomainIsInvalid: Boolean(String(receipt.from_email || "").trim() && !senderDomain),
+  });
 
   return {
     // Backend extraction is authoritative for the merchant label. The
-    // reviewed registry is presentation-only and can supply a logo domain,
+    // reviewed registry is presentation-only and can supply branding,
     // never decide whether the receipt exists or rename it in the browser.
     merchantId: merchantName
       ? `${merchantDomain || "unknown"}:${merchantName.toLowerCase()}`
       : null,
+    brandKey: verifiedBrand?.merchantId || null,
     displayName:
       merchantName ||
       (category !== "Other" && category !== "Uncategorized" ? category : null) ||
       UNKNOWN_RECEIPT_MERCHANT,
     logoDomain: merchantName ? verifiedBrand?.logoDomain || null : null,
+    homepageUrl: merchantName ? verifiedBrand?.homepageUrl || null : null,
     category: category || "Other",
     displayKind: merchantName
       ? "merchant"
@@ -571,6 +582,7 @@ function toRecentReceiptRow(
     category,
     displayKind: representative.merchant.displayKind,
     logoDomain: representative.merchant.logoDomain,
+    brandKey: representative.merchant.brandKey,
     amount:
       typeof representative.receipt.amount === "number" &&
       Number.isFinite(representative.receipt.amount)

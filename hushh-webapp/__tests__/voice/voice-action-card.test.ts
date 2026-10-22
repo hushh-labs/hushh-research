@@ -9,7 +9,7 @@ import {
   publishVoiceCard,
   readVoiceCard,
   subscribeToVoiceCard,
-} from "@/lib/voice/voice-action-card";
+} from "@/lib/kai/actions/voice-action-card";
 
 function payload(overrides: Record<string, unknown> = {}) {
   return {

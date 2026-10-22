@@ -19,7 +19,10 @@ Pure and import-safe: no database, no network, so a pod can call it too.
 from __future__ import annotations
 
 from hushh_mcp.consent.internal_path_keys import is_internal_manifest_path, is_secret_shaped_key
-from hushh_mcp.consent.pkm_scope_policy import normalize_pkm_scope
+from hushh_mcp.consent.pkm_scope_policy import (
+    is_external_requestable_pkm_scope,
+    normalize_pkm_scope,
+)
 from hushh_mcp.services.domain_contracts import (
     INTERNAL_ONLY_DOMAIN_SLUGS,
     RESERVED_DYNAMIC_DOMAIN_SLUGS,
@@ -50,6 +53,8 @@ def is_scope_requestable_by_others(scope: str | None) -> bool:
     if canonical_top_level_domain(domain) in DENIED_REQUEST_DOMAINS:
         return False
     if is_secret_shaped_key(domain):
+        return False
+    if not is_external_requestable_pkm_scope(scope):
         return False
     if not path:
         return True

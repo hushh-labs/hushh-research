@@ -107,6 +107,18 @@ class FakeLocationService:
         self._seq = 0
 
     # reads
+    def _identity_row(self, user_id: str) -> dict | None:
+        row = next((row for row in self.recipients if row["userId"] == user_id), None)
+        return (
+            {"phone_verified": row["phoneVerified"], "phone_number": "+15550100001"}
+            if row
+            else None
+        )
+
+    def _is_location_peer_eligible(self, *, owner_user_id: str, other_user_id: str) -> bool:
+        assert owner_user_id == OWNER
+        return any(row["userId"] == other_user_id for row in self.recipients)
+
     def list_sms_contact_ids(self, *, owner_user_id: str) -> list[str]:
         self.calls.append("list_sms_contact_ids")
         if self.roster_error is not None:
@@ -459,7 +471,7 @@ async def test_prepare_answers_empty_roster_and_none_ready_without_a_card():
     service = _ready_service()
     service.recipients = [
         _recipient(AYESHA, "Ayesha Sharma", key=False),
-        _recipient(RAVI, "Ravi Kumar", verified=False),
+        _recipient(RAVI, "Ravi Kumar", verified=False, key=False),
     ]
     none_ready = await sos.prepare_trigger(_ctx(service), sos.TriggerSaveMySoulInput())
     assert isinstance(none_ready, Rejected)
@@ -541,7 +553,7 @@ async def test_trigger_arms_one_sos_grant_per_ready_contact_and_hands_publish_to
         assert call["duration_mode"] == "timed"
         assert call["share_kind"] == "sos"
         assert call["reason"] == "Car broke down"
-        assert call["require_recipient_phone_verified"] is True
+        assert call["require_recipient_phone_verified"] is False
         assert call["enforce_connection"] is False
 
 
@@ -597,16 +609,15 @@ async def test_trigger_when_already_active_creates_no_new_grants():
     assert ctx.sos_incident["grant_ids"] == ["g1"]
 
 
-async def test_trigger_skips_unverified_contacts_and_reports_them():
+async def test_trigger_includes_phone_less_receiving_ready_contacts():
     service = _ready_service()
     service.recipients[1] = _recipient(RAVI, "Ravi Kumar", verified=False)
     result = await sos.trigger_save_my_soul(
-        _prepared_ctx(service, recipient_ids=[AYESHA]), sos.TriggerSaveMySoulInput()
+        _prepared_ctx(service, recipient_ids=[AYESHA, RAVI]), sos.TriggerSaveMySoulInput()
     )
     assert result.status == "sos_grants_created"
-    assert [c.user_id for c in result.skipped_not_phone_verified] == [RAVI]
-    assert [call["recipient_user_id"] for call in service.created] == [AYESHA]
-    assert result.spoken_facts[0] == "Alert armed for Ayesha Sharma; sending your position now."
+    assert result.skipped_not_phone_verified == []
+    assert [call["recipient_user_id"] for call in service.created] == [AYESHA, RAVI]
 
 
 async def test_trigger_one_refused_contact_does_not_stop_the_others():
@@ -1009,22 +1020,13 @@ async def test_add_contact_already_on_the_roster():
     assert "add_sms_contact" not in service.calls
 
 
-async def test_add_contact_not_phone_verified_carries_the_service_message():
+async def test_add_contact_accepts_phone_less_receiving_ready_connection():
     service = _ready_service()
     service.recipients.append(_recipient("user-zara", "Zara Ali", verified=False))
-    service.add_error = OneLocationAgentError(
-        "LOCATION_RECIPIENT_UNAVAILABLE",
-        "Ask this SMS contact to verify their phone before receiving alerts.",
-        status_code=409,
-    )
     ctx = _ctx(service, confirmed={"user-zara": "Zara Ali"})
     result = await sos.add_emergency_contact(ctx, _person_args("user-zara"))
-    assert result.status == "not_phone_verified"
-    assert result.reason_code == "LOCATION_RECIPIENT_UNAVAILABLE"
-    assert result.spoken_facts == [
-        "Zara Ali hasn't verified their phone. Ask this SMS contact to verify their phone before receiving alerts."
-    ]
-    assert service.sms_contact_ids == [AYESHA, RAVI]
+    assert result.status == "added"
+    assert service.sms_contact_ids == [AYESHA, RAVI, "user-zara"]
 
 
 async def test_add_contact_verified_but_without_a_key_is_rejected_with_the_service_code():

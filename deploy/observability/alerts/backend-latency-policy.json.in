@@ -1,7 +1,7 @@
 {
   "displayName": "[Managed] Backend P95 Latency High",
   "documentation": {
-    "content": "Backend p95 latency crossed threshold for consent-protocol.",
+    "content": "P95 duration for bounded short-read GET routes crossed 2 seconds; streaming requests are excluded.\n\nInspect sustained short-read latency and database acquisition/query traces.",
     "mimeType": "text/markdown"
   },
   "combiner": "OR",
@@ -9,13 +9,14 @@
   "notificationChannels": [],
   "userLabels": {
     "managed_by": "repo_observability",
-    "scope": "ops"
+    "scope": "ops",
+    "incident_purpose": "actionable"
   },
   "conditions": [
     {
-      "displayName": "consent-protocol p95 latency > 5s (10m)",
+      "displayName": "Short-read p95 > 2s (10m)",
       "conditionThreshold": {
-        "filter": "resource.type=\"cloud_run_revision\" AND resource.label.\"service_name\"=\"__BACKEND_SERVICE__\" AND metric.type=\"run.googleapis.com/request_latencies\"",
+        "filter": "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/obs_short_read_duration_ms\"",
         "aggregations": [
           {
             "alignmentPeriod": "300s",
@@ -24,12 +25,19 @@
           }
         ],
         "comparison": "COMPARISON_GT",
-        "thresholdValue": 5000,
+        "thresholdValue": 2000,
         "duration": "600s",
         "trigger": {
           "count": 1
         }
       }
     }
-  ]
+  ],
+  "severity": "ERROR",
+  "alertStrategy": {
+    "notificationPrompts": [
+      "OPENED",
+      "CLOSED"
+    ]
+  }
 }

@@ -10,7 +10,8 @@
  * doubles as the iOS WebView spike artefact.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { nativePrivacyObservation, subscribeNativePrivacyObservation } from "@/lib/capacitor/session-privacy";
 import { Check, Mic, Volume2 } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
@@ -54,12 +55,14 @@ export type MicrophoneCheckCapture = {
 
 export type VoiceMicrophoneCheckProps = {
   /** Injection points for tests and the native spike; defaults are the real audio path. */
-  probe?: () => Promise<MicrophoneProbe>;
+  probe?: (options?: { signal?: AbortSignal }) => Promise<MicrophoneProbe>;
   createCapture?: () => MicrophoneCheckCapture;
   createAudioContext?: () => AudioContext | null;
   /** Sleep hook so tests can run the timeline synchronously. */
   wait?: (ms: number) => Promise<void>;
   onReport?: (report: MicrophoneCheckReport, error: MicError | null) => void;
+  /** Process-only owner fence; never included in microphone reports. */
+  ownerKey?: string | null;
   className?: string;
 };
 
@@ -123,45 +126,74 @@ const INITIAL_REPORT: MicrophoneCheckReport = {
   tonePlayed: false,
 };
 
-export function VoiceMicrophoneCheck({
+/** Shared operation model. Native and web own presentation, not another audio
+ * engine. Levels stay local; neither React nor the bridge publishes per frame. */
+export function useVoiceMicrophoneCheck({
   probe = probeMicrophone,
   createCapture = () => new LiveAudioCapture(),
   createAudioContext = defaultCreateAudioContext,
   wait = defaultWait,
   onReport,
-  className,
-}: VoiceMicrophoneCheckProps) {
+  ownerKey,
+  enabled = true,
+  onLevel,
+}: Omit<VoiceMicrophoneCheckProps, "className"> & { enabled?: boolean; onLevel?: (value: number) => void } = {}) {
   const [phase, setPhase] = useState<MicrophoneCheckPhase>("idle");
-  const [level, setLevel] = useState(0);
+  const level = useRef(0);
   const [report, setReport] = useState<MicrophoneCheckReport>(INITIAL_REPORT);
   const [error, setError] = useState<MicError | null>(null);
-  const runningRef = useRef(false);
-  const captureRef = useRef<MicrophoneCheckCapture | null>(null);
-  const contextRef = useRef<AudioContext | null>(null);
-
-  useEffect(
-    () => () => {
-      captureRef.current?.stop();
-      captureRef.current = null;
-      if (contextRef.current)
-        void contextRef.current.close().catch(() => undefined);
-      contextRef.current = null;
-      runningRef.current = false;
-    },
-    [],
-  );
+  const generation = useRef(0);
+  const active = useRef(false);
+  const eligibility = useRef(enabled);
+  const owner = useRef(ownerKey);
+  const levels = useRef(onLevel);
+  useLayoutEffect(() => {
+    eligibility.current = enabled; owner.current = ownerKey; levels.current = onLevel;
+    return () => { eligibility.current = false; };
+  }, [enabled, ownerKey, onLevel]);
+  const resources = useRef<{ capture: MicrophoneCheckCapture | null; context: AudioContext | null; probe: AbortController } | null>(null);
+  const stop = useCallback(() => {
+    generation.current += 1;
+    const owned = resources.current;
+    resources.current = null;
+    owned?.probe.abort();
+    owned?.capture?.stop();
+    if (owned?.context) void owned.context.close().catch(() => undefined);
+    level.current = 0;
+    levels.current?.(0);
+  }, []);
+  useEffect(() => {
+    active.current = enabled;
+    setPhase("idle"); setError(null); setReport(INITIAL_REPORT);
+    const unsubscribe = subscribeNativePrivacyObservation(() => {
+      const state = nativePrivacyObservation().state;
+      if (state?.shielded || state?.appIsActive === false) {
+        stop();
+        if (active.current) setPhase("idle");
+      }
+    });
+    return () => { active.current = false; stop(); unsubscribe(); };
+  }, [enabled, ownerKey, stop]);
 
   const run = useCallback(async () => {
-    if (runningRef.current) return;
-    runningRef.current = true;
+    const privacy = nativePrivacyObservation().state;
+    if (!active.current || !eligibility.current || owner.current !== ownerKey || resources.current || privacy?.shielded || privacy?.appIsActive === false) return;
+    const epoch = ++generation.current;
+    const current = () => active.current && eligibility.current && owner.current === ownerKey && generation.current === epoch;
+    const owned = { capture: null as MicrophoneCheckCapture | null, context: null as AudioContext | null, probe: new AbortController() };
+    resources.current = owned;
     setError(null);
-    setLevel(0);
+    level.current = 0; levels.current?.(0);
     setReport(INITIAL_REPORT);
     setPhase("probing");
     const next: MicrophoneCheckReport = { ...INITIAL_REPORT };
     let failure: MicError | null = null;
     try {
-      const probed = await probe();
+      // Allocate from the deliberate action, before asynchronous permission
+      // checks. The existing capture path still owns all microphone access.
+      owned.context = createAudioContext();
+      const probed = await probe({ signal: owned.probe.signal });
+      if (!current()) return;
       next.sampleRate = probed.sampleRate ?? null;
       next.echoCancellation = probed.echoCancellation ?? null;
       next.workletLoaded = probed.workletLoaded === true;
@@ -175,31 +207,33 @@ export function VoiceMicrophoneCheck({
 
       // Meter: the real capture path, from this tap's gesture.
       setPhase("metering");
-      const context = createAudioContext();
-      contextRef.current = context;
+      const context = owned.context;
       const capture = createCapture();
-      captureRef.current = capture;
+      owned.capture = capture;
       let peak = 0;
       const started = await capture.start({
         onFrame: () => undefined,
         onLevel: (value) => {
+          if (!current()) return;
           const clamped = Number.isFinite(value)
             ? Math.min(1, Math.max(0, value))
             : 0;
           if (clamped > peak) peak = clamped;
-          setLevel(clamped);
+          level.current = clamped; levels.current?.(clamped);
         },
         ...(context ? { audioContext: context } : {}),
       });
+      if (!current()) return;
       next.sampleRate = started.sampleRate || next.sampleRate;
       if (started.echoCancellation !== null)
         next.echoCancellation = started.echoCancellation;
       await wait(MIC_CHECK_METER_MS);
+      if (!current()) return;
       capture.stop();
-      captureRef.current = null;
+      owned.capture = null;
       next.peakLevel = peak;
       next.heard = peak >= MIC_CHECK_HEARD_THRESHOLD;
-      setLevel(0);
+      level.current = 0; levels.current?.(0);
 
       // Tone: prove the output path on the same context.
       setPhase("tone");
@@ -209,18 +243,15 @@ export function VoiceMicrophoneCheck({
     } catch (caught) {
       failure = describeMicError(caught);
     } finally {
-      captureRef.current?.stop();
-      captureRef.current = null;
-      if (contextRef.current)
-        void contextRef.current.close().catch(() => undefined);
-      contextRef.current = null;
-      runningRef.current = false;
-      setReport(next);
-      setError(failure);
-      setPhase(failure ? "failed" : "done");
-      onReport?.(next, failure);
+      owned.capture?.stop();
+      if (owned.context && owned.context.state !== "closed") void owned.context.close().catch(() => undefined);
+      if (resources.current === owned) resources.current = null;
+      if (current()) {
+        setReport(next); setError(failure); setPhase(failure ? "failed" : "done");
+        onReport?.(next, failure);
+      }
     }
-  }, [createAudioContext, createCapture, onReport, probe, wait]);
+  }, [createAudioContext, createCapture, onReport, ownerKey, probe, wait]);
 
   const busy = phase === "probing" || phase === "metering" || phase === "tone";
   const label =
@@ -231,10 +262,28 @@ export function VoiceMicrophoneCheck({
         : phase === "tone"
           ? "Playing tone"
           : "Test microphone";
+  return { phase, report, error, level, busy, label, run };
+}
+
+export function VoiceMicrophoneCheck({ className, ...options }: VoiceMicrophoneCheckProps) {
+  const meter = useRef<HTMLDivElement>(null);
+  const { phase, report, error, level, busy, label, run } = useVoiceMicrophoneCheck({ ...options, onLevel: value => {
+    const percent = Math.round(value * 100);
+    meter.current?.setAttribute("aria-valuenow", String(percent));
+    const fill = meter.current?.firstElementChild as HTMLElement | null;
+    if (fill) fill.style.transform = `scaleX(${percent / 100})`;
+  } });
   const success = roleClasses("success");
   const danger = roleClasses("danger");
   const warning = roleClasses("warning");
-  const percent = Math.round(Math.min(1, Math.max(0, level)) * 100);
+  const bindMeter = useCallback((node: HTMLDivElement | null) => {
+    meter.current = node;
+    if (!node) return;
+    const percent = Math.round(level.current * 100);
+    node.setAttribute("aria-valuenow", String(percent));
+    const fill = node.firstElementChild as HTMLElement | null;
+    if (fill) fill.style.transform = `scaleX(${percent / 100})`;
+  }, [level]);
 
   return (
     <div
@@ -284,17 +333,18 @@ export function VoiceMicrophoneCheck({
 
       {phase === "metering" ? (
         <div
+          ref={bindMeter}
           role="meter"
           aria-label="Microphone level"
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-valuenow={percent}
+          aria-valuenow={0}
           data-testid="one-voice-microphone-meter"
           className="relative h-2 w-full overflow-hidden rounded-full bg-[color:var(--app-neutral-fill)]"
         >
           <span
             className="one-voice-level-fill absolute inset-y-0 left-0 rounded-full bg-[color:var(--app-accent)]"
-            style={{ width: "100%", transform: `scaleX(${percent / 100})`, transformOrigin: "left" }}
+            style={{ width: "100%", transform: "scaleX(0)", transformOrigin: "left" }}
           />
         </div>
       ) : null}
