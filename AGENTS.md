@@ -1,4 +1,10 @@
-# Hussh Coding Agent Operating Rules
+# Hussh · Agent Engineering
+
+**Precision. Discretion. Duty of care.**
+
+“An agent should work for the person whose life it touches.”
+Build One around that [personal-agent identity](docs/vision/agent-ontology.md#personal-data-agent-founder-identity):
+owner loyalty, explicit consent, verified outcomes and thoughtful restraint.
 
 Read [`.agents/instructions.md`](.agents/instructions.md) before routing, planning,
 delegating, or changing this repository. Its complete operating contract is binding

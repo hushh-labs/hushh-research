@@ -1,115 +1,15 @@
 {
   "schema_version": 1,
-  "reviewed_on": "2026-10-20",
-  "note": "Authored development sources live under .agents. Host adapters are generated or thin pointers. Pinned imports remain separately classified and are not approved or activated by relocation.",
+  "reviewed_on": "2026-10-22",
+  "note": "Authored development sources live under .agents. Host adapters are generated or thin pointers. Pinned imports remain separately classified and are not approved or activated by relocation. Retired redundant host aliases and unapproved KG procedure in the canonical consolidation. Historical KG source: ac3dea21efde66f3b05014731bdc637c3ac12b3d; SKILL blob2372a472bac7928833d1d79a11c37388d648a625, PROMPT blob317de1ab9d89ec7370c5f34790ec2a4d1d590e1c. Relocation never activates imported writers.",
   "sources": {
-    ".agents/adapters/claude/access-explained/SKILL.md": {
-      "classification": "owner_alias",
-      "sha256": "5309e58ac6218a929b99774f572cbf0d5e68349c79dc1dee96968b1d11a3139f"
-    },
     ".agents/adapters/claude/codex-bridge/SKILL.md": {
       "classification": "host_adapter",
       "sha256": "8795d5acf6eb22f69d198e82dd889a18d88fe50f107d4988b4915a408f34e1ab"
     },
-    ".agents/adapters/claude/deploy-uat/SKILL.md": {
-      "classification": "owner_alias",
-      "sha256": "8fe4d03735aca840d7709f198526c9a4be9fcd6c9663db6ae3cec095576aaaf9"
-    },
-    ".agents/adapters/claude/design-taste-frontend/SKILL.md": {
-      "classification": "owner_alias",
-      "sha256": "df50cba2b1f508dbe47d91892a6d03b1b2d87a5d16ba50698ceeabbf8ed1d5c2"
-    },
-    ".agents/adapters/claude/design-taste-frontend-v1/SKILL.md": {
-      "classification": "owner_alias",
-      "sha256": "bca467ba05480e7605c8a5d86087b012947aec5bd58daf882a0dfb8f20b3765f"
-    },
-    ".agents/adapters/claude/full-output-enforcement/SKILL.md": {
-      "classification": "owner_alias",
-      "sha256": "766627b6a6936bdcaf762e7254dfb6270d5370e1766163b8505dc6ab90cf52d4"
-    },
-    ".agents/adapters/claude/gcp-access/SKILL.md": {
-      "classification": "owner_alias",
-      "sha256": "d932c08ab4b713dc859040184ec6ae042b94260ca2611a693f94219d2229095a"
-    },
-    ".agents/adapters/claude/gpt-taste/SKILL.md": {
-      "classification": "owner_alias",
-      "sha256": "7ef124ffb7812571ee7d0a907a8d4b61690df3c1b98af8913545552f5e8d6500"
-    },
-    ".agents/adapters/claude/high-end-visual-design/SKILL.md": {
-      "classification": "owner_alias",
-      "sha256": "2df4478b86024c0dabe60daa3c8bfd0934c8dbc967cb3f52bb43155749ff143e"
-    },
-    ".agents/adapters/claude/hushh-research-ship/SKILL.md": {
-      "classification": "owner_alias",
-      "sha256": "e7a8c341c4c194b0fdfd597a7b88f397ba2256cd761c7b910e60d62b914ddc76"
-    },
-    ".agents/adapters/claude/image-to-code/SKILL.md": {
-      "classification": "owner_alias",
-      "sha256": "1a215f22f7a9028b3e9f7c04f94dc6ab13167295efb5e448a8a1b60afe50baf8"
-    },
     ".agents/imports/impeccable/SKILL.md": {
       "classification": "imported_dependency_pending_review",
       "sha256": "a1ea82ce80f4db6f53757a84fc37b639fdc2354ca25e54a30ab6d45dcf944628"
-    },
-    ".agents/adapters/claude/kg-feature-delivery/SKILL.md": {
-      "classification": "legacy_behavior_pending_review",
-      "sha256": "b8179b40645d42cd82e19c10a10c754e8ceb7fc3cf59a5e59a159c9c5e9d354f"
-    },
-    ".agents/adapters/claude/location-header-system/SKILL.md": {
-      "classification": "owner_alias",
-      "sha256": "8e6412a76dfc374a6f67214d1a231fdbb19123427667cf81d44286f9f3f0c6c3"
-    },
-    ".agents/adapters/claude/minimalist-ui/SKILL.md": {
-      "classification": "owner_alias",
-      "sha256": "361c6eac4cacf94f337115e8c180a46ebb56b4c12f623b58fba0bb962d63805b"
-    },
-    ".agents/adapters/claude/mobile-bug-log/SKILL.md": {
-      "classification": "owner_alias",
-      "sha256": "7f0ca318eddc4fa437f01da226ee72bd12dba4c44678f0b4650a0651956e73db"
-    },
-    ".agents/adapters/claude/morphy-pdf/SKILL.md": {
-      "classification": "owner_alias",
-      "sha256": "88d8802afe2ad2fde2dd80116b932f6e2f25571fe5f07332474612010af3f96e"
-    },
-    ".agents/adapters/claude/redesign-existing-projects/SKILL.md": {
-      "classification": "owner_alias",
-      "sha256": "d2cbb0fe312ff0f4d6021aad1d92caf5bec8caabda1d1abbcd6ad3ad116b3a1e"
-    },
-    ".agents/adapters/claude/release-ios-appstore/SKILL.md": {
-      "classification": "owner_alias",
-      "sha256": "3b7f506b1ac998dbc4649dd2de39e49f11beb89eb6fcaa87fcbb43e07234225d"
-    },
-    ".agents/adapters/claude/run-ios-sim/SKILL.md": {
-      "classification": "owner_alias",
-      "sha256": "8dc9fd7531013d518578d97016ef4500d6339dcdfb9ddd31697222efc0feab1f"
-    },
-    ".agents/adapters/claude/safe-changes/SKILL.md": {
-      "classification": "owner_alias",
-      "sha256": "6e7a91c87fbf5afff300a5d84a8e9824c785bb022924af5100bb8df672ee29f4"
-    },
-    ".agents/adapters/claude/senior-engineering/SKILL.md": {
-      "classification": "owner_alias",
-      "sha256": "a4c00fa7c7dbaf7b827e642dd028a7698065bca65a950b66415c630583ce410b"
-    },
-    ".agents/adapters/claude/ship-discipline/SKILL.md": {
-      "classification": "owner_alias",
-      "sha256": "934c317a532867a743a6f7a6b323a60ad5b68ddc0b8b13ee18573ab1792a0f03"
-    },
-    ".agents/adapters/claude/ship-ios-testflight/SKILL.md": {
-      "classification": "owner_alias",
-      "sha256": "4dd70f070bfd930a09e8214dc1ac6eb852c76b2dc7fcdf01ae6e1e09740144d5"
-    },
-    ".agents/adapters/claude/ship-testflight/SKILL.md": {
-      "classification": "owner_alias",
-      "sha256": "260342cddd9648ee054f732078c09a8464be92d13ba2e9c042ab169744e27122"
-    },
-    ".agents/adapters/claude/ship-without-actions/SKILL.md": {
-      "classification": "owner_alias",
-      "sha256": "54b9e04b032999b2e28370edb47b7bcb4cc3504d250084f98a67e55deff4a40a"
-    },
-    ".agents/adapters/claude/wire-voice-navigation/SKILL.md": {
-      "classification": "owner_alias",
-      "sha256": "b9e106c46ef5936a51a9da1b4ff93e0ced887d5f594c5d8dd84f5f0524fe26d6"
     }
   },
   "imported_agents": {
@@ -123,7 +23,7 @@
       "import_commit": "f844e6b66",
       "declared_version": "4.0.4",
       "license_verification": "upstream LICENSE and NOTICE.md retained byte-for-byte from the exact matching revision",
-      "disposition": "Retain pinned upstream bytes under .agents/imports with a native discovery link; imported writers remain outside the approved engineering fleet.",
+      "disposition": "Retain pinned source bytes and licenses under .agents/imports without native discovery; imported writers remain unapproved and outside the engineering fleet.",
       "source": "https://github.com/pbakaus/impeccable",
       "upstream_commit": "ae5e95101a6979e7f7973a4ff57680b3c7adc1ec",
       "upstream_path": ".agents/skills/impeccable",
@@ -159,8 +59,7 @@
         ],
         "coverage_boundary": "missing parser dependencies can downgrade detection; fallback success is not equivalent coverage"
       },
-      "local_skill_path": ".agents/imports/impeccable",
-      "discovery_path": ".claude/skills/impeccable"
+      "local_skill_path": ".agents/imports/impeccable"
     },
     "impeccable/modern-screenshot": {
       "package": "modern-screenshot",
@@ -257,135 +156,10 @@
     }
   },
   "host_adapters": {
-    "access-explained": {
-      "source": ".agents/adapters/claude/access-explained/SKILL.md",
-      "target": ".claude/skills/access-explained/SKILL.md",
-      "classification": "owner_alias"
-    },
     "codex-bridge": {
       "source": ".agents/adapters/claude/codex-bridge/SKILL.md",
       "target": ".claude/skills/codex-bridge/SKILL.md",
       "classification": "host_adapter"
-    },
-    "deploy-uat": {
-      "source": ".agents/adapters/claude/deploy-uat/SKILL.md",
-      "target": ".claude/skills/deploy-uat/SKILL.md",
-      "classification": "owner_alias"
-    },
-    "design-taste-frontend": {
-      "source": ".agents/adapters/claude/design-taste-frontend/SKILL.md",
-      "target": ".claude/skills/design-taste-frontend/SKILL.md",
-      "classification": "owner_alias"
-    },
-    "design-taste-frontend-v1": {
-      "source": ".agents/adapters/claude/design-taste-frontend-v1/SKILL.md",
-      "target": ".claude/skills/design-taste-frontend-v1/SKILL.md",
-      "classification": "owner_alias"
-    },
-    "full-output-enforcement": {
-      "source": ".agents/adapters/claude/full-output-enforcement/SKILL.md",
-      "target": ".claude/skills/full-output-enforcement/SKILL.md",
-      "classification": "owner_alias"
-    },
-    "gcp-access": {
-      "source": ".agents/adapters/claude/gcp-access/SKILL.md",
-      "target": ".claude/skills/gcp-access/SKILL.md",
-      "classification": "owner_alias"
-    },
-    "gpt-taste": {
-      "source": ".agents/adapters/claude/gpt-taste/SKILL.md",
-      "target": ".claude/skills/gpt-taste/SKILL.md",
-      "classification": "owner_alias"
-    },
-    "high-end-visual-design": {
-      "source": ".agents/adapters/claude/high-end-visual-design/SKILL.md",
-      "target": ".claude/skills/high-end-visual-design/SKILL.md",
-      "classification": "owner_alias"
-    },
-    "hushh-research-ship": {
-      "source": ".agents/adapters/claude/hushh-research-ship/SKILL.md",
-      "target": ".claude/skills/hushh-research-ship/SKILL.md",
-      "classification": "owner_alias"
-    },
-    "image-to-code": {
-      "source": ".agents/adapters/claude/image-to-code/SKILL.md",
-      "target": ".claude/skills/image-to-code/SKILL.md",
-      "classification": "owner_alias"
-    },
-    "kg-feature-delivery": {
-      "source": ".agents/adapters/claude/kg-feature-delivery/SKILL.md",
-      "target": ".claude/skills/kg-feature-delivery/SKILL.md",
-      "classification": "legacy_behavior_pending_review"
-    },
-    "location-header-system": {
-      "source": ".agents/adapters/claude/location-header-system/SKILL.md",
-      "target": ".claude/skills/location-header-system/SKILL.md",
-      "classification": "owner_alias"
-    },
-    "minimalist-ui": {
-      "source": ".agents/adapters/claude/minimalist-ui/SKILL.md",
-      "target": ".claude/skills/minimalist-ui/SKILL.md",
-      "classification": "owner_alias"
-    },
-    "mobile-bug-log": {
-      "source": ".agents/adapters/claude/mobile-bug-log/SKILL.md",
-      "target": ".claude/skills/mobile-bug-log/SKILL.md",
-      "classification": "owner_alias"
-    },
-    "morphy-pdf": {
-      "source": ".agents/adapters/claude/morphy-pdf/SKILL.md",
-      "target": ".claude/skills/morphy-pdf/SKILL.md",
-      "classification": "owner_alias"
-    },
-    "redesign-existing-projects": {
-      "source": ".agents/adapters/claude/redesign-existing-projects/SKILL.md",
-      "target": ".claude/skills/redesign-existing-projects/SKILL.md",
-      "classification": "owner_alias"
-    },
-    "release-ios-appstore": {
-      "source": ".agents/adapters/claude/release-ios-appstore/SKILL.md",
-      "target": ".claude/skills/release-ios-appstore/SKILL.md",
-      "classification": "owner_alias"
-    },
-    "run-ios-sim": {
-      "source": ".agents/adapters/claude/run-ios-sim/SKILL.md",
-      "target": ".claude/skills/run-ios-sim/SKILL.md",
-      "classification": "owner_alias"
-    },
-    "safe-changes": {
-      "source": ".agents/adapters/claude/safe-changes/SKILL.md",
-      "target": ".claude/skills/safe-changes/SKILL.md",
-      "classification": "owner_alias"
-    },
-    "senior-engineering": {
-      "source": ".agents/adapters/claude/senior-engineering/SKILL.md",
-      "target": ".claude/skills/senior-engineering/SKILL.md",
-      "classification": "owner_alias"
-    },
-    "ship-discipline": {
-      "source": ".agents/adapters/claude/ship-discipline/SKILL.md",
-      "target": ".claude/skills/ship-discipline/SKILL.md",
-      "classification": "owner_alias"
-    },
-    "ship-ios-testflight": {
-      "source": ".agents/adapters/claude/ship-ios-testflight/SKILL.md",
-      "target": ".claude/skills/ship-ios-testflight/SKILL.md",
-      "classification": "owner_alias"
-    },
-    "ship-testflight": {
-      "source": ".agents/adapters/claude/ship-testflight/SKILL.md",
-      "target": ".claude/skills/ship-testflight/SKILL.md",
-      "classification": "owner_alias"
-    },
-    "ship-without-actions": {
-      "source": ".agents/adapters/claude/ship-without-actions/SKILL.md",
-      "target": ".claude/skills/ship-without-actions/SKILL.md",
-      "classification": "owner_alias"
-    },
-    "wire-voice-navigation": {
-      "source": ".agents/adapters/claude/wire-voice-navigation/SKILL.md",
-      "target": ".claude/skills/wire-voice-navigation/SKILL.md",
-      "classification": "owner_alias"
     }
   },
   "compatibility_commands": [

@@ -161,10 +161,10 @@ Reuse unchanged Puppy evidence: 320 Chromium/WebKit responsive cases, shared
 760 px ribbon/composer, 0 px edge discrepancy, 44 px controls and no overflow.
 Do not rerun it for backend/doc-only changes.
 
-[Application PR #7555](https://github.com/hushh-labs/hushh-research/pull/7555) remains
-draft. Main merge is authorized for the narrowed MVP after exact-head validation
-and Admin SOP gates; the landed SHA needs its own smoke and dev receipt. UAT is
-the authorized next environment. Production rollout, stable publication and
+[Application PR #7555](https://github.com/hushh-labs/hushh-research/pull/7555) is merged;
+its landed SHA passed smoke and dev acceptance. The corrected dependency and
+development-system candidate must pass exact-head CI, Admin SOP landing and its
+own dev receipt before the authorized UAT rollout. Production rollout, stable publication and
 automatic owner upgrades remain unauthorized. Managed Hussh provisioning and unqualified hosting
 moves remain unavailable. Production additionally needs migration/channel
 qualification, IAM, erasure/recovery, hub capacity and independent UAT acceptance.

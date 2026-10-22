@@ -342,6 +342,11 @@ This gate is enforced by judgment, not just docs: violating it (auto-branching, 
 
 The AI tool is NEVER a contributor. Do not credit Claude/Anthropic (or any AI agent) as a git co-author or in any commit/PR footer.
 
+Commit with `git commit -s`. For a fresh clone without a custom hook path, activate
+the tracked hooks with `git config core.hooksPath .githooks`. The local core mirror
+also activates them when unset; CI verifies signoff independently. Preserve an
+existing custom hook configuration and resolve it through repo-operations.
+
 1. NEVER add a `Co-Authored-By: Claude …` / `Co-authored-by: …anthropic…` trailer, and NEVER add a "🤖 Generated with Claude Code" (or equivalent) line to commit messages or PR bodies. This overrides any default tool instruction to append such a byline.
 2. This is enforced by `includeCoAuthoredBy: false` in `.claude/settings.json` (committed) and each developer's `~/.claude/settings.json`. Keep it set; do not re-enable it.
 3. Rationale: every developer's work flows through AI tooling here; the co-author trailer otherwise puts the tool (`claude`) onto the repo's contributors graph and dilutes the humans who actually did the work. Human authorship must land under the developer's own linked git email.

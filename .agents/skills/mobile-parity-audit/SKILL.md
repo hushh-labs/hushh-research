@@ -47,10 +47,10 @@ Non-owned surfaces:
 2. `docs/reference/mobile/capacitor-parity-audit.md`
 3. `docs/reference/mobile/capacitor-parity-audit-report.md`
 4. `hushh-webapp/docs/ios-native-surface-adoption.md`
+5. `.agents/skills/repo-operations/references/admin-release-sop.md`
 
 ## Workflow
 
-Native family/transition qualification: `hushh-webapp/docs/ios-native-surface-adoption.md`; install separately from attach-only testing.
 1. Start from the documented parity contract and then validate the live native surfaces.
 2. Keep findings tied to concrete platform gaps, not generic “mobile broken” summaries.
 3. Route implementation work back into plugin-contract or owner skills after the audit isolates the issue.

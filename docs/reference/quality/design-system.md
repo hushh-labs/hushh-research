@@ -486,8 +486,8 @@ portable collector and monthly cadence live under
 `.agents/skills/pdf-artifact-generation/`; calendar event density is never a proxy for hours,
 compensation, or individual performance.
 
-### Legacy Claude alias: `.claude/skills/morphy-pdf/`
+### One portable artifact contract
 
-The historical name is retained only for discovery compatibility. Its skill is a pointer to
-the root portable procedure, and no active private CSS, renderer, or token vocabulary
-remains beside it. Do not extend it; evolve the formatter and the canonical skill instead.
+The historical `morphy-pdf` alias is retired. Every coding tool uses
+`.agents/skills/pdf-artifact-generation/` and the same Foundation formatter.
+A host discovery link cannot introduce another renderer, stylesheet or token vocabulary.

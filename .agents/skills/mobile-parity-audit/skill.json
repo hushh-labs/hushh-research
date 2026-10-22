@@ -23,7 +23,8 @@
     "docs/reference/mobile/README.md",
     "docs/reference/mobile/capacitor-parity-audit.md",
     "docs/reference/mobile/capacitor-parity-audit-report.md",
-    "hushh-webapp/docs/ios-native-surface-adoption.md"
+    "hushh-webapp/docs/ios-native-surface-adoption.md",
+    ".agents/skills/repo-operations/references/admin-release-sop.md"
   ],
   "required_commands": [
     "cd hushh-webapp && npm run verify:capacitor:static",
