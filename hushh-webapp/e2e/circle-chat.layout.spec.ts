@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
+import { readCircleInboxGeometry } from "./fixtures/messages-navigation-proof";
 
 // Production React component and CSS; fixture replaces only the service port.
 // Protocol/crypto proofs are separate and do not claim this adapter is a backend.
@@ -606,21 +607,7 @@ for (const width of [320, 393, 1440]) {
     await awaitProductFont(page);
     const heading = page.getByRole("heading", { name: "Messages", exact: true });
     await expect(heading).toBeVisible();
-    const geometry = await heading.evaluate(el => {
-      const style = getComputedStyle(el);
-      const headerElement = el.closest("header")!;
-      const header = headerElement.getBoundingClientRect();
-      const title = el.getBoundingClientRect();
-      const action = headerElement.querySelector("a")!.getBoundingClientRect();
-      return { fontSize: style.fontSize, lineHeight: style.lineHeight, weight: style.fontWeight,
-        headerHeight: header.height, titleLeft: title.left - header.left,
-        titleRight: title.right, actionLeft: action.left, actionRight: action.right,
-        titleBottom: title.bottom, actionTop: action.top,
-        viewport: innerWidth, pageWidth: document.documentElement.scrollWidth,
-        listHeight: el.closest("aside")!.getBoundingClientRect().height,
-        paneHeight: el.closest("[data-circle-messages-pane]")!.getBoundingClientRect().height,
-        threadHeight: el.closest("[data-circle-messages-pane]")!.querySelector(":scope > section")!.getBoundingClientRect().height };
-    });
+    const geometry = await readCircleInboxGeometry(heading);
     expect(geometry.fontSize).toBe("20px");
     expect(geometry.lineHeight).toBe("24px");
     expect(geometry.weight).toBe("600");

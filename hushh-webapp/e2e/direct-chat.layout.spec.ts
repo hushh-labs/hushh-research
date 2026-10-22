@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
+import { proveMessagesInboxBack, proveMessagesBackLayers } from "./fixtures/messages-navigation-proof";
 
 // Production components/styles with synthetic auth/navigation/service ports.
 // Device keyboards, signed-in routes and push delivery have separate proofs.
@@ -339,42 +340,10 @@ for (const [inset, width, height] of [[0, 393, 844], [59, 393, 844], [72, 393, 8
 }
 
 for (const width of [320, 1440]) {
-  test(`Messages inbox Back returns to One at ${width}px`, async ({ page }) => {
-    await page.setViewportSize({ width, height: 844 });
-    await mount(page, false, false, true);
-    const back = page.getByRole("button", { name: "Go back", exact: true });
-    await expect(back).toBeVisible();
-    const heading = (await page.getByRole("heading", { name: "Messages", exact: true }).boundingBox())!;
-    const firstAction = (await page.getByRole("button", { name: /Switch to .* mode/ }).boundingBox())!;
-    expect(heading.x + heading.width).toBeLessThanOrEqual(firstAction.x);
-    await page.screenshot({ path: test.info().outputPath(`messages-back-${width}.png`), animations: "disabled" });
-    await back.click();
-    await expect(page).toHaveURL("http://localhost/one");
-  });
+  test(`Messages inbox Back returns to One at ${width}px`, ({ page }) => proveMessagesInboxBack(page, mount, width));
 }
-
 for (const width of [393, 1440]) {
-test(`Back closes message search before returning from a People thread at ${width}px`, async ({ page }) => {
-  await page.setViewportSize({ width, height: 844 });
-  await mount(page);
-  const chat = page.locator("[data-direct-message-page]");
-  await page.getByRole("button", { name: "Search messages", exact: true }).click();
-  await expect(page.getByRole("searchbox", { name: "Search messages" })).toBeVisible();
-  const systemBack = width < 768
-    ? () => page.evaluate(() => (window as any).directChatUnwindBack())
-    : async () => { await page.getByRole("button", { name: "Go back", exact: true }).click(); return true; };
-
-  expect(await systemBack()).toBe(true);
-  await expect(page.getByRole("searchbox", { name: "Search messages" })).toHaveCount(0);
-  await expect(chat).toHaveAttribute("data-chat-open", "true");
-  expect(await systemBack()).toBe(true);
-  await expect(chat).toHaveAttribute("data-chat-open", "false");
-  if (width < 768) expect(await systemBack()).toBe(false);
-  else {
-    await systemBack();
-    await expect(page).toHaveURL("http://localhost/one");
-  }
-});
+  test(`Back closes message search before returning from a People thread at ${width}px`, ({ page }) => proveMessagesBackLayers(page, mount, width));
 }
 
 test.describe("touch emoji sending", () => {
