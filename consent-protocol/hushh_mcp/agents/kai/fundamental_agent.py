@@ -243,10 +243,12 @@ class FundamentalAgent(HushhAgent):
         sec_unavailable_reason: str | None = None,
     ) -> Dict[str, Any]:
         """Fallback for symbols that do not have usable SEC operating-company filings."""
-        price = market_data.get("price") or 0
-        change_percent = market_data.get("change_percent") or market_data.get("change_pct") or 0
-        market_cap = market_data.get("market_cap") or 0
-        pe_ratio = market_data.get("pe_ratio") or 0
+        price = market_data.get("price")
+        change_percent = market_data.get("change_percent")
+        if change_percent is None:
+            change_percent = market_data.get("change_pct")
+        market_cap = market_data.get("market_cap")
+        pe_ratio = market_data.get("pe_ratio")
         source = market_data.get("source") or market_data.get("provider") or "Market data fallback"
         reason = sec_unavailable_reason or "SEC filing data unavailable for this symbol."
 
