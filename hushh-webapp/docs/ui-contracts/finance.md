@@ -72,3 +72,29 @@ Focused proof owners: `renaissance-market-detail.test.tsx`,
 production-component `finance-interactions.layout.spec.ts` browser fixture.
 Authenticated sequential vault continuity, live provider availability and
 physical iPhone behavior require separate runtime acceptance.
+
+## Implementation verification: 2026-10-23
+
+The production UI revision `e73f1f4a93eb47dab0215c2c0ea5396352974dc6`
+was exercised through the optimized production-component browser fixture.
+Identity and observations in that fixture are synthetic; it does not represent
+an authenticated portfolio or independently reconciled provider prices.
+
+| Evidence | Result |
+| --- | --- |
+| Chart layout at 360, 393, 430, 768, 1024 and 1440px, both themes | All 12 combinations pass in Chromium and all 12 pass in WebKit |
+| Existing iPhone stock/news/index layout checks | Pass |
+| History intent, dismissal/abort, company facts, portfolio mapping and chart ranges | 15 focused frontend cases pass |
+| Authenticated API transport, including cached-history metadata | 103 cases pass |
+| Existing cache contracts | 102 cases pass |
+| Shared Back/navigation behavior | 500 cases pass; Back/Search regenerated and verified |
+| Backend market cache, owner/currency admission and closed-history guard | 10 cases pass |
+| TypeScript, full ESLint, design system, render performance, service boundary and docs | Pass |
+| Architecture ratchet | Zero new or worsened findings; baseline unchanged |
+
+The local core mirror stops in the existing Windows Python `/bin/bash`
+subprocess boundary in `test_secret_scan_ranges.py`; hosted Linux checks remain
+required. The signed-in route sweep also requires the canonical reviewer UID
+and vault passphrase. Neither limitation was bypassed. Physical devices, live
+provider acceptance and UAT remain unverified. A later documentation-only CI
+correction does not change the production UI revision described here.
