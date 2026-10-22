@@ -156,7 +156,7 @@ def _connection_directive(
         "directive": directive,
         "message": message,
         "next_step": (
-            "The app is showing a Calendar authorization control. Ask the user to approve it."
+            "Ask the user to approve Calendar access; connection_required alone does not mean disconnected. Follow reason_code."
         ),
     }
 

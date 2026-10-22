@@ -69,6 +69,7 @@ tests/services/test_google_calendar_service.py
 tests/services/test_gmail_oauth_callbacks.py
 tests/services/test_oauth_redirect_policy.py
 tests/agents/test_calendar_agent_tools.py
+tests/test_calendar_connection_journey.py
 tests/services/test_drive_live_search_parity.py
 tests/services/test_drive_live_rule_contract.py
 tests/services/test_drive_live_journey.py

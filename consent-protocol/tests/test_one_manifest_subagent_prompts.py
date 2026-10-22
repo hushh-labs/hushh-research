@@ -15,6 +15,9 @@ def test_chat_connection_guidance_is_authored_and_not_limited_to_voice():
     assert "use discover_workspace_tools for that provider" in ONE_IDENTITY_INSTRUCTION
     assert "person must tap Connect and approve access" in ONE_IDENTITY_INSTRUCTION
     assert "not a limit on typed Chat capabilities" in ONE_IDENTITY_INSTRUCTION
+    assert "before connection claims" in ONE_IDENTITY_INSTRUCTION
+    assert "Reading access is not scheduling permission" in ONE_IDENTITY_INSTRUCTION
+    assert "mean unknown, not disconnected" in ONE_IDENTITY_INSTRUCTION
     assert (
         "Never promise a capability that is not in the list below" not in ONE_IDENTITY_INSTRUCTION
     )
