@@ -218,7 +218,10 @@ def test_reused_publication_archive_follows_its_image_source_and_new_run(config,
         " p=Path(sys.argv[sys.argv.index('--workspace')+1])\n"
         f" (p/'pod-image-source-sha').write_text({source_sha!r})\n"
         f" (p/'pod-image-reference').write_text({POD_IMAGE!r})\n"
-        "else: os.execv(sys.executable,[sys.executable,*sys.argv[1:]])\n"
+        "else:\n"
+        " if Path(sys.argv[1]).name == 'assemble-pod-release.py':\n"
+        "  sys.argv += ['--browser-qualifications',os.environ['FAKE_BROWSER_PINS']]\n"
+        " os.execv(sys.executable,[sys.executable,*sys.argv[1:]])\n"
     )
     gcloud = bin_dir / "gcloud"
     gcloud.write_text(
@@ -253,6 +256,7 @@ def test_reused_publication_archive_follows_its_image_source_and_new_run(config,
             "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
             "FAKE_ARCHIVE": str(archive),
             "FAKE_DESTINATION": str(destination),
+            "FAKE_BROWSER_PINS": str(tmp_path / "browser-pins.json"),
         },
         text=True,
         capture_output=True,

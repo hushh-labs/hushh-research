@@ -266,6 +266,8 @@ def test_build_assembles_exact_source_image_and_reviewed_notes(release, tmp_path
         "12345",
         "--output",
         str(output),
+        "--browser-qualifications",
+        str(tmp_path / "browser-pins.json"),
     ]
     if with_browser:
         statement = _browser_statement(release)
@@ -276,7 +278,6 @@ def test_build_assembles_exact_source_image_and_reviewed_notes(release, tmp_path
         pins.write_text(
             json.dumps([{"receipt": receipt.name, "sha256": hashlib.sha256(raw).hexdigest()}])
         )
-        command += ["--browser-qualifications", str(pins)]
     result = subprocess.run(command, env={**os.environ}, capture_output=True, text=True, timeout=30)  # noqa: S603 - fixed build helper and temporary fixture paths.
     assert result.returncode == 0, result.stderr
     built = json.loads(output.read_text())

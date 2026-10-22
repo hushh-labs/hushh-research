@@ -75,13 +75,13 @@ publishing does not install it. Existing personal pod receipts remain unchanged.
 
 | Surface | Exact receipt | Boundary |
 | --- | --- | --- |
-| Dev app | Source `5b8e03b12a04`; hub `consent-protocol-00187-lr7` / digest `418258fc4c7a`; web `hushh-webapp-00155-4hr` / digest `5d0b66c7f213`; both 100% | [Exact-SHA CI](https://github.com/hushh-labs/hushh-research/actions/runs/39675020035) and [governed dev rollout](https://github.com/hushh-labs/hushh-research/actions/runs/39679343440) succeeded, including preservation, schema, semantic and reviewer checks |
+| Dev app | Source `67a64533ac6a`; hub `consent-protocol-00188-lrc` / digest `4bac612c3642`; web `hushh-webapp-00156-p2n` / digest `84f886ccee86`; both 100% | [All 26 exact-SHA CI jobs](https://github.com/hushh-labs/hushh-research/actions/runs/39691219336) and [governed dev rollout](https://github.com/hushh-labs/hushh-research/actions/runs/39694799698) succeeded. ADC serving readback at 00:15 UTC on 22 October matches revisions, images and provenance. Schema and semantic gates passed; the changed-SHA selector intentionally excluded reviewer/PKM rehearsals |
 | Personal Azure pod | `2026.10-dev.25+991a06ccbc01.4a3b29a7`; digest `sha256:4a3b29a74641d7eac470da43d18f01c5039f4c0327ed84811ce2f0bfa939ac9a`; revision `ca-hussh-one-pod--u36234007817f` | `op_b9a279571aaf47bcaffdbc4689c80d6c` verified 03:19:39 UTC; exact predecessor `250aea9e…fc69f1`; same identity and 1 vCPU / 2 GiB, min 0 / max 1 |
-| Schema / rollback | Dev migration and postdeploy schema gates passed without contract violations; history cleanup deferred | Rollback hub `00186-5zw`, web `00154-jzm`. Application rollback cannot restore deleted history |
+| Schema / rollback | Dev migration and postdeploy schema gates passed without contract violations; history cleanup deferred | Rollback hub `00187-lr7`, web `00155-4hr`. Application rollback cannot restore deleted history |
 | Local integration | Browser `80731a80b3`; frozen ADK `914e7c044c`; newer main through `f7d80942ed` reconciled locally at `1aafc9f23d` | Nine peer edits and the active ADK tree are preserved. Main's warm Messages cache and production-capacity maintenance retain private-owner admission and governed environment authority; this integration is not deployed |
-| New pod image | `sha256:c95aaf4d705b0f16dc9812f59322b4f640588ca97686d2b7723e123e769edc4a`, source `5b8e03b12a04` | Four synthetic recovery fixtures passed using exact predecessor digests, including those installed on the personal GCP/Azure pods; identity, encrypted records and 245,763 file bytes preserved. Fixtures cleaned. Browser's generated-header mismatch requires the corrected Dev 27 image; no personal installation occurred |
+| New pod image | Dev 27: `sha256:8b846022947bca939fba48cddf1101f3c26dddfb043ab41e20bd7407e068ac07`, source `67a64533ac6a` | Both exact personal predecessors (`26bab163…61809` GCP, `4a3b29a7…939ac9a` Azure) recovered identity, six sealed records, consent/PKM state and 245,763 exact file bytes. Fixtures and temporary images are cleaned; GCP's seven-day provider soft-delete retention is preserved. Dev 28 metadata is prepared locally to reuse this image; publication and owner installation remain separate |
 | GCP configuration | Named owner's revision `00018-jrz`, same predecessor `26bab163…61809`, 1 vCPU / 2 GiB / concurrency 8 | Authenticated maintenance handoff and recovery passed; identity, keys, image and on-demand settings unchanged. Task-owned maintenance job removed |
-| Browser component qualification | Image `sha256:b48f66b6…b32fbf24a4`: ordinary GCP frames/start 7.145 s, Azure frames/start 1.555 s; both confirmed Stop. Native ACA Luna research 19.460 s, five model round trips at capacity 50 | Synthetic grants, excludes owner HTTP acceptance and full-pod capacity. Capacity 1 returned 429; original failure retained. GCP native Gemini 3.8 research subsequently completed in 96.713 s through the approved bridge: three model round trips, two native actions and two screenshot continuations. This is one component sample, not a latency target pass. Disposable resources and temporary model/RBAC verified removed |
+| Browser component qualification | Exact Dev 27 image: GCP Gemini 3.8 public research 20.366 s / three model rounds; actual Azure `one-chat` GPT-5.6 Luna 16.823 s / five rounds | Both produced HTTP 200 and real frames, native model screenshot continuations, 390 × 844 resize, login-observation fencing, handback and joined Stop. Takeover occurred after component model completion. Probe resources, temporary inference role and scoped image copies are absent; the owner's model/SKU is unchanged. No installed-owner HTTP, cold-wake or full-pod capacity claim |
 
 ### Current local implementation
 
@@ -113,12 +113,18 @@ probe passes native Gemini/Luna research in 24.563/17.073 seconds, takeover,
 resize, handback and Stop on both clouds. These component samples do not qualify
 the immutable image, owner journey or capacity. Frozen image source `67a64533ac`
 passes [26-job CI](https://github.com/hushh-labs/hushh-research/actions/runs/39691219336)
-succeeded; its [governed build](https://github.com/hushh-labs/hushh-research/actions/runs/39694799698) is running. No personal installation has occurred.
+and its [governed build](https://github.com/hushh-labs/hushh-research/actions/runs/39694799698).
+Immutable-image native research passed on both clouds, as recorded above.
+The original failed images and patched-source probes remain historical evidence.
+No personal installation has occurred.
 
 Browser source includes owner-bound ADK execution, durable identifier-only delivery,
 exact review, takeover, cancellation, encrypted continuation and remembered sessions.
-Selected PKM uses only approved encrypted exports; byte-verified attachments remain
-private until Save to Files. Operating details stay in the Browser reference.
+Selected PKM consumption requires an exact current-pod encrypted export. The
+normal person-sharing producer uses a different recipient and consent principal;
+its owner-approved pod-recipient production seam remains unfinished. Do not use a
+broad replica or a handcrafted grant as acceptance. Byte-verified attachments
+remain private until Save to Files. Operating details stay in the Browser reference.
 The serial consumer may delay Files work during a bounded Browser task.
 Dev 966/969/970 approval and schema requirements remain deployment gates.
 
@@ -143,7 +149,7 @@ not authorize a transition. The private Wiki decision was updated and read back.
 
 | Measurement | Result | Decision |
 | --- | --- | --- |
-| Delivery cycle | One successful full CI 31.0 min; governed dev rollout 33.2 min | 64.2 min wall time for those runs. iOS 25.9, browser packs up to 19.9 and Python 17.1 min overlap; do not sum parallel jobs |
+| Delivery cycle | Latest exact CI 32.2 min; governed rollout approximately 29.5 min | Parallel CI critical paths: iOS 29.2, Browser 27.5 and Python 25.8 min. Rollout backend build 562 s, frontend 119 s. Earlier 64.2-minute cycle remains historical; do not sum parallel jobs |
 | Matched cloud chat | 20 cold / 20 warm per cloud: GCP p95 71.721 / 7.700 s; Azure 71.304 / 13.389 s | Retain this historical baseline. Thirty seconds is an optimization goal; fix measured startup work and recovery, without a permanent warm floor |
 | Personal chat | Latest zero-instance sample: first content 44.837 s, complete 46.040 s; capabilities 40.304 s | Wake/readiness dominates this sample; not a percentile or physical paint measurement |
 | Puppy Dev 25 | First text 35.257 s, complete 35.509 s; device first content 25.308 s | Nonempty Gemma 12B response received in an occluded browser; not cold-model or foreground-paint acceptance |

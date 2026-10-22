@@ -1,21 +1,23 @@
 {
-  "version": "2026.10-dev.27",
+  "version": "2026.10-dev.28",
   "channel": "dev",
-  "summary": "Browser runtime qualification candidate; installation awaits recovery verification.",
+  "summary": "Browser preview and owner control for qualified private agents.",
   "notes": {
     "improvements": [
-      "Browser shares the private agent container and lifecycle, with responsive preview and owner takeover controls.",
-      "Profile and native privacy updates are reconciled with the current application."
+      "View your private browser, take control, and hand it back to One.",
+      "Browser shares your agent\u2019s selected cloud and on-demand lifecycle."
     ],
     "fixes": [
-      "Public websites use consistent browser settings for reliable private research.",
-      "Owner control fences autonomous browser actions and joins cancellation.",
-      "Reconnecting discovers existing tasks without resubmitting a goal."
+      "Public research uses consistent browser settings and verified native model connections.",
+      "Reconnecting discovers existing tasks without starting them again."
     ],
     "security": [
-      "Browser remains unavailable until the exact image and hosting configuration are qualified.",
-      "Existing pods receive no installation offer until their exact predecessor recovery is verified."
+      "Enabling Browser requires your approval for this exact release and configuration.",
+      "Encrypted recovery was verified from the two eligible personal-pod images."
     ]
   },
-  "supportedUpgradeDigests": []
+  "supportedUpgradeDigests": [
+    "sha256:26bab16354b2eeded3c3688db7421226c27f82adab95b1f0ca3c8dd60c061809",
+    "sha256:4a3b29a74641d7eac470da43d18f01c5039f4c0327ed84811ce2f0bfa939ac9a"
+  ]
 }
