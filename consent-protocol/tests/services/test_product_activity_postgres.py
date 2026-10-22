@@ -417,6 +417,20 @@ async def _assert_email_permission_lifecycle(url, browser_role, monkeypatch):
             assert "one_marketing_pending" in pending_plan
             assert "one_marketing_reconcile" in reconciliation_plan
             await conn.execute("DELETE FROM one_marketing_changes")
+            # A provisional phone orphan can become a protected established
+            # account. Cancelling that intent must not leave erased history
+            # that suppresses the owner's later explicit choice. The full
+            # account erasure case below must still suppress and block writes.
+            await conn.execute(
+                """INSERT INTO account_deletion_tombstones(user_id_hash,cleanup_intent_kind)
+                VALUES($1,'phone_orphan')""",
+                digest,
+            )
+            await conn.execute(
+                """DELETE FROM account_deletion_tombstones
+                WHERE user_id_hash=$1 AND cleanup_intent_kind='phone_orphan'""",
+                digest,
+            )
             await conn.execute("INSERT INTO actor_profiles VALUES($1)", owner)
         # Merely loading a default never creates permission or an enrollment event.
         assert (await marketing.preference(owner))["revision"] == 0

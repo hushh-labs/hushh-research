@@ -56,6 +56,12 @@ CREATE TRIGGER one_marketing_change AFTER INSERT OR UPDATE OR DELETE
 CREATE OR REPLACE FUNCTION public.erase_one_marketing_preference() RETURNS TRIGGER
 LANGUAGE plpgsql SET search_path=pg_catalog,public AS $$
 BEGIN
+  -- A provisional phone-only cleanup can be cancelled when an established
+  -- account is found. It is not an owner-authorized account erasure, and must
+  -- not leave permanent marketing suppression after protected recovery.
+  IF NEW.cleanup_intent_kind='phone_orphan' THEN
+    RETURN NEW;
+  END IF;
   DELETE FROM one_marketing_preferences WHERE user_hash=NEW.user_id_hash;
   INSERT INTO one_marketing_changes(user_hash,revision,erased)
     VALUES(NEW.user_id_hash,1,TRUE)
