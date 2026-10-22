@@ -53,6 +53,7 @@ if [[ -n "${_CLOUD_RUN_CAPACITY:-}" ]]; then
       no_traffic) _CLOUD_RUN_NO_TRAFFIC="${_value}" ;;
       cpu) _CLOUD_RUN_CPU="${_value}" ;;
       concurrency) _CLOUD_RUN_CONCURRENCY="${_value}" ;;
+      scaling_target) _CLOUD_RUN_SCALING_CONCURRENCY_TARGET="${_value}" ;;
       *) echo "_CLOUD_RUN_CAPACITY carries an unknown key: ${_key}" >&2; exit 1 ;;
     esac
   done
@@ -1021,6 +1022,11 @@ cmd=(
   "--set-env-vars=^|^${env_var_string}"
   "--set-secrets=${secrets}"
 )
+
+# Keep ordinary API/Voice ingress headroom while UAT requests earlier scale-out.
+if [[ -n "${_CLOUD_RUN_SCALING_CONCURRENCY_TARGET:-}" ]]; then
+  cmd+=("--scaling-concurrency-target=${_CLOUD_RUN_SCALING_CONCURRENCY_TARGET}")
+fi
 
 # Preview IAM admission belongs to the workflow after authenticated candidate
 # health and application traffic promotion. Leave existing service IAM unchanged.

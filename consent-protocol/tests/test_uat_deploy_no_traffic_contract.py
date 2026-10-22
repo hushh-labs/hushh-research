@@ -995,6 +995,12 @@ def test_uat_runtime_capacity_is_bounded_and_revision_safe() -> None:
     assert '"_CLOUD_RUN_MEMORY=${_CLOUD_RUN_MEMORY}"' in backend_build
     assert "_CLOUD_RUN_CPU=2" in workflow
     assert "_CLOUD_RUN_CONCURRENCY=20" in workflow
+    # Quiet, long-lived Feed requests filled a worker before the default
+    # 60%-of-20 scale target. Keep shared API/Voice headroom while scaling earlier.
+    assert "_CLOUD_RUN_SCALING_CONCURRENCY_TARGET=0.20" in workflow
+    from api.routes.document_feed_stream import MAX_STREAMS_PER_WORKER
+
+    assert 20 * 0.20 < MAX_STREAMS_PER_WORKER
 
     assert '"--memory=${_CLOUD_RUN_MEMORY}"' in frontend_build
     assert '"--concurrency=${_CLOUD_RUN_CONCURRENCY}"' in frontend_build
@@ -1006,6 +1012,79 @@ def test_uat_runtime_capacity_is_bounded_and_revision_safe() -> None:
     assert "_CLOUD_RUN_CONCURRENCY=10" in workflow
     assert "_CLOUD_RUN_MIN_INSTANCES=2" in workflow
     assert "_CLOUD_RUN_MAX_INSTANCES=10" in workflow
+
+
+@pytest.mark.parametrize("target", ["", "0.20"])
+def test_backend_scaling_target_reaches_real_deploy_command_without_cutting_headroom(
+    target: str,
+) -> None:
+    config = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
+    step = next(s for s in config["steps"] if s.get("id") == "deploy-backend")
+    body = _backend_deploy()
+    assert "scaling_target=${_CLOUD_RUN_SCALING_CONCURRENCY_TARGET}" in step["env"][2]
+    assert config["substitutions"]["_CLOUD_RUN_SCALING_CONCURRENCY_TARGET"] == ""
+    values = {
+        **config["substitutions"],
+        "_CLOUD_RUN_CONCURRENCY": "20",
+        "_CLOUD_RUN_SCALING_CONCURRENCY_TARGET": target,
+        "_CLOUD_RUN_MAX_INSTANCES": "5",
+        "_CLOUD_RUN_MIN_INSTANCES": "2",
+    }
+    # Execute the authored command construction with synthetic values; no cloud
+    # commands, secrets, providers, application requests, or live mutation.
+    command = body[body.index('image_reference="${_IMAGE_REFERENCE}"') :]
+    result = subprocess.run(  # noqa: S603 - repository command construction, fake gcloud only.
+        [
+            "bash",
+            "-c",
+            "set -euo pipefail\nPROJECT_ID=test\ndeploy_labels=test\nenv_var_string=test\nsecrets=test\n"
+            'gcloud() { printf "%s\\n" "$@"; }\n' + command,
+        ],
+        env={**os.environ, **{key: str(value) for key, value in values.items()}},
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=5,
+    )
+    args = result.stdout.splitlines()
+    assert "--concurrency=20" in args
+    assert "--max=5" in args and "--min=2" in args
+    assert "--no-cpu-throttling" in args
+    assert [a for a in args if a.startswith("--scaling-concurrency-target=")] == (
+        [f"--scaling-concurrency-target={target}"] if target else []
+    )
+
+
+@pytest.mark.parametrize(
+    "target,valid",
+    [
+        ("", True),
+        ("0.1", True),
+        ("0.20", True),
+        ("0.95", True),
+        ("20", False),
+        ("disabled", False),
+        ("0.96", False),
+        ("0.099", False),
+    ],
+)
+def test_backend_scaling_target_validation_cannot_disable_or_overrun_scaling(
+    target: str,
+    valid: bool,
+) -> None:
+    config = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
+    step = next(s for s in config["steps"] if s.get("id") == "verify-runtime-iam")
+    body = step["args"][1]
+    validation = body[body.index('target="${_CLOUD_RUN_SCALING_CONCURRENCY_TARGET}"') :]
+    validation = validation.replace("${_CLOUD_RUN_SCALING_CONCURRENCY_TARGET}", target)
+    result = subprocess.run(  # noqa: S603 - exact authored validation, no cloud calls.
+        ["bash", "-c", "set -euo pipefail\n" + validation],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=5,
+    )
+    assert (result.returncode == 0) is valid
 
 
 def test_frontend_verifies_server_chunks_before_binding_cloud_run_port() -> None:
