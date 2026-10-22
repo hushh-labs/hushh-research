@@ -230,7 +230,9 @@ UAT result (including failure/cancellation), release completion or the hourly
 fallback. Failed UAT runs never advance the counter. Only one automatic release
 bundle is admitted at a time: either TestFlight, or production deploy plus its
 parallel App Store archive. Existing recorded starts keep a continuous stream of
-production candidates from starving TestFlight. The two production dispatches each recheck UAT;
+production candidates from starving TestFlight. Missing production acceptance
+keeps that pair pending while an eligible TestFlight bundle can proceed.
+The two production dispatches each recheck UAT;
 an intervening UAT request leaves a recoverable half-pair, without redispatching
 production. Active deployments, uploads and Apple processing finish normally.
 Manual release dispatches retain their existing operator contract.
@@ -319,6 +321,24 @@ governed production operator may run:
 ```bash
 gh workflow run release-cadence.yml --ref main -f full_reconcile=true
 ```
+
+Disabling `config/release-cadence.json` stops accounting and release admission.
+The observer still verifies the existing immutable checkpoint and reports its
+last certified count and timestamp, rather than claiming a new accounting pass.
+A missing or inconsistent certificate remains a verification failure. Re-enabling
+the policy resumes ordinary distinct-source accounting without resetting counts.
+
+Obsolete failed candidates may be retired only by a governed production operator
+through `retire_failed_before` and `reviewed_ledger_sha` on a dedicated manual
+controller run. Review the exact certified ledger first. The frontier must be its
+latest existing milestone; only older terminal failures are eligible. Every
+native target must positively prove failed packaging preflight and skipped native
+build/upload/distribution jobs at the unchanged attempt. A failed deployment needs
+a later recorded healthy production successor. All targets are verified before
+one ledger CAS update and checkpoint publication. Requests, sources, counts, run
+IDs and failure audits are retained; retirement does not claim a successful upload
+or App Store replacement. Retired candidates cannot resume or upload. Active,
+deferred, changed-attempt, missing-evidence and stale-head cases fail closed.
 
 For an interrupted upload, use the existing `Resume TestFlight Distribution`
 workflow with the recorded upload run ID; do not build another binary just to

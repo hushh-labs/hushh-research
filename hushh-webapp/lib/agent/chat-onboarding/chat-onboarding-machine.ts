@@ -9,6 +9,7 @@
 import {
   CHAT_ONBOARDING_FOCUS_PLAN,
   CHAT_ONBOARDING_QUESTIONS,
+  CHAT_ONBOARDING_SKIP_LABEL,
   CHAT_ONBOARDING_TONE_LABEL,
   DONE_TEXT,
   NOT_SAVED_TEXT,
@@ -71,6 +72,8 @@ export type ChatOnboardingTurn = {
   anchor: string | null;
   /** Rendered only while this is the active assistant turn. */
   chips?: ChatOnboardingChip[];
+  /** Authored question identity, independent of explanatory chat turns. */
+  question?: ChatOnboardingQuestionId;
   /** At most one inline connect action (the "help with first" reply). */
   action?: ChatOnboardingConnectAction;
 };
@@ -182,7 +185,7 @@ function askQuestion(
 ): ChatOnboardingState {
   const chips =
     question === "name" ? nameChips(firstName) : question === "focus" ? focusChips() : toneChips();
-  return pushTurn({ ...state, step: question }, { role: "assistant", text, anchor, chips });
+  return pushTurn({ ...state, step: question }, { role: "assistant", text, anchor, chips, question });
 }
 
 /** After the tone question: confirm only when something is worth saving. */
@@ -246,6 +249,7 @@ export function reduceChatOnboarding(
       {
         role: "assistant",
         text: welcomeText(event.displayName),
+        question: "name",
         anchor: event.anchor,
         chips: nameChips(event.firstName),
       },
@@ -298,7 +302,7 @@ export function reduceChatOnboarding(
   if (event.type === "name_assessment") {
     if (state.step !== "name_typing") return { state, effects: [] };
     if (event.decision === "skip") {
-      return answerQuestion(state, "name", "skipped", "Skip for now", event.anchor, event.today, null);
+      return answerQuestion(state, "name", "skipped", CHAT_ONBOARDING_SKIP_LABEL, event.anchor, event.today, null);
     }
     if (event.decision !== "name" || !event.name) return { state, effects: [] };
     return {
@@ -362,7 +366,7 @@ export function reduceChatOnboarding(
             ? "tone"
             : null;
     if (!question) return { state, effects: [] };
-    return answerQuestion(state, question, "skipped", "Skip for now", anchor, today, firstName);
+    return answerQuestion(state, question, "skipped", CHAT_ONBOARDING_SKIP_LABEL, anchor, today, firstName);
   }
 
   if (current === "name" || current === "name_typing") {
@@ -383,7 +387,7 @@ export function reduceChatOnboarding(
           { ...state, step: "name_typing", draft: { name: null, tone: null } },
           { role: "user", text: "Something else", anchor },
         ),
-        { role: "assistant", text: "Okay. What should I call you?", anchor, chips: [{ id: "skip", label: "Skip for now" }] },
+        { role: "assistant", text: "Okay. What should I call you?", anchor, question: "name", chips: [{ id: "skip", label: CHAT_ONBOARDING_SKIP_LABEL }] },
       );
       return { state: next, effects: [{ type: "focus_composer" }] };
     }

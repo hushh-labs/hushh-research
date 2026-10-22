@@ -1,4 +1,5 @@
 "use client";
+import { AgentPromptSuggestions, AgentWelcomePanel } from "./agent-welcome-panel";
 import { CalendarInsightsService, type MeetingContext, type MeetingSelection } from "@/lib/services/calendar-insights-service";
 
 import { Capacitor } from "@capacitor/core";
@@ -213,13 +214,12 @@ import { type ConnectorBrand } from "@/components/agent/connector-brand-mark";
 import { AgentResponseReportButton } from "@/components/agent/agent-response-report";
 import { isAndroid } from "@/lib/capacitor/platform";
 import {
-  CHAT_WELCOME_COPY_CLASSNAME,
   ONE_CHAT_ASSISTANT_BUBBLE_CLASSNAME,
   OneChatBubble,
   OneChatTimeSeparator,
 } from "@/components/agent/chat-message-styles";
 import { SelectionChip } from "@/components/agent/selection-chip";
-import { AgentFollowUpSuggestions, AgentSuggestionList, visibleFollowUps } from "@/components/agent/agent-follow-up-suggestions";
+import { AgentFollowUpSuggestions, visibleFollowUps } from "@/components/agent/agent-follow-up-suggestions";
 import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
 import {
   AgentTurnStreamPanel,
@@ -1631,53 +1631,6 @@ function formatAgentDisplayName(
     .find(Boolean);
   if (!firstName) return "there";
   return firstName.charAt(0).toUpperCase() + firstName.slice(1);
-}
-
-function AgentPromptSuggestions({
-  prompts,
-  disabled,
-  onPromptSelect,
-}: {
-  prompts: readonly string[];
-  disabled: boolean;
-  onPromptSelect: (prompt: string) => void;
-}) {
-  return (
-    <AgentSuggestionList suggestions={prompts} disabled={disabled} layout="starter-grid"
-      label="Suggestions" testId="agent-chat-suggestions" onSelect={onPromptSelect} />
-  );
-}
-
-function AgentWelcomePanel({
-  name,
-  prompts,
-  disabled,
-  onPromptSelect,
-}: {
-  name: string;
-  prompts: readonly string[];
-  disabled: boolean;
-  onPromptSelect: (prompt: string) => void;
-}) {
-  return (
-    // Keep the greeting close to the header; viewport-height centering creates
-    // an increasingly large gap on taller screens.
-    <section className="flex flex-col pb-2 pt-2">
-      <div className="mx-auto flex w-full max-w-2xl flex-col items-start px-1 text-left sm:px-2">
-        <h2 data-profile-role="identity-name" className="max-w-full break-words text-foreground [overflow-wrap:anywhere]">
-          Hi {name}
-        </h2>
-        <p data-profile-role="header-description" className={cn("mt-2 max-w-xl", CHAT_WELCOME_COPY_CLASSNAME)}>
-          What would you like to do today?
-        </p>
-        <AgentPromptSuggestions
-          prompts={prompts}
-          disabled={disabled}
-          onPromptSelect={onPromptSelect}
-        />
-      </div>
-    </section>
-  );
 }
 
 function useAnimatedAssistantText(targetText: string, active: boolean) {
@@ -8870,6 +8823,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     <ChatOnboardingTurns
       controller={chatOnboarding}
       slot={slot}
+      onCompletionShown={revealOnboardingStarters}
+      completion={!hasStartedConversation && !voiceActive && !isPuppySurface && hasChatAccess && isVaultUnlocked ? (
+        <AgentPromptSuggestions prompts={welcomePrompts}
+          disabled={recoveryInspectionPending || isVoiceConnecting || isChatLoading || isStreaming}
+          onPromptSelect={handleWelcomePromptSelect} />
+      ) : undefined}
       gmailConnected={Boolean(onboardingGmail.status?.connected &&
         !onboardingGmail.status.revoked && !onboardingGmail.status.needs_reauth)}
       renderBubble={(message: ChatOnboardingBubbleMessage) => (
@@ -9321,6 +9280,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     transcript.scrollTo({ top, behavior: "instant" });
     setMessagesBelow(0);
   }, [beginTranscriptProgrammaticScroll]);
+  const revealOnboardingStarters = useCallback(() => {
+    if (transcriptUserScrollRef.current && !transcriptStuckToEndRef.current) return;
+    jumpToLatestMessage();
+  }, [jumpToLatestMessage]);
   // The transcript's bottom band tracks the composer's real height, so a
   // draft that grows to several lines never covers the last message. A
   // reader already at the end stays at the end while it grows.
@@ -9876,7 +9839,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 selectedButtonRef={agentSurfaceFocusRef}
                 variant="sliding"
                 size="sm"
-                ariaLabel="Agent"
+                ariaLabel="Where your agent runs"
                 value={agentSurface}
                 onValueChange={(next) => {
                   const surface = next as AgentChatSurface;
@@ -9897,11 +9860,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     value: "puppy",
                     label: "Puppy",
                     icon: Laptop,
-                    accessibleLabel: "Puppy One",
+                    accessibleLabel: "Puppy One, on your linked computer",
                   },
                 ]}
-                iconClassName="sm:hidden"
-                labelClassName="max-sm:hidden"
+                iconClassName="hidden"
+                labelClassName=""
                 className="w-full shrink-0 text-xs"
               />
               </NativeChatChrome>
@@ -9930,6 +9893,19 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 </Avatar>
               </ShellActionSurface>
             </div>
+          </div>
+
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 px-[var(--agent-chat-header-inline-gutter)] py-1 text-xs leading-5 text-muted-foreground">
+            <p>One: cloud · Puppy: your linked computer</p>
+            {!isPuppySurface && hasChatAccess ? (
+              <button type="button" aria-label="What One can access" onClick={event => {
+                historyDrawerTriggerRef.current = event.currentTarget;
+                openHistoryConnectors();
+              }}
+                className="min-h-11 text-left font-medium text-foreground underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                Access
+              </button>
+            ) : null}
           </div>
 
           <OneAgentProfileSheet presenceState={onePresenceState} open={isOneProfileOpen} onOpenChange={setIsOneProfileOpen} triggerRef={oneProfileTriggerRef}
