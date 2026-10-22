@@ -1645,7 +1645,7 @@
       }
     ],
     "evidence_revision": "3c28325791",
-    "review": "Independent lifecycle security review qualifies only four admission-query lines in the existing repository. Original Azure bindings persist through bounded same-cloud retries; a stale heartbeat cannot authorize replacement. Global budgets and other ceilings unchanged. Provider settlement and full teardown remain separate. Follow-up review of59882a7fc4 also qualifies exactly the class248\u2192252 slot: the same four SQL lines, with no new responsibility. The first local ratchet failure is retained; this correction precedes any publication."
+    "review": "Independent lifecycle security review qualifies only four admission-query lines in the existing repository. Original Azure bindings persist through bounded same-cloud retries; a stale heartbeat cannot authorize replacement. Global budgets and other ceilings unchanged. Provider settlement and full teardown remain separate. Follow-up review of59882a7fc4 also qualifies exactly the class248→252 slot: the same four SQL lines, with no new responsibility. The first local ratchet failure is retained; this correction precedes any publication."
   },
   "browser_schedule_core_fixture_review_20261013": {
     "findings": [
@@ -18367,7 +18367,7 @@
       "limit": 500,
       "path": "consent-protocol/db/migration_authority.py",
       "symbol": null,
-      "value": 1186
+      "value": 1193
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21931,7 +21931,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_binding_transactions.py",
       "symbol": null,
-      "value": 1363
+      "value": 1506
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -30875,7 +30875,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_pod_binding_transactions.py",
       "symbol": "test_browser_review_requires_owner_receipt_and_keeps_private_terms_off_hub",
-      "value": 239
+      "value": 280
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -30911,7 +30911,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_pod_binding_transactions.py",
       "symbol": "scenario",
-      "value": 129
+      "value": 170
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -33987,7 +33987,7 @@
           "key": "module_size|hushh-webapp/__tests__/components/wallet-workspace.test.tsx||module exceeds the advisory operon budget",
           "multiset_slot": 0,
           "previous": 546,
-          "rationale": "Owner A\u2192B\u2192A/lock and introduction/readiness tests remain against real SVG projection; main QR rotation invalidates old link before recovery. Confirmed-save versus old list response is separate real consistency regression; obsolete demo iframe assertions adapted.",
+          "rationale": "Owner A→B→A/lock and introduction/readiness tests remain against real SVG projection; main QR rotation invalidates old link before recovery. Confirmed-save versus old list response is separate real consistency regression; obsolete demo iframe assertions adapted.",
           "reviewed": 652,
           "source_sha256": "3c96b63943a6e971e4842d207b38e1daefba6ace756d6e531f13a5687d21cfca"
         },
@@ -41130,7 +41130,7 @@
         "disposition": "reviewed coupled contract",
         "key": "module_size|hushh-webapp/components/connections/byoc-cloud-setup-page.tsx||module exceeds the advisory operon budget",
         "measured": 782,
-        "rationale": "The three-line net increase preserves an existing Azure job\u2019s explicit Files selection when signing in again; it is coupled to setup continuation rather than a new selection authority.",
+        "rationale": "The three-line net increase preserves an existing Azure job’s explicit Files selection when signing in again; it is coupled to setup continuation rather than a new selection authority.",
         "slot": 0
       },
       {
@@ -56647,7 +56647,7 @@
         "value": 824
       }
     ],
-    "review": "Independent exact-body native resolver extraction review; one existing test-module slot822\u2192824. Actual Dev/UAT source-free negative controls fail with unconditional sourcing. Detector, budgets, all2581 occurrences and unrelated ceilings remain unchanged.",
+    "review": "Independent exact-body native resolver extraction review; one existing test-module slot822→824. Actual Dev/UAT source-free negative controls fail with unconditional sourcing. Detector, budgets, all2581 occurrences and unrelated ceilings remain unchanged.",
     "source_bindings": [
       {
         "git_blob": "1290d629bbccaf71af72949bfe4c15a9bfb4e5f1",
@@ -83739,5 +83739,47 @@
         "review": "Byte-identical main PR8328 export tests preserve wire equivalence, bounded memory, actual driver types, cursor ownership and post-encoding deadlines; no global budget change."
       }
     ]
+  },
+  "private_action_replay_review_20261022": {
+    "parent_revision": "cd7556e9a7cab6a019cc3c684d88aefa6057ab4a",
+    "entries": [
+      {
+        "key": "function_size|consent-protocol/tests/test_pod_binding_transactions.py|test_browser_review_requires_owner_receipt_and_keeps_private_terms_off_hub|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 239,
+        "after": 280,
+        "source_sha256": "5cbd30b7263b03934d566cf2dae8ea65a80940a33b0c5ebf539370bace0aaf4b",
+        "reviewer": "agent_layout_audit",
+        "review": "Confirmed installed private-review replay regression; bounded real PostgreSQL reproduction, repeated canonical replay, malformed successor refusal and history-preserving rollback. Production dispatcher changes only exact registered migration adapters. No global budget or authority exception."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_pod_binding_transactions.py|scenario|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 129,
+        "after": 170,
+        "source_sha256": "5cbd30b7263b03934d566cf2dae8ea65a80940a33b0c5ebf539370bace0aaf4b",
+        "reviewer": "agent_layout_audit",
+        "review": "Confirmed installed private-review replay regression; bounded real PostgreSQL reproduction, repeated canonical replay, malformed successor refusal and history-preserving rollback. Production dispatcher changes only exact registered migration adapters. No global budget or authority exception."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_pod_binding_transactions.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1363,
+        "after": 1506,
+        "source_sha256": "5cbd30b7263b03934d566cf2dae8ea65a80940a33b0c5ebf539370bace0aaf4b",
+        "reviewer": "agent_layout_audit",
+        "review": "Confirmed installed private-review replay regression; bounded real PostgreSQL reproduction, repeated canonical replay, malformed successor refusal and history-preserving rollback. Production dispatcher changes only exact registered migration adapters. No global budget or authority exception."
+      },
+      {
+        "key": "module_size|consent-protocol/db/migration_authority.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1186,
+        "after": 1193,
+        "source_sha256": "c260abb93959491b32c4cc62fb4d1aed99b704a54cf90a9b89b61e0fdd33850d",
+        "reviewer": "agent_layout_audit",
+        "review": "Confirmed installed private-review replay regression; bounded real PostgreSQL reproduction, repeated canonical replay, malformed successor refusal and history-preserving rollback. Production dispatcher changes only exact registered migration adapters. No global budget or authority exception."
+      }
+    ],
+    "policy": "Four exact rank-0 size ceilings only; all historical annotations and 500/250/80 budgets preserved."
   }
 }

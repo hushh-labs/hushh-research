@@ -2,12 +2,29 @@
 
 ## Status and evidence
 
-**2026-10-21 UTC — implementation and qualification; owner enablement remains off.**
+**2026-10-22 UTC — qualified image published; Azure owner installation verified,
+Browser acceptance still open.**
 One and Browser now share one owner container, non-root UID and lifecycle. GCP
 uses Cloud Run with Chromium's internal sandbox enabled; Azure uses Container
 Apps with it explicitly disabled. The whole owner pod is the compromise boundary.
 The broker and consent checks constrain normal operations, not compromised code.
 No VM migration, separate Browser service or artificial keepalive is part of this release.
+
+Dev 28 reuses immutable image `8b846022…68ac07`, source `67a64533ac6a`.
+Native Gemini and the actual Azure `one-chat` deployment produced real frames and
+joined shutdown. Azure's exact owner-approved installation completed as operation
+`op_13e165d0d1bf4a6788ae230cc7e2a93f` at 02:22:22 UTC, retaining its identity and
+1 vCPU / 2 GiB, minimum-zero configuration. Its first One-delegated task stopped
+before model-processing review with `BROWSER_REVIEW_UNAVAILABLE`: the hub returned
+503 because live channel checks excluded `pod_chat` despite accepted 945/966
+receipts. Local dev-only 971 and protected canonical replay pass their focused
+PostgreSQL regression; they are not deployed. Owner takeover, reconnect and Stop
+remain unverified. GCP activation also needs legacy inventory reconciliation.
+
+The current qualified policy covers Python documentation public research only.
+Login, submissions, selected PKM production and Files transfers retain their
+separate acceptance requirements. Earlier component images below are historical
+execution evidence, not current installed provenance.
 
 The same immutable qualification image
 `sha256:b48f66b6db71f845a23882c2ff6a8480a8057a4af9e4d518507098b32fbf24a4`
@@ -87,11 +104,11 @@ Owner-container topology; dashed paths remain gated until composed owner accepta
 flowchart TD
     UI["Source: One task card and private preview; cloud gated"]
     One["Existing: owner private agent"]
-    Agent["Disabled: native ADK Computer Use task specialist"]
+    Agent["Native ADK Computer Use task specialist; owner acceptance pending"]
     Model["Source: native Gemini and Azure ADK adapters"]
     Control["Foundation: exclusive control and exact authority ports"]
     Broker["Foundation: HTTPS broker and dispatch receipts"]
-    Cloud["Synthetic execution qualified; installed pod still gated"]
+    Cloud["Components qualified; Azure installed, GCP activation pending"]
     Web["Task-authorized public HTTPS origins"]
     Ledger["Existing action ledger; exact runtime review port"]
     Information["Local port: selected non-secret PKM exports"]

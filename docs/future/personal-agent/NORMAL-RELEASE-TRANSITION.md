@@ -1,10 +1,10 @@
 # Private agent: normal release transition
 
-**Status:** authorized execution, refreshed 2026-10-21 UTC. Continue on the
+**Status:** authorized execution, refreshed 2026-10-22 UTC. Continue on the
 infrastructure branch; preserve concurrent work and the active ADK tree. Prior
 main/ADK integration remains preserved. Frozen executable candidate `67a64533ac`
 integrates main through `89516ab01d` and ADK `914e7c044c`. The later metadata
-publication source additionally incorporates main `f7d80942ed`, preserving its
+publication source `f055c05948` additionally incorporates main `f7d80942ed`, preserving its
 bounded account exports and owner-fenced Feed, plus the focused Shared Files
 terminal-erasure repair; it reuses the qualified Browser
 image and original provenance. The latest union preserves main’s responsive Profile header, streamed account exports, dual-principal connector fencing, SOS recovery, Azure playback and exact provider receipts alongside the private-agent authorities. Main's messaging and Azure managed-provider selection is preserved alongside
@@ -16,19 +16,22 @@ lifecycle. GCP remains Cloud Run with Chromium's sandbox enabled; Azure remains
 Container Apps with it explicitly disabled. The whole owner pod is the compromise
 boundary. No VM migration, separate Browser service or artificial keepalive.
 
-The same immutable component image now produces real public-page frames and
-confirmed supervisor shutdown on both services. Native model execution, owner
-approval/takeover/login/reconnect, delivery, capacity and installed acceptance
-remain separate gates. The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)
+The same immutable component image passes native Gemini research on GCP and the
+owner's actual Azure deployment, real public-page frames and joined shutdown.
+Both exact predecessor recovery fixtures pass and are cleaned. Normal owner
+approval, active takeover/login/reconnect, delivery, full-runtime capacity and
+installed acceptance remain separate gates. The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)
 owns current source and serving evidence; qualification does not enable a pod.
 
-The local core mirror and clean merged web-core check are complete; targeted
-repairs preserve their original failures. Exact-SHA hosted validation is running.
-Remaining execution order: terminal hosted CI → governed image build → exact-image
-Browser and predecessor-recovery qualification → governed metadata publication →
-exact owner-approved configuration/installations → measured full-runtime capacity
-and combined core acceptance → **Admin SOP main merge and
-landed-SHA validation/dev receipt**. Main integration is now explicitly authorized
+The frozen publication passed all 26 exact-SHA CI jobs in run `39703303543`;
+governed dev rollout `39706459253` succeeded. Both serving revisions carry the
+exact source at 100% traffic; installed-owner acceptance remains separate. Targeted fixture repairs preserve
+their original failures. The local-only effective-provider disclosure correction
+is held for the next combined source batch, preserving this frozen release.
+Remaining execution order: deploy the locally tested private-review schema replay
+repair → finish the approved Azure Browser journey and GCP legacy-inventory
+reconciliation → installed Browser/core acceptance and measured capacity →
+**Admin SOP main merge and landed-SHA validation/dev receipt**. Main integration is now explicitly authorized
 after those gates. UAT/production, stable publication and automatic owner upgrades
 remain unauthorized. General scheduled-task expansion and coding activation are
 outside this Browser-plus-core gate; preserve supported schedules.
@@ -39,6 +42,16 @@ keep the main gate closed until that evidence passes. The metadata publication
 reuses the qualified image and its original source provenance rather than
 building the same executable again. Reconcile later dependency-relevant main
 changes in that planned source phase, preserving concurrent work.
+
+Azure's normal owner approval installed Dev 28 as operation
+`op_13e165d0d1bf4a6788ae230cc7e2a93f`, verified at 02:22:22 UTC on 22 October.
+The first One-delegated Browser task failed before review because canonical replay
+restored channel checks excluding `pod_chat`, despite 945/966 ledger parity.
+Local dev-only 971 and narrowly pinned replay adapters preserve the exact private
+review successor without changing accepted migration checksums. Fifty-seven
+focused PostgreSQL/manifest/replay checks pass; the repair is not deployed.
+GCP's older genuine receipt needs typed creation-evidence reconciliation; current
+GETs and provider audit events are evidence, not permission to patch inventory.
 
 GCP dev uses the approved personal Gemini bridge because native organization AI
 is restricted. More IAM grants cannot repair the recorded provider dunning denial.
@@ -72,7 +85,8 @@ resources, product agents and release authority are unchanged.
 
 ## 1. Finish and freeze the source
 
-- Main through `f7d80942ed` is integrated. Account exports retain bounded server
+- Main through `c241cfe554` is integrated locally at `cd7556e9a7`; dev remains
+  `f055c05948`. Account exports retain bounded server
   cursors and browser Blob assembly; retired owners cannot keep Feed streams
   alive. These are hub/frontend changes, not new pod image provenance. The
   earlier capacity-recovery changes
@@ -178,7 +192,7 @@ require a verified update receipt, independently of the managed-app announcement
 
 | Capability | Shared | Owner private pod |
 | --- | --- | --- |
-| AI | Hussh-managed Gemini and currently supported owner-key choices | Verified connection matching the selected cloud or explicit owner credentials |
+| AI | Environment-managed AI and supported owner-key choices; current UAT uses GPT-5 mini, dev uses Gemini | Verified connection matching the selected cloud or explicit owner credentials |
 | Files | Browser-encrypted explorer; unlocked foreground management and approved selected-file processing | Admitted encrypted library; qualified background organization after opt-in |
 | Puppy | Unavailable | BYOC only, exact trusted-device grant and signed owner/pod binding |
 | Software updates | Managed service version and release notes | Exact-release approval, durable progress, recovery and installed-digest verification |

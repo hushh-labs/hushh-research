@@ -95,6 +95,28 @@ parked 944 receipt is separate and cannot stand in for canonical 249. Removing
 the deferral requires the approved history-cutover recovery, writer drain and
 command-settlement evidence; do not change a baseline or mark 249 applied.
 
+## Private-action replay continuity
+
+Shared dev replays canonical migrations but applies parked migrations only once.
+Consequently, matching 945/966 ledger checksums did not prove that their action
+channel checks were still installed: canonical 212/231/248 restored older checks
+and the first installed Browser review returned 503. Dev-only 971 repairs those
+two checks after validating the exact private-action restriction under a table
+lock. It changes no accepted migration body or checksum.
+
+The existing replay authority uses a narrowly pinned adapter for those three
+historical files. It preserves only the qualified 971 successor's two checks;
+all document, command and ADK DDL still runs. Full validated definitions and
+lineage markers must agree. Missing or altered successor evidence refuses replay.
+Without that successor, historical behavior remains unchanged. Ledger and observe
+modes retain their original authority.
+
+Verify affected installed constraints and a real review across repeated canonical
+replay, not only manifest parity. Application rollback may disable the capability
+while preserving compatible review history. The 971 SQL down path refuses while
+private reviews remain; never delete history to force it. Restoring its earlier
+schema requires the separately reviewed forward qualification before re-enablement.
+
 ## Execution Modes
 
 - `replay` preserves the historical replay-all behavior. It remains the repo

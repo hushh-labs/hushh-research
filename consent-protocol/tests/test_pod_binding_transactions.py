@@ -1138,8 +1138,49 @@ def test_browser_review_requires_owner_receipt_and_keeps_private_terms_off_hub(
     async def scenario():
         nonlocal lose_consume, fail_issue, revoked
         terms = {"task_goal": "private synthetic goal", "model": "synthetic-model"}
+        # Live dev had 945/966 receipts, then canonical 248 replay replaced the
+        # channel checks. Reproduce the actual first-review refusal before repair.
+        base = Path(__file__).resolve().parents[1] / "db/migrations"
+        pg.apply_file(base / "248_adk_chat_action_authority.sql")
+        with pytest.raises(BrowserRefused, match="REVIEW_UNAVAILABLE"):
+            await reviews.offer_review(bound, "model_process", terms)
+        with db.engine.connect() as conn:
+            assert (
+                conn.execute(text("SELECT count(*) FROM one_action_directive_ledger")).scalar() == 0
+            )
+        pg.apply_file(base / "parked/971_private_action_channel_continuity.sql")
         offer = await reviews.offer_review(bound, "model_process", terms)
         assert offer.coordination.service_uid == "uid-1"
+        # Real base replay runs on every dev deployment. Preserve the exact
+        # successor and its existing review rows while retaining unrelated DDL.
+        from db.migration_authority import _replay_sql, build_manifest_entries
+
+        pg.execute(
+            "ALTER TABLE one_adk_sessions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now()"
+        )
+        entries = build_manifest_entries(
+            base,
+            (
+                "212_location_command_runtime.sql",
+                "231_document_review_authority.sql",
+                "248_adk_chat_action_authority.sql",
+            ),
+        )
+        for _ in range(2):
+            for entry in entries:
+                pg.execute(_replay_sql(entry))
+        with db.engine.connect() as conn:
+            assert (
+                conn.execute(text("SELECT count(*) FROM one_action_directive_ledger")).scalar() == 1
+            )
+            assert (
+                conn.execute(
+                    text(
+                        "SELECT count(*) FROM pg_constraint WHERE conrelid='one_action_directive_ledger'::regclass AND conname IN ('document_review_identity_required','adk_chat_action_identity','adk_chat_action_session_fk')"
+                    )
+                ).scalar()
+                == 3
+            )
         # Ledger approval expiry is shorter than the task lifetime. A refresh
         # presents a new directive; it does not silently approve the new terms.
         with db.engine.begin() as conn:
@@ -1285,6 +1326,108 @@ def test_browser_review_requires_owner_receipt_and_keeps_private_terms_off_hub(
         with pytest.raises(IntegrityError, match="pod_chat_action_identity"):
             with db.engine.begin() as conn:
                 conn.execute(text("UPDATE one_action_directive_ledger SET " + mutation))
+
+
+@pytest.mark.parametrize(
+    "drift", ["missing_marker", "unvalidated", "changed_identity", "missing_prerequisite"]
+)
+def test_private_channel_replay_refuses_unqualified_successor(db, pg, drift):
+    from sqlalchemy.exc import DBAPIError
+
+    from db.migration_authority import _replay_sql, build_manifest_entries
+
+    base = Path(__file__).resolve().parents[1] / "db/migrations"
+    forward = base / "parked/971_private_action_channel_continuity.sql"
+    pg.apply_file(forward)
+    entry = build_manifest_entries(base, ("248_adk_chat_action_authority.sql",))[0]
+    with db.engine.connect() as conn:
+        transaction = conn.begin()
+        try:
+            if drift == "missing_marker":
+                conn.execute(
+                    text(
+                        "CREATE TABLE IF NOT EXISTS schema_migrations(migration_id TEXT, status TEXT)"
+                    )
+                )
+                conn.execute(text("INSERT INTO schema_migrations VALUES ('971','applied')"))
+                for name in (
+                    "one_action_directive_ledger_channel_check",
+                    "one_action_directive_ledger_check",
+                ):
+                    conn.execute(
+                        text(f"COMMENT ON CONSTRAINT {name} ON one_action_directive_ledger IS NULL")
+                    )
+            elif drift == "unvalidated":
+                definition = conn.execute(
+                    text(
+                        "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='one_action_directive_ledger'::regclass AND conname='one_action_directive_ledger_check'"
+                    )
+                ).scalar()
+                conn.execute(
+                    text(
+                        "ALTER TABLE one_action_directive_ledger DROP CONSTRAINT one_action_directive_ledger_check"
+                    )
+                )
+                conn.exec_driver_sql(
+                    "ALTER TABLE one_action_directive_ledger ADD CONSTRAINT one_action_directive_ledger_check "
+                    + definition
+                    + " NOT VALID"
+                )
+                conn.execute(
+                    text(
+                        "COMMENT ON CONSTRAINT one_action_directive_ledger_check ON one_action_directive_ledger IS 'private-action-channel.v1/971'"
+                    )
+                )
+            else:
+                conn.execute(
+                    text(
+                        "ALTER TABLE one_action_directive_ledger DROP CONSTRAINT pod_chat_action_identity"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "ALTER TABLE one_action_directive_ledger ADD CONSTRAINT pod_chat_action_identity CHECK (TRUE)"
+                    )
+                )
+            with pytest.raises(
+                DBAPIError,
+                match="authority is required|successor constraints changed|successor marker missing",
+            ):
+                conn.exec_driver_sql(
+                    forward.read_text() if drift == "missing_prerequisite" else _replay_sql(entry)
+                )
+        finally:
+            transaction.rollback()
+
+
+def test_private_channel_rollback_preserves_review_history(db, pg):
+    from sqlalchemy.exc import DBAPIError
+
+    base = Path(__file__).resolve().parents[1] / "db/migrations"
+    forward = base / "parked/971_private_action_channel_continuity.sql"
+    down = base / "rollback/971_private_action_channel_continuity.rollback.sql"
+    pg.apply_file(forward)
+    pg.apply_file(down)
+    pg.apply_file(forward)
+    with db.engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO one_action_directive_ledger(directive_id,user_id,channel,session_id,action_id,context_revision,action_contract_digest,slots_hmac,resource_binding_hmac,trusted_activation_required,expires_at) VALUES ('dir_retained','u','pod_chat','retained-task','browser.model_process','revision',:digest,:digest,:digest,TRUE,now()+interval '5 minutes')"
+            ),
+            {"digest": "a" * 64},
+        )
+    with pytest.raises(DBAPIError, match="Private review history must be retained"):
+        with db.engine.begin() as conn:
+            conn.exec_driver_sql(down.read_text())
+    with db.engine.connect() as conn:
+        assert (
+            conn.execute(
+                text(
+                    "SELECT count(*) FROM one_action_directive_ledger WHERE directive_id='dir_retained'"
+                )
+            ).scalar()
+            == 1
+        )
 
 
 async def _composed_browser_owner_journey(db, monkeypatch, tmp_path, post, fail_before_consume):

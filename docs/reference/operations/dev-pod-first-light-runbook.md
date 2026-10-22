@@ -80,6 +80,14 @@ enforces owner approval (`PERSONAL_AGENT_UPGRADE_APPROVAL_REQUIRED=true`).
 
 ### Release metadata and compatibility
 
+For private Browser/connector reviews, also inspect the installed action-ledger
+constraints after canonical replay. Dev's parked migration receipts are pending-
+only; 945/966 parity alone did not prevent an older base CHECK from rejecting
+`pod_chat`. The forward 971 correction and its pinned replay preservation are
+owned by [migration governance](./migration-governance.md#private-action-replay-continuity).
+Apply through the governed dev migration path; never patch constraints by hand or
+replay accepted parked history to make a review pass.
+
 The web and hub can advance before independently installed owner pods. Negotiate
 new client tools through authenticated pod capabilities before sending them.
 Older pods retain ordinary chat; a continuation requiring unsupported tools asks
