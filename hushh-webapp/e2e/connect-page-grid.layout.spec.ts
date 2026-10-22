@@ -9,6 +9,7 @@ import {
   stripAppFontFaces,
 } from "./fixtures/product-font";
 import { assertThinFocusedCircleType } from "./helpers/circle-type-focus";
+import { assertConnectionRemoveDialog } from "./helpers/connection-remove-dialog";
 
 /** Production Connect page against synthetic identity/network boundaries. */
 const WIDTHS = [320, 375, 393, 430, 640, 768, 1440] as const;
@@ -279,44 +280,7 @@ for (const dark of [false, true]) {
       expect(geometry[1].top).toBeGreaterThan(geometry[0].top);
       expect(geometry.every((r) => Math.abs(r.width - geometry[0].width) <= 1)).toBe(true);
       await page.getByRole("tab", { name: /My connections/ }).click();
-      await page.getByRole("button", { name: "Options for Alex Chen", exact: true }).click();
-      const dialog = page.getByRole("alertdialog");
-      await expect(dialog).toBeVisible();
-      await expect(page.locator('[data-slot="alert-dialog-overlay"]')).toBeVisible();
-      await expect(dialog.getByRole("heading", { name: "Remove connection" })).toBeVisible();
-      await expect(dialog).toContainText("Remove Alex Chen from your connections?");
-      await expect(dialog.locator('[data-slot="alert-dialog-footer"] button')).toHaveCount(2);
-      const removeAction = dialog.getByRole("button", { name: "Remove", exact: true });
-      await expect(removeAction).toBeVisible();
-      await expect(removeAction.locator("svg")).toHaveCount(0);
-      const removeLabelOffset = await removeAction.evaluate((button) => {
-        const label = button.querySelector(":scope > span");
-        if (!label) return null;
-        const actionBounds = button.getBoundingClientRect();
-        const labelBounds = label.getBoundingClientRect();
-        return Math.abs(
-          labelBounds.left + labelBounds.width / 2 -
-          (actionBounds.left + actionBounds.width / 2),
-        );
-      });
-      expect(removeLabelOffset).not.toBeNull();
-      expect(removeLabelOffset!).toBeLessThan(2);
-      const removeColors = await removeAction.evaluate((button) => {
-        const probe = document.createElement("span");
-        probe.style.backgroundColor = "var(--app-destructive)";
-        document.body.append(probe);
-        const colors = {
-          actual: getComputedStyle(button).backgroundColor,
-          expected: getComputedStyle(probe).backgroundColor,
-        };
-        probe.remove();
-        return colors;
-      });
-      expect(removeColors.actual).toBe(removeColors.expected);
-      const bounds = await dialog.boundingBox();
-      expect(bounds).not.toBeNull();
-      expect(Math.abs(bounds!.x + bounds!.width / 2 - width / 2)).toBeLessThan(2);
-      await page.getByRole("button", { name: "Cancel", exact: true }).click();
+      await assertConnectionRemoveDialog(page, "Alex Chen", width);
       await page.getByRole("tab", { name: "Find people", exact: true }).click();
       await expect(page.locator("#connect-my-connections-panel")).toBeHidden();
       await page.getByRole("tab", { name: /My connections/ }).click();

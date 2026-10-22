@@ -2825,7 +2825,7 @@ export function CircleDetailFlow({
                             void onShareCode(circle, inviteCode.code)
                           }
                         >
-                          <Share2 className="mr-2 h-4 w-4" />
+                          <Share2 onAccent className="mr-2 h-4 w-4" />
                           Share invite
                         </Button>
                       }

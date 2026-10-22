@@ -34,6 +34,13 @@ it("uses the same blue source node and neutral destination nodes for share actio
   }
 });
 
+it("uses contrasting ink for share glyphs on solid accent actions", () => {
+  const { container } = render(<Share2 onAccent />);
+  const svg = container.querySelector("svg")!;
+  expect(svg.style.color).toBe("var(--app-accent-fg)");
+  expect(svg.querySelector("pattern circle")).toHaveAttribute("fill", "var(--app-accent-fg)");
+});
+
 it("uses the Feed people pair through the existing invitation and people aliases", () => {
   const icons = [PeoplePairIcon, Users, PROFILE_ICONS.invite, PROFILE_ICONS.people];
   const { container } = render(<>{icons.map((Icon, index) => <Icon key={index} />)}</>);

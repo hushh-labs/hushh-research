@@ -533,7 +533,7 @@ export function LocationLinks() {
                 {live ? (
                   <div className="flex flex-wrap gap-2">
                     <Button size="sm" onClick={() => void share(invite)}>
-                      <Share2 className="h-4 w-4" aria-hidden />
+                      <Share2 onAccent className="h-4 w-4" aria-hidden />
                       Share
                     </Button>
                     <Button
