@@ -2,6 +2,12 @@ import { Capacitor } from "@capacitor/core";
 
 import { HushhLocation } from "@/lib/capacitor";
 import {
+  normalizeNearbyPlaceResponse,
+  type NearbyPlacesResponse,
+  type OneLocationNearbyPlacesRequest,
+  type OneLocationNearbyPlacesResult,
+} from "./nearby-places";
+import {
   LocationBus,
   type LocationSnapshot,
 } from "@/lib/one-location/location-bus";
@@ -39,7 +45,6 @@ import type {
   OneLocationEncryptedPrivateKey,
   OneLocationNearbyAttendee,
   OneLocationNearbyCheckInPreference,
-  OneLocationNearbyPlaceCategory,
   OneLocationNearbyPlaceSuggestion,
   OneLocationNearbyPresenceState,
   OneLocationPlaceRating,
@@ -1873,15 +1878,8 @@ export class OneLocationService {
     return response.suggestions ?? [];
   }
 
-  static async nearbyPlaces(params: {
-    vaultOwnerToken: string;
-    lat: number;
-    lng: number;
-    category?: OneLocationNearbyPlaceCategory;
-  }): Promise<OneLocationNearbyPlaceSuggestion[]> {
-    const response = await apiJson<{
-      suggestions: OneLocationNearbyPlaceSuggestion[];
-    }>("/api/one/location/maps/nearby-places", {
+  static async nearbyPlaces(params: OneLocationNearbyPlacesRequest): Promise<OneLocationNearbyPlacesResult> {
+    const response = await apiJson<NearbyPlacesResponse>("/api/one/location/maps/nearby-places", {
       method: "POST",
       headers: jsonAuthHeaders(params.vaultOwnerToken),
       body: JSON.stringify({
@@ -1890,7 +1888,7 @@ export class OneLocationService {
         category: params.category ?? "all",
       }),
     });
-    return response.suggestions ?? [];
+    return normalizeNearbyPlaceResponse(response);
   }
 
   static async getNearbyPresence(params: {
