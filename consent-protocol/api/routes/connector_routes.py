@@ -3,6 +3,7 @@
 from fastapi import FastAPI
 
 from api.routes import (
+    drive_groups,
     drive_request_payments,
     drive_request_requester,
     drive_searches,
@@ -28,6 +29,7 @@ def register_connector_routes(app: FastAPI) -> None:
         scope_commerce.webhook_router,
         scope_commerce_work.router,
         drive_searches.router,
+        drive_groups.router,
         drive_shared_files.router,
         drive_work_drain.router,
         profile_discovery_work_drain.router,

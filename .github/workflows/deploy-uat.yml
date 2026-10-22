@@ -492,6 +492,9 @@ jobs:
               candidate_services+=(--candidate-service consent-protocol-drive-v1-worker)
             else
               candidate_services+=(--candidate-service consent-protocol-drive-worker)
+              if [ "${{ vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED || 'false' }}" = true ]; then
+                candidate_services+=(--candidate-service consent-protocol-drive-v1-worker)
+              fi
             fi
             timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat \
               "${candidate_services[@]}"
@@ -781,6 +784,10 @@ jobs:
             echo "Selected SHA cannot preserve enabled email OTP; disable EMAIL_AUTH_ENABLED_UAT for an older approved release." >&2
             exit 1
           fi
+          drive_group_args=()
+          if grep -q -- '--drive-four-group-index' scripts/ops/sync_backend_runtime_secrets.py; then
+            drive_group_args=(--drive-four-group-index "${{ vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED || 'false' }}")
+          fi
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py \
             --project "${{ env.GCP_PROJECT_ID }}" \
             --environment uat \
@@ -808,6 +815,7 @@ jobs:
             --google-drive-live "$UAT_GOOGLE_DRIVE_LIVE" \
             --google-drive-picker "$UAT_GOOGLE_DRIVE_PICKER" \
             --drive-document-indexing "$UAT_DRIVE_DOCUMENT_INDEXING" \
+            "${drive_group_args[@]}" \
             --drive-document-sharing "$UAT_DRIVE_DOCUMENT_SHARING" \
             --drive-agent-packages-enabled "$UAT_DRIVE_AGENT_PACKAGES_ENABLED" \
             --gmail-chat-reads "$UAT_GMAIL_CHAT_READS" \
@@ -3030,12 +3038,26 @@ jobs:
             --baseline /tmp/uat-paused-drive-baseline.json \
             --github-output "$GITHUB_OUTPUT"
 
+      - name: Pause Data packets scheduler when UAT activation is off
+        id: pause-drive-groups
+        if: always() && !cancelled() && inputs.preserve_paused_drive_worker != true && vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED != 'true' && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true' && steps.deploy-drive-worker.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          snapshot=/tmp/uat-drive-v1-before-groups.json
+          python3 deploy/drive/v1_scheduler_state.py capture-if-present --stage groups --snapshot "${snapshot}"
+          if ! python3 deploy/drive/v1_scheduler_state.py quarantine --stage groups; then
+            python3 deploy/drive/v1_scheduler_state.py restore --stage groups --snapshot "${snapshot}"
+            exit 1
+          fi
+
       - name: Deploy isolated V1 Drive worker while legacy jobs stay paused
         id: deploy-drive-v1-worker
-        if: always() && !cancelled() && inputs.preserve_paused_drive_worker == true && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true' && steps.verify-paused-drive-maintenance.outcome == 'success' && steps.activate-account-deletion.outcome == 'success' && steps.activate-personal-gmail-monitor.outcome == 'success' && steps.activate-pwm-notifications.outcome == 'success'
+        if: always() && !cancelled() && (inputs.preserve_paused_drive_worker == true || vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED == 'true') && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true' && (inputs.preserve_paused_drive_worker != true || steps.verify-paused-drive-maintenance.outcome == 'success') && (inputs.preserve_paused_drive_worker == true || steps.deploy-drive-worker.outcome == 'success') && steps.activate-account-deletion.outcome == 'success' && steps.activate-personal-gmail-monitor.outcome == 'success' && steps.activate-pwm-notifications.outcome == 'success'
         shell: bash
         env:
           DRIVE_WORK_DRAIN_ENABLED: ${{ vars.DRIVE_V1_WORK_DRAIN_UAT_ENABLED || 'true' }}
+          DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED: ${{ vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED || 'false' }}
           IMAGE_REFERENCE: ${{ steps.build-backend-image.outputs.image_reference }}
           DEPLOY_SHA: ${{ steps.resolve-sha.outputs.sha }}
           RUNTIME_SERVICE_ACCOUNT: ${{ env.RUNTIME_SERVICE_ACCOUNT }}
@@ -3108,7 +3130,7 @@ jobs:
 
       - name: Restore backend after Drive worker failure
         id: rollback-backend-after-drive-worker
-        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && ((inputs.preserve_paused_drive_worker == true && (steps.verify-paused-drive-maintenance.outcome != 'success' || steps.deploy-drive-v1-worker.outcome != 'success' || steps.verify-paused-drive-after-v1.outcome != 'success')) || (inputs.preserve_paused_drive_worker != true && steps.deploy-drive-worker.outcome != 'success')) && steps.scope.outputs.deploy_backend == 'true' && steps.rollback-targets.outputs.backend_revision != ''
+        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && ((inputs.preserve_paused_drive_worker == true && (steps.verify-paused-drive-maintenance.outcome != 'success' || steps.deploy-drive-v1-worker.outcome != 'success' || steps.verify-paused-drive-after-v1.outcome != 'success')) || (inputs.preserve_paused_drive_worker != true && (steps.deploy-drive-worker.outcome != 'success' || (vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED != 'true' && steps.pause-drive-groups.outcome != 'success'))) || (vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED == 'true' && steps.deploy-drive-v1-worker.outcome != 'success')) && steps.scope.outputs.deploy_backend == 'true' && steps.rollback-targets.outputs.backend_revision != ''
         shell: bash
         env:
           PREDEPLOY_DB_GATE_OUTCOME: ${{ steps.predeploy-db-gate.outcome }}
@@ -3119,7 +3141,7 @@ jobs:
 
       - name: Verify isolated V1 lane rollback after failed rollout
         id: verify-drive-v1-worker-rollback
-        if: always() && inputs.preserve_paused_drive_worker == true && steps.deploy-drive-v1-worker.outcome == 'failure' && steps.scope.outputs.deploy_backend == 'true'
+        if: always() && (inputs.preserve_paused_drive_worker == true || vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED == 'true') && steps.deploy-drive-v1-worker.outcome == 'failure' && steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -3132,7 +3154,7 @@ jobs:
 
       - name: Restore frontend after Drive worker failure
         id: rollback-frontend-after-drive-worker
-        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && ((inputs.preserve_paused_drive_worker == true && (steps.verify-paused-drive-maintenance.outcome != 'success' || steps.deploy-drive-v1-worker.outcome != 'success' || steps.verify-paused-drive-after-v1.outcome != 'success')) || (inputs.preserve_paused_drive_worker != true && steps.deploy-drive-worker.outcome != 'success')) && steps.scope.outputs.deploy_backend == 'true' && steps.scope.outputs.deploy_frontend == 'true' && steps.rollback-targets.outputs.frontend_revision != ''
+        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && ((inputs.preserve_paused_drive_worker == true && (steps.verify-paused-drive-maintenance.outcome != 'success' || steps.deploy-drive-v1-worker.outcome != 'success' || steps.verify-paused-drive-after-v1.outcome != 'success')) || (inputs.preserve_paused_drive_worker != true && (steps.deploy-drive-worker.outcome != 'success' || (vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED != 'true' && steps.pause-drive-groups.outcome != 'success'))) || (vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED == 'true' && steps.deploy-drive-v1-worker.outcome != 'success')) && steps.scope.outputs.deploy_backend == 'true' && steps.scope.outputs.deploy_frontend == 'true' && steps.rollback-targets.outputs.frontend_revision != ''
         shell: bash
         env:
           PREDEPLOY_DB_GATE_OUTCOME: ${{ steps.predeploy-db-gate.outcome }}
@@ -3253,6 +3275,17 @@ jobs:
             fi
           elif [ "${{ steps.deploy-drive-worker.outcome }}" = "success" ]; then
             DRIVE_WORKER_GATE_SUCCESS=true
+          fi
+          if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
+             && [ "${{ vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED || 'false' }}" = "true" ] \
+             && [ "${{ steps.deploy-drive-v1-worker.outcome }}" != "success" ]; then
+            DRIVE_WORKER_GATE_SUCCESS=false
+          fi
+          if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
+             && [ "${{ inputs.preserve_paused_drive_worker }}" != "true" ] \
+             && [ "${{ vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED || 'false' }}" != "true" ] \
+             && [ "${{ steps.pause-drive-groups.outcome }}" != "success" ]; then
+            DRIVE_WORKER_GATE_SUCCESS=false
           fi
 
           if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \

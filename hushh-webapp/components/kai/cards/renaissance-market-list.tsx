@@ -1,31 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import {
-  Rows3,
-  Search,
-  SlidersHorizontal,
-  TrendingDown,
-  TrendingUp,
-} from "@/components/icons";
+
 
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
-import { RenaissanceVerdictCard } from "@/components/kai/cards/renaissance-verdict-card";
+import { StockDetailContent, type StockHistoryLoader } from "@/components/kai/cards/stock-detail-content";
+import styles from "@/components/kai/shared/finance-workspace.module.css";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
+import { StockListToolbar } from "@/components/kai/cards/stock-list-toolbar";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { Button } from "@/lib/morphy-ux/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
+import { SettingsGroup } from "@/components/profile/settings-ui";
 import { marketSettingsGroupClassName } from "@/components/kai/shared/market-surface-theme";
 import {
   Pagination,
@@ -42,38 +29,14 @@ import type {
   KaiMarketCompanyFacts,
 } from "@/lib/services/api-service";
 import { cn } from "@/lib/utils";
-
 import { formatCurrency, formatCompactNumber } from "@/lib/kai/market-value-format";
+
+
 
 const ALL_FILTER = "all";
 const MOBILE_PICKS_PAGE_SIZE_OPTIONS = [8, 12, 16] as const;
 const DESKTOP_PICKS_PAGE_SIZE_OPTIONS = [8, 16, 24] as const;
 
-function parsePageSize(
-  value: string,
-  options: readonly number[],
-  fallback: number,
-): number {
-  const parsed = Number(value);
-  return options.includes(parsed) ? parsed : fallback;
-}
-
-function formatRatio(value: number | null | undefined): string {
-  return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(2)}×` : "N/A";
-}
-
-function formatAsOf(value: string | null | undefined): string {
-  const text = String(value || "").trim();
-  if (!text) return "Snapshot time unavailable";
-  const date = new Date(text);
-  if (Number.isNaN(date.getTime())) return "Snapshot time unavailable";
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
 
 function tierTone(tier: string | null | undefined): string {
   const normalized = String(tier || "")
@@ -90,16 +53,6 @@ function tierTone(tier: string | null | undefined): string {
   return "bg-muted text-muted-foreground";
 }
 
-function sourceStateTone(source: KaiHomePickSource): string {
-  if (source.state === "pending") {
-    return "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300";
-  }
-  if (source.state === "unavailable") {
-    return "border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-300";
-  }
-  return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
-}
-
 function rowSearchText(row: KaiHomeRenaissanceItem): string {
   return [
     row.symbol,
@@ -113,25 +66,6 @@ function rowSearchText(row: KaiHomeRenaissanceItem): string {
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
-}
-
-function MarketListControlField({
-  label,
-  children,
-  className,
-}: {
-  label: string;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <div className={cn("min-w-0 space-y-2", className)}>
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-        {label}
-      </p>
-      {children}
-    </div>
-  );
 }
 
 export function mergeMarketCompanyFacts(
@@ -158,6 +92,8 @@ export function RiaPicksList({
   loadCompanyFacts,
   onAnalyze,
   onSelectedSymbolChange,
+  loadHistory,
+  toolbarActions,
 }: {
   rows?: KaiHomeRenaissanceItem[];
   sources?: KaiHomePickSource[];
@@ -167,10 +103,11 @@ export function RiaPicksList({
   loadCompanyFacts?: (symbols: string[]) => Promise<Record<string, KaiMarketCompanyFacts>>;
   onAnalyze?: (symbol: string) => void;
   onSelectedSymbolChange?: (symbol: string | null) => void;
+  loadHistory?: StockHistoryLoader;
+  toolbarActions?: ReactNode;
 }) {
   const isMobile = useIsMobile();
-  const useAdaptiveSurfaceControls =
-    controlMode === "adaptive-surface" && isMobile;
+  void controlMode;
   const pageSizeOptions: readonly number[] = isMobile
     ? MOBILE_PICKS_PAGE_SIZE_OPTIONS
     : DESKTOP_PICKS_PAGE_SIZE_OPTIONS;
@@ -178,9 +115,6 @@ export function RiaPicksList({
   const [selectedRow, setSelectedRow] = useState<KaiHomeRenaissanceItem | null>(
     null,
   );
-  const [activeMobileControl, setActiveMobileControl] = useState<
-    "search" | "filters" | "rows" | null
-  >(null);
   const [query, setQuery] = useState("");
   const [tierFilter, setTierFilter] = useState<string>(ALL_FILTER);
   const [sectorFilter, setSectorFilter] = useState<string>(ALL_FILTER);
@@ -333,326 +267,20 @@ export function RiaPicksList({
   const visibleStart =
     filteredRows.length === 0 ? 0 : (page - 1) * pageSize + 1;
   const visibleEnd = Math.min(page * pageSize, filteredRows.length);
-  const activeFilterLabels = [
-    query.trim() ? `Search: ${query.trim()}` : null,
-    tierFilter !== ALL_FILTER ? `Tier ${tierFilter}` : null,
-    sectorFilter !== ALL_FILTER ? sectorFilter : null,
-  ].filter(Boolean) as string[];
+
 
   const goToPage = (nextPage: number) => {
     setPage(Math.max(1, Math.min(totalPages, nextPage)));
   };
 
   return (
-    <div className="space-y-4 sm:mx-auto sm:w-full sm:max-w-[1040px]">
+    <div className={cn(styles.detail, "space-y-4")}>
+      <StockListToolbar query={query} setQuery={setQuery} tier={tierFilter} setTier={setTierFilter}
+        sector={sectorFilter} setSector={setSectorFilter} sectors={sectors}
+        pageSize={pageSize} setPageSize={setPageSize} pageSizes={pageSizeOptions}
+        sources={availableSources} activeSource={activeSource?.id || "default"} onSourceChange={onSourceChange} actions={toolbarActions} />
       <SettingsGroup className={marketSettingsGroupClassName}>
-        <div className="space-y-3 px-4 py-3 sm:px-4">
-          {useAdaptiveSurfaceControls ? (
-            <>
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  {availableSources.length > 1 ? <div className="min-w-0 flex-1">
-                    <Select
-                      value={activeSource?.id || "default"}
-                      onValueChange={(nextValue) => {
-                        if (!onSourceChange || nextValue === activeSource?.id)
-                          return;
-                        onSourceChange(nextValue);
-                      }}
-                    >
-                      <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-left shadow-[var(--shadow-xs)]">
-                        <SelectValue placeholder="Default list" />
-                      </SelectTrigger>
-                      <SelectContent
-                        align="end"
-                        position="popper"
-                        className="w-[var(--radix-select-trigger-width)] min-w-[220px]"
-                      >
-                        {availableSources.map((source) => (
-                          <SelectItem key={source.id} value={source.id}>
-                            <div className="flex items-center justify-between gap-2">
-                              <span>{source.label}</span>
-                              {source.state && source.state !== "ready" ? (
-                                <Badge
-                                  variant="outline"
-                                  className={cn(
-                                    "px-1.5 py-0 text-[10px] font-semibold uppercase",
-                                    sourceStateTone(source),
-                                  )}
-                                >
-                                  {source.state}
-                                </Badge>
-                              ) : null}
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div> : <p className="min-w-0 flex-1 text-xs text-muted-foreground">{filteredRows.length} stocks</p>}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setActiveMobileControl((current) =>
-                        current === "search" ? null : "search",
-                      )
-                    }
-                    className={cn(
-                      "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)] transition-colors hover:text-foreground",
-                      activeMobileControl === "search" &&
-                        "bg-primary/10 text-primary",
-                    )}
-                    aria-label="Search list"
-                  >
-                    <Search className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setActiveMobileControl((current) =>
-                        current === "filters" ? null : "filters",
-                      )
-                    }
-                    className={cn(
-                      "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)] transition-colors hover:text-foreground",
-                      activeMobileControl === "filters" &&
-                        "bg-primary/10 text-primary",
-                    )}
-                    aria-label="Filter list"
-                  >
-                    <SlidersHorizontal className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setActiveMobileControl((current) =>
-                        current === "rows" ? null : "rows",
-                      )
-                    }
-                    className={cn(
-                      "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)] transition-colors hover:text-foreground",
-                      activeMobileControl === "rows" &&
-                        "bg-primary/10 text-primary",
-                    )}
-                    aria-label="Rows per page"
-                  >
-                    <Rows3 className="h-4 w-4" />
-                  </button>
-                </div>
-
-                {activeMobileControl === "search" ? (
-                  <SurfaceInset className="px-3 py-3">
-                    <div className="relative">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                      <Input
-                        value={query}
-                        onChange={(event) => setQuery(event.target.value)}
-                        placeholder="Search symbol, company, sector, or thesis"
-                        autoComplete="off"
-                        autoCorrect="off"
-                        spellCheck={false}
-                        className="h-10 rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] pl-9 shadow-[var(--shadow-xs)]"
-                      />
-                    </div>
-                  </SurfaceInset>
-                ) : null}
-
-                {activeMobileControl === "filters" ? (
-                  <SurfaceInset className="grid gap-3 px-3 py-3">
-                    <Select value={tierFilter} onValueChange={setTierFilter}>
-                      <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]">
-                        <SelectValue placeholder="All tiers" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={ALL_FILTER}>All tiers</SelectItem>
-                        <SelectItem value="ACE">ACE</SelectItem>
-                        <SelectItem value="KING">KING</SelectItem>
-                        <SelectItem value="QUEEN">QUEEN</SelectItem>
-                        <SelectItem value="JACK">JACK</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Select
-                      value={sectorFilter}
-                      onValueChange={setSectorFilter}
-                    >
-                      <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]">
-                        <SelectValue placeholder="All sectors" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={ALL_FILTER}>All sectors</SelectItem>
-                        {sectors.map((sector) => (
-                          <SelectItem key={sector} value={sector}>
-                            {sector}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </SurfaceInset>
-                ) : null}
-
-                {activeMobileControl === "rows" ? (
-                  <SurfaceInset className="px-3 py-3">
-                    <Select
-                      value={String(pageSize)}
-                      onValueChange={(value) => {
-                        setPageSize(
-                          parsePageSize(
-                            value,
-                            pageSizeOptions,
-                            defaultPageSize,
-                          ),
-                        );
-                        setPage(1);
-                      }}
-                    >
-                      <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-sm shadow-[var(--shadow-xs)]">
-                        <SelectValue
-                          placeholder={`${defaultPageSize} per page`}
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {pageSizeOptions.map((option) => (
-                          <SelectItem key={option} value={String(option)}>
-                            {option} per page
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </SurfaceInset>
-                ) : null}
-
-                {activeFilterLabels.length ? (
-                  <div className="flex flex-wrap gap-2">
-                    {activeFilterLabels.map((label) => (
-                      <Badge
-                        key={label}
-                        variant="outline"
-                        className="border-[color:var(--app-card-border-standard)] bg-background/75 text-muted-foreground"
-                      >
-                        {label}
-                      </Badge>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            </>
-          ) : (
-            <div className="space-y-3">
-              <div className={cn("grid gap-3", availableSources.length > 1 ? "md:grid-cols-3" : "md:grid-cols-2")}>
-                {availableSources.length > 1 ? <MarketListControlField label="List source">
-                  <Select
-                    value={activeSource?.id || "default"}
-                    onValueChange={(nextValue) => {
-                      if (!onSourceChange || nextValue === activeSource?.id)
-                        return;
-                      onSourceChange(nextValue);
-                    }}
-                  >
-                    <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-left shadow-[var(--shadow-xs)]">
-                      <SelectValue placeholder="Default list" />
-                    </SelectTrigger>
-                    <SelectContent
-                      align="end"
-                      position="popper"
-                      className="w-[var(--radix-select-trigger-width)] min-w-[220px]"
-                    >
-                      {availableSources.map((source) => (
-                        <SelectItem key={source.id} value={source.id}>
-                          <div className="flex items-center justify-between gap-2">
-                            <span>{source.label}</span>
-                            {source.state && source.state !== "ready" ? (
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  "px-1.5 py-0 text-[10px] font-semibold uppercase",
-                                  sourceStateTone(source),
-                                )}
-                              >
-                                {source.state}
-                              </Badge>
-                            ) : null}
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </MarketListControlField> : null}
-
-                <MarketListControlField label="Tier">
-                  <Select value={tierFilter} onValueChange={setTierFilter}>
-                    <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]">
-                      <SelectValue placeholder="All tiers" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={ALL_FILTER}>All tiers</SelectItem>
-                      <SelectItem value="ACE">ACE</SelectItem>
-                      <SelectItem value="KING">KING</SelectItem>
-                      <SelectItem value="QUEEN">QUEEN</SelectItem>
-                      <SelectItem value="JACK">JACK</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </MarketListControlField>
-
-                <MarketListControlField label="Sector">
-                  <Select value={sectorFilter} onValueChange={setSectorFilter}>
-                    <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]">
-                      <SelectValue placeholder="All sectors" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={ALL_FILTER}>All sectors</SelectItem>
-                      {sectors.map((sector) => (
-                        <SelectItem key={sector} value={sector}>
-                          {sector}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </MarketListControlField>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
-                <MarketListControlField label="Search">
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      value={query}
-                      onChange={(event) => setQuery(event.target.value)}
-                      placeholder="Search symbol, company, sector, or thesis"
-                      autoComplete="off"
-                      autoCorrect="off"
-                      spellCheck={false}
-                      className="h-10 rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] pl-9 shadow-[var(--shadow-xs)]"
-                    />
-                  </div>
-                </MarketListControlField>
-
-                <MarketListControlField label="Rows">
-                  <Select
-                    value={String(pageSize)}
-                    onValueChange={(value) => {
-                      setPageSize(
-                        parsePageSize(value, pageSizeOptions, defaultPageSize),
-                      );
-                      setPage(1);
-                    }}
-                  >
-                    <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-sm shadow-[var(--shadow-xs)]">
-                      <SelectValue
-                        placeholder={`${defaultPageSize} per page`}
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {pageSizeOptions.map((option) => (
-                        <SelectItem key={option} value={String(option)}>
-                          {option} per page
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </MarketListControlField>
-              </div>
-            </div>
-          )}
-
+        <div className="px-4 py-3">
           <p className="text-xs leading-5 text-muted-foreground">
             {filteredRows.length > 0
               ? `${visibleStart}-${visibleEnd} of ${filteredRows.length} names`
@@ -666,7 +294,7 @@ export function RiaPicksList({
           </div>
         ) : (
           <div
-            className="touch-pan-y"
+            className={cn(styles.stockRows, "touch-pan-y")}
             data-no-route-swipe
           >
             {currentPageRows.map((row) => {
@@ -687,7 +315,7 @@ export function RiaPicksList({
                   onClick={() => setSelectedRow(row)}
                   className={cn(
                     "group relative isolate flex w-full gap-3 text-left transition-colors",
-                    "items-center overflow-hidden border-t border-border/60 px-3 py-3 hover:bg-muted/40 active:bg-muted/60 first:border-t-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary",
+                    "items-center border-t border-border/60 px-4 py-4 hover:bg-muted/40 active:bg-muted/60 first:border-t-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary",
                   )}
                 >
                   <div className="shrink-0">
@@ -699,7 +327,7 @@ export function RiaPicksList({
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-center gap-2">
-                      <span className="truncate text-sm font-semibold tracking-tight text-foreground">
+                      <span data-stock-name className="text-sm font-medium text-foreground">
                         {row.company_name || row.symbol}
                       </span>
                       <Badge
@@ -720,9 +348,9 @@ export function RiaPicksList({
                         </Badge>
                       ) : null}
                     </div>
-                    <p className="mt-1 flex flex-wrap gap-x-2 text-[11px] leading-5 text-muted-foreground sm:text-xs">
+                    <p data-stock-meta className="mt-1 flex flex-wrap gap-x-2 text-xs leading-[18px] text-muted-foreground">
                       <span>{row.symbol}</span>
-                      {row.sector ? <span className="hidden sm:inline">{row.sector}</span> : null}
+                      {row.sector ? <span >{row.sector}</span> : null}
                       <span className="whitespace-nowrap">{capLabel}</span>
                     </p>
                   </div>
@@ -732,7 +360,7 @@ export function RiaPicksList({
                       isMobile ? "min-w-[5.25rem]" : "",
                     )}
                   >
-                    <p className="text-sm font-semibold tracking-tight text-foreground">
+                    <p className="text-sm font-semibold tabular-nums text-foreground">
                       {formatCurrency(row.price)}
                     </p>
                     <p
@@ -847,12 +475,12 @@ export function RiaPicksList({
           ) : null
         }
         title={
-          selectedRow?.company_name || selectedRow?.symbol || "Stock detail"
+          selectedRow?.symbol || "Stock detail"
         }
         description={
           selectedRow
             ? [
-                selectedRow.symbol,
+                selectedRow.company_name,
                 selectedRow.sector,
                 activeSource?.label || "Advisor list",
               ]
@@ -860,101 +488,15 @@ export function RiaPicksList({
                 .join(" • ")
             : undefined
         }
+        surfaceClassName={styles.detail}
+        headerTextOverflow="wrap"
         footer={selectedRow && onAnalyze ? <Button variant="none" effect="fade" data-voice-control-id="analysis_stock_details_preview" onClick={() => {
           const symbol = selectedRow.symbol;
           setSelectedRow(null);
           onAnalyze(symbol);
         }}>Analyze {selectedRow.symbol}</Button> : undefined}
       >
-        {selectedRow ? (
-          <div className="space-y-5">
-            <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[color:var(--app-card-border-standard)] pb-4">
-              <div>
-                <p className="text-2xl font-semibold tracking-tight text-foreground">
-                  {formatCurrency(selectedRow.price)}
-                </p>
-                {typeof selectedRow.change_pct === "number" &&
-                Number.isFinite(selectedRow.change_pct) ? (
-                  <p
-                    className={cn(
-                      "mt-1 inline-flex items-center text-sm font-semibold",
-                      selectedRow.change_pct >= 0
-                        ? "text-emerald-600 dark:text-emerald-400"
-                        : "text-rose-600 dark:text-rose-400",
-                    )}
-                  >
-                    {selectedRow.change_pct >= 0 ? (
-                      <TrendingUp className="mr-1 h-4 w-4" />
-                    ) : (
-                      <TrendingDown className="mr-1 h-4 w-4" />
-                    )}
-                    {selectedRow.change_pct >= 0 ? "+" : ""}
-                    {selectedRow.change_pct.toFixed(2)}%
-                  </p>
-                ) : null}
-              </div>
-              <div className="flex flex-wrap justify-end gap-2">
-                <Badge
-                  variant="secondary"
-                  className={cn(
-                    "border-0 text-[10px] font-semibold",
-                    tierTone(selectedRow.tier),
-                  )}
-                >
-                  {selectedRow.tier || "CORE"}
-                </Badge>
-                {selectedRow.degraded ? (
-                  <Badge
-                    variant="outline"
-                    className="border-amber-500/16 bg-amber-500/8 text-[10px] font-semibold text-amber-700 dark:text-amber-300"
-                  >
-                    Delayed
-                  </Badge>
-                ) : null}
-              </div>
-            </div>
-
-            <SettingsGroup
-              title="Company facts"
-              className={marketSettingsGroupClassName}
-            >
-              <SettingsRow
-                density="compact"
-                title="Market cap"
-                trailing={formatCompactNumber(selectedFacts?.market_cap ?? (selectedRow.market_cap && selectedRow.market_cap > 0 ? selectedRow.market_cap : null))}
-              />
-              <SettingsRow
-                density="compact"
-                title="P/E (TTM)"
-                trailing={formatRatio(selectedFacts?.pe_ratio)}
-              />
-              <SettingsRow density="compact" title="P/B" trailing={formatRatio(selectedFacts?.pb_ratio)} />
-              <SettingsRow density="compact" title="Debt / equity" trailing={formatRatio(selectedFacts?.debt_to_equity)} />
-              <SettingsRow density="compact" title="List free cash flow" trailing={typeof selectedRow.fcf_billions === "number" ? `$${selectedRow.fcf_billions.toFixed(1)}B` : "N/A"} />
-              <SettingsRow
-                density="compact"
-                title="Financial period end"
-                trailing={selectedFacts?.financial_period_end || "Unavailable"}
-              />
-              <SettingsRow
-                density="compact"
-                title="Quote updated"
-                trailing={
-                  selectedRow.quote_status === "unsupported"
-                    ? "Unsupported"
-                    : formatAsOf(selectedRow.as_of)
-                }
-              />
-            </SettingsGroup>
-            <p className="text-xs leading-5 text-muted-foreground">
-              {selectedFacts?.source || "Financial source unavailable"}
-              {selectedFacts?.retrieved_at ? ` · Retrieved ${formatAsOf(selectedFacts.retrieved_at)}` : ""}
-              {selectedFacts?.stale ? " · Cached" : ""}
-              {selectedFacts?.ratio_basis ? ` · ${selectedFacts.ratio_basis}` : ""}
-            </p>
-            <RenaissanceVerdictCard row={{ ...selectedRow, company_facts: selectedFacts }} />
-          </div>
-        ) : null}
+        {selectedRow ? <StockDetailContent key={selectedRow.symbol} row={selectedRow} facts={selectedFacts} loadHistory={loadHistory} /> : null}
       </KaiControlSurface>
     </div>
   );

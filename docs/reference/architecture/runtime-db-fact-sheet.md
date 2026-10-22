@@ -63,6 +63,7 @@ that file for the full record; this table is the index.
 | `consent_export_workflows` | `workflow_state` | `iam-consent-governance` | 2 tables |
 | `consumer_scope_commerce` | `audit_regulated` | `iam-consent-governance` | `scope_commerce_*` |
 | `developer_access` | `audit_regulated` | `mcp-developer-surface` | `developer_*` |
+| `drive_four_group_index` | `provider_cache` | `backend-runtime-governance` | 2 tables; server-sealed virtual folders and preparation state, default off |
 | `feed_events` | `workflow_state` | `backend-runtime-governance` | 1 table |
 | `hushh_tech_client_identity_state` *(uat_synthetic)* | `personal_metadata` | `iam-consent-governance` | 2 tables |
 | `hushh_tech_client_launch_workflows` *(uat_synthetic)* | `workflow_state` | `iam-consent-governance` | 1 table |

@@ -34,6 +34,83 @@ SCANNER = "sha256:" + "c" * 64
 ORIGIN = "https://consent-protocol-drive-v1-worker-abcd.a.run.app"
 
 
+@pytest.fixture(autouse=True)
+def reset_scheduler_lane():
+    scheduler.select_stage("v1")
+    yield
+    scheduler.select_stage("v1")
+
+
+def test_group_lane_rejects_v1_snapshots_and_restores_only_its_new_job(monkeypatch, tmp_path):
+    scheduler.select_stage("groups")
+    group_job = _job()
+    group_job["httpTarget"]["body"] = base64.b64encode(scheduler.BODY).decode()
+    value = {"job": group_job}
+    calls = []
+    monkeypatch.setattr(scheduler, "_origin", lambda: ORIGIN)
+    monkeypatch.setattr(scheduler, "_describe", lambda: value["job"])
+
+    def run(*args):
+        calls.append(args)
+        if args[:3] == ("scheduler", "jobs", "delete"):
+            value["job"] = None
+        return ""
+
+    monkeypatch.setattr(scheduler, "_run", run)
+    snapshot = tmp_path / "groups.json"
+    snapshot.write_text(json.dumps({"schema": "drive.v1.scheduler.v1", "job": None}))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["v1_scheduler_state.py", "restore", "--stage", "groups", "--snapshot", str(snapshot)],
+    )
+    assert scheduler.main() == 1 and calls == []
+    snapshot.write_text(json.dumps({"schema": "drive.groups.scheduler.v1", "job": None}))
+    assert scheduler.main() == 0
+    assert calls[0][:4] == ("scheduler", "jobs", "delete", "drive-work-groups-uat")
+    assert all("drive-work-v1-uat" not in call for call in calls)
+
+
+def test_partial_group_target_can_be_restored_from_its_paused_snapshot(monkeypatch, tmp_path):
+    scheduler.select_stage("groups")
+    value = {
+        "job": {
+            "name": scheduler.FULL_JOB,
+            "state": "PAUSED",
+            "httpTarget": {"uri": "https://invalid.test"},
+        }
+    }
+    monkeypatch.setattr(scheduler, "_origin", lambda: ORIGIN)
+    monkeypatch.setattr(scheduler, "_describe", lambda: value["job"])
+    calls = []
+
+    def run(*args):
+        calls.append(args)
+        if args[:3] == ("scheduler", "jobs", "update"):
+            job = _job()
+            job["httpTarget"]["body"] = base64.b64encode(scheduler.BODY).decode()
+            value["job"] = job
+        if args[:3] == ("scheduler", "jobs", "pause"):
+            value["job"]["state"] = "PAUSED"
+        return ""
+
+    monkeypatch.setattr(scheduler, "_run", run)
+    snapshot = tmp_path / "groups.json"
+    snapshot.write_text(
+        json.dumps(
+            {"schema": "drive.groups.scheduler.v1", "job": {"origin": ORIGIN, "state": "PAUSED"}}
+        )
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["v1_scheduler_state.py", "restore", "--stage", "groups", "--snapshot", str(snapshot)],
+    )
+    assert scheduler.main() == 0
+    assert scheduler._state(value["job"], ORIGIN) == {"origin": ORIGIN, "state": "PAUSED"}
+    assert all("drive-work-v1-uat" not in call for call in calls)
+
+
 def _job() -> dict:
     return {
         "name": scheduler.FULL_JOB,

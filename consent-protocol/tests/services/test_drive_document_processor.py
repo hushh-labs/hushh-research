@@ -239,6 +239,137 @@ def test_real_pdf_and_docx_text_extraction():
     assert parse_document(content, DOCX).pages == ("Private statement",)
 
 
+def test_pdf_prefix_recovers_rooted_text_before_cut_object_and_keeps_full_parser_strict():
+    from hushh_mcp.services.drive_document_prefix import parse_prefix_document
+
+    prefix = pdf().split(b"xref")[0] + b"6 0 obj\n<< /Length 999999 >>\nstream\ncut"
+    with pytest.raises(ParseError):
+        parse_document(prefix, "application/pdf")
+    parsed = parse_prefix_document(prefix, "application/pdf")
+    assert "Synthetic bank statement January 2026" in parsed.pages[0]
+    assert parsed.truncated and parsed.method == "pdf_catalog_recovery"
+    later_missing = prefix.replace(b"/Kids [3 0 R]", b"/Kids [3 0 R 99 0 R]")
+    assert parse_prefix_document(later_missing, "application/pdf").pages == parsed.pages
+
+
+@pytest.mark.parametrize(
+    "damage", ["orphan", "font", "contents", "length_zero", "encrypted", "form"]
+)
+def test_pdf_prefix_rejects_unrooted_or_incomplete_evidence(damage):
+    from hushh_mcp.services.drive_document_prefix import parse_prefix_document
+
+    prefix = pdf().split(b"xref")[0]
+    if damage == "orphan":
+        prefix = prefix.replace(b"/Kids [3 0 R]", b"/Kids []")
+    elif damage == "font":
+        prefix = prefix.replace(b"/F1 4 0 R", b"/F1 99 0 R")
+    elif damage in {"contents", "length_zero"}:
+        import re
+
+        prefix = re.sub(
+            rb"/Length \d+", b"/Length 0" if damage == "length_zero" else b"/Length 999999", prefix
+        )
+    elif damage == "encrypted":
+        prefix += b"trailer << /Encrypt 99 0 R >>"
+    else:
+        prefix = prefix.replace(
+            b"/Resources << /Font", b"/Resources << /XObject << /Fm 6 0 R >> /Font"
+        )
+        stream = b"/Fm Do"
+        start = prefix.index(b"5 0 obj")
+        prefix = (
+            prefix[:start]
+            + b"5 0 obj\n<< /Length 6 >>\nstream\n"
+            + stream
+            + b"\nendstream\nendobj\n"
+        )
+        prefix += b"6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 600 200] /Length 999999 >>\nstream\nBT /F1 12 Tf (Unverified) Tj ET\nendstream\nendobj\n"
+    with pytest.raises(ParseError):
+        parse_prefix_document(prefix, "application/pdf")
+
+
+@pytest.mark.parametrize("descriptor", [False, True])
+def test_docx_prefix_recovers_local_members_and_rejects_bad_crc_or_unsafe_members(descriptor):
+    from hushh_mcp.services.drive_document_prefix import parse_prefix_document
+
+    class StreamingOutput(io.BytesIO):
+        def seek(self, *args):
+            raise io.UnsupportedOperation()
+
+    def archive(extra=False):
+        output = StreamingOutput() if descriptor else io.BytesIO()
+        with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as zipped:
+            zipped.writestr("[Content_Types].xml", "<Types/>")
+            zipped.writestr(
+                "word/document.xml",
+                '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Synthetic prefix</w:t></w:r></w:p></w:body></w:document>',
+            )
+            if extra:
+                zipped.writestr("../unsafe", "bad")
+        return output.getvalue().split(b"PK\x01\x02")[0]
+
+    prefix = archive()
+    parsed = parse_prefix_document(prefix, DOCX)
+    assert parsed.pages[0].strip() == "Synthetic prefix" and parsed.method == "docx_local_headers"
+    damaged = bytearray(prefix)
+    damaged[(prefix.index(b"PK\x07\x08") + 4) if descriptor else 14] ^= 1
+    with pytest.raises(ParseError):
+        parse_prefix_document(bytes(damaged), DOCX)
+    with pytest.raises(ParseError):
+        parse_prefix_document(archive(extra=True), DOCX)
+
+
+def test_prefix_text_keeps_boundary_character_rules_and_raw_byte_limit():
+    from hushh_mcp.services.drive_document_prefix import PREFIX_LIMIT, parse_prefix_document
+
+    assert parse_prefix_document(b"hello \xe2\x82", "text/plain").pages == ("hello ",)
+    assert parse_prefix_document("hello world".encode("utf-16"), "text/plain").pages == (
+        "hello world",
+    )
+    for raw in (b"hello \xff corrupt", b"hello\x00bad", b"x" * (PREFIX_LIMIT + 1)):
+        with pytest.raises(ParseError):
+            parse_prefix_document(raw, "text/plain")
+
+
+def test_docx_prefix_partial_xml_rejects_entities_and_expansion_bombs():
+    from hushh_mcp.services.drive_document_prefix import parse_prefix_document
+
+    root = b'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>'
+    for suffix in (b"Text</w:t>", b"<!ENTITY x SYSTEM 'file:///secret'>"):
+        # STORED allows a deterministic cut through the actual XML member.
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_STORED) as archive:
+            archive.writestr("word/document.xml", root + suffix + b"x" * 1000)
+        raw = output.getvalue()
+        end = raw.index(root) + len(root) + len(suffix)
+        if suffix.startswith(b"Text"):
+            assert parse_prefix_document(raw[:end], DOCX).pages == ("Text",)
+        else:
+            with pytest.raises(ParseError):
+                parse_prefix_document(raw[:end], DOCX)
+    bomb = docx(root + b"x" * (2 * 1024 * 1024)).split(b"PK\x01\x02")[0]
+    with pytest.raises(ParseError):
+        parse_prefix_document(bomb, DOCX)
+
+
+@pytest.mark.asyncio
+async def test_prefix_parser_runs_in_scrubbed_bounded_child(monkeypatch, tmp_path):
+    import os
+
+    from scripts.drive_group_local_adapters import windows_parser_process
+
+    monkeypatch.chdir(tmp_path)
+    parser = IsolatedDocumentParser(process=windows_parser_process if os.name == "nt" else None)
+    parsed = await parser.parse(
+        content=b"Synthetic child text", mime_type="text/plain", raw_prefix=True
+    )
+    assert parsed.pages == ("Synthetic child text",) and parsed.method == "text_prefix"
+    with pytest.raises(DriveReadError, match="^encrypted_document$"):
+        await parser.parse(
+            content=b"%PDF-1.4\n/Encrypt", mime_type="application/pdf", raw_prefix=True
+        )
+
+
 @pytest.mark.asyncio
 async def test_private_embedding_child_caps_native_threads_and_drops_parent_environment(
     monkeypatch,
@@ -427,6 +558,35 @@ async def test_real_isolated_parser_and_redacted_failure():
     )
     with pytest.raises(DriveReadError, match="^invalid_document$"):
         await parser.parse(content=b"PRIVATE malformed PDF", mime_type="application/pdf")
+
+
+@pytest.mark.asyncio
+async def test_transport_retains_parser_and_bounds_children_when_downloads_overlap():
+    import asyncio
+
+    from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransport
+
+    transport = GoogleDriveRestTransport(oauth=object())
+    active = peak = 0
+
+    async def child(*args, **kwargs):
+        nonlocal active, peak
+        active += 1
+        peak = max(active, peak)
+        try:
+            await asyncio.sleep(0.01)
+            return {"pages": ["synthetic text"], "truncated": False}
+        finally:
+            active -= 1
+
+    transport._parser._process = child
+    result = await asyncio.gather(
+        *(
+            transport._parser.parse(content=b"synthetic", mime_type="text/plain", live=True)
+            for _ in range(6)
+        )
+    )
+    assert peak == 2 and active == 0 and len(result) == 6
 
 
 @pytest.mark.asyncio
@@ -694,3 +854,76 @@ def test_embedding_chunk_cap_reports_truncation(monkeypatch):
     result = embedder.prepare(ParsedText(("x" * MAX_TEXT_BYTES,)))
     assert len(result.chunks) == 128
     assert result.truncated
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows local-export adapter only")
+@pytest.mark.parametrize("limited", [True, False])
+def test_local_export_windows_memory_boundary_with_negative_control(limited):
+    code = (
+        "import os; from scripts.drive_group_local_parse import install_limits; "
+        + ("job=install_limits(memory_bytes=64*1024*1024); " if limited else "job=None; ")
+        + "\ntry:\n value=bytearray(96*1024*1024); blocked=False"
+        "\nexcept MemoryError:\n blocked=True"
+        + "\nprint('blocked' if blocked else 'allocated',flush=True); os._exit(0)"
+    )
+    result = subprocess.run(  # noqa: S603 - authored synthetic boundary probe
+        [sys.executable, "-c", code], capture_output=True, timeout=10
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == (b"blocked" if limited else b"allocated")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows local-export adapter only")
+@pytest.mark.parametrize("cancel", [False, True])
+def test_local_export_windows_cpu_boundary_and_descendant_cleanup(cancel):
+    import win32api
+    import win32con
+    import win32event
+
+    code = (
+        "import os,sys,subprocess; from scripts.drive_group_local_parse import install_limits; "
+        f"job=install_limits(cpu_seconds={30 if cancel else 1}); "
+        "child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)']); "
+        "print(child.pid,flush=True); "
+        "\nwhile True: pass"
+    )
+    process = subprocess.Popen(  # noqa: S603 - authored synthetic boundary probe
+        [sys.executable, "-c", code], stdout=subprocess.PIPE
+    )
+    child_handle = None
+    try:
+        child_pid = int(process.stdout.readline())
+        child_handle = win32api.OpenProcess(win32con.SYNCHRONIZE, False, child_pid)
+        if cancel:
+            process.kill()
+        assert process.wait(timeout=10) != 0
+        assert win32event.WaitForSingleObject(child_handle, 5000) == win32event.WAIT_OBJECT_0
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.wait()
+        if child_handle is not None:
+            child_handle.Close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "nt", reason="Windows local-export adapter only")
+async def test_local_export_windows_parser_uses_scrubbed_child(monkeypatch):
+    import asyncio
+
+    from scripts.drive_group_local_adapters import windows_parser_process
+
+    monkeypatch.setenv("DB_PASSWORD", "synthetic-sensitive-environment")
+    create = asyncio.create_subprocess_exec
+
+    async def checked(*args, **kwargs):
+        assert "DB_PASSWORD" not in kwargs["env"]
+        assert kwargs["env"]["PYTHON_DOTENV_DISABLED"] == "1"
+        return await create(*args, **kwargs)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", checked)
+    result = await IsolatedDocumentParser(process=windows_parser_process).parse(
+        content=b"Issuer,Period\nSynthetic utility,April 2025", mime_type="text/csv", live=True
+    )
+    assert result.pages and "Synthetic utility" in result.pages[0]
+    assert "synthetic-sensitive-environment" not in str(result)

@@ -345,7 +345,8 @@
     "406_stripe_payout_source_binding.sql",
     "407_plg_memory_revision_index.sql",
     "408_validate_plg_memory_revision_index.sql",
-    "409_mcp_oauth_client_registration.sql"
+    "409_mcp_oauth_client_registration.sql",
+    "410_drive_group_index.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -733,6 +734,7 @@
     "399_public_profile_release_foundation.sql": "rollback/399_public_profile_release_foundation.rollback.sql",
     "407_plg_memory_revision_index.sql": "rollback/407_plg_memory_revision_index.rollback.sql",
     "408_validate_plg_memory_revision_index.sql": "rollback/408_validate_plg_memory_revision_index.rollback.sql",
-    "409_mcp_oauth_client_registration.sql": "rollback/409_mcp_oauth_client_registration.rollback.sql"
+    "409_mcp_oauth_client_registration.sql": "rollback/409_mcp_oauth_client_registration.rollback.sql",
+    "410_drive_group_index.sql": "rollback/410_drive_group_index.rollback.sql"
   }
 }

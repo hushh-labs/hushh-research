@@ -314,6 +314,11 @@ class ExternalConnectorRegistryService:
         found = await self._get_connector_row(
             connector_id, user_id=user_id, include_inactive=include_inactive
         )
+        return self.resolve_definition(connector_id, found)
+
+    @staticmethod
+    def resolve_definition(connector_id: str, found: ExternalMcpConnectorDefinition | None):
+        """Apply the same development projection to a freshly read registry row."""
         derived = _development_definitions().get(_clean(connector_id))
         if derived is not None and (found is None or found.owner_user_id is None):
             return derived

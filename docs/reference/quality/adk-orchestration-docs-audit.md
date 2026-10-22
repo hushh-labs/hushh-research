@@ -5,7 +5,7 @@
 **Main integration is complete; onboarding/security correction is local and blocks its dev → UAT promotion.**
 [PR8337](https://github.com/hushh-labs/hushh-research/pull/8337) landed as
 `0ea0f8fce3` after all 26 exact-head checks and landed smoke passed. The preserved
-infrastructure branch includes subsequent main through `6fa2ace8f385`. Earlier
+infrastructure branch reconciles subsequent main through `bd0c44c79a`, preserving its Drive and Finance changes. Earlier
 MVP receipts remain history; they do not verify the current correction candidate.
 Production, stable-channel publication and automatic owner upgrades remain held.
 
@@ -106,7 +106,7 @@ installation remain separate; Azure has completed its approval, while GCP has no
 | Surface | Exact receipt | Boundary |
 | --- | --- | --- |
 | Dev app | Read-only ADC, 22 October 22:56 UTC: backend `901838b512` / `00195-2lr`; web `f66b9f320f` / `00164-tfb`; both 100% | Governed runs `39844690705` and `39852036307`; local incident repairs are not deployed |
-| UAT app | Same readback: both `901838b512`; backend `02457-ked`, web `02009-w78`, both 100% | [Run39847871630](https://github.com/hushh-labs/hushh-research/actions/runs/39847871630) succeeded; refresh before promotion |
+| UAT app | ADC readback, 22 October 23:47 UTC: backend `901838b512` / `02457-ked`; web `f66b9f320f` / `02013-wg9`, both 100% | Web run `39870899482` succeeded. Later main rollout `39872703798` correctly refused missing exact-SHA dev acceptance; no promotion of the local correction |
 | Azure owner pod | Dev 28; digest `8b846022…68ac07`; revision `ca-hussh-one-pod--u31257e45d565` | Normal approval `op_13e165d0d1bf4a6788ae230cc7e2a93f`, verified 02:22:22 UTC. Same service identity, 1 vCPU / 2 GiB, min 0 / max 1. Active-work drain overlap is not established |
 | Schema / rollback | 69 dev checksums match; all three private-review CHECK definitions and both 971 lineage markers verified at 05:28 UTC | No historical SQL changed. Latest dev rollout records rollback targets hub `00190-b4p`, web `00158-tds`. History cleanup remains separate |
 | Integration | Main `d69c23ce45` includes the reconciled ADK `914e7c044c` and current main contracts | PR7555 merged after exact-head CI; the original infrastructure branch is synchronized without force-push. Nine unrelated peer edits remain uncommitted and excluded |
@@ -117,7 +117,7 @@ installation remain separate; Azure has completed its approval, while GCP has no
 ### Current local implementation
 
 The correction preserves nine unrelated peer edits and the active ADK worktree.
-Focused evidence: 279 UI cases; 154 backend cases; eight setup layouts at
+Focused evidence: 278 UI cases; 154 backend cases; eight setup layouts at
 320/390/800/1440 px in light/dark. TypeScript and tracing mypy passed before the
 final candidate freeze. New tests cover real API → AuthProvider invalidation,
 verified AI readiness after Back and encrypted-key reads after unlock. Controlled
@@ -205,6 +205,13 @@ selective ceilings to exact source hashes and parent provenance; the ratchet,
 exclusions and budgets remain unchanged. Existing integration chronology and original failed
 runs remain in Git. Scope-commerce qualification at `da6b4cdb8dec` retained all
 26 reviewed production deltas; it does not establish financial release acceptance.
+The Drive four-group integration record dated 2026-10-23 retains 39 independently
+reviewed size spans with exact source hashes and both integration parents. The
+original failed CI run remains linked in the record. Review found and corrected
+a partial-refresh readiness defect; scheduler CLI parsing and restoration were
+extracted rather than retained as size debt. Growth controls reject a subsequent
+increment for every recorded identity. This qualification grants no release or
+authenticated UAT acceptance; the 500/250/80 budgets and scanner remain unchanged.
 Independent review permits only the specialist test module's 568→575 line ceiling:
 the new owner-ADC case covers bridge dispatch plus consent rechecks; the 500-line
 budget and production limits are unchanged.

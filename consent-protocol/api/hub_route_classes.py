@@ -299,6 +299,7 @@ GET,POST /api/one/kyc/client-connector
 POST /api/one/runtime/gemini/validate
 [SUPPORT]
 GET /api/kai/market/company-facts/{user_id}
+GET /api/kai/market/history/{user_id}
 GET /api/one/wallet/card-access/artwork/assets/{digest}
 POST /api/one/wallet/card-access/artwork/resolve
 POST /api/one/wallet/card-access/artwork/banks

@@ -3466,6 +3466,23 @@ debt/equity, or the provider company description. Unknown ratios are null.
 Debt/equity is a multiple (Yahoo's reported percentage divided by 100).
 Provider retrieval time and financial period end remain separate.
 
+Stock detail reads `GET /api/kai/market/history/{user_id}?symbol=AAPL`
+through the existing Kai catch-all proxy and platform-aware `ApiService`.
+Firebase authentication must match the path owner before any cache/provider
+work. One uppercase symbol (at most 16 characters) and a recognized US exchange
+in the symbol master are required; unsupported listings return 422.
+The response contains `symbol`, `currency: "USD"`, `interval: "1d"`,
+`points: [{t, p}]` (Unix seconds and observed closes), `retrieved_at`, `stale`,
+and `unavailable`. At most 32 observations are returned from the existing
+month history fetcher. This is daily history, independent of the spot quote;
+it does not supply intraday candles or an earnings calendar.
+The shared L1/L2 owner uses `stock_history:v1:{symbol}:1mo`, a two-minute
+fresh window and seven-day stale-on-error window. The fetch closure refuses
+provider work outside the existing regular-session policy, including cold
+misses. A closed cold miss returns an empty unavailable result. The frontend
+preserves retrieval/cache status, aborts a dismissed selection, and offers only
+ranges containing at least two observations. No new provider or scraper is added.
+
 Sector rows now include `change_1w_pct`, `period_start_1d`, `period_start_1w`,
 `period_end` and `basis`. Both periods use observed sector ETF closes; one
 week spans five trading-session returns. Missing weekly observations stay
@@ -4016,6 +4033,34 @@ an owner confirmation card. Confirmation writes only an opaque proposal item
 identifier and the owner-visible follow-up title to the encrypted list; Gmail
 message identifiers, bodies, and received timestamps are never treated as a
 task due date or saved in the To-do record.
+
+### Owner Drive four-group folders
+
+`/api/connectors/google_drive/groups` uses a current Vault Owner, derives the owner
+from that credential, and rechecks it after storage I/O. Responses and authored
+errors are `private, no-store`. With `DRIVE_FOUR_GROUP_INDEX_ENABLED` off (the
+default), every endpoint returns 404 before storage construction. This is a
+virtual, sealed server index; it never mutates Drive, writes PKM or grants sharing.
+An enabled global switch still requires the existing environment-specific owner
+cohort; admission is rechecked after storage I/O and before lease renewal/commit.
+The existing connector catch-all web proxy forwards these endpoints. The Google
+Drive detail renders Data packets below Trusted documents on web and native.
+Content routes also require current shared-runtime placement; moving to a private
+runtime during a read prevents delivery of hub file names.
+
+| Method / suffix | Contract |
+| --- | --- |
+| `GET /` | `{status,groups,folders}`. `groups` is the four-item `{shelf,name}` catalog from `folders.json`, including empty categories. Status includes `enabled,state,revision,timeZone,listedFiles,indexedFiles,counts,listingComplete,limited,lastRunAt,modelVersion`; state is `off`, `paused`, `indexing`, `incomplete` or `ready`. Folders contain `shelf,name,period,fiscalYear,fiscalQuarter,count`. |
+| `POST /processing` | `{enabled:boolean,disclosure?:string,timeZone:string}`; strict boolean, no extra fields. Enabling requires the exact `drive-four-group-v1` disclosure and a valid IANA zone. Returns `{enabled,revision}`. Disabling pauses preparation without deleting entries. |
+| `GET /{shelf}/files?period=…&cursor=0&limit=50` | One of the four group IDs or `kept`; optional period `FY26-Q1` or `undated`, omitted for the whole shelf and always omitted for `kept`. Returns `{items,nextCursor,total}`; limit 1–100, non-negative integer offset cursor. Items contain `ref,title,mimeType,viewUrl,day,dayBasis,modifiedTime,shelf,candidate,confidence,reason,groupSource`. No text starts, vectors or provider file ID field. Offset pages are a current view, not a frozen snapshot. |
+| `POST /erase` | `{confirmed:true}`; repeat-safe owner erase, returns `{removed}`. Deletes entries, withdraws opt-in and invalidates in-flight work. No provider call. |
+
+The live Drive policy and generation remain authoritative. Background OFF pauses
+preparation; opt-in, background revision, lease expiry and connection changes fence
+late commits. Only a complete, uncapped listing permits deletion of absent files.
+The fiscal rule is title date, created time, then modified time in the owner's
+zone. Kept files have no fiscal folder. See [implementation and local release
+registration](../one/drive-four-group-index.md#slice-3-storage-worker-and-owner-api).
 
 ### Owner Drive searches
 

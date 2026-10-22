@@ -1,5 +1,31 @@
 # Drive UI Contract
 
+## Data packets amendment — 22 October 2026
+
+The shared-runtime Google Drive detail places **Data packets** immediately after
+Trusted documents and before Disconnect Drive. The server's fixed catalog owns
+the four names: Financial Assets, Insurance, Non-Financial Records and Personal
+Documents. Empty categories remain visible with a zero count. “Not sorted yet”
+is a separate count and file list; uncertain files are never forced into a group.
+
+Opening a folder requests its first 50 indexed files, across fiscal periods.
+Each row shows its title and deciding date and opens its original Google Drive
+link. Load more fetches the next page. Empty, loading and retry states are
+explicit. Web feature Back and the connector's own Back close the file list
+before leaving Drive. Native `connector-group-files` has `connector-detail` as
+its only parent; native Back uses the retained model's same close command.
+
+An unlocked owner with an admitted live Drive connection can explicitly prepare
+or pause packets. The first opt-in shows the bounded-read/retention disclosure;
+opening this screen never opts in. Processing needs Background Drive access.
+All reads use the existing connector proxy with no-store and owner checks before
+and after response bytes. File titles live only in the mounted owner/connection
+session and are retired on close, lock, account change or reconnection. Existing
+sharing Packets and Trusted documents keep their separate authority.
+
+This amendment describes source behavior. UAT admission, serving revision,
+authenticated acceptance and physical-device verification require separate proof.
+
 Status: current source-backed product reference inspected at revision
 `477864ae8d2925a7cdc5b21d8ca6e91b3f22955e` on 21 October 2026.
 Owner: frontend architecture with the connector, Documents specialist, sharing,

@@ -2986,7 +2986,8 @@
           }
         }
       ],
-      "kind": "parent"
+      "kind": "parent",
+      "reason": "Saved analysis opens in the shared History sheet; overlay dismissal and the active Stocks Back layer close it before the authored route parent. Inactive Finance panes release the layer."
     }
   },
   {

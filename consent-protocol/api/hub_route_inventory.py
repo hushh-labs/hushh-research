@@ -7,6 +7,10 @@ _Classification = TypeVar("_Classification", bound=StrEnum)
 
 CONNECTOR_INVENTORY = """
 [CONTENT]
+GET /api/connectors/google_drive/groups
+GET /api/connectors/google_drive/groups/{shelf}/files
+POST /api/connectors/google_drive/groups/processing
+POST /api/connectors/google_drive/groups/erase
 GET /api/connectors/google_drive/picker/native/pending
 GET /api/connectors/google_drive/documents
 GET /api/connectors/google_drive/searches

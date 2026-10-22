@@ -209,12 +209,21 @@ def verify_local_alert_policy() -> None:
         }
         with redirect_stdout(StringIO()):
             assert authority.local_alerts(env, repository, read) == expected
-    with (
-        patch.object(authority.subprocess, "run", side_effect=FileNotFoundError),
-        redirect_stdout(StringIO()),
+    for failure in (
+        FileNotFoundError(),
+        subprocess.CalledProcessError(1, ["gh", "auth", "token"]),
     ):
-        assert authority.local_main({"REQUIRE_GITHUB_SECRET_ALERTS_CLEAN": "1"}) == 1
-        assert authority.local_main({}) == 0
+        with (
+            patch.object(authority.subprocess, "run", side_effect=failure),
+            redirect_stdout(StringIO()),
+        ):
+            assert authority.local_main(
+                {
+                    "GITHUB_REPOSITORY": repository,
+                    "REQUIRE_GITHUB_SECRET_ALERTS_CLEAN": "1",
+                }
+            ) == 1
+            assert authority.local_main({"GITHUB_REPOSITORY": repository}) == 0
 
 
 def main() -> None:

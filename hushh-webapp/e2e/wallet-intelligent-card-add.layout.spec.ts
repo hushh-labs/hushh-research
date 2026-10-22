@@ -203,13 +203,18 @@ for (const width of [320, 390, 1440]) test(`automatic artwork form at ${width}px
   await page.setViewportSize({ width, height: 1000 }); await page.goto(origin); await awaitProductFont(page); await enterOwnedCard(page);
   await expect(page.getByLabel("Bank (optional)")).toHaveCount(0);
   await expect(page.getByLabel("Approved card designs")).toHaveCount(0);
-  const save = page.getByRole("button", { name: "Add to Wallet", exact: true }), cancel = page.getByRole("button", { name: "Cancel", exact: true });
+  const save = page.getByRole("button", { name: "Add to Wallet", exact: true });
   await save.scrollIntoViewIfNeeded();
-  const saveBox = await save.boundingBox(), cancelBox = await cancel.boundingBox();
-  expect(saveBox).not.toBeNull(); expect(cancelBox).not.toBeNull();
-  expect(saveBox!.x).toBeGreaterThanOrEqual(cancelBox!.x + cancelBox!.width);
-  expect(Math.abs(saveBox!.y - cancelBox!.y)).toBeLessThan(1);
-  expect(saveBox!.height).toBeGreaterThanOrEqual(44); expect(cancelBox!.height).toBeGreaterThanOrEqual(44);
+  // Measure both actions on one frame while the form's auto-height settles.
+  await expect.poll(() => save.evaluate(button => {
+    const cancel = [...button.closest('[data-ui-role="flow-actions"]')!.querySelectorAll('button')]
+      .find(candidate => candidate.textContent?.trim() === 'Cancel');
+    if (!cancel) return { paired: false, aligned: false, touchTargets: false };
+    const saveBox = button.getBoundingClientRect(), cancelBox = cancel.getBoundingClientRect();
+    return { paired: saveBox.x >= cancelBox.x + cancelBox.width,
+      aligned: Math.abs(saveBox.y - cancelBox.y) < 1,
+      touchTargets: saveBox.height >= 44 && cancelBox.height >= 44 };
+  })).toEqual({ paired: true, aligned: true, touchTargets: true });
   await expect(page.getByRole("button", { name: /Use (?:a simple|neutral) design/ })).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath(`add-actions-${width}.png`) });
   await page.locator('[data-ui-role="flow-actions"]').screenshot({ path: testInfo.outputPath(`add-actions-footer-${width}.png`) });

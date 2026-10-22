@@ -1,7 +1,7 @@
 "use client";
 
 import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
-import { SectionLabel } from "@/components/app-ui/typography";
+import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { cn } from "@/lib/utils";
 import type { HoldingMobileCardViewModel } from "@/components/kai/holdings/holding-mobile-card";
@@ -36,9 +36,9 @@ interface HoldingDetailsDrawerProps {
 
 function DetailRow({ label, value, valueClassName }: { label: string; value: string; valueClassName?: string }) {
   return (
-    <div className="rounded-xl border border-border/60 bg-background/70 px-3 py-2.5">
-      <SectionLabel as="p">{label}</SectionLabel>
-      <p className={cn("app-body-text mt-1 font-semibold text-foreground", valueClassName)}>{value}</p>
+    <div className={financeStyles.fact}>
+      <dt>{label}</dt>
+      <dd className={valueClassName}>{value}</dd>
     </div>
   );
 }
@@ -67,9 +67,9 @@ export function HoldingDetailsDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="border-border/70 bg-background/95 backdrop-blur-lg">
+      <DrawerContent className={cn(financeStyles.detail, "border-border/70 bg-background")}>
         <DrawerHeader className="px-5 pb-2 text-left">
-          <DrawerTitle className="app-card-title text-left text-foreground">
+          <DrawerTitle className="ui-text-navigation-title text-left text-foreground">
             {holding?.symbol || "Holding Details"}
           </DrawerTitle>
           <DrawerDescription className="app-body-text app-title-subtitle-gap text-left text-muted-foreground">
@@ -77,7 +77,7 @@ export function HoldingDetailsDrawer({
           </DrawerDescription>
         </DrawerHeader>
 
-        <div className="grid max-h-[60svh] gap-2 overflow-y-auto px-5 pb-3 sm:grid-cols-2">
+        <dl className={cn(financeStyles.facts, "max-h-[60svh] overflow-y-auto px-5 pb-3")}>
           <DetailRow label="Ticker" value={holding?.symbol || "—"} />
           <DetailRow label="Company Name" value={holding?.name || "—"} />
           <DetailRow label="Shares" value={holding ? formatShares(holding.shares) : "—"} />
@@ -90,7 +90,7 @@ export function HoldingDetailsDrawer({
             value={holding ? `${holding.portfolioWeightPct.toFixed(2)}%` : "—"}
           />
           <DetailRow label="Sector" value={holding?.sector || "Unclassified"} />
-        </div>
+        </dl>
 
         {canManageHoldings && onEdit && onToggleDelete ? (
           <DrawerFooter className="border-t border-border/60 bg-background/80 pb-[calc(1rem+var(--app-safe-area-bottom-effective))]">

@@ -1452,7 +1452,16 @@ export function KaiAnalysisPageContent() {
           />
           <AppPageContentRegion className="min-w-0 max-w-full">
             <SurfaceStack compact className="min-w-0 max-w-full">
-          {showStockBrowser ? <KaiStocksView onAnalyze={handleSelectTicker} onSelectedSymbolChange={setSelectedStockSymbol} /> : null}
+          <KaiStocksView browseStocks={showStockBrowser} historyRequested={showHistoryWhileActive} onHistoryClose={() => setShowHistoryWhileActive(false)} onAnalyze={handleSelectTicker} onSelectedSymbolChange={setSelectedStockSymbol} history={<AnalysisHistoryDashboard
+            userId={userId}
+            vaultKey={vaultKey}
+            vaultOwnerToken={vaultOwnerToken || ""}
+            onSelectTicker={handleSelectTicker}
+            onViewHistory={handleViewHistory}
+            onHistoryCount={setHistoryCount}
+            showDebateInputs={false}
+            ephemeralEntry={historyFallbackEntry}
+          />} />
           {missingEntryRouteId && missingEntryRouteId === (analysisEntryId || debateId) ? (
             <SurfaceCard className="w-full" data-testid="kai-analysis-unavailable">
               <SurfaceCardContent className="p-5 text-center">
@@ -1567,16 +1576,7 @@ export function KaiAnalysisPageContent() {
               </SurfaceCardContent>
             </SurfaceCard>
           ) : null}
-          <AnalysisHistoryDashboard
-            userId={userId}
-            vaultKey={vaultKey}
-            vaultOwnerToken={vaultOwnerToken || ""}
-            onSelectTicker={handleSelectTicker}
-            onViewHistory={handleViewHistory}
-            onHistoryCount={setHistoryCount}
-            showDebateInputs={false}
-            ephemeralEntry={historyFallbackEntry}
-          />
+
             </SurfaceStack>
           </AppPageContentRegion>
         </div>

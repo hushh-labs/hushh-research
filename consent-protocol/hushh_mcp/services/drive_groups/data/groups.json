@@ -1,0 +1,10 @@
+{
+  "groups": {
+    "financial_statements": "Statements for money accounts and transactions: bank, credit card, brokerage, loan, tax.",
+    "insurance_statements": "Insurance policies, premium notices and claim statements: health, life, vehicle, property.",
+    "non_financial_statements": "Account, usage or record statements that are not about money accounts or insurance: utilities, telecom, medical, education transcripts.",
+    "personal_documents": "Identity and personal records: passports, ID cards, certificates, resumes, letters, forms."
+  },
+  "head_chars": 400,
+  "kind": "groups_v1"
+}
