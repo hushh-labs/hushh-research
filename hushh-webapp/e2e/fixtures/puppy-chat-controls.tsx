@@ -5,6 +5,8 @@ import { startFramePacingProbe } from "../../lib/perf/frame-pacing";
 import { PuppyMachineSheet } from "../../components/agent/puppy-resource-monitor";
 import { PuppyLocalControls } from "../../components/agent/puppy-local-controls";
 import { PuppyRemoteModelPicker } from "../../components/agent/puppy-remote-model-picker";
+import { AgentDockPortal, AgentDockProvider, AgentDockVoiceBoundary } from "../../components/agent/agent-dock";
+import { AgentBarSurface, RetainedAgentBar } from "../../components/agent/agent-bar-surface";
 
 function Fixture() {
   useEffect(() => {
@@ -28,7 +30,12 @@ function Fixture() {
       {Array.from({ length: 30 }, (_, index) => <p key={index}>Synthetic conversation line {index + 1}</p>)}
       <output data-testid="sent-count">{sent}</output>
     </div>
-    <PuppyComposer busy={false} stopping={false} disabled={false} onSend={() => setSent(value => value + 1)} onStop={() => {}} />
+    <AgentDockProvider>
+      <AgentDockPortal enabled visible>
+        <PuppyComposer embedded busy={false} stopping={false} disabled={false} onSend={() => setSent(value => value + 1)} onStop={() => {}} />
+      </AgentDockPortal>
+      <AgentDockVoiceBoundary><RetainedAgentBar><AgentBarSurface><button>Talk to One</button></AgentBarSurface></RetainedAgentBar></AgentDockVoiceBoundary>
+    </AgentDockProvider>
   </main>;
 }
 createRoot(document.getElementById("root")!).render(<Fixture />);

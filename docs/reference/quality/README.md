@@ -34,6 +34,9 @@ flowchart TD
 
 This is the north-star entrypoint for design-system rules plus verification contracts that decide whether UI and analytics behavior are trustworthy.
 
+One and Puppy share portrait-header geometry and the retained composer seat;
+their connection admission, drafts, transcripts and send authority stay separate.
+
 ## Read In This Order
 
 - [design.md](./design.md): the concise cross-layer visual, shell, material, and AX contract.

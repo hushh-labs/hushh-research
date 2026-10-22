@@ -58,6 +58,8 @@ for (const width of [320, 390, 768, 1280]) {
     const composer = page.getByTestId("puppy-chat-composer");
     await expect(ribbon, errors.join("\n")).toBeVisible();
     await expect(composer).toBeVisible();
+    await expect(page.getByRole("button", { name: "Talk to One" })).toBeHidden();
+    await expect(page.locator("[data-agent-dock-composer]").getByRole("textbox", { name: "Message Puppy One" })).toBeVisible();
     await awaitProductFont(page);
     if (expired) await expect(page.getByText(/This machine is signed out/)).toBeVisible();
     const geometry = await page.evaluate(() => {

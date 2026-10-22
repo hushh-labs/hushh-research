@@ -1556,6 +1556,15 @@ article[data-message-role="peer"] .messageCluster {
   border-bottom: 0;
 }
 .inboxHeaderActions { display: flex; align-items: center; gap: 2px; }
+@media (max-width: 479px) {
+  .inboxHeader, .inboxHeading { gap: 8px; }
+  /* New chat opens the same picker; keep one compose entry beside Back. */
+  .inboxComposeButton { display: none; }
+}
+@media (max-width: 379px) {
+  .inboxHeader { height: auto; flex-wrap: wrap; }
+  .inboxHeaderActions { margin-left: auto; }
+}
 .inboxHeading h1,
 .shell[data-app-shell-width] .page .inboxHeading h1 {
   font-family: var(--font-app-heading) !important;
@@ -1715,6 +1724,10 @@ article[data-message-role="user"] .messageDeliveryState {
 .voiceButton, .sendButton { width: 44px; height: 44px; box-shadow: none; }
 /* Message controls retain their compact disc inside the shared emoji trigger. */
 article[data-message-role] .messageActions .messageActionButton { background: radial-gradient(circle, var(--chat-surface) 14px, transparent 15px); box-shadow: none; }
+/* Keep the menu circle compact inside its accessible 44px touch target. */
+article[data-message-role] .messageActions .messageActionButton[aria-haspopup="menu"] {
+  background: radial-gradient(circle, var(--chat-surface) 12px, transparent 12.5px);
+}
 .attachmentMenu { min-width: 160px; }
 .attachmentMenu [role="menuitem"] { min-height: 44px; gap: 8px; }
 .attachmentLimit { padding: 5px 8px 2px; color: var(--muted-foreground); font-size: 11px; }
@@ -1787,7 +1800,7 @@ article[data-message-role] .messageActions .messageActionButton { background: ra
 }
 /* A proportional tablet sidebar keeps its title and actions on separate
    rows, retaining all 44px targets and matching the conversation header. */
-@media (min-width: 768px) and (max-width: 1099px) and (min-height: 500px), (min-width: 1024px) and (max-width: 1099px) {
+@media (min-width: 768px) and (max-width: 1279px) and (min-height: 500px), (min-width: 1024px) and (max-width: 1279px) {
   .page .inboxHeader {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -1800,7 +1813,7 @@ article[data-message-role] .messageActions .messageActionButton { background: ra
   }
   .page .threadHeader, .page .threadHeaderContent { height: 96px; min-height: 96px; }
 }
-@media (min-width: 1100px) and (max-height: 500px) {
+@media (min-width: 1280px) and (max-height: 500px) {
   .page .inboxHeader { height: 44px; min-height: 44px; padding-block: 0; }
 }
 @media (max-width: 767px), (max-width: 1023px) and (max-height: 499px) {

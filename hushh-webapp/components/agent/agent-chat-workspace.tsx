@@ -2769,7 +2769,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     [],
   );
   const historyListOwner = useRef<{ auth: NonNullable<ReturnType<typeof snapshotValidatedAuthSessionOwner>>; epoch: number } | null>(null);
-  const puppyHistory = usePuppyConversations(user?.uid ?? null);
+  const puppyHistory = usePuppyConversations(user?.uid ?? null, isPuppySurface);
   const { conversations: puppyConversations, activeId: puppyConversationId } = puppyHistory;
   const [messages, setMessages] = useState<AgentMessage[]>(() => [
     createGreetingMessage(),
@@ -9741,7 +9741,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           )}
         >
           <div
-            data-one-centered-header={!isPuppySurface && !customNativePresentationEnabled() ? "true" : undefined}
+            data-one-centered-header={!customNativePresentationEnabled() ? "true" : undefined}
             data-agent-header-layout={customNativePresentationEnabled() ? "compact" : "portrait"}
             className={cn(
               "agent-chat-header relative z-[540] flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-[color:var(--one-chat-canvas)] px-[var(--agent-chat-header-inline-gutter)] pt-[var(--agent-chat-header-safe-top)]",
@@ -9773,10 +9773,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 className="grid h-11 w-11 shrink-0 place-items-center"
               >
                 {isPuppySurface ? (
-                  <Laptop
-                    className="h-5 w-5 text-[color:var(--app-accent-deep)]"
-                    aria-hidden
-                  />
+                  <OnePresenceAvatar state="connected" className="size-[var(--one-header-artwork-size,32px)] shrink-0" />
                 ) : (
                   <ShellActionSurface
                     variant="icon" ripple={false}

@@ -472,9 +472,9 @@ export const AGENT_SURFACE_SOURCE = {
       one(
         workspace,
         /data-one-centered-header=\{([^}]+)\}/,
-        "One-only centered header marker",
+        "shared portrait header marker",
         WORKSPACE_PATH,
-      )[1],
+      )[1].replaceAll("customNativePresentationEnabled()", "nativeCompact"),
     ),
     identityClass,
     brandTileClass,

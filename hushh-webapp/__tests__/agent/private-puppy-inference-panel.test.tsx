@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useLayoutEffect } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -42,6 +43,10 @@ vi.mock("@/components/agent/puppy-remote-model-picker", () => ({
 }));
 
 import { PrivatePuppyInferencePanel } from "@/components/agent/private-puppy-inference-panel";
+import { AgentDockProvider, AgentDockVoiceBoundary } from "@/components/agent/agent-dock";
+import { AgentBarSurface, RetainedAgentBar } from "@/components/agent/agent-bar-surface";
+import { useNativeDockPorts } from "@/components/agent/native-dock-port";
+import type { DockEvent } from "@/lib/capacitor/native-dock";
 
 beforeEach(() => {
   vi.resetAllMocks(); // also drops any queued once-implementations a failed test left behind
@@ -75,6 +80,42 @@ async function ask(question = "A synthetic question") {
 }
 
 describe("private Puppy relay", () => {
+  it("keeps the remote Puppy draft in the shared dock across mode switches", async () => {
+    let native: ReturnType<typeof useNativeDockPorts> = null;
+    function DockObserver() {
+      const ports = useNativeDockPorts();
+      useLayoutEffect(() => { native = ports; });
+      return null;
+    }
+    function Shell({ active }: { active: boolean }) {
+      return <AgentDockProvider>
+        <DockObserver />
+        <PrivatePuppyInferencePanel sharedDock active={active} composerDisabled={!active} />
+        <AgentDockVoiceBoundary><RetainedAgentBar><AgentBarSurface><button>Talk to One</button></AgentBarSurface></RetainedAgentBar></AgentDockVoiceBoundary>
+      </AgentDockProvider>;
+    }
+    const view = render(<Shell active />);
+    const input = screen.getByRole("textbox", { name: "Message Puppy One" }) as HTMLTextAreaElement;
+    expect(native!.get("text")?.projection).toMatchObject({ editorLabel: "Message Puppy", editable: true, micEnabled: false });
+    expect(input.closest("[data-agent-dock-composer]")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Talk to One" })).toBeNull();
+    fireEvent.change(input, { target: { value: "Retained Puppy draft" } });
+    input.setSelectionRange(2, 7);
+    view.rerender(<Shell active={false} />);
+    expect(native!.get("text")).toBeUndefined();
+    expect(screen.queryByRole("textbox", { name: "Message Puppy One" })).toBeNull();
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(mocks.streamPuppyPodTurn).not.toHaveBeenCalled();
+    view.rerender(<Shell active />);
+    expect(screen.getByRole("textbox", { name: "Message Puppy One" })).toBe(input);
+    expect(input).toHaveValue("Retained Puppy draft");
+    expect([input.selectionStart, input.selectionEnd]).toEqual([2, 7]);
+    await act(async () => { await native!.get("text")!.onAction({ action: "send", text: "Committed native draft" } as DockEvent); });
+    expect(await screen.findByText("Puppy answered")).toBeInTheDocument();
+    expect(mocks.streamPuppyPodTurn).toHaveBeenCalledWith(expect.objectContaining({ message: "Committed native draft" }));
+    expect(mocks.streamPuppyPodTurn).toHaveBeenCalledTimes(1);
+  });
+
   it("does not dispatch an unfinished IME composition as a Puppy turn", async () => {
     render(<PrivatePuppyInferencePanel />);
     const input = screen.getByRole("textbox", { name: "Message Puppy One" });

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
+import { readCircleInboxGeometry } from "./fixtures/messages-navigation-proof";
 
 // Production React component and CSS; fixture replaces only the service port.
 // Protocol/crypto proofs are separate and do not claim this adapter is a backend.
@@ -594,7 +595,7 @@ test("the native keyboard reveal keeps an image caption and send control above t
   await page.screenshot({ path: test.info().outputPath("circle-caption-keyboard.png"), animations: "disabled" });
 });
 
-for (const width of [320, 393, 1440]) {
+for (const width of [320, 393, 1100, 1440]) {
   test(`Circle Messages list heading matches People sizing at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
     await page.route("http://localhost/circle-list-fixture*", route => route.fulfill({
@@ -606,23 +607,11 @@ for (const width of [320, 393, 1440]) {
     await awaitProductFont(page);
     const heading = page.getByRole("heading", { name: "Messages", exact: true });
     await expect(heading).toBeVisible();
-    const geometry = await heading.evaluate(el => {
-      const style = getComputedStyle(el);
-      const header = el.parentElement!.getBoundingClientRect();
-      const title = el.getBoundingClientRect();
-      const action = el.parentElement!.querySelector("a")!.getBoundingClientRect();
-      return { fontSize: style.fontSize, lineHeight: style.lineHeight, weight: style.fontWeight,
-        headerHeight: header.height, titleLeft: title.left - header.left,
-        titleRight: title.right, actionLeft: action.left, actionRight: action.right,
-        viewport: innerWidth, pageWidth: document.documentElement.scrollWidth,
-        listHeight: el.closest("aside")!.getBoundingClientRect().height,
-        paneHeight: el.closest("[data-circle-messages-pane]")!.getBoundingClientRect().height,
-        threadHeight: el.closest("[data-circle-messages-pane]")!.querySelector(":scope > section")!.getBoundingClientRect().height };
-    });
+    const geometry = await readCircleInboxGeometry(heading);
     expect(geometry.fontSize).toBe("20px");
     expect(geometry.lineHeight).toBe("24px");
     expect(geometry.weight).toBe("600");
-    expect(geometry.headerHeight).toBe(68);
+    expect(geometry.headerHeight).toBe(width < 380 ? 120 : width >= 768 && width < 1280 ? 96 : 68);
     if (width >= 768) {
       // Both split panes reserve the centered dock; phone lists fill their pane.
       expect(Math.abs(geometry.listHeight - geometry.threadHeight)).toBeLessThanOrEqual(1);
@@ -631,8 +620,9 @@ for (const width of [320, 393, 1440]) {
     } else {
       expect(Math.abs(geometry.listHeight - geometry.paneHeight)).toBeLessThanOrEqual(1);
     }
-    expect(geometry.titleLeft).toBe(18);
-    expect(geometry.titleRight).toBeLessThanOrEqual(geometry.actionLeft);
+    expect(geometry.titleLeft).toBeGreaterThanOrEqual(18 + 44);
+    if (width < 380 || width >= 768 && width < 1280) expect(geometry.actionTop).toBeGreaterThanOrEqual(geometry.titleBottom);
+    else expect(geometry.titleRight).toBeLessThanOrEqual(geometry.actionLeft);
     expect(geometry.actionRight).toBeLessThanOrEqual(width);
     expect(geometry.pageWidth).toBeLessThanOrEqual(width + 1);
     const search = page.getByRole("searchbox", { name: "Search circles" });
@@ -663,6 +653,9 @@ for (const width of [320, 393, 1440]) {
     await expect(page.getByRole("button", { name: "Weekend friends 2 members" })).toBeVisible();
     await search.fill("");
     await search.blur();
+    await heading.scrollIntoViewIfNeeded();
     await page.screenshot({ path: test.info().outputPath(`circle-list-heading-${width}.png`) });
+    await page.getByRole("button", { name: "Go back", exact: true }).click();
+    await expect(page).toHaveURL("http://localhost/one");
   });
 }

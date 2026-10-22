@@ -44,6 +44,7 @@ import {
   NEARBY_PRIVATE_RETURN_TOKEN_PARAM,
 } from "@/lib/one-location/nearby-private-navigation";
 import type { TopShellBreadcrumbConfig } from "@/lib/navigation/top-shell-breadcrumbs";
+import { ONE_LEAF_WORKSPACE_BACK_RULES } from "./one-leaf-workspace-back-rules";
 
 type SearchParamsLike =
   | URLSearchParams
@@ -233,19 +234,7 @@ function resolveCapabilitySetupBackHref(
 }
 
 export const BACK_NAVIGATION_RULES: BackRule[] = [
-  {
-    id: "one-referrals",
-    resolve: (pathname) => {
-      if (pathname !== ROUTES.ONE_REFERRALS) return undefined;
-      return {
-        backHref: ROUTES.ONE_HOME,
-        width: "content",
-        align: "center",
-        items: [{ label: "One", href: ROUTES.ONE_HOME }],
-        suppressFallbackTitle: true,
-      };
-    },
-  },
+  ...ONE_LEAF_WORKSPACE_BACK_RULES,
   {
     id: "legal-terms-privacy",
     resolve: (pathname) => {
