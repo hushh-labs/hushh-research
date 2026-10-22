@@ -5155,7 +5155,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py",
       "symbol": "GmailLiveReceiptsService",
-      "value": 1113
+      "value": 1212
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -10762,7 +10762,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py",
       "symbol": "_project_messages",
-      "value": 103
+      "value": 104
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -18079,7 +18079,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/kai/gmail.py",
       "symbol": null,
-      "value": 955
+      "value": 973
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19222,7 +19222,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py",
       "symbol": null,
-      "value": 2026
+      "value": 2132
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20842,7 +20842,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_gmail_receipt_live_service.py",
       "symbol": null,
-      "value": 1793
+      "value": 2003
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22957,7 +22957,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/profile/gmail-connector-store.test.tsx",
       "symbol": null,
-      "value": 1080
+      "value": 1118
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22975,7 +22975,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/vault/vault-context-resume.test.tsx",
       "symbol": null,
-      "value": 771
+      "value": 778
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23281,7 +23281,7 @@
       "limit": 500,
       "path": "hushh-webapp/app/api/kai/[...path]/route.ts",
       "symbol": null,
-      "value": 567
+      "value": 569
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23812,7 +23812,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/gmail/gmail-recent-receipts.tsx",
       "symbol": null,
-      "value": 938
+      "value": 955
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25396,7 +25396,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/profile/gmail-connector-store.ts",
       "symbol": null,
-      "value": 1431
+      "value": 1456
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25405,7 +25405,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/profile/gmail-receipt-presentation.ts",
       "symbol": null,
-      "value": 914
+      "value": 917
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25576,7 +25576,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/gmail-receipts-service.ts",
       "symbol": null,
-      "value": 1334
+      "value": 1356
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25792,7 +25792,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/vault/vault-context.tsx",
       "symbol": null,
-      "value": 1087
+      "value": 1090
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25846,7 +25846,7 @@
       "limit": 500,
       "path": "hushh-webapp/scripts/architecture/audit-cache-coherence.mjs",
       "symbol": null,
-      "value": 879
+      "value": 889
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -27035,7 +27035,7 @@
       "limit": 80,
       "path": "consent-protocol/api/routes/kai/gmail.py",
       "symbol": "gmail_live_receipt_scan",
-      "value": 96
+      "value": 105
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -27161,7 +27161,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/receipt-sync-hero.layout.spec.ts",
       "symbol": null,
-      "value": 608
+      "value": 659
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -28057,7 +28057,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py",
       "symbol": "_scan_page",
-      "value": 224
+      "value": 260
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -84128,6 +84128,165 @@
         "source_sha256": "1d1cec3f16cffaabc988b92acb0eea2b31fe01c44281fcae35d309e76204f528",
         "reviewer": "mvp_backend_merge_review",
         "review": "Reviewed bounded main optional email-permission integration. Preserve provider-aware hosting, owner admission, deletion/reset distinction, fail-closed environment activation and existing service ownership. Main feed is bounded to25 records with8-limited identity lookups and final deletion/revision check; tests cover the same authority. Exact composed size only; no dependency/import exception or global budget change."
+      }
+    ]
+  },
+  "mail_receipt_continuity_review_20261022": {
+    "parent_revision": "0ea0f8fce3f3a871fd5009876fd8b9fa568d99ed",
+    "policy": "Seventeen independently reviewed exact integration/test ceilings only. New history protocol was extracted; global 500/250/80 budgets and every other finding remain unchanged.",
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py|GmailLiveReceiptsService|class exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1113,
+        "after": 1212,
+        "source_sha256": "6adb572f9565c02e704abef2069c29f518279daa739e085329a1ad66f40daa12",
+        "reviewer": "mail_backend_kt",
+        "review": "History protocol extracted to a typed injected-port module (functions at most 53 lines); existing service retains bounded authority, account admission, event identity and a stable delegation facade. Bootstrap context and checkpoint helpers are independently extracted; no provider or consent authority duplicated."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py|_scan_page|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 224,
+        "after": 260,
+        "source_sha256": "6adb572f9565c02e704abef2069c29f518279daa739e085329a1ad66f40daa12",
+        "reviewer": "mail_backend_kt",
+        "review": "History protocol extracted to a typed injected-port module (functions at most 53 lines); existing service retains bounded authority, account admission, event identity and a stable delegation facade. Bootstrap context and checkpoint helpers are independently extracted; no provider or consent authority duplicated."
+      },
+      {
+        "key": "function_size|consent-protocol/api/routes/kai/gmail.py|gmail_live_receipt_scan|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 96,
+        "after": 105,
+        "source_sha256": "fbda1a2dd849ab3020c316e16f5e84f7053bd64e5993da4d748c23fa9b87a5c1",
+        "reviewer": "mail_backend_kt",
+        "review": "Additive request/response continuity fields, classified errors and nine lines of option forwarding remain in the canonical guarded route. Splitting this integration would fragment route authority."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py|_project_messages|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 103,
+        "after": 104,
+        "source_sha256": "6adb572f9565c02e704abef2069c29f518279daa739e085329a1ad66f40daa12",
+        "reviewer": "mail_backend_kt",
+        "review": "History protocol extracted to a typed injected-port module (functions at most 53 lines); existing service retains bounded authority, account admission, event identity and a stable delegation facade. Bootstrap context and checkpoint helpers are independently extracted; no provider or consent authority duplicated."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 2026,
+        "after": 2132,
+        "source_sha256": "6adb572f9565c02e704abef2069c29f518279daa739e085329a1ad66f40daa12",
+        "reviewer": "mail_backend_kt",
+        "review": "History protocol extracted to a typed injected-port module (functions at most 53 lines); existing service retains bounded authority, account admission, event identity and a stable delegation facade. Bootstrap context and checkpoint helpers are independently extracted; no provider or consent authority duplicated."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_gmail_receipt_live_service.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1793,
+        "after": 2003,
+        "source_sha256": "a0c2cf545103789aa225fb02f4889f880746d427547806bb9772966691d15924",
+        "reviewer": "mail_backend_kt",
+        "review": "Five bounded regression cases reuse existing provider and owner fixtures to prove baseline ordering, intra-record continuation, tamper/account refusal, source archive, expired history and fifty-page continuation. No fixture authority duplicated."
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/profile/gmail-connector-store.ts||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1431,
+        "after": 1456,
+        "source_sha256": "5cd3e6dfc961dfaaea941d1a7aaa4ca703b9d82db6053ffde13b20a266f9f44c",
+        "reviewer": "mail_ui_kt",
+        "review": "Concurrent consumers join before token acquisition; token acquisition is bounded and forced bursts have at most one trailing request. Explicit reconcile:false remains false unless another queued request asks for reconciliation. Existing generation and owner authority remain canonical."
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/services/gmail-receipts-service.ts||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1334,
+        "after": 1356,
+        "source_sha256": "5b35d1d1d4daa05a2ff3a88fb9f9b7c955d34e8e1457e74be392d6fc8dc553b4",
+        "reviewer": "mail_ui_kt",
+        "review": "Validated event/checkpoint/continuation fields and private-runtime refusal extend the existing sealed provider boundary; no new provider adapter."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/lib/profile/gmail-connector-store.test.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1080,
+        "after": 1118,
+        "source_sha256": "f166ed44d514de37671dda22622ae564602808756321009ec8d4490d2637e40e",
+        "reviewer": "mail_ui_kt",
+        "review": "Isolated cases inside existing owner suite protect one trailing read, explicit persisted-status-only intent and hung-token recovery; explicit false has a zero-reconcile negative control."
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/vault/vault-context.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1087,
+        "after": 1090,
+        "source_sha256": "e5ad0f4a4ba7efb2950b079ff475a2978f77132720144ab60cc3bcc58e058ae1",
+        "reviewer": "mail_ui_kt",
+        "review": "One synchronous owner-scoped Mail purge belongs at the existing lock boundary; ciphertext retention and unrelated owner state are preserved. No new lifecycle authority."
+      },
+      {
+        "key": "module_size|consent-protocol/api/routes/kai/gmail.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 955,
+        "after": 973,
+        "source_sha256": "fbda1a2dd849ab3020c316e16f5e84f7053bd64e5993da4d748c23fa9b87a5c1",
+        "reviewer": "mail_backend_kt",
+        "review": "Additive request/response continuity fields, classified errors and nine lines of option forwarding remain in the canonical guarded route. Splitting this integration would fragment route authority."
+      },
+      {
+        "key": "module_size|hushh-webapp/components/gmail/gmail-recent-receipts.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 938,
+        "after": 955,
+        "source_sha256": "4a65c6e67ee9d3f3cf8410c594114dc49f4057cf8a446d57d311492535287515",
+        "reviewer": "mail_ui_kt",
+        "review": "Overview and scroll continuity already extracted; remaining integration preserves existing filter, pagination, detail and grouping owners. Paging revision protects Previous after prepends."
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/profile/gmail-receipt-presentation.ts||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 914,
+        "after": 917,
+        "source_sha256": "83aaa9991fe472424f1115a641ad301918ebd50e573944a1a0ce1299ad287a02",
+        "reviewer": "mail_ui_kt",
+        "review": "Typed archive/source state and existing grouping-detail export preserve one grouping authority for encrypted continuity."
+      },
+      {
+        "key": "module_size|hushh-webapp/scripts/architecture/audit-cache-coherence.mjs||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 879,
+        "after": 889,
+        "source_sha256": "81837eb31ace1ad1eb2f015ac347640a0a76b71a8cad13acc29f1000f5eb194b",
+        "reviewer": "mail_ui_kt",
+        "review": "Mail resource identity, secure store, dependencies and invalidation metadata enter the existing canonical manifest generator; no alternative manifest."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/lib/vault/vault-context-resume.test.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 771,
+        "after": 778,
+        "source_sha256": "8a6a7600c899d06354add08f39a3a5d428d22e38ddb2df15471af985d6314a82",
+        "reviewer": "mail_ui_kt",
+        "review": "Existing API-lock regression extended with Mail purge and unrelated-owner negative control; no duplicate lock test."
+      },
+      {
+        "key": "module_size|hushh-webapp/e2e/receipt-sync-hero.layout.spec.ts||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 608,
+        "after": 659,
+        "source_sha256": "b8a0e6146289840fdc6125205a399dddc4dd6ec4ef02f35cbef609dc7e9fc43d",
+        "reviewer": "mail_ui_kt",
+        "review": "Existing production-component fixture gains app/document scroll, row identity, focus and prepend-to-Previous continuity assertions. No duplicate fixture build or browser script handler."
+      },
+      {
+        "key": "module_size|hushh-webapp/app/api/kai/[...path]/route.ts||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 567,
+        "after": 569,
+        "source_sha256": "30ce0e1a9c891224e823f25cabc1691c71d1b9b0877197456eef0a271d01a8e6",
+        "reviewer": "mail_ui_kt",
+        "review": "Two known sanitized recovery codes extend the existing error allowlist without changing redaction or no-store policy."
       }
     ]
   }

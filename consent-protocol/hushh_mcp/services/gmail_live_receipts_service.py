@@ -22,6 +22,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import parseaddr, parsedate_to_datetime
+from functools import partial
 from typing import Any, Literal
 
 import httpx
@@ -35,7 +36,13 @@ from hushh_mcp.agents.email.runtime import (
 )
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.gmail_message_text import MessageTextError, cap_utf8, message_text
+from hushh_mcp.services.gmail_receipt_continuity import (
+    bootstrap_checkpoint,
+    bootstrap_window,
+    should_scan_delta,
+)
 from hushh_mcp.services.gmail_receipt_documents import MAX_PDF_BYTES, html_fallback, pdf_candidates
+from hushh_mcp.services.gmail_receipt_history import HistoryPorts, scan_history_page
 from hushh_mcp.services.gmail_receipts_service import (
     GmailApiError,
     GmailReceiptsService,
@@ -985,6 +992,21 @@ class GmailLiveReceiptsService:
                 code="GMAIL_RECEIPT_INVALID_RESPONSE",
             ) from None
 
+    def _sync_binding(self, authority: _ReadAuthority) -> list[str]:
+        return [
+            "receipt-continuity.v1",
+            authority.user_id,
+            authority.account,
+            authority.connected_at,
+            "gmail.readonly",
+            _QUERY,
+            "365d",
+        ]
+
+    def _event_id(self, authority: _ReadAuthority, message_id: str) -> str:
+        material = "\0".join(["receipt-event.v1", authority.user_id, authority.account, message_id])
+        return hmac.new(self._secret(), material.encode(), hashlib.sha256).hexdigest()
+
     def _source_id(self, authority: _ReadAuthority, message_id: str) -> str:
         material = "\x00".join(
             (authority.user_id, authority.account, authority.connected_at, message_id)
@@ -1347,7 +1369,7 @@ class GmailLiveReceiptsService:
                 if response.status_code != 200:
                     if (
                         response.status_code == 400
-                        and path == "/messages"
+                        and path in {"/messages", "/history"}
                         and params.get("pageToken")
                     ):
                         raise GmailApiError(
@@ -1443,23 +1465,30 @@ class GmailLiveReceiptsService:
         authority: _ReadAuthority,
         message_ids: list[str],
         budget: list[int],
+        missing: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         semaphore = asyncio.Semaphore(_FETCH_CONCURRENCY)
         document_semaphore = asyncio.Semaphore(2)
 
-        async def one(message_id: str) -> dict[str, Any]:
+        async def one(message_id: str) -> dict[str, Any] | None:
             async with semaphore:
-                payload = await self._get(
-                    client=client,
-                    authority=authority,
-                    path=f"/messages/{message_id}",
-                    params={"format": "full", "fields": _FULL_FIELDS},
-                    budget=budget,
-                )
+                try:
+                    payload = await self._get(
+                        client=client,
+                        authority=authority,
+                        path=f"/messages/{message_id}",
+                        params={"format": "full", "fields": _FULL_FIELDS},
+                        budget=budget,
+                    )
+                except GmailApiError as exc:
+                    if missing is not None and exc.code == "GMAIL_RECEIPT_NOT_FOUND":
+                        missing.append(message_id)
+                        return None
+                    raise
                 return self._validate_message(payload, message_id)
 
         tasks = [asyncio.create_task(one(message_id)) for message_id in message_ids]
-        messages = list(await self._await_tasks(tasks))
+        messages = [message for message in await self._await_tasks(tasks) if message is not None]
         # Mandatory messages finish first. Optional documents can spend only a
         # reserved remainder; exhausting it cannot poison the page's receipts.
         document_budget = [min(max(0, budget[0]), 1024 * 1024)]
@@ -1578,6 +1607,7 @@ class GmailLiveReceiptsService:
                     source_id=self._source_id(authority, str(message["id"])),
                 )
                 if projection is not None:
+                    projection["event_id"] = self._event_id(authority, str(message["id"]))
                     projection["durable_source_ref"] = self._sealed_locator(
                         authority, str(message["id"])
                     )
@@ -1653,6 +1683,9 @@ class GmailLiveReceiptsService:
         page: int = 1,
         per_page: int = _MAX_PER_PAGE,
         cursor: str | None = None,
+        checkpoint: str | None = None,
+        incremental: bool = False,
+        expected_account: str | None = None,
     ) -> dict[str, Any]:
         # A process-local lease cannot fence another Cloud Run instance. A
         # nonblocking session lock shares the owner lane across instances;
@@ -1676,6 +1709,9 @@ class GmailLiveReceiptsService:
                         page=page,
                         per_page=per_page,
                         cursor=cursor,
+                        checkpoint=checkpoint,
+                        incremental=incremental,
+                        expected_account=expected_account,
                     )
         except DedicatedConnectionCapacityError:
             raise GmailApiError(
@@ -1701,12 +1737,31 @@ class GmailLiveReceiptsService:
         page: int = 1,
         per_page: int = _MAX_PER_PAGE,
         cursor: str | None = None,
+        checkpoint: str | None = None,
+        incremental: bool = False,
+        expected_account: str | None = None,
     ) -> dict[str, Any]:
         page = max(1, min(_MAX_PAGE, int(page)))
         per_page = max(1, min(_MAX_PER_PAGE, int(per_page)))
         try:
             async with asyncio.timeout(_DEADLINE_SECONDS):
                 authority = await self._authority(user_id=user_id, require_access=require_access)
+                if expected_account is not None and authority.account != expected_account:
+                    raise GmailApiError(
+                        "The Mail account changed. Reopen Mail to continue.",
+                        status_code=409,
+                        code="GMAIL_RECEIPT_ACCOUNT_CHANGED",
+                    )
+                if should_scan_delta(cursor, checkpoint):
+                    return await self._scan_delta_page(
+                        authority=authority,
+                        require_access=require_access,
+                        consent_token=consent_token,
+                        checkpoint=checkpoint,
+                        cursor=cursor,
+                        page=page,
+                        per_page=per_page,
+                    )
                 continuation = (
                     self._read_scan_cursor(authority, cursor, page, per_page) if cursor else None
                 )
@@ -1726,6 +1781,15 @@ class GmailLiveReceiptsService:
                 async with httpx.AsyncClient(
                     transport=self._transport, timeout=10, follow_redirects=False
                 ) as client:
+                    baseline, window_end = await bootstrap_window(
+                        partial(self._get, authority=authority),
+                        client,
+                        budget,
+                        continuation,
+                        incremental,
+                        window_end,
+                    )
+                    window_start = window_end - 365 * 86400
                     page_token: str | None = continuation["token"] if continuation else None
                     seen_token_hashes = set(continuation.get("seen", [])) if continuation else set()
                     if page_token:
@@ -1825,7 +1889,7 @@ class GmailLiveReceiptsService:
                     reverse=True,
                 )
                 provider_has_more = next_page_token is not None
-                has_more = provider_has_more and page < _MAX_PAGE
+                has_more = provider_has_more and (incremental or page < _MAX_PAGE)
                 rejection_counts = {
                     "missing_receipt_signal": sum(
                         reason == "missing_receipt_signal" for _item, _evidence, reason in projected
@@ -1868,6 +1932,13 @@ class GmailLiveReceiptsService:
                     ),
                 }
                 return {
+                    **bootstrap_checkpoint(
+                        self._secret(),
+                        self._sync_binding(authority),
+                        baseline,
+                        provider_has_more,
+                        incremental,
+                    ),
                     "items": items,
                     "page": page,
                     "per_page": per_page,
@@ -1876,11 +1947,12 @@ class GmailLiveReceiptsService:
                     "next_cursor": self._scan_cursor(
                         authority,
                         {
-                            "page": page + 1,
+                            "page": page % _MAX_PAGE + 1 if incremental else page + 1,
                             "per_page": per_page,
                             "before": window_end,
                             "token": next_page_token,
                             "seen": sorted(seen_token_hashes),
+                            **({"sync_baseline": baseline} if baseline else {}),
                         },
                     )
                     if has_more
@@ -1916,6 +1988,40 @@ class GmailLiveReceiptsService:
                 status_code=503,
                 code="GMAIL_PROVIDER_UNAVAILABLE",
             ) from None
+
+    async def _scan_delta_page(
+        self,
+        *,
+        authority: _ReadAuthority,
+        require_access: RequireAccess,
+        consent_token: str,
+        checkpoint: str | None,
+        cursor: str | None,
+        page: int,
+        per_page: int,
+    ) -> dict[str, Any]:
+        return await scan_history_page(
+            ports=HistoryPorts(
+                get=partial(self._get, authority=authority),
+                fetch_messages=partial(self._fetch_messages, authority=authority),
+                project_messages=partial(
+                    self._project_messages, authority=authority, consent_token=consent_token
+                ),
+                require_current=partial(
+                    self._require_current, authority=authority, require_access=require_access
+                ),
+                event_id=partial(self._event_id, authority),
+                pagination_token=_pagination_token,
+            ),
+            transport=self._transport,
+            secret=self._secret(),
+            binding=self._sync_binding(authority),
+            checkpoint=checkpoint,
+            cursor=cursor,
+            page=page,
+            per_page=per_page,
+            response_budget=_RESPONSE_BUDGET,
+        )
 
     async def detail(
         self,

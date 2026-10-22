@@ -1965,19 +1965,24 @@
       "page_file": "app/one/gmail/page.tsx",
       "route_contract_mode": "standard",
       "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
+      "cache_policy": "secure-resource",
+      "cache_keys": [
+        "MailReceiptResourceService owner/account session",
+        "mail_receipts.v1:<account-binding> ciphertext"
       ],
-      "sensitivity_class": "app-metadata",
+      "resource_classes": [
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
       "ttl_class": "CACHE_TTL.MEDIUM",
       "warm_source": "Route-local resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "mutation_invalidator": "MailReceiptResourceService verified write-through; synchronous vault/sign-out purge; durable owner Reset",
       "best_available_ux_path": [
         "fresh memory",
-        "cold loader"
+        "secure device stale render",
+        "background refresh",
+        "cold loader when locked or missing"
       ],
       "readiness_kpis": [
         "route_readiness_completed",
@@ -1992,7 +1997,7 @@
         "cache_service": false,
         "use_stale_resource": false,
         "device_cache": false,
-        "secure_cache": false,
+        "secure_cache": true,
         "cache_sync": false,
         "resource_wrapper": true,
         "direct_fetch": false,
@@ -7196,5 +7201,5 @@
       ]
     }
   ],
-  "content_sha256": "fb44f6a318c99f76d8354b24bb1e8237f9c4cdc49d583f7193ba3a8f137b3fa3"
+  "content_sha256": "688e3c1a0be4e54b800fefa4f80b9a0968333faab389df48523197592b8cfecf"
 }

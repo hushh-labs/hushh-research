@@ -31,6 +31,8 @@ export type ResolvedReceiptMerchant = {
 };
 
 export type RecentReceiptRow = {
+  archived?: boolean;
+  sourceUnavailable?: boolean;
   id: string;
   primaryReceiptId: number;
   primaryReceiptKey: string;
@@ -61,6 +63,7 @@ export type RecentReceiptRow = {
 };
 
 export type ReceiptTimelineEvent = {
+  sourceUnavailable?: boolean;
   sourceReceiptKey: string;
   documentKind: ReceiptListItem["document_kind"];
   eventKind: ReceiptEventKind;
@@ -758,11 +761,11 @@ function fulfillmentFallbackMatch(
   return datesAreNear(candidate, group, 21) && !groupHasIdentifierConflict([...group, candidate]);
 }
 
+export function receiptGroupingDetail(receipt: Pick<ReceiptListItem, "short_detail">): string {
+  return String(receipt.short_detail || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
 function normalizedDetail(candidate: ReceiptCandidate): string {
-  return String(candidate.receipt.short_detail || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
+  return candidate.receipt.grouping_detail_ref ?? receiptGroupingDetail(candidate.receipt);
 }
 
 function recurringLifecycleFallbackMatch(

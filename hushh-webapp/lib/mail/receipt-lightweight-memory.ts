@@ -17,7 +17,8 @@ export function safeAffinityLabel(value: unknown): value is string {
   if (typeof value !== "string" || !safe(value)) return false;
   try { assertLightweightReceiptFacts([value]); return true; } catch { return false; }
 }
-export function lightweightReceiptMemory(snapshot: ReceiptSnapshot): LightweightReceiptMemory {
+export function lightweightReceiptMemory(source: ReceiptSnapshot): LightweightReceiptMemory {
+  const snapshot = { ...source, rows: source.rows.filter(row => !source.sync?.archive_refs.includes(row.ref)) };
   const merchants = new Map<string, number>(), categories = new Map<string, number>(), recurring = new Map<string, number>();
   for (const row of snapshot.rows) {
     if (!paidReceiptMoney(row)) continue;

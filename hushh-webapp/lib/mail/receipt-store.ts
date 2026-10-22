@@ -6,7 +6,7 @@ import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vau
 import { analyzeReceipts, type ReceiptFunction } from "./receipt-analysis";
 import { receiptAccountBinding, validateReceiptSnapshot, RECEIPT_SNAPSHOT_PREFIX, type ReceiptSnapshot } from "./receipt-snapshot";
 
-export type ReceiptStoreSession = { userId: string; vaultKey: string; vaultOwnerToken: string; isCurrent?: () => boolean };
+export type ReceiptStoreSession = { userId: string; vaultKey: string; vaultOwnerToken: string; isCurrent?: () => boolean; signal?: AbortSignal };
 function guard(session: ReceiptStoreSession) {
   const owner = snapshotValidatedAuthSessionOwner(); const epoch = snapshotVaultSessionEpoch();
   return () => Boolean(session.vaultKey && session.vaultOwnerToken && owner?.userId === session.userId && isValidatedAuthSessionOwnerCurrent(owner) && isVaultSessionEpochCurrent(epoch) && (session.isCurrent?.() ?? true));
@@ -29,7 +29,7 @@ export async function loadReceiptSnapshot(session: ReceiptStoreSession, account:
   const keys = account ? [RECEIPT_SNAPSHOT_PREFIX + await receiptAccountBinding(account)] : await SecureDurableResourceService.list(session.userId, RECEIPT_SNAPSHOT_PREFIX);
   const values = [];
   for (const key of keys) {
-    const item = await SecureDurableResourceService.read<ReceiptSnapshot>(session.userId, key, session.vaultKey);
+    const item = await SecureDurableResourceService.read<ReceiptSnapshot>(session.userId, key, session.vaultKey, isCurrent);
     if (!isCurrent()) throw new Error("Receipt authority changed.");
     if (item) {
       const value = validateReceiptSnapshot(item.value);

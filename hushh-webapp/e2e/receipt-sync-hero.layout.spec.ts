@@ -606,3 +606,54 @@ for (const width of process.env.RECEIPT_QA_PLAID_LOGO_PATH ? [390, 1440] : []) {
     expect(errors).toEqual([]);
   });
 }
+
+
+for (const nested of [false, true]) {
+  test(`returning receipts retain focus, row identity and scroll while updating (${nested ? "app" : "document"} scroll)`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route("http://localhost/receipt-return**", route => route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}${nested ? "html,body{height:100%;overflow:hidden}.test-scroll{height:100dvh;overflow:auto}" : "html,body{height:auto;overflow:visible}"}</style></head><body><div ${nested ? 'class="test-scroll" data-app-scroll-root="true"' : ""}><div id="root"></div></div><script src="/receipt-return.js"></script></body></html>`,
+    }));
+    // The more specific script route must win over the document wildcard.
+    await page.route("http://localhost/receipt-return.js", route => route.fulfill({ body: script, contentType: "application/javascript" }));
+    const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+    await page.goto("http://localhost/receipt-return?returning=true"); await awaitProductFont(page);
+    await expect(page.getByTestId("receipt-sync-toolbar")).toBeVisible();
+    await expect(page.getByTestId("receipt-sync-hero")).toHaveCount(0);
+    const toolbar = page.getByTestId("receipt-sync-toolbar");
+    await expect(page.getByRole("button", { name: /Start sync|Refresh/ })).toHaveCount(0);
+    const overview = page.getByRole("heading", { name: "Overview", exact: true });
+    const beforeHeight = await overview.locator("..").evaluate(element => element.getBoundingClientRect().height);
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
+    await expect(toolbar).toHaveAttribute("aria-busy", "true");
+    await expect(page.getByText("Checking for new receipts…")).toBeVisible();
+    const search = page.getByRole("searchbox", { name: "Search table" });
+    await search.focus();
+    await page.evaluate(() => {
+      const root = document.querySelector('[data-app-scroll-root="true"]') ?? document.scrollingElement!;
+      const row = document.querySelector('[data-receipt-row-id]')!;
+      root.scrollTop += row.getBoundingClientRect().top - (root === document.scrollingElement ? 0 : root.getBoundingClientRect().top) - 40;
+      (window as unknown as { oldReceipt: Element }).oldReceipt = row;
+    });
+    expect(await page.evaluate(() => (document.querySelector('[data-app-scroll-root="true"]') ?? document.scrollingElement!).scrollTop)).toBeGreaterThan(0);
+    const anchor = await page.evaluate(() => (window as unknown as { oldReceipt: Element }).oldReceipt.getBoundingClientRect().top);
+    await page.evaluate(() => (window as unknown as { finishReceiptRefresh: () => void }).finishReceiptRefresh());
+    await expect(toolbar).toHaveAttribute("aria-busy", "false");
+    await expect(search).toBeFocused();
+    expect(await page.evaluate(() => {
+      const row = (window as unknown as { oldReceipt: Element }).oldReceipt;
+      return row.isConnected && row === document.querySelector('[data-receipt-row-id]');
+    })).toBe(true);
+    expect(Math.abs(await page.evaluate(() => (window as unknown as { oldReceipt: Element }).oldReceipt.getBoundingClientRect().top) - anchor)).toBeLessThanOrEqual(1);
+    expect(await overview.locator("..").evaluate(element => element.getBoundingClientRect().height)).toBe(beforeHeight);
+    await expect(page.getByText("2 / 3", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Previous", exact: true }).click();
+    await expect(page.getByText("1 / 3", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("receipt-row").filter({ hasText: "New merchant" })).toHaveCount(10);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    await page.evaluate(() => { const root = document.querySelector('[data-app-scroll-root="true"]') ?? document.scrollingElement!; root.scrollTop = 0; });
+    await page.screenshot({ path: testInfo.outputPath("returning-receipts.png"), fullPage: true });
+    expect(errors).toEqual([]);
+  });
+}
