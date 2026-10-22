@@ -51,6 +51,19 @@ describe("owner-safe capability task reads", () => {
     expect(mocks.mail).not.toHaveBeenCalled();
     expect(mocks.invitations).not.toHaveBeenCalled();
   });
+  it("does not confuse an investor persona with a disconnected Advisor", async () => {
+    const result = await readTodoCapabilities(context());
+    expect(result.find(row => row.coverage.capability === "ria")?.coverage.status).toBe("unavailable");
+    expect(mocks.home).not.toHaveBeenCalled();
+  });
+  it("projects explicit Advisor attention work with its reviewed internal destination", async () => {
+    mocks.persona.mockResolvedValue({ personas: ["ria", "investor"] });
+    mocks.home.mockResolvedValue({ needs_attention: [{ id: "attention-one", title: "Review the client request", next_action: "Review request", href: "/ria/requests" }], counts: { needs_attention: 1 } });
+    const result = await readTodoCapabilities(context());
+    const advisor = result.find(row => row.coverage.capability === "ria")!;
+    expect(advisor.coverage).toEqual({ capability: "ria", count: 1, status: "ready" });
+    expect(advisor.evidence[0]).toMatchObject({ pendingTitle: "Review request", href: "/ria/requests" });
+  });
   it("does not release an old owner's results", async () => {
     let current = true;
     mocks.messages.mockImplementation(async () => { current = false; return 3; });

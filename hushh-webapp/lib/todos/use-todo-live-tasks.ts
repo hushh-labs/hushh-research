@@ -160,11 +160,14 @@ export function useTodoLiveTasks({ userId, vaultOwnerToken, idTokenProvider, ena
   );
   const coverage: TaskCoverage[] = ["finance", "location", "consent"].map(capability => ({ capability: capability as TaskCapability, count: pending.filter(task => task.sourceAgent && sourceCapabilities[task.sourceAgent] === capability).length, status: agentLoadError ? "unavailable" : capability === "consent" && agentFeed.inventoryIncomplete ? "incomplete" : "ready" }));
   const allCoverage = [...coverage, ...extra.reads.map(read => read.coverage.capability === "calendar" ? { ...read.coverage, count: pending.filter(task => task.sourceAgent === "calendar").length, status: calendarReadError ? "unavailable" as const : read.coverage.status } : read.coverage)];
-  const suggestionEvidence: TaskEvidence[] = [...evidence];
+  const suggestionEvidence: TaskEvidence[] = evidence.map(item => ({ ...item }));
   for (const task of pending) {
     const capability = task.sourceAgent && sourceCapabilities[task.sourceAgent];
-    const key = task.sourceId?.startsWith("feed:") ? task.sourceId.slice(5) : task.id;
-    if (capability && !suggestionEvidence.some(item => item.key === key)) suggestionEvidence.push({
+    const suggested = task.id.startsWith("suggested_") && Boolean(task.sourceId);
+    const key = suggested ? task.sourceId! : task.sourceId?.startsWith("feed:") ? task.sourceId.slice(5) : task.id;
+    const existing = suggestionEvidence.find(item => item.key === key);
+    if (existing && suggested) existing.pendingTitle = task.title;
+    if (capability && !existing) suggestionEvidence.push({
       capability, key, summary: task.title, pendingTitle: task.title,
       href: task.link || "/one/todos",
     });

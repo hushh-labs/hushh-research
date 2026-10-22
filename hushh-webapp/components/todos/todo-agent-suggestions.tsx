@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/lib/morphy-ux/button";
 import { HelperText, MediumRowLabel } from "@/components/app-ui/typography";
 import { suggestTodoTasks, todoSuggestionsAvailable } from "@/lib/services/todo-suggestion-service";
+import { taskSuggestionInput } from "@/lib/todos/task-suggestion-input";
 import { createTodo } from "@/lib/services/todo-list-pkm-service";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import { taskCapabilities, type TaskCoverage, type TaskEvidence, type TaskSuggestion } from "@/lib/todos/task-suggestion-model";
@@ -72,7 +73,9 @@ export function TodoAgentSuggestions({ userId, vaultKey, vaultOwnerToken, eviden
     operation.current = identity;
     setState(previous => ({ ...previous, saving: item.key, error: "" }));
     try {
-      const saved = await createTodo({ title: item.title, notes: item.reason, link: item.href, type: "manual" }, { userId, vaultKey, vaultOwnerToken });
+      const input = await taskSuggestionInput(item);
+      if (current.current !== identity || !isVaultSessionEpochCurrent(epoch)) return;
+      const saved = await createTodo(input, { userId, vaultKey, vaultOwnerToken });
       if (current.current !== identity || !isVaultSessionEpochCurrent(epoch)) return;
       if (!saved.result.success) throw new Error("Task was not saved");
       setState(previous => ({ ...previous, saving: null, items: previous.items.filter(row => row.key !== item.key) }));

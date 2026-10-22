@@ -48,7 +48,8 @@ async function readWallet(context: TaskReadContext): Promise<CapabilityRead> {
 
 async function readAdvisor(context: TaskReadContext, idToken: string): Promise<CapabilityRead> {
   const persona = await RiaService.getPersonaState(idToken, { userId: context.userId, force: true });
-  if (!persona.personas.includes("ria")) return result("ria", 0, [], "not_connected");
+  // A non-advisor persona does not prove that no advisor relationship exists.
+  if (!persona.personas.includes("ria")) return result("ria", 0, [], "unavailable");
   const home = await RiaService.getHome(idToken, { userId: context.userId, force: true });
   const rows = home.needs_attention.flatMap(item => {
     const href = normalizeInternalRouteHref(item.href);

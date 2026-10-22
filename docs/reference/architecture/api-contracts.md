@@ -2258,7 +2258,8 @@ Advisor, Mail, Calendar, Memory and Consent, using their existing authorized
 services. This is a bounded foreground inventory, not a background sweep of all
 connected information. Calendar agenda covers the next 168 hours plus bounded
 invitations; Mail inspects at most 50 recent nudges and reports limited coverage;
-Advisor reads existing advisor-persona attention items; Memory inspects only the
+Advisor reads existing advisor-persona attention items (other personas report
+unavailable coverage, not disconnected relationships); Memory inspects only the
 current session's verified Live Memory mirror metadata, never its contents.
 A cold or stale mirror is unavailable/incomplete. Consent and Wallet page at
 most 5,000 rows each and preserve incomplete coverage when capped. Source failures

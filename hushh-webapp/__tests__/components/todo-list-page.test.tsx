@@ -2,6 +2,7 @@ import {
   act,
   fireEvent,
   render,
+  renderHook,
   screen,
   waitFor,
 } from "@testing-library/react";
@@ -16,6 +17,7 @@ import {
   agentTodoInput,
   type TodoItem,
 } from "@/lib/services/todo-list-pkm-service";
+import { useTodoLiveTasks } from "@/lib/todos/use-todo-live-tasks";
 import * as todoService from "@/lib/services/todo-list-pkm-service";
 import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
 
@@ -147,6 +149,12 @@ describe("TodoListPage row actions", () => {
     vi.mocked(TodoListPkmService.load).mockResolvedValue({ tasks: [] });
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByRole("heading", { name: "No tasks yet" })).toBeVisible();
+  });
+
+  it("keeps a saved suggestion tied to its offered source and marks it already pending", () => {
+    const saved = buildTodo({ id: "suggested_mail:opaque", title: "Review the meeting reply", type: "manual", source: "gmail", sourceId: "mail:opaque", link: "/one/gmail" });
+    const { result } = renderHook(() => useTodoLiveTasks({ userId: "todo-owner", vaultOwnerToken: "fixture", idTokenProvider: async () => "fixture-id", enabled: true, tasks: [saved] }));
+    expect(result.current.evidence.find(item => item.key === "mail:opaque")).toMatchObject({ capability: "gmail", pendingTitle: saved.title });
   });
 
   it("never inserts a late create into another owner's list or suggestions", async () => {

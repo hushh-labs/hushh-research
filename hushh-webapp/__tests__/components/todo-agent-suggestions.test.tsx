@@ -1,3 +1,4 @@
+import { webcrypto } from "node:crypto";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TodoAgentSuggestions } from "@/components/todos/todo-agent-suggestions";
@@ -17,6 +18,7 @@ async function approve() {
 }
 describe("agentic To-do review", () => {
   beforeEach(() => {
+    vi.stubGlobal("crypto", webcrypto);
     vi.clearAllMocks();
     vi.mocked(todoSuggestionsAvailable).mockResolvedValue(true);
     vi.mocked(suggestTodoTasks).mockResolvedValue([item]);
@@ -38,7 +40,17 @@ describe("agentic To-do review", () => {
     expect(createTodo).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Add task" }));
     await waitFor(() => expect(input.onSaved).toHaveBeenCalledOnce());
-    expect(createTodo).toHaveBeenCalledWith({ title: item.title, notes: item.reason, link: item.href, type: "manual" }, { userId: "owner", vaultKey: "fixture-key", vaultOwnerToken: "fixture-token" });
+    expect(createTodo).toHaveBeenCalledWith({ id: expect.stringMatching(/^suggested_[a-f0-9]{64}$/), title: item.title, notes: item.reason, link: item.href, type: "manual", source: item.capability === "finance" ? "kai" : item.capability, sourceId: item.key }, { userId: "owner", vaultKey: "fixture-key", vaultOwnerToken: "fixture-token" });
+  });
+  it("reuses the source-bound task identity when an unchanged suggestion is added again", async () => {
+    render(<TodoAgentSuggestions {...props()} />);
+    await approve();
+    fireEvent.click(await screen.findByRole("button", { name: "Add task" }));
+    await waitFor(() => expect(createTodo).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "Suggest tasks" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Add task" }));
+    await waitFor(() => expect(createTodo).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(createTodo).mock.calls[0][0].id).toBe(vi.mocked(createTodo).mock.calls[1][0].id);
   });
   it("keeps an unsuccessfully saved suggestion available to retry", async () => {
     vi.mocked(createTodo).mockResolvedValue({ task: {} as never, result: { success: false, saveState: "error", fullBlob: {} } });
