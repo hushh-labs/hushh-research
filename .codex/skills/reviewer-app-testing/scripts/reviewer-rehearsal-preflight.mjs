@@ -13,10 +13,22 @@ function configuredValue(value) {
     : trimmed;
 }
 
-function secretManagerValue(project, secret) {
+export function secretManagerValue(project, secret) {
+  const args = ["secrets", "versions", "access", "latest", `--secret=${secret}`, `--project=${project}`];
+  // Windows installs gcloud as a command shim, which Node cannot exec directly.
+  // Python resolves the shim without interpolating arguments into shell text.
+  const windows = process.platform === "win32";
+  const command = windows
+    ? path.join(defaultRepoRoot, "consent-protocol", ".venv", "Scripts", "python.exe")
+    : "gcloud";
+  const commandArgs = windows
+    ? ["-c", "import shutil,subprocess,sys; command=shutil.which('gcloud'); " +
+      "result=subprocess.run([command,*sys.argv[1:]],check=True,capture_output=True,text=True); " +
+      "sys.stdout.write(result.stdout)", ...args]
+    : args;
   return execFileSync(
-    "gcloud",
-    ["secrets", "versions", "access", "latest", `--secret=${secret}`, `--project=${project}`],
+    command,
+    commandArgs,
     { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
   ).trim();
 }

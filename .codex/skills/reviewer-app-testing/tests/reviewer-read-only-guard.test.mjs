@@ -1,10 +1,32 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import vm from "node:vm";
 
 import { installReadOnlyMutationGuard, installReviewerBridge } from "../scripts/reviewer-session-harness.mjs";
+import { secretManagerValue } from "../scripts/reviewer-rehearsal-preflight.mjs";
 
 const APP_ORIGIN = "https://uat.one.hushh.ai";
+
+test("canonical secret reads resolve host command shims without printing their contents", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "hushh-reviewer-cli-"));
+  const windows = process.platform === "win32";
+  const shim = path.join(directory, windows ? "gcloud.cmd" : "gcloud");
+  fs.writeFileSync(shim, windows ? "@echo off\r\necho reviewer-fixture-value\r\n"
+    : "#!/bin/sh\nprintf 'reviewer-fixture-value\\n'\n", { mode: 0o700 });
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${directory}${path.delimiter}${previousPath || ""}`;
+  try {
+    assert.equal(secretManagerValue("fixture-project", "REVIEWER_UID"), "reviewer-fixture-value");
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    fs.unlinkSync(shim);
+    fs.rmdirSync(directory);
+  }
+});
 
 test("explicit-login bridge leaves logout landing anonymous without unlock material", () => {
   for (const [pathname, origin, frame, permitted] of [

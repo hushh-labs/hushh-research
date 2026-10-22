@@ -136,8 +136,8 @@ closed-session calls, extra quote/profile send and partial-snapshot overwrite by
 loading committed code only inside the test process. No live provider call,
 shared-database change, deployment or push was used for this verification.
 Typecheck, scoped lint, all 490 navigation tests and Back/Search UI contracts
-pass. The existing local backend returns HTTP 200 from its health endpoint;
-authenticated browser behavior and the deployed UAT revision remain unverified.
+pass. Signed-in localhost acceptance is recorded below; the deployed UAT
+revision remains unverified.
 
 The visible Finance workspace checks for refreshed news and filings every ten
 minutes while closed, using its existing shared scheduler. Scheduled reads
@@ -159,6 +159,20 @@ authenticated browser behavior or deployed UAT behavior. Twenty-four focused
 frontend tests pass, including warm personalized-news revalidation; the two
 initial regression cases fail before the timer correction. A separate negative
 control proves cache-first focus events cannot postpone scheduled news reads.
+
+Signed-in localhost acceptance subsequently passed ten read-only checks with
+the canonical reviewer: visible vault challenge, unlocked Market with Closed
+status, index detail, both sector periods, side-by-side movers, scheduled
+refresh, 390px overflow, All news, same-session return and cold re-unlock with
+the same key commitment. Finance responses were HTTP 200; the news endpoint
+returned 12 headlines. No blocked mutation or critical API failure occurred.
+Only the browser clock advanced twelve minutes for the timer check; the backend
+remained in its actual closed session. This proves authenticated scheduled
+reads, not later provider headlines or a real market opening. The read-only
+reviewer guard and platform checks pass with twenty tests. Windows reviewer
+CLI shims now resolve through the repository's Python runtime without exposing
+credentials. Temporary reviewer mode was disabled after the rehearsal; no
+push, deployment, fixture reset or account permission change was performed.
 
 ## Curated reference maintenance
 

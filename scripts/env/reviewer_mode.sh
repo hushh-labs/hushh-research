@@ -13,6 +13,7 @@ case "${1:-}" in
     python3 - "$OVERLAY" "$REVIEWER_PROJECT" "$REPO_ROOT" "$REVIEWER_IDENTITY_SOURCE" <<'PY'
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 
@@ -27,7 +28,7 @@ if identity_source == "canonical-doc":
 elif identity_source == "secret-manager":
     reviewer_uid = subprocess.run(
         [
-            "gcloud", "secrets", "versions", "access", "latest",
+            shutil.which("gcloud") or "gcloud", "secrets", "versions", "access", "latest",
             "--secret=REVIEWER_UID", f"--project={project}",
         ],
         check=True,
