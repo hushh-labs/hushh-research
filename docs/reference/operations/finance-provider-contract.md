@@ -160,6 +160,12 @@ frontend tests pass, including warm personalized-news revalidation; the two
 initial regression cases fail before the timer correction. A separate negative
 control proves cache-first focus events cannot postpone scheduled news reads.
 
+The signed-in acceptance below applies to the combined local candidate before
+the functional-only split. This branch retains the existing presentation from
+main; typography, spacing and layout revisions remain held in the original
+working branch. Its separate verification must not be inferred from that earlier
+visual acceptance.
+
 Signed-in localhost acceptance subsequently passed ten read-only checks with
 the canonical reviewer: visible vault challenge, unlocked Market with Closed
 status, index detail, both sector periods, side-by-side movers, scheduled
