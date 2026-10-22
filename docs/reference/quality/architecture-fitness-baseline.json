@@ -22066,7 +22066,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_memory_routes.py",
       "symbol": null,
-      "value": 1870
+      "value": 1886
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -84882,5 +84882,17 @@
     "reviewer": "packets_ui_evidence",
     "review": "The same canvas traverses all eight resize states and both widths. Explicit5s per-resize and unchanged6.5s motion bounds retain bitmap, visibility, identity, buffer, feet, spacing and corner checks. A45s aggregate budget prevents truncating the final check; raw playback status and step diagnostics expose failures. Global budgets, limits, scanner and exclusions remain unchanged.",
     "validation": "Six Chromium/WebKit resize cases passed at1x/2x/3x. Persistent hidden and blank native-canvas negative controls each failed the5s predicate; exact source restored."
+  },
+  "ci_private_status_review_20261023": {
+    "parent_revision": "4f1a5a7ff194c5d2ad5623f3cf51994d38ddb82d",
+    "source_revision": "1428a62827dcab72d6130224245f1ea42c9e32fe",
+    "key": "module_size|consent-protocol/tests/test_pod_memory_routes.py||module exceeds the advisory operon budget",
+    "rank": 0,
+    "before": 1870,
+    "after": 1886,
+    "source_sha256": "8acae34e19288e4c3b9b5bcf7cb613e09f4847726555bf122f0f7439f40eefbd",
+    "reviewer": "store_boundary_review",
+    "review": "The existing owner-local status/revoke test validates closed response shapes, exactly two known opaque IDs and the existing short secret sentinels. Only the validated ID list is excluded from plaintext scanning. The module gains 20 lines from its actual parent source and 16 over its recorded ceiling. Global budgets, limits, scanner and exclusions remain unchanged.",
+    "validation": "The exact assertion block accepts a colliding opaque hash and rejects eight leakage or malformed-shape controls. Ninety focused route, rollout and account-erasure tests pass. Full POSIX-backed memory route execution remains a hosted Linux check."
   }
 }
