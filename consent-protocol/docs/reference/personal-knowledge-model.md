@@ -70,7 +70,11 @@ source passages, PDFs, URLs, provider message IDs or tokens.
 
 `mail_receipt_snapshot.v2` (with read compatibility for v1) uses the existing vault AES-GCM encryption and
 IndexedDB secure-resource database's durable store. Its resource key is
-`mail_receipts.v1:<hashed account binding>`. Encryption AAD binds the owner,
+`mail_receipts.v2:<hashed account binding>`. New readers fall back to a retained
+`mail_receipts.v1:` record only when V2 is absent. Upgrading never overwrites V1,
+and an old tab or rolled-back bundle cannot overwrite V2 continuity. Rollback
+shows the legacy saved view; returning to V2 restores its accumulated receipts.
+Reset/delete removes both formats and fences their pending writers. Encryption AAD binds the owner,
 resource key, Reset generation and monotonically increasing revision. Writes
 compare generation/revision atomically and verify decrypted read-back before
 memory migration. The closed snapshot is limited to 2 MiB UTF-8, 10,000

@@ -85,7 +85,7 @@ describe("authorized receipt memory migration", () => {
     });
     await expect(migrateReceiptMemory(session, canonical, 0, 1)).rejects.toThrow(/reset/);
     expect(Durable.version).toHaveBeenCalledOnce();
-    expect(Durable.version).toHaveBeenCalledWith("owner", `mail_receipts.v1:${canonical.account_binding}`);
+    expect(Durable.version).toHaveBeenCalledWith("owner", `mail_receipts.v2:${canonical.account_binding}`);
   });
 
   it("archives permitted index-free legacy highlights before replacing their memory branch", async () => {

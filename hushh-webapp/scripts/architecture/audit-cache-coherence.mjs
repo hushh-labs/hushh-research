@@ -243,7 +243,7 @@ function routeCacheKeys(route) {
   if (route === "/one/messages") return ["DIRECT_MESSAGE_THREADS", "DIRECT_MESSAGE_ROUTES", "DIRECT_MESSAGE_SESSION"];
 
 
-  if (route === "/one/gmail") return ["MailReceiptResourceService owner/account session", "mail_receipts.v1:<account-binding> ciphertext"];
+  if (route === "/one/gmail") return ["MailReceiptResourceService owner/account session", "mail_receipts.v2:<account-binding> ciphertext (retained V1 fallback)"];
   if (route === "/one/referrals") return ["referral_dashboard_{user}_{resource}"];
   if (isFeedRoute(route)) {
     return [

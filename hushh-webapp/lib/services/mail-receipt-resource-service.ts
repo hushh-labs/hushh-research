@@ -117,9 +117,10 @@ export class MailReceiptResourceService {
       const execute = async (): Promise<RefreshResult> => {
         await this.hydrate(guarded, account);
         // Reconcile any commit that landed just before a previous timeout.
+        const absentExpected = await receiptStoreVersion(session.userId, account);
         const durable = await loadReceiptSnapshot(guarded, account);
         let previous = durable?.value ?? null;
-        let expected = durable ?? await receiptStoreVersion(session.userId, account);
+        let expected = durable ?? absentExpected;
         const idToken = await getIdToken();
         if (!current()) throw new DOMException("Mail session changed.", "AbortError");
         const pending = previous?.sync?.pending;

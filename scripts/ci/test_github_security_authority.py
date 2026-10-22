@@ -73,7 +73,11 @@ class SecurityAuthorityTest(unittest.TestCase):
 
         def read(path):
             calls.append(path)
-            return [{"state": "open"}] * (100 if path.endswith("&page=1") else 1)
+            return (
+                authority.AlertPage([{"state": "open"}] * 100, path + "&page=2")
+                if "&page=" not in path
+                else authority.AlertPage([{"state": "open"}])
+            )
 
         self.assertEqual(
             authority.inventory(read, REPOSITORY, "secret-scanning")["open"], 101
@@ -81,14 +85,68 @@ class SecurityAuthorityTest(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         for rows in ({"message": "denied"}, [None], [{"state": "closed"}]):
             with self.subTest(rows=rows), self.assertRaises(authority.Refused):
-                authority.inventory(lambda _: rows, REPOSITORY, "secret-scanning")
+                authority.inventory(
+                    lambda _: authority.AlertPage(rows), REPOSITORY, "secret-scanning"
+                )
         with (
             patch.object(authority, "MAX_PAGES", 1),
             self.assertRaises(authority.Refused),
         ):
             authority.inventory(
-                lambda _: [{"state": "open"}] * 100, REPOSITORY, "secret-scanning"
+                lambda _: authority.AlertPage([{"state": "open"}] * 100, "next"),
+                REPOSITORY,
+                "secret-scanning",
             )
+
+    def test_dependabot_uses_every_cursor_page_even_when_a_page_is_short(self):
+        first = f"repos/{REPOSITORY}/dependabot/alerts?state=open&per_page=100"
+        second = first + "&after=opaque%3Dcursor"
+        third = first + "&after=last-cursor"
+        calls = []
+
+        def read(path):
+            self.assertNotIn("&page=", path)
+            calls.append(path)
+            return authority.AlertPage(
+                [{"state": "open", "security_advisory": {"severity": "high"}}]
+                * (100 if path == first else 1),
+                second if path == first else third if path == second else None,
+            )
+
+        result = authority.inventory(read, REPOSITORY, "dependabot")
+        self.assertEqual(calls, [first, second, third])
+        self.assertEqual(
+            result, {"complete": True, "open": 102, "severity": {"high": 102}}
+        )
+        with self.assertRaises(authority.Refused):
+            authority.inventory(
+                lambda _: authority.AlertPage([], first), REPOSITORY, "dependabot"
+            )
+        with self.assertRaises(authority.Refused):
+            authority.inventory(
+                lambda _: (_ for _ in ()).throw(
+                    authority.Refused("later page unavailable")
+                ),
+                REPOSITORY,
+                "dependabot",
+            )
+
+    def test_next_link_is_bound_to_host_repository_endpoint_and_cursor(self):
+        path = f"repos/{REPOSITORY}/dependabot/alerts?state=open&per_page=100"
+        target = "https://api.github.com/repositories/10/dependabot/alerts?state=open&per_page=100&after=opaque%3Dcursor"
+        self.assertEqual(
+            authority.next_alert_path(f'<{target}>; rel="next"', path, 10),
+            path + "&after=opaque%3Dcursor",
+        )
+        for bad in (
+            target.replace("api.github.com", "evil.example"),
+            target.replace("repositories/10", "repositories/11"),
+            target.replace("dependabot", "secret-scanning"),
+            target.replace("after=opaque%3Dcursor", "page=2"),
+            target + "&after=other",
+        ):
+            with self.subTest(bad=bad), self.assertRaises(authority.Refused):
+                authority.next_alert_path(f'<{bad}>; rel="next"', path, 10)
 
     def test_manual_recovery_is_governed_and_exact(self):
         policy = {"main": {"protected_pipeline_edit_users": ["maintainer"]}}
@@ -150,7 +208,14 @@ class SecurityAuthorityTest(unittest.TestCase):
                     )
                 return responses[path]
 
-            with patch.object(authority.GitHub, "read", read):
+            with (
+                patch.object(authority.GitHub, "read", read),
+                patch.object(
+                    authority.GitHub,
+                    "read_page",
+                    lambda client, path: authority.AlertPage(read(client, path)),
+                ),
+            ):
                 result = authority.produce(env)
                 self.assertEqual(result["verdict"], "blocked")
                 self.assertNotIn("unapproved-fixture-value", json.dumps(result))

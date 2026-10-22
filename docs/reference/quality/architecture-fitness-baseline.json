@@ -84257,7 +84257,7 @@
         "rank": 0,
         "before": 879,
         "after": 889,
-        "source_sha256": "81837eb31ace1ad1eb2f015ac347640a0a76b71a8cad13acc29f1000f5eb194b",
+        "source_sha256": "1612daa4690c6be10c6e6041ed1ed5abe126a2a4202d8523d2536ab8cabb84c7",
         "reviewer": "mail_ui_kt",
         "review": "Mail resource identity, secure store, dependencies and invalidation metadata enter the existing canonical manifest generator; no alternative manifest."
       },

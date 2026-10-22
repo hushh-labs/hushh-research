@@ -7,7 +7,8 @@ import { resolveSavedReceiptMerchantBrand, isVerifiedReceiptMerchantKey, type Ve
 
 export const RECEIPT_SNAPSHOT_MAX_BYTES = 2 * 1024 * 1024;
 export const RECEIPT_MEMORY_MAX_BYTES = 16 * 1024;
-export const RECEIPT_SNAPSHOT_PREFIX = "mail_receipts.v1:";
+export const RECEIPT_SNAPSHOT_PREFIX = "mail_receipts.v2:";
+export const LEGACY_RECEIPT_SNAPSHOT_PREFIX = "mail_receipts.v1:";
 export type Event = {
   ref: string; locator: string | null; document_kind: ReceiptListItem["document_kind"];
   status: RecentReceiptRow["status"]; kind: NonNullable<ReceiptListItem["event_type"]>;

@@ -1968,7 +1968,7 @@
       "cache_policy": "secure-resource",
       "cache_keys": [
         "MailReceiptResourceService owner/account session",
-        "mail_receipts.v1:<account-binding> ciphertext"
+        "mail_receipts.v2:<account-binding> ciphertext (retained V1 fallback)"
       ],
       "resource_classes": [
         "financial_resource"
@@ -7201,5 +7201,5 @@
       ]
     }
   ],
-  "content_sha256": "688e3c1a0be4e54b800fefa4f80b9a0968333faab389df48523197592b8cfecf"
+  "content_sha256": "4101e3fd42f131f8058b3b50494706d8b4f4a040115efaee706ad56e4e489a3c"
 }
