@@ -3230,67 +3230,6 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                 json.loads(path.read_text())["pending_mutation"]["kind"], "delete"
             )
 
-    def test_cleanup_budget_reaps_a_command_and_its_descendant(self):
-        import time
-
-        started = time.monotonic()
-        token = MODULE.PASS_DEADLINE.set(time.monotonic() + 0.2)
-        try:
-            with self.assertRaises(MODULE.BudgetExpired):
-                MODULE.run_command(
-                    [
-                        sys.executable,
-                        "-c",
-                        "import subprocess,sys,time; subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)']); time.sleep(30)",
-                    ]
-                )
-        finally:
-            MODULE.PASS_DEADLINE.reset(token)
-        self.assertLess(time.monotonic() - started, 5)
-
-    def test_exited_command_cannot_leave_a_descendant_running(self):
-        import time
-
-        with tempfile.TemporaryDirectory() as directory:
-            marker = pathlib.Path(directory) / "orphan-ran"
-            child = (
-                "import pathlib,time; time.sleep(1); "
-                f"pathlib.Path({str(marker)!r}).write_text('leaked')"
-            )
-            parent = (
-                "import subprocess,sys; "
-                f"subprocess.Popen([sys.executable, '-c', {child!r}], "
-                "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)"
-            )
-            result = MODULE.run_command([sys.executable, "-c", parent], timeout=5)
-            self.assertEqual(result.returncode, 0)
-            time.sleep(1.5)
-            self.assertFalse(marker.exists(), "Exited command left a live descendant")
-
-    def test_failed_windows_assignment_never_releases_target_and_reaps_bootstrap(self):
-        import process_group
-
-        for close_error in (None, OSError("close failed")):
-            with self.subTest(close_error=close_error):
-                job = mock.Mock()
-                job.assign.side_effect = OSError("assignment failed")
-                job.close.side_effect = close_error
-                process = mock.Mock(pid=123)
-                process.poll.return_value = None
-                with (
-                    mock.patch.object(process_group.os, "name", "nt"),
-                    mock.patch.object(process_group, "_WindowsJob", return_value=job),
-                    mock.patch.object(process_group.subprocess, "Popen", return_value=process),
-                    mock.patch.object(process_group.subprocess, "CREATE_NEW_PROCESS_GROUP", 512, create=True),
-                    self.assertRaises(OSError),
-                ):
-                    with process_group.command_group(["target"]):
-                        self.fail("Target must not run after assignment failure")
-                process.stdin.write.assert_not_called()
-                process.kill.assert_called_once_with()
-                process.communicate.assert_called_once_with(timeout=5)
-                job.close.assert_called_once_with()
-
     def test_queued_settled_pass_checks_inside_lock_before_cloud_steps(self):
         import re
 
@@ -3634,6 +3573,69 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                 )
 
 
+
+
+class CommandLifecycleTest(unittest.TestCase):
+    def test_cleanup_budget_reaps_a_command_and_its_descendant(self):
+        import time
+
+        started = time.monotonic()
+        token = MODULE.PASS_DEADLINE.set(time.monotonic() + 0.2)
+        try:
+            with self.assertRaises(MODULE.BudgetExpired):
+                MODULE.run_command(
+                    [
+                        sys.executable,
+                        "-c",
+                        "import subprocess,sys,time; subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)']); time.sleep(30)",
+                    ]
+                )
+        finally:
+            MODULE.PASS_DEADLINE.reset(token)
+        self.assertLess(time.monotonic() - started, 5)
+
+    def test_exited_command_cannot_leave_a_descendant_running(self):
+        import time
+
+        with tempfile.TemporaryDirectory() as directory:
+            marker = pathlib.Path(directory) / "orphan-ran"
+            child = (
+                "import pathlib,time; time.sleep(1); "
+                f"pathlib.Path({str(marker)!r}).write_text('leaked')"
+            )
+            parent = (
+                "import subprocess,sys; "
+                f"subprocess.Popen([sys.executable, '-c', {child!r}], "
+                "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)"
+            )
+            result = MODULE.run_command([sys.executable, "-c", parent], timeout=5)
+            self.assertEqual(result.returncode, 0)
+            time.sleep(1.5)
+            self.assertFalse(marker.exists(), "Exited command left a live descendant")
+
+    def test_failed_windows_assignment_never_releases_target_and_reaps_bootstrap(self):
+        import process_group
+
+        for close_error in (None, OSError("close failed")):
+            with self.subTest(close_error=close_error):
+                job = mock.Mock()
+                job.assign.side_effect = OSError("assignment failed")
+                job.close.side_effect = close_error
+                process = mock.Mock(pid=123)
+                process.poll.return_value = None
+                with (
+                    mock.patch.object(process_group.os, "name", "nt"),
+                    mock.patch.object(process_group, "_WindowsJob", return_value=job),
+                    mock.patch.object(process_group.subprocess, "Popen", return_value=process),
+                    mock.patch.object(process_group.subprocess, "CREATE_NEW_PROCESS_GROUP", 512, create=True),
+                    self.assertRaises(OSError),
+                ):
+                    with process_group.command_group(["target"]):
+                        self.fail("Target must not run after assignment failure")
+                process.stdin.write.assert_not_called()
+                process.kill.assert_called_once_with()
+                process.communicate.assert_called_once_with(timeout=5)
+                job.close.assert_called_once_with()
 
 
 if __name__ == "__main__":

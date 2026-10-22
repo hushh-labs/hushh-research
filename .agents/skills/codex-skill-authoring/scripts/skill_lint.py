@@ -343,7 +343,7 @@ def collect_skill_bodies() -> tuple[list[dict[str, Any]], list[str]]:
     skills: list[dict[str, Any]] = []
     practice_sources = json.loads((REPO_ROOT / ".agents/skills/agent-orchestration-governance/references/platform-source-inventory.json").read_text()).get("practice_sources", {})
     for skill_file in sorted(SKILLS_ROOT.glob("*/SKILL.md")):
-        rel = skill_file.relative_to(REPO_ROOT)
+        rel = skill_file.relative_to(REPO_ROOT).as_posix()
         if str(rel) in practice_sources:
             continue
         text = skill_file.read_text(encoding="utf-8")
@@ -417,7 +417,7 @@ def validate_reference_budgets(errors: list[str]) -> None:
     for path in sorted(SKILLS_ROOT.glob("*/references/*.md")):
         if not (path.parents[1] / "skill.json").is_file():
             continue
-        rel = str(path.relative_to(REPO_ROOT))
+        rel = path.relative_to(REPO_ROOT).as_posix()
         if rel in REFERENCE_LINE_ALLOWLIST:
             continue
         count = line_count(path)

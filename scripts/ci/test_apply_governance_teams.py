@@ -197,12 +197,33 @@ def test_review_team_drift_is_repaired_without_changing_other_settings(module) -
         assert write.call_count == 1
 
 
+def _write_github_fixture(directory: Path) -> None:
+    import os
+    import sys
+
+    executable = directory / "gh"
+    executable.write_text("""#!/usr/bin/env python3
+import json, os, sys
+if sys.argv[1:3] == ['auth', 'status']: sys.exit(0)
+endpoint = sys.argv[-1]
+if endpoint.endswith('/members') and not {'--paginate', '--slurp'} <= set(sys.argv): sys.exit(2)
+response = json.loads(os.environ['SYNTHETIC_GITHUB_RESPONSES']).get(endpoint, {'_error': 404})
+if isinstance(response, dict) and '_error' in response: sys.exit(1)
+if isinstance(response, dict) and '_raw' in response: print(response['_raw'])
+else: print(json.dumps(response))
+""", encoding="utf-8")
+    executable.chmod(0o700)
+    if os.name == "nt":
+        (directory / "gh.cmd").write_text(
+            f'@"{sys.executable}" "%~dp0gh" %*\n', encoding="utf-8", newline=""
+        )
+
+
 def test_live_verifier_distinguishes_pending_activation_without_granting_authority(module) -> None:
     """Exercise the real verifier; pending never conceals protection/actor drift."""
     import copy
     import os
     import subprocess
-    import sys
     import tempfile
 
     policy = _policy()
@@ -241,22 +262,7 @@ def test_live_verifier_distinguishes_pending_activation_without_granting_authori
     }
     with tempfile.TemporaryDirectory(prefix="hushh-governance-verifier-") as scratch:
         directory = Path(scratch)
-        executable = directory / "gh"
-        executable.write_text("""#!/usr/bin/env python3
-import json, os, sys
-if sys.argv[1:3] == ['auth', 'status']: sys.exit(0)
-endpoint = sys.argv[-1]
-if endpoint.endswith('/members') and not {'--paginate', '--slurp'} <= set(sys.argv): sys.exit(2)
-response = json.loads(os.environ['SYNTHETIC_GITHUB_RESPONSES']).get(endpoint, {'_error': 404})
-if isinstance(response, dict) and '_error' in response: sys.exit(1)
-if isinstance(response, dict) and '_raw' in response: print(response['_raw'])
-else: print(json.dumps(response))
-""", encoding="utf-8")
-        executable.chmod(0o700)
-        if os.name == "nt":
-            (directory / "gh.cmd").write_text(
-                f'@"{sys.executable}" "%~dp0gh" %*\n', encoding="utf-8", newline=""
-            )
+        _write_github_fixture(directory)
         policy_file = directory / "policy.json"
         policy_file.write_text(json.dumps(policy), encoding="utf-8")
         environment = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_")}
