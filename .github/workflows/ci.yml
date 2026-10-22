@@ -457,7 +457,7 @@ jobs:
           cache-dependency-path: hushh-webapp/scripts/architecture/ui-contract-tools/package-lock.json
       - run: npm ci --ignore-scripts --no-audit --progress=false
         working-directory: hushh-webapp/scripts/architecture/ui-contract-tools
-      - run: npm run verify:ui-contracts
+      - run: npm run verify:ui-back-contracts
         working-directory: hushh-webapp
         env:
           UI_CONTRACT_BASE_SHA: ${{ steps.ui-base.outputs.sha }}

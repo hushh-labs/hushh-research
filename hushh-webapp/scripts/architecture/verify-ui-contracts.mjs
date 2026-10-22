@@ -23,24 +23,28 @@ function checkScript(root, script, args = ['--check']) {
   });
 }
 
-export async function verifyUiContracts(root, started = performance.now()) {
+export async function verifyUiContracts(root, started = performance.now(), { backOnly = false } = {}) {
   const index = createUiSourceIndex(root);
   const ok = await runUiChecks([
     ['Back hierarchy, coverage and freshness', () => verifyBackNavigation(root, false, index)],
+    ...(backOnly ? [] : [
     ['Search coverage and freshness', () => syncSearchContracts(root, true, index)],
     ['Surface map', () => checkScript(root, 'scripts/architecture/generate-surface-map.mjs')],
     ['Action gateway', () => checkScript(root, 'scripts/voice/generate-kai-action-gateway.mjs')],
     ['Siri action contract', () => checkScript(root, 'scripts/native/verify-siri-action-contract.mjs')],
     ['Route orchestration', () => checkScript(root, 'scripts/voice/generate-route-orchestration-index.mjs')],
-    ['Validator mutation regressions', () => checkScript(root, '--test', ['scripts/architecture/back-navigation.test.mjs', 'scripts/voice/search-contracts.test.mjs'])],
+    ]),
+    ['Validator mutation regressions', () => checkScript(root, '--test', ['scripts/architecture/back-navigation.test.mjs', ...(backOnly ? [] : ['scripts/voice/search-contracts.test.mjs'])])],
   ]);
   console.log(`UI contract validation: ${((performance.now() - started) / 1000).toFixed(2)}s (execution target: 5–10s; install and runner startup excluded).`);
-  if (!ok) console.error('Review authored Back cases and Search actions first. Then run npm run build:ui-contracts and npm run verify:ui-contracts. See docs/reference/architecture/ui-contract-contributor-guide.md.');
+  if (!ok) console.error(backOnly
+    ? 'Review authored Back cases first. Then run npm run build:back-contracts and npm run verify:ui-back-contracts. See docs/reference/architecture/ui-contract-contributor-guide.md.'
+    : 'Review authored Back cases and Search actions first. Then run npm run build:ui-contracts and npm run verify:ui-contracts. See docs/reference/architecture/ui-contract-contributor-guide.md.');
   return ok;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
   // Node's performance clock starts at process startup, including parser imports.
-  verifyUiContracts(root, 0).then(ok => { process.exitCode = ok ? 0 : 1; }).catch(error => { console.error(error.message); process.exitCode = 1; });
+  verifyUiContracts(root, 0, { backOnly: process.argv.includes('--back-only') }).then(ok => { process.exitCode = ok ? 0 : 1; }).catch(error => { console.error(error.message); process.exitCode = 1; });
 }
