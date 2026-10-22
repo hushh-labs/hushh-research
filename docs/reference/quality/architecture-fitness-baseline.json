@@ -4489,7 +4489,7 @@
     "reviewer": "peer_fixture_review"
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 3043,
+  "finding_count": 3044,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -31529,7 +31529,7 @@
       "kind": "module_size",
       "path": "consent-protocol/tests/test_model_preference_resolution.py",
       "detail": "module exceeds the advisory operon budget",
-      "value": 572,
+      "value": 611,
       "limit": 500,
       "symbol": null,
       "key": "module_size|consent-protocol/tests/test_model_preference_resolution.py||module exceeds the advisory operon budget"
@@ -31884,6 +31884,15 @@
       "path": "consent-protocol/tests/services/test_account_service_export.py",
       "symbol": null,
       "value": 507
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/private_text_processing_approval_service.py|set_private_text_approval|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/private_text_processing_approval_service.py",
+      "symbol": "set_private_text_approval",
+      "value": 82
     }
   ],
   "inspected_files": 6625,
@@ -83680,6 +83689,30 @@
         "source_sha256": "0a152b27430a0a720be1c160c977e6381ea1ff1ddc4147c87f5be89fb0b9a88f",
         "reviewer": "agent_layout_audit",
         "review": "Two existing synthetic library rows now declare active state required by authoritative recovery. Production guards and terminal-proof, cancellation, uncertainty and changed-bucket assertions are unchanged; 63 nearest cases pass."
+      }
+    ]
+  },
+  "shared_processing_disclosure_review_20261022": {
+    "parent_revision": "f055c05948bccb1fbdb069de716432689af17f29",
+    "policy": "Two exact reviewed ceilings; all budgets and other findings preserved.",
+    "entries": [
+      {
+        "key": "module_size|consent-protocol/tests/test_model_preference_resolution.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 572,
+        "after": 611,
+        "source_sha256": "c1522e6446acf02086f1e4a676170732ae63d7be8e2123537e99947b38a930ed",
+        "reviewer": "agent_layout_audit",
+        "review": "Opt-in effective-provider disclosure and old-client response compatibility; historical pilot receipt, SQL/CAS and BYOC routing unchanged. Nearest existing tests extended; no global budget change."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/private_text_processing_approval_service.py|set_private_text_approval|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 82,
+        "source_sha256": "83417721cab00ac66f85e977fa23769ee8ef2e423ed42929274555e60386ede7",
+        "reviewer": "agent_layout_audit",
+        "review": "Opt-in effective-provider disclosure and old-client response compatibility; historical pilot receipt, SQL/CAS and BYOC routing unchanged. Nearest existing tests extended; no global budget change."
       }
     ]
   }

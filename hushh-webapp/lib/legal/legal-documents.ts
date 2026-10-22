@@ -9,7 +9,7 @@
 // on this branch. Change the code and this text together. When the text
 // changes, bump `version` and `lastUpdated`.
 
-import { DRIVE_AZURE_DEFAULT_DISCLOSURE } from "./private-text-disclosure";
+import { UAT_MANAGED_TEXT_DISCLOSURE } from "./private-text-disclosure";
 
 export type LegalDocumentType = "privacy" | "terms";
 
@@ -50,9 +50,9 @@ const GOOGLE_PERMISSIONS_URL = "https://myaccount.google.com/permissions";
 const LAST_UPDATED = "2026-10-16";
 const LAST_UPDATED_LABEL = "October 16, 2026";
 const VERSION = "2.4";
-const PRIVACY_LAST_UPDATED = "2026-10-21";
-const PRIVACY_LAST_UPDATED_LABEL = "October 21, 2026";
-const PRIVACY_VERSION = "2.10";
+const PRIVACY_LAST_UPDATED = "2026-10-22";
+const PRIVACY_LAST_UPDATED_LABEL = "October 22, 2026";
+const PRIVACY_VERSION = "2.11";
 
 const p = (...text: LegalInline[]): LegalBlock => ({ kind: "p", text });
 const h = (text: string): LegalBlock => ({ kind: "h", text });
@@ -175,7 +175,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
         "Outside UAT managed text processing, Shared uses Google Gemini. A private agent uses the AI connection you select, including the supported Google or Microsoft Azure connection. For each request, the model receives what that request needs: your message, relevant parts of your conversation, and, when relevant or when you ask, your memories and information from connected services or from people who shared with you. That can include sensitive information you asked One to use. During background Drive preparation, the model also receives document text or page images to extract facts, check coverage and prepare private packets.",
       ),
       list(
-        "Google processes these requests as our service provider under Google Cloud’s terms. Requests may be processed in any Google Cloud location, including the United States and the European Union.",
+        "Google processes Gemini requests as our service provider under Google Cloud’s terms. Those requests may be processed in any Google Cloud location, including the United States and the European Union.",
         "Where your selected AI connection supports Google Search, One uses it when searching the web for you. The search can include your approximate location if you shared it with that request.",
         "In Settings you can instead connect One to Gemini with your own key or your own Google Cloud project. Requests then go to Google under your own account, in the location you choose. Your key is stored in your vault.",
         "If you run your private agent in your own Microsoft Azure subscription, it can answer you with an Azure OpenAI model deployed in that subscription. Requests then go to Microsoft under your own Azure account and Microsoft’s terms, and Microsoft may process them in other Azure locations, depending on how the model is deployed.",
@@ -184,7 +184,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
         "Hussh does not use your information, your memories, or your connected services’ information to train AI models.",
       ),
       h("Managed text processing in UAT"),
-      ...DRIVE_AZURE_DEFAULT_DISCLOSURE.map(text => p(text)),
+      ...UAT_MANAGED_TEXT_DISCLOSURE.map(text => p(text)),
       p("The earlier optional Azure pilot has been replaced by this administrator policy in UAT. Historical personal approval records remain historical; the administrator rollout does not create or alter them."),
       h("Personal World Model public research in UAT"),
       p(

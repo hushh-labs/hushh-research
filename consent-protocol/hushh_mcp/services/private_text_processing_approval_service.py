@@ -108,7 +108,11 @@ def _approved(row: Mapping[str, Any] | None) -> bool:
 
 
 def _public(
-    row: Mapping[str, Any] | None, *, user_id: str, include_policy: bool = False
+    row: Mapping[str, Any] | None,
+    *,
+    user_id: str,
+    include_policy: bool = False,
+    include_processing_provider: bool = False,
 ) -> dict[str, Any]:
     result = {
         "provider": PRIVATE_AZURE_TEXT_PROVIDER,
@@ -129,6 +133,14 @@ def _public(
             "generation": grant.generation if grant else None,
             "scope": "one_text_chat_and_drive_requests",
         }
+        if include_processing_provider:
+            provider = PRIVATE_AZURE_TEXT_PROVIDER if grant else None
+            if grant and grant.authorization_basis == "uat_policy":
+                policy = private_drive_text_policy()
+                if policy is None or policy["generation"] != grant.generation:
+                    raise _unavailable()
+                provider = "gemini" if policy["selected_provider"] == "vertex" else "azure_openai"
+            result["processing_policy"]["provider"] = provider
     return result
 
 
@@ -150,10 +162,15 @@ async def _read(user_id: str) -> Mapping[str, Any] | None:
 
 
 async def get_private_text_approval(
-    *, user_id: str, include_policy: bool = False
+    *, user_id: str, include_policy: bool = False, include_processing_provider: bool = False
 ) -> dict[str, Any]:
     _require_uat()
-    return _public(await _read(_owner(user_id)), user_id=user_id, include_policy=include_policy)
+    return _public(
+        await _read(_owner(user_id)),
+        user_id=user_id,
+        include_policy=include_policy,
+        include_processing_provider=include_processing_provider,
+    )
 
 
 async def set_private_text_approval(
@@ -163,6 +180,7 @@ async def set_private_text_approval(
     expected_generation: str | None,
     disclosure_version: str | None = None,
     include_policy: bool = False,
+    include_processing_provider: bool = False,
 ) -> dict[str, Any]:
     _require_uat()
     owner = _owner(user_id)
@@ -231,7 +249,12 @@ async def set_private_text_approval(
             code="PRIVATE_AZURE_TEXT_APPROVAL_CHANGED",
             status_code=409,
         )
-    return _public(row, user_id=user_id, include_policy=include_policy)
+    return _public(
+        row,
+        user_id=user_id,
+        include_policy=include_policy,
+        include_processing_provider=include_processing_provider,
+    )
 
 
 async def require_private_azure_text_approval(

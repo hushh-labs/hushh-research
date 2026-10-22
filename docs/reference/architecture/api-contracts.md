@@ -1438,8 +1438,15 @@ authenticated and `private, no-store`. Without query parameters their strict
 owner-receipt response is unchanged. Updated clients opt into
 `?include_policy=true` to additionally receive `processing_policy`:
 `{enabled,basis:owner_approval|uat_policy|disabled,version,generation,
-scope:one_text_chat_and_drive_requests}`. Effective administrator status never
+scope:one_text_chat_and_drive_requests}`. Adding
+`&include_processing_provider=true` includes the nested
+`provider:azure_openai|gemini|null`; existing strict clients retain their response shape.
+Effective administrator status never
 changes the owner receipt's `enabled`, `accepted_at`, `revoked_at` or CAS generation.
+The nested provider follows the current policy generation. The legacy top-level
+`provider:azure_openai` identifies historical pilot receipts, not the effective
+processor. Clients receiving older responses without the nested provider show
+provider-neutral processing information rather than infer a primary.
 The old PUT remains a historical personal receipt operation; it cannot choose the
 managed UAT processor. Updated clients expose read-only processing information.
 

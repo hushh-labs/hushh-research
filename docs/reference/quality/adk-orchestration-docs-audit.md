@@ -54,6 +54,11 @@ upgrade or provider fallback is implied. Shared Files analysis retains its separ
 Gemini processing disclosure. The provider-neutral **Use Hussh AI** picker fix is
 committed and passes its 40 nearest checks; legacy API identifiers are preserved.
 Its publication candidate is not yet deployed.
+The local follow-up projects the effective managed processor into an opt-in
+response field and renders matching disclosure, preserving old strict clients and
+historical receipts. Source review, 25 backend cases and 37 frontend cases pass;
+one existing PostgreSQL case is unperformed in that local run. It is not pushed
+over the frozen release candidate and does not replace the qualified pod image.
 
 ### Retained Shared deletion
 
