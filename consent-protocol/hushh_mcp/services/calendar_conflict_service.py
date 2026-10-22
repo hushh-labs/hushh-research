@@ -158,6 +158,17 @@ class CalendarConflictService:
                 raise GoogleConnectionError(
                     "Mail could not prepare the organizer note", status_code=409
                 )
+            if (
+                prepared.get("title") != event["title"]
+                or prepared.get("start") != event["start"]
+                or prepared.get("end") != event["end"]
+                or str(prepared["recipient"]).casefold()
+                != str((event.get("organizer") or {}).get("email") or "").casefold()
+            ):
+                raise GoogleConnectionError(
+                    "The invitation changed while Mail was prepared. Refresh Calendar and review it again.",
+                    status_code=409,
+                )
             children.append(
                 {
                     "kind": "decline",

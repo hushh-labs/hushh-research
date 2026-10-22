@@ -460,6 +460,8 @@ const profileGlyphSize = 28; // Shared SettingsRow glyph, inside its 32-point we
 const profileStyles = await readFile(resolve(WEB_ROOT, "app/globals.css"), "utf8");
 const keyAccentHex = profileStyles.match(/--accent-preview-blue:\s*(#[0-9a-f]{6})\s*;/i)?.[1];
 if (!keyAccentHex) throw new Error("Missing canonical Blue artwork token");
+const destructiveHex = profileStyles.match(/--app-destructive:\s*(#[0-9a-f]{6})\s*;/i)?.[1];
+if (!destructiveHex) throw new Error("Missing canonical destructive artwork token");
 const profileLoader = await createServer({
   configFile: false, root: WEB_ROOT, appType: "custom", logLevel: "error",
   resolve: { alias: { "@": WEB_ROOT } },
@@ -513,7 +515,9 @@ try {
     const svg = document.documentElement;
     svg.setAttributeNS("http://www.w3.org/2000/xmlns/", "xmlns", "http://www.w3.org/2000/svg");
     const fill = svg.getAttribute("fill");
-    const colorHex = /^#[0-9a-f]{6}$/i.test(fill ?? "") ? fill : null;
+    const colorHex = svg.hasAttribute("data-trash-icon")
+      ? destructiveHex
+      : /^#[0-9a-f]{6}$/i.test(fill ?? "") ? fill : null;
     const original = entry.original === true;
     const accentColorHex = svg.querySelector('[fill="var(--app-key-accent)"]') ? keyAccentHex : null;
     const accentFill = fill === "var(--app-accent)";

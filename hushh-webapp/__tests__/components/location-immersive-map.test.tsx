@@ -1519,6 +1519,9 @@ describe("LocationImmersiveMap demo experience", () => {
             marker.coordinate.lng === -122.4172,
         ),
       ).toBe(true);
+      expect(drawn.find(marker => marker.coordinate.lat === 37.7775)).toMatchObject({
+        tintColor: { r: 0, g: 122, b: 255, a: 255 },
+      });
       // ...while the owner never does: their avatar is HTML above the map.
       expect(
         drawn.some(
@@ -3756,7 +3759,10 @@ describe("LocationImmersiveMap reported map defects", () => {
       expect(fittedFallback).toBeDefined();
       expect(fittedFallback?.center).toEqual({ lat: 25.46, lng: 81.85 });
       const longitudeSpan = 81.85 - -74.006;
-      const fittedZoom = Math.log2((390 - 48) / (256 * (longitudeSpan / 360)));
+      // The renderer clamps this cross-continent fit to its viewport floor.
+      const config = (mapHarness.create.mock.calls.at(-1)?.[0] as unknown as { config: { minZoom: number } }).config;
+      expect(config.minZoom).toBe(2);
+      const fittedZoom = Math.max(config.minZoom, Math.log2((390 - 48) / (256 * (longitudeSpan / 360))));
       const metresPerPixel =
         (156543.03392 * Math.cos((25.46 * Math.PI) / 180)) / 2 ** fittedZoom;
       expect(Number(fittedFallback?.radius) / metresPerPixel).toBeCloseTo(9, 1);
@@ -4557,6 +4563,54 @@ describe("LocationImmersiveMap reported map defects", () => {
         { width: 390, height: 844 },
       ),
     ).toBe(0);
+  });
+
+  it.each(["pointer", "keyboard"] as const)("keeps an empty consented map filled after resize and respects %s input", async (input) => {
+    experienceHarness.demoMode = false;
+    platformHarness.native = false;
+    seedConsentedRenderer();
+    serviceHarness.captureCurrentPosition.mockRejectedValue(new Error("permission denied"));
+    let width = 390;
+    let height = 844;
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function(this: Element) {
+      const map = this.tagName === "CAPACITOR-GOOGLE-MAP";
+      return { x: 0, y: 0, top: 0, left: 0, width: map ? width : 0, height: map ? height : 0,
+        right: map ? width : 0, bottom: map ? height : 0, toJSON: () => ({}) } as DOMRect;
+    });
+    render(<LocationImmersiveMap />);
+    await awaitMapPreparation();
+    expect(mapHarness.create).toHaveBeenCalledWith(expect.objectContaining({
+      config: expect.objectContaining({ minZoom: neutralWorldCamera({ width, height }).zoom }),
+    }));
+    // Capacitor Web emits isGesture for programmatic center changes too.
+    mapHarness.map.setCamera.mockImplementation(async () => {
+      mapHarness.listeners.cameraMoveStarted?.({ isGesture: true });
+    });
+    width = 430;
+    height = 932;
+    fireEvent(window, new Event("resize"));
+    const middle = neutralWorldCamera({ width, height });
+    await waitFor(() => expect(mapHarness.map.setCamera).toHaveBeenLastCalledWith({
+      coordinate: middle.center, zoom: middle.zoom, animate: false,
+    }));
+    mapHarness.map.setCamera.mockClear();
+    width = 552;
+    height = 1080;
+    fireEvent(window, new Event("resize"));
+    const target = neutralWorldCamera({ width, height });
+    await waitFor(() => expect(mapHarness.map.setCamera).toHaveBeenLastCalledWith({
+      coordinate: target.center, zoom: target.zoom, animate: false,
+    }));
+    expect(outOfWorldBandPx(target, { width, height })).toBe(0);
+    const mapElement = document.querySelector("capacitor-google-map")!;
+    if (input === "keyboard") fireEvent.keyDown(mapElement, { key: "ArrowLeft" });
+    else fireEvent.pointerDown(mapElement);
+    mapHarness.map.setCamera.mockClear();
+    width = 1440;
+    height = 900;
+    fireEvent(window, new Event("resize"));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)); });
+    expect(mapHarness.map.setCamera).not.toHaveBeenCalled();
   });
 
   it("moves the pre-consent camera off latitude 20 on a box that cannot be covered from there", () => {

@@ -13,6 +13,7 @@ import type { LocationPkmFinalizeAuthorizationV1 } from "@/lib/services/one-loca
 import type { OneLocationPreVaultDraft } from "@/lib/services/one-location-pre-vault-draft-service";
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { haversineMeters } from "@/lib/one-location/marker-interpolation";
+import { splitCheckInPlaceLabel } from "@/lib/one-location/check-in-place-label";
 import {
   normalizeSavedLocationAddressDetails,
   type SavedLocationAddressDetails,
@@ -86,6 +87,10 @@ export type SavedLocation = {
    */
   addressDetails?: SavedLocationAddressDetails | null;
   savedAt: string;
+  /** Venue identity and visit time, when recorded by a check-in. */
+  placeName?: string | null;
+  placeId?: string | null;
+  checkedInAt?: string | null;
   /** Explicit saves from the check-out flow belong in Checked In Places. */
   savedFrom?: "check_in";
 };
@@ -187,6 +192,13 @@ function locationsFromDomain(
     addressBase:
       typeof location.addressBase === "string" ? location.addressBase : null,
     addressDetails: sanitizeAddressDetails(location.addressDetails),
+    placeName: typeof location.placeName === "string" ? location.placeName : null,
+    placeId: typeof location.placeId === "string" ? location.placeId : null,
+    checkedInAt:
+      typeof location.checkedInAt === "string" &&
+      Number.isFinite(Date.parse(location.checkedInAt))
+        ? location.checkedInAt
+        : null,
   }));
 }
 
@@ -473,6 +485,9 @@ export async function addSavedLocation(params: {
     addressBase?: string | null;
     addressDetails?: SavedLocationAddressDetails | null;
     savedFrom?: "check_in";
+    placeName?: string | null;
+    placeId?: string | null;
+    checkedInAt?: string | null;
   };
 }): Promise<SavedLocation[]> {
   const { input } = params;
@@ -502,6 +517,12 @@ export async function addSavedLocation(params: {
       ? sanitizeAddressDetails(input.addressDetails)
       : null,
     savedAt: new Date().toISOString(),
+    placeName: cleanText(input.placeName, 200),
+    placeId: cleanText(input.placeId, 300),
+    checkedInAt:
+      input.checkedInAt && Number.isFinite(Date.parse(input.checkedInAt))
+        ? input.checkedInAt
+        : null,
     ...(input.savedFrom === "check_in" ? { savedFrom: "check_in" as const } : {}),
   };
 
@@ -601,6 +622,9 @@ export async function updateSavedLocation(params: {
       const previous = existing.find((location) => location.id === id);
       const updatedEntry = {
         ...entry,
+        placeName: previous?.placeName ? cleanText(input.label, 200) : null,
+        placeId: previous?.placeId ?? null,
+        checkedInAt: previous?.checkedInAt ?? null,
         ...(previous?.savedFrom ? { savedFrom: previous.savedFrom } : {}),
       };
       // Drop the entry being edited (by its old id and its new id) so the
@@ -628,6 +652,31 @@ export async function updateSavedLocation(params: {
     throw new DuplicateSavedLocationError(duplicateLocation);
   }
   return locations;
+}
+
+/** Move the existing checked-in place to Favorites without duplicating its pin. */
+export async function favoriteSavedLocation(params: {
+  context: SavedLocationVaultContext;
+  id: string;
+}): Promise<SavedLocation[]> {
+  return mutateSavedLocations({
+    context: params.context,
+    source: "one_location_saved_place_edit_confirm",
+    mutate: (existing) => {
+      if (!existing.some((location) => location.id === params.id)) {
+        throw new Error("This saved place is no longer available.");
+      }
+      return existing.map((location) =>
+        location.id === params.id && location.savedFrom === "check_in"
+          ? {
+              ...location,
+              placeName: location.placeName || splitCheckInPlaceLabel(location.label).name,
+              savedFrom: undefined,
+            }
+          : location,
+      );
+    },
+  });
 }
 
 /** Remove a saved place from encrypted PKM. */

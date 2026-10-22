@@ -99,6 +99,17 @@ for (const width of [320, 393, 1024]) {
     const panel = page.getByTestId("one-location-nearby-check-in-sheet");
     await expect(panel.getByRole("heading", { name: "Check in nearby", exact: true })).toHaveCSS("font-size", "20px");
     await expect(panel.getByRole("heading", { name: "Check in nearby", exact: true })).toHaveCSS("line-height", "28px");
+    const close = panel.getByRole("button", { name: "Close", exact: true });
+    // Measure both boxes in one frame while the shared sheet may be entering.
+    const centerOffset = await panel.evaluate(node => {
+      const title = node.querySelector('[data-slot="sheet-title"]')!.getBoundingClientRect();
+      const close = node.querySelector('[data-slot="sheet-close"]')!.getBoundingClientRect();
+      return Math.abs(title.y + title.height / 2 - close.y - close.height / 2);
+    });
+    expect(centerOffset).toBeLessThanOrEqual(2);
+    await close.hover();
+    await expect(close).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    expect(await close.evaluate(node => getComputedStyle(node, "::before").backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
     await expect(panel.getByRole("heading", { name: "Checked in", exact: true })).toHaveCSS("font-size", "17px");
     const leaving = panel.getByRole("button", { name: "I'm leaving", exact: true });
     await expect(leaving).toHaveCSS("height", "44px");
@@ -123,5 +134,48 @@ for (const width of [320, 393, 1024]) {
     await expect(extension).toBeHidden();
     await expect(panel.getByRole("heading", { name: "Checked in", exact: true })).toBeVisible();
     await page.screenshot({ path: test.info().outputPath(`check-in-task-${width}.png`), animations: "disabled" });
+  });
+}
+
+for (const scene of ["sheet", "dialog", "drawer"]) {
+  test(`Task ${scene} close has one hover surface`, async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 844 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.setContent(`<html><head><style>${css}</style></head><body data-scene="${scene}"><div id="root"></div></body></html>`);
+    await page.addScriptTag({ content: script });
+    const close = page.getByRole("button", { name: "Close", exact: true });
+    await expect(close).toBeVisible();
+    await close.hover();
+    await close.click({ trial: true });
+    await expect(close).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    const disk = await close.evaluate(node => {
+      const style = getComputedStyle(node, "::before");
+      return { width: style.width, height: style.height, background: style.backgroundColor };
+    });
+    expect(disk.width).toBe("28px");
+    expect(disk.height).toBe("28px");
+    expect(disk.background).not.toBe("rgba(0, 0, 0, 0)");
+    await page.screenshot({ path: test.info().outputPath(`close-${scene}.png`), animations: "disabled" });
+    await close.click();
+    await expect(page.getByRole("heading", { name: "Invite code", exact: true })).toBeHidden();
+  });
+}
+
+for (const width of [393, 1024]) {
+  test(`Check-in duration uses a thin blue border at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.setContent(`<html><head><style>${css}</style></head><body data-scene="setup"><div id="root"></div></body></html>`);
+    await page.addScriptTag({ content: script });
+    const duration = page.getByRole("combobox", { name: "Visible for" });
+    await expect(page.getByRole("radio", { name: /Riverside Cafe/ })).toBeVisible();
+    await duration.focus();
+    await expect(duration).toHaveCSS("border-width", "1px");
+    await expect(duration).toHaveCSS("border-color", "rgb(0, 122, 255)");
+    expect(await duration.evaluate(node => getComputedStyle(node).boxShadow)).not.toContain("3px");
+    await duration.selectOption("30");
+    await expect(duration).toHaveValue("30");
+    const credit = page.getByText("Google Maps", { exact: true });
+    expect(await credit.evaluate(node => node.compareDocumentPosition(document.querySelector('[role="radiogroup"]')!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTruthy();
+    await page.screenshot({ path: test.info().outputPath(`check-in-setup-${width}.png`), animations: "disabled" });
   });
 }

@@ -2891,6 +2891,12 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   color: var(--ios-account-label) !important;
 }
 
+/* Deletion glyphs keep Apple's red even inside Profile's neutral icon family. */
+svg[data-trash-icon],
+.profile-pane-scroll-root svg[data-trash-icon] {
+  color: var(--app-destructive) !important;
+}
+
 .profile-pane-scroll-root :is(.profile-pane-icon-accent, .profile-account-icon-accent) {
   stroke: var(--ios-account-accent) !important;
 }

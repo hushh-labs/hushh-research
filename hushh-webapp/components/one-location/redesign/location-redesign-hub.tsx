@@ -6255,7 +6255,7 @@ function AskFlow({
         title="Ask for location"
         description={selectedCountCopy(
           selectedRequestRecipients.length,
-          "Choose who to ask.",
+          "Choose whom to ask",
         )}
       />
 

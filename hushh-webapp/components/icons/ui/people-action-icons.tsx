@@ -1,6 +1,39 @@
 import { forwardRef } from "react";
 import type { CanonicalIconProps } from "../legacy-ui-icons";
 
+/** The Feed's two complete, equally sized people, shared by invitation surfaces. */
+export const PeoplePairIcon = forwardRef<SVGSVGElement, CanonicalIconProps>(
+  function PeoplePairIcon(
+    { size = 24, className, weight: _weight, mirrored: _mirrored, strokeWidth: _strokeWidth, absoluteStrokeWidth: _absoluteStrokeWidth, ...props },
+    ref,
+  ) {
+    return (
+      <svg ref={ref} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={["profile-pane-icon", className].filter(Boolean).join(" ")} {...props}>
+        <circle cx="6.6" cy="8.2" r="2.7" />
+        <path d="M2.4 19.4c.3-3.5 1.9-5.6 4.2-5.6s3.9 2.1 4.2 5.6" />
+        <circle className="profile-pane-icon-accent" cx="17.4" cy="8.2" r="2.7" stroke="var(--app-accent)" />
+        <path className="profile-pane-icon-accent" stroke="var(--app-accent)" d="M13.2 19.4c.3-3.5 1.9-5.6 4.2-5.6s3.9 2.1 4.2 5.6" />
+      </svg>
+    );
+  },
+);
+
+/** Person-plus artwork used by the SMS Circle's Add people action. */
+export const AddPeopleIcon = forwardRef<SVGSVGElement, CanonicalIconProps>(
+  function AddPeopleIcon(
+    { size = 24, className, weight: _weight, mirrored: _mirrored, strokeWidth: _strokeWidth, absoluteStrokeWidth: _absoluteStrokeWidth, ...props },
+    ref,
+  ) {
+    return (
+      <svg ref={ref} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={["profile-pane-icon", className].filter(Boolean).join(" ")} {...props}>
+        <circle cx="9" cy="8" r="3" />
+        <path d="M3.5 19c.3-4 2.2-6 5.5-6s5.2 2 5.5 6" />
+        <path className="profile-pane-icon-accent" d="M17.5 5.5v7M14 9h7" />
+      </svg>
+    );
+  },
+);
+
 // Keep the supplied glyph geometry and use the same adaptive outline/accent
 // colors as Profile. These icons sit directly beside names or menu labels.
 export const ContactsBookIcon = forwardRef<SVGSVGElement, CanonicalIconProps>(
@@ -61,22 +94,4 @@ export const InvitePersonPlusIcon = forwardRef<SVGSVGElement, CanonicalIconProps
   },
 );
 
-export const ManageConnectionsIcon = forwardRef<SVGSVGElement, CanonicalIconProps>(
-  function ManageConnectionsIcon(
-    { size = 24, weight: _weight, mirrored: _mirrored, strokeWidth: _strokeWidth, absoluteStrokeWidth: _absoluteStrokeWidth, ...props },
-    ref,
-  ) {
-    return (
-      <svg ref={ref} width={size} height={size} viewBox="0 0 24 24" fill="none" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" {...props}>
-        <g stroke="var(--ios-account-label)">
-          <circle cx="7" cy="7" r="2.5" />
-          <path d="M2.5 19v-2a4.5 4.5 0 0 1 9 0v2" />
-        </g>
-        <g stroke="var(--ios-account-accent)">
-          <circle cx="17" cy="7" r="2.5" />
-          <path d="M12.5 19v-2a4.5 4.5 0 0 1 9 0v2" />
-        </g>
-      </svg>
-    );
-  },
-);
+export const ManageConnectionsIcon = PeoplePairIcon;

@@ -351,15 +351,30 @@ describe("ConnectCirclesTab", () => {
     expect(screen.getByText("SMS Circle")).toBeTruthy();
   });
 
-  it("never names a category the person did not pick", async () => {
+  it("nests each owned type under Your circles and puts Joined last", async () => {
     mocks.listCircles.mockResolvedValue([
-      { ...circle("mine", "Roommates", 3), kind: "family" as const },
+      circle("trusted", "Trusted", 3, "trusted"),
+      { ...circle("family", "Weekend family", 3), kind: "family" as const },
+      { ...circle("friends", "Old classmates", 4), kind: "friends" as const },
+      { ...circle("finance", "Investments", 2), customTypeLabel: "Finance" },
+      circle("other", "Project team", 2),
+      { ...circle("joined", "Shared budget", 4, null, "member"), customTypeLabel: "Finance" },
     ]);
-    const view = render(<ConnectCirclesTab />);
-
-    await screen.findByText("Roommates");
-    expect(view.container.textContent).not.toMatch(/\bFamily\b/);
-    expect(view.container.textContent).not.toMatch(/\bFriends\b/);
+    render(<ConnectCirclesTab />);
+    const owned = await screen.findByTestId("connect-circle-group-owned");
+    const joined = screen.getByTestId("connect-circle-group-joined");
+    expect(within(owned).getAllByRole("heading", { level: 3 }).map(node => node.textContent)).toEqual([
+      "Family 1", "Friends 1", "Finance 1",
+    ]);
+    for (const name of ["Trusted", "Weekend family", "Old classmates", "Investments", "Project team"]) {
+      expect(within(owned).getByText(name)).toBeInTheDocument();
+    }
+    expect(within(owned).queryByText("Shared budget")).toBeNull();
+    expect(within(owned).queryByRole("heading", { name: /Other/ })).toBeNull();
+    expect(within(joined).getByText("Shared budget")).toBeInTheDocument();
+    expect(owned.compareDocumentPosition(joined) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(owned).getByRole("button", { name: "Delete Finance type" })).toBeInTheDocument();
+    expect(within(owned).queryByRole("button", { name: "Delete Family type" })).toBeNull();
   });
 
   it("gives a new member clear create and join paths", async () => {
@@ -610,6 +625,44 @@ describe("ConnectCirclesTab", () => {
 });
 
 describe("the flows are hosted on Connect, not linked away to Location", () => {
+  it.each(["hussh", "Finance"])("creates US and india under the reused %s type after reloading the list", async (typeLabel) => {
+    const saved: Array<ReturnType<typeof circle> & { customTypeLabel?: string }> = [circle("untyped", "Project team", 2)];
+    mocks.listCircles.mockImplementation(async () => structuredClone(saved));
+    mocks.createNamedCircle.mockImplementation(async ({ name, kind, customTypeLabel }) => {
+      const created = { ...circle(name.toLowerCase(), name, 9), kind, customTypeLabel };
+      saved.push(created);
+      return structuredClone(created);
+    });
+    for (const name of ["US", "india"]) {
+      const onOpenChange = vi.fn();
+      const view = render(<ConnectCirclesTab currentUserId="owner-user" createDialogOpen onCreateDialogOpenChange={onOpenChange} />);
+      const dialog = await screen.findByRole("dialog", { name: "Create a Circle" });
+      fireEvent.change(within(dialog).getByRole("textbox", { name: "Circle name" }), { target: { value: name } });
+      if (name === "US") {
+        fireEvent.click(within(dialog).getByRole("radio", { name: "Other", exact: true }));
+        const type = await within(dialog).findByRole("textbox", { name: "Type name (optional)" });
+        fireEvent.change(type, { target: { value: typeLabel } });
+      } else {
+        fireEvent.click(await within(dialog).findByRole("radio", { name: typeLabel, exact: true }));
+      }
+      fireEvent.click(within(dialog).getByRole("button", { name: "Next" }));
+      await waitFor(() => expect(mocks.createNamedCircle).toHaveBeenLastCalledWith({ vaultOwnerToken: "vault-token", name, kind: "other", customTypeLabel: typeLabel }));
+      fireEvent.click(await within(dialog).findByRole("button", { name: "Add people later" }));
+      await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+      view.unmount();
+      const list = render(<ConnectCirclesTab currentUserId="owner-user" />);
+      const group = await screen.findByRole("region", { name: `${typeLabel} circles`, exact: true });
+      expect(within(group).getByText(name, { exact: true })).toBeInTheDocument();
+      expect(screen.getByText("Project team")).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: /^Other/ })).toBeNull();
+      if (name === "india") {
+        expect(within(group).getByRole("heading", { name: `${typeLabel} 2`, level: 3 })).toBeInTheDocument();
+        expect(within(group).getByText("US", { exact: true })).toBeInTheDocument();
+      }
+      list.unmount();
+    }
+  });
+
   it("opens custom creation in a modal without navigation and uses the existing creation action", async () => {
     mocks.searchParams = new URLSearchParams("tab=people");
     const onOpenChange = vi.fn();
@@ -1060,11 +1113,13 @@ describe("Connect circle list confirmation", () => {
     mocks.listCircles.mockResolvedValue([mine, trusted]);
     mocks.getCircle.mockResolvedValue({ ...mine, viewerCapabilities: { ...mine.viewerCapabilities, canDeleteCircle: false } });
     render(<ConnectCirclesTab currentUserId="owner-user" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Options for Trusted" }));
-    expect(screen.queryByRole("button", { name: "Delete circle" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Options for Trusted" }));
-    fireEvent.click(screen.getByRole("button", { name: "Options for Roommates" }));
-    fireEvent.click(screen.getByRole("button", { name: "Delete circle" }));
+    const room = await screen.findByTestId("connect-circle-owned");
+    expect(screen.queryByRole("button", { name: /Options for/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete Trusted", hidden: true })).toBeNull();
+    // The existing swipe action still opens the shared confirmation; the
+    // capability is rechecked by the same handler before any mutation.
+    const swipe = room.closest('[data-swipe-views-horizontal-scroll]')!;
+    fireEvent.click(swipe.querySelector('button[data-action="delete"]')!);
     const confirm = within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete circle" });
     expect(mocks.deleteCircle).not.toHaveBeenCalled();
     fireEvent.click(confirm);

@@ -1,4 +1,5 @@
 import type { ReactNode, SVGProps } from "react";
+import { PeoplePairIcon } from "@/components/icons/ui/people-action-icons";
 
 type InnerIconProps = SVGProps<SVGSVGElement> & {
   size?: number | string;
@@ -78,14 +79,7 @@ export function ProfileInnerSuccessIcon(props: InnerIconProps) {
 }
 
 export function ProfileInnerPeopleIcon(props: InnerIconProps) {
-  return (
-    <InnerIcon {...props}>
-      <circle cx="9" cy="8" r="3" />
-      <path d="M2.8 19c.3-3.8 2.4-5.7 6.2-5.7s5.9 1.9 6.2 5.7" />
-      <circle className="profile-pane-icon-accent" cx="17.3" cy="9" r="2.5" />
-      <path className="profile-pane-icon-accent" d="M16.7 14.1c2.7-.2 4.3 1.5 4.5 4.9" />
-    </InnerIcon>
-  );
+  return <PeoplePairIcon {...props} />;
 }
 
 export function ProfileInnerProgressIcon(props: InnerIconProps) {

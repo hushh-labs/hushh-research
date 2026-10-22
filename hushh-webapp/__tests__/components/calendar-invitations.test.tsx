@@ -30,7 +30,7 @@ beforeEach(() => {
   mock.apiFetch.mockImplementation(async (path: string, init: RequestInit) => {
     const body = JSON.parse(String(init.body));
     if (path.endsWith("/invitations")) return response({ events: invitations, pending_count: invitations.filter(e => e.response_status === "needsAction").length, unreadable_calendars: [], start_at: "2030-10-14T00:00:00Z", end_at: "2031-01-12T00:00:00Z", time_zone: "UTC", complete: true });
-    if (path.endsWith("/attendance/review")) return response({ review_id: "review-id", review_token: "memory-only-review", title: pending.title, response_status: body.response_status, conflicts: body.response_status === "accepted" ? [{ title: "Existing meeting", start: pending.start, end: pending.end }] : [], recipient: body.offer_times || body.send_message ? "priya@example.test" : null, subject: body.offer_times || body.send_message ? "Another time for Client Sync" : null, message: body.offer_times ? `${body.message}\n\nhttps://one.example.test/calendar/reschedule#encrypted-capability` : null, openings: body.offer_times ? [{ start_at: "2030-10-15T10:00:00Z", end_at: "2030-10-15T10:45:00Z" }] : [], expires_at: "2030-10-14T09:00:00Z" });
+    if (path.endsWith("/attendance/review")) return response({ review_id: "review-id", review_token: "memory-only-review", title: pending.title, start: pending.start, end: pending.end, response_status: body.response_status, conflicts: body.response_status === "accepted" ? [{ title: "Existing meeting", start: pending.start, end: pending.end }] : [], recipient: body.offer_times || body.send_message ? "priya@example.test" : null, subject: body.offer_times ? "Another time for Client Sync" : body.send_message ? "Unable to attend: Client Sync" : null, message: body.offer_times ? `${body.message}\n\nhttps://one.example.test/calendar/reschedule#encrypted-capability` : body.send_message ? body.message : null, openings: body.offer_times ? [{ start_at: "2030-10-15T10:00:00Z", end_at: "2030-10-15T10:45:00Z" }] : [], expires_at: "2030-10-14T09:00:00Z" });
     if (path.endsWith("/attendance/confirm")) {
       invitations[0] = { ...invitations[0]!, response_status: outcome.calendar as "accepted" | "declined" };
       return response(outcome);
@@ -76,13 +76,35 @@ describe("shared page/chat Invitations with real typed transport", () => {
     render(view()); fireEvent.click(await screen.findByRole("button", { name: "Open invitation: Client Sync" }));
     fireEvent.click(screen.getByRole("button", { name: "Decline", exact: true }));
     expect(mutations()).toHaveLength(0);
-    expect(screen.getByRole("button", { name: "Decline & send email" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Review decline email" })).toBeDisabled();
     fireEvent.change(screen.getByRole("textbox", { name: "Reason for declining" }), { target: { value: "Family commitment." } });
+    fireEvent.click(screen.getByRole("button", { name: "Review decline email" }));
+    await screen.findByText("Decline invitation?");
+    expect(mutations()).toHaveLength(0);
+    expect(JSON.parse(preparations()[0][1].body).message).toContain("Family commitment.");
+    expect(screen.getByText(/I’m sorry, but I can’t attend/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Decline & send email" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await waitFor(() => expect(screen.getByRole("tab", { name: "Pending (0)" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("tab", { name: "Responded" }));
     expect(screen.getByRole("button", { name: "Open invitation: Client Sync" })).toBeInTheDocument();
+  });
+
+  it("does not send an email composed for an invitation that changed before review", async () => {
+    const original = mock.apiFetch.getMockImplementation()!;
+    mock.apiFetch.mockImplementation(async (path: string, init: RequestInit) => {
+      const result = await original(path, init);
+      return path.endsWith("/attendance/review")
+        ? response({ ...await result.json(), start: { dateTime: "2030-10-14T11:00:00Z" } })
+        : result;
+    });
+    render(view());
+    fireEvent.click(await screen.findByRole("button", { name: "Open invitation: Client Sync" }));
+    fireEvent.click(screen.getByRole("button", { name: "Decline", exact: true }));
+    fireEvent.change(screen.getByLabelText("Reason for declining"), { target: { value: "I am unavailable." } });
+    fireEvent.click(screen.getByRole("button", { name: "Review decline email" }));
+    expect(await screen.findByText(/This invitation changed while the email was prepared/)).toBeInTheDocument();
+    expect(mutations()).toHaveLength(0);
   });
 
   it("offers editable real-time alternatives and preserves separate Mail failure outcome", async () => {
@@ -268,7 +290,8 @@ it("discards an expired token, preserves the reason and requires fresh review", 
   fireEvent.click(await screen.findByRole("button", { name: "Open invitation: Client Sync" }));
   fireEvent.click(screen.getByRole("button", { name: "Decline", exact: true }));
   fireEvent.change(screen.getByLabelText("Reason for declining"), { target: { value: "Unavailable." } });
-  fireEvent.click(screen.getByRole("button", { name: "Decline & send email" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review decline email" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Decline & send email" }));
   await screen.findByRole("button", { name: "Review again" });
   expect(screen.getByLabelText("Reason for declining")).toHaveValue("Unavailable.");
   fireEvent.click(screen.getByRole("button", { name: "Review again" }));
@@ -277,7 +300,7 @@ it("discards an expired token, preserves the reason and requires fresh review", 
 });
 
 
-it("requires a visible review if the organizer changed since the form opened", async () => {
+it("rejects a decline email if the organizer changed since the form opened", async () => {
   const original = mock.apiFetch.getMockImplementation()!;
   mock.apiFetch.mockImplementation(async (path: string, init: RequestInit) => {
     const result = await original(path, init);
@@ -287,7 +310,7 @@ it("requires a visible review if the organizer changed since the form opened", a
   fireEvent.click(await screen.findByRole("button", { name: "Open invitation: Client Sync" }));
   fireEvent.click(screen.getByRole("button", { name: "Decline", exact: true }));
   fireEvent.change(screen.getByLabelText("Reason for declining"), { target: { value: "Unavailable." } });
-  fireEvent.click(screen.getByRole("button", { name: "Decline & send email" }));
-  await screen.findByText("To: changed@example.test");
+  fireEvent.click(screen.getByRole("button", { name: "Review decline email" }));
+  await screen.findByText(/This invitation changed while the email was prepared/);
   expect(mutations()).toHaveLength(0);
 });

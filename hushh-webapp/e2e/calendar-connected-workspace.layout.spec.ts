@@ -215,12 +215,14 @@ async function openFixture(page: Page, width: number, locked = false, variant: "
     if (routePath.endsWith("/attendance/review")) {
       const reviewId = `review-${attendanceReviews.size}`;
       attendanceReviews.set(reviewId, body);
-      return route.fulfill({ json: { review_id: reviewId, review_token: "synthetic-memory-only-review-token".repeat(2), title: "QA Product Sync",
+      const event = dayEvents("2026-10-14").find(item => item.id === body.event_id && item.calendar_id === body.calendar_id) || dayEvents("2026-10-14")[0];
+      return route.fulfill({ json: { review_id: reviewId, review_token: "synthetic-memory-only-review-token".repeat(2), title: event.title,
+        start: event.start, end: event.end,
         response_status: body.response_status || "declined", calendar_id: body.calendar_id, expires_at: "2030-01-01T00:00:00Z",
         conflicts: body.response_status === "accepted" ? [{ title: "QA Existing meeting", start: { dateTime: "2026-10-14T04:30:00Z" }, end: { dateTime: "2026-10-14T05:00:00Z" } }] : [],
         openings: body.offer_times ? [{ start_at: "2030-10-15T04:30:00Z", end_at: "2030-10-15T05:00:00Z" }] : [],
-        recipient: body.offer_times || body.send_message ? "qa-organizer-0@example.test" : null, subject: body.offer_times ? "Another time for QA Product Sync" : null,
-        message: body.offer_times ? `${body.message}\n\nhttps://one.example.test/calendar/reschedule#synthetic-capability` : null,
+        recipient: body.offer_times || body.send_message ? "qa-organizer-0@example.test" : null, subject: body.offer_times ? "Another time for QA Product Sync" : body.send_message ? "Unable to attend QA Product Sync" : null,
+        message: body.offer_times ? `${body.message}\n\nhttps://one.example.test/calendar/reschedule#synthetic-capability` : body.send_message ? body.message : null,
         rescheduling_link: body.offer_times ? "https://one.example.test/calendar/reschedule#synthetic-capability" : null,
       } });
     }
@@ -267,7 +269,11 @@ for (const width of [390, 1440]) {
   test(`three-account board and inline conflict review at ${width}px`, async ({ page }) => {
     const { errors, unexpectedRequests, calls } = await openFixture(page, width, false, "standard", false, true);
     await expect(page.locator("[data-calendar-account-board]")).toBeVisible();
-    for (const email of ["qa-owner@example.com", "qa-work@example.com", "qa-projects@example.com"]) await expect(page.getByRole("heading", { name: email })).toBeVisible();
+    for (const email of ["qa-owner@example.com", "qa-work@example.com", "qa-projects@example.com"]) {
+      const label = page.getByRole("group", { name: `Calendar account ${email}` }).getByText(email, { exact: true });
+      await expect(label).toBeVisible();
+      await expect(label).toHaveCSS("font-size", "14px");
+    }
     for (const event of ["QA Design Review", "QA Client Call", "QA Project Focus"]) await expect(page.getByRole("button", { name: new RegExp(`^Open ${event}`) })).toBeVisible();
     await expect(page.getByText("1 cross-account overlap")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Free across all accounts" })).toBeVisible();
@@ -726,8 +732,12 @@ test("decline reason sends once and returns to the same Calendar page", async ({
   await page.getByRole("tab", { name: "Invitations", exact: true }).click();
   await page.getByRole("button", { name: "Open invitation: QA Product Sync" }).click();
   await page.getByRole("button", { name: "Decline", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Decline & send email" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Review decline email" })).toBeDisabled();
   await page.getByLabel("Reason for declining").fill("I have another commitment.");
+  await page.getByRole("button", { name: "Review decline email" }).click();
+  await expect(page.getByText("To: qa-organizer-0@example.test")).toBeVisible();
+  await expect(page.getByText(/I have another commitment\./)).toBeVisible();
+  expect(calls.filter(call => call.path.endsWith("/attendance/confirm"))).toHaveLength(0);
   await page.getByRole("button", { name: "Decline & send email" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByTestId("calendar-action")).toHaveText("");

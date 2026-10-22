@@ -20,7 +20,7 @@
   --oc-blue:var(--app-accent);--oc-blue-soft:#152E50;--oc-pink-soft:#3A2736;--oc-orange-soft:#393124;
   --oc-success:#62C99D;--oc-control-stroke:#4A4F5C;--oc-scrim:rgba(0,0,0,.68)}
 .oc-root *, .oc-root *::before, .oc-root *::after {box-sizing:border-box}
-.oc-root button{font:inherit;-webkit-tap-highlight-color:transparent;cursor:pointer}
+.oc-root button:not([data-slot="add-people-action"]){font:inherit;-webkit-tap-highlight-color:transparent;cursor:pointer}
 .oc-root button:disabled{cursor:not-allowed;opacity:.55}
 .oc-root button:focus-visible{outline:3px solid var(--oc-blue);outline-offset:3px}
 .oc-root h1,.oc-root h2,.oc-root p{margin:0}

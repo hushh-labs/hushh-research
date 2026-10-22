@@ -16,7 +16,7 @@ import {
   Trash2,
   UsersRound,
 } from "@/components/icons";
-import { ProfilePaneAddPeopleIcon } from "@/components/profile/profile-pane-icons";
+import { AddPeopleAction } from "@/components/app-ui/add-people-action";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import { INPUT_CLASSNAME } from "@/components/ui/input";
@@ -113,6 +113,7 @@ import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-
 import { LOCATION_ACTION_SHAPE } from "../location-action-styles";
 import { CirclePersonSelectionRow } from "./circle-person-selection-row";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
+import connectStyles from "@/components/connect/connect-workspace.module.css";
 import { LivingCirclePanel } from "@/components/connect/circles/living-circle-panel";
 import { CirclePhotoEditor } from "@/components/connect/circles/circle-photo-editor";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -800,15 +801,15 @@ export function CreateCircleFlowBody({ model }: { model: CreateCircleFlowModel }
         <CreateCirclePeopleBody {...peopleProps} model={people} />
       </div> : null}
       <div hidden={step !== "details"} className={inTaskSurface ? taskSurfaceStyles.createDetails : "space-y-5"}>
-      <Body className="space-y-5">
+      <Body className={cn("space-y-5", connectStyles.circleCreateDetails)}>
       <h1 className="sr-only">Create a Circle</h1>
 
-      <p className="text-[15px] leading-6 text-[color:var(--app-secondary-label)]">
+      <p className={cn(connectStyles.circleCreateDescription, "text-[color:var(--app-secondary-label)]")}>
         Step 1 of 2 · Name your Circle, then add people now or later.
       </p>
 
       <label className="flex flex-col gap-2">
-        <span className="text-[15px] font-semibold leading-5 text-foreground">
+        <span className="ui-text-form-label">
           Circle name
         </span>
         <input
@@ -830,7 +831,7 @@ export function CreateCircleFlowBody({ model }: { model: CreateCircleFlowModel }
           spellCheck
           placeholder="Family, close friends, project team"
           className={cn(
-            inTaskSurface ? INPUT_CLASSNAME : "h-[52px] w-full rounded-[14px] border border-transparent bg-[color:var(--app-card-surface-default-solid)] px-4 text-[17px] leading-[22px] shadow-[var(--app-card-shadow-standard)] outline-none transition focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent-ring)] dark:shadow-none",
+            inTaskSurface ? INPUT_CLASSNAME : "h-[52px] w-full rounded-[14px] border border-transparent bg-[color:var(--app-card-surface-default-solid)] px-4 ui-text-input-value shadow-[var(--app-card-shadow-standard)] outline-none transition focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent-ring)] dark:shadow-none",
             showNameError && "ring-2 ring-[#FF3B30]/35 focus:ring-[#FF3B30]/35",
           )}
         />
@@ -838,9 +839,10 @@ export function CreateCircleFlowBody({ model }: { model: CreateCircleFlowModel }
           <span
             id={nameHelpId}
             className={cn(
-              "block text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]",
+              connectStyles.circleCreateDescription,
+              "block text-[color:var(--app-secondary-label)]",
               showNameError &&
-                "font-medium text-[color:var(--app-destructive)]",
+                "text-[color:var(--app-destructive)]",
             )}
           >
             {nameHelpText}
@@ -852,7 +854,7 @@ export function CreateCircleFlowBody({ model }: { model: CreateCircleFlowModel }
         <div className="space-y-2">
           <p
             id="one-location-create-circle-kind-label"
-            className="text-[15px] font-semibold leading-5 text-foreground"
+            className="ui-text-form-label"
           >
             Circle type
           </p>
@@ -903,6 +905,7 @@ export function CreateCircleFlowBody({ model }: { model: CreateCircleFlowModel }
                     if (nameMissing) setNameRequirementActive(true);
                   }}
                   className={cn(
+                    "ui-text-form-label",
                     inTaskSurface ? "flex min-h-12 items-center justify-start gap-2 rounded-[14px] border px-3 py-3 text-[14px] font-semibold leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]" : "flex h-12 items-center justify-center gap-1.5 rounded-[14px] border px-3 text-[15px] font-semibold leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
                     selected
                       ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent-tint)] text-[color:var(--app-primary-label)]"
@@ -917,11 +920,11 @@ export function CreateCircleFlowBody({ model }: { model: CreateCircleFlowModel }
           </div>
           {model.customTypesSupported && kind === "other" ? (
             <label className="flex flex-col gap-2">
-              <span className="text-sm font-semibold">Type name (optional)</span>
+              <span className="ui-text-form-label">Type name (optional)</span>
               <input aria-label="Type name (optional)" className={INPUT_CLASSNAME} value={model.customTypeLabel} maxLength={MAX_CIRCLE_TYPE_LABEL_LENGTH}
                 placeholder="For example, Finance" onChange={event => model.setCustomTypeLabel(event.target.value)}
                 aria-invalid={Boolean(model.typeError)} aria-describedby="circle-custom-type-help" />
-              <span id="circle-custom-type-help" className={cn("text-xs", model.typeError ? "text-destructive" : "text-muted-foreground")}>
+              <span id="circle-custom-type-help" className={cn(connectStyles.circleCreateDescription, model.typeError ? "text-destructive" : "text-muted-foreground")}>
                 {model.typeError || "Reuse this type for other circles. You can keep up to 3 custom types."}
               </span>
             </label>
@@ -2717,40 +2720,21 @@ export function CircleDetailFlow({
             </Sheet>
           ) : null}
 
-          {circle.systemKind === "sms" && !livingCircleExperience && canInviteMembers ? (
-            <button
-              type="button"
+          {canInviteMembers ? (
+            <AddPeopleAction
               onClick={openPeopleSheet}
               disabled={busy}
               data-testid="one-location-circle-add-people-row"
-              className="group inline-flex min-h-11 w-fit items-center gap-2 rounded-lg bg-transparent px-1.5 py-1 text-[17px] font-medium leading-[22px] text-[color:var(--ios-account-label)] transition-colors hover:text-[color:var(--app-accent)] active:text-[color:var(--app-accent)] focus-visible:text-[color:var(--app-accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--app-accent)] disabled:opacity-60"
-            >
-              <ProfilePaneAddPeopleIcon
-                size={24}
-                className="shrink-0 group-hover:text-[color:var(--app-accent)] group-active:text-[color:var(--app-accent)] group-focus-visible:text-[color:var(--app-accent)]"
-              />
-              <span>Add people</span>
-            </button>
+            />
           ) : null}
 
-          {(circle.systemKind !== "sms" && !livingCircleExperience && canInviteMembers) || canViewInviteCode ? (
+          {canViewInviteCode ? (
             <SettingsGroup
               title="Invite"
               separatorInset
               shellClassName="!rounded-[18px]"
               testId="one-location-circle-invite-card"
             >
-              {circle.systemKind !== "sms" && !livingCircleExperience && canInviteMembers ? (
-                <SettingsRow
-                  icon={ProfilePaneAddPeopleIcon}
-                  iconTone="capability"
-                  title="Add people"
-                  chevron
-                  onClick={openPeopleSheet}
-                  disabled={busy}
-                  testId="one-location-circle-add-people-row"
-                />
-              ) : null}
               {canViewInviteCode ? (
                 <SettingsRow
                   title="Invite code"
@@ -3224,7 +3208,6 @@ export function CircleDetailFlow({
                   contradicting the list it heads. */}
               <div className="flex items-center gap-3">
                 <TrailingValue>{memberCountLabel}</TrailingValue>
-                {livingCircleExperience && canInviteMembers ? <Button type="button" size="compact" onClick={openPeopleSheet} disabled={busy} data-testid="one-location-circle-add-people-row"><Plus aria-hidden="true" className="mr-1.5 size-4" />Add people</Button> : null}
               </div>
             </div>
 

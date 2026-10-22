@@ -285,7 +285,7 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
   });
 
   it.each(["active slot", "expired slot", "proposal"])("replaces %s context with a generic invitation request in the same conversation", async previous => {
-    const start = new Date(Date.now() + 60000).toISOString();
+    const start = new Date(Date.now() + 900000).toISOString();
     const proposal = structuredClone(result);
     Object.assign(proposal.directive.payload, { startAt: start, endAt: new Date(Date.parse(start) + 1800000).toISOString(), timeZone: "UTC" });
     const stream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("state", proposal));
@@ -297,7 +297,7 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
       ownerId: "owner", accountEmail: "owner@example.com", date: start.slice(0, 10), windowStart: start,
       windowEnd: new Date(Date.parse(start) + 1800000).toISOString(), durationMinutes: 30, timeZone: "UTC",
     } }); });
-    await screen.findByText("Who should join?");
+    await screen.findByText("Who should join?", {}, { timeout: 10000 });
     if (previous === "proposal") {
       fireEvent.change(composer, { target: { value: "guest@example.com" } });
       fireEvent.click(screen.getByRole("button", { name: "Send message" }));

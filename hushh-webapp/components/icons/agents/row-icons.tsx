@@ -33,7 +33,6 @@ import {
   TextAa,
   TextAlignLeft,
   Translate,
-  Trash,
   Tray,
   UserCircle,
   UserPlus,
@@ -90,7 +89,7 @@ function createRowIcon(glyph: Icon, defaultColor: string, name: string) {
 export const PhoneRowIcon = createRowIcon(Phone, ROW_TONE.emerald, "PhoneRowIcon");
 export const DiscoverableRowIcon = createRowIcon(AddressBook, ROW_TONE.sky, "DiscoverableRowIcon");
 export const ResetRowIcon = createRowIcon(ArrowCounterClockwise, ROW_TONE.amber, "ResetRowIcon");
-export const DeleteRowIcon = createRowIcon(Trash, ROW_TONE.red, "DeleteRowIcon");
+export { AppleTrashIcon as DeleteRowIcon } from "../ui/trash-icon";
 
 // Preferences
 export const AppearanceRowIcon = createRowIcon(CircleHalf, ROW_TONE.indigo, "AppearanceRowIcon");

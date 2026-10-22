@@ -357,6 +357,68 @@ describe("Top app bar responsive contract", () => {
   });
 
 
+  it("keeps onboarding chrome canonical and shell-sized", () => {
+    const topBar = read("components/app-ui/top-app-bar.tsx");
+    const source = topBar + "\n" + read("components/onboarding/onboarding-route-actions.tsx");
+    expect(topBar).toContain('import { OnboardingRouteActions }');
+    expect(topBar).toContain("<OnboardingRouteActions");
+    expect(topBar).not.toContain("function OnboardingRouteActions()");
+    const signOutItemStart = source.indexOf(
+      "onClick={() => void handleSignOut()}",
+    );
+    const signOutItemSource = source.slice(
+      signOutItemStart,
+      source.indexOf("</DropdownMenuItem>", signOutItemStart),
+    );
+    const deleteItemStart = source.indexOf('variant="destructive"');
+    const deleteItemSource = source.slice(
+      deleteItemStart,
+      source.indexOf("</DropdownMenuItem>", deleteItemStart),
+    );
+
+    expect(source).not.toContain(
+      'return { label: "Set up One", interactive: false as const };',
+    );
+    expect(source).not.toContain("ThemeToggleCompact");
+    expect(source).toContain(
+      '<ShellActionSurface variant="icon" aria-label="Account actions">',
+    );
+    expect(source).toContain('variant="destructive"');
+    expect(source).toContain('className="overflow-hidden rounded-[14px] p-1"');
+    expect(signOutItemSource).toContain("cursor-pointer");
+    expect(signOutItemSource).toContain("rounded-[10px]");
+    expect(signOutItemSource).toContain("hover:!bg-[color:var(--app-accent)]");
+    expect(signOutItemSource).toContain(
+      "hover:!text-[color:var(--app-accent-fg)]",
+    );
+    expect(signOutItemSource).toContain(
+      "hover:[&_svg]:!stroke-[color:var(--app-accent-fg)]",
+    );
+    expect(deleteItemSource).toContain("cursor-pointer");
+    expect(deleteItemSource).toContain("rounded-[10px]");
+    expect(deleteItemSource).toContain(
+      "hover:!bg-[color:var(--app-destructive-tint)]",
+    );
+    expect(deleteItemSource).toContain(
+      "hover:!text-destructive",
+    );
+    expect(deleteItemSource).not.toContain(
+      "hover:[&_svg]:!stroke-[color:var(--app-destructive-fg)]",
+    );
+    expect(deleteItemSource).not.toContain(
+      "hover:[&_svg]:!text-[color:var(--app-destructive-fg)]",
+    );
+    expect(deleteItemSource).not.toContain(
+      "data-[variant=destructive]:focus:bg-popover",
+    );
+    expect(signOutItemSource).toContain("focus-visible:ring-inset");
+    expect(deleteItemSource).toContain("focus-visible:ring-inset");
+    expect(source).not.toContain('className="text-red-600 focus:text-red-600"');
+    expect(source).not.toContain(
+      'return { label: "Get started", interactive: false as const };',
+    );
+    expect(source).not.toContain('className="h-9 w-9 rounded-full"');
+  });
   it("preserves deterministic breadcrumb navigation contracts", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
     const back = read("lib/navigation/top-shell-back.ts");
