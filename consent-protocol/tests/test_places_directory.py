@@ -1,15 +1,9 @@
-"""The places directory: its taxonomy, its streaming, and what it must not cost.
+"""Directory taxonomy/streaming and the separately budgeted check-in discovery.
 
-The sharpest risk in this feature is not the new surface, it is the old one.
-`nearby_places` builds its "All" sweep by iterating `_NEARBY_SWEEP_TYPES`, so a
-bucket added to that table becomes another concurrent provider call on every
-check-in drawer open — a cost increase on a shipped feature that no test would
-otherwise notice. The first test here pins that table's size.
-
-Note what that does NOT cover any more: the drawer's CHIPS are no longer that
-table. Classification moved to `place_taxonomy`, which is exhaustive over
-Google's Table A, so a chip can be added for nothing. Only this table is a cost
-argument.
+Check-in deliberately requests every category's types to improve 500 m coverage.
+The reviewed category set and hard query/concurrency/deadline budgets are pinned
+here; discovery behavior and budget exhaustion are exercised in the service suite.
+Directory categories remain independent from the check-in sweep.
 """
 
 from __future__ import annotations
@@ -24,33 +18,35 @@ from api.routes.one import places as places_routes
 from hushh_mcp.services import google_maps_service as maps
 
 # --------------------------------------------------------------------------- #
-# The check-in picker must not pay for the directory's finer buckets.
+# The check-in discovery budget is independent of the directory's categories.
 # --------------------------------------------------------------------------- #
 
 
-def test_the_check_in_sweep_still_costs_what_it_did() -> None:
-    """One request per bucket, plus one unfiltered. Adding a bucket adds a call.
+def test_check_in_discovery_has_reviewed_categories_and_cost_bounds() -> None:
+    """Full type coverage costs more than the former nine narrow buckets.
 
-    Nine, up from the seven this test was written against. Worship and Civic
-    bought their own buckets deliberately: neither family was in any bucket, so a
-    temple or a police station reached the drawer only when the single unfiltered
-    sweep happened to catch one. Folding them into the landmarks bucket instead
-    would have kept the count at seven and let twenty nearby temples take every
-    slot in it -- see the sibling test below, which is the guard that matters.
+    Cafe, Stays and More get explicit discovery; saturated queries can refine.
+    Query, concurrency and time budgets bound this deliberate coverage increase.
     """
 
-    assert len(maps._NEARBY_SWEEP_TYPES) == 9
+    assert len(maps._NEARBY_SWEEP_TYPES) == 12
     assert set(maps._NEARBY_SWEEP_TYPES) == {
         "food_drink",
+        "cafes",
         "health",
         "shopping_services",
         "hotels_stays",
+        "other_stays",
         "education",
         "outdoors_landmarks",
         "transit",
         "worship",
         "civic",
+        "other",
     }
+    assert maps._NEARBY_DISCOVERY_MAX_QUERIES == 96
+    assert maps._NEARBY_DISCOVERY_CONCURRENCY == 6
+    assert maps._NEARBY_DISCOVERY_TIMEOUT_SECONDS == 25
 
 
 def test_every_swept_type_belongs_to_the_bucket_that_fetches_it() -> None:
@@ -124,7 +120,7 @@ def test_every_directory_place_type_is_one_the_picker_already_used() -> None:
 
 
 def test_unknown_categories_are_dropped_not_fatal() -> None:
-    """A client one release ahead should get the nine we have, not an error."""
+    """A client one release ahead should get current categories, not an error."""
 
     resolved = places_routes._resolve_categories(["hotels_stays", "teleportation"])
 
