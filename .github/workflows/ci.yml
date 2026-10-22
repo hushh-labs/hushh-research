@@ -444,6 +444,11 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 2
+      - name: Resolve UI review base from the checked-out merge
+        id: ui-base
+        run: |
+          base="$(python3 scripts/ci/resolve-ui-contract-base.py)"
+          echo "sha=$base" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -454,7 +459,7 @@ jobs:
       - run: npm run verify:ui-contracts
         working-directory: hushh-webapp
         env:
-          UI_CONTRACT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          UI_CONTRACT_BASE_SHA: ${{ steps.ui-base.outputs.sha }}
 
   preflight-gate:
     name: "Preflight Gate"

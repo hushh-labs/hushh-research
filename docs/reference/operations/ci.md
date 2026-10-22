@@ -230,7 +230,9 @@ UAT result (including failure/cancellation), release completion or the hourly
 fallback. Failed UAT runs never advance the counter. Only one automatic release
 bundle is admitted at a time: either TestFlight, or production deploy plus its
 parallel App Store archive. Existing recorded starts keep a continuous stream of
-production candidates from starving TestFlight. The two production dispatches each recheck UAT;
+production candidates from starving TestFlight. Missing production acceptance
+keeps that pair pending while an eligible TestFlight bundle can proceed.
+The two production dispatches each recheck UAT;
 an intervening UAT request leaves a recoverable half-pair, without redispatching
 production. Active deployments, uploads and Apple processing finish normally.
 Manual release dispatches retain their existing operator contract.

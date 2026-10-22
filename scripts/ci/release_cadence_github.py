@@ -521,7 +521,7 @@ def dispatch_pending(ledger: Ledger) -> None:
                 return
             if not production_predecessor_accepted(request["sha"]):
                 defer_release("production requires complete exact-SHA UAT acceptance")
-                return
+                continue
         for lane in lanes:
             # UAT can arrive between the two dispatches. Persist the half-pair
             # and resume later rather than posting another competing workflow.

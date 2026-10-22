@@ -255,15 +255,22 @@ class DispatchTest(unittest.TestCase):
                 patch.object(github, "production_predecessor_accepted", return_value=False), \
                 patch.object(github, "defer_release") as deferred:
             github.dispatch_pending(ledger)
-        self.assertEqual(calls, [])
+        self.assertEqual(len(calls), 1)
+        self.assertIn("ship-ios-testflight.yml", calls[0][0])
+        self.assertEqual(calls[0][1]["inputs"]["sha"], ledger.state["requests"]["8"]["sha"])
         self.assertEqual(ledger.state["count"], 8)
         for lane in ("deploy", "appstore"):
             self.assertEqual(children[lane], {"state": "pending"})
         deferred.assert_called_once_with("production requires complete exact-SHA UAT acceptance")
         with patch.object(github, "api", self.dispatch_api(calls)):
             github.dispatch_pending(ledger)
+            self.assertEqual(len(calls), 1)  # The active TestFlight bundle retains its slot.
+            children["testflight"]["state"] = "success"
             github.dispatch_pending(ledger)
-        self.assertEqual(len(calls), 2)
+            github.dispatch_pending(ledger)
+        self.assertEqual(len(calls), 3)
+        self.assertIn("deploy-production.yml", calls[1][0])
+        self.assertIn("release-ios-appstore.yml", calls[2][0])
 
     def test_predecessor_lookup_failure_cannot_record_a_dispatch_intent(self):
         ledger = FakeLedger(counted())
@@ -275,13 +282,16 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(ledger.state["requests"]["8"]["lanes"]["deploy"], {"state": "pending"})
 
     def test_uat_arriving_during_predecessor_lookup_prevents_intent(self):
-        ledger = FakeLedger(counted())
-        with patch.object(github, "api") as request, \
-                patch.object(github, "uat_busy", side_effect=[False, True]), \
-                patch.object(github, "production_predecessor_accepted", return_value=True):
-            github.dispatch_pending(ledger)
-        request.assert_not_called()
-        self.assertEqual(ledger.state["requests"]["8"]["lanes"]["deploy"], {"state": "pending"})
+        for accepted in (True, False):
+            with self.subTest(accepted=accepted):
+                ledger = FakeLedger(counted())
+                with patch.object(github, "api") as request, \
+                        patch.object(github, "uat_busy", side_effect=[False, True]), \
+                        patch.object(github, "production_predecessor_accepted", return_value=accepted):
+                    github.dispatch_pending(ledger)
+                request.assert_not_called()
+                for lane in ("deploy", "testflight"):
+                    self.assertEqual(ledger.state["requests"]["8"]["lanes"][lane], {"state": "pending"})
 
     def test_half_dispatched_pair_resumes_app_without_duplicate_deployment(self):
         ledger, calls = FakeLedger(counted()), []
