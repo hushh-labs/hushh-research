@@ -3,23 +3,23 @@
 `.agents/skills/` is the authored source shared by every supported coding-agent host.
 Governed owners/spokes retain their `skill.json` and workflow contracts; portable
 practices retain their supporting resource trees and explicit classification.
-Codex discovers this directory directly. Claude's native discovery directories are
-checked relative links to these sources; do not copy procedures or frontmatter.
+All AI tools use these same procedures. Host-required discovery paths are checked
+relative links; do not copy procedures or frontmatter into another tool's folder.
 
-| Skill | Canonical behavior | Claude discovery link |
-| --- | --- | --- |
-| Verify before claim | [verify-before-claim](./verify-before-claim/SKILL.md) | `.claude/skills/verify-before-claim/` |
-| Context refresh | [context-refresh](./context-refresh/SKILL.md) | `.claude/skills/context-refresh/` |
-| Animation vocabulary | [animation-vocabulary](./animation-vocabulary/SKILL.md) | `.claude/skills/animation-vocabulary/` |
-| UI library lookup (explicit invocation) | [pick-ui-library](./pick-ui-library/SKILL.md) | `.claude/skills/pick-ui-library/` |
-| Portable PDF artifacts | [pdf-artifact-generation](./pdf-artifact-generation/SKILL.md) — including monthly executive calendar reports | `.claude/skills/pdf-artifact-generation/` |
+| Skill | Canonical behavior |
+| --- | --- |
+| Verify before claim | [verify-before-claim](./verify-before-claim/SKILL.md) |
+| Context refresh | [context-refresh](./context-refresh/SKILL.md) |
+| Animation vocabulary | [animation-vocabulary](./animation-vocabulary/SKILL.md) |
+| UI library lookup (explicit invocation) | [pick-ui-library](./pick-ui-library/SKILL.md) |
+| Portable PDF artifacts | [pdf-artifact-generation](./pdf-artifact-generation/SKILL.md) — including monthly executive calendar reports |
 
 Author changes here, then use the existing adapter generator to check native links.
 `skill_lint.py` verifies canonical sources and discovery without a second skill copy.
 Host invocation adapters belong in [adapters](../adapters/README.md); they do not
 create another policy or subagent fleet.
 
-Additional shared practices (each has a Claude discovery link):
+Additional shared practices:
 
 - [animate](./animate/SKILL.md)
 - [apple-design](./apple-design/SKILL.md)

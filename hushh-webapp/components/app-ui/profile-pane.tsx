@@ -408,7 +408,7 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
                   contentClassName={headerStyles.glyph}
                   rippleClassName={headerStyles.ripple}
                 >
-                  <ArrowLeft className="h-5 w-5" />
+                  <ArrowLeft className="size-[22px]" />
                 </ShellActionSurface>
               </NativeChatChrome>
             ) : null}
@@ -447,7 +447,7 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
             contentClassName={headerStyles.glyph}
             rippleClassName={headerStyles.ripple}
           >
-            <X className="h-4 w-4" />
+            <X className="size-[22px]" />
           </ShellActionSurface>
         </SheetClose>
         </NativeChatChrome>

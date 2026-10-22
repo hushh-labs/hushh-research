@@ -1120,55 +1120,28 @@ def validate_admin_release_contract(errors: list[str]) -> None:
                         f"teach direct command `{command}`"
                     )
 
-    legacy_claude_release_paths = [
-        REPO_ROOT / ".claude/skills/ship-discipline/SKILL.md",
-        REPO_ROOT / ".claude/skills/mobile-bug-log/SKILL.md",
-        REPO_ROOT / ".claude/skills/ship-ios-testflight/SKILL.md",
-        REPO_ROOT / ".claude/skills/release-ios-appstore/SKILL.md",
+    canonical_release_paths = [
+        REPO_ROOT / ".agents/skills/verify-before-claim/SKILL.md",
+        REPO_ROOT / ".agents/skills/mobile-parity-audit/SKILL.md",
+        REPO_ROOT / ".agents/skills/release-ios-appstore/SKILL.md",
+        REPO_ROOT / "docs/guides/mobile/ship-ios-testflight.md",
     ]
-    for path in legacy_claude_release_paths:
+    for path in canonical_release_paths:
         if not path.exists():
-            errors.append(
-                f"missing governed legacy skill surface: {path.relative_to(REPO_ROOT)}"
-            )
+            errors.append(f"missing canonical release owner: {path.relative_to(REPO_ROOT)}")
             continue
-        legacy_text = path.read_text(encoding="utf-8")
-        if ADMIN_RELEASE_REFERENCE not in legacy_text:
-            errors.append(
-                f"{path.relative_to(REPO_ROOT)}: legacy release-influencing skill must "
-                f"inherit `{ADMIN_RELEASE_REFERENCE}`"
-            )
-        shell_blocks = re.findall(
-            r"```(?:bash|sh)\s*\n(.*?)```", legacy_text, re.S | re.I
-        )
-        for block in shell_blocks:
-            normalized_block = "\n".join(
-                line.strip().lower() for line in block.splitlines() if line.strip()
-            )
+        text = path.read_text(encoding="utf-8")
+        if ADMIN_RELEASE_REFERENCE not in text:
+            errors.append(f"{path.relative_to(REPO_ROOT)}: must inherit `{ADMIN_RELEASE_REFERENCE}`")
+        for block in re.findall(r"```(?:bash|sh)\s*\n(.*?)```", text, re.S | re.I):
+            normalized = "\n".join(line.strip().lower() for line in block.splitlines() if line.strip())
             for command in forbidden_shell_commands:
-                if command in normalized_block:
-                    errors.append(
-                        f"{path.relative_to(REPO_ROOT)}: legacy skill must not teach "
-                        f"direct release command `{command}`"
-                    )
-
-    legacy_release_bridges = [
-        REPO_ROOT / ".claude/skills/ship-testflight/SKILL.md",
-        REPO_ROOT / ".claude/skills/ship-ios-testflight/SKILL.md",
-        REPO_ROOT / ".claude/skills/release-ios-appstore/SKILL.md",
-    ]
-    for path in legacy_release_bridges:
-        if not path.exists():
-            continue
-        bridge_text = path.read_text(encoding="utf-8")
-        if "not a second release SOP" not in bridge_text and "not an independent release procedure" not in bridge_text:
-            errors.append(
-                f"{path.relative_to(REPO_ROOT)}: legacy release skill must be a canonical compatibility bridge"
-            )
-        if "KT/hushh-one-publish-safety-audit.md" in bridge_text:
-            errors.append(
-                f"{path.relative_to(REPO_ROOT)}: uncommitted working notes cannot be release authority"
-            )
+                if command in normalized:
+                    errors.append(f"{path.relative_to(REPO_ROOT)}: canonical owner must not teach direct release command `{command}`")
+    for alias in ("ship-discipline", "mobile-bug-log", "ship-ios-testflight", "ship-testflight"):
+        path = REPO_ROOT / ".claude/skills" / alias
+        if path.exists() or path.is_symlink():
+            errors.append(f"{path.relative_to(REPO_ROOT)}: retired release alias must not recreate a second procedure")
 
     governance_path = REPO_ROOT / "config/ci-governance.json"
     if not governance_path.exists():
