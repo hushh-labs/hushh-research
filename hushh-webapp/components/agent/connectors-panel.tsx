@@ -1,4 +1,5 @@
 "use client";
+import { ConnectorRow } from "./connector-list-row";
 
 import {
   useCallback,
@@ -281,68 +282,11 @@ function ConnectorGlyph({ id }: { id: string }) {
   );
 }
 
-function ConnectorRow({ entry, showAccessDetails = false }: { entry: ConnectorListEntry; showAccessDetails?: boolean }) {
-  const detailId = useId();
-  const status = connectorRowStatus(entry);
-  return (
-    <li
-      data-connector-row={entry.id}
-      aria-busy={entry.pending ? true : undefined}
-      className="flex min-h-14 min-w-0 items-center gap-3 border-b border-foreground/10 px-4 last:border-b-0"
-    >
-      <ConnectorGlyph id={entry.id} />
-      {entry.onOpen ? (
-        <button
-          type="button"
-          aria-label={entry.name}
-          aria-describedby={status || entry.accountDetail || entry.detail ? detailId : undefined}
-          onClick={entry.onOpen}
-          className="flex min-h-14 min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-        >
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-normal">{entry.name}</span>
-            {showAccessDetails ? <span className="block py-1 text-xs leading-5 text-muted-foreground">{connectorAccessPurpose(entry.id)}</span> : null}
-            {status ? (
-              <span id={detailId} role="status" className="block truncate text-xs text-muted-foreground">{status}</span>
-            ) : entry.accountDetail ? (
-              <span id={detailId} className="block truncate text-xs text-muted-foreground">{entry.accountDetail}</span>
-            ) : entry.detail ? <span id={detailId} className="sr-only">{entry.detail}</span> : null}
-          </span>
-          {!entry.action ? <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : null}
-        </button>
-      ) : (
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-normal">{entry.name}</span>
-          {showAccessDetails ? <span className="block py-1 text-xs leading-5 text-muted-foreground">{connectorAccessPurpose(entry.id)}</span> : null}
-          {status ? (
-            <span role="status" className="block truncate text-xs text-muted-foreground">{status}</span>
-          ) : entry.accountDetail ? (
-            <span className="block truncate text-xs text-muted-foreground">{entry.accountDetail}</span>
-          ) : entry.detail ? <span className="sr-only">{entry.detail}</span> : null}
-        </span>
-      )}
-      {entry.action ? (
-        <button
-          type="button"
-          className="min-h-11 shrink-0 px-1 text-sm font-semibold text-primary disabled:cursor-not-allowed disabled:opacity-50 focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-          aria-label={entry.action.label}
-          disabled={entry.action.disabled || Boolean(entry.pending)}
-          onClick={entry.action.onClick}
-        >
-          <ConnectorActionLabel entry={entry} />
-        </button>
-      ) : entry.trailingText ? (
-        <span className="shrink-0 text-xs text-muted-foreground">{entry.trailingText}</span>
-      ) : null}
-    </li>
-  );
-}
-
 /**
  * The same row every Profile section draws: title, one supporting line, and
  * either a chevron into the connector or its connect/disconnect action.
  */
-function ProfileConnectorRow({ entry }: { entry: ConnectorListEntry }) {
+function ProfileConnectorRow({ entry, showAccessDetails = false }: { entry: ConnectorListEntry; showAccessDetails?: boolean }) {
   const status = connectorRowStatus(entry);
   const description =
     status ??
@@ -359,8 +303,8 @@ function ProfileConnectorRow({ entry }: { entry: ConnectorListEntry }) {
     <SettingsRow
       leading={<ProfileConnectorGlyph id={entry.id} />}
       title={entry.name}
-      description={description}
-      textOverflow="truncate"
+      description={showAccessDetails ? <><span>{description}</span><span className="block pt-1">{connectorAccessPurpose(entry.id)}</span></> : description}
+      textOverflow={showAccessDetails ? undefined : "truncate"}
       onClick={entry.onOpen}
       chevron={Boolean(entry.onOpen) && !entry.action && !entry.trailingText}
       trailingInteractive={Boolean(entry.action)}
@@ -2594,7 +2538,7 @@ function OwnerConnectorsPanel({
             {listSections.map(([heading, items]) =>
               items.length === 0 ? null : (
                 <SettingsGroup key={heading} title={heading} testId={`profile-connectors-${heading.toLowerCase()}`}>
-                  {items.map((entry) => <ProfileConnectorRow key={entry.id} entry={entry} />)}
+                  {items.map((entry) => <ProfileConnectorRow key={entry.id} entry={entry} showAccessDetails={showAccessDetails} />)}
                 </SettingsGroup>
               ),
             )}
@@ -2626,7 +2570,7 @@ function OwnerConnectorsPanel({
                 <section key={heading} aria-label={heading} className="space-y-2">
                   <h3 className="text-sm font-semibold text-muted-foreground">{heading}</h3>
                   <ul className="overflow-hidden rounded-2xl bg-foreground/10">
-                    {items.length ? items.map((entry) => <ConnectorRow key={entry.id} entry={entry} showAccessDetails={showAccessDetails} />) : (
+                    {items.length ? items.map((entry) => <ConnectorRow key={entry.id} entry={entry} leading={<ConnectorGlyph id={entry.id} />} status={connectorRowStatus(entry)} actionLabel={<ConnectorActionLabel entry={entry} />} accessPurpose={showAccessDetails ? connectorAccessPurpose(entry.id) : undefined} />) : (
                       <li className="px-4 py-4 text-sm text-muted-foreground">
                         {heading === "Connected" ? "No connected connectors" : "No available connectors"}
                       </li>
