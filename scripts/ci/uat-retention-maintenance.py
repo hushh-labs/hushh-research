@@ -24,6 +24,8 @@ import time
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 
+import release_artifact_receipts
+
 retention = importlib.import_module("cloudrun-retention")
 capacity_bridge = importlib.import_module("production-capacity-bridge")
 REGION = "us-central1"
@@ -344,85 +346,10 @@ def replayed_release_artifact(
     """Resolve a duplicate release name only from its exact current upload step."""
     if environment not in LANES:
         raise retention.UnsafeState("release environment is invalid")
-    lane = LANES[environment]
-    run = api(repository, f"runs/{run_id}")
-    attempt = run.get("run_attempt")
-    if (
-        name != f"{lane['prefix']}-release-{run_id}"
-        or run.get("id") != run_id
-        or not governed_dispatch(run, repository, environment)
-        or type(attempt) is not int
-        or attempt < 2
-        or run.get("conclusion") not in {"success", "failure"}
-        or not re.fullmatch(r"[0-9a-f]{40}", str(run.get("head_sha", "")))
-        or any(type((run.get(key) or {}).get("id")) is not int for key in ("repository", "head_repository"))
-    ):
-        raise retention.UnsafeState("replayed release origin is invalid")
-    result = api(repository, f"runs/{run_id}/artifacts?per_page=100")
-    artifacts = result.get("artifacts")
-    if not isinstance(artifacts, list) or result.get("total_count") != len(artifacts):
-        raise retention.UnsafeState("release artifact inventory is incomplete")
-    matches = [item for item in artifacts if isinstance(item, dict) and item.get("name") == name]
-    if len(matches) < 2:
-        raise retention.UnsafeState("release artifact is expired or ambiguous")
-    result = api(repository, f"runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
-    jobs = result.get("jobs")
-    if not isinstance(jobs, list) or result.get("total_count") != len(jobs):
-        raise retention.UnsafeState("release attempt job inventory is incomplete")
-    deploy = [
-        job for job in jobs if isinstance(job, dict) and job.get("name") == lane["deploy_job"]
-    ]
-    if len(deploy) != 1 or any(
-        deploy[0].get(key) != value
-        for key, value in {
-            "run_id": run_id,
-            "run_attempt": attempt,
-            "head_sha": run.get("head_sha"),
-            "head_branch": "main",
-            "status": "completed",
-        }.items()
-    ):
-        raise retention.UnsafeState("release attempt deploy job is not bound")
-    uploads = [
-        step
-        for step in deploy[0].get("steps", [])
-        if step.get("name") == lane["upload_step"]
-    ]
-    if (
-        len(uploads) != 1
-        or uploads[0].get("status") != "completed"
-        or uploads[0].get("conclusion") != "success"
-    ):
-        raise retention.UnsafeState("release attempt upload is not proven")
-    started = _github_timestamp(uploads[0].get("started_at"))
-    ended = _github_timestamp(uploads[0].get("completed_at"))
-    if not started or not ended or not timedelta(0) <= ended - started <= timedelta(minutes=5):
-        raise retention.UnsafeState("release attempt upload window is invalid")
-    selected = []
-    for artifact in matches:
-        created = _github_timestamp(artifact.get("created_at"))
-        origin = artifact.get("workflow_run") or {}
-        if (
-            not created
-            or type(artifact.get("id")) is not int
-            or artifact["id"] < 1
-            or any(
-                origin.get(key) != value
-                for key, value in {
-                    "id": run_id,
-                    "head_sha": run.get("head_sha"),
-                    "head_branch": "main",
-                    "repository_id": (run.get("repository") or {}).get("id"),
-                    "head_repository_id": (run.get("head_repository") or {}).get("id"),
-                }.items()
-            )
-        ):
-            raise retention.UnsafeState("release artifact origin is invalid")
-        if started - timedelta(seconds=5) <= created <= ended + timedelta(seconds=30):
-            selected.append(artifact)
-    if len(selected) != 1 or selected[0].get("expired") is not False:
-        raise retention.UnsafeState("release attempt artifact is expired or ambiguous")
-    return selected[0]
+    return release_artifact_receipts.resolve_replayed_artifact(
+        repository, run_id, name, LANES[environment], environment,
+        api=api, governed_dispatch=governed_dispatch, timestamp=_github_timestamp,
+    )
 
 
 def download_replayed_release(
@@ -431,57 +358,12 @@ def download_replayed_release(
     """Read only the release status from an immutable, digest-verified archive."""
     if environment not in LANES:
         raise retention.UnsafeState("release environment is invalid")
-    status_name = f"{LANES[environment]['prefix']}-release-status.json"
-    if (
-        type(artifact.get("id")) is not int
-        or artifact["id"] < 1
-        or type(artifact.get("size_in_bytes")) is not int
-        or not 0 < artifact["size_in_bytes"] <= 10 * 1024 * 1024
-        or not re.fullmatch(r"sha256:[0-9a-f]{64}", str(artifact.get("digest", "")))
-    ):
-        raise retention.UnsafeState("release artifact envelope is invalid")
     deadline = _LOOKUP_DEADLINE.get()
     timeout = min(180.0, deadline - time.monotonic()) if deadline is not None else 180.0
-    if timeout <= 0:
-        raise retention.UnsafeState("release artifact lookup deadline exhausted")
-    archive = retention.run_command(
-        ["gh", "api", f"repos/{repository}/actions/artifacts/{artifact['id']}/zip"],
-        timeout=timeout,
-        text=False,
-    ).stdout
-    if len(archive) != artifact["size_in_bytes"] or hashlib.sha256(archive).hexdigest() != artifact[
-        "digest"
-    ].removeprefix("sha256:"):
-        raise retention.UnsafeState("release artifact digest changed")
-    try:
-        with ZipFile(BytesIO(archive)) as bundle:
-            entries = bundle.infolist()
-            names = [entry.filename for entry in entries]
-            if (
-                len(entries) > 500
-                or len(names) != len(set(names))
-                or names.count(status_name) != 1
-                or sum(entry.file_size for entry in entries) > 20 * 1024 * 1024
-                or any(path.is_absolute() or ".." in path.parts for path in map(Path, names))
-            ):
-                raise retention.UnsafeState("release artifact has unsafe files")
-            status = bundle.getinfo(status_name)
-            if (
-                status.is_dir()
-                or stat.S_IFMT(status.external_attr >> 16) == stat.S_IFLNK
-                or status.file_size > 2 * 1024 * 1024
-            ):
-                raise retention.UnsafeState("release status member is unsafe")
-            if directory.is_symlink():
-                raise retention.UnsafeState("release artifact directory is a symlink")
-            directory.mkdir(parents=True, exist_ok=True)
-            target = directory / status_name
-            with target.open("xb") as output:
-                output.write(bundle.read(status))
-            target.chmod(0o600)
-    except BadZipFile as exc:
-        raise retention.UnsafeState("release artifact is not a ZIP") from exc
-
+    release_artifact_receipts.download_replayed_artifact(
+        repository, artifact, directory, f"{LANES[environment]['prefix']}-release-status.json",
+        run_command=retention.run_command, timeout=timeout,
+    )
 
 # Preserve existing UAT-only imports while both lanes share the strict reader.
 replayed_uat_release_artifact = replayed_release_artifact
