@@ -456,9 +456,10 @@ function FeatureTitle({
         className,
       )}
       data-one-feature-title
+      data-location-type-role="section-heading"
     >
       {lines.map((line) => (
-        <span data-location-type-role="row-description"
+        <span
           key={line}
           aria-hidden="true"
           className="block"

@@ -4,7 +4,7 @@
 
 Canonical visual owner: [Hussh Webapp Docs](../README.md). Companion to [Location](./location.md): shared header → Now/People/Links → focused flows and actual body portals. See the owning contract for the route/state map and source/evidence boundary.
 
-260/260 final captures; 14 true upstream baseline captures. Installed WebKit at100% browser zoom; UAT runtime, synthetic service/auth/vault boundaries. Actual route exports, page-owned AppPageShell, shared TopAppBar/Navbar and actual UI portals are retained.
+260/260 initial full-matrix captures, 12 supplemental release captures, and 14 true upstream baseline captures. The supplemental onboarding feature-heading observations below supersede the initial classification for those six visible title lines. Installed WebKit at100% browser zoom; UAT runtime, synthetic service/auth/vault boundaries. Actual route exports, page-owned AppPageShell, shared TopAppBar/Navbar and actual UI portals are retained.
 
 Owning shipped global CSS: `/Users/ankit.kumar/Documents/Codex/2026-10-21/warm-return-cached-content-ke-liye/work/AgentOne-Mail/hushh-webapp/.next/static/chunks/1nfwruzdk5dlo.css`; SHA-256 `709a4a2f07be4f0f7f895de9c10a27635b79d2971a962b5f00a4addaf527bc6e`. CSS modules use the harness build’s class names. Exact root layout utility ancestry is mirrored; this remains a bounded mounted-route fixture, not a live authenticated Next/native acceptance run.
 
@@ -116,3 +116,8 @@ All values are size / line height / requested CSS weight. The source reference i
 | sms-display-exception | [42, 42, 600] | [42, 42, 600] | `hushh-webapp/components/one-location/redesign/sos-panel.tsx:626` | Deliberateemergencydisplayexception; trackingnormal; ringdimensions/hold2000msunchanged. |
 
 Raw Circle rename is a retained16/24/400 field at all widths; explicit Circle empty/error body retains15/20/400. The shared raw Task rename label remains15/20/600. These actual shared-owner exceptions differ from ordinary semantic Task inputs/forms.
+
+
+## Onboarding feature-heading release correction
+
+FeatureTitle is a semantic level2 heading. Its six visible lines now inherit the explicit section-heading role: Plus Jakarta Sans, 14px / 22px / 600, normal tracking. They are not supporting descriptions. Descriptions remain 12px / 18px / 400, while full-flow headings retain 28px / 36px / 600. Focused WebKit checks cover six viewports; 12 supplemental mounted captures cover six widths and both themes, with 72 matching heading-leaf observations. See the release follow-up in [verification](./location-verification.md).

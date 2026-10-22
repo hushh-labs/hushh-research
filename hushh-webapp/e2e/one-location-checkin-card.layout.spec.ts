@@ -127,6 +127,11 @@ for (const viewport of VIEWPORTS) {
           && box.left >= cardBox.left - 1 && box.right <= cardBox.right + 1;
       });
       rings.forEach(ring => { ring.getAnimations()[0].currentTime = 900; });
+      const font = (node: Element) => {
+        const style = getComputedStyle(node);
+        return { family: style.fontFamily, size: style.fontSize,
+          line: style.lineHeight, weight: style.fontWeight, tracking: style.letterSpacing };
+      };
       return {
         overflow: document.documentElement.scrollWidth > innerWidth + 1,
         linesFit: [...document.querySelectorAll<HTMLElement>("[data-one-feature-title-line]")].every(line => line.scrollWidth <= line.clientWidth + 1),
@@ -135,14 +140,21 @@ for (const viewport of VIEWPORTS) {
         radialArtFits,
         headingSize: getComputedStyle(document.querySelector("[data-one-feature-heading]")!).fontSize,
         headingWeight: getComputedStyle(document.querySelector("[data-one-feature-heading]")!).fontWeight,
-        titleSizes: [...document.querySelectorAll("[data-one-feature-title]")].map(node => getComputedStyle(node).fontSize),
-        bodySizes: [...document.querySelectorAll("[data-one-feature-body]")].map(node => getComputedStyle(node).fontSize),
+        titleFonts: [...document.querySelectorAll("[data-one-feature-title]")].map(font),
+        titleLineFonts: [...document.querySelectorAll("[data-one-feature-title-line]")].map(font),
+        bodyFonts: [...document.querySelectorAll("[data-one-feature-body]")].map(font),
       };
     });
     expect(layout.headingSize).toBe("28px");
     expect(layout.headingWeight).toBe("600");
-    expect(layout.titleSizes).toEqual(["17px", "17px", "17px"]);
-    expect(layout.bodySizes).toEqual(["15px", "15px", "15px"]);
+    const headingRole = expect.objectContaining({ size: "14px", line: "22px", weight: "600", tracking: "normal" });
+    expect(layout.titleFonts).toEqual([headingRole, headingRole, headingRole]);
+    expect(layout.titleLineFonts).toEqual(Array(6).fill(headingRole));
+    const descriptionRole = expect.objectContaining({ size: "12px", line: "18px", weight: "400", tracking: "normal" });
+    expect(layout.bodyFonts).toEqual([descriptionRole, descriptionRole, descriptionRole]);
+    for (const font of [...layout.titleFonts, ...layout.titleLineFonts, ...layout.bodyFonts]) {
+      expect(font.family).toContain("Plus Jakarta Sans");
+    }
     expect(layout.overflow).toBe(false);
     expect(layout.linesFit).toBe(true);
     expect(layout.copyFits).toBe(true);
