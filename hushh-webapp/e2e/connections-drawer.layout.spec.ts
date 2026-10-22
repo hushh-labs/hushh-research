@@ -1,3 +1,4 @@
+import { expectHeaderControl, verifyChatHeaderControls } from "./helpers/header-control-geometry";
 import { verifyHistoryMovement } from "./helpers/history-motion";
 import { expectPaneRestingAtFrame, mountAppChrome, hitAt, awaitClosedHistoryGeometry } from "./helpers/drawer-geometry";
 import { expect, test, type ElementHandle, type Locator } from "@playwright/test";
@@ -456,6 +457,8 @@ for (const width of [320, 1440]) for (const dark of [false, true])
       const style = getComputedStyle(element);
       return { background: style.backgroundColor, radius: style.borderTopLeftRadius, shadow: style.boxShadow };
     })).toEqual(reference.card);
+    for (const name of ["Back to Chats", "Close Drive sharing"])
+      await expectHeaderControl(detail.getByRole("button", { name, exact: true }), detail.getByRole("heading", { name: "Drive sharing" }));
     const title = (await detail.getByRole("heading", { name: "Drive sharing" }).boundingBox())!;
     expect(Math.abs(title.x + title.width / 2 - box.x - box.width / 2)).toBeLessThan(2);
     expect(await detail.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
@@ -931,24 +934,10 @@ for (const width of [390, 768])
     await expect(page.getByRole("dialog", { name: "Connectors", exact: true })).toBeVisible();
   });
 
-test("chat sidebar closes from its own control and returns focus to the trigger", async ({ page }) => {
-  // Chats matches Profile's own 44px close target and 16px glyph.
-  await page.setViewportSize({ width: 390, height: 720 });
-  const trigger = page.getByRole("button", { name: "Open drawer", exact: true });
-  await trigger.click();
-  const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
-  const close = chats.getByRole("button", { name: "Close chat history" });
-  await expect(close).toBeVisible();
-  const hit = await close.evaluate((element) => {
-    const rect = element.getBoundingClientRect();
-    return { width: rect.width, height: rect.height };
+for (const theme of ["light", "dark"] as const)
+  test(`chat sidebar closes from its own control and returns focus to the trigger in ${theme}`, async ({ page }) => {
+    await verifyChatHeaderControls(page, theme);
   });
-  expect(hit.width).toBeGreaterThanOrEqual(44);
-  expect(hit.height).toBeGreaterThanOrEqual(44);
-  await close.click({ position: { x: 8, y: 22 } });
-  await expect(chats).toHaveCount(0);
-  await expect(trigger).toBeFocused();
-});
 
 for (const width of [320, 390, 768, 1440])
   test(`mounted drawer retains chat and wraps controls at ${width}px`, async ({
