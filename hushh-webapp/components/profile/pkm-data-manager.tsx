@@ -3,12 +3,10 @@
 import { useDeferredValue, useMemo, useState, type ReactNode } from "react";
 import { ConsentScopeList } from "@/components/consent/consent-scope-list";
 import { scopeItemsFromPermissions } from "@/lib/consent/consent-scope-items";
-import { Switch } from "@/components/ui/switch";
 import {
   WarningIcon as AlertTriangle,
   ChevronRightIcon as ChevronRight,
   DatabaseIcon as Database,
-  EyeIcon as Eye,
   FolderSimpleIcon as Folder,
   ArrowsClockwiseIcon as RefreshCw,
   XIcon as X,
@@ -60,6 +58,7 @@ import type {
 import type { PkmVisibilityPosture } from "@/lib/services/personal-knowledge-model-service";
 import { cn } from "@/lib/utils";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
+import { PkmPermissionActions } from "@/components/profile/pkm-permission-actions";
 import { ReviewRowIcon } from "@/components/icons/agents";
 import { HelperText } from "@/components/app-ui/typography";
 
@@ -606,37 +605,7 @@ export function PkmDomainDetailPanel({
               renderTrailing={(scopeItem) => {
                 const permission = permissionsByKey.get(scopeItem.id);
                 if (!permission) return null;
-                const pending = pendingPermissionKeys?.includes(permission.key) ?? false;
-                const disabled = pending || Boolean(permission.disabledReason);
-                return (
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="none"
-                      effect="fade"
-                      size="sm"
-                      onClick={() => onPreviewPermission(permission)}
-                      aria-label={`View ${permission.label} information`}
-                    >
-                      <Eye className="h-4 w-4" />
-                    </Button>
-                    {pending ? (
-                      <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
-                    ) : (
-                      <Switch
-                        checked={permission.visibilityPosture === "consent_required"}
-                        disabled={disabled}
-                        onCheckedChange={(next) =>
-                          onTogglePermission(
-                            permission,
-                            (next ? "consent_required" : "private") as PkmVisibilityPosture,
-                          )
-                        }
-                        aria-label={`Ask before sharing ${permission.label}`}
-                      />
-                    )}
-                  </div>
-                );
+                return <PkmPermissionActions permission={permission} pending={pendingPermissionKeys?.includes(permission.key) ?? false} onPreview={onPreviewPermission} onToggle={onTogglePermission} />;
               }}
             />
           ) : (

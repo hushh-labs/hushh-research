@@ -194,13 +194,22 @@ async def track_consent_access(callback_context: Any, *, lookup: BundleLookup) -
         if _state_get(state, consent_access_ended_state_key(bundle_id)):
             ended[bundle_id] = _note_for(state, bundle_id)
             continue
-        if bundle_id == current_bundle:
-            continue  # the answer turn itself: access was just confirmed live
         try:
-            outcome = access_ended_outcome(await lookup(owner_id, bundle_id))
+            bundle = await lookup(owner_id, bundle_id)
+            if not isinstance(bundle, Mapping) or any(
+                item.get("status") == "granted" and item.get("accessReady") is False
+                for item in bundle.get("items") or []
+                if isinstance(item, Mapping)
+            ):
+                raise ValueError("consent_access_not_ready")
+            outcome = access_ended_outcome(bundle)
+            if bundle_id == current_bundle and outcome:
+                state[STATE_CONSENT_CONTINUATION] = None
         except Exception as exc:  # noqa: BLE001 - unknown means redact, this turn only
             logger.warning("one.consent_access_check_failed error=%s", type(exc).__name__)
             ended[bundle_id] = _note_for(state, bundle_id)
+            if bundle_id == current_bundle:
+                state[STATE_CONSENT_CONTINUATION] = None
             continue
         if outcome:
             state[consent_access_ended_state_key(bundle_id)] = outcome

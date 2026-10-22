@@ -15,6 +15,7 @@ from scripts.uat_kai_regression_smoke import (
     UatKaiSmoke,
     _build_manifest_artifacts,
 )
+from tests._deploy_contract import backend_deploy_surface
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -126,7 +127,7 @@ def test_reviewer_approval_encrypts_a_bound_envelope_v2() -> None:
 
 def test_uat_backend_deploy_sets_the_public_consent_resource_origin() -> None:
     workflow = (REPO_ROOT / ".github/workflows/deploy-uat.yml").read_text(encoding="utf-8")
-    backend_build = (REPO_ROOT / "deploy/backend.cloudbuild.yaml").read_text(encoding="utf-8")
+    backend_build = backend_deploy_surface()
 
     assert "CONSENT_API_PUBLIC_ORIGIN: https://api.uat.hushh.ai" in workflow
     assert "_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }}" in workflow

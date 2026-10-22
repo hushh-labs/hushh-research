@@ -24,17 +24,20 @@ import {
 
 import { useAuth } from "@/hooks/use-auth";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
+import { useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
 import { useFeedUnreadCount } from "@/lib/feed/use-feed-unread-count";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import { SegmentedPill, type SegmentedPillOption } from "@/lib/morphy-ux/ui";
+import type { SegmentedPillOption } from "@/lib/morphy-ux/ui";
+import { BottomNavigationSurface } from "@/components/app-ui/bottom-navigation-surface";
 import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 import {
   BOTTOM_CHROME_COLUMN_CLASSNAME,
   BOTTOM_CHROME_INSET_CLASSNAME,
 } from "@/components/app-ui/bottom-chrome-column";
+import { useNativeNavigationColumn } from "@/lib/capacitor/native-navigation-column";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { useVault } from "@/lib/vault/vault-context";
 import {
@@ -50,7 +53,6 @@ import { resolveAgentNavigationContextForPath } from "@/lib/navigation/agent-sec
 import { useInteractionIntents } from "@/lib/interaction/interaction-intent-coordinator";
 import { useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { useNativeNavigation, NATIVE_NAVIGATION_TABS, type NativeNavigationTab } from "@/lib/capacitor/native-navigation";
-import { useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { useVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 const BOTTOM_GAP_PX = 4;
@@ -206,11 +208,8 @@ export const Navbar = ({
   const interactionIntents = useInteractionIntents();
   const { isAuthenticated } = useAuth();
   const { isVaultUnlocked } = useVault();
-  const sessionChromeSuppressed = useSessionChromeSuppressed();
   const surface = useVoiceSurfaceMetadata();
   const nativeAppearance = useNativeControlAppearance();
-  const pendingConsents = useConsentPendingSummaryCount();
-  const feedUnreadCount = useFeedUnreadCount();
   const pillRef = React.useRef<HTMLDivElement | null>(null);
   const bottomChromeVarsRef = React.useRef({
     fixedUi: "",
@@ -218,6 +217,13 @@ export const Navbar = ({
   });
   const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
   const useOnboardingChrome = chromeState.useOnboardingChrome;
+  // The persistent navigation is hidden while the session/setup shell is
+  // deciding. Keep its presentation-only badge requests idle during that
+  // interval so they cannot consume the connection pool needed by the gate.
+  const chromeSuppressed = useSessionChromeSuppressed();
+  const badgesAreVisible = !useOnboardingChrome && !chromeSuppressed;
+  const pendingConsents = useConsentPendingSummaryCount({ enabled: badgesAreVisible });
+  const feedUnreadCount = useFeedUnreadCount({ enabled: badgesAreVisible });
 
   const busyOperations = useKaiSession((s) => s.busyOperations);
   const setAgentNavigationContext = useKaiSession(
@@ -453,10 +459,13 @@ export const Navbar = ({
     }
   };
 
+  const nativeColumn = useNativeNavigationColumn(pillRef,
+    layout === "slot" && nativeAppearance !== null && isAuthenticated && !hideNavbar && !useOnboardingChrome && !shellNavigationHidden);
   const nativeNavigation = useNativeNavigation({
-    enabled: layout === "slot",
-    visible: nativeAppearance !== null && isAuthenticated && isVaultUnlocked && !useOnboardingChrome &&
-      !hideNavbar && !shellNavigationHidden && !sessionChromeSuppressed,
+    column: nativeColumn,
+    enabled: layout === "slot" && nativeAppearance !== null,
+    visible: isAuthenticated && isVaultUnlocked && !useOnboardingChrome &&
+      !hideNavbar && !shellNavigationHidden && !chromeSuppressed,
     interactionEnabled: !surface?.interactionLayer?.blocksUnderlyingActions,
     selected: NATIVE_NAVIGATION_TABS.includes(activeNav as NativeNavigationTab)
       ? activeNav as NativeNavigationTab : "dashboard",
@@ -516,33 +525,7 @@ export const Navbar = ({
           )}
           ref={pillRef}
         >
-          {nativeNavigation.reserved ? (
-            <div
-              aria-hidden="true"
-              data-native-navigation-reservation
-              className="w-full pointer-events-none"
-              style={{ height: nativeNavigation.height }}
-            />
-          ) : <div className="w-full min-w-0 pointer-events-auto">
-            <SegmentedPill
-              size="default"
-              layout="stacked"
-              hitArea="segment"
-              ripple={false}
-              hapticFeedback={false}
-              value={activeNav}
-              options={navOptions}
-              onValueChange={navigateTo}
-              ariaLabel="Route navigation"
-              className={cn(
-                "kai-bottom-nav-pill relative z-10 w-full chrome-bottom-foreground",
-                "[&_[role=radio]]:min-h-11",
-                "[&_[aria-checked=true]]:text-[color:var(--app-accent)] [&_[aria-checked=true]]:font-medium",
-                "[&_[role=radio]>span:last-of-type]:!text-[10px] [&_[role=radio]>span:last-of-type]:!leading-[13px]",
-                "[&_[data-segment-indicator]]:bg-transparent [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none",
-              )}
-            />
-          </div>}
+          <BottomNavigationSurface native={nativeNavigation} value={activeNav} options={navOptions} onValueChange={navigateTo} />
         </div>
       </div>
     </nav>

@@ -24,7 +24,7 @@ class DriveRequestBulkRemovalWorker:
 
     async def _credential(self, job):
         row, credentials = await self.oauth.current_credential(
-            user_id=job["user_id"], required_profile="live"
+            cleanup=True, user_id=job["user_id"], required_profile="live"
         )
         if verified_issuer(credentials) != job["plan"]["issuer"]:
             raise DriveSharingError("reconnect_original_account")

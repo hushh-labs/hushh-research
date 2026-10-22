@@ -25,6 +25,11 @@ import httpx
 
 from db.db_client import get_db
 from hushh_mcp.consent.audit_logger import get_trace_id
+from hushh_mcp.services.google_calendar_proposals import (
+    CalendarProposalStore,
+    CalendarTokens,
+    SqlCalendarProposalStore,
+)
 from hushh_mcp.services.google_connection_service import (
     CALENDAR_LIST_READ_SCOPE,
     GoogleConnectionError,
@@ -154,29 +159,24 @@ def _event_meeting(event: dict[str, Any]) -> tuple[str, str] | None:
 
 class GoogleCalendarService:
     def __init__(
-        self, *, db: Any | None = None, connections: GoogleConnectionService | None = None
+        self,
+        *,
+        db: Any | None = None,
+        connections: GoogleConnectionService | CalendarTokens | None = None,
+        proposals: CalendarProposalStore | None = None,
     ) -> None:
-        self.db = db or get_db()
+        # An injected store (the owner's own log in their agent) needs no hub database.
+        self.db = db if db is not None or proposals is not None else get_db()
         self.connections = connections or get_google_connection_service()
+        self.proposals = proposals or SqlCalendarProposalStore(self._execute_raw_async)
 
     async def _execute_raw_async(self, sql: str, params: dict[str, Any] | None = None) -> Any:
         """Keep proposal persistence from blocking Calendar's async routes."""
         return await asyncio.to_thread(self.db.execute_raw, sql, params)
 
     async def _purge_expired_proposals(self, *, user_id: str) -> None:
-        """Remove terminal and expired plans on the next Calendar mutation.
-
-        The proposal table is a confirmation hand-off, not a Calendar cache or
-        audit log. PostgreSQL is the current shared cleanup seam; a scheduled
-        Redis/outbox retention worker can perform the same bounded delete on a
-        schedule later.
-        """
-        await self._execute_raw_async(
-            """DELETE FROM google_calendar_action_proposals
-               WHERE user_id = :user_id
-                 AND (expires_at <= NOW() OR status IN ('executed', 'failed', 'expired'))""",
-            {"user_id": user_id},
-        )
+        """Remove terminal and expired plans on the next Calendar mutation."""
+        await self.proposals.purge(user_id=user_id)
 
     @staticmethod
     def _iso(value: str) -> str:
@@ -793,6 +793,28 @@ class GoogleCalendarService:
             colors[identifier] = color
         return colors
 
+    async def invitations(
+        self,
+        *,
+        user_id: str,
+        time_zone: str,
+        start_at: str | None = None,
+        end_at: str | None = None,
+        selected_calendar_id: str | None = None,
+        selected_event_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Reuse attendance reads with this exact Calendar grant authority."""
+        from hushh_mcp.services.calendar_schedule_service import CalendarScheduleService
+
+        return await CalendarScheduleService(calendar=self).invitations(
+            user_id=user_id,
+            time_zone=time_zone,
+            start_at=start_at,
+            end_at=end_at,
+            selected_calendar_id=selected_calendar_id,
+            selected_event_id=selected_event_id,
+        )
+
     async def list_events(
         self,
         *,
@@ -861,6 +883,7 @@ class GoogleCalendarService:
             "events": events,
             "calendar_id": calendar_id,
             "time_zone": response.get("timeZone"),
+            "has_more": truncated,
             "returned_count": len(events),
             "truncated": truncated,
             **({"next_page_token": next_token} if isinstance(next_token, str) else {}),
@@ -1228,25 +1251,14 @@ class GoogleCalendarService:
             ]
             plan["conflicts"] = [*plan["conflicts"], *extra]
         await self._check_read_binding(user_id, binding)
-        proposal_id = f"gcal_{secrets.token_urlsafe(24)}"
-        await self._execute_raw_async(
-            """INSERT INTO google_calendar_action_proposals
-               (proposal_id, user_id, action, payload_json, expected_event_etag, expires_at)
-               VALUES (:proposal_id, :user_id, :action, CAST(:payload_json AS jsonb), :etag, :expires_at)""",
-            {
-                "proposal_id": proposal_id,
-                "user_id": user_id,
-                "action": action,
-                "payload_json": json.dumps(plan),
-                "etag": expected_etag,
-                "expires_at": datetime.now(UTC) + timedelta(minutes=10),
-            },
+        proposal_id, expires_at = await self.proposals.issue(
+            user_id=user_id, action=action, plan=plan, expected_etag=expected_etag
         )
         await self._check_read_binding(user_id, binding)
         return {
             "proposal_id": proposal_id,
             "action": action,
-            "expires_at": (datetime.now(UTC) + timedelta(minutes=10)).isoformat(),
+            "expires_at": expires_at.isoformat(),
             "plan": plan,
             "confirmation_required": True,
         }
@@ -1475,24 +1487,14 @@ class GoogleCalendarService:
 
     async def execute(self, *, user_id: str, proposal_id: str) -> dict[str, Any]:
         await self._purge_expired_proposals(user_id=user_id)
-        claim = await self._execute_raw_async(
-            """UPDATE google_calendar_action_proposals SET status = 'executing'
-               WHERE proposal_id = :proposal_id AND user_id = :user_id AND status = 'pending' AND expires_at > NOW()
-               RETURNING action, payload_json, expected_event_etag""",
-            {"proposal_id": proposal_id, "user_id": user_id},
-        )
-        if not claim.data:
+        proposal = await self.proposals.claim(user_id=user_id, proposal_id=proposal_id)
+        if not proposal:
             raise GoogleConnectionError(
                 "Calendar proposal expired, was already used, or needs a new review",
                 status_code=409,
             )
-        proposal = claim.data[0]
         value_epoch = await capture_value_epoch(user_id)
-        plan = (
-            proposal["payload_json"]
-            if isinstance(proposal["payload_json"], dict)
-            else json.loads(proposal["payload_json"])
-        )
+        plan = proposal["plan"]
         try:
             binding = tuple(plan["connection_binding"]) if plan.get("connection_binding") else None
             if binding is not None:
@@ -1603,18 +1605,9 @@ class GoogleCalendarService:
                     status_code=502,
                     reason_code="calendar_mutation_unconfirmed",
                 )
-            await self._execute_raw_async(
-                """UPDATE google_calendar_action_proposals
-                   SET status = 'executed', executed_at = NOW()
-                   WHERE proposal_id = :proposal_id AND user_id = :user_id
-                     AND status = 'executing'""",
-                {"proposal_id": proposal_id, "user_id": user_id},
-            )
+            await self.proposals.finish(user_id=user_id, proposal_id=proposal_id, executed=True)
         except Exception:
-            await self._execute_raw_async(
-                "UPDATE google_calendar_action_proposals SET status = 'failed' WHERE proposal_id = :proposal_id",
-                {"proposal_id": proposal_id},
-            )
+            await self.proposals.finish(user_id=user_id, proposal_id=proposal_id, executed=False)
             raise
 
         await record_calendar_effect(
@@ -1624,12 +1617,7 @@ class GoogleCalendarService:
         # short-lived, content-bearing plan as before, but cleanup trouble
         # must not recast a successful Google mutation as a failed one.
         try:
-            await self._execute_raw_async(
-                """DELETE FROM google_calendar_action_proposals
-                   WHERE proposal_id = :proposal_id AND user_id = :user_id
-                     AND status = 'executed'""",
-                {"proposal_id": proposal_id, "user_id": user_id},
-            )
+            await self.proposals.forget_executed(user_id=user_id, proposal_id=proposal_id)
         except Exception:
             logger.warning("Calendar proposal cleanup failed after a confirmed action")
         return {
@@ -1681,8 +1669,21 @@ class GoogleCalendarService:
 _singleton: GoogleCalendarService | None = None
 
 
+def calendar_reads_via_door() -> bool:
+    """True only in a Hussh-hosted pod; an owner-cloud agent reads and writes Calendar itself."""
+    from hushh_mcp.services.pod_google_connections import calendar_reads_via_door as via_door
+
+    return via_door()
+
+
 def get_google_calendar_service() -> GoogleCalendarService:
+    """The hub's service; inside an owner-cloud agent, the one on the agent's own login."""
     global _singleton
+    from hushh_mcp.services.pod_google_connections import pod_calendar_service
+
+    local = pod_calendar_service()
+    if local is not None:
+        return local
     if _singleton is None:
         _singleton = GoogleCalendarService()
     return _singleton

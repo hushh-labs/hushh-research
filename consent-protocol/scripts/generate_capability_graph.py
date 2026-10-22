@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from copy import deepcopy
@@ -238,26 +239,38 @@ def _node_version(node: dict[str, Any] | None) -> int:
         return 0
 
 
-def _load_evolution_deprecations() -> tuple[dict[str, Any], ...]:
-    """Load exact-revision, fail-closed capability retirement declarations.
-
-    Workflow migrations live with the owning workflow package. A removed node
-    cannot carry its own declaration in the new graph, so deprecations use this
-    small checked-in ledger and must name the exact predecessor revision and
-    version. Broad or stale acknowledgements never suppress the breaking gate.
-    """
-
+def _load_evolution_contract() -> dict[str, Any]:
     try:
         payload = json.loads(EVOLUTION_CONTRACT_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise RuntimeError("Capability graph evolution contract is unavailable.") from exc
+    allowed_keys = {"schema_version", "deprecations"}
     if (
         not isinstance(payload, dict)
-        or set(payload) != {"schema_version", "deprecations"}
+        or set(payload) not in (allowed_keys, allowed_keys | {"workflow_predecessor_refs"})
         or payload.get("schema_version") != CAPABILITY_GRAPH_EVOLUTION_SCHEMA_VERSION
         or not isinstance(payload.get("deprecations"), list)
     ):
         raise RuntimeError("Capability graph evolution contract is invalid.")
+    return payload
+
+
+def _load_workflow_predecessor_refs() -> tuple[str, ...]:
+    refs = _load_evolution_contract().get("workflow_predecessor_refs", [])
+    if (
+        not isinstance(refs, list)
+        or len(refs) > 8
+        or any(not isinstance(ref, str) or not re.fullmatch(r"[0-9a-f]{40}", ref) for ref in refs)
+        or len(set(refs)) != len(refs)
+    ):
+        raise RuntimeError("Capability graph workflow predecessors are invalid.")
+    return tuple(refs)
+
+
+def _load_evolution_deprecations() -> tuple[dict[str, Any], ...]:
+    """Load exact-revision, fail-closed capability retirement declarations."""
+
+    payload = _load_evolution_contract()
     declarations: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     required = {
@@ -748,11 +761,11 @@ def _read_workflow_predecessor(ref: str) -> dict[str, Any]:
 
 
 def _merged_workflow_predecessor_refs(base_ref: str | None = None) -> tuple[str, ...]:
-    """Keep the other parent of a merge with the current PR base.
+    """Keep merged histories from the base integration and later branch merges.
 
     The base graph supplies one workflow history. A merged feature parent may
-    carry another compatible history, which must survive the default CI check
-    without a one-off generator flag. Only committed ancestors are returned;
+    carry another compatible history, including through a second parent. It must
+    survive default CI without a one-off flag. Only committed ancestors are returned;
     ``_read_workflow_predecessor`` still validates their graph and semantics.
     """
 
@@ -761,20 +774,33 @@ def _merged_workflow_predecessor_refs(base_ref: str | None = None) -> tuple[str,
     base_commit = _resolve_base_commit(_resolve_base_ref(base_ref))
     if not base_commit:
         return ()
-    merges = subprocess.run(  # noqa: S603 - fixed git executable/arguments
-        ["git", "rev-list", "--first-parent", "--merges", "--parents", "HEAD"],  # noqa: S607
+    history = subprocess.run(  # noqa: S603 - fixed git executable/arguments
+        ["git", "rev-list", "--ancestry-path", "--parents", f"{base_commit}..HEAD"],  # noqa: S607
         cwd=REPO_ROOT,
         check=True,
         capture_output=True,
         text=True,
     ).stdout.splitlines()
-    # Include parent IDs in the history query instead of starting one Git
-    # process per merge. Preserve first-parent order and the full search.
-    for merge in merges:
-        lineage = merge.split()
+    # Every listed commit descends from the base. Include ordinary commits so
+    # first-parent membership proves ancestry without a subprocess per merge.
+    lineages = [line.split() for line in history]
+    descendants = {base_commit, *(lineage[0] for lineage in lineages)}
+    predecessors: list[str] = []
+    integrated_base = False
+    for lineage in lineages:
+        if len(lineage) < 3:
+            continue
         if base_commit in lineage[1:]:
-            return tuple(parent for parent in lineage[1:] if parent != base_commit)
-    return ()
+            integrated_base = True
+            predecessors.extend(parent for parent in lineage[1:] if parent != base_commit)
+            continue
+        if lineage[1] in descendants:
+            predecessors.extend(lineage[2:])
+        elif any(parent in descendants for parent in lineage[2:]):
+            # Isolated verification may receive the base via a second parent.
+            # Its pre-base first parent still owns a separately shipped history.
+            predecessors.extend(parent for parent in lineage[1:] if parent not in descendants)
+    return tuple(dict.fromkeys(predecessors)) if integrated_base else ()
 
 
 def _merge_workflow_predecessor(
@@ -872,7 +898,11 @@ def build_payload(
         semantic_diff,
     )
     predecessors = dict.fromkeys(
-        (*workflow_predecessor_refs, *_merged_workflow_predecessor_refs(base_ref))
+        (
+            *_load_workflow_predecessor_refs(),
+            *workflow_predecessor_refs,
+            *_merged_workflow_predecessor_refs(base_ref),
+        )
     )
     for ref in predecessors:
         _merge_workflow_predecessor(

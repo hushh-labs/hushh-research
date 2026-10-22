@@ -228,7 +228,8 @@ elif args[:2] == ["logging", "read"]:
     reads = state.setdefault("log_reads", {})
     reads[job] = reads.get(job, 0) + 1
     save()
-    if job == os.environ.get("MOCK_MISSING_LOG_JOB"):
+    if (job == os.environ.get("MOCK_MISSING_LOG_JOB")
+        or (job == os.environ.get("MOCK_DEFER_LOG_JOB") and reads[job] == 1)):
         print("[]")
     elif job in state.get("triggered", []):
         url = jobs[job]["httpTarget"]["uri"]
@@ -437,6 +438,28 @@ def test_term_after_partial_retarget_restores_exact_job_set_or_quarantines(
         assert "CRITICAL: Drive worker rollback is incomplete" in output
 
 
+def _release_probe_binaries(tmp_path: Path) -> Path:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    for name, source in (("gcloud", FAKE_GCLOUD), ("bash", FAKE_BASH)):
+        executable = fake_bin / name
+        executable.write_text(source, encoding="utf-8")
+        executable.chmod(0o755)
+    fake_sleep = fake_bin / "sleep"
+    fake_sleep.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    fake_sleep.chmod(0o755)
+    # Exercise retry and exhaustion with two observations, rather than launching
+    # the same verifier 55 times. Production's 55-attempt request stays checked.
+    fake_seq = fake_bin / "seq"
+    fake_seq.write_text(
+        '#!/bin/sh\n[ "$#" = 2 ] && [ "$1" = 1 ] && [ "$2" = 55 ] || exit 77\n'
+        "printf '1\\n2\\n'\n",
+        encoding="utf-8",
+    )
+    fake_seq.chmod(0o755)
+    return fake_bin
+
+
 @pytest.mark.parametrize(
     ("processing_enabled", "log_failure", "all_jobs_present"),
     [
@@ -455,20 +478,7 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
     all_jobs_present: bool,
     wrong_scanner_child: bool,
 ):
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    for name, source in (("gcloud", FAKE_GCLOUD), ("bash", FAKE_BASH)):
-        executable = fake_bin / name
-        executable.write_text(source, encoding="utf-8")
-        executable.chmod(0o755)
-    fake_sleep = fake_bin / "sleep"
-    fake_sleep.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    fake_sleep.chmod(0o755)
-    # Verify repeated log refusal and rollback without 55 identical subprocesses.
-    # The production polling budget and this fixture's watchdog stay unchanged.
-    fake_seq = fake_bin / "seq"
-    fake_seq.write_text("#!/bin/sh\nprintf '1\\n2\\n'\n", encoding="utf-8")
-    fake_seq.chmod(0o755)
+    fake_bin = _release_probe_binaries(tmp_path)
     original_document = _job("drive-work-drain-uat", None, "*/2 * * * *", "120s")
     initial_jobs = {"drive-work-drain-uat": original_document}
     if all_jobs_present:
@@ -497,6 +507,7 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
             "MOCK_TERMINATE_AFTER_SETUP": "false",
             "MOCK_FAIL_LOG_JOB": "drive-work-sharing-uat" if log_failure == "wrong_url" else "",
             "MOCK_MISSING_LOG_JOB": "drive-work-sharing-uat" if log_failure == "missing" else "",
+            "MOCK_DEFER_LOG_JOB": "drive-work-sharing-uat" if log_failure == "none" else "",
             "MOCK_WORKER_ORIGIN": WORKER_ORIGIN,
             "MOCK_CLAMAV_IMAGE": (
                 WRONG_SCANNER_IMAGE if wrong_scanner_child else SCANNER_AMD64_IMAGE
@@ -518,7 +529,9 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
         capture_output=True,
         check=False,
         text=True,
-        timeout=20,
+        # The two-probe failure path also restores the scheduler set. Give the
+        # fixture watchdog time to observe rollback; production polling is unchanged.
+        timeout=60,
     )
     output = result.stdout + result.stderr
     state = json.loads(state_path.read_text(encoding="utf-8"))
@@ -543,12 +556,10 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
         "drive-work-suggestions-uat",
         "drive-work-sharing-uat",
     ]
-    # Fixture cost fixes must retain the real script's complete negative path,
-    # not lower its retry budget or stop testing fresh worker-URL/200 evidence.
     assert state["log_reads"] == {
         "drive-work-drain-uat": 1,
         "drive-work-suggestions-uat": 1,
-        "drive-work-sharing-uat": 1 if log_failure == "none" else 2,
+        "drive-work-sharing-uat": 2,
     }
     if log_failure != "none":
         assert result.returncode != 0

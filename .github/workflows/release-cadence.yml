@@ -24,6 +24,14 @@ on:
         description: Reconcile all post-activation UAT runs, including missed completion events
         type: boolean
         default: false
+      retire_failed_before:
+        description: Production operator only; retire older proven pre-upload failures before this latest milestone
+        type: string
+        default: ""
+      reviewed_ledger_sha:
+        description: Exact certified ledger commit reviewed for obsolete-failure retirement
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -45,6 +53,8 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       FULL_RECONCILE: ${{ inputs.full_reconcile }}
       RECOVER_CHECKPOINT_SHA: ${{ inputs.recover_checkpoint_sha }}
+      RETIRE_FAILED_BEFORE: ${{ inputs.retire_failed_before }}
+      REVIEWED_LEDGER_SHA: ${{ inputs.reviewed_ledger_sha }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -61,6 +71,7 @@ jobs:
           args=()
           if [[ "$FULL_RECONCILE" == true ]]; then args+=(--full); fi
           if [[ -n "$RECOVER_CHECKPOINT_SHA" ]]; then args+=(--recover-head "$RECOVER_CHECKPOINT_SHA"); fi
+          if [[ -n "$RETIRE_FAILED_BEFORE" || -n "$REVIEWED_LEDGER_SHA" ]]; then args+=(--retire-failed-before "${RETIRE_FAILED_BEFORE:-0}" --reviewed-ledger-sha "$REVIEWED_LEDGER_SHA"); fi
           python3 scripts/ci/release-cadence.py reconcile "${args[@]}"
       - name: Publish immutable controller authority and accounting checkpoint
         id: checkpoint

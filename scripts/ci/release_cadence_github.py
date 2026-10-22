@@ -7,6 +7,7 @@ import io
 import json
 import os
 import re
+from runpy import run_path
 import subprocess
 import time
 import zipfile
@@ -31,6 +32,8 @@ from release_cadence import (
     verify_child,
     verify_dispatch_inputs,
 )
+
+from release_cadence_maintenance import configuration, disabled_snapshot as disabled_snapshot, retire_obsolete_failures
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -57,18 +60,6 @@ def git(*args: str) -> str:
 def ancestor(older: str, newer: str) -> bool:
     return subprocess.run(["git", "merge-base", "--is-ancestor", older, newer], cwd=ROOT,
                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False).returncode == 0
-
-
-def configuration() -> tuple[dict, dict]:
-    policy = json.loads((ROOT / "config/release-cadence.json").read_text())
-    require(policy.get("testflight_every") == 2 and policy.get("production_every") == 4,
-            "Unexpected release cadence policy")
-    require(re.fullmatch(r"automation/[a-z0-9-]+", policy.get("state_branch", "")), "Invalid state ref")
-    require(all(type(policy.get(k)) is bool for k in ("enabled", "submit_for_review", "release_after_approval")),
-            "Invalid cadence switches")
-    require(not policy["release_after_approval"] or policy["submit_for_review"], "Publication needs review submission")
-    governance = json.loads((ROOT / "config/ci-governance.json").read_text())
-    return policy, governance
 
 
 class Ledger:
@@ -260,6 +251,7 @@ def authorize_current(surface: str, actor: str) -> dict | None:
                 raise
             time.sleep(2)
     expected_surface = "uat" if lane == "testflight" else "production"
+    require(request["lanes"][lane]["state"] != "superseded", "Retired releases cannot resume or upload")
     require(governance[surface].get("automatic_release_workflow") == CONTROLLER, "Automatic surface is not governed")
     require(str(request["ordinal"]) == ordinal, "Wrong automatic deployment ordinal")
     require(surface == expected_surface and origin == str(request["origin_run_id"]), "Wrong automation surface")
@@ -307,11 +299,16 @@ def verify_recovery(ledger: Ledger, reviewed_head: str, controller: dict, govern
                              ordinal, str(request["origin_run_id"]))
 
 
-def reconcile(repository: str, controller_id: int, event: dict, full: bool = False, recovery_head: str = "") -> dict:
+def reconcile(repository: str, controller_id: int, event: dict, full: bool = False, recovery_head: str = "",
+              retire_before: int = 0, reviewed_head: str = "") -> dict:
     policy, governance = configuration()
     require(policy["enabled"], "Release cadence is disabled")
     controller = run_info(repository, controller_id)
     verify_controller(controller, repository, governance, event)
+    require(bool(retire_before) == bool(reviewed_head), "Retirement requires both frontier and reviewed ledger head")
+    if retire_before:
+        require(controller["event"] == "workflow_dispatch" and not full and not recovery_head,
+                "Retirement requires a dedicated governed manual reconciliation")
     if controller["event"] == "repository_dispatch":
         require(not full and not recovery_head, "Clock events cannot request full replay or checkpoint recovery")
     ledger = Ledger(repository, policy["state_branch"])
@@ -321,6 +318,8 @@ def reconcile(repository: str, controller_id: int, event: dict, full: bool = Fal
         require(recovery_head, "Checkpoint is inconsistent; a production operator must review its exact head before recovery")
         verify_recovery(ledger, recovery_head, controller, governance, policy)
         ledger.save(force=True)
+    if retire_before:
+        retire_obsolete_failures(ledger, retire_before, reviewed_head, controller)
     if ledger.state is None:
         anchor = git("log", "-1", "--format=%H", "--", "config/release-cadence.json")
         activated = git("show", "-s", "--format=%cI", anchor)
@@ -374,6 +373,8 @@ def reconcile_children(ledger: Ledger, trigger_run_id: int | None = None) -> Non
     require(len(unresolved) <= 20, "More than 20 unresolved release failures; operator recovery is required")
     for ordinal, request in ledger.state["requests"].items():
         for lane, child in request["lanes"].items():
+            if child["state"] == "superseded":
+                continue
             if child.get("run_id"):
                 # A governed retry keeps the same recorded ID. Poll unresolved
                 # failures too, so recovery does not depend on a completion hook.
@@ -433,6 +434,23 @@ def defer_release(message: str) -> None:
             handle.write(summary)
 
 
+def release_admitted(repository: str) -> bool:
+    if uat_busy(repository):
+        defer_release("UAT is queued or running")
+        return False
+    return True
+
+
+def production_predecessor_accepted(sha: str) -> bool:
+    """Defer missing accepted coverage; propagate other resolver errors."""
+    predecessor = run_path(str(ROOT / "scripts/ci/verify-predecessor-acceptance.py"))
+    try:
+        predecessor["GitHub"]().find("uat", sha, "all")
+    except predecessor["MissingAcceptance"]:
+        return False
+    return True
+
+
 def dispatch_pending(ledger: Ledger) -> None:
     from datetime import datetime, timezone
     requests = ledger.state["requests"]
@@ -460,11 +478,6 @@ def dispatch_pending(ledger: Ledger) -> None:
               for ordinal, request in requests.items() for lane, child in request["lanes"].items()
               if child["state"] in {"running", "dispatching"}}
 
-    def admit() -> bool:
-        if uat_busy(ledger.repository):
-            defer_release("UAT is queued or running")
-            return False
-        return True
 
     # Recover the second half even if the controller stopped immediately after
     # recording the production deployment. It yields to UAT and other active
@@ -480,7 +493,7 @@ def dispatch_pending(ledger: Ledger) -> None:
                 if active - {(ordinal, "production")}:
                     defer_release("another release bundle is active")
                     return
-                if not admit():
+                if not release_admitted(ledger.repository):
                     return
                 dispatch_child(ledger, ordinal, request, "appstore")
                 return
@@ -503,10 +516,16 @@ def dispatch_pending(ledger: Ledger) -> None:
         if not pending:
             continue
         ordinal, request = max(pending, key=lambda pair: int(pair[0]))
+        if lanes[0] == "deploy":
+            if not release_admitted(ledger.repository):
+                return
+            if not production_predecessor_accepted(request["sha"]):
+                defer_release("production requires complete exact-SHA UAT acceptance")
+                continue
         for lane in lanes:
             # UAT can arrive between the two dispatches. Persist the half-pair
             # and resume later rather than posting another competing workflow.
-            if not admit():
+            if not release_admitted(ledger.repository):
                 return
             dispatch_child(ledger, ordinal, request, lane)
         return

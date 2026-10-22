@@ -1,0 +1,37 @@
+{
+  "qualification": {
+    "version": 2,
+    "host_kind": "gcp_cloud_run",
+    "source_revision": "67a64533ac6a06aba17d94785cb298eb3e262b38",
+    "image_tag": "dev-67a64533ac6a06aba17d94785cb298eb3e262b38",
+    "public_policy_sha256": "461ffb14a89e3ea1d9a46e330937c6ad24dbebf1474193123dfe2ce29bdcde67",
+    "readiness": {
+      "version": 2,
+      "cloud": "gcp",
+      "component_digest": "sha256:8b846022947bca939fba48cddf1101f3c26dddfb043ab41e20bd7407e068ac07",
+      "boundary": "shared_owner_container",
+      "chromium_sandbox": true,
+      "browser_start_verified": true,
+      "runtime_uid_verified": true,
+      "lifecycle_verified": true,
+      "isolated": false,
+      "direct_egress_denied": false,
+      "broker_bridge_verified": true,
+      "ephemeral_bridge_verified": true,
+      "private_access_denied": false,
+      "model_transport_verified": true,
+      "model_name": "gemini-3.8-flash",
+      "model_transport": "google.adk.models.google_llm.Gemini"
+    },
+    "public_policy": {
+      "page_urls": [
+        "https://docs.python.org/3/",
+        "https://docs.python.org/favicon.ico"
+      ],
+      "static_prefixes": [
+        "https://docs.python.org/3/_static/",
+        "https://docs.python.org/3/_images/"
+      ]
+    }
+  }
+}

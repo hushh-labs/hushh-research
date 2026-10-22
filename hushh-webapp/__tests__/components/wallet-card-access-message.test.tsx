@@ -63,7 +63,7 @@ it("renders the live permitted Profile Card and removes it on expiry", async () 
   monotonic.mockReturnValue(3000);
   await waitFor(() => expect(screen.queryByText("alice@example.test")).toBeNull(), { timeout: 2500 });
   expect(screen.queryByTestId("shared-profile-card-face")).toBeNull();
-  expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:permitted-profile");
+  await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:permitted-profile"));
 });
 it("completes verification after authentication backgrounds the tab", async () => {
   let finish!: (value: string) => void;

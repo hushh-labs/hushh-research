@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from api.middleware import require_firebase_auth_read_only
 from api.utils.firebase_auth import current_auth_lane
-from hushh_mcp.services import product_activity
+from hushh_mcp.services import marketing_preferences, product_activity
 from hushh_mcp.services.plg_audience import AudienceCursorError, AudienceRequest, audience_page
 from hushh_mcp.services.plg_customer_cohort import (
     CohortCursorError,
@@ -28,8 +28,111 @@ from hushh_mcp.services.plg_customer_cohort import (
 )
 from hushh_mcp.services.plg_evidence import PilotRequest, snapshot
 
+from .marketing_preferences import router as marketing_preferences_router
+
 router = APIRouter(prefix="/api/one/plg", tags=["One PLG integration"])
+router.include_router(marketing_preferences_router)
 NO_STORE = {"Cache-Control": "private, no-store", "Pragma": "no-cache"}
+
+
+class SubscriptionAck(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    accountHash: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+    revision: int = Field(ge=1, le=9_007_199_254_740_991)
+
+
+class SubscriptionAcks(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    changes: list[SubscriptionAck] = Field(max_length=25)
+
+
+class SubscriptionRevocation(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    accountHash: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+    generation: UUID
+
+
+class SubscriptionCheck(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    accountId: str = Field(min_length=1, max_length=128)
+    generation: UUID
+    emailHash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    revision: int = Field(ge=1, le=9_007_199_254_740_991)
+
+
+async def _subscription_request(request: Request, purpose: str):
+    secret = os.getenv("ONE_PLG_SUBSCRIPTION_SECRET", "")
+    if (
+        os.getenv("ONE_PLG_SUBSCRIPTION_ENABLED") != "true"
+        or os.getenv("GOOGLE_CLOUD_PROJECT") != "hushh-pda"
+        or current_auth_lane() != "production"
+        or len(secret) < 32
+    ):
+        raise HTTPException(404, "Subscription integration unavailable", headers=NO_STORE)
+    return await _signed_body(request, secret=secret, purpose="subscriptions." + purpose)
+
+
+@router.post("/subscriptions/pull", include_in_schema=False)
+async def pull_subscription_changes(request: Request):
+    raw = await _subscription_request(request, "pull")
+    if raw != b"{}":
+        raise HTTPException(400, "Invalid subscription request", headers=NO_STORE)
+    try:
+        result = await asyncio.wait_for(marketing_preferences.pending_changes(), timeout=55)
+    except Exception:
+        raise HTTPException(503, "Subscription projection unavailable", headers=NO_STORE) from None
+    return JSONResponse(result, headers=NO_STORE)
+
+
+@router.post("/subscriptions/ack", include_in_schema=False)
+async def acknowledge_subscription_changes(request: Request):
+    raw = await _subscription_request(request, "ack")
+    try:
+        body = SubscriptionAcks.model_validate_json(raw)
+        result = await asyncio.wait_for(
+            marketing_preferences.acknowledge([(c.accountHash, c.revision) for c in body.changes]),
+            timeout=20,
+        )
+    except ValidationError:
+        raise HTTPException(400, "Invalid subscription acknowledgement", headers=NO_STORE) from None
+    except Exception:
+        raise HTTPException(
+            503, "Subscription acknowledgement unavailable", headers=NO_STORE
+        ) from None
+    return JSONResponse(result, headers=NO_STORE)
+
+
+@router.post("/subscriptions/revoke", include_in_schema=False)
+async def revoke_subscription_permission(request: Request):
+    raw = await _subscription_request(request, "revoke")
+    try:
+        body = SubscriptionRevocation.model_validate_json(raw)
+        result = await asyncio.wait_for(
+            marketing_preferences.revoke_generation(body.accountHash, body.generation), timeout=20
+        )
+    except ValidationError:
+        raise HTTPException(400, "Invalid subscription revocation", headers=NO_STORE) from None
+    except Exception:
+        raise HTTPException(503, "Subscription revocation unavailable", headers=NO_STORE) from None
+    return JSONResponse(result, headers=NO_STORE)
+
+
+@router.post("/subscriptions/check", include_in_schema=False)
+async def check_subscription_permission(request: Request):
+    raw = await _subscription_request(request, "check")
+    try:
+        body = SubscriptionCheck.model_validate_json(raw)
+        result = await asyncio.wait_for(
+            marketing_preferences.current_permission(
+                body.accountId, body.generation, body.emailHash, body.revision
+            ),
+            timeout=30,
+        )
+    except ValidationError:
+        raise HTTPException(400, "Invalid subscription check", headers=NO_STORE) from None
+    except Exception:
+        raise HTTPException(503, "Subscription permission unavailable", headers=NO_STORE) from None
+    return JSONResponse(result, headers=NO_STORE)
 
 
 class Observation(BaseModel):
@@ -83,12 +186,14 @@ async def export_snapshot(request: Request):
     allowed = {
         uid.strip() for uid in os.getenv("ONE_PLG_EXPORT_ACCOUNT_IDS", "").split(",") if uid.strip()
     }
+    permission_cohort = os.getenv("ONE_PLG_SUBSCRIPTION_ENABLED") == "true"
     if (
         os.getenv("ONE_PLG_EXPORT_ENABLED") != "true"
         or os.getenv("GOOGLE_CLOUD_PROJECT") != "hushh-pda"
         or current_auth_lane() != "production"
         or len(secret) < 32
-        or not 1 <= len(allowed) <= 100
+        or len(allowed) > 100
+        or (not allowed and not permission_cohort)
     ):
         raise HTTPException(404, "PLG export unavailable", headers=NO_STORE)
     body = await _signed_body(request, secret=secret, purpose="snapshot")
@@ -96,6 +201,12 @@ async def export_snapshot(request: Request):
         payload = PilotRequest.model_validate_json(body)
         if request.headers.get("x-plg-version") == "2":
             payload = payload.model_copy(update={"version": 2})
+        if permission_cohort:
+            allowed.update(
+                await marketing_preferences.permitted_snapshot_accounts(
+                    [account.accountId for account in payload.accounts]
+                )
+            )
         result = await asyncio.wait_for(
             snapshot(payload, allowed, datetime.now(timezone.utc)), timeout=25
         )

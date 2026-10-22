@@ -9,13 +9,15 @@ enum NativeProfileArtwork {
         let colorHex: String?
         let accentColorHex: String?
     }
-    static let ids = ["account", "payouts", "request-pricing", "my-data", "world-model", "preferences", "security", "devices", "connectors", "invite", "support", "developer-tools", "privacy", "terms", "sign-out", "style-name", "style-tone", "style-length", "style-language", "style-punctuation", "account-name", "account-mail", "account-phone", "account-wallet", "account-reset", "account-delete", "appearance", "accent", "voice", "vault-methods", "vault-password", "payout-receipt", "payout-warning", "payout-progress", "payout-review", "gemini", "connector-gmail", "connector-google-drive", "connector-calendar", "connector-plaid", "connector-attio", "connector-hubspot", "connector-notion", "connector-instagram", "connector-linkedin"]
+    static let ids = ["hosting", "software-updates", "account", "payouts", "request-pricing", "my-data", "world-model", "preferences", "security", "devices", "connectors", "invite", "support", "developer-tools", "privacy", "terms", "sign-out", "style-name", "style-tone", "style-length", "style-language", "style-punctuation", "account-name", "account-mail", "account-phone", "account-wallet", "account-reset", "account-delete", "appearance", "accent", "voice", "vault-methods", "vault-password", "payout-receipt", "payout-warning", "payout-progress", "payout-review", "referral-link", "referral-join", "referral-agent", "referral-qualified", "referral-success", "referral-people", "referral-progress", "referral-review", "referral-warning", "gemini", "connector-gmail", "connector-google-drive", "connector-calendar", "connector-plaid", "connector-attio", "connector-hubspot", "connector-notion", "connector-instagram", "connector-linkedin"]
     static func resolve(_ id: String) -> Artwork? {
         let colorHex: String?
         let accentColorHex: String?
         let hasAccent: Bool
         let original: Bool
         switch id {
+        case "hosting": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
+        case "software-updates": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "account": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "payouts": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "request-pricing": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
@@ -51,6 +53,15 @@ enum NativeProfileArtwork {
         case "payout-warning": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "payout-progress": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "payout-review": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
+        case "referral-link": colorHex = "#2563EB"; accentColorHex = nil; hasAccent = false; original = false
+        case "referral-join": colorHex = "#8B5CF6"; accentColorHex = nil; hasAccent = false; original = false
+        case "referral-agent": colorHex = "#6366F1"; accentColorHex = nil; hasAccent = false; original = false
+        case "referral-qualified": colorHex = "#10B981"; accentColorHex = nil; hasAccent = false; original = false
+        case "referral-success": colorHex = "#10B981"; accentColorHex = nil; hasAccent = false; original = false
+        case "referral-people": colorHex = "#6366F1"; accentColorHex = nil; hasAccent = false; original = false
+        case "referral-progress": colorHex = "#F59E0B"; accentColorHex = nil; hasAccent = false; original = false
+        case "referral-review": colorHex = "#0284C7"; accentColorHex = nil; hasAccent = false; original = false
+        case "referral-warning": colorHex = "#F59E0B"; accentColorHex = nil; hasAccent = false; original = false
         case "gemini": colorHex = nil; accentColorHex = nil; hasAccent = false; original = true
         case "connector-gmail": colorHex = nil; accentColorHex = nil; hasAccent = false; original = true
         case "connector-google-drive": colorHex = nil; accentColorHex = nil; hasAccent = false; original = true

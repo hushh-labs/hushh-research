@@ -28,6 +28,7 @@ import { CheckCircle2, ChevronRight, X } from "@/components/icons";
 import { ConnectorBrandMark } from "@/components/agent/connector-brand-mark";
 import type { ChatOnboardingController } from "@/lib/agent/chat-onboarding/use-chat-onboarding";
 import type { ChatOnboardingTurn } from "@/lib/agent/chat-onboarding/chat-onboarding-machine";
+import { CHAT_ONBOARDING_QUESTIONS, CHAT_ONBOARDING_SKIP_HELP } from "@/lib/agent/chat-onboarding/chat-onboarding-script";
 import type {
   ChatOnboardingChip,
   ChatOnboardingChipId,
@@ -234,6 +235,8 @@ function OnboardingTurnView({
   onChip,
   onConnect,
   gmailConnected,
+  afterTurn,
+  onCompletionShown,
 }: {
   turn: ChatOnboardingTurn;
   animate: boolean;
@@ -243,6 +246,8 @@ function OnboardingTurnView({
   chipsLive: boolean;
   busy: boolean;
   autoFocusChips: boolean;
+  afterTurn?: ReactNode;
+  onCompletionShown?: () => void;
   renderBubble: (message: ChatOnboardingBubbleMessage) => ReactNode;
   onShown: (turnId: string, timeLabel: string, shownAtMs?: number) => void;
   onChip: (chipId: ChatOnboardingChipId) => void;
@@ -280,9 +285,21 @@ function OnboardingTurnView({
     return () => window.clearTimeout(timer);
   }, [phase, extrasReady, onShown, turn.id, turn.text, shownAt, firstShownAtMs]);
 
+  const hasCompletion = Boolean(afterTurn);
+  useEffect(() => {
+    if (extrasReady && hasCompletion) onCompletionShown?.();
+  }, [extrasReady, hasCompletion, onCompletionShown]);
+
   if (phase === "waiting") return null;
   return (
     <div data-testid="chat-onboarding-turn" data-turn-role={turn.role}>
+      {turn.question ? (
+        <p className="mb-1 px-1 text-xs text-muted-foreground">
+          Question {CHAT_ONBOARDING_QUESTIONS.indexOf(turn.question) + 1} of {CHAT_ONBOARDING_QUESTIONS.length}
+        </p>
+      ) : turn.chips?.some(chip => chip.id === "save") ? (
+        <p className="mb-1 px-1 text-xs text-muted-foreground">Review before saving</p>
+      ) : null}
       {renderBubble({
         id: turn.id,
         role: turn.role,
@@ -297,14 +314,18 @@ function OnboardingTurnView({
         <ConnectActionButton action={turn.action} onConnect={onConnect} gmailConnected={gmailConnected} />
       ) : null}
       {extrasReady && chipsLive && turn.chips?.length ? (
-        <ChatOnboardingChips
-          chips={turn.chips}
-          label="Reply options"
-          disabled={busy}
-          autoFocus={autoFocusChips}
-          onChip={onChip}
-        />
+        <>
+          <ChatOnboardingChips
+            chips={turn.chips}
+            label="Reply options"
+            disabled={busy}
+            autoFocus={autoFocusChips}
+            onChip={onChip}
+          />
+          {turn.question ? <p className="mt-1 px-1 text-xs leading-5 text-muted-foreground">{CHAT_ONBOARDING_SKIP_HELP[turn.question]}</p> : null}
+        </>
       ) : null}
+      {extrasReady ? afterTurn : null}
     </div>
   );
 }
@@ -315,12 +336,16 @@ export function ChatOnboardingTurns({
   renderBubble,
   onConnect,
   gmailConnected = false,
+  completion,
+  onCompletionShown,
 }: {
   controller: ChatOnboardingController;
   slot: ChatOnboardingSlot;
   renderBubble: (message: ChatOnboardingBubbleMessage) => ReactNode;
   onConnect: (action: ChatOnboardingConnectAction, trigger: HTMLButtonElement) => void;
   gmailConnected?: boolean;
+  completion?: ReactNode;
+  onCompletionShown?: () => void;
 }) {
   const turns = turnsForSlot(controller.turns, slot);
   // Keyboard continuity: after a chip is chosen, focus moves to the next set.
@@ -352,6 +377,8 @@ export function ChatOnboardingTurns({
         }}
         onConnect={onConnect}
         gmailConnected={gmailConnected}
+        afterTurn={controller.resolved && turn.id === controller.turns.at(-1)?.id ? completion : undefined}
+        onCompletionShown={onCompletionShown}
       />
     );
   });

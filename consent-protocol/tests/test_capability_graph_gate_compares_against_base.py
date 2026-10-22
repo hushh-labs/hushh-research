@@ -181,10 +181,8 @@ def test_head_comparison_reproduces_the_historical_bypass(
 ) -> None:
     """Historical behaviour, kept only as the local fallback.
 
-    With no base ref configured and no CI marker, ``origin/main`` does not
-    exist in this repo, so the generator warns and reads ``HEAD:``. That is
-    the author's own v2 graph, the revisions match, and the gate returns the
-    recorded ``breaking: []`` without ever comparing to main.
+    Without a configured base or CI marker, an absent ``origin/main`` warns
+    and falls back to ``HEAD:``; this does not prove comparison against main.
     """
 
     previous = generator._read_previous()
@@ -210,13 +208,33 @@ def test_merged_branch_history_is_selected_from_the_base_merge(repo: Repo) -> No
 
     assert generator._merged_workflow_predecessor_refs("main") == (feature_tip,)
 
+    # Both concurrent branches independently integrate the same base.
+    repo.git("checkout", "-q", "-b", "parallel", feature_tip)
+    (repo.root / "parallel.txt").write_text("concurrent feature\n", encoding="utf-8")
+    parallel_tip = repo.commit("concurrent feature history")
+    repo.git("merge", "--no-ff", "--no-edit", "main")
+    parallel_integrated = repo.git("rev-parse", "HEAD")
+    repo.git("checkout", "-q", "feature")
+    repo.git("merge", "--no-ff", "--no-edit", "parallel")
+    expected = {parallel_integrated, parallel_tip, feature_tip}
+    assert set(generator._merged_workflow_predecessor_refs("main")) == expected
+
+    # A verification merge can carry the main merge through its second parent.
+    repo.git("checkout", "-q", "-b", "verification", feature_tip)
+    (repo.root / "verification.txt").write_text("isolated verification\n", encoding="utf-8")
+    verification_tip = repo.commit("prepare isolated verification")
+    repo.git("merge", "--no-ff", "--no-edit", "feature")
+
+    assert set(generator._merged_workflow_predecessor_refs("main")) == expected | {verification_tip}
+
 
 @pytest.mark.parametrize(
     ("history", "expected"),
     [
         (
-            "newer parent-a parent-b\nmatching base feature-a feature-b\nolder base old\n",
-            ("feature-a", "feature-b"),
+            "verification pre-base newer\nnewer matching parallel\n"
+            "matching base feature-a feature-b\nparallel base parallel-tip\n",
+            ("pre-base", "parallel", "feature-a", "feature-b", "parallel-tip"),
         ),
         ("newer parent-a parent-b\nolder parent-c parent-d\n", ()),
     ],
@@ -240,7 +258,7 @@ def test_merge_parent_history_uses_one_full_git_query(
     monkeypatch.setattr(generator.subprocess, "run", run)
 
     assert generator._merged_workflow_predecessor_refs("main") == expected
-    assert commands == [["git", "rev-list", "--first-parent", "--merges", "--parents", "HEAD"]]
+    assert commands == [["git", "rev-list", "--ancestry-path", "--parents", "base..HEAD"]]
 
 
 def test_base_ref_comparison_names_the_changed_action_and_fails(

@@ -26,10 +26,29 @@ export const acknowledgeOneSetupExit = unavailable;
 export const PreVaultSensitiveDraftService = {};
 export const FinanceSetupDraftService = {};
 export const PostUnlockSyncService = {};
-export const PreVaultUserStateService = { getCachedBootstrapState: () => ({saved}), hasOneRuntimeChoice: (value: {saved:boolean}) => value.saved, bootstrapState: unavailable };
+export const PreVaultUserStateService = { getCachedBootstrapState: () => ({saved}), hasOneCloudProject: () => true, hasOneRuntimeChoice: (value: {saved:boolean}) => value.saved, bootstrapState: unavailable };
 export const CACHE_KEYS = { PRE_VAULT_BOOTSTRAP: (id:string) => `bootstrap:${id}` };
 export const CacheService = {getInstance: () => ({subscribe: (listener: (event:{type:string;key:string}) => void) => {listeners.add(listener);return () => listeners.delete(listener);}})};
 /* eslint-disable @next/next/no-img-element -- Browser fixture preserves image geometry. */
 export default function Image({alt="",unoptimized:_unoptimized,...props}:React.ImgHTMLAttributes<HTMLImageElement> & {unoptimized?:boolean}) {return <img alt={alt} {...props} />;}
 
 export const resolveKaiOnboardingCompletion = () => false;
+
+export const AccountIdentityService = { peekCachedIdentity: () => ({data:{phoneVerified:true}}), refreshCurrentUserIdentity: async () => ({phoneVerified:true}), hasVerifiedPhone: () => true };
+export const useCapabilitySetupStates = () => ({byId:{},isLoading:false,isEnriching:false});
+export const ApiService = {getByocSetupStatus: async () => ({status:"idle"})};
+export const OneAgentPresence = () => null;
+export const PublicProfileDiscoveryCard = () => null;
+
+export const BufferHandoffScreen = () => null;
+export const GuidedConnectionScreen = () => null;
+export const VaultExplainerScreens = () => null;
+export const migrateOnboardingBuffer = unavailable;
+export const isPersonalAgentReadyFromCachedFeed = () => false;
+
+// Production readiness stays active; credential and Contacts I/O remain inert.
+export const GEMINI_RUNTIME_CREDENTIAL_REF = "pkm:runtime_secrets.llm.gemini_api_key";
+export const PersonalKnowledgeModelService = { loadRuntimeSecret: unavailable };
+export const hasSavedAzureKey = unavailable;
+export const hasSavedOpenAiKey = unavailable;
+export const loadSelectedAiProvider = unavailable;

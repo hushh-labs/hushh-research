@@ -1,0 +1,60 @@
+{
+  "id": "puppy-one-harness",
+  "title": "Puppy One Harness",
+  "goal": "Benchmark and grade an on-device model for Puppy One without producing a number that flatters it, and record the run so model generations stay comparable.",
+  "owner_skill": "backend",
+  "default_spoke": "puppy-one-harness",
+  "task_type": "puppy-one-harness",
+  "affected_surfaces": [
+    ".agents/subagents/local_model_judge.toml",
+    ".agents/skills/puppy-one-harness"
+  ],
+  "required_reads": [
+    ".agents/skills/puppy-one-harness/references/judging-contract.md",
+    ".agents/subagents/local_model_judge.toml",
+    "docs/reference/ai/puppy-one-on-device.md"
+  ],
+  "required_commands": [
+    "./bin/hushh codex route-task puppy-one-harness",
+    "python3 .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
+    "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py"
+  ],
+  "verification_bundle": {
+    "id": "puppy-one-harness",
+    "commands": [
+      "python3 .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
+      "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py"
+    ],
+    "tests": [
+      "python3 .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py"
+    ]
+  },
+  "deliverables": [
+    "benchmark result with validity scored beside latency",
+    "graded review queue with every row judged",
+    "evolution ledger row including the capability profile",
+    "regression fixtures for every confirmed failure"
+  ],
+  "impact_fields": [
+    "Model and capability profile",
+    "Judge and whether it was a separate context",
+    "Controls caught or run voided",
+    "Verification commands executed"
+  ],
+  "handoff_chain": [
+    "backend",
+    "puppy-one-harness",
+    "backend-runtime-governance",
+    "security-audit",
+    "quality-contracts"
+  ],
+  "common_failures": [
+    "grading in the session that wrote the queue, which remembers where the controls went",
+    "grading a corpus this session has graded before: positions move per run, the planted rows' wording does not",
+    "appending verdict lines to verdicts.jsonl with a shell redirect instead of putting the grader's JSONL through memory_judge.py replay, which voids the run for verdict_appended_past_writer; the grading lane is read-only and does not write, so the orchestrator replays",
+    "opening or hunting for the seal while grading, or reading memory_judge_controls in the harness source, which names the planted rows in clear and leaves no trace; run-manifest.json carries the declared rule vocabulary and locates no control",
+    "reporting accuracy for a run whose controls were missed instead of voiding it",
+    "comparing runs with different capability profiles, which invents a trend",
+    "treating structural validity as correctness"
+  ]
+}

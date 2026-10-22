@@ -4,7 +4,10 @@ import { createContext, useState } from "react";
 export function usePathname() { return "/"; }
 // This layout fixture has no unlocked encrypted custom-connector catalog.
 export const loadCustomConnectorConfigurations = async () => [];
-export const loadCustomConnectorSnapshot = async () => ({ configurations: [], invalid: [] });
+export const loadCustomConnectorSnapshot = async () => ({
+  configurations: [],
+  invalid: [],
+});
 export const saveCustomConnectorConfiguration = async () => { throw new Error("Not admitted in layout fixture"); };
 export const removeCustomConnectorConfiguration = async () => { throw new Error("Not admitted in layout fixture"); };
 export const removeInvalidCustomConnectorConfiguration = async () => { throw new Error("Not admitted in layout fixture"); };
@@ -77,6 +80,10 @@ export function useRouter() {
 export const HushhAuth = {
   connectGmail: async () => ({ serverAuthCode: "synthetic-code" }),
 };
+// Private turns are outside this Shared connector layout fixture.
+export async function streamAgentChat() {
+  throw new Error("Private chat is not admitted in the layout fixture");
+}
 export const app = null;
 export const auth = null;
 export const prepareRecaptchaVerifier = () => {
@@ -86,6 +93,15 @@ export const getRecaptchaVerifier = prepareRecaptchaVerifier;
 export const resetRecaptcha = () => {};
 // Pure task models and rows stay real. This public fixture does not admit
 // encrypted task reads or writes through the private service port.
+export { openTodoItems, completedTodoItems, TODO_SOURCE_LABELS } from "@/lib/todos/todo-list-model";
+function taskMutationUnavailable(): never {
+  throw new Error("No task creation or execution in the public layout fixture");
+}
+export const agentTodoInput = taskMutationUnavailable;
+export const buildTodo = taskMutationUnavailable;
+export const calendarTodoInput = taskMutationUnavailable;
+export const createTodo = taskMutationUnavailable;
+export const isLiveAgentTodo = taskMutationUnavailable;
 export const TodoListPkmService = {
   load: async () => { throw new Error("No task reads in the public layout fixture"); },
   setStatus: async () => { throw new Error("No task writes in the public layout fixture"); },
@@ -106,6 +122,8 @@ export const HushhConsent = unavailableNativeBridge("HushhConsent");
 export const HushhNotifications = unavailableNativeBridge("HushhNotifications");
 export const HushhLocation = unavailableNativeBridge("HushhLocation");
 export const ApiService = {
+  // This fixture explicitly rehearses a recorded Shared owner.
+  getPersonalAgentStatus: async () => ({ hostingMode: "shared" as const }),
   getAuthHeaders: (token: string) => ({ Authorization: `Bearer ${token}` }),
   // eslint-disable-next-line no-restricted-syntax -- Synthetic ApiService transport intercepted by the browser harness; never a product component.
   apiFetch: (path: string, options: RequestInit) => fetch(path, options),

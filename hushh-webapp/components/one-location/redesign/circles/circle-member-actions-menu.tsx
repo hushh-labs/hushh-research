@@ -450,7 +450,10 @@ export function CircleMemberActionsMenu({
                     type="button"
                     variant="ghost"
                     size="prominent"
-                    className="w-full justify-center text-center"
+                    className={cn(
+                      "h-[52px] min-h-[52px] w-full justify-center bg-[#F2F2F7] text-center text-[17px] font-medium text-[color:var(--app-accent-deep)] shadow-none [--type-button-label-weight:500] hover:bg-[#E5E5EA]",
+                      LOCATION_ACTION_SHAPE,
+                    )}
                     onClick={closeSheet}
                   >
                     Cancel

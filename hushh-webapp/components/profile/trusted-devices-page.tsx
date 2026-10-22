@@ -42,6 +42,7 @@ export default function TrustedDevicesPage({
 }) {
   const { devices, confirmation: pendingRevocation, busy: revoking, loading, error: visibleError } = model;
 
+  const { puppyAccess, byocReady, changingPuppy, puppyNotice, pendingPuppyWithdrawal, pendingPodRevocations } = model;
   const nowMs = Date.now();
 
   const pageContent = (
@@ -78,6 +79,10 @@ export default function TrustedDevicesPage({
               {visibleError} <button type="button" disabled={revoking} onClick={() => void model.refresh()}>Refresh</button>
             </p>
           ) : null}
+          {pendingPodRevocations.length > 0 ? <p role="status" className="text-sm text-muted-foreground">Device access is removed from your account. Pod access revocation is still pending; reconnect to your pod and try again.</p> : null}
+          {puppyNotice ? (
+            <p className="text-sm text-muted-foreground">{puppyNotice}</p>
+          ) : null}
           {devices.length > 0 ? (
             <SettingsGroup title={panePresentation ? "Connected devices" : undefined} separatorInset>
               {devices.map((device) => {
@@ -90,20 +95,40 @@ export default function TrustedDevicesPage({
                     iconTone="capability"
                     title={device.device_name}
                     description={sync.label}
+                    stackTrailingOnMobile
                     trailing={
-                      isActive ? (
-                        <Button
-                          aria-label={`Unlink ${device.device_name}`}
-                          onClick={() => model.choose(device.device_id)}
-                          disabled={revoking || model.uncertain}
-                          size="icon"
-                          variant="ghost"
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
+                      isActive ||
+                      pendingPodRevocations.includes(device.device_id) ? (
+                        <div className="flex items-center gap-2">
+                          {isActive &&
+                          byocReady &&
+                          device.platform === "macos" &&
+                          puppyAccess[device.device_id] !== undefined ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={changingPuppy !== null || revoking || model.uncertain}
+                              onClick={() => void model.changePuppyAccess(device.device_id)}
+                            >
+                              {changingPuppy === device.device_id ? "Updating…" : pendingPuppyWithdrawal.includes(device.device_id) ? "Retry withdrawal" : puppyAccess[device.device_id] ? "Disable Puppy" : "Enable Puppy"}
+                            </Button>
+                          ) : null}
+                          <Button
+                            aria-label={`${pendingPodRevocations.includes(device.device_id) ? "Retry unlinking" : "Unlink"} ${device.device_name}`}
+                            onClick={() => model.choose(device.device_id)}
+                            disabled={revoking || changingPuppy !== null || model.uncertain}
+                            size="icon"
+                            variant="ghost"
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </div>
                       ) : undefined
                     }
-                    trailingInteractive={isActive}
+                    trailingInteractive={
+                      isActive ||
+                      pendingPodRevocations.includes(device.device_id)
+                    }
                   />
                 );
               })}

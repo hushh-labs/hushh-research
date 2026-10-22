@@ -121,9 +121,18 @@ def journey(monkeypatch, tmp_path):
             )
         raise AssertionError(f"Unexpected provider route: {path}")
 
+    class ProviderClient(real_client):
+        def __init__(self, **kwargs):
+            super().__init__(transport=httpx.MockTransport(provider), **kwargs)
+
+    async def owner_placement(user_id):
+        return "shared" if user_id == "owner" else "unknown"
+
     monkeypatch.setattr(
-        "hushh_mcp.services.google_calendar_service.httpx.AsyncClient",
-        lambda **kwargs: real_client(transport=httpx.MockTransport(provider), **kwargs),
+        "hushh_mcp.services.google_calendar_service.httpx.AsyncClient", ProviderClient
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.owner_placement_guard.get_owner_hosting_mode", owner_placement
     )
     service = GoogleCalendarService(
         db=ProposalStore(tmp_path / "proposals.sqlite"), connections=grant

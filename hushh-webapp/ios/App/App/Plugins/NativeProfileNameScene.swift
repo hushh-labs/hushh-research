@@ -32,11 +32,12 @@ struct NativeProfileNameProjection: Decodable {
         "error", "appearance", "accentHex", "foregroundHex", "destinationId"]
     var valid: Bool {
         let maximum = HushhSessionPrivacyState.maximumJavaScriptSafeGeneration
-        return identity.valid && family == "profile" && scene == "account-name" &&
+        return identity.valid && family == "profile" && ["account-name", "referral-handle"].contains(scene) &&
+            (scene != "referral-handle" || destinationId != nil) &&
             (destinationId == nil || NativeDrawerIdentity.identifier(destinationId!)) &&
             updateSequence > 0 && updateSequence <= maximum &&
             [privacyGeneration, draftRevision, acknowledgedEditRevision].allSatisfy { $0 >= 0 && $0 <= maximum } &&
-            draft.utf16.count <= 4096 && (error?.utf16.count ?? 0) <= 1024 &&
+            draft.utf16.count <= (scene == "referral-handle" ? 32 : 4096) && (error?.utf16.count ?? 0) <= 1024 &&
             HushhNativeControlAppearance(appearance: appearance, accentHex: accentHex, foregroundHex: foregroundHex) != nil
     }
     func receipt(phase: String) -> [String: Any] {
@@ -76,6 +77,7 @@ final class NativeProfileNameModel: ObservableObject {
     var edit: ((String, Bool, Int) -> Bool)?
     var choose: ((NativeProfileNameAction) -> Bool)?
     var canEdit: Bool { !retired && !projection.busy && pending == nil }
+    var maximumLength: Int { projection.scene == "referral-handle" ? 32 : 4096 }
     var canSave: Bool { canEdit && !composing && projection.canSave && projection.acknowledgedEditRevision == editRevision }
     var accent: UIColor { HushhNativeControlAppearance.color(projection.accentHex) ?? .label }
 
@@ -84,7 +86,7 @@ final class NativeProfileNameModel: ObservableObject {
         text = projection.draft
     }
     func update(_ next: NativeProfileNameProjection) -> Bool {
-        guard !retired, next.valid, next.identity == projection.identity,
+        guard !retired, next.valid, next.identity == projection.identity, next.scene == projection.scene,
               next.destinationId == projection.destinationId,
               next.privacyGeneration == projection.privacyGeneration,
               next.updateSequence > projection.updateSequence, next.draftRevision >= projection.draftRevision,
@@ -100,7 +102,7 @@ final class NativeProfileNameModel: ObservableObject {
         let value = field.text ?? ""
         let marked = field.markedTextRange != nil
         guard value != text || marked != composing else { return }
-        guard value.utf16.count <= 4096, editRevision < HushhSessionPrivacyState.maximumJavaScriptSafeGeneration else { return }
+        guard value.utf16.count <= maximumLength, editRevision < HushhSessionPrivacyState.maximumJavaScriptSafeGeneration else { return }
         text = value
         composing = marked
         editRevision += 1
@@ -152,11 +154,12 @@ private struct NativeProfileNameField: UIViewRepresentable {
         field.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .editingChanged)
         field.font = .preferredFont(forTextStyle: .body)
         field.adjustsFontForContentSizeCategory = true
-        field.textContentType = .name
-        field.autocapitalizationType = .words
+        let handle = model.projection.scene == "referral-handle"
+        field.textContentType = handle ? .username : .name
+        field.autocapitalizationType = handle ? .none : .words
         field.autocorrectionType = .no
         field.returnKeyType = .done
-        field.accessibilityLabel = "Display name"
+        field.accessibilityLabel = handle ? "Leaderboard handle" : "Display name"
         field.accessibilityIdentifier = "native-profile-name-editor"
         field.setContentHuggingPriority(.defaultLow, for: .horizontal)
         model.editor = field
@@ -193,7 +196,7 @@ private struct NativeProfileNameField: UIViewRepresentable {
         func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
             guard model.canEdit, let current = textField.text as NSString?, range.location <= current.length,
                   range.length <= current.length - range.location else { return false }
-            return current.replacingCharacters(in: range, with: string).utf16.count <= 4096
+            return current.replacingCharacters(in: range, with: string).utf16.count <= model.maximumLength
         }
         func textFieldShouldReturn(_ textField: UITextField) -> Bool {
             guard textField.markedTextRange == nil else { return false }
@@ -207,23 +210,24 @@ private struct NativeProfileNameField: UIViewRepresentable {
 @available(iOS 26.0, *)
 private struct NativeProfileNameContent: View {
     @ObservedObject var model: NativeProfileNameModel
+    private var title: String { model.projection.scene == "referral-handle" ? "Leaderboard handle" : "Display name" }
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 Button { model.action("cancel") } label: {
                     Image(systemName: "xmark").frame(minWidth: 44, minHeight: 44)
                 }
-                .buttonStyle(.glass).accessibilityLabel("Cancel name change")
+                .buttonStyle(.glass).accessibilityLabel("Cancel")
                 .accessibilityIdentifier("native-profile-name-cancel").disabled(!model.canEdit)
                 Spacer(minLength: 12)
-                Text("Display name").font(.headline).accessibilityAddTraits(.isHeader)
+                Text(title).font(.headline).accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 12)
                 Button("Save") { model.action("save") }
                     .buttonStyle(.glassProminent).frame(minWidth: 44, minHeight: 44)
                     .disabled(!model.canSave).accessibilityIdentifier("native-profile-name-save")
             }.padding(.horizontal, 16).padding(.vertical, 8)
             Form {
-                Section("Display name") {
+                Section(title) {
                     NativeProfileNameField(model: model).frame(minHeight: 44)
                 }
                 if let error = model.projection.error, !model.retired {
@@ -243,7 +247,7 @@ private struct NativeProfileNameContent: View {
 final class NativeProfileNameScene: NSObject, NativeProfileOwnedForm {
     let model: NativeProfileNameModel
     var identity: NativeDrawerIdentity { model.projection.identity }
-    var sceneName: String { "account-name" }
+    var sceneName: String { model.projection.scene }
     func receipt(_ phase: String) -> [String: Any] { model.projection.receipt(phase: phase) }
     private lazy var sheet: NativeProfileOwnedSheet = {
         let model = model
@@ -262,6 +266,8 @@ final class NativeProfileNameScene: NSObject, NativeProfileOwnedForm {
     }()
     var coverage: (() -> Void)? { didSet { sheet.coverage = coverage } }
     var coversPresentation: Bool { sheet.coversPresentation }
+    var presentationSettled: Bool { sheet.presentationSettled }
+    func refreshPrivacy() { sheet.refresh() }
     init(_ projection: NativeProfileNameProjection) { model = NativeProfileNameModel(projection) }
 
     func present(from parent: UIViewController, completion: @escaping (Bool) -> Void) -> Bool {

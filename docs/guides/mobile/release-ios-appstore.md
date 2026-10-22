@@ -1,7 +1,7 @@
 # Release iOS to the App Store (public, one command)
 
 Release authority, exact-SHA proof, branch restoration, and terminal monitoring follow the
-[canonical Admin release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md).
+[canonical Admin release SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md).
 This guide adds App Store-specific build, submission, and verification detail only.
 
 ## Visual Context
@@ -34,6 +34,13 @@ deploy/archive remain a parallel pair. Pending releases stay outside runners and
 retry when UAT finishes, even after a failed UAT run. Existing releases are never
 cancelled. This reduces shared-pool contention but cannot reserve GitHub-hosted
 runner slots. Manual invocation defaults are unchanged.
+
+Automatic packaging accepts Apple's historical numeric versions such as `1.0`
+for ordering. Source and selected packaging versions remain strict `x.y.z`.
+The complete iOS prerelease-version inventory supplies a minimum packaging
+version too, so automatic releases do not fall behind a manual TestFlight upload.
+Ambiguous latest records, or reuse that would equate a legacy editable version
+with a different canonical version string, stop in Ubuntu preflight for inspection.
 
 GitHub-native monitoring runs inside the existing cadence observer and reports to
 the bot-owned `UAT release monitor` issue. It works while developer computers are

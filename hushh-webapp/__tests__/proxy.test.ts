@@ -8,6 +8,13 @@ function request(path: string): NextRequest {
 }
 
 describe("Next proxy root-entry contract", () => {
+  it.each(["/one/profile/account", "/one/profile/payouts"])("preserves strict opaque payment returns at %s", destination => {
+    const path = `${destination}?commerceReturn=1&commerceAttemptId=opaque_attempt_12345`;
+    expect(proxy(request(path)).headers.get("location")).toBeNull();
+    for (const invalid of [destination, path + "&commerceReturn=1", path + "&private=anything", path.replace("opaque_attempt_12345", "short")]) {
+      expect(new URL(proxy(request(invalid)).headers.get("location")!).pathname).toBe("/one");
+    }
+  });
   it("leaves the dual-mode root entry available for client auth and onboarding", () => {
     const response = proxy(request("/?redirect=%2Fone&tab=chat"));
 
@@ -45,31 +52,16 @@ describe("Next proxy root-entry contract", () => {
     expect(response.headers.get("location")).toBeNull();
   });
 
-  it("sends the legacy Connectors address into the Profile pane, detail included", () => {
-    const list = new URL(proxy(request("/one/profile/connectors")).headers.get("location")!);
-    expect(list.pathname).toBe("/one");
-    expect(list.searchParams.get("profile_pane")).toBe("1");
-    expect(list.searchParams.get("profile_panel")).toBe("connectors");
-    expect(list.searchParams.has("profile_detail")).toBe(false);
-
-    const detail = new URL(
-      proxy(request("/one/profile/connectors?connector=google_drive")).headers.get("location")!,
-    );
-    expect(detail.searchParams.get("profile_detail")).toBe("connector:google_drive");
-    expect(detail.searchParams.has("connector")).toBe(false);
-
-    // An address-bar value that is not a catalog id opens the list, never a detail.
-    const forged = new URL(
-      proxy(request("/one/profile/connectors?connector=%3Cscript%3E")).headers.get("location")!,
-    );
-    expect(forged.searchParams.has("profile_detail")).toBe(false);
-  });
-
-  it("never redirects the provider-registered connector OAuth return", () => {
-    // Deploy-enforced: providers send the person to exactly this address.
-    const response = proxy(
-      request("/one/profile/connectors/oauth/return?code=synthetic&state=synthetic"),
-    );
+  it.each([
+    "/one/profile/connectors",
+    "/one/profile/discovery",
+    "/one/profile/discovery/",
+    "/one/profile/hosting",
+    "/one/profile/software-updates",
+    "/one/profile/security/devices/authorize",
+    "/one/profile/security/devices/authorize/",
+  ])("keeps the canonical %s page out of the legacy profile redirect", (route) => {
+    const response = proxy(request(route));
 
     expect(response.status).toBe(200);
     expect(response.headers.get("location")).toBeNull();
@@ -115,33 +107,15 @@ it("keeps private responses out of the index without redirecting registered call
   expect(proxy(request("/welcome?tab=research")).headers.get("x-robots-tag")).toBe("noindex, nofollow");
 });
 
-it.each(["/one/profile/world-model", "/one/profile/world-model/"])(
-  "keeps PWM and contact-bound claim links on their dedicated route: %s",
-  (path) => {
-    const response = proxy(request(`${path}?claim=synthetic-opaque-token`));
-    expect(response.status).toBe(200);
-    expect(response.headers.get("location")).toBeNull();
-  },
-);
-
-it.each(["/one/profile/world-model", "/one/profile/world-model/"])("opens an ordinary model link inside Profile: %s", (path) => {
-  const response = proxy(request(`${path}?from=%2Fone%2Ffeed`));
-  const location = new URL(response.headers.get("location")!);
-  expect(location.pathname.replace(/\/$/, "")).toBe("/one");
-  expect(location.searchParams.get("profile_pane")).toBe("1");
-  expect(location.searchParams.get("profile_panel")).toBe("world-model");
-  expect(location.searchParams.get("from")).toBe("/one/feed");
-});
-
-it("keeps a ready draft or invitation handoff when a model link opens in Profile", () => {
-  // The Feed item and the ready email link here; the pane shows the model.
-  const location = new URL(
-    proxy(request("/one/profile/world-model?draft_id=x&handoff=h1")).headers.get("location")!,
-  );
-  expect(location.pathname.replace(/\/$/, "")).toBe("/one");
-  expect(location.searchParams.get("profile_pane")).toBe("1");
-  expect(location.searchParams.get("profile_panel")).toBe("world-model");
-  expect(location.searchParams.get("draft_id")).toBe("x");
-  expect(location.searchParams.get("handoff")).toBe("h1");
-  expect(location.searchParams.has("profile_detail")).toBe(false);
+it.each(
+  ["/one/profile/world-model", "/one/profile/world-model/"].flatMap((path) =>
+    ["claim=synthetic-opaque-token", "from=%2Fone%2Ffeed", "draft_id=x&handoff=h1"].map((query) => `${path}?${query}`),
+  ),
+)("keeps the dedicated Personal World Model route and query: %s", (path) => {
+  const incoming = request(path);
+  const response = proxy(incoming);
+  expect(response.status).toBe(200);
+  expect(response.headers.get("location")).toBeNull();
+  expect(response.headers.get("x-middleware-rewrite")).toBeNull();
+  expect(incoming.nextUrl.pathname + incoming.nextUrl.search).toBe(path);
 });

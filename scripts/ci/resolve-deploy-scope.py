@@ -30,6 +30,10 @@ FRONTEND_EXACT_PATHS = {
 }
 BACKEND_EXACT_PATHS = {
     "deploy/backend.cloudbuild.yaml",
+    # Pod offers are assembled into the hub environment. The web application
+    # reads them through its existing API; no frontend build input changes.
+    "deploy/pod-release.json",
+    "deploy/pod-release-reuse.json",
     "scripts/ops/sync_backend_runtime_secrets.py",
     "scripts/ops/email_auth_uat_release.py",
 }

@@ -130,6 +130,6 @@ describe("lifecycleOutcomeToVoice", () => {
   it("unknown tells the person to check rather than retry, and blocked names nothing was deleted", () => {
     expect(lifecycleOutcomeToVoice("unknown").summary).toMatch(/couldn't confirm/);
     expect(lifecycleOutcomeToVoice("blocked_external").summary).toMatch(/Nothing was deleted/);
-    expect(lifecycleOutcomeToVoice("failed").summary).toMatch(/Nothing was deleted/);
+    expect(lifecycleOutcomeToVoice("failed").summary).toBe("Your account has not been deleted. Try again.");
   });
 });

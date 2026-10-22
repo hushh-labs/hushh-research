@@ -6,6 +6,7 @@ import { ArrowLeftIcon, XIcon } from "@/components/icons";
 import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { ProfileConnectorsSection } from "@/components/profile/profile-connectors-section";
+import { OneAccessOverview } from "@/components/agent/one-access-overview";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { connectorDetailTitle } from "@/lib/navigation/profile-routes";
 
@@ -32,10 +33,13 @@ export function HistoryConnectorsPage({ open, native, owner, context, onBack, on
     setExternal(next);
     onExternalModalChange(next);
   }, [onExternalModalChange]);
-  const title = (connector ? connectorDetailTitle(`connector:${connector}`) : null) ?? "Connectors";
+  const title = (connector ? connectorDetailTitle(`connector:${connector}`) : null) ?? "One access";
   const content = <div className="px-[var(--page-inline-gutter-standard)] py-4">
+    <OneAccessOverview expanded={open && !connector} onNavigate={onClose}>
     <ProfileConnectorsSection open={open} connectorId={connector} onConnectorChange={setConnector}
+      showAccessDetails
       onExternalModalChange={handleExternalModalChange} />
+    </OneAccessOverview>
   </div>;
   if (native) return <NativeFeaturePage pane side="left" layer="chat-history" open={open} title={title}
     owner={owner} context={`${context}:${connector ?? "list"}`} onBack={back} onClose={onClose}

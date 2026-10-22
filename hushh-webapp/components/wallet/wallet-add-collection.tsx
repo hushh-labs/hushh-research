@@ -13,6 +13,14 @@ import { cardNetworkLabel } from "@/components/wallet/card-network-mark";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
 import styles from "./wallet-card-gesture.module.css";
 
+/** Layout coordinates stay stable while the collection's entrance transforms animate. */
+function layoutTop(element: HTMLElement): number {
+  let top = 0;
+  for (let node: HTMLElement | null = element; node; node = node.offsetParent as HTMLElement | null) {
+    top += node.offsetTop + ((node.offsetParent as HTMLElement | null)?.clientTop ?? 0);
+  }
+  return top;
+}
 
 function EmptyCardPreview() {
   const [selected, setSelected] = useState<string | null>(null);
@@ -102,15 +110,9 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
       const hostStyle = getComputedStyle(host);
       const hostWidth = host.clientWidth - parseFloat(hostStyle.paddingLeft || "0") - parseFloat(hostStyle.paddingRight || "0");
       if (hostWidth <= 0) { schedule(); return; }
-      const scrollOffset = ancestors.reduce((total, element) => total + Math.max(0, element.scrollTop), 0);
       const viewportBottom = window.visualViewport ? window.visualViewport.offsetTop + window.visualViewport.height : window.innerHeight;
       const visibleBottom = Math.min(viewportBottom, chrome?.getBoundingClientRect().top ?? viewportBottom);
-      // The entrance animation translates the collection without changing its
-      // layout. Exclude that transient offset so remounting a tab cannot resize
-      // the deck and leave a different native scroll range behind.
-      const transform = getComputedStyle(collection).transform;
-      const entranceOffset = transform === "none" ? 0 : new DOMMatrixReadOnly(transform).m42;
-      const deckTop = stack.getBoundingClientRect().top + scrollOffset - entranceOffset;
+      const deckTop = layoutTop(stack);
       const room = Math.max(0, visibleBottom - deckTop);
       const detailsHeight = showDetailsLink ? 52 : 0;
       const visibleEdges = Math.min(2, cards.length - 1);
@@ -167,6 +169,11 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
     window.addEventListener("scroll", schedule, { passive: true });
     window.addEventListener("resize", scheduleFit);
     window.visualViewport?.addEventListener("resize", scheduleFit);
+    // The entry transform changes visual bounds without a ResizeObserver
+    // notification. Refit against the settled position, rather than retaining
+    // a narrower cold-entry deck until the next tab/viewport change.
+    const collection = collectionRef.current;
+    collection?.addEventListener("animationend", scheduleFit);
     // These only schedule a read of the ensuing native scroll position. They
     // never consume input or manufacture progress when the page did not move.
     stack.addEventListener("wheel", schedule, { passive: true });
@@ -181,6 +188,7 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
       window.removeEventListener("scroll", schedule);
       window.removeEventListener("resize", scheduleFit);
       window.visualViewport?.removeEventListener("resize", scheduleFit);
+      collection?.removeEventListener("animationend", scheduleFit);
       stack.removeEventListener("wheel", schedule);
       stack.removeEventListener("touchmove", schedule);
       stack.querySelectorAll<HTMLElement>("[data-stack-details]").forEach(details => { details.style.visibility = ""; });

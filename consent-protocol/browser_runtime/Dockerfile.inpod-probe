@@ -1,0 +1,24 @@
+# Disposable qualification of the actual bootstrap/launcher, no owner resources.
+FROM python:3.13-slim
+RUN apt-get update && apt-get install -y --no-install-recommends bubblewrap libseccomp2 \
+    && python -m venv /opt/browser/venv \
+    && /opt/browser/venv/bin/pip install --no-cache-dir playwright==1.63.0 pydantic==2.12.5 httpx==0.28.1 \
+    && PLAYWRIGHT_BROWSERS_PATH=/opt/browser/browsers \
+       /opt/browser/venv/bin/playwright install --with-deps --only-shell chromium \
+    && rm -rf /var/lib/apt/lists/*
+COPY hushh_mcp/services /app/hushh_mcp/services/
+# Build input is an explicit allowlist of browser/pinned broker sources, never
+# the repository, environment, application state, or credentials.
+COPY hushh_mcp/services /opt/browser/source/hushh_mcp/services/
+COPY browser_runtime/pod_entrypoint.py /opt/browser/pod_entrypoint.py
+COPY browser_runtime/gunicorn_lifecycle.py /opt/browser/gunicorn_lifecycle.py
+COPY browser_runtime/inpod_probe_entry.py /opt/venv/bin/gunicorn
+RUN groupadd --gid 10001 agent && useradd --uid 10001 --gid 10001 --no-create-home agent \
+    && groupadd --gid 10002 browser && useradd --uid 10002 --gid 10002 --no-create-home browser \
+    && printf synthetic > /app/synthetic-secret \
+    && chmod 0644 /app/synthetic-secret && chmod 0755 /opt/venv/bin/gunicorn
+ENV POD_COMPUTER_USE_ENABLED=true PYTHONPATH=/app PYTHONDONTWRITEBYTECODE=1 \
+    HUSSH_POD_CANARY=synthetic-only
+# The agent entry is a bounded synthetic driver, not gunicorn or owner startup.
+# Both fixed identities, worker layout, guards, broker and stop path are real.
+ENTRYPOINT ["/usr/local/bin/python", "-I", "-S", "/opt/browser/pod_entrypoint.py"]

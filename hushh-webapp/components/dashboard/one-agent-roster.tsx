@@ -14,6 +14,7 @@ import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { PageTitle } from "@/components/app-ui/typography";
+import { ScheduledTasksPanel } from "@/components/scheduled-tasks/scheduled-tasks-panel";
 import {
   getOneSetupCapability,
   isOneCapabilityEnabled,
@@ -744,7 +745,10 @@ export function OneAgentRoster({
         >
           Agents ({modes.length})
         </PageTitle>
-        <AgentRosterViewToggle value={view} onChange={selectView} />
+        <div className="flex shrink-0 items-center gap-2">
+          {userId && <ScheduledTasksPanel key={userId} ownerId={userId} />}
+          <AgentRosterViewToggle value={view} onChange={selectView} />
+        </div>
       </div>
       {SHOW_AGENT_SEARCH ? (
         <label className="relative mb-3.5 block">

@@ -1,7 +1,13 @@
 /** Sample only on re-grab, never during a movement frame. A settlement may
  * still be between endpoints; starting from its target makes the drawer jump. */
 export function renderedDrawerOffset(panel: HTMLElement): number {
-  const transform = getComputedStyle(panel).transform;
+  const style = getComputedStyle(panel);
+  // Individual translate may contain percentages/calc and animate separately
+  // from transform. These owners portal fixed panels to the document body.
+  if (style.translate && style.translate !== "none") {
+    return panel.getBoundingClientRect().left - panel.offsetLeft;
+  }
+  const transform = style.transform;
   const match = transform.match(/^matrix(3d)?\(([^)]+)\)$/);
   if (match) {
     const values = match[2]!.split(",").map(Number);

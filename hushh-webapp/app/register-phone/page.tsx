@@ -34,13 +34,13 @@ import {
 } from "@/lib/services/onboarding-route-cookie";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import { shouldBypassPhoneMandateForLocalhost } from "@/lib/services/phone-mandate-service";
 import { RiaService } from "@/lib/services/ria-service";
 import {
   buildRiaClaimRoute,
   isClaimableLookupOutcome,
   resolveVerifiedPhone,
 } from "@/lib/ria/ria-claim-entry";
-import { shouldBypassPhoneMandateForLocalhost } from "@/lib/services/phone-mandate-service";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { resolvePostPhoneOnboardingPhase } from "@/lib/onboarding/onboarding-journey-phase";
 import { useBackLayer } from "@/lib/navigation/back-layers";
@@ -166,7 +166,6 @@ export function PhoneMandatePageContent() {
             idToken,
             phoneNumber: activeUser.phoneNumber,
             phoneVerified: AccountIdentityService.hasVerifiedPhone(identity),
-            hostname: window.location.hostname,
           })
         : buildOneSetupRoute({ returnTo: redirectPath });
       await PreVaultUserStateService.syncOnboardingJourney({
@@ -187,8 +186,6 @@ export function PhoneMandatePageContent() {
     [redirectPath, refreshUser, router, user, phoneNumber],
   );
 
-  const [shouldBypassLocalPhoneMandate, setShouldBypassLocalPhoneMandate] =
-    useState(false);
   const [verificationStep, setVerificationStep] = useState<
     "phone" | "code" | "linked"
   >("phone");
@@ -201,7 +198,6 @@ export function PhoneMandatePageContent() {
     return codeBackRef.current?.() ?? true;
   }, [verificationStep]);
   useBackLayer(ROUTES.PHONE_MANDATE, verificationStep === "code" ? 2 : 0, returnFromCode);
-  const localBypassNavigationRef = useRef<string | null>(null);
   const [admission, setAdmission] = useState<{
     userId: string;
     status: "ready" | "redirecting" | "error";
@@ -209,10 +205,16 @@ export function PhoneMandatePageContent() {
   const [admissionRetry, setAdmissionRetry] = useState(0);
 
   useEffect(() => {
-    if (!user || sessionVerificationRequired || shouldBypassPhoneMandateForLocalhost(window.location.hostname)) return;
+    if (!user || sessionVerificationRequired) return;
     const userId = user.uid;
     let cancelled = false;
     setAdmission(null);
+    // An explicit local visit remains usable for the development phone flow.
+    // The route guard, rather than this page, owns any localhost exemption.
+    if (shouldBypassPhoneMandateForLocalhost(window.location.hostname)) {
+      setAdmission({ userId, status: "ready" });
+      return;
+    }
     void (async () => {
       if (admissionRetry > 0) {
         await PreVaultUserStateService.bootstrapState(userId, { force: true });
@@ -243,6 +245,7 @@ export function PhoneMandatePageContent() {
         redirectPath,
         phoneNumber,
         hostname: window.location.hostname,
+        allowNativeRouteAuditBypass: false,
       });
       if (cancelled) return;
       const needsPhone = normalizeStaticExportPathname(
@@ -270,40 +273,12 @@ export function PhoneMandatePageContent() {
     }
   }, [signOut]);
 
-  useEffect(() => {
-    if (!loading && Boolean(user) && !phoneNumber) {
-      if (
-        typeof window !== "undefined" &&
-        shouldBypassPhoneMandateForLocalhost(window.location.hostname)
-      ) {
-        setShouldBypassLocalPhoneMandate(true);
-      }
-    }
-  }, [loading, user, phoneNumber]);
-
-  useEffect(() => {
-    if (!shouldBypassLocalPhoneMandate || !user) {
-      localBypassNavigationRef.current = null;
-      return;
-    }
-
-    // Local development bypasses the phone challenge only. It must not await
-    // account sync, persona lookup, or pre-vault bootstrap before leaving this
-    // screen: those are network-backed reconciliation tasks and can stall a
-    // local browser indefinitely. The canonical next onboarding boundary is
-    // always the setup hub; it owns its own authenticated state admission.
-    const targetRoute = ROUTES.ONE_SETUP;
-    const attemptKey = `${user.uid}:${targetRoute}`;
-    if (localBypassNavigationRef.current === attemptKey) {
-      return;
-    }
-
-    localBypassNavigationRef.current = attemptKey;
-    router.replace(targetRoute);
-  }, [router, shouldBypassLocalPhoneMandate, user]);
-
+  // Admission moves an established account to its owning route. An explicit
+  // localhost visit remains on the phone flow; the route guard owns any local
+  // exemption. The development number allowlist can complete this flow without
+  // SMS, while production numbers use the real challenge.
   usePublishVoiceSurfaceMetadata(
-    !loading && user && !shouldBypassLocalPhoneMandate
+    !loading && user
       ? {
           screenId: "phone_mandate",
           title: "Verify your phone",
@@ -385,12 +360,6 @@ export function PhoneMandatePageContent() {
     );
   }
 
-  if (shouldBypassLocalPhoneMandate) {
-    return (
-      <HushhLoader stage="phone" label="Continuing local session..." />
-    );
-  }
-
   if (admission?.userId === user.uid && admission.status === "error") {
     return (
       <SessionVerificationRecovery
@@ -403,7 +372,6 @@ export function PhoneMandatePageContent() {
   if (admission?.userId !== user.uid || admission.status !== "ready") {
     return <HushhLoader stage="phone" label="Checking phone requirement..." />;
   }
-
   const shell = (
     <main className={styles.shell} data-testid="phone-mandate-screen" data-phone-step={verificationStep}>
       <NativeRouteMarker

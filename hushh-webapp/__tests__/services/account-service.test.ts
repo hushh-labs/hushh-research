@@ -143,16 +143,19 @@ describe("AccountService", () => {
       expect(result.remaining_personas).toEqual(["ria"]);
     });
 
-    it("normalizes native bridge rejection data into a typed ApiError", async () => {
+    it.each([
+      "ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING",
+      "FILES_ERASURE_IN_PROGRESS",
+    ])("normalizes native bridge rejection %s into a typed ApiError", async (code) => {
       nativePlatform.current = true;
       mockNativeDeleteAccount.mockRejectedValueOnce({
         message: "External resources must be removed first.",
-        code: "ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING",
+        code,
         data: {
           status: 409,
           payload: {
             detail: {
-              code: "ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING",
+              code,
             },
           },
         },
@@ -167,9 +170,7 @@ describe("AccountService", () => {
         status: 409,
         message: "External resources must be removed first.",
       });
-      expect(apiErrorCode(error)).toBe(
-        "ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING",
-      );
+      expect(apiErrorCode(error)).toBe(code);
     });
   });
 
@@ -246,6 +247,7 @@ describe("AccountService", () => {
         "/api/account/export",
         expect.objectContaining({
           method: "GET",
+          timeoutMs: 240_000,
           headers: { Authorization: "Bearer vault-token-abc" },
         }),
       );

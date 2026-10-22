@@ -65,7 +65,7 @@ function CategoryIcon({ category }: { category: SavedLocationCategory }) {
     ? { Icon: Home, bg: "bg-[color:var(--app-accent)]", fg: "text-white" }
     : category === "work"
       ? { Icon: Briefcase, bg: "bg-[color:var(--app-warning)]", fg: "text-white" }
-      : { Icon: MapPin, bg: "bg-transparent", fg: "text-[#0071E3]" };
+      : { Icon: MapPin, bg: "bg-transparent", fg: "text-[color:var(--app-accent-deep)]" };
   return (
     <span
       className={cn(

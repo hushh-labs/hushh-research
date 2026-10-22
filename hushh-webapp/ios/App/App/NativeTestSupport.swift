@@ -134,11 +134,8 @@ struct NativeTestConfiguration {
             NativeTestConfiguration.value(for: "-UITestExpectedRoute", in: arguments)
             ?? NativeTestConfiguration.deriveExpectedRoute(from: initialRoute)
         autoReviewerLogin = testModeEnabled && NativeTestConfiguration.boolValue(for: "-UITestAutoReviewerLogin", in: arguments)
-        // Credentials must never be launch arguments (visible in process and
-        // runner diagnostics). Keep the exact value in process memory only;
-        // whitespace can legitimately be part of a vault passphrase.
         vaultPassphrase = testModeEnabled ? environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] : nil
-        expectedUserId = testModeEnabled ? NativeTestConfiguration.value(for: "-UITestExpectedUserId", in: arguments) : nil
+        expectedUserId = testModeEnabled ? environment["HUSHH_UI_TEST_REVIEWER_UID"] : nil
         resetAppState = NativeTestConfiguration.boolValue(
             for: "-UITestResetAppState",
             in: arguments,

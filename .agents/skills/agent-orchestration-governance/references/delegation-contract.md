@@ -1,0 +1,220 @@
+# Delegation Contract
+
+Use this reference when changing repo-scoped custom agents or the orchestration rules that govern them.
+
+The shared truth-first reasoning contract lives at `.agents/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`. Delegation uses that kernel for claim labels, evidence order, domain probes, and child handoff shape.
+
+Product-agent delegation (One delegating to Kai/Nav/KYC/email/location specialists at runtime) is governed by the Project-Wide Agent Architecture Doctrine in `.agents/instructions.md` (loaded by `AGENTS.md`). Shared-runtime context comes from owner-scoped, consented turn/session state, A2A task payloads, and scoped encrypted exports; the private pod has separate owner-isolated encrypted recovery and explicit recall. Delegation wraps the existing dispatch contract without breaking it. The doctrine specifies ADK modes within a runtime, official A2A Tasks across process or deployment boundaries, MCP for consented tools and resources, subsystem-owned shared state behind replaceable seams, and one routing authority per surface. This file governs ENGINEERING delegation lanes (Codex subagents); do not conflate them with product agents.
+
+## Baseline policy
+
+1. Skills remain the primary knowledge and process system.
+2. Workflow packs remain the primary deterministic routing and delivery system.
+3. Repo-scoped custom agents are a thin execution layer for bounded role specialization and explicit parallelism.
+4. Subagent use is explicit at the repo-policy level. Do not add unbounded fan-out, but repo workflows inherit a global read-only evidence-lane policy so the parent does not need to ask again for obvious specialist review.
+5. The sweet spot is a small fleet of broad evidence lanes. Do not create one agent per skill; add an agent only when a recurring high-risk family crosses multiple skills and cannot be reliably covered by the current baseline.
+6. Premise verification happens before delegation and before synthesis. Agents exist to gather evidence against concrete claims, not to reinforce the prompt's assumption.
+
+## Shared Root Inheritance
+
+Every parent session and child agent inherits both the Principal Craft Kernel
+and Bacterial Software Architecture Gate in `.agents/instructions.md` (loaded by `AGENTS.md`).
+
+Rules:
+
+1. Specialist persona adds taste and evidence focus; it never overrides correctness, security, authority boundaries, branch discipline, or truth-first verification.
+2. Custom-agent TOML files should contain a short root-contract inheritance hook plus role-specific priorities, not duplicated doctrine.
+3. Child agents must apply the same optimization order as the parent: correctness, security, reliability, maintainability, scalability, simplicity, performance, then speed.
+4. A child handoff should read like a specialist owner reviewed the surface: precise claim, current repo truth, failure modes, smallest safe boundary, validations, and unresolved risk.
+5. If craft and speed conflict, the child reports the safer route and the parent decides.
+
+## Premise Verification Before Delegation
+
+Before routing to an agent lane, the parent must extract the important claims in the prompt and classify them against repo evidence when feasible:
+
+1. `already_exists`
+2. `partially_exists`
+3. `missing`
+4. `future_state_only`
+5. `wrong_direction`
+6. `needs_verification`
+
+Use specialist agents to inspect claims when the surface is high-risk or cross-domain, but keep the final classification with the parent or `governor`.
+
+Delegated prompts should ask for evidence in this shape:
+
+1. `claim_inspected`
+2. `classification`
+3. `evidence_checked`
+4. `current_repo_truth`
+5. `real_gap`
+6. `suggested_boundary`
+7. `risk_if_prompt_is_accepted_blindly`
+8. `scope_covered`
+9. `inspected_surfaces`
+10. `assumptions`
+11. `validations_run`
+12. `unresolved_risks`
+
+Do not ask a child agent only "is this okay?" or "summarize this." That creates agreeable but weak evidence.
+
+## Subagent suitability checkpoint
+
+Before using subagents, make the decision explicit. The checkpoint is required for large PR batches, cross-domain RCA, release/deploy validation, security-sensitive reviews, or any task where independent evidence lanes can materially improve accuracy.
+
+When the lane is not obvious, run:
+
+```bash
+python3 .agents/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow <workflow-id> --phase start --prompt "<user request>" --paths "<comma-separated paths>" --text
+```
+
+The threshold is intentionally low once the parent has classified the work as non-trivial. A concrete prompt or path match to any specialist lane is enough to recommend a read-only evidence lane, even when the workflow id is not known. Keep trivial one-command tasks local by not invoking the router unless the task meaningfully benefits from independent evidence.
+
+Use subagents when all of these are true:
+
+1. The repo-global read-only evidence policy applies, the active workflow has an approved delegation step, or the user explicitly requested delegation.
+2. The work can be split into independent lanes that do not need the next parent action immediately.
+3. Each lane has a concrete evidence target, such as backend contract, frontend caller, CI/deploy, security/consent, tests, or docs.
+4. The parent session can continue useful non-overlapping work while children inspect evidence.
+5. Final authority stays with the parent session or `governor`; child agents only return evidence and judgments.
+
+Keep the work local when any of these are true:
+
+1. The task is a small single-surface change or review.
+2. The next parent action is blocked on the result, making delegation slower than direct inspection.
+3. The task requires branch switching, merging, approval, deployment, or credential handling.
+4. The work is tightly coupled enough that parallel agents would duplicate effort or create inconsistent assumptions.
+5. The request is information-only, single-lane, and does not materially benefit from an independent read-only evidence pass.
+
+When the checkpoint chooses not to delegate, record the reason briefly in the parent response or working report for high-stakes workflows.
+
+## Mid-Execution Recheck
+
+Run a second delegation checkpoint during execution when new evidence reveals a different authority lane than the prompt implied. Examples:
+
+1. A frontend-looking PR touches vault, consent, auth, or PKM trust boundaries.
+2. A backend-looking PR includes DB migrations, generated contracts, or deploy/runtime config.
+3. A green PR is found to duplicate an existing runtime surface.
+4. A route or UI change is not reachable from the current app shell.
+5. A voice, typed-search, or action change bypasses generated gateway contracts.
+6. A review, merge queue, DCO, or environment signal changes after the initial plan.
+
+Use `--phase mid` with the router and record whether the parent spawned a new read-only evidence lane or kept the work local.
+
+## Bounded defaults
+
+1. Keep `agents.max_threads = 6` unless a later review proves a different cap is necessary.
+2. Keep `agents.max_depth = 1` unless a later review proves recursive delegation is worth the cost and predictability risk.
+3. Treat those values as the hard host cap, not as the normal spawn target. The effective-spawn budget is `max_threads - open_child_threads - 1`.
+4. Always reserve one thread for recovery, synthesis, or governor-style follow-up.
+5. The CLI fallback of two read-only evidence lanes is an estimate, not a target. For identified independent work, request the matching lane count from `subagent_budget.py` with `--requested-lanes` and `--max-new-lanes`; run up to the verified effective host and repository budget when that shortens the critical path. Reuse idle child sessions and reserve recovery/synthesis capacity. Avoid duplicate investigations, overlapping file ownership and parallel heavy verification. After each handoff, verify owned workers, descendants and temporary resources are reconciled; close sessions through supported host controls. If closure is unavailable, report it and never claim a thread or its memory was released.
+6. close stale child threads sequentially; do not bulk-close or bulk-wait when the host is already near the cap.
+7. Ask children for compact handoffs. If a wait result is too large or truncated, ask that child for a bounded summary instead of waiting again.
+8. Apply the close freeze circuit breaker: if a `close_agent` call hangs, freezes, or is interrupted in the current turn, stop all further close/spawn attempts, treat open child state as saturated, continue locally, and report the host-management gap.
+9. Keep wave-1 repo-scoped custom agents read-only by default.
+10. Use high reasoning as the minimum for repo-scoped specialist agents. Use extra-high reasoning for governor synthesis, reviewer regression review, security/consent/vault audits, and voice/action-runtime audits.
+11. Leave edits to the parent session or the built-in `worker`.
+
+## Pre-Authorized Evidence Lanes
+
+All repo workflows are approved to spawn read-only evidence agents automatically when the suitability checkpoint passes. Workflow-specific `delegation_policy` entries may tighten lane names or opt a workflow into more explicit reporting, but absence of that field means the workflow inherits the repo-global router policy.
+
+Use the existing workflow's `delegation_policy` and shared router for lane selection.
+Existing PR/release, runtime, security, product and mobile owners supply the lanes;
+never maintain a second task-to-lane map.
+
+Automatic here means the parent may spawn the lane without asking the user again. It does not mean child agents can approve, merge, deploy, push, or mutate branches.
+
+PR governance has one narrow workflow-local writer-lane exception for pre-approved train execution. It is separate from repo-scoped custom agents: evidence lanes stay read-only, while the exception may only edit/post standardized maintainer records, request changes, close superseded PRs, acknowledge harvest, or enqueue exact-head queue candidates under the PR train SOP gates. Branch switching, code patches, commits, pushes, deploys, secrets, product-policy changes, and final merge policy stay with the parent/governor.
+
+If a routed lane is unavailable, record the host gap and use the nearest read-only lane or continue locally.
+Founder wiki evidence lanes use the Founder Wiki North-Star Probe and are read-only by default. They may use product/architecture/non-negotiable pages for north-star alignment, but private wiki evidence must stay local-only and public GitHub comments must not cite private wiki pages. When repo truth and wiki canon disagree, classify the gap as `current_state_vs_north_star_drift`.
+
+## Skill Activation Detection
+
+Use these sources to detect how a skill can activate agents or subagents:
+
+1. `skill.json`: role, owner family, task types, reads, checks, and handoff targets.
+2. `.agents/workflows/*/workflow.json`: `owner_skill`, `default_spoke`, `task_type`, and explicit `delegation_policy` lanes.
+3. `.agents/subagents/*.toml`: the skill block that says which skills each read-only agent can support.
+4. `delegation_router.py`: repo-global prompt/path lane matches for workflows without explicit delegation policy.
+5. `skill_fleet_audit.py`: compact fleet table that reports each skill as `owner <skill-id>` or `spoke <skill-id>` with agents, workflows, and detection mechanisms.
+
+Report owner skills as owner lanes in operator-facing output, and keep the manifest role as `owner`.
+
+## Authority rules
+
+1. Only `governor` produces final merge, deploy, or plan recommendations inside delegated workflows.
+2. Child agents produce evidence and judgments, not final authority.
+3. Child agents must not self-authorize integration, release, or governance changes.
+4. Do not use repo-scoped custom agents as a second skill system; route domain behavior back to existing repo skills.
+
+## Self-maintenance model
+
+1. Self-maintaining means policy drift is detected automatically through local validation and the existing `Governance` CI lane.
+2. Self-maintaining does not mean autonomous rewrite, bot PRs, or scheduled mutation in wave 1.
+3. Any expansion of the curated wave-1 baseline should require an intentional validator update.
+4. Run the fleet audit after agent, skill, or workflow changes:
+
+```bash
+python3 .agents/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py --text
+```
+
+`update_required` means the fleet violates a hard governance rule. `review_recommended` means a human should consider whether an uncovered skill family or recurring miss deserves a new agent, a skill update, or no change.
+
+## Required child handoff shape
+
+Every delegated result should include:
+
+1. `claim_inspected`
+2. `classification`
+3. `evidence_checked`
+4. `current_repo_truth`
+5. `real_gap`
+6. `suggested_boundary`
+7. `risk_if_prompt_is_accepted_blindly`
+8. `scope_covered`
+9. `inspected_surfaces`
+10. `assumptions`
+11. `validations_run`
+12. `unresolved_risks`
+
+## Current repo-scoped custom-agent baseline
+
+1. `governor`: final synthesis and delegation authority.
+2. `reviewer`: correctness, regression, and test-risk review.
+3. `repo_operator`: CI/CD, deployment, and environment interpretation.
+4. `rca_investigator`: failure classification and blast-radius analysis.
+5. `frontend_architect`: frontend structure and design-system judgment.
+6. `backend_architect`: backend contract and runtime-boundary judgment.
+7. `data_model_architect`: data model, migration, schema contract, UAT parity, and local-first/cloud projection authority review.
+8. `product_docs_architect`: durable docs, founder language, One/Kai/Nav ontology, and current-vs-future wording review.
+9. `analytics_observability_architect`: analytics event contracts, telemetry topology, dashboard proof, and governed smoke review.
+10. `mobile_native_architect`: iOS/Android parity, Capacitor bridge safety, and native release-readiness review.
+11. `security_consent_auditor`: IAM, consent, vault, and PKM trust-boundary review.
+12. `voice_systems_architect`: One Voice and Kai compatibility runtime contract review.
+13. `local_model_judge`: grades on-device small-model output via the review-queue handoff. Wave-2 addition with its own lane on purpose: the Puppy One judging contract requires that the judge is never the answerer, so no agent that produces on-device output may also grade it, and no existing agent could absorb the role without collapsing that separation.
+
+14. `ai_platform_engineer`: governed model, ADK and inference integration review.
+15. `chief_systems_architect`: cross-system architecture and invariant synthesis.
+16. `cloud_platform_engineer`: cloud capability, custody and resource lifecycle review.
+17. `documentation_architect`: documentation structure, ownership and freshness review.
+18. `site_reliability_engineer`: runtime reliability, recovery and operating evidence.
+19. `validation_simulation_engineer`: bounded qualification and failure simulation review.
+
+The verified 19-lane catalog is separate from execution capacity: keep 8–19
+definitions, six threads and depth one. Catalog changes require the fleet audit
+and a recurring need; its `MAX_AGENT_COUNT` enforces the definition bound.
+
+## Two harnesses, one fleet
+
+The TOML files under `.agents/subagents` are the authored fleet. Claude Code needs a
+markdown agent file before the same lane can be delegated to, so the markdown
+side is generated by `sync_claude_agents.py --write` and verified by `--check` in
+`scripts/ci/repo-governance-check.sh`.
+
+1. Edit the TOML, never a generated mirror; each mirror carries a generated-from marker.
+2. Mirrors inherit the session model. Pin a model only when the TOML states a reason.
+3. Read-only lane policy maps to a tool list without `Edit` or `Write`: a lane that needs
+   a file changed returns the change to the parent rather than making it.
+After handoff, verify child terminal state and task-owned cleanup; close with supported host controls before reclaiming capacity. If unavailable, report it. Completion is not closure; preserve the close freeze circuit breaker.

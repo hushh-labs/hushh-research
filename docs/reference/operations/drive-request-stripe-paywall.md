@@ -17,7 +17,7 @@ sequenceDiagram
     Agent->>Drive: Discover candidates and read current content
     Agent->>Agent: Verify issuer, document type, content dates and evidence
     alt No verified matches after completed evaluation
-        Agent->>Feed: No documents found; no checkout
+        Agent->>Feed: No documents found, no checkout
     else Verified matching documents
         alt Chris is currently in Manish's Trusted Circle
             Agent->>Agent: Freeze exact files under current background permission

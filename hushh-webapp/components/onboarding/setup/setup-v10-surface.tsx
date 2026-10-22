@@ -93,7 +93,7 @@ export function SetupV10Scene({ stage }: { stage: SetupV10Stage }) {
           <path d="M111 235c16-16 38-13 48 2 18-8 35 3 37 21 20 6 23 25 10 39-6 10-17 13-29 9-18 13-38 5-43-11-22 3-36-11-33-30-11-13-8-24 10-30Z" fill="#B8CFFF" />
           <path d="M336 221c19-5 33 5 37 24l12 52-60 16-22-59c-5-15 7-27 33-33Z" fill="#FF745F" />
           <path d="M70 58 65 45m26 13V42m21 18 8-12M365 190c12-7 25-5 35 3m-30 7c9-1 19 2 27 9" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" />
-          <circle cx="362" cy="77" r="4" fill="#0071E3" /><circle cx="69" cy="308" r="3" fill="#FF745F" />
+          <circle cx="362" cy="77" r="4" fill="var(--app-accent)" /><circle cx="69" cy="308" r="3" fill="#FF745F" />
         </svg>
         {stage === "lock" ? <span className={styles.lockDisc}><SetupV10Icon name="lock" size={40} /></span> : null}
         {stage === "recovery" ? <span className={styles.keyDisc}><SetupV10Icon name="key" size={40} /></span> : null}

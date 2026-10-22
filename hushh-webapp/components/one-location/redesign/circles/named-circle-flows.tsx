@@ -1161,7 +1161,7 @@ export function JoinCircleFlow({
                 aria-invalid={error ? true : undefined}
                 placeholder={["ABCD", "EFGH", "KMNP"][index]}
                 className={cn(
-                  "h-14 w-full min-w-0 rounded-[12px] border border-[#D1D1D6] bg-white px-1.5 text-center font-mono text-[18px] font-semibold uppercase tracking-[0.1em] text-[#1C1C1E] outline-none transition focus:border-[#0071E3] focus:ring-2 focus:ring-[#0071E3]/20",
+                  "h-14 w-full min-w-0 rounded-[12px] border border-[#D1D1D6] bg-white px-1.5 text-center font-mono text-[18px] font-semibold uppercase tracking-[0.1em] text-[#1C1C1E] outline-none transition focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent-ring)]",
                   error && "border-[#FF3B30] focus:border-[#FF3B30] focus:ring-[#FF3B30]/20",
                 )}
                 onKeyDown={(event) => {

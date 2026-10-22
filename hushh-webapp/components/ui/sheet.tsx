@@ -278,6 +278,7 @@ function SheetContent(
             onPointerUp={onHandlePointerEnd}
             onPointerCancel={onHandlePointerEnd}
             onKeyDown={(event) => {
+              if (event.defaultPrevented) return
               if (event.key === "Escape" || event.key === "Enter" || event.key === " ") {
                 event.preventDefault()
                 sheet?.onOpenChange(false)
@@ -435,7 +436,8 @@ function useBottomSheetDragDismiss({
         surface.style.transform = "translate3d(0, 100%, 0)"
         schedule(() => {
           onOpenChange(false)
-          // A refused controlled close may recover only within this presentation.
+          // A controlled owner can refuse close while a decision is in flight.
+          // A newer gesture or lifecycle invalidates this recovery callback.
           schedule(() => {
             if (surface.isConnected && surface.getAttribute("data-state") === "open" && !dragRef.current) settle()
           }, Math.max(duration, 100))

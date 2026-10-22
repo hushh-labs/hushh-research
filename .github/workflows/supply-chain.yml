@@ -14,7 +14,7 @@
 # tier. Image-level SLSA build provenance for the Cloud Build container image is a
 # tracked follow-up in #4678, not claimed here.
 
-name: Supply Chain Provenance
+name: "Verify Supply Chain Provenance"
 
 on:
   workflow_dispatch: {}

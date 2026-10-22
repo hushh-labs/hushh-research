@@ -59,9 +59,12 @@ const serviceMock = vi.hoisted(() => ({
   getCard: vi.fn(),
   addCard: vi.fn(),
 }));
-vi.mock("@/lib/services/wallet-card-service", () => ({
-  WalletCardService: { getCard: vi.fn().mockResolvedValue({ card: null, shareUrl: null }), subscribe: vi.fn(() => () => {}), readShareLink: vi.fn(() => null), ensureCard: vi.fn() },
-}));
+vi.mock("@/lib/services/wallet-card-service", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/services/wallet-card-service")>("@/lib/services/wallet-card-service");
+  return { ...actual, WalletCardService: class extends actual.WalletCardService {
+    static getCard = vi.fn().mockResolvedValue({ card: null, shareUrl: null });
+  } };
+});
 
 // Keep the real dropdown and limit its catalog to the regions used by this suite.
 vi.mock("@/lib/constants/country-phone-options", () => ({ COUNTRY_PHONE_OPTIONS: [

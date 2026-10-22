@@ -1108,11 +1108,11 @@ export function buildStructuredScreenContext(args: {
       : []),
   ]);
   const availableActionIds = prioritizeAvailableActionIds(
-    [
+    underlyingActionsAvailable ? [
       ...currentRouteActionIds,
       ...derivedControlActionIds,
       ...publishedActionIds,
-    ],
+    ] : executableActionIds,
     screen,
     // Do not append global navigation behind an active setup terminal,
     // dialog, or other blocking control; that would let a voice turn escape

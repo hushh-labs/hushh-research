@@ -35,7 +35,7 @@ export function PhoneVerificationScene({ step }: { step: "phone" | "code" }) {
           <path d="M78 229C89 212 107 211 121 223C137 214 155 220 161 235C183 234 193 250 185 264C200 279 187 294 170 294C162 310 143 312 132 300C109 311 96 303 92 284C71 281 66 260 78 249Z" fill="#B8CFFF" />
           <path d="M310 241c25-14 47-8 55 12l21 51-67 25-25-62c-5-12 3-21 16-26Z" fill="#FF715D" />
           <path d="M71 75 65 61M89 73V57M106 76l7-13M360 185c12-6 21-6 30 0m-27 9c15-1 24 3 29 9" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
-          <circle cx="374" cy="105" r="3.4" fill="#0071E3" />
+          <circle cx="374" cy="105" r="3.4" fill="var(--app-accent)" />
           <circle cx="76" cy="308" r="3.5" fill="#FF715D" />
         </svg>
         <Image

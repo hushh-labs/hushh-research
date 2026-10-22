@@ -356,8 +356,13 @@ describe("Top app bar responsive contract", () => {
     );
   });
 
+
   it("keeps onboarding chrome canonical and shell-sized", () => {
-    const source = read("components/app-ui/top-app-bar.tsx");
+    const topBar = read("components/app-ui/top-app-bar.tsx");
+    const source = topBar + "\n" + read("components/onboarding/onboarding-route-actions.tsx");
+    expect(topBar).toContain('import { OnboardingRouteActions }');
+    expect(topBar).toContain("<OnboardingRouteActions");
+    expect(topBar).not.toContain("function OnboardingRouteActions()");
     const signOutItemStart = source.indexOf(
       "onClick={() => void handleSignOut()}",
     );

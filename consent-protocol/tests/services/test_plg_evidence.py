@@ -7,14 +7,16 @@ import json
 import time
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from api.middleware import require_firebase_auth_read_only
 from api.routes.one import plg
 from hushh_mcp.hushh_adk import product_activity as sdk
+from hushh_mcp.services import marketing_preferences
 from hushh_mcp.services import plg_audience as audience
 from hushh_mcp.services import plg_customer_cohort as cohort
 from hushh_mcp.services import plg_evidence as evidence
@@ -31,6 +33,18 @@ PLAN = "pkm_plan_abcdefghijkl"
 COMMIT = derive_pkm_mutation_commit_id(
     user_id=ACCOUNT["accountId"], domain="home_projects", plan_id=PLAN
 )
+
+
+@pytest.mark.parametrize("uid", ["owner.with+custom@example.test", "private/owner", "a" * 128])
+def test_snapshot_accepts_the_same_bounded_firebase_uid_as_subscription_enrollment(uid):
+    request = evidence.PilotRequest(accounts=[{**ACCOUNT, "accountId": uid}])
+    assert request.accounts[0].accountId == uid
+
+
+@pytest.mark.parametrize("uid", ["", "a" * 129, 17])
+def test_snapshot_uid_still_rejects_empty_overlong_and_non_string_identity(uid):
+    with pytest.raises(ValueError):
+        evidence.PilotRequest(accounts=[{**ACCOUNT, "accountId": uid}])
 
 
 @pytest.fixture
@@ -143,6 +157,35 @@ async def test_current_reporting_identifiers_are_bounded_read_only_and_productio
     assert len(calls) == 2
 
 
+@pytest.mark.asyncio
+async def test_marketing_permission_requires_current_auth_authority_verified_recipient(monkeypatch):
+    from firebase_admin import auth
+
+    from api.utils import firebase_admin as identity
+
+    app = object()
+    person = SimpleNamespace(
+        email=" Current@Example.invalid ",
+        email_verified=True,
+        disabled=False,
+        display_name="Fixture",
+        user_metadata=SimpleNamespace(creation_timestamp=1_700_000_000_000),
+    )
+    read = MagicMock(return_value=person)
+    monkeypatch.setattr(identity, "get_firebase_auth_app", lambda: app)
+    monkeypatch.setattr(auth, "get_user", read)
+    result = await marketing_preferences.verified_recipient("authenticated-owner")
+    read.assert_called_once_with("authenticated-owner", app=app)
+    assert result["email"] == "current@example.invalid"
+    assert result["email_hash"] == hashlib.sha256(b"current@example.invalid").hexdigest()
+    person.email_verified = False
+    with pytest.raises(marketing_preferences.VerifiedEmailRequired):
+        await marketing_preferences.verified_recipient("authenticated-owner")
+    read.side_effect = auth.UserNotFoundError("Synthetic missing recipient")
+    with pytest.raises(marketing_preferences.VerifiedEmailRequired):
+        await marketing_preferences.verified_recipient("authenticated-owner")
+
+
 def post(client, payload=None, purpose="snapshot", secret=SECRET, version=None, route="snapshot"):
     body = json.dumps(payload or {"accounts": [ACCOUNT]})
     timestamp = str(int(time.time() * 1000))
@@ -159,6 +202,88 @@ def post(client, payload=None, purpose="snapshot", secret=SECRET, version=None, 
             **({"X-PLG-Version": str(version)} if version is not None else {}),
         },
     )
+
+
+def test_optional_email_preference_uses_only_authenticated_owner(monkeypatch):
+    app = FastAPI()
+    app.include_router(plg.router)
+    client = TestClient(app)
+    body = {
+        "enabled": True,
+        "frequency": "weekly",
+        "expectedRevision": 0,
+        "disclosureVersion": "one-email-updates-v1",
+        "surface": "setup",
+    }
+    assert client.get("/api/one/plg/preferences").status_code == 401
+    assert client.put("/api/one/plg/preferences", json=body).status_code == 401
+    app.dependency_overrides[require_firebase_auth_read_only] = lambda: "authenticated-owner"
+    read = AsyncMock(return_value={"enabled": False, "revision": 0})
+    write = AsyncMock(return_value={"enabled": True, "revision": 1})
+    monkeypatch.setattr(marketing_preferences, "preference", read)
+    monkeypatch.setattr(marketing_preferences, "choose_preference", write)
+    result = client.get("/api/one/plg/preferences")
+    assert result.status_code == 200 and "no-store" in result.headers["cache-control"]
+    write.assert_not_called()
+    for invalid in [
+        {**body, "accountId": "other"},
+        {**body, "email": "other@example.test"},
+        {**body, "enabled": "true"},
+        {**body, "expectedRevision": True},
+    ]:
+        assert client.put("/api/one/plg/preferences", json=invalid).status_code == 422
+    write.assert_not_called()
+    assert client.put("/api/one/plg/preferences", json=body).status_code == 200
+    assert write.call_args.args == ("authenticated-owner",)
+    assert write.call_args.kwargs["expected_revision"] == 0
+
+
+def test_subscription_key_and_purpose_cannot_grant_other_authority(client, monkeypatch):
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda")
+    monkeypatch.setenv("ONE_PLG_SUBSCRIPTION_ENABLED", "true")
+    key = "test-only-separate-subscription-integration-key"
+    monkeypatch.setenv("ONE_PLG_SUBSCRIPTION_SECRET", key)
+    source = AsyncMock(return_value={"version": 1, "environment": "production", "changes": []})
+    monkeypatch.setattr(marketing_preferences, "pending_changes", source)
+
+    def pull(purpose, secret):
+        timestamp = str(int(time.time() * 1000))
+        signature = hmac.new(
+            secret.encode(), f"{purpose}\n{timestamp}\n{{}}".encode(), hashlib.sha256
+        ).hexdigest()
+        return client.post(
+            "/api/one/plg/subscriptions/pull",
+            content="{}",
+            headers={
+                "Content-Type": "application/json",
+                "X-PLG-Timestamp": timestamp,
+                "X-PLG-Signature": signature,
+            },
+        )
+
+    assert pull("snapshot", key).status_code == 401
+    assert pull("subscriptions.pull", SECRET).status_code == 401
+    source.assert_not_called()
+    assert pull("subscriptions.pull", key).status_code == 200
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    assert pull("subscriptions.pull", key).status_code == 404
+    assert source.await_count == 1
+
+
+def test_snapshot_adds_only_recorded_permission_cohort(client, monkeypatch):
+    monkeypatch.delenv("ONE_PLG_EXPORT_ACCOUNT_IDS", raising=False)
+    assert post(client).status_code == 404
+    monkeypatch.setenv("ONE_PLG_SUBSCRIPTION_ENABLED", "true")
+    admitted = AsyncMock(return_value={ACCOUNT["accountId"]})
+    projection = AsyncMock(return_value={"version": 1, "accounts": []})
+    monkeypatch.setattr(marketing_preferences, "permitted_snapshot_accounts", admitted)
+    monkeypatch.setattr(plg, "snapshot", projection)
+    assert post(client).status_code == 200
+    assert projection.call_args.args[1] == {ACCOUNT["accountId"]}
+    admitted.assert_awaited_once_with([ACCOUNT["accountId"]])
+    monkeypatch.setattr(plg, "snapshot", evidence.snapshot)
+    admitted.return_value = set()
+    assert post(client).status_code == 400
 
 
 def test_export_rejects_wrong_signature_purpose_and_nonproduction(client, monkeypatch):
@@ -489,9 +614,16 @@ def test_catalog_covers_authored_agents_and_actions_without_dynamic_tool_names()
     assert {a["id"] for a in catalog["agents"]} == {a["id"] for a in registry["agents"]}
     assert {a["capability_id"] for a in graph["actions"]} <= {a["id"] for a in catalog["actions"]}
     assert {a["agentId"] for a in catalog["actions"]} <= {a["id"] for a in catalog["agents"]}
-    assert {a["id"] for a in catalog["agents"] if a["public"]} == set(outcomes.DEFINITIONS)
+    assert set(outcomes.DEFINITIONS) <= {a["id"] for a in catalog["agents"] if a["public"]}
     assert all(
-        a["outcome"]["status"] == ("supported" if a["public"] else "internal")
+        a["outcome"]["status"]
+        == (
+            "internal"
+            if not a["public"]
+            else "supported"
+            if a["id"] in outcomes.DEFINITIONS
+            else "unmeasured"
+        )
         for a in catalog["agents"]
     )
     gateway = json.loads(

@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { OneAccessOverview } from "../../components/agent/one-access-overview";
 import { createRoot } from "react-dom/client";
 
 import { CHAT_USER_BUBBLE_CLASSNAME } from "../../components/agent/chat-message-styles";
@@ -161,10 +162,12 @@ function NameJourney() {
       setMessage("I couldn't read that reply. Please try again.");
     } finally { setSending(false); }
   }
-  return <main className="mx-auto flex max-w-4xl flex-col gap-6 p-4 text-foreground">
+  return <main className="mx-auto flex h-dvh max-w-4xl flex-col gap-6 overflow-y-auto p-4 text-foreground">
     <div aria-label="Chat profile name" className="text-center">{name}</div>
     <ChatOnboardingTurns controller={controller} slot={{ kind: "top" }}
-      renderBubble={message => <p>{message.text}</p>} onConnect={() => undefined} />
+      renderBubble={message => <p>{message.text}</p>} onConnect={() => undefined}
+      completion={<AgentSuggestionList suggestions={["What's on my calendar this week?", "Which emails need a reply?", "What do you remember about me?"]}
+        layout="starter-grid" label="Start a conversation" onSelect={setText} />} />
     <form onSubmit={event => { event.preventDefault(); void submit(); }} className="flex gap-2">
       <input ref={input} aria-label="Your reply" placeholder={controller.composerPlaceholder ?? "Message One"}
         value={text} onChange={event => setText(event.target.value)} disabled={sending || controller.busy}
@@ -175,6 +178,16 @@ function NameJourney() {
   </main>;
 }
 
+function AccessJourney() {
+  return <main className="mx-auto h-dvh max-w-md overflow-y-auto p-4 text-foreground">
+    <h2 className="mb-4 text-lg font-semibold">One access</h2>
+    <OneAccessOverview onNavigate={() => undefined}>
+      <p>No apps connected.</p>
+    </OneAccessOverview>
+  </main>;
+}
+
 createRoot(document.getElementById("root")!).render(
-  /name-journey|ordinary-name/.test(window.location.search) ? <NameJourney /> : <Harness />,
+  window.location.search.includes("access") ? <AccessJourney />
+    : /name-journey|ordinary-name/.test(window.location.search) ? <NameJourney /> : <Harness />,
 );

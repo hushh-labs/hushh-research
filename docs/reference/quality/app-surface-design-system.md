@@ -421,7 +421,10 @@ Rules:
     at 12px. Verify computed fonts, line heights and insets in Chromium and
     WebKit; class-name checks cannot prove visual parity. Conversations, device
     authority and streaming state remain owned by their existing runtimes.
-13. One's browser and recovery Chat header retains the portrait above its name:
+    Opening Puppy selects an empty owner-scoped chat without a second Start
+    step. Local and relay editors occupy the same retained footer seat as One;
+    blocked hosting states show a disabled Puppy composer, never One's voice.
+13. One and Puppy's browser and recovery Chat headers retain the portrait above their names:
     104px on desktop, 52–64px on phones. On the narrowest phones, shift it only
     enough to avoid the existing 44px action targets. Keep the mode toggle
     anchored across One/Puppy switches, the phone model picker in One's profile,
@@ -901,7 +904,9 @@ Use the `Subtle Apple` depth model:
 
 ### Ripple Ownership and Clipping
 
-1. Every actionable shell should show Material ripple.
+1. Every actionable shell should show Material ripple. The animated private-agent
+   artwork is the narrow exception: `ShellActionSurface ripple={false}` preserves
+   its transparent no-halo surface; keyboard focus and the 44px target remain.
 2. The ripple host owns clipping.
 3. Rounded interactive shells must clip ripple to the exact visible radius.
 4. Outer cards remain `overflow-visible`; ripple, media, code panes, and chart plots clip inside their own inner boundaries.
@@ -979,8 +984,14 @@ Rules:
    - visually centered composition
    - similar optical weight across sibling headers and actions
 7. Refer to:
-   - `skills/hushh-icon-theme/SKILL.md`
-   - `docs/ui-migration/iconography-and-motion-audit.md`
+   - `.agents/skills/hushh-icon-theme/SKILL.md`
+
+Agent accents never override semantic interaction, error, success or warning colors.
+Use neutral icons for peer settings rows; service branding belongs only to actual
+service rows with approved bundled assets. Keep the registry as the source of truth;
+do not copy its configuration into page-local CSS or add another icon package.
+Motion follows the existing tiered timing and reduced-motion contracts, including
+the approved sheet entrance; there is no blanket 150 ms limit.
 
 ## Market-Specific Rules
 

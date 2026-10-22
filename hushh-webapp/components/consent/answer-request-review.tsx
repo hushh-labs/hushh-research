@@ -267,6 +267,7 @@ export function AnswerRequestReview({
         // This lane delivers one written answer, not files. The sheet's own
         // sentence described a Drive search the owner is not authorizing.
         description="After you approve, your unlocked device prepares and encrypts one answer from the selected memory. They pay this price only when it is ready, and verified payment releases it."
+        deliveryDescription="One written answer"
         periodStart={request.periodStart}
         periodEnd={request.periodEnd}
         paymentRequired

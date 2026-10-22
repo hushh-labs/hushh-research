@@ -1,5 +1,7 @@
 "use client";
 
+import { nativeProfileSceneCanPrepare, nativeProfileActionsAllowed } from "@/lib/capacitor/native-profile-preparation";
+
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
@@ -26,7 +28,7 @@ type Plugin = HushhNativeDrawersPlugin & NativeSupportScenePort;
 export function NativeSupportComposer({ model, destinationId, onFallback }: {
   model: NativeSupportComposerModel; destinationId: string; onFallback: () => void;
 }) {
-  const plugin = nativeDrawers as Plugin; // Admitted by the parent's capability/method check.
+  const plugin = nativeDrawers() as Plugin; // Admitted by the parent's capability/method check.
   const pathname = usePathname();
   const appearance = useNativeControlAppearance("secondary");
   const privacy = useSyncExternalStore(subscribeNativePrivacyObservation, () => nativePrivacyObservation().state, () => undefined);
@@ -51,7 +53,7 @@ export function NativeSupportComposer({ model, destinationId, onFallback }: {
   }), []);
   const publish = useCallback(() => {
     const current = replica.current, next = live.current;
-    if (!current || !next.model.ready || next.model.userId !== current.owner || !next.appearance || !next.privacy || next.privacy.shielded || !next.privacy.appIsActive) return;
+    if (!current || !next.model.ready || next.model.userId !== current.owner || !next.appearance || !next.privacy || !nativeProfileSceneCanPrepare(next.privacy, current.identity.scene, current.identity.destinationId)) return;
     const { model } = next;
     const state = { ...current.identity, ...next.appearance, privacyGeneration: next.privacy.generation,
       draftRevision: current.sequence + 1, acknowledgedEditRevision: current.editRevision, draft: { ...model.draft },
@@ -64,9 +66,9 @@ export function NativeSupportComposer({ model, destinationId, onFallback }: {
   }, [actions]);
   useEffect(() => { if (!nativePrivacyObservation().state) void nativeDrawerAcknowledged(getNativeSessionPrivacyState()).catch(() => setPhase("blocked")); }, []);
   const epoch = snapshotVaultSessionEpoch();
-  const generation = privacy?.generation, shielded = privacy?.shielded, active = privacy?.appIsActive;
+  const generation = privacy?.generation, presentationBlocked = !nativeProfileSceneCanPrepare(privacy, "support", destinationId), active = privacy?.appIsActive;
   useEffect(() => {
-    if (!model.ready || !model.userId || generation === undefined || shielded || !active) return;
+    if (!model.ready || !model.userId || generation === undefined || presentationBlocked || !active) return;
     const base = createNativeDrawerIdentity("profile");
     if (!base) return;
     const identity: NativeSupportIdentity = { ...base, family: "profile", scene: "support", destinationId };
@@ -74,7 +76,7 @@ export function NativeSupportComposer({ model, destinationId, onFallback }: {
     let current = true;
     const isCurrent = () => current && live.current.model.ready && live.current.model.userId === owner &&
       snapshotValidatedAuthSessionOwner()?.userId === owner && snapshotVaultSessionEpoch() === epoch && nativeDrawerOwnerIsCurrent(identity) &&
-      live.current.privacy?.generation === generation && !live.current.privacy.shielded && live.current.privacy.appIsActive;
+      live.current.privacy?.generation === generation && nativeProfileSceneCanPrepare(live.current.privacy, identity.scene, identity.destinationId);
     const presentation = new NativeProfileScenePresentation<NativeSupportProjection, NativeSupportEdit, NativeSupportAction, undefined>(identity, {
       source: plugin, apply: state => plugin.applyProfileSupportScene(state), confirm: event => plugin.confirmProfileSupportAction(event),
       settle: (event, saved) => plugin.settleProfileSupportAction({ ...event, saved }), retire: () => plugin.retireProfileSupportScene(identity),
@@ -83,11 +85,11 @@ export function NativeSupportComposer({ model, destinationId, onFallback }: {
       if (!current) return;
       setPhase(phase);
       if (phase === "fallback") live.current.onFallback();
-    }, false, state => ({ ...state, draft: { ...state.draft } }));
+    }, false, state => ({ ...state, draft: { ...state.draft } }), () => isCurrent() && nativeProfileActionsAllowed());
     replica.current = { identity, owner, presentation, sequence: 0, editRevision: 0, composing: false, fingerprint: null };
     void presentation.listen().then(ready => { if (ready && isCurrent()) publish(); });
     return () => { current = false; if (replica.current?.identity === identity) replica.current = null; void presentation.retire(); };
-  }, [model.ready, model.userId, destinationId, epoch, generation, shielded, active, plugin, actions, publish]);
+  }, [model.ready, model.userId, destinationId, epoch, generation, presentationBlocked, active, plugin, actions, publish]);
   useLayoutEffect(() => { publish(); });
   useBackLayer(pathname, 100, () => {
     const current = replica.current;

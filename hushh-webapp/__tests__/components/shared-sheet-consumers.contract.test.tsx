@@ -12,8 +12,8 @@ import {
 } from "@/components/ui/sheet";
 
 /**
- * `components/ui/sheet.tsx` is the app's canonical bottom sheet. Ten surfaces
- * render it, so a change there is a change to ten screens at once.
+ * `components/ui/sheet.tsx` is the app's canonical sheet. Shared changes affect
+ * every inventoried surface below.
  *
  * Two capabilities were added to it for the save-a-place sheet:
  *
@@ -41,6 +41,7 @@ function sourceOf(relativePath: string): string {
  * width contract below re-checked at the same time.
  */
 const SHEET_CONSUMERS = [
+  "components/agent/agent-connections-drawer.tsx",
   "components/agent/agent-get-app-prompt.tsx",
   "components/agent/agent-text-attachment-editor.tsx",
   "components/agent/agent-text-attachment-viewer.tsx",
@@ -50,6 +51,7 @@ const SHEET_CONSUMERS = [
   "components/app-ui/action-menu.tsx",
   "components/app-ui/profile-pane.tsx",
   "components/app-ui/settings-ui.tsx",
+  "components/computer-use/computer-use-task-card.tsx",
   "components/connect/circles/circle-photo-editor.tsx",
   "components/connections/contact-invitation-sheet.tsx",
   "components/kai/onboarding/KaiPreferencesSheet.tsx",
@@ -87,21 +89,23 @@ describe("the shared bottom sheet stays shared", () => {
     const optOuts = SHEET_CONSUMERS.filter((consumer) =>
       /contentDragDismiss=\{false\}/.test(sourceOf(consumer)),
     );
-    // These are the same shape: a fixed frame — a header, then a
-    // `flex-1 overflow-y-auto` body — whose own `scrollTop` is therefore
-    // pinned at 0, so every downward drag inside it would engage the
-    // dismissal and `preventDefault()` the scroll it was trying to make.
+    // Inner-scroller sheets opt out so a body drag preserves their scroll.
+    // The inventory also includes explicit but inert flags on One Profile's
+    // side drawer and Browser's non-draggable preview sheet.
     //
     // The nearby Check-In panel joined this list rather than reaching for
     // `dragDismiss={false}`, which is what it used to pass: that switches the
     // gesture off AND takes the grab handle with it, leaving a phone bottom
     // sheet with no visible affordance to put it away.
     expect(optOuts).toEqual([
+      "components/agent/agent-connections-drawer.tsx",
       "components/agent/agent-text-attachment-editor.tsx",
       "components/agent/agent-text-attachment-viewer.tsx",
       "components/agent/drive-background-search.tsx",
+      "components/agent/one-agent-profile-sheet.tsx",
       "components/app-ui/profile-pane.tsx",
       "components/app-ui/settings-ui.tsx",
+      "components/computer-use/computer-use-task-card.tsx",
       "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
       "components/one-location/onboarding/save-location-modal.tsx",
     ]);
@@ -424,6 +428,7 @@ describe("useSheetDragHandle", () => {
       vi.advanceTimersByTime(400);
       expect(close).toHaveBeenCalledExactlyOnceWith(false);
     } finally { view.unmount(); vi.useRealTimers(); }
+
   });
 
   it("drags only the sheet a gesture starts in, never the sheet beneath it", () => {

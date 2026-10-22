@@ -171,6 +171,30 @@ def test_auto_backend_only_change() -> None:
     assert not decision.shared_changed_files
 
 
+def test_pod_offer_changes_do_not_redeploy_the_frontend() -> None:
+    resolver = load_module()
+    for path in ("deploy/pod-release.json", "deploy/pod-release-reuse.json"):
+        tempdir, repo = with_git_repo()
+        with tempdir:
+            base = commit_file(repo, "README.md", "base\n")
+            target = commit_file(repo, path, "reviewed offer\n")
+            previous_cwd = Path.cwd()
+            try:
+                import os
+
+                os.chdir(repo)
+                decision = resolver.auto_decision(
+                    target_sha=target,
+                    backend_base_sha=base,
+                    frontend_base_sha=base,
+                )
+            finally:
+                os.chdir(previous_cwd)
+        assert decision.scope == "backend"
+        assert decision.deploy_backend and not decision.deploy_frontend
+        assert decision.backend_changed_files == (path,)
+
+
 def test_auto_mixed_change_deploys_all() -> None:
     resolver = load_module()
     tempdir, repo = with_git_repo()
@@ -297,6 +321,7 @@ def main() -> int:
         test_narrow_explicit_scope_rejects_missing_deployed_sha,
         test_auto_frontend_only_change,
         test_auto_backend_only_change,
+        test_pod_offer_changes_do_not_redeploy_the_frontend,
         test_auto_mixed_change_deploys_all,
         test_auto_shared_path_deploys_all,
         test_auto_neutral_workflow_plus_frontend_stays_frontend,

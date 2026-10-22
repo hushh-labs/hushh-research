@@ -328,7 +328,7 @@ describe("Personal World Model owner journey", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Create invitation" }));
     await waitFor(() => expect(create).toHaveBeenCalledWith(
-      { vaultKey: vault.vaultKey, vaultOwnerToken: vault.vaultOwnerToken },
+      { vaultKey: vault.vaultKey, vaultOwnerToken: vault.vaultOwnerToken, isCurrent: expect.any(Function), signal: expect.any(AbortSignal) },
       "sam@example.test",
       { subject_name: "Sam Example", secondary_contact: "+14155550111" },
     ));

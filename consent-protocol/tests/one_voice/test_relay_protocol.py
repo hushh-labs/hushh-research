@@ -3263,15 +3263,15 @@ async def test_cancel_frame_cancels_pending_and_tells_the_model():
     pending = MemoryPendingStore()
     session = _session(transport, fake, pending=pending)
     task = asyncio.create_task(session.run())
-    await asyncio.sleep(0.3)
-    card = transport.frames("pending_action")[0]
+    card = await transport.wait_for_frame("pending_action")
     transport.push({"type": "cancel_action"})
-    await asyncio.sleep(0.1)
+    # The client pump processes these in order. Session closure therefore
+    # proves the preceding cancellation, including its model event, settled.
+    transport.push({"type": "cancel_action", "scope": "session"})
+    await asyncio.wait_for(task, 3)
     assert pending.rows[card["pending_action_id"]].status == "cancelled"
     assert transport.frames("pending_action.resolved")[-1]["status"] == "cancelled"
     assert json.loads(fake.events_sent[-1].removeprefix("[ONE_EVENT] "))["kind"] == "cancelled"
-    transport.push({"type": "cancel_action", "scope": "session"})
-    await asyncio.wait_for(task, 3)
     assert transport.closed == (protocol.CLOSE_ENDED, "ended")
 
 
@@ -3318,11 +3318,10 @@ async def test_client_step_result_is_verified_server_side_before_the_model_hears
             return {"ownerGrants": [{"id": "g-1", "latestEnvelopeId": "env-1"}]}
 
     task = asyncio.create_task(session.run())
-    await asyncio.sleep(0.3)
+    card = await transport.wait_for_frame("pending_action")
     session.ctx.services["location"] = _LocationDouble()
-    card = transport.frames("pending_action")[0]
     transport.push({"type": "pending_action.shown", "pending_action_id": card["pending_action_id"]})
-    await asyncio.sleep(0.05)
+    await _until(lambda: pending.rows[card["pending_action_id"]].shown_at is not None)
     await session.executor.call(
         session.ctx, "confirm_pending_action", {"pending_action_id": card["pending_action_id"]}
     )
@@ -3351,15 +3350,13 @@ async def test_client_step_result_is_verified_server_side_before_the_model_hears
             "payload": {"published": ["g-1"]},
         }
     )
-    await asyncio.sleep(0.1)
+    await _finish(transport, task)
     event = json.loads(fake.events_sent[-1].removeprefix("[ONE_EVENT] "))
     assert event["kind"] == "client_step" and event["verification"] == {
         "status": "published",
         "published": ["g-1"],
         "unpublished": [],
     }
-    transport.push({"type": "end"})
-    await asyncio.wait_for(task, 3)
 
 
 async def test_go_away_asks_the_client_to_reconnect_and_saves_the_handle():
@@ -3960,7 +3957,7 @@ async def test_tap_on_a_firebase_plane_card_verifies_the_proof_before_confirming
             pending=pending,
         )
         task = asyncio.create_task(session.run())
-        await asyncio.sleep(0.2)
+        await transport.wait_for_frame("session.ready")
         session.ctx.entities.remember_person(
             ConfirmedPerson(user_id="u-priya", display_name="Priya", confirmed_at=now_iso())
         )
@@ -3977,19 +3974,19 @@ async def test_tap_on_a_firebase_plane_card_verifies_the_proof_before_confirming
             ("stale", "firebase_proof_invalid"),
             ("other", "firebase_proof_invalid"),
         ):
+            error_count = len(transport.frames("error"))
             transport.push(
                 {"type": "confirm_action", "pending_action_id": row_id, "firebase_id_token": token}
             )
-            await asyncio.sleep(0.15)
-            errors = transport.frames("error")
-            assert errors and errors[-1]["code"] == code, (token, errors)
+            error = await transport.wait_for_frame("error", count=error_count + 1)
+            assert error["code"] == code, (token, error)
             assert (await pending.get(user_id=USER, pending_action_id=row_id)).status == "pending"
         assert [p[1] for p in proofs] == [USER, USER, USER]
 
         transport.push(
             {"type": "confirm_action", "pending_action_id": row_id, "firebase_id_token": "fresh"}
         )
-        await asyncio.sleep(0.2)
+        await transport.wait_for_frame("pending_action.resolved")
         assert (await pending.get(user_id=USER, pending_action_id=row_id)).status == "executed"
         resolved = [
             f for f in transport.frames("pending_action.resolved") if f["status"] == "executed"

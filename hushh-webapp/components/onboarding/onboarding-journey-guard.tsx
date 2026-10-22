@@ -1,5 +1,7 @@
 "use client";
 
+import { hasExplicitIncompleteSetup } from "@/lib/onboarding/onboarding-journey-phase";
+
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
@@ -12,9 +14,11 @@ import {
   isOneSetupCapabilityRoute,
   isCapabilityOnboardingRoute,
   isOnboardingAdmissionExemptRoute,
+  isOneSetupNavigationRoute,
   isOneSetupRoute,
   isOneSetupSurfaceRoute,
   normalizeStaticExportPathname,
+  normalizeInvitationReturnTo,
   resolveOneSetupCompletionTarget,
   ROUTES,
   buildInitialContactsWelcomeRoute,
@@ -33,21 +37,58 @@ const SETUP_REDIRECT_RETRY_MS = 1200;
 const SETUP_REDIRECT_FAILURE_MS = 2400;
 const SETUP_BOOTSTRAP_RETRY_MS = 300;
 
+/**
+ * The upper bound on the admission check.
+ *
+ * The catch below handles a bootstrap read that REJECTS. It cannot help with one
+ * that simply never returns, and that is the case a first-run person actually
+ * hits: the first paint fans out fourteen database-backed routes against a pool
+ * of four, so calls queue behind an acquire timeout rather than failing. Measured
+ * 2026-08-28, one load produced ten pool-acquire timeouts and a single call that
+ * took 125 seconds. Without a bound here the person sits on "Checking setup..."
+ * with no error and no way forward, which is how this shipped unnoticed: nothing
+ * crashed.
+ *
+ * Slightly longer than the server's own 60s acquire deadline, so a request that
+ * is merely slow still wins and only a genuine hang trips this.
+ */
+const SETUP_ADMISSION_TIMEOUT_MS = 70_000;
+
 function waitForBootstrapRetry(): Promise<void> {
   return new Promise((resolve) =>
     setTimeout(resolve, SETUP_BOOTSTRAP_RETRY_MS),
   );
 }
 
-function hasExplicitIncompleteSetup(state: PreVaultUserState): boolean {
-  if (PreVaultUserStateService.isSetupResolved(state)) return false;
-  if (state.setupCompleted === false) return true;
-  return (
-    state.onboardingJourneyVersion === 1 &&
-    state.onboardingPhase !== null &&
-    state.onboardingPhase !== "root_completion"
-  );
+class SetupAdmissionTimeout extends Error {
+  constructor() {
+    super("Setup admission check timed out");
+    this.name = "SetupAdmissionTimeout";
+  }
 }
+
+/**
+ * Resolve with the work, or reject once the bound elapses. Rejecting routes a
+ * hang into the existing catch, which already clears the loader and offers a
+ * retry, so a stall becomes a visible, recoverable state instead of a forever
+ * spinner.
+ */
+function withAdmissionTimeout<T>(work: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new SetupAdmissionTimeout()), SETUP_ADMISSION_TIMEOUT_MS);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 
 function admissionAllowsCurrentRoute(params: {
   state: PreVaultUserState;
@@ -135,10 +176,9 @@ export function OnboardingJourneyGuard({
         setupSurface,
       }))),
   );
-  // "Dismissed" = the user finished/skipped onboarding at least once. The root
-  // setup funnel is one-time, so every post-completion setup arrival is ejected
-  // to home. Account reset/delete clears this durable state and re-enables the
-  // canonical setup route through the existing recovery flow.
+  // Completion is a durable admission fact. Completed owners can revisit cloud
+  // configuration; an explicit invitation continuation resumes its destination.
+  // Account reset/delete clears this state through the existing recovery flow.
   const setupDismissed = Boolean(
     persistentSetupResolved ||
     (cachedState && PreVaultUserStateService.isSetupResolved(cachedState)),
@@ -153,10 +193,28 @@ export function OnboardingJourneyGuard({
   const isPostRootFinanceSetup =
     normalizedGuardPathname === ROUTES.ONE_SETUP_FINANCE ||
     normalizedGuardPathname === ROUTES.ONE_SETUP_FINANCE_IMPORT;
+  // The pod-provisioning surfaces (the cloud step and the AI-access step, i.e.
+  // SETUP_NAVIGATION_ROUTES) configure the root private agent but are not one-time
+  // onboarding capabilities: their own definition is that they "must be admitted by
+  // the root journey." A setup-complete owner whose private agent is still reserved
+  // must be able to reach /one/setup/cloud to provision their pod, exactly as Finance
+  // stays a valid bounded entry after root completion. Without this a root-resolved
+  // owner is ejected to ONE_HOME and can never provision — the 0-to-1 blocker.
+  const isPodProvisioningSurface = isOneSetupNavigationRoute(pathname);
+  // Resume only at completed journey terminals. Cloud setup and its OAuth
+  // callback retain their own continuation authority, even with return_to set.
+  const resumesInvitation = Boolean(
+    (normalizedGuardPathname === ROUTES.ONE_SETUP ||
+      normalizedGuardPathname === ROUTES.ONE_SETUP_CONNECTIONS) &&
+      normalizeInvitationReturnTo(
+        new URL(currentHref, "https://one.local").searchParams.get("return_to"),
+      ),
+  );
   const shouldEjectSetupSurface = Boolean(
     setupSurface &&
       setupDismissed &&
       !isPostRootFinanceSetup &&
+      (!isPodProvisioningSurface || resumesInvitation) &&
       !isOneSetupCapabilityRoute(pathname),
   );
 
@@ -204,49 +262,28 @@ export function OnboardingJourneyGuard({
         return;
       }
 
-      let admissionState = cachedState;
-      if (!InitialContacts.wasDismissed(userId)) {
-        // The setup latch does not acknowledge the optional welcome. Check its
-        // existing lifecycle owner before admitting an agent on cold entry.
-        if (!admissionState) {
-          try {
-            admissionState = await PreVaultUserStateService.bootstrapState(userId);
-          } catch {
-            await waitForBootstrapRetry();
-            if (cancelled) return;
-            try {
-              admissionState = await PreVaultUserStateService.bootstrapState(userId, { force: true });
-            } catch {
-              if (cancelled) return;
-              // Optional welcome discovery must not block an established
-              // account whose ordinary setup admission is already durable.
-              setError(!persistentSetupResolved);
-              setChecking(false);
-              return;
-            }
-          }
-        }
-        const welcomeState = admissionState;
-        if (cancelled) return;
-        if (welcomeState?.setupCompleted === true && welcomeState.initialContactsWelcomeAcknowledged === false && normalizedGuardPathname !== ROUTES.ONE_WELCOME) {
-          const target = buildInitialContactsWelcomeRoute(
-            safeWorldModelInvitationReturnPath(currentHref, userId),
-          );
+      const verifyWelcome = !InitialContacts.wasDismissed(userId);
+      const needsWelcomeBootstrap = verifyWelcome && !cachedState;
+      function redirectPendingWelcome(state: PreVaultUserState): boolean {
+        if (verifyWelcome && state.setupCompleted === true && state.initialContactsWelcomeAcknowledged === false && normalizedGuardPathname !== ROUTES.ONE_WELCOME) {
+          const target = buildInitialContactsWelcomeRoute(safeWorldModelInvitationReturnPath(currentHref, userId));
           if (redirectTargetRef.current !== target) {
             redirectTargetRef.current = target;
             setRedirecting(true);
             router.replace(target);
           }
-          return;
+          return true;
         }
+        return false;
       }
+      if (cachedState && redirectPendingWelcome(cachedState)) return;
 
       // Setup completion is a one-time, non-sensitive admission fact. Hydrate
       // it synchronously from the user-scoped positive latch so a returning
       // user does not wait on the same bootstrap request after every WebView or
       // browser restart. Explicit backend-incomplete responses and sign-out
       // clear this latch; vault keys and owner tokens remain memory-only.
-      if (persistentSetupResolved) {
+      if (persistentSetupResolved && !needsWelcomeBootstrap) {
         redirectTargetRef.current = null;
         setError(false);
         setChecking(false);
@@ -281,7 +318,7 @@ export function OnboardingJourneyGuard({
         const restored =
           await OneSetupCompletionHintService.hydrateFromNative(userId);
         if (cancelled) return;
-        if (restored) {
+        if (restored && !needsWelcomeBootstrap) {
           redirectTargetRef.current = null;
           setError(false);
           setChecking(false);
@@ -292,22 +329,27 @@ export function OnboardingJourneyGuard({
       setChecking(true);
       setError(false);
       try {
-        let state = admissionState;
+        let state = cachedState;
         if (!state) {
           try {
-            state = await PreVaultUserStateService.bootstrapState(userId);
+            state = await withAdmissionTimeout(
+              PreVaultUserStateService.bootstrapState(userId),
+            );
           } catch {
             // Native auth restoration and cross-tab web auth can publish the
             // user before the token provider or proxy is ready. Retry once
             // with a forced read; never create an unbounded setup loop.
             await waitForBootstrapRetry();
             if (cancelled) return;
-            state = await PreVaultUserStateService.bootstrapState(userId, {
-              force: true,
-            });
+            state = await withAdmissionTimeout(
+              PreVaultUserStateService.bootstrapState(userId, { force: true }),
+            );
           }
         }
         if (cancelled) return;
+        // A cold welcome read uses the same bounded retry and recovery as
+        // setup admission. Failure never acknowledges the optional welcome.
+        if (redirectPendingWelcome(state)) return;
 
         // A missing legacy mirror is not evidence that an established account
         // is incomplete. New journeys write setupCompleted=false and a versioned
@@ -362,7 +404,7 @@ export function OnboardingJourneyGuard({
           cause,
         );
         if (!cancelled) {
-          setError(true);
+          setError(!persistentSetupResolved);
           setChecking(false);
         }
       }

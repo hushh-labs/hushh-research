@@ -5,6 +5,7 @@ const getVaultOwnerToken = () => "fixture-owner-token";
 export const useAuth = () => ({ user });
 export const useVault = () => ({ isVaultUnlocked: true, vaultOwnerToken: getVaultOwnerToken(), vaultKey: "fixture-key", getVaultOwnerToken });
 export const AuthService = {
+  getCurrentUser: () => user,
   getIdToken: user.getIdToken,
   documentRequestIdentityToken: user.getIdToken,
   linkGoogleIdentity: async () => undefined,

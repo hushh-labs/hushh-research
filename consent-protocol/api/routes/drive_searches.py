@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
-from api.routes.drive_sharing import NO_STORE, Owner, _owner
+from api.routes.drive_sharing import NO_STORE, Owner, _content_owner, _owner
 from hushh_mcp.hushh_adk.turn import SpecialistAdkTurnError
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
@@ -129,7 +129,7 @@ async def _call(method, *, owner: Owner, require_feature: bool = True, **kwargs)
 
 
 @router.post("")
-async def create_search(body: SearchRequest, owner: Owner = Depends(_owner)):
+async def create_search(body: SearchRequest, owner: Owner = Depends(_content_owner)):
     await _admit(owner)
     if not body.backgroundConsent or not body.query.strip() or len(body.query.encode()) > 2048:
         raise _error("invalid_argument")
@@ -181,12 +181,12 @@ async def create_search(body: SearchRequest, owner: Owner = Depends(_owner)):
 
 
 @router.get("")
-async def list_searches(owner: Owner = Depends(_owner)):
+async def list_searches(owner: Owner = Depends(_content_owner)):
     return await _call(_service().list, owner=owner, require_feature=False)
 
 
 @router.get("/{job_id}")
-async def search_status(job_id: UUID, owner: Owner = Depends(_owner)):
+async def search_status(job_id: UUID, owner: Owner = Depends(_content_owner)):
     return await _call(_service().status, owner=owner, job_id=str(job_id), require_feature=False)
 
 
@@ -223,7 +223,9 @@ async def _status_stream(*, request, owner, service, job_id, initial):
 
 
 @router.get("/{job_id}/stream")
-async def search_status_stream(job_id: UUID, request: Request, owner: Owner = Depends(_owner)):
+async def search_status_stream(
+    job_id: UUID, request: Request, owner: Owner = Depends(_content_owner)
+):
     service = _service()
     initial = await _call(service.status, owner=owner, job_id=str(job_id), require_feature=False)
     return StreamingResponse(
@@ -239,7 +241,7 @@ async def search_status_stream(job_id: UUID, request: Request, owner: Owner = De
 async def search_results(
     job_id: UUID,
     cursor: str | None = Query(default=None, max_length=2048),
-    owner: Owner = Depends(_owner),
+    owner: Owner = Depends(_content_owner),
 ):
     return await _call(_service().results, owner=owner, job_id=str(job_id), cursor=cursor)
 

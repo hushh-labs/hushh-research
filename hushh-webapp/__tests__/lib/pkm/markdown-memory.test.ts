@@ -158,6 +158,43 @@ describe("parallel local memory and encrypted sync", () => {
     expect(cloud.markdown).not.toMatch(/Boston|Seattle/);
     expect(recoveryCache.writeRequired.mock.calls.map(([params]) => params.value.stagingOrder)).toEqual([10, 20]);
   });
+  it("keeps a recovery checkpoint when its caller withdraws write admission during the read", async () => {
+    publishValidatedAuthSessionOwner("user-1");
+    recoveryCache.listResourceKeys.mockResolvedValueOnce(["one_memory_pending:v1:held"]);
+    let release!: (value: unknown) => void;
+    recoveryCache.readRequired.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+    let allowed = true;
+    const pending = recoverMarkdownMemorySync({ ...syncParams, beforeEffect: async () => {
+      if (!allowed) throw new DOMException("Caller retired", "AbortError");
+    } });
+    await vi.waitFor(() => expect(release).toBeDefined());
+    allowed = false;
+    release({ version: 1, userId: "user-1", confirmation: syncParams.confirmation, facts: ["A retained synthetic fact."] });
+    await pending;
+    expect(savePreparedDomain).not.toHaveBeenCalled();
+    expect(recoveryCache.invalidateResourceRequired).not.toHaveBeenCalled();
+  });
+
+  it("preserves a queued recovery checkpoint without retrying a write after its caller retires", async () => {
+    vi.useFakeTimers();
+    publishValidatedAuthSessionOwner("user-1");
+    getStaleFirst.mockResolvedValue({ data: { markdown: "# Soul.md\n" } });
+    await loadMarkdownMemory(syncParams);
+    recoveryCache.listResourceKeys.mockResolvedValueOnce(["one_memory_pending:v1:retry"]);
+    recoveryCache.readRequired.mockResolvedValueOnce({ version: 1, userId: "user-1", confirmation: syncParams.confirmation, facts: ["A retained synthetic fact."] });
+    savePreparedDomain.mockRejectedValueOnce(new Error("Temporary provider refusal"));
+    let allowed = true;
+    await recoverMarkdownMemorySync({ ...syncParams, beforeEffect: async () => {
+      if (!allowed) throw new DOMException("Caller retired", "AbortError");
+    } });
+    await vi.waitFor(() => expect(savePreparedDomain).toHaveBeenCalledOnce());
+    allowed = false;
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(savePreparedDomain).toHaveBeenCalledOnce();
+    expect(recoveryCache.invalidateResourceRequired).not.toHaveBeenCalled();
+    expect(peekMarkdownMemory("user-1")?.syncStatus).toBe("retryable");
+  });
+
   it("rejects masked-target replacement even when the model silently drops the protected clause", () => {
     const syntheticKey = ["sk", "test", "123456789012345678901234"].join("_");
     const candidates = soulMemoryCandidates(`- My API key is ${syntheticKey}; I like tea.\n`);

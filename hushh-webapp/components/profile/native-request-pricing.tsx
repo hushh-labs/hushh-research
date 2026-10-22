@@ -1,5 +1,7 @@
 "use client";
 
+import { nativeProfileSceneCanPrepare, nativeProfileActionsAllowed } from "@/lib/capacitor/native-profile-preparation";
+
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
@@ -58,7 +60,7 @@ export function NativeRequestPricingEditor({ model, userId, destinationId, onClo
   }), []);
   const publish = useCallback(() => {
     const current = replica.current, next = live.current;
-    if (!current || !next.appearance || !next.privacy || next.privacy.shielded || !next.privacy.appIsActive || !next.model.available) return;
+    if (!current || !next.appearance || !next.privacy || !nativeProfileSceneCanPrepare(next.privacy, current.identity.scene, current.identity.destinationId) || !next.model.available) return;
     const edit = next.edit.identity === current.identity ? next.edit : { revision: 0, composing: false };
     const value: Omit<NativeProfilePricingProjection, "updateSequence"> = { ...current.identity, ...next.appearance, privacyGeneration: next.privacy.generation,
       acknowledgedEditRevision: edit.revision, draftRevision: edit.revision, draft: next.model.dollars,
@@ -69,29 +71,29 @@ export function NativeRequestPricingEditor({ model, userId, destinationId, onClo
     if (current.presentation.publish({ ...value, updateSequence: ++current.sequence }, actions())) current.fingerprint = fingerprint;
   }, [actions]);
   const epoch = snapshotVaultSessionEpoch();
-  const generation = privacy?.generation, shielded = privacy?.shielded, active = privacy?.appIsActive;
+  const generation = privacy?.generation, presentationBlocked = !nativeProfileSceneCanPrepare(privacy, "request-price", destinationId), active = privacy?.appIsActive;
   useEffect(() => {
-    if (generation === undefined || shielded || !active) return;
+    if (generation === undefined || presentationBlocked || !active) return;
     const base = createNativeDrawerIdentity("profile");
     if (!base) return;
     const identity: NativeProfilePricingIdentity = { ...base, family: "profile", scene: "request-price", destinationId };
     let current = true;
     const isCurrent = () => current && live.current.userId === userId && live.current.destinationId === destinationId && live.current.model.available &&
       snapshotValidatedAuthSessionOwner()?.userId === userId && snapshotVaultSessionEpoch() === epoch && nativeDrawerOwnerIsCurrent(identity) &&
-      live.current.privacy?.generation === generation && !live.current.privacy.shielded && live.current.privacy.appIsActive;
-    const plugin = nativeDrawers as typeof nativeDrawers & NativeProfilePricingScenePort;
+      live.current.privacy?.generation === generation && nativeProfileSceneCanPrepare(live.current.privacy, identity.scene, identity.destinationId);
+    const plugin = nativeDrawers() as ReturnType<typeof nativeDrawers> & NativeProfilePricingScenePort;
     const presentation = new NativeProfileScenePresentation<NativeProfilePricingProjection, NativeProfilePricingEdit, NativeProfilePricingAction, undefined>(identity, {
       source: plugin, apply: state => plugin.applyProfilePricingScene(state), confirm: action => plugin.confirmProfilePricingAction(action),
       settle: action => plugin.settleProfilePricingAction(action), retire: () => plugin.retireProfilePricingScene(identity),
       edits: listener => plugin.addListener("profilePricingEdit", listener), choices: listener => plugin.addListener("profilePricingAction", listener),
     }, new NativeProfilePricingFence(identity), validNativeProfilePricingProjection, isCurrent, phase => {
       if (!current) return; setPhase(phase); if (phase === "fallback") live.current.onFallback();
-    }, false);
+    }, false, state => ({ ...state }), () => isCurrent() && nativeProfileActionsAllowed());
     const instance = { identity, presentation, sequence: 0, fingerprint: null as string | null };
     replica.current = instance; setEdit({ identity, revision: 0, composing: false });
     void presentation.listen().then(ready => { if (ready && isCurrent()) publish(); });
     return () => { current = false; if (replica.current === instance) replica.current = null; instance.fingerprint = null; void presentation.retire(); };
-  }, [userId, destinationId, epoch, generation, shielded, active, publish]);
+  }, [userId, destinationId, epoch, generation, presentationBlocked, active, publish]);
   useLayoutEffect(() => { publish(); });
   useBackLayer(pathname, 100, () => {
     const current = replica.current;

@@ -685,7 +685,7 @@ def test_client_auth_sends_the_secret_only_when_there_is_one():
 
 
 @pytest.mark.asyncio
-async def test_a_public_client_exchange_sends_no_secret(service, notion_row):
+async def test_a_public_client_exchange_sends_no_secret(service, notion_row, shared_hub_owner):
     attempt = dict(
         connector_id="notion",
         oauth_client_id="public-client-id",
@@ -714,7 +714,7 @@ async def test_a_public_client_exchange_sends_no_secret(service, notion_row):
 
 
 @pytest.mark.asyncio
-async def test_a_public_client_refresh_sends_no_secret(service, notion_row):
+async def test_a_public_client_refresh_sends_no_secret(service, notion_row, shared_hub_owner):
     stale = {
         "status": "connected",
         "envelope_version": 2,

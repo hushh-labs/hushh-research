@@ -4,6 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Lock, RefreshCw, Store } from "@/components/icons";
 import { toast } from "sonner";
 
+import Link from "next/link";
+import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
+import { DEFAULT_REQUEST_DURATION_HOURS, REQUEST_DURATION_OPTIONS } from "@/lib/agent/action-directive-summary";
+import { OneKycClientZkService } from "@/lib/services/one-kyc-client-zk-service";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { PkmSectionPreview } from "@/components/profile/pkm-section-preview";
 import { PkmSettingsShell } from "@/components/profile/pkm-settings-shell";
@@ -13,10 +17,7 @@ import {
   buildPkmSectionPreviewPresentation,
   type PkmSectionPreviewPresentation,
 } from "@/lib/profile/pkm-section-preview";
-import {
-  decryptMarketplaceEnvelope,
-  type MarketplaceEncryptedEnvelope,
-} from "@/lib/one-marketplace/encryption";
+import { openMarketplaceDeliveryPresentations } from "@/lib/one-marketplace/delivery";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/morphy";
 import { useVault } from "@/lib/vault/vault-context";
@@ -46,7 +47,6 @@ import {
   type SlicePricingInput,
 } from "@/lib/services/slice-pricing-service";
 import { MarketplaceChatPanel } from "@/components/one-marketplace/marketplace-chat-panel";
-import { isPacketDeliveryPayload } from "@/lib/one-marketplace/packet-delivery";
 import { PacketsPanel, type PacketDetailOption } from "@/components/one-marketplace/packets-panel";
 import { PayoutsCard } from "@/components/one-marketplace/payouts-card";
 import {
@@ -118,91 +118,6 @@ function statusBadgeClass(status: MarketplaceRequest["status"]): string {
   if (status === "pending") return base + "bg-amber-500/12 text-amber-700 dark:text-amber-300";
   if (status === "approved") return base + "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300";
   return base + "bg-muted text-muted-foreground";
-}
-
-/**
- * Parse a delivered envelope's canonical scope (`attr.<domain>.<path>.*`) into the
- * domain + top-level scope path the preview builder needs to unwrap the slice.
- */
-function parseDeliveryScope(
-  scope: string,
-  fallbackDomain: string,
-): { domain: string; topLevelScopePath: string } {
-  const match = /^attr\.([a-zA-Z0-9_]+)(?:\.(.+))?$/.exec(String(scope || "").trim());
-  if (!match) return { domain: fallbackDomain, topLevelScopePath: "" };
-  const remainder = (match[2] || "").replace(/\.\*$/, "").replace(/^\*$/, "").trim();
-  return { domain: match[1] || fallbackDomain, topLevelScopePath: remainder };
-}
-
-/**
- * The decrypted payload is `{ [domain]: {…}, __export_metadata }` (see
- * export-builder + projectDomainDataForScope). Strip the metadata and return the
- * domain's record so the preview builder can project it like any other section.
- */
-function extractDeliveredValue(
-  decrypted: unknown,
-  domain: string,
-): Record<string, unknown> | null {
-  if (!decrypted || typeof decrypted !== "object" || Array.isArray(decrypted)) return null;
-  const rest: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(decrypted as Record<string, unknown>)) {
-    if (key === "__export_metadata") continue;
-    rest[key] = value;
-  }
-  const domainValue = domain ? rest[domain] : undefined;
-  if (domainValue && typeof domainValue === "object" && !Array.isArray(domainValue)) {
-    return domainValue as Record<string, unknown>;
-  }
-  const keys = Object.keys(rest);
-  if (keys.length === 1) {
-    const only = rest[keys[0]!];
-    if (only && typeof only === "object" && !Array.isArray(only)) {
-      return only as Record<string, unknown>;
-    }
-  }
-  return rest;
-}
-
-/** A packet arrives as one envelope with a part per detail; show a card for each. */
-function buildDeliveryPresentations(
-  request: MarketplaceRequest,
-  envelope: MarketplaceEncryptedEnvelope,
-  decrypted: unknown,
-): { presentations: PkmSectionPreviewPresentation[]; missing: string[] } {
-  if (!isPacketDeliveryPayload(decrypted)) {
-    return { presentations: [buildDeliveryPresentation(request, envelope, decrypted)], missing: [] };
-  }
-  const presentations = decrypted.parts.map((part) => {
-    const { domain, topLevelScopePath } = parseDeliveryScope(part.scope, part.domain);
-    return buildPkmSectionPreviewPresentation({
-      domain: domain || part.domain,
-      domainTitle: part.domain,
-      permissionLabel: part.label,
-      permissionDescription: null,
-      topLevelScopePath,
-      value: extractDeliveredValue(part.payload, domain),
-    });
-  });
-  return { presentations, missing: decrypted.missing.map((m) => m.label) };
-}
-
-/** Build the safe-summary presentation for a decrypted delivered slice. */
-function buildDeliveryPresentation(
-  request: MarketplaceRequest,
-  envelope: MarketplaceEncryptedEnvelope,
-  decrypted: unknown,
-): PkmSectionPreviewPresentation {
-  const scope = String(envelope.metadata?.scope ?? "");
-  const { domain, topLevelScopePath } = parseDeliveryScope(scope, request.domain || "");
-  const value = extractDeliveredValue(decrypted, domain);
-  return buildPkmSectionPreviewPresentation({
-    domain: domain || request.domain || "",
-    domainTitle: request.domain || domain || "Information",
-    permissionLabel: request.sliceName || "Delivered slice",
-    permissionDescription: null,
-    topLevelScopePath,
-    value,
-  });
 }
 
 function usePrice(input: SlicePricingInput | null, token?: string) {
@@ -454,6 +369,7 @@ function PriceLine({
   const [open, setOpen] = useState(false);
   return (
     <div>
+      <p className="text-xs text-muted-foreground">Suggested price · does not set your sharing terms</p>
       <div className="flex items-center justify-between gap-3">
         <div className="text-2xl font-semibold tracking-tight">
           {loading ? (
@@ -549,6 +465,8 @@ function OneMarketplacePageImpl() {
   const [listings, setListings] = useState<AvailableListing[]>([]);
   const [listingsLoading, setListingsLoading] = useState(false);
   const [requestListing, setRequestListing] = useState<AvailableListing | null>(null);
+  const [requestHours, setRequestHours] = useState<number>(DEFAULT_REQUEST_DURATION_HOURS);
+  const [requestPurpose, setRequestPurpose] = useState("");
   // Owner is about to publish this section to the marketplace and must explicitly
   // consent first (consent-first). Null when no confirmation is pending.
   const [confirmPublish, setConfirmPublish] = useState<Section | null>(null);
@@ -559,6 +477,7 @@ function OneMarketplacePageImpl() {
   const [received, setReceived] = useState<MarketplaceRequest[]>([]);
   // Per-request decrypted delivery state, populated lazily on "View delivered information".
   const [deliveries, setDeliveries] = useState<Record<string, DeliveryState>>({});
+  useEffect(() => { setDeliveries({}); }, [user?.uid, isVaultUnlocked]);
 
   const [records, setRecords] = useState<DomainRecord[]>([]);
   const [loading, setLoading] = useState(false);
@@ -595,23 +514,22 @@ function OneMarketplacePageImpl() {
         toast.error("Unlock your vault to open the delivered slice.");
         return;
       }
+      const vaultEpoch = snapshotVaultSessionEpoch();
+      const current = () => isVaultSessionEpochCurrent(vaultEpoch);
       setDeliveries((current) => ({ ...current, [request.id]: { status: "loading" } }));
       try {
-        const { envelope } = await OneMarketplaceService.getDelivery({
-          vaultOwnerToken,
-          requestId: request.id,
-        });
-        if (!envelope) {
+        const delivery = await openMarketplaceDeliveryPresentations({ request, userId: user.uid, vaultKey, vaultOwnerToken });
+        if (!current()) return;
+        if (!delivery) {
           setDeliveries((current) => ({ ...current, [request.id]: { status: "empty" } }));
           return;
         }
-        const decrypted = await decryptMarketplaceEnvelope({ userId: user.uid, envelope });
-        const { presentations, missing } = buildDeliveryPresentations(request, envelope, decrypted);
         setDeliveries((current) => ({
           ...current,
-          [request.id]: { status: "ready", presentations, missing },
+          [request.id]: { status: "ready", ...delivery },
         }));
       } catch (error) {
+        if (!current()) return;
         setDeliveries((current) => ({
           ...current,
           [request.id]: {
@@ -624,7 +542,7 @@ function OneMarketplacePageImpl() {
         }));
       }
     },
-    [vaultOwnerToken, user?.uid],
+    [vaultOwnerToken, vaultKey, user?.uid],
   );
 
   // Load the anonymized cross-user Buyer directory (other users' published slices).
@@ -994,16 +912,19 @@ function OneMarketplacePageImpl() {
   // owner's inbox — this is a two-account request, not a simulated one.
   const confirmRequestListing = useCallback(() => {
     const listing = requestListing;
-    if (!listing || !vaultOwnerToken) {
+    if (!listing || !vaultOwnerToken || !vaultKey || !user || !requestPurpose.trim()) {
       setRequestListing(null);
       return;
     }
     setRequestListing(null);
     void (async () => {
       try {
+        const connector = await OneKycClientZkService.ensureConnector({ userId: user.uid, vaultKey, vaultOwnerToken });
         await OneMarketplaceService.requestListing({
           vaultOwnerToken,
           listingId: listing.listingId,
+          durationSeconds: requestHours * 3600, purpose: requestPurpose.trim(),
+          connectorKeyId: connector.connector_key_id, idempotencyKey: crypto.randomUUID(),
         });
         await loadReceived();
         setView("flow");
@@ -1012,7 +933,7 @@ function OneMarketplacePageImpl() {
         toast.error("Couldn't file the request. Try again.");
       }
     })();
-  }, [requestListing, vaultOwnerToken, loadReceived]);
+  }, [requestListing, vaultOwnerToken, vaultKey, user, requestPurpose, requestHours, loadReceived]);
 
   // Approve/deny live entirely in the Consent Guardian now — a marketplace
   // request surfaces there as a normal consent row (see
@@ -1276,8 +1197,7 @@ function OneMarketplacePageImpl() {
                       </div>
                       <div className="mt-4 flex items-center justify-between gap-3 border-t pt-4">
                         <div className="text-2xl font-semibold tracking-tight">
-                          {formatCents(listing.suggestedPriceCents, listing.currency)}{" "}
-                          <span className="text-sm font-medium text-muted-foreground">/ 30 days</span>
+                          <span className="text-sm font-medium text-muted-foreground">Owner terms reviewed after approval</span>
                         </div>
                       </div>
                       <Button
@@ -1286,9 +1206,9 @@ function OneMarketplacePageImpl() {
                         variant="none"
                         effect="fade"
                         className="mt-4 self-start"
-                        onClick={() => setRequestListing(listing)}
+                        onClick={() => { setRequestListing(listing); setRequestHours(DEFAULT_REQUEST_DURATION_HOURS); setRequestPurpose(""); }}
                       >
-                        Request 30-day access
+                        Request access
                       </Button>
                       {listing.preview ? (
                         <ListingPreviewToggle presentation={listing.preview} />
@@ -1304,9 +1224,7 @@ function OneMarketplacePageImpl() {
               sellers delivered, decrypting each envelope on this device. */}
           <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Slices you requested. Once the owner approves in their Consent Guardian, the encrypted
-                safe summary is delivered here — decrypted on this device with a private key only you
-                hold. The server only ever relays ciphertext.
+                Review requested slices, payment and preparation status. Approved paid information appears after payment and encrypted preparation; it opens locally with your vault-protected connector.
               </p>
 
               {received.length === 0 ? (
@@ -1332,11 +1250,12 @@ function OneMarketplacePageImpl() {
                             </div>
                           </div>
                           <div className="text-right text-lg font-semibold tracking-tight">
-                            {formatCents(req.priceCents ?? 0, req.currency ?? "USD")}{" "}
-                            <span className="text-sm font-medium text-muted-foreground">/ 30 days</span>
+                            {typeof req.priceCents === "number" ? formatCents(req.priceCents, req.currency ?? "USD") : "Review price"}{" "}
+                            <span className="text-sm font-medium text-muted-foreground">on this request · confirm exact terms in Consent</span>
                           </div>
                         </div>
 
+                        <Link href={`/one/consent?commerceRequestId=${encodeURIComponent(req.id)}`} className="mt-2 inline-flex min-h-11 items-center text-sm underline">Review sharing request and preparation</Link>
                         {req.status === "approved" ? (
                           <div className="mt-3 border-t pt-3">
                             {delivery?.status === "loading" ? (
@@ -1361,7 +1280,7 @@ function OneMarketplacePageImpl() {
                                     ? delivery.message
                                     : delivery?.status === "empty"
                                       ? "Approved — the slice hasn’t been delivered yet. Check back shortly."
-                                      : "Approved — the encrypted safe summary was delivered to you."}
+                                      : "Consent approved. Check payment, preparation and delivery status."}
                                 </span>
                                 <Button
                                   type="button"
@@ -1398,7 +1317,7 @@ function OneMarketplacePageImpl() {
               <div className="rounded-xl bg-muted/30 px-4 py-3 text-[12.5px] text-muted-foreground">
                 Delivery is end-to-end encrypted: the seller sealed the slice against a public key you
                 published, and only this device holds the private half. The server relayed ciphertext
-                only — it never saw the data. Switching devices means re-requesting the slice.
+                only. Paid exports open with your vault-protected request connector; historical free deliveries may require the original device.
               </div>
           </div>
         </SwipeViews>
@@ -1417,7 +1336,7 @@ function OneMarketplacePageImpl() {
               Request access — {requestListing.label}
             </div>
             <p className="mt-2 text-sm text-muted-foreground">
-              You’re requesting <span className="font-medium text-foreground">30-day scoped access</span> to
+              You’re requesting <span className="font-medium text-foreground">{requestHours}-hour scoped access</span> to
               the safe summary of{" "}
               <span className="font-medium text-foreground">{requestListing.label}</span>, published by{" "}
               <span className="font-medium text-foreground">
@@ -1426,9 +1345,16 @@ function OneMarketplacePageImpl() {
               owner must approve — nothing is shared until they say yes.
             </p>
             <p className="mt-2 text-xs text-muted-foreground">
-              Consent-first by design. The request lands in the owner’s inbox. No money moves — payment
-              settlement is a later phase.
+              The owner reviews your purpose and duration. Paid information requires a separate exact-price confirmation from your funded balance after approval and before release.
             </p>
+            <label className="mt-4 block space-y-2 text-sm">Purpose
+              <textarea className="min-h-24 w-full rounded-lg border bg-background p-3" value={requestPurpose} maxLength={1000} onChange={event => setRequestPurpose(event.target.value)} />
+            </label>
+            <label className="mt-3 block space-y-2 text-sm">Access duration
+              <select className="min-h-11 w-full rounded-lg border bg-background px-3" value={requestHours} onChange={event => setRequestHours(Number(event.target.value))}>
+                {REQUEST_DURATION_OPTIONS.map(option => <option key={option.hours} value={option.hours}>{option.label}</option>)}
+              </select>
+            </label>
             <div className="mt-4 flex justify-end gap-2">
               <Button
                 type="button"
@@ -1444,6 +1370,7 @@ function OneMarketplacePageImpl() {
                 size="sm"
                 variant="none"
                 effect="fade"
+                disabled={!requestPurpose.trim() || !vaultKey}
                 onClick={confirmRequestListing}
               >
                 Confirm request

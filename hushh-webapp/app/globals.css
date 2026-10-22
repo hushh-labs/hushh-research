@@ -3432,7 +3432,7 @@ html.native-keyboard-inset iframe[id^="plaid-link-iframe"] {
  * flipping and two backdrop-blur layers taking their first paint in the
  * middle of the composer's descent, which the keyboard trace showed as a
  * 4 px step followed by a 74 px step (bug log B48). */
-html.kb-open:not(.native-keyboard-inset) [data-app-bottom-shell]:not([data-agent-dock-chat]),
+html.kb-open:not(.native-keyboard-inset) [data-app-bottom-shell]:not([data-agent-dock-chat]):not([data-messages-dock]),
 html.kb-open:not(.native-keyboard-inset) .ambient-chrome-mask--bottom {
   opacity: 0;
   visibility: hidden;
@@ -3476,7 +3476,7 @@ html.kb-open [data-circle-invite-picker] .circle-invite-group > div:first-child 
  * Ultra, 2026-09-22). iOS keeps its frame and the keyboard covers the tab
  * bar; here the tab bar steps aside for the same result, and the root
  * composer gives back the room it reserved for the bar. */
-html.kb-open.kb-resizes [data-app-bottom-shell]:not([data-agent-dock-chat]),
+html.kb-open.kb-resizes [data-app-bottom-shell]:not([data-agent-dock-chat]):not([data-messages-dock]),
 html.kb-open.kb-resizes .ambient-chrome-mask--bottom {
   opacity: 0;
   visibility: hidden;
@@ -5116,8 +5116,8 @@ body:has([data-testid="one-location-onboarding"])
 
 .dark {
   /* Foundation dark — PDF pitch-black bg #0a0a0c, elevated card #15151c.
-     Accent tuned BRIGHT for legibility on black; the light -deep tone is
-     too faint on dark surfaces. */
+     The accent -deep stays #007aff by design (see the ONE Action Blue note
+     below); only the translucent tint/surface washes take alpha form on dark. */
 
   /* ── App accent family (dark) ── iOS Blue default; gold overrides live
      under html[data-accent="gold"].dark below. ONE Action Blue across both
@@ -6545,9 +6545,8 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 .agent-chat-composer-surface {
   border-radius: 1.5rem;
 }
-/* Uniform rows align as a group, not per-row: a title-only sibling in a
- * group with supporting copy must share the same title baseline. Groups
- * containing only titles retain centered icons, titles and trailing actions. */
+/* Supporting copy shares a title baseline across uniform rows. Title-only
+ * siblings keep titles, icons and trailing actions centered as row heights grow. */
 [data-settings-row-sizing="uniform"]:has(> [data-row-layout] [data-slot="settings-row-description"])
   > [data-row-layout] [data-slot="settings-row-main"] {
   align-self: stretch;
@@ -6555,6 +6554,10 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 [data-settings-row-sizing="uniform"]:has(> [data-row-layout] [data-slot="settings-row-description"])
   > [data-row-layout] [data-slot="settings-row-copy"] {
   align-self: flex-start;
+}
+[data-settings-row-sizing="uniform"]:has(> [data-row-layout] [data-slot="settings-row-description"])
+  > [data-row-layout]:not(:has([data-slot="settings-row-description"])) [data-slot="settings-row-copy"] {
+  align-self: center;
 }
 
 .agent-chat-composer-compact {
@@ -6601,7 +6604,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
    made the same bar appear to disappear/reinstall on Talk -> Message. */
 /* Keep the one composer available above the keyboard. Only navigation steps
  * aside; hiding the whole shell would also hide its now-shared input. */
-html.kb-open [data-agent-dock-chat] [data-bottom-shell-navigation-slot] {
+html.kb-open :is([data-agent-dock-chat], [data-messages-dock]) [data-bottom-shell-navigation-slot] {
   visibility: hidden;
   pointer-events: none;
 }
@@ -6611,31 +6614,30 @@ html.kb-open [data-messages-dock]:not([data-command-active="true"]):not(:has([da
   visibility: hidden;
   pointer-events: none;
 }
-html.kb-open [data-agent-dock-chat] [data-bottom-shell-motion-stack] {
+html.kb-open :is([data-agent-dock-chat], [data-messages-dock]) [data-bottom-shell-motion-stack] {
   transform: none !important;
 }
 /* NativeDockPlacement follows UIKit's keyboard guide. Its DOM reservation
  * stays at the authored resting position; translating it would feed a second
  * keyboard offset back into the next native projection. */
-html:not(.kb-resizes) [data-agent-dock-chat]:not([data-native-agent-dock]) [data-bottom-shell-agent-slot] {
-  /* Shell admission can briefly report zero navigation height. That is not
-     a keyboard event and must not start an 8px keyboard animation. */
+html:not(.kb-resizes) :is([data-agent-dock-chat], [data-messages-dock]):not([data-native-agent-dock]) [data-bottom-shell-agent-slot] {
+  /* A zero navigation reservation is not a keyboard event. */
   translate: 0 0;
   transition: translate var(--kb-motion-duration) var(--kb-motion-curve);
 }
-html.kb-open:not(.kb-resizes) [data-agent-dock-chat]:not([data-native-agent-dock]) [data-bottom-shell-agent-slot] {
+html.kb-open:not(.kb-resizes) :is([data-agent-dock-chat], [data-messages-dock]):not([data-native-agent-dock]) [data-bottom-shell-agent-slot] {
   translate: 0 calc(max(0px, var(--kb-height, 0px) - var(--app-bottom-shell-keyboard-reservation, var(--app-bottom-shell-height, 0px)) + 0.5rem) * -1);
 }
-html.kb-open.kb-resizes [data-agent-dock-chat] {
+html.kb-open.kb-resizes :is([data-agent-dock-chat], [data-messages-dock]) {
   padding-bottom: 0.5rem !important;
 }
-html.kb-open.kb-resizes [data-agent-dock-chat] [data-bottom-shell-navigation-slot] {
+html.kb-open.kb-resizes :is([data-agent-dock-chat], [data-messages-dock]) [data-bottom-shell-navigation-slot] {
   display: none;
 }
 @media (prefers-reduced-motion: reduce) {
   [data-agent-dock-composer]:not([hidden]),
   [data-agent-dock-voice]:not([hidden]) { animation: none; }
-  html:not(.kb-resizes) [data-agent-dock-chat] [data-bottom-shell-agent-slot] { transition: none; }
+  html:not(.kb-resizes) :is([data-agent-dock-chat], [data-messages-dock]) [data-bottom-shell-agent-slot] { transition: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -8048,12 +8050,6 @@ html.native-reserved-chrome:not([data-session-check-active]) [data-slot="sheet-c
   top: var(--native-overlay-top, 0px);
   max-height: calc(100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px));
 }
-/* The shared inset-pane recipe uses important geometry. Reconcile its inputs
- * with acknowledged native seats instead of competing with those declarations. */
-html.native-reserved-chrome:not([data-session-check-active]) [data-app-side-pane] {
-  --app-side-pane-top-inset: max(var(--native-overlay-top, 0px), var(--app-side-pane-gutter), var(--app-safe-area-top-effective, 0px));
-  --app-side-pane-bottom-inset: max(var(--native-overlay-bottom, 0px), var(--app-side-pane-gutter), env(safe-area-inset-bottom, 0px));
-}
 html.native-reserved-chrome:not(.native-full-window-overlays):not([data-session-check-active]) [data-testid="profile-pane"] > [data-slot="sheet-header"] {
   padding-top: 1rem;
 }
@@ -8074,21 +8070,10 @@ html.native-reserved-chrome:not(.native-full-window-overlays):not([data-session-
 html.native-reserved-chrome.native-full-window-overlays:not([data-session-check-active]) :is(
   [data-testid="profile-pane"], [data-profile-preview], [data-agent-history-drawer]
 ) {
-  /* Do not let the web card's geometry defeat negotiated full-window coverage. */
-  top: 0 !important;
-  bottom: 0 !important;
-  height: 100dvh !important;
-}
-html.native-reserved-chrome.native-full-window-overlays:not([data-session-check-active]) [data-testid="profile-pane"] {
-  right: 0 !important;
-  width: min(430px, 100vw) !important;
-  border-radius: 24px 0 0 24px !important;
-}
-html.native-reserved-chrome.native-full-window-overlays:not([data-session-check-active]) [data-agent-history-drawer] {
-  left: 0 !important;
-  right: auto !important;
-  width: min(430px, 100vw) !important;
-  border-radius: 0 24px 24px 0 !important;
+  /* Coverage admits the overlay; the canonical bounded-pane geometry still owns it. */
+  top: 0;
+  bottom: 0;
+  height: auto;
 }
 html.native-full-window-overlays:not([data-native-full-window-covered]) :is(
   [data-profile-preview], [data-profile-preview-scrim],
@@ -9240,13 +9225,9 @@ body[data-persona-surface="ria"] {
    lib/boot/boot-sequence.ts (show after 200 ms, at least 400 ms once shown,
    150 ms exit). Transform and opacity only; flat Morphy surface, no blur.
 
-   Mark geometry continues the iOS launch screen. Splash.imageset draws the
-   shushing face centred, its ink 403/2732 of the square image, and the
-   storyboard aspect-fills the screen, so on a phone the ink is 14.751% of
-   the screen height. Apple Color Emoji's ink is 0.96 of the font size and
-   sits 0.0267 of it above the line box centre (measured in WebKit and
-   Chromium), so the glyph is sized from the ink box and nudged down by that
-   amount to put the ink, not the line box, on the centre.
+   Mark geometry continues the current iOS Splash.imageset. Its centred
+   brand artwork is 202/2732 of the square image; LaunchScreen.storyboard
+   aspect-fills the screen. The transparent runtime mark keeps that height.
    ========================================================================== */
 /* --boot-spring is a critically damped spring (damping ratio 1, so it
    cannot overshoot or bounce): x(t) = 1 - (1 + 10t)e^(-10t), sampled. */
@@ -9291,7 +9272,10 @@ body[data-persona-surface="ria"] {
 
 /* Native shells: the launch surface is the splash's own colours and mark
    size, following the system appearance the splash was drawn in. */
-html.native-ios .boot-surface,
+html.native-ios .boot-surface {
+  --boot-mark-size: calc(100lvh * 202 / 2732);
+}
+
 html.native-android .boot-surface {
   --boot-mark-size: calc(100lvh * 403 / 2732);
 }
@@ -10033,9 +10017,6 @@ html:has([data-profile-type-scale]),
   --referral-medal-light: #d4a574;
 }
 
-/* One shared header measure, including feature-page and History reservations.
-   Identity and actions share one row. The optional cloud-model picker moves
-   into One's existing profile on phones, not another shell row. */
 .agent-chat-header [data-agent-chat-one-profile-trigger] {
   border-radius: 0;
   background: transparent;
@@ -10052,6 +10033,9 @@ html:has([data-profile-type-scale]),
   outline: 1px solid var(--app-focus-ring);
   outline-offset: 2px;
 }
+/* One shared header measure, including feature-page and History reservations.
+   Identity and actions share one row. The optional cloud-model picker moves
+   into One's existing profile on phones, not another shell row. */
 .agent-chat-header {
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr) auto;

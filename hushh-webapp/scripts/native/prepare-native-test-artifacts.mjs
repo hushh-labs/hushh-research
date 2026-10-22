@@ -65,7 +65,7 @@ export function writeNativeUiFlowsManifest({
   routeFilter = "",
 } = {}) {
   const flows = filterUiFlows({ flowFilter, routeFilter });
-  const flowsPublicPath = path.join(
+  const flowsPublicPath = path.resolve(
     root,
     ensureWebAssetDirEnvironment(),
     "native-ui-flows.json",
@@ -106,7 +106,7 @@ export function copyNativeImportE2eAsset({
   }
 
   const relativeAssetPath = KAI_IMPORT_E2E_ASSET_PATH.replace(/^\/+/, "");
-  const destination = path.join(
+  const destination = path.resolve(
     root,
     ensureWebAssetDirEnvironment(),
     relativeAssetPath,
@@ -121,7 +121,7 @@ export function copyNativeImportE2eAsset({
 
 export function syncNativeUiTestRunner({ repoRoot: root = repoRoot } = {}) {
   const sourcePath = path.join(root, "scripts/native/native-ui-test-runner-source.js");
-  const publicRunnerPath = path.join(
+  const publicRunnerPath = path.resolve(
     root,
     ensureWebAssetDirEnvironment(),
     "native-ui-test-runner.js",

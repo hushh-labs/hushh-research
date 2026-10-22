@@ -98,32 +98,40 @@ async def test_locked_authority_reuses_connection(monkeypatch):
     ],
 )
 async def test_pwm_completion_keeps_failed_outbox_without_feed_action(
-    status, report, expected_outcome, expected_email
+    status, report, expected_outcome, expected_email, monkeypatch
 ):
-    from hushh_mcp.services.world_model_preferences import checkpoint_committed
+    from hushh_mcp.services import world_model_preferences as preferences
+
+    monkeypatch.setattr(
+        preferences, "load_pwm_policy", lambda: {"provider": "azure_openai_web_search"}
+    )
 
     generation, draft_id = uuid4(), uuid4()
     calls = []
+    consent = None
 
     class Conn:
         async def fetchrow(self, _sql, _user_id, *, timeout):
             assert timeout == 5
-            return {"enabled": True, "generation": generation}
+            return {"enabled": True, "generation": generation, "consent_version": consent}
 
         async def execute(self, sql, *args, timeout):
             assert timeout == 5
             calls.append((sql, args))
 
-    await checkpoint_committed(
-        Conn(),
-        "recipient",
-        {
-            "job_id": str(draft_id),
-            "consent_generation": str(generation),
-            "status": status,
-            "result": {"report": report},
-        },
-    )
+    state = {
+        "job_id": str(draft_id),
+        "consent_generation": str(generation),
+        "status": status,
+        "result": {"report": report},
+    }
+    for marker in (None, preferences.NATIVE_CONSENT_VERSION):
+        consent = marker
+        with pytest.raises(PermissionError, match="Azure research needs owner opt-in"):
+            await preferences.checkpoint_committed(Conn(), "recipient", state)
+        assert calls == []
+    consent = preferences.AZURE_BING_CONSENT_VERSION
+    await preferences.checkpoint_committed(Conn(), "recipient", state)
     completion = next(
         (sql, args) for sql, args in calls if "INSERT INTO pwm_completion_events" in sql
     )
@@ -203,6 +211,81 @@ async def test_phone_claim_retains_current_binding_until_commit(request, monkeyp
         await pool.close()
 
 
+async def _assert_transaction_owner_lineage(pool, monkeypatch):
+    from hushh_mcp.services.consent_db import ConsentDBService
+
+    service = ConsentDBService()
+    monkeypatch.setattr(
+        service, "_get_db", lambda: pytest.fail("Owner lineage left the claim transaction")
+    )
+    await pool.execute("""CREATE TABLE internal_access_events (
+        id bigserial PRIMARY KEY, user_id text, agent_id text, scope text,
+        action text, token_id text, expires_at bigint)""")
+    exact_token = "exact-fixture"
+    async with pool.acquire() as connection, connection.transaction():
+        await connection.execute("""INSERT INTO internal_access_events
+            (user_id,agent_id,scope,action,token_id,expires_at)
+            VALUES ('recipient','self','vault.owner','CONSENT_GRANTED','exact-fixture',9223372036854775807)""")
+        assert await service.is_token_active(
+            "recipient", "vault.owner", "self", token_id=exact_token, conn=connection
+        )
+        await connection.execute("""INSERT INTO internal_access_events
+            (user_id,agent_id,scope,action,token_id)
+            VALUES ('recipient','self','vault.owner','REVOKED','exact-fixture')""")
+        assert not await service.is_token_active(
+            "recipient", "vault.owner", "self", token_id=exact_token, conn=connection
+        )
+
+
+async def _assert_claim_expiry_after_lock_wait(pool, settings):
+    import asyncio
+
+    import asyncpg
+
+    # A claim transaction starts while valid, then waits on the owner lock.
+    # Expiry must be evaluated when the mutation runs, after that wait.
+    fourth = await invites.create("inviter", "fixture", "recipient@example.test")
+    blocker = await asyncpg.connect(
+        host=settings["host"],
+        port=int(settings["port"]),
+        database=settings["dbname"],
+        user=settings["user"],
+        ssl=False,
+    )
+    committed = False
+    transaction = blocker.transaction()
+    await transaction.start()
+    blocked = None
+    try:
+        await invites.lock_connection_graph_users_async(blocker, user_ids=["inviter", "recipient"])
+        await blocker.execute(
+            "UPDATE pwm_claim_invitations SET expires_at=clock_timestamp()+interval '200 milliseconds' WHERE id=$1",
+            UUID(fourth["id"]),
+        )
+        blocked = asyncio.create_task(invites.claim("recipient", "fixture", fourth["token"]))
+        # Confirm a live lock wait before crossing the deadline.
+        for _ in range(100):
+            if await blocker.fetchval(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event='advisory' AND datname=current_database())"
+            ):
+                break
+            await asyncio.sleep(0.01)
+        else:
+            pytest.fail("Claim never reached the lock wait")
+        await blocker.execute("SELECT pg_sleep(0.25)")
+        await transaction.commit()
+        committed = True
+        with pytest.raises(ValueError):
+            await asyncio.wait_for(blocked, 2)
+    finally:
+        if blocked is not None and not blocked.done():
+            blocked.cancel()
+            await asyncio.gather(blocked, return_exceptions=True)
+        if not committed:
+            await transaction.rollback()
+        await blocker.close()
+
+
 @pytest.mark.asyncio
 async def test_claim_contract_on_single_connection_postgres(request, monkeypatch):
     if sys.platform == "win32" or os.name != "posix":
@@ -241,6 +324,7 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
             INSERT INTO actor_profiles VALUES ('inviter'),('recipient'),('wrong');
             CREATE TABLE vault_keys(user_id text PRIMARY KEY, setup_completed bool, vault_status text);
             INSERT INTO vault_keys SELECT user_id,true,'active' FROM actor_profiles;""")
+        await _assert_transaction_owner_lineage(pool, monkeypatch)
         migration = (ROOT / "db/migrations/336_pwm_claim_invitations.sql").read_text()
         await pool.execute(migration)
         await pool.execute(migration)
@@ -317,6 +401,7 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
             await invites.preview(third["token"])
         with pytest.raises(ValueError):
             await invites.claim("recipient", "fixture", third["token"])
+        await _assert_claim_expiry_after_lock_wait(pool, settings)
         await pool.execute("UPDATE vault_keys SET setup_completed=false WHERE user_id='inviter'")
         with pytest.raises(PermissionError):
             await invites.create("inviter", "fixture", "recipient@example.test")
@@ -326,8 +411,9 @@ async def test_claim_contract_on_single_connection_postgres(request, monkeypatch
 
         generation, draft_id = uuid4(), uuid4()
         await pool.execute(
-            "INSERT INTO pwm_research_preferences(user_id,enabled,email_enabled,generation) VALUES ('recipient',true,true,$1)",
+            "INSERT INTO pwm_research_preferences(user_id,enabled,email_enabled,generation,consent_version) VALUES ('recipient',true,true,$1,$2)",
             generation,
+            "pwm-azure-bing-v1",
         )
         state = {
             "job_id": str(draft_id),

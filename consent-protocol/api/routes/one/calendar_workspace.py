@@ -10,14 +10,16 @@ from pydantic import BaseModel, Field, StrictBool
 
 from api.middleware import (
     require_firebase_auth,
-    require_firebase_auth_read_only,
-    require_vault_owner_token,
     verify_user_id_match,
 )
 from api.middlewares.observability import get_request_id
 from api.middlewares.rate_limit import limiter
 from api.routes.one.calendar import _http
 from hushh_mcp.services.google_connection_service import GoogleConnectionError
+from hushh_mcp.services.owner_placement_guard import (
+    hub_content_firebase_read_only,
+    hub_content_owner,
+)
 
 router = APIRouter(prefix="/api/one/calendar", tags=["One Calendar Workspace"])
 
@@ -123,7 +125,7 @@ class CalendarConflictConfirmRequest(BaseModel):
 async def calendar_board_day(
     payload: CalendarBoardDay,
     response: Response,
-    firebase_uid: str = Depends(require_firebase_auth_read_only),
+    firebase_uid: str = Depends(hub_content_firebase_read_only),
 ):
     try:
         from hushh_mcp.services.calendar_account_board_service import CalendarAccountBoardService
@@ -137,7 +139,7 @@ async def calendar_board_day(
 @router.post("/conflicts/review")
 async def calendar_conflict_review(
     payload: CalendarConflictReviewRequest,
-    token: dict = Depends(require_vault_owner_token),
+    token: dict = Depends(hub_content_owner),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     verify_user_id_match(firebase_uid, token["user_id"])
@@ -162,7 +164,7 @@ async def calendar_conflict_review(
 @router.post("/conflicts/confirm")
 async def calendar_conflict_confirm(
     payload: CalendarConflictConfirmRequest,
-    token: dict = Depends(require_vault_owner_token),
+    token: dict = Depends(hub_content_owner),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     verify_user_id_match(firebase_uid, token["user_id"])
@@ -180,7 +182,7 @@ async def calendar_conflict_confirm(
 async def schedule_today(
     payload: CalendarDay,
     response: Response,
-    firebase_uid: str = Depends(require_firebase_auth_read_only),
+    firebase_uid: str = Depends(hub_content_firebase_read_only),
 ):
     try:
         response.headers["Cache-Control"] = "private, no-store"
@@ -193,7 +195,7 @@ async def schedule_today(
 async def schedule_availability(
     payload: CalendarAvailabilityWindow,
     response: Response,
-    firebase_uid: str = Depends(require_firebase_auth_read_only),
+    firebase_uid: str = Depends(hub_content_firebase_read_only),
 ):
     try:
         response.headers["Cache-Control"] = "private, no-store"
@@ -224,7 +226,7 @@ async def schedule_availability(
 async def invitations(
     payload: CalendarInvitationsWindow,
     response: Response,
-    firebase_uid: str = Depends(require_firebase_auth_read_only),
+    firebase_uid: str = Depends(hub_content_firebase_read_only),
 ):
     try:
         response.headers["Cache-Control"] = "private, no-store"
@@ -238,7 +240,7 @@ async def invitations(
 @router.post("/attendance/review")
 async def attendance_review(
     payload: CalendarAttendanceReview,
-    token: dict = Depends(require_vault_owner_token),
+    token: dict = Depends(hub_content_owner),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     verify_user_id_match(firebase_uid, token["user_id"])
@@ -261,7 +263,7 @@ async def attendance_review(
 @router.post("/attendance/confirm")
 async def attendance_confirm(
     payload: CalendarAttendanceConfirm,
-    token: dict = Depends(require_vault_owner_token),
+    token: dict = Depends(hub_content_owner),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     verify_user_id_match(firebase_uid, token["user_id"])
@@ -316,7 +318,7 @@ def _artifacts():
 async def insights(
     payload: CalendarDay,
     response: Response,
-    firebase_uid: str = Depends(require_firebase_auth_read_only),
+    firebase_uid: str = Depends(hub_content_firebase_read_only),
 ):
     response.headers["Cache-Control"] = "private, no-store"
     try:
@@ -333,7 +335,7 @@ class CalendarMeetingPage(CalendarDay):
 async def meeting_library(
     payload: CalendarMeetingPage,
     response: Response,
-    firebase_uid: str = Depends(require_firebase_auth_read_only),
+    firebase_uid: str = Depends(hub_content_firebase_read_only),
 ):
     response.headers["Cache-Control"] = "private, no-store"
     try:
@@ -346,7 +348,7 @@ async def meeting_library(
 async def meeting_detail(
     payload: CalendarMeetingSelection,
     response: Response,
-    firebase_uid: str = Depends(require_firebase_auth_read_only),
+    firebase_uid: str = Depends(hub_content_firebase_read_only),
 ):
     response.headers["Cache-Control"] = "private, no-store"
     try:
@@ -359,7 +361,7 @@ async def meeting_detail(
 async def meeting_context(
     payload: CalendarMeetingSelection,
     response: Response,
-    token: dict = Depends(require_vault_owner_token),
+    token: dict = Depends(hub_content_owner),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     verify_user_id_match(firebase_uid, token["user_id"])

@@ -15,6 +15,14 @@ const ONE_API_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000, {
   developmentFloorMs: 45_000,
   overrideEnvKey: "HUSHH_ONE_API_TIMEOUT_MS",
 });
+// One rung above the hub proxy's 160 s (`pod_relay._TURN_TIMEOUT_SECONDS`), which
+// sits above the pod route's 155 s typed 504. A Puppy turn on a cold local model can
+// legitimately run past two minutes; the ladder is pinned in
+// consent-protocol/tests/test_timeout_ladder.py.
+const ONE_TURN_TIMEOUT_MS = resolveSlowRequestTimeoutMs(165_000, {
+  developmentFloorMs: 165_000,
+  overrideEnvKey: "HUSHH_ONE_TURN_TIMEOUT_MS",
+});
 const ONE_EMAIL_DRAFT_TIMEOUT_MS = resolveSlowRequestTimeoutMs(75_000, {
   developmentFloorMs: 75_000,
   overrideEnvKey: "HUSHH_ONE_EMAIL_DRAFT_TIMEOUT_MS",
@@ -37,7 +45,10 @@ const ONE_STREAM_TIMEOUT_MS = resolveSlowRequestTimeoutMs(285_000, {
 
 const CIRCLE_CHAT_MAX_REQUEST_BYTES = 9_000_000;
 const DIRECT_MESSAGE_MAX_REQUEST_BYTES = 7_054_508;
-async function readCircleChatBody(request: NextRequest, maximum = CIRCLE_CHAT_MAX_REQUEST_BYTES): Promise<string> {
+async function readCircleChatBody(
+  request: NextRequest,
+  maximum = CIRCLE_CHAT_MAX_REQUEST_BYTES,
+): Promise<string> {
   const declared = request.headers.get("content-length");
   if (declared && (!/^\d+$/.test(declared) || Number(declared) > maximum)) {
     throw new RangeError("Chat request is too large");
@@ -47,7 +58,10 @@ async function readCircleChatBody(request: NextRequest, maximum = CIRCLE_CHAT_MA
   const chunks: Uint8Array[] = [];
   let size = 0;
   let timedOut = false;
-  const timeout = setTimeout(() => { timedOut = true; void reader.cancel(); }, 30_000);
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    void reader.cancel();
+  }, 30_000);
   try {
     while (true) {
       const chunk = await reader.read();
@@ -56,26 +70,20 @@ async function readCircleChatBody(request: NextRequest, maximum = CIRCLE_CHAT_MA
       if (size > maximum) throw new RangeError("Chat request is too large");
       chunks.push(chunk.value);
     }
-    if (timedOut) throw new DOMException("Chat request timed out", "TimeoutError");
+    if (timedOut)
+      throw new DOMException("Chat request timed out", "TimeoutError");
     const body = new Uint8Array(size);
     let offset = 0;
-    for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
+    for (const chunk of chunks) {
+      body.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
     return new TextDecoder().decode(body);
-  } finally { clearTimeout(timeout); await reader.cancel(); reader.releaseLock(); }
-}
-
-function requestTimeoutMs(path: string, acceptHeader: string | null): number {
-  if (path === "world-model/source-reviews") return 170_000;
-  if (path === "agent-chat/proposals") return ONE_LOCATION_PROPOSAL_TIMEOUT_MS;
-  if (path === "email/draft") return ONE_EMAIL_DRAFT_TIMEOUT_MS;
-  if (path === "email/draft/save") return ONE_EMAIL_DRAFT_TIMEOUT_MS;
-  if (path === "email/information-requests/scan") return ONE_KYC_SCAN_TIMEOUT_MS;
-  const acceptsEventStream =
-    acceptHeader?.toLowerCase().includes("text/event-stream") ?? false;
-  const isKnownStreamRoute = path === "agent-chat" || path.endsWith("/stream");
-  return acceptsEventStream || isKnownStreamRoute
-    ? ONE_STREAM_TIMEOUT_MS
-    : ONE_API_TIMEOUT_MS;
+  } finally {
+    clearTimeout(timeout);
+    await reader.cancel();
+    reader.releaseLock();
+  }
 }
 
 function privateResponseHeaders(upstream?: Response): Headers {
@@ -94,7 +102,8 @@ function privateResponseHeaders(upstream?: Response): Headers {
 function isUpstreamTimeoutError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const causeCode =
-    typeof (error as Error & { cause?: { code?: unknown } }).cause?.code === "string"
+    typeof (error as Error & { cause?: { code?: unknown } }).cause?.code ===
+    "string"
       ? (error as Error & { cause: { code: string } }).cause.code
       : "";
   const message = error.message.toLowerCase();
@@ -104,6 +113,109 @@ function isUpstreamTimeoutError(error: unknown): boolean {
     message.includes("timed out") ||
     causeCode === "UND_ERR_HEADERS_TIMEOUT"
   );
+}
+
+/**
+ * Per-path upstream timeout. `null` means "no proxy-imposed deadline": the
+ * upstream fetch carries only the caller's own abort signal.
+ *
+ * The lifecycle stream MUST be null. Its segments are ~40s of held-open SSE,
+ * and the previous blanket `AbortSignal.timeout(45_000)` was a live landmine
+ * for any stream on this proxy: the passthrough branch below hands
+ * `response.body` to the client with headers already flushed, so when the
+ * timeout fired mid-body the catch could not run -- the client saw HTTP 200,
+ * `text/event-stream`, some frames, then a reset, indistinguishable from a
+ * clean close. Segmentation makes that survivable; this makes it not happen.
+ *
+ * Resolution is per-path, NOT via HUSHH_ONE_API_TIMEOUT_MS: that override is
+ * read once at module scope and would unbound every JSON route on this proxy
+ * at once, which is precisely the blanket behavior being retired.
+ */
+function resolveOneUpstreamTimeoutMs(
+  path: string,
+  acceptHeader: string | null,
+): number | null {
+  if (path === "world-model/source-reviews") return 170_000;
+  if (path === "agent-chat/proposals") return ONE_LOCATION_PROPOSAL_TIMEOUT_MS;
+  if (path === "pod/lifecycle/stream") {
+    return null;
+  }
+  // Agent chat is an SSE connection. An AbortSignal.timeout stays attached to
+  // the response body after fetch resolves, so it would cut off a valid
+  // response mid-stream even while the backend is still sending keep-alives.
+  // Let the browser disconnect signal own that stream's lifetime instead
+  // (ported from main, 701a370d4).
+  if (path === "agent-chat") {
+    return null;
+  }
+  // The one-click cloud completion legitimately runs long: create project,
+  // link billing, enable ten APIs, apply IAM, then wait for Google to settle
+  // the fresh grant (the backend bounds that wait at 45s from ITS start).
+  // Under the blanket 45s this proxy abandoned the call at the same instant
+  // the backend emitted its typed "press Continue again" refusal, so the
+  // browser showed a generic failure for a call that usually succeeds moments
+  // later (audit finding, 2026-08-21). 55s keeps the whole chain inside the
+  // web client's own 60s abort while letting the backend's answer arrive.
+  if (path === "runtime/byoc/authorize/complete") {
+    return 55_000;
+  }
+  if (/^u\/[^/]+\/turn$/.test(path)) {
+    return ONE_TURN_TIMEOUT_MS;
+  }
+  if (path === "files/analyze") return 130_000;
+  if (path === "email/draft" || path === "email/draft/save")
+    return ONE_EMAIL_DRAFT_TIMEOUT_MS;
+  if (path === "email/information-requests/scan")
+    return ONE_KYC_SCAN_TIMEOUT_MS;
+  // Streaming routes (agent-chat, any `/stream` endpoint, or a caller that
+  // asks for text/event-stream) hold open far longer than a JSON call, so the
+  // 45s API deadline would sever them mid-body. They get the stream budget.
+  const acceptsEventStream =
+    acceptHeader?.toLowerCase().includes("text/event-stream") ?? false;
+  const isKnownStreamRoute = path === "agent-chat" || path.endsWith("/stream");
+  if (acceptsEventStream || isKnownStreamRoute) {
+    return ONE_STREAM_TIMEOUT_MS;
+  }
+  return ONE_API_TIMEOUT_MS;
+}
+
+/** The Kai proxy's signal resolution, ported verbatim in behavior: a null
+ * timeout yields the bare request signal, so a client disconnect still cancels
+ * the upstream fetch and nothing else does. */
+function resolveUpstreamSignal(
+  requestSignal: AbortSignal,
+  timeoutMs: number | null,
+): AbortSignal {
+  if (!timeoutMs) {
+    return requestSignal;
+  }
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const anySignal = (
+    AbortSignal as typeof AbortSignal & {
+      any?: (signals: AbortSignal[]) => AbortSignal;
+    }
+  ).any;
+  if (typeof anySignal === "function") {
+    return anySignal([requestSignal, timeoutSignal]);
+  }
+  const controller = new AbortController();
+  const abortFrom = (signal: AbortSignal) => {
+    if (controller.signal.aborted) return;
+    controller.abort(signal.reason);
+  };
+  if (requestSignal.aborted) {
+    abortFrom(requestSignal);
+  } else if (timeoutSignal.aborted) {
+    abortFrom(timeoutSignal);
+  } else {
+    requestSignal.addEventListener("abort", () => abortFrom(requestSignal), {
+      once: true,
+    });
+    timeoutSignal.addEventListener("abort", () => abortFrom(timeoutSignal), {
+      once: true,
+    });
+  }
+  return controller.signal;
 }
 
 async function proxyRequest(request: NextRequest, params: { path: string[] }) {
@@ -116,7 +228,8 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
   // history is sealed with it; forwarded as-is and never logged or cached.
   const chatKeyHeader = request.headers.get(ONE_CHAT_KEY_HEADER);
   const voiceTurnIdHeader =
-    request.headers.get("x-voice-turn-id") || request.headers.get("X-Voice-Turn-Id");
+    request.headers.get("x-voice-turn-id") ||
+    request.headers.get("X-Voice-Turn-Id");
   const acceptHeader = request.headers.get("accept");
   const contentType = request.headers.get("content-type") || "";
 
@@ -127,29 +240,42 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     if (chatKeyHeader) headers.set(ONE_CHAT_KEY_HEADER, chatKeyHeader);
     if (acceptHeader) headers.set("Accept", acceptHeader);
     if (voiceTurnIdHeader) headers.set("X-Voice-Turn-Id", voiceTurnIdHeader);
+    if (path.startsWith("files/")) {
+      for (const name of ["X-Files-Library-Id", "X-Files-Mutation-Lease"]) {
+        const value = request.headers.get(name);
+        if (value) headers.set(name, value);
+      }
+    }
 
     let body: BodyInit | undefined;
     if (request.method !== "GET" && request.method !== "HEAD") {
       headers.set("Content-Type", contentType || "application/json");
-      body = (await (/^circles\/[^/]+\/photo$/.test(path) ? readCircleChatBody(request, 430000) :
-        /^circles\/[^/]+\/chat(?:\/|$)/.test(path) ? readCircleChatBody(request) :
-        path === "messages" && request.method === "POST" ? readCircleChatBody(request, DIRECT_MESSAGE_MAX_REQUEST_BYTES) : path.startsWith("wallet/card-access") ? readCircleChatBody(request, 16384) : request.text())) || undefined;
+      body =
+        (await (/^circles\/[^/]+\/photo$/.test(path)
+          ? readCircleChatBody(request, 430000)
+          : /^circles\/[^/]+\/chat(?:\/|$)/.test(path)
+            ? readCircleChatBody(request)
+            : path === "messages" && request.method === "POST"
+              ? readCircleChatBody(request, DIRECT_MESSAGE_MAX_REQUEST_BYTES)
+              : path.startsWith("wallet/card-access")
+                ? readCircleChatBody(request, 16384)
+                : /^files\/objects\/[a-f0-9]{64}\/[a-f0-9]{64}$/.test(path)
+                  ? readCircleChatBody(request, 5_770_000)
+                  : path === "files/analyze"
+                    ? readCircleChatBody(request, 393216)
+                    : path === "files/storage"
+                      ? readCircleChatBody(request, 512)
+                      : request.text())) || undefined;
     }
-
-    // Agent chat is an SSE connection. An AbortSignal.timeout stays attached to
-    // the response body after fetch resolves, so it would cut off a valid
-    // response mid-stream even while the backend is still sending keep-alives.
-    // Let the browser disconnect signal own that stream's lifetime instead.
-    const upstreamSignal =
-      path === "agent-chat"
-        ? request.signal
-        : AbortSignal.any([request.signal, AbortSignal.timeout(requestTimeoutMs(path, acceptHeader))]);
 
     const response = await fetch(url, {
       method: request.method,
       headers,
       body,
-      signal: upstreamSignal,
+      signal: resolveUpstreamSignal(
+        request.signal,
+        resolveOneUpstreamTimeoutMs(path, acceptHeader),
+      ),
     });
 
     // A streamed upstream must be handed through untouched. The JSON path below
@@ -168,9 +294,18 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       artworkHeaders.set("x-request-id", requestId);
       return new Response(response.body, { status: response.status, headers: artworkHeaders });
     }
-    if (request.method === "GET" && /^messages\/conversations\/[^/]+\/messages\/[^/]+\/attachment$/.test(path) && response.ok) {
+    if (
+      request.method === "GET" &&
+      /^messages\/conversations\/[^/]+\/messages\/[^/]+\/attachment$/.test(
+        path,
+      ) &&
+      response.ok
+    ) {
       const headers = privateResponseHeaders(response);
-      headers.set("Content-Type", responseContentType || "application/octet-stream");
+      headers.set(
+        "Content-Type",
+        responseContentType || "application/octet-stream",
+      );
       headers.set("Content-Disposition", "attachment");
       headers.set("X-Content-Type-Options", "nosniff");
       headers.set("x-request-id", requestId);
@@ -207,8 +342,11 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     });
   } catch (error) {
     if (error instanceof RangeError) {
-      return withRequestIdJson(requestId, { error: "Chat request is too large" },
-        { status: 413, headers: privateResponseHeaders() });
+      return withRequestIdJson(
+        requestId,
+        { error: "Chat request is too large" },
+        { status: 413, headers: privateResponseHeaders() },
+      );
     }
     if (path === "calendar/schedule/availability") {
       const timedOut = isUpstreamTimeoutError(error) || (error instanceof DOMException && error.name === "TimeoutError");
@@ -222,44 +360,45 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       requestId,
       {
         error: "One API unavailable",
-        message: "The request could not be completed right now. Please try again.",
+        message:
+          "The request could not be completed right now. Please try again.",
       },
-      { status: statusCode, headers: privateResponseHeaders() }
+      { status: statusCode, headers: privateResponseHeaders() },
     );
   }
 }
 
 export async function GET(
   request: NextRequest,
-  props: { params: Promise<{ path: string[] }> }
+  props: { params: Promise<{ path: string[] }> },
 ) {
   return proxyRequest(request, await props.params);
 }
 
 export async function POST(
   request: NextRequest,
-  props: { params: Promise<{ path: string[] }> }
+  props: { params: Promise<{ path: string[] }> },
 ) {
   return proxyRequest(request, await props.params);
 }
 
 export async function PUT(
   request: NextRequest,
-  props: { params: Promise<{ path: string[] }> }
+  props: { params: Promise<{ path: string[] }> },
 ) {
   return proxyRequest(request, await props.params);
 }
 
 export async function PATCH(
   request: NextRequest,
-  props: { params: Promise<{ path: string[] }> }
+  props: { params: Promise<{ path: string[] }> },
 ) {
   return proxyRequest(request, await props.params);
 }
 
 export async function DELETE(
   request: NextRequest,
-  props: { params: Promise<{ path: string[] }> }
+  props: { params: Promise<{ path: string[] }> },
 ) {
   return proxyRequest(request, await props.params);
 }

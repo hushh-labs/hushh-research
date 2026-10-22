@@ -237,6 +237,44 @@ def test_connect_discovery_accepts_only_its_existing_authenticated_read_boundary
 
 
 @pytest.mark.parametrize(
+    ("dependency", "expected"),
+    [
+        ("require_vault_owner_token", "vault_owner"),
+        ("hub_content_owner", "vault_owner"),
+        ("require_firebase_auth", "firebase_auth"),
+        ("hub_content_firebase", "firebase_auth"),
+        ("unknown_owner_guard", "not_declared"),
+    ],
+)
+def test_guarded_endpoint_discovery_preserves_auth_catalog_without_execution(dependency, expected):
+    import ast
+    from types import SimpleNamespace
+
+    from hushh_mcp.services.app_intelligence_runtime import (
+        _discover_service_api_endpoints_from_router,
+        _source_auth_boundary,
+    )
+
+    node = ast.parse(f"async def endpoint(owner=Depends({dependency})):\n    return owner\n").body[
+        0
+    ]
+    assert _source_auth_boundary(node) == expected
+    route = SimpleNamespace(
+        path="/api/one/calendar/availability",
+        methods={"POST"},
+        name="availability",
+        dependant=SimpleNamespace(
+            dependencies=[SimpleNamespace(call=SimpleNamespace(__name__=dependency))]
+        ),
+    )
+    endpoints = _discover_service_api_endpoints_from_router(
+        "calendar", SimpleNamespace(routes=[route])
+    )
+    assert endpoints[0]["authorization"] == expected
+    assert endpoints[0]["binding_status"] == "discovered_unbound"
+
+
+@pytest.mark.parametrize(
     "change", [None, "firebase_auth", "public", "binding", "executor", "cursor", "old_endpoint"]
 )
 def test_unbound_owner_delete_inventory_preserves_executable_workflow(change):

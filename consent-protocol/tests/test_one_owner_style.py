@@ -168,9 +168,19 @@ async def test_route_admits_style_as_an_opaque_turn_reference(monkeypatch, unloc
     monkeypatch.setattr(agent_chat, "require_vault_owner_token", vault)
     monkeypatch.setattr(agent_chat, "verify_firebase_bearer", lambda _: "owner")
     monkeypatch.setattr(
-        agent_chat._session_service, "is_legacy_session", AsyncMock(return_value=False)
+        agent_chat,
+        "_session_service",
+        SimpleNamespace(is_legacy_session=AsyncMock(return_value=False)),
     )
-    request = Request({"type": "http", "headers": [(b"authorization", b"Bearer synthetic")]})
+    # This branch reads vault authority from the consent header on shared hosting.
+    monkeypatch.setattr(agent_chat, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
+    request = Request(
+        {
+            "type": "http",
+            "headers": [(b"authorization", b"Bearer synthetic")]
+            + ([(b"x-hushh-consent", b"HCT:synthetic")] if unlocked else []),
+        }
+    )
     run = _input()
     run.forwarded_props = {"communicationPreferences": {"preferred_name": "Kay", "tone": "warm"}}
     with bound_request_chat_key("owner"):
@@ -232,8 +242,14 @@ def _name_question_context(**overrides):
 
 
 @pytest.mark.parametrize("name", ["Ruby", "Rootman", "李 小龍", "نور"])
-async def test_chat_chosen_name_is_a_device_update_not_a_backend_write(name):
+@pytest.mark.parametrize("surface", ["shared", "pod"])
+async def test_chat_chosen_name_is_a_device_update_not_a_backend_write(name, surface):
+    from hushh_mcp.one_adk.owner_style import STATE_POD_STYLE_OWNER
+
     context = _name_question_context()
+    if surface == "pod":
+        context.state["temp:hussh:workspace_chat_admission"] = False
+        context.state[STATE_POD_STYLE_OWNER] = "owner"
     before = json.dumps(context.state, sort_keys=True)
     result = await propose_style_settings(context, preferred_name=name)
     assert result["status"] == "preferred_name_update_ready"
@@ -257,6 +273,7 @@ async def test_chat_name_with_style_keeps_style_as_a_separate_review():
         {agent_tree.STATE_USER_ID: "anonymous:owner"},
         {STATE_EXECUTION_SURFACE: "voice"},
         {"temp:hussh:workspace_chat_admission": False},
+        {"temp:hussh:workspace_chat_admission": False, "temp:hussh:pod_style_owner": "other-owner"},
     ],
 )
 async def test_chat_name_update_requires_the_unlocked_owner_typed_surface(overrides):

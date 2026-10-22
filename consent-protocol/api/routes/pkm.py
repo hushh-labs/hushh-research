@@ -106,10 +106,15 @@ from api.routes.pkm_routes_shared import (
 )
 from hushh_mcp.pricing import SlicePricingInput, compute_suggested_price
 from hushh_mcp.services.domain_contracts import validate_dynamic_top_level_domain
+from hushh_mcp.services.owner_placement_guard import hub_content_owner
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.pkm_agent_lab_service import get_pkm_agent_lab_service
 from hushh_mcp.services.pkm_mutation_contracts import (
     PKM_MAX_AFFECTED_SHARING_IDS,
+)
+from hushh_mcp.services.pkm_preparation_contracts import (
+    PKMAgentLabStructureRequest,
+    PKMAgentLabStructureResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -141,46 +146,6 @@ async def require_pkm_metadata_access(
         background_tasks=background_tasks, authorization=authorization
     )
     return {"user_id": firebase_uid, "auth_type": "firebase"}
-
-
-class PKMAgentLabStructureRequest(BaseModel):
-    user_id: str = Field(min_length=1, max_length=128)
-    # Imported personal profiles routinely exceed a short chat-message limit.
-    # Keep a hard bound for abuse protection while accepting a complete export.
-    message: str = Field(min_length=1, max_length=50000)
-    current_domains: list[str] = Field(default_factory=list, max_length=256)
-    current_manifests: list[dict] = Field(default_factory=list, max_length=256)
-    simulated_state: dict | None = None
-    memory_profile: Literal[
-        "general",
-        "kyc_identity_v1",
-        "business_directory_v1",
-        "soul_markdown_v1",
-        "profile_review_v1",
-    ] = "general"
-
-
-class PKMAgentLabStructureResponse(BaseModel):
-    agent_id: str
-    agent_name: str
-    model: str
-    used_fallback: bool
-    intent_used_fallback: bool = False
-    structure_used_fallback: bool = False
-    error: str | None = None
-    intent_frame: dict = Field(default_factory=dict)
-    merge_decision: dict = Field(default_factory=dict)
-    candidate_payload: dict
-    structure_decision: dict
-    write_mode: str = "confirm_first"
-    primary_json_path: str | None = None
-    target_entity_scope: str | None = None
-    validation_hints: list[str] = Field(default_factory=list)
-    manifest_draft: dict | None = None
-    preview_cards: list[dict] = Field(default_factory=list)
-    preview_summary: dict = Field(default_factory=dict)
-    performance: dict = Field(default_factory=dict)
-    context_plan: dict = Field(default_factory=dict)
 
 
 class PKMMutationSharingImpactResponse(BaseModel):
@@ -446,7 +411,7 @@ async def get_user_scopes(
 @router.post("/get-context", response_model=StockContextResponse)
 async def get_stock_context(
     request: StockContextRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     return await _get_stock_context(request, token_data)
 
@@ -487,6 +452,7 @@ async def _generate_pkm_memory_proposals(
             current_manifests=request.current_manifests,
             simulated_state=request.simulated_state,
             memory_profile=request.memory_profile,
+            allow_identifier_processing=request.allow_identifier_processing,
             # Opaque binding only: no raw token enters the preview cache. A
             # new vault-owner credential cannot resume an earlier credential's
             # preparation; authorization and sharing impact still run afresh.
@@ -603,7 +569,7 @@ async def _generate_pkm_memory_proposals(
 @router.post("/memory/proposals", response_model=PKMAgentLabStructureResponse)
 async def propose_pkm_memory(
     request: PKMAgentLabStructureRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
     x_pkm_ingestion_id: str | None = Header(default=None, alias="X-PKM-Ingestion-Id"),
     x_pkm_chunk_index: int | None = Header(default=None, alias="X-PKM-Chunk-Index"),
 ):
@@ -614,9 +580,8 @@ async def propose_pkm_memory(
         ingestion_id=x_pkm_ingestion_id,
         chunk_index=x_pkm_chunk_index,
     )
-    # An explicit failed-stage signal is not a semantic "nothing to save"
-    # decision. Keep the developer-lab diagnostic contract unchanged, but
-    # product consumers must receive a retryable failure instead of HTTP 200.
+    # An explicit failed-stage signal is not a semantic "nothing to save" decision. Keep the
+    # developer-lab diagnostic contract; product consumers get a retryable failure, not 200.
     if not proposal.preview_cards and "preview_generation_failed" in (
         proposal.validation_hints or []
     ):
@@ -633,7 +598,7 @@ async def propose_pkm_memory(
 @router.post("/agent-lab/structure", response_model=PKMAgentLabStructureResponse)
 async def preview_pkm_structure(
     request: PKMAgentLabStructureRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """Local developer-lab compatibility route; product callers use memory/proposals."""
     environment = (

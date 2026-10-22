@@ -4,8 +4,9 @@
 // helpers are real; only routing, the vault gate and the heavy Profile
 // workspace are stood in for.
 import { useState, useSyncExternalStore } from "react";
+import { ProfileAppearancePreferences } from "@/components/profile/profile-appearance-preferences";
 import { ProfileAppearanceControls } from "@/components/profile/profile-appearance-controls";
-import { useAccent } from "@/lib/theme/accent";
+import { useAccent, writeAccent } from "@/lib/theme/accent";
 import { DocumentRequestPricingCard } from "@/components/consent/document-request-pricing-card";
 import { parseDocumentRequestPrice } from "@/lib/consent/document-request-price";
 
@@ -72,9 +73,7 @@ export function useVault() {
  * moving through the real pane history helpers exactly as
  * ProfilePageContent's updateProfileView does.
  */
-export function ProfilePage({ paneLocation }: {
-  paneLocation?: ProfilePaneLocation;
-}) {
+export function ProfilePage({ paneLocation }: { paneLocation?: ProfilePaneLocation }) {
   const accent = useAccent();
   const [price, setPrice] = useState("");
   const search = useSearchParams();
@@ -103,9 +102,12 @@ export function ProfilePage({ paneLocation }: {
         dollars: price, loading: false, saving: false, error: null, notice: null,
         amountCents: parseDocumentRequestPrice(price), dirty: Boolean(price), save: async () => {}, change: setPrice, retry: () => {} }} /> });
   } else if (location.panel === "preferences") {
-    // Moving Profile controls keep the React renderer inside the whole pane.
     entries.push({ key: "panel:preferences", title: "Preferences", content:
-      <ProfileAppearanceControls value={accent} nativeContext={{ owner: null, context: "synthetic-preferences", eligible: false }} /> });
+      search.get("renderer") === "controls" ?
+      <ProfileAppearanceControls value={accent} nativeContext={{ owner: null, context: "synthetic-preferences", eligible: false }} /> :
+      <ProfileAppearancePreferences accent={accent} onAccentChange={writeAccent}
+        onGeminiClick={() => updateView({ panel: "preferences", detail: "gemini" })}
+        onVoiceClick={() => updateView({ panel: "preferences", detail: "voice" })} /> });
   }
   return (
     <SettingsPresentationProvider density="compact">

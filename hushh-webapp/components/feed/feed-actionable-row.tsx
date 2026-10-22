@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, Loader2, X } from "@/components/icons";
 
 import { SettingsRow } from "@/components/app-ui/settings-ui";
+import { AgentUpdateProgress } from "@/components/agent/agent-update-progress";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/lib/morphy-ux/ui";
@@ -397,9 +398,14 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
         <span data-profile-role="description" data-slot="feed-event-description" className="flex items-center gap-1.5 whitespace-normal text-muted-foreground">{indicator}{item.description}</span>
         <FeedSmsSentTime timestamp={item.displayTimestamp} />
       </span>
+    ) : item.updateProgress ? (
+      <span className="block min-w-0 space-y-2 py-1">
+        <FeedRowMetadata title={item.title} description={item.description} indicator={indicator} />
+        <AgentUpdateProgress update={item.updateProgress} />
+      </span>
     ) : <FeedRowMetadata title={item.title} description={item.description} indicator={indicator} />,
     ariaLabel: item.smsEmergency ? undefined : [item.title, item.description].filter(Boolean).join(". "),
-    textOverflow: item.smsEmergency ? "wrap" : "truncate",
+    textOverflow: item.smsEmergency || item.updateProgress ? "wrap" : "truncate",
     trailing: <>
       {!item.smsEmergency ? <FeedRowTimestamp timestamp={item.displayTimestamp} /> : null}
       <ActionButtons actions={item.actions} phoneActions={item.phoneActions} compact />

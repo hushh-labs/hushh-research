@@ -10,14 +10,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "hushh-webapp/lib/observability/events.ts"
+ACTIONS = SOURCE.with_name("actions.ts")
 
 
-def compile_contract(source: str) -> dict:
+def compile_contract(source: str, *, actions_source: str = "") -> dict:
     # Only authored literal identifiers are admitted. Unsupported syntax fails
     # generation; this parser never evaluates TypeScript or accepts payloads.
+    authored = source + ("\n" + actions_source if actions_source else "")
     arrays = {}
     for name, body in re.findall(
-        r"export const (\w+_ACTIONS)\s*=\s*\[([\s\S]*?)\]\s*as const", source
+        r"export const (\w+_ACTIONS)\s*=\s*\[([\s\S]*?)\]\s*as const", authored
     ):
         without_comments = re.sub(r"/\*[\s\S]*?\*/|//[^\n]*", "", body)
         values = re.findall(r'"([a-z][a-z0-9_]*)"', without_comments)
@@ -28,7 +30,7 @@ def compile_contract(source: str) -> dict:
     names = re.findall(r'^  ([a-z][a-z0-9_]*): "(feature|funnel)"', categories, re.M)
     payloads = source.split("export interface EventPayloadMap", 1)[1]
     action_aliases = dict(
-        re.findall(r"export type (\w+)\s*=\s*\(typeof (\w+_ACTIONS)\)\[number\]", source)
+        re.findall(r"export type (\w+)\s*=\s*\(typeof (\w+_ACTIONS)\)\[number\]", authored)
     )
     events = {}
     for name, _ in names:
@@ -50,7 +52,7 @@ def compile_contract(source: str) -> dict:
         raise ValueError("Observation source contract could not be compiled")
     return {
         "version": 1,
-        "sourceDigest": hashlib.sha256(source.encode()).hexdigest(),
+        "sourceDigest": hashlib.sha256(authored.encode()).hexdigest(),
         "events": events,
     }
 
@@ -60,7 +62,14 @@ def main() -> int:
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
     content = (
-        json.dumps(compile_contract(SOURCE.read_text(encoding="utf-8")), indent=2, sort_keys=True)
+        json.dumps(
+            compile_contract(
+                SOURCE.read_text(encoding="utf-8"),
+                actions_source=ACTIONS.read_text(encoding="utf-8"),
+            ),
+            indent=2,
+            sort_keys=True,
+        )
         + "\n"
     )
     for context in (ROOT, ROOT / "consent-protocol", ROOT / "hushh-webapp"):

@@ -188,7 +188,7 @@ describe("CircleMemberActionsMenu on a phone", () => {
     expect(MEMBER_ACTIONS_SHEET_ITEM_CLASSNAME).toContain("min-h-[52px]");
     const cancel = within(sheet).getByRole("button", { name: "Cancel" });
     expect(cancel).toHaveClass(
-      "h-[50px]",
+      "h-[52px]",
       "w-full",
       "justify-center",
     );

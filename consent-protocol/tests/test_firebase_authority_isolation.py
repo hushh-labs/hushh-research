@@ -106,16 +106,26 @@ def test_cleanup_preserves_shared_prod_identity_and_keeps_pending_work(
         delete.assert_called_once_with("unchanged-fixture-uid", app=app)
 
 
-def test_uat_sso_cannot_deprovision_or_rewrite_shared_prod_claims(monkeypatch):
+@pytest.mark.parametrize("initialization_refused", [False, True])
+def test_uat_sso_cannot_deprovision_or_rewrite_shared_prod_claims(
+    monkeypatch, initialization_refused
+):
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.setenv("APP_RUNTIME_PROFILE", "uat")
     sdk = MagicMock()
     sdk.UserNotFoundError = type("FixtureNotFound", (Exception,), {})
     app = SimpleNamespace(project_id="hushh-pda")
     identity = FirebaseAdminIdentity()
-    monkeypatch.setattr(identity, "_auth", lambda: (sdk, app))
-    with pytest.raises(EnterpriseSsoError):
+
+    def auth_context():
+        if initialization_refused:
+            raise authority.FirebaseAuthorityError("firebase_authority_mismatch")
+        return sdk, app
+
+    monkeypatch.setattr(identity, "_auth", auth_context)
+    with pytest.raises(EnterpriseSsoError) as refused:
         asyncio.run(identity.merge_claims("same-uid", {"workosDeprovisionedAt": 1}))
+    assert refused.value.status_code == 503
     assert asyncio.run(identity.revoke_sessions("same-uid")) is False
     sdk.set_custom_user_claims.assert_not_called()
     sdk.update_user.assert_not_called()

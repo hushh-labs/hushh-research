@@ -382,30 +382,47 @@ describe("executeVerifiedAccountDeletion", () => {
     });
   }
 
-  it("keeps the session when the backend reports a rolled-back delete and the account is still active", async () => {
-    const failure = reportedDeletionFailure();
+  it.each([
+    { status: 500, code: ACCOUNT_DELETION_FAILED_CODE, active: true, pending: true,
+      message: ACCOUNT_DELETION_NOT_COMPLETED_MESSAGE, paused: false },
+    { status: 503, code: ACCOUNT_DELETION_PAUSED_CODE, active: true, pending: true,
+      message: ACCOUNT_DELETION_PAUSED_MESSAGE, paused: true },
+    { status: 409, code: "FILES_ERASURE_IN_PROGRESS", active: true, pending: true,
+      message: "Files cleanup is still in progress. Account not deleted. Try again to continue.", paused: false },
+    { status: 409, code: "FILES_ERASURE_WAITING_FOR_WRITES", active: true, pending: true,
+      message: "An upload outcome is unverified. Account not deleted. Contact support before retrying.", paused: false },
+    { status: 500, code: "FILES_ERASURE_WAITING_FOR_WRITES", active: true, pending: false },
+    { status: 409, code: "FILES_ERASURE_WAITING_FOR_WRITES", active: false, pending: false },
+    { status: 500, code: "FILES_ERASURE_IN_PROGRESS", active: true, pending: false },
+    { status: 409, code: "FILES_ERASURE_IN_PROGRESS", active: false, pending: false },
+    { status: 409, code: "FILES_ERASURE_LIST_UNCONFIRMED", active: true, pending: false },
+  ])("keeps the session only with an exact refusal and active owner: $status/$code/$active", async ({ status, code, active, pending, ...outcome }) => {
+    const failure = new ApiError("untrusted detail", status, { code });
     mockDeleteAccount.mockRejectedValue(failure);
-    mockGetAccountSessionStatus.mockResolvedValue(
-      Response.json({ active: true }, { status: 200 }),
-    );
+    mockGetAccountSessionStatus.mockImplementation(async () => active
+      ? Response.json({ active: true })
+      : new Response("unavailable", { status: 503 }));
+    const error = await executeVerifiedAccountDeletion({
+      userId: "user_123", vaultOwnerToken: "vault-token", sessionUser: makeSessionUser(),
+    }).catch((caught: unknown) => caught);
 
-    const action = executeVerifiedAccountDeletion({
-      userId: "user_123",
-      vaultOwnerToken: "vault-token",
-      sessionUser: makeSessionUser(),
-    });
-
-    await expect(action).rejects.toBeInstanceOf(AccountDeletionNotCompletedError);
-    await expect(action).rejects.toMatchObject({ originalError: failure });
-    expect(accountDeletionErrorMessage(await action.catch((e) => e))).toBe(
-      ACCOUNT_DELETION_NOT_COMPLETED_MESSAGE,
-    );
-    expect(mockDispatchAuthSessionInvalidated).not.toHaveBeenCalled();
-    expect(mockPublishAccountDeletionToSiblingTabs).not.toHaveBeenCalled();
-    expect(mockOnAccountDeleted).not.toHaveBeenCalled();
+    expect(mockDeleteAccount).toHaveBeenCalledTimes(1);
     expect(mockClearForUser).not.toHaveBeenCalled();
     expect(mockClearDeviceSecrets).not.toHaveBeenCalled();
-    expect(mockDeleteAccount).toHaveBeenCalledTimes(1);
+    expect(mockPublishAccountDeletionToSiblingTabs).not.toHaveBeenCalled();
+    if (pending) {
+      expect(error).toBeInstanceOf(AccountDeletionNotCompletedError);
+      expect(error).toMatchObject({ originalError: failure, paused: outcome.paused });
+      expect(accountDeletionErrorMessage(error)).toBe(outcome.message);
+      expect(mockOnAccountDeleted).not.toHaveBeenCalled();
+      expect(mockDispatchAuthSessionInvalidated).not.toHaveBeenCalled();
+      expect(isAccountDeletionActive("user_123")).toBe(false);
+    } else {
+      expect(error).toBeInstanceOf(AccountDeletionOutcomeUncertainError);
+      expect(mockDispatchAuthSessionInvalidated).toHaveBeenCalledWith(
+        expect.objectContaining({ code: "account_deletion_uncertain", userId: "user_123" }),
+      );
+    }
   });
 
   it("treats a reported failure as deleted when the tombstone shows an ambiguous commit landed", async () => {
@@ -702,35 +719,6 @@ describe("banks sealed in the vault are revoked before the account is erased", (
       sessionUser: makeSessionUser("uid-deleted"),
     });
     expect(isAccountDeletionActive("uid-deleted")).toBe(true);
-  });
-
-  it("keeps the session with a short paused message when a release fence refuses deletion", async () => {
-    mockDeleteAccount.mockRejectedValue(
-      new ApiError("Account deletion paused", 503, {
-        detail: "Account deletion paused",
-        code: ACCOUNT_DELETION_PAUSED_CODE,
-      }),
-    );
-    mockGetAccountSessionStatus.mockResolvedValue(
-      Response.json({ active: true }, { status: 200 }),
-    );
-
-    const error = await executeVerifiedAccountDeletion({
-      userId: "uid-paused",
-      vaultOwnerToken: "vault-token",
-      sessionUser: makeSessionUser("uid-paused"),
-    }).catch((caught: unknown) => caught);
-
-    expect(error).toBeInstanceOf(AccountDeletionNotCompletedError);
-    expect((error as AccountDeletionNotCompletedError).paused).toBe(true);
-    expect(accountDeletionErrorMessage(error)).toBe(ACCOUNT_DELETION_PAUSED_MESSAGE);
-    expect(ACCOUNT_DELETION_PAUSED_MESSAGE).toBe(
-      "Deletion paused while One updates. Try again soon.",
-    );
-    expect(ACCOUNT_DELETION_NOT_COMPLETED_MESSAGE).toBe("Account not deleted. Try again.");
-    expect(mockDispatchAuthSessionInvalidated).not.toHaveBeenCalled();
-    expect(mockClearForUser).not.toHaveBeenCalled();
-    expect(isAccountDeletionActive("uid-paused")).toBe(false);
   });
 
   it.each([

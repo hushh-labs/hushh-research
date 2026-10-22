@@ -35,6 +35,7 @@ from google.adk.tools.tool_context import ToolContext
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret, store_request_secret
 
 STATE_OWNER_STYLE = "temp:hussh:owner_style"
+STATE_POD_STYLE_OWNER = "temp:hussh:pod_style_owner"
 FORWARDED_KEY = "communicationPreferences"
 STYLE_OFFER_EXPERIENCE = "one.style_settings_offer.v1"
 
@@ -292,7 +293,10 @@ async def propose_style_settings(
     if not proposed:
         return {"status": "invalid", "message": "Name at least one style setting to change."}
     if "preferred_name" in proposed:
-        if tool_context.state.get(WORKSPACE_CHAT_ADMISSION_STATE) is not True:
+        if (
+            tool_context.state.get(WORKSPACE_CHAT_ADMISSION_STATE) is not True
+            and tool_context.state.get(STATE_POD_STYLE_OWNER) != user_id
+        ):
             return {"status": "unavailable", "message": "Unlock your memory to save your name."}
         name = proposed.pop("preferred_name")
         return {
@@ -323,6 +327,7 @@ __all__ = [
     "OwnerStyleError",
     "PREFERRED_NAME_MAX",
     "STATE_OWNER_STYLE",
+    "STATE_POD_STYLE_OWNER",
     "STYLE_NOTE_MAX",
     "STYLE_OFFER_EXPERIENCE",
     "TONES",

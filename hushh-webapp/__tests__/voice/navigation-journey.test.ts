@@ -138,8 +138,10 @@ describe("navigation journeys", () => {
       // they are, and the explicit tap-confirmation card -- not this
       // journey -- is what actually gates it from firing unattended.
       "location.trigger_sos",
+      "pkm.review_sharing_price",
       "setup.connect_gmail",
       "setup.finish_calendar",
+      "setup.finish_cloud",
       "setup.finish_connections",
       "setup.finish_email",
       "setup.finish_finance",

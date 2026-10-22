@@ -569,7 +569,7 @@ async def test_cleanup_after_kill_switch_cannot_settle_newer_lease(ingestion, mo
 
 
 @pytest.fixture
-async def collection(ingestion, monkeypatch):
+async def collection(ingestion, monkeypatch, shared_hub_owner):
     from pathlib import Path
 
     from hushh_mcp.services.drive_collection_store import DriveCollectionStore

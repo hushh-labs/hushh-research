@@ -9,12 +9,11 @@
  *   name  -> what should One call the person
  *   focus -> what should One help with first (leads into ONE connect action)
  *   tone  -> how should One talk
- * then, only when a name or tone was given, one confirmation turn. Nothing is
- * saved to memory before that confirmation.
+ * then, when a picked name or tone was given, one confirmation turn. A typed
+ * name uses the existing semantic name writer and confirms its save separately.
  *
- * Free text is never classified here. "Something else" explicitly exits
- * the optional questions, leaving the composer for ordinary chat. The old
- * name-entry format validator remains for an already-open legacy session.
+ * Free text is never classified here. "Something else" opens name entry;
+ * the private agent interprets that answer before the questions continue.
  */
 import { ROUTES } from "@/lib/navigation/routes";
 
@@ -147,7 +146,12 @@ export type ChatOnboardingChipId =
 
 export type ChatOnboardingChip = { id: ChatOnboardingChipId; label: string };
 
-export const CHAT_ONBOARDING_SKIP_LABEL = "Skip for now";
+export const CHAT_ONBOARDING_SKIP_LABEL = "Skip this question";
+export const CHAT_ONBOARDING_SKIP_HELP: Record<ChatOnboardingQuestionId, string> = {
+  name: "Skipping keeps your current name and moves to question 2.",
+  focus: "Skipping connects nothing and moves to question 3.",
+  tone: "Skipping keeps the default reply style. Any answers waiting to be saved still need your approval.",
+};
 export const NAME_MAX_LENGTH = 40;
 
 export const NAME_MAX_WORDS = 4;
@@ -224,7 +228,7 @@ export function welcomeText(displayName: string): string {
   const greeting = displayName && displayName !== "there" ? `Welcome, ${displayName}.` : "Welcome.";
   return [
     `${greeting} I'm One, your private agent on Hussh. I only work with what you choose to share, and you decide who else sees it.`,
-    "Three quick questions so I can help the right way. Skip any of them.",
+    "Three optional questions so I can help the right way. Skipping a question moves to the next one.",
     "First, what should I call you?",
   ].join("\n\n");
 }
@@ -237,7 +241,7 @@ export function focusQuestionText(name: string | null, nameSkipped: boolean): st
 }
 
 export function toneQuestionText(): string {
-  return "Last one. How should I talk with you?";
+  return "How should I talk with you?";
 }
 
 export function resumeQuestionText(question: ChatOnboardingQuestionId): string {

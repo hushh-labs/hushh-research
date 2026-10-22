@@ -1,5 +1,6 @@
 """Candidate health must prove the candidate, never a redirect to live traffic."""
 
+import json
 import os
 import shutil
 import subprocess
@@ -522,6 +523,33 @@ def test_preview_public_admission_follows_authenticated_health_and_application_p
             )
             is expected
         )
+
+
+def test_preview_failure_receipt_never_contains_provider_exception_details(monkeypatch, tmp_path):
+    from urllib.error import HTTPError
+
+    from tests.test_commerce_preview_target import _preview_module
+
+    module = _preview_module("commerce-preview-verify.py")
+    receipt = tmp_path / "safe-receipt.json"
+    monkeypatch.setattr(sys, "argv", ["verify", "--phase", "app", "--report-path", str(receipt)])
+
+    def denied(self, **kwargs):
+        self.stage = "serving_revision"
+        raise HTTPError(
+            "https://provider.invalid/?token=synthetic-private-token",
+            403,
+            "synthetic-private-token",
+            {},
+            None,
+        )
+
+    monkeypatch.setattr(module["PreviewVerifier"], "resources", denied)
+    assert module["main"]() == 1
+    report = json.loads(receipt.read_text())
+    assert report["failure_stage"] == "serving_revision" and report["http_status"] == 403
+    assert "synthetic-private-token" not in receipt.read_text()
+    assert "provider.invalid" not in receipt.read_text()
 
 
 def test_dev_secret_sync_retains_its_own_environment_policy():

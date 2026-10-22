@@ -126,7 +126,7 @@ def test_packet_mutations_stop_when_new_packages_are_disabled(setup, monkeypatch
 
 
 @pytest.fixture
-def setup(monkeypatch):
+def setup(shared_hub_owner, monkeypatch):
     app = FastAPI()
     app.include_router(routes.router)
     service = SimpleNamespace(
@@ -156,7 +156,7 @@ def setup(monkeypatch):
     current = AsyncMock(return_value={"user_id": "recipient"})
     # FastAPI retains the original dependency; this replaces only the fresh
     # post-await revalidation call, not the initial route admission.
-    monkeypatch.setattr(routes, "require_vault_owner_token", current)
+    monkeypatch.setattr("api.routes.drive_sharing_owner.require_vault_owner_token", current)
     return TestClient(app), app, service, current
 
 
@@ -1073,7 +1073,13 @@ async def test_prepare_stream_deadline_closes_without_a_terminal_frame(monkeypat
 
 def _reviewed_drive_app(monkeypatch):
     from api.routes.one import drive_actions
+    from hushh_mcp.services import owner_placement_guard
 
+    # Reviewed writes still require an unlocked owner and exact confirmation.
+    monkeypatch.setattr(owner_placement_guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(
+        owner_placement_guard, "get_owner_hosting_mode", AsyncMock(return_value="shared")
+    )
     app = FastAPI()
     app.include_router(drive_actions.router)
     execute = AsyncMock(return_value={"status": "ok", "action": "share"})
@@ -1120,7 +1126,7 @@ def requester_setup(monkeypatch):
     app = FastAPI()
     app.include_router(requester_routes.router)
     current = AsyncMock(return_value={"user_id": "recipient"})
-    monkeypatch.setattr(routes, "require_vault_owner_token", current)
+    monkeypatch.setattr("api.routes.drive_sharing_owner.require_vault_owner_token", current)
     review = AsyncMock()
     monkeypatch.setattr(requester_routes.requester_store, "request_review", review)
     monkeypatch.setattr(requester_routes, "_service", lambda: SimpleNamespace(store="store"))

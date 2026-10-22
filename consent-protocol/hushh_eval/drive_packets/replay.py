@@ -3,7 +3,8 @@
 The owner path runs ``DrivePacketWorker.run_facts_one`` and ``run_packet_one``
 unchanged against in-memory stores, so page batching, canonical-key context,
 construct and verify batches, the final compact check and the Ready state rule are
-the production ones. Only persistence is replaced. Every model call goes through
+the production ones. Persistence and the fixed synthetic owner's placement-read
+port are replaced; the canonical placement guard still runs. Every model call goes through
 the existing ``interpret=`` injection point, wrapped with a concurrency cap, a
 hard cost cap and a 429 pause. Inputs are pages and file metadata; labels never
 reach a prompt. Nothing is written anywhere except the private workdir.
@@ -40,6 +41,10 @@ ROOT = Path(__file__).resolve().parents[2]
 MAX_FACT_ATTEMPTS = 2
 MAX_PACKET_ATTEMPTS = 2
 OWNER = "eval-replay-owner"
+
+
+async def _replay_owner_placement(user_id: str) -> str:
+    return "shared" if user_id == OWNER else "unknown"
 
 
 class RuntimeCodes(logging.Handler):
@@ -466,8 +471,8 @@ class InMemoryFactsStore:
             "extraction_version": "replay",
             "complete": not document["has_gaps"],
             "facts": document["facts"],
-            # As DrivePacketStore supplies it: the Ready gates read the file's
-            # creation time for undated duplicates; the model is never shown it.
+            # Match DrivePacketStore's host metadata projection. Creation time
+            # is withheld from model context and cannot establish duplicates.
             **({"created_time": created} if created else {}),
         }
 
@@ -514,6 +519,7 @@ class ReplayRunner:
             checker=functools.partial(verify_packet, interpret=metered),
             policy=lambda: policy,
             wake=_noop_wake,
+            placement_resolver=_replay_owner_placement,
         )
 
     async def run_owner_path(

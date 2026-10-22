@@ -195,13 +195,13 @@ def test_divergent_service_bases_preserve_owned_and_shared_protected_changes() -
             "consent-protocol/hushh_mcp/services/pkm_upgrade_service.py",
             "consent-protocol/hushh_mcp/services/vault_reader.py",
             "hushh-webapp/lib/vault/already-deployed.ts",
-            ".codex/skills/reviewer-app-testing/SKILL.md",
+            ".agents/skills/reviewer-app-testing/SKILL.md",
         },
         "frontend-base": {
             "hushh-webapp/lib/services/pkm-upgrade-reader.ts",
             "hushh-webapp/lib/vault/key.ts",
             "consent-protocol/hushh_mcp/services/vault_already_deployed.py",
-            ".codex/skills/reviewer-app-testing/SKILL.md",
+            ".agents/skills/reviewer-app-testing/SKILL.md",
         },
     }
     resolver._git_diff = lambda base, _target: changed_by_base[base]
@@ -215,7 +215,7 @@ def test_divergent_service_bases_preserve_owned_and_shared_protected_changes() -
     )
 
     assert plan.changed_files == (
-        ".codex/skills/reviewer-app-testing/SKILL.md",
+        ".agents/skills/reviewer-app-testing/SKILL.md",
         "consent-protocol/hushh_mcp/services/pkm_upgrade_service.py",
         "consent-protocol/hushh_mcp/services/vault_reader.py",
         "hushh-webapp/lib/services/pkm-upgrade-reader.ts",

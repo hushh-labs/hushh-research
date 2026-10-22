@@ -26,3 +26,14 @@ path = [
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Hushh"
 SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = [
+  "consent-protocol/browser_runtime/azure_host/seccomp.json",
+  "consent-protocol/browser_runtime/azure_host/apparmor.profile",
+  "consent-protocol/browser_runtime/azure_host/LICENSE.moby",
+  "consent-protocol/browser_runtime/azure_host/NOTICE.moby"
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Moby contributors; Hushh modifications identified in NOTICE.moby"
+SPDX-License-Identifier = "Apache-2.0"

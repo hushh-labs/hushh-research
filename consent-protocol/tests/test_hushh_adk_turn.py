@@ -12,7 +12,11 @@ from google.genai import types
 from pydantic import BaseModel, PrivateAttr
 
 from hushh_mcp.hushh_adk.context import HushhContext
-from hushh_mcp.hushh_adk.events import AdkEventCleanupError, bounded_adk_events
+from hushh_mcp.hushh_adk.events import (
+    AdkEventCleanupError,
+    AdkEventTimeoutError,
+    bounded_adk_events,
+)
 from hushh_mcp.hushh_adk.tools import hushh_tool
 from hushh_mcp.hushh_adk.turn import (
     SpecialistAdkCallLimitError,
@@ -296,7 +300,7 @@ async def test_bounded_source_closes_on_timeouts_and_cancellation(phase):
         with pytest.raises(asyncio.CancelledError):
             await task
     else:
-        with pytest.raises(asyncio.TimeoutError):
+        with pytest.raises(AdkEventTimeoutError):
             await consume()
     assert closed.is_set()
 
@@ -473,12 +477,12 @@ async def test_real_nested_agent_progress_prevents_false_idle_timeout(monkeypatc
 
     class SlowModel(ScriptedLlm):
         async def generate_content_async(self, llm_request, stream=False):
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(1.0)
             async for item in super().generate_content_async(llm_request, stream):
                 yield item
 
     async def read_value():
-        await asyncio.sleep(0.25)
+        await asyncio.sleep(1.0)
         return {"value": "fixture"}
 
     child = LlmAgent(
@@ -492,17 +496,17 @@ async def test_real_nested_agent_progress_prevents_false_idle_timeout(monkeypatc
     )
     pending = run(
         built,
-        # ADK can import and initialize tool schemas before its first event.
-        # Keep startup outside the tight idle-progress regression boundary:
-        # each child operation is 0.25s, but their combined hidden work > 0.4s.
+        # ADK schema initialization has a separate startup allowance.
+        # Each child operation is 1s, but their combined hidden work exceeds 2s.
+        # Leave scheduling/schema overhead headroom on parallel hosted runners.
         first_event_timeout_s=20.0,
-        between_event_timeout_s=0.4,
+        between_event_timeout_s=2.0,
         total_timeout_s=30.0,
     )
     if not track_progress:
         with pytest.raises(SpecialistAdkTurnError) as failure:
             await pending
-        assert isinstance(failure.value.__cause__, TimeoutError)
+        assert isinstance(failure.value.__cause__, AdkEventTimeoutError)
         return
     result = await pending
     assert result.final_text == "child answer"

@@ -44,6 +44,7 @@ export type LegalAcceptanceState = {
 
 const LEGAL_ACCEPTANCE_PATH = "/api/account/legal-acceptance";
 const LEGAL_DOCUMENT_IDS: readonly LegalAcceptanceDocumentId[] = ["terms", "privacy"];
+const pendingSignInRecords = new Map<string, Promise<void>>();
 
 /** The version and effective date of each document the app serves right now. */
 export function currentLegalDocumentVersions(): LegalDocumentVersion[] {
@@ -137,10 +138,28 @@ export const LegalAcceptanceService = {
    * request). Skipping defers the record rather than dropping it: the account's
    * next ordinary sign-in still finds the served version missing and records it.
    */
-  async recordSignInAcceptance(user: AuthUser): Promise<void> {
-    if (shouldSkipReviewerBackgroundWritesForAutomation()) return;
-    const state = await this.getAcceptanceState(user).catch(() => null);
-    if (state && hasAcceptedCurrentLegalVersions(state.acceptances)) return;
-    await this.recordAcceptance(user).catch(() => undefined);
+  recordSignInAcceptance(user: AuthUser, interactive = true): Promise<void> {
+    // Automated reviewer authentication is not a person's agreement.
+    if (!interactive || shouldSkipReviewerBackgroundWritesForAutomation())
+      return Promise.resolve();
+    const existing = pendingSignInRecords.get(user.uid);
+    if (existing) return existing;
+    const pending = (async () => {
+      const state = await this.getAcceptanceState(user).catch(() => null);
+      if (state && hasAcceptedCurrentLegalVersions(state.acceptances)) return;
+      await this.recordAcceptance(user);
+    })()
+      .catch(() => undefined)
+      .finally(() => {
+        if (pendingSignInRecords.get(user.uid) === pending) {
+          pendingSignInRecords.delete(user.uid);
+        }
+      });
+    pendingSignInRecords.set(user.uid, pending);
+    return pending.then(() => undefined);
+  },
+
+  async waitForSignInRecord(userId: string): Promise<void> {
+    await pendingSignInRecords.get(userId);
   },
 };

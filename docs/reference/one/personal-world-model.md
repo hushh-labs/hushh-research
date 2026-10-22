@@ -6,11 +6,11 @@ Canonical owner: [One Index](./README.md).
 
 ```mermaid
 flowchart LR
-  Setup[Verified setup and vault unlock] --> Ensure[Automatic ensure and resume]
+  Setup[Verified setup, vault and research policy] --> Ensure[Automatic ensure and resume]
   Ensure --> Research[Resumable native research]
   Research --> Draft[View-only Google research]
-  Research --> Feed[Feed and one email]
-  Profile --> Page[Personal World Model page]
+  Research --> Feed[Feed and optional email]
+  Profile[Profile] --> Page[Personal World Model page]
   Draft --> Page
   Page --> Decide[Yes / No / Edit / Remove]
   Decide --> Memory[Encrypted Soul.md memory]
@@ -24,6 +24,8 @@ flowchart LR
   Invite --> Claim[Recipient verification and claim]
   Claim --> Page
 ```
+
+Hub content execution is available only in Shared. Private owners require a qualified pod capability; their work never falls back to the hub.
 
 ## User experience
 

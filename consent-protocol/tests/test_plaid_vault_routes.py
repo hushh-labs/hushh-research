@@ -20,6 +20,7 @@ from api.middleware import require_vault_owner_token
 from api.routes.kai import plaid_vault
 from api.routes.kai import router as kai_router
 from hushh_mcp.integrations.plaid import PlaidApiError, PlaidRuntimeConfig
+from hushh_mcp.services import owner_placement_guard
 
 _BASE = "/api/kai/plaid/vault"
 _ACCESS_TOKEN = "access-sandbox-11111111-2222-3333-4444-555555555555"  # noqa: S105
@@ -140,6 +141,13 @@ def app() -> FastAPI:
 @pytest.fixture
 def authed_client(app: FastAPI, monkeypatch: pytest.MonkeyPatch):
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner-123"}
+
+    async def shared_owner(user_id: str) -> str:
+        assert user_id == "owner-123"
+        return "shared"
+
+    monkeypatch.setattr(owner_placement_guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", shared_owner)
     monkeypatch.setattr(plaid_vault, "_plaid_config", _config)
     return TestClient(app)
 
@@ -881,3 +889,19 @@ def test_failures_never_log_tokens(authed_client, monkeypatch, caplog):
     for record in caplog.records:
         assert _ACCESS_TOKEN not in record.getMessage()
         assert not record.exc_info or _ACCESS_TOKEN not in str(record.exc_info[1])
+
+
+@pytest.mark.parametrize("mode,status", [("unknown", 503), ("unplaced", 409), ("byoc", 409)])
+def test_snapshot_refuses_non_shared_owners_before_plaid(authed_client, monkeypatch, mode, status):
+    async def observed_owner(user_id: str) -> str:
+        assert user_id == "owner-123"
+        return mode
+
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", observed_owner)
+    fake = _use(monkeypatch, _FakePlaid({}))
+    response = authed_client.post(f"{_BASE}/snapshot", json={"access_token": _ACCESS_TOKEN})
+    assert response.status_code == status
+    assert response.json()["detail"]["code"] == (
+        "AGENT_HOSTING_UNAVAILABLE" if mode == "unknown" else "AGENT_PRIVATE_RUNTIME_REQUIRED"
+    )
+    assert fake.calls == []

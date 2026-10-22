@@ -21,9 +21,12 @@ import { describe, expect, it } from "vitest";
 describe("location bus account bridge", () => {
   const source = readFileSync(join(process.cwd(), "app/providers.tsx"), "utf8");
 
+  const bridge = readFileSync(join(process.cwd(), "components/one-location/location-bus-account-bridge.tsx"), "utf8");
+
   it("attaches the account for the whole app, not one screen", () => {
-    expect(source).toContain("function LocationBusAccountBridge()");
-    expect(source).toContain("void LocationBus.attachUser(userId ?? null);");
+    expect(source).toContain("import { LocationBusAccountBridge }");
+    expect(bridge).toContain("function LocationBusAccountBridge()");
+    expect(bridge).toContain("void LocationBus.attachUser(userId ?? null);");
     expect(source).toContain("<LocationBusAccountBridge />");
   });
 
@@ -40,10 +43,6 @@ describe("location bus account bridge", () => {
     // attachUser(null) is what wipes a held position at the account boundary.
     // Reading the id from anywhere that outlives sign-out would leave one
     // person's coordinate visible under another person's session.
-    const bridge = source.slice(
-      source.indexOf("function LocationBusAccountBridge()"),
-      source.indexOf("function AppShellFrame("),
-    );
     expect(bridge).toContain("const { userId } = useAuth();");
   });
 });
