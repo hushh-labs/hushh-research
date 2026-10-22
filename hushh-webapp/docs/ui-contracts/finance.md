@@ -6,8 +6,22 @@ Source owners: `components/kai/kai-market-hub-page.tsx`,
 Evidence date: 2026-10-23. This contract describes source behavior; browser
 fixtures use synthetic holdings and prices, not a signed-in account.
 
+## Visual Map
+
 ```mermaid
 flowchart LR
+  Finance["Finance"]
+  Portfolio["Portfolio"]
+  Stocks["Stocks"]
+  Holdings["Holdings"]
+  Allocation["Allocation"]
+  Performance["Performance"]
+  Sources["Sources"]
+  HoldingDetail["Holding details"]
+  StockDetail["Stock details"]
+  History["Analysis history"]
+  AnalysisPreview["Analysis preview"]
+  SavedAnalysis["Saved analysis"]
   Finance --> Portfolio
   Finance --> Stocks
   Portfolio --> Holdings
