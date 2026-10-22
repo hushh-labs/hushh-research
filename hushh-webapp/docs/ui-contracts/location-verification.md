@@ -69,8 +69,8 @@ Production owners include the Location page, map/public route clients, onboardin
 - `hushh-webapp/components/one-location/redesign/sos-panel.tsx`
 - `hushh-webapp/components/one-location/saved-locations-section.tsx`
 - `hushh-webapp/components/one-location/saved-places-banner.tsx`
-- `hushh-webapp/contracts/ui-review/back/0e92823d3cb90d03f8b35aa27494bd97741ea73e0c671ee04678ec8b000dff88.json`
-- `hushh-webapp/contracts/ui-review/search/fe8c0666f495c62c80a214061dcefc5efa8c963ca09df53bb3f8f4d5e7ddd0a4.json`
+- `hushh-webapp/contracts/ui-review/back/e5daa81c8ae301a15ef2d886c0de1bbb99bce91c4ca0015f2844f67aa82b8214.json`
+- `hushh-webapp/contracts/ui-review/search/caa2cdb9b1e3f7c2d656dc1163c9cf671d4f3fbf9eac809a81b5b2a7fe99d89a.json`
 - `hushh-webapp/docs/one-location-now-and-map.md`
 - `hushh-webapp/docs/ui-contracts/README.md`
 - `hushh-webapp/docs/ui-contracts/location-action-coverage.md`
@@ -206,3 +206,5 @@ Fresh combined-source captures (task artifact `location-latest-release`): 12 scr
 A later freshness merge incorporates main `0ea0f8fce3f3a871fd5009876fd8b9fa568d99ed`. It brings upstream dependency/security and Direct Messages changes; the Location PR delta remains frontend presentation, tests and contracts only. Location production files, shared Back/Profile owners and global typography source are byte-identical to the 12-capture source above. The receipts bind this latest combined source. Existing visual evidence is reused within that unchanged UI scope; dependency verification uses the new frozen locks on Node24, targeted backend composition checks, import collection, packed MCP runtime and fresh frontend/governance checks. Exact-head hosted CI and release proof remain separate.
 
 The refreshed Node24 build emits the exact same global CSS bytes as the 12-capture build: chunk `0e0cky5cnncc0.css`, SHA-256 `3e0c670de960f9ae6570d5cb8f7d24bf47374035e865ebaad1a25b25ab4fffa3`. No Location, Back/Profile, font or global CSS source delta exists from the captured source; principal React/Radix/Vaul/Tailwind runtime packages also retain their prior locked versions. This bounds reuse of those screenshots while the new dependency/combined-head gates are verified separately.
+
+The final freshness review incorporates main `38082590d287830fef4dfdf7e3f25b6ab4ee9633`. Its inherited One profile sheet change removes the text-approval control and applies the existing activity-feed typography hook. This private-agent sheet is mounted by AgentChatWorkspace; it is separate from Location's top-bar Profile pane. Location, the captured shared header and Circle portal owners, fonts and global CSS remain unchanged. The combined Back/Search receipts are refreshed because the shared source graph changed; no Location functionality or backend dependency is added by this PR. Owner-specific profile checks and the final exact-head CI run are recorded separately from the reusable Location screenshots.
