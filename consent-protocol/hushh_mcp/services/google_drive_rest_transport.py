@@ -475,7 +475,12 @@ class GoogleDriveRestTransport:
         )
         parse_started = time.perf_counter()
         try:
-            parsed = await self._parser.parse(content=content, mime_type=mime_type, live=True)
+            parsed = await self._parser.parse(
+                content=content,
+                mime_type=mime_type,
+                live=True,
+                **({"raw_prefix": True} if raw_prefix else {}),
+            )
             text = "\n\n".join(parsed.pages)
         except DriveReadError as error:
             code = str(error)
@@ -501,6 +506,7 @@ class GoogleDriveRestTransport:
         return {
             "fileContent": text,
             **({"contentTruncated": True} if parsed.truncated else {}),
+            **({"extractionMethod": parsed.method} if raw_prefix else {}),
         }
 
     async def _get_file_metadata(self, arguments: dict[str, Any], token: str) -> dict:

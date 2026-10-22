@@ -488,6 +488,7 @@ async def test_index_prefix_uses_bounded_bytes_and_never_falls_back_to_exports(m
             "mime_type": mime,
             "content": b"bounded prefix",
             "live": True,
+            "raw_prefix": True,
         }
 
 

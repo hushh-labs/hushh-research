@@ -17,7 +17,7 @@ from hushh_mcp.services.drive_groups.export import COLUMNS
 from hushh_mcp.services.drive_groups.text_head import HEAD_CHARS
 from hushh_mcp.services.embedding_client_leaf import MODEL_ID, MODEL_REVISION
 
-CONTENT_COLUMNS = (
+BASE_CONTENT_COLUMNS = (
     *COLUMNS,
     "file_id",
     "source_version",
@@ -31,6 +31,39 @@ CONTENT_COLUMNS = (
     "embedding_revision",
     "embedding",
 )
+CONTENT_COLUMNS = (
+    *BASE_CONTENT_COLUMNS,
+    "extractor_policy",
+    "extraction_method",
+    "extraction_reason",
+)
+
+
+def checkpoint_columns(saved):
+    columns = tuple(saved.get("csv_columns", BASE_CONTENT_COLUMNS))
+    if columns not in {BASE_CONTENT_COLUMNS, CONTENT_COLUMNS}:
+        raise RuntimeError("content_invalid")
+    return columns
+
+
+def retry_prefix_failures(saved, cached):
+    """Keep authenticated successes; retry old failures under a new parser policy."""
+    from hushh_mcp.services.drive_document_prefix import DOCX, PREFIX_POLICY
+
+    policy = saved.get("extractor_policy", "drive-prefix-v1")
+    if policy not in {"drive-prefix-v1", PREFIX_POLICY}:
+        raise RuntimeError("content_invalid")
+    if policy == PREFIX_POLICY:
+        return cached
+    return {
+        identity: item
+        for identity, item in cached.items()
+        if not (
+            item["item"].get("index_status") == "prefix_unreadable"
+            and item["item"].get("mime_type")
+            in {"application/pdf", DOCX, "text/plain", "text/markdown"}
+        )
+    }
 
 
 def content_context():
@@ -80,7 +113,7 @@ class LocalExportContent:
         ):
             raise RuntimeError("content_invalid")
 
-    def seal(self, row, file, item):
+    def seal(self, row, file, item, *, extraction=None):
         head, vector = file.head, list(file.vector) if file.vector is not None else None
         self._validate(head, vector)
         metadata = {
@@ -98,6 +131,7 @@ class LocalExportContent:
             "embedding_dimensions": len(vector) if vector else 0,
             "embedding_model": MODEL_ID if vector else "",
             "embedding_revision": MODEL_REVISION if vector else "",
+            **(extraction or {}),
         }
         payload = {
             "schema": 1,
@@ -151,6 +185,16 @@ class LocalExportContent:
     def project(self, file_id: str, cached: dict, *, include_content: bool):
         payload = self.open(file_id, cached)
         item = dict(cached["item"])
+        if "extractor_policy" not in item and item.get("evidence_mode") == "raw_prefix_204800":
+            item.update(
+                extractor_policy="drive-prefix-v1", extraction_method="legacy", extraction_reason=""
+            )
+        if (
+            item.get("index_status") == "prefix_unreadable"
+            and item.get("extraction_method") not in {None, "", "legacy"}
+            and not item.get("extraction_reason")
+        ):
+            item["extraction_reason"] = "no_usable_head"
         if include_content:
             item["text_start"] = payload["head"] or ""
             item["embedding"] = (
@@ -209,6 +253,7 @@ def open_checkpoint(saved: dict):
         if saved["content_index"] != content.header:
             raise ValueError("header")
         content.verify_manifest(saved)
+        checkpoint_columns(saved)
         inventory = {row["id"]: row for row in saved["inventory"]["rows"]}
         for file_id, cached in saved["items"].items():
             if cached["version"] != inventory[file_id]["version"]:

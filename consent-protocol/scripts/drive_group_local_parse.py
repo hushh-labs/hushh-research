@@ -54,12 +54,18 @@ def main() -> None:
     try:
         mime = sys.argv[1]
         live = mime.startswith("live:")
-        mime = mime.removeprefix("live:")
+        prefix = mime.startswith("prefix:")
+        mime = mime.removeprefix("live:").removeprefix("prefix:")
         maximum = MAX_XLSX_INPUT_BYTES if live and mime == XLSX else MAX_INPUT_BYTES
-        parsed = (parse_live_document if live else parse_document)(
-            sys.stdin.buffer.read(maximum + 1), mime
-        )
+        parser = parse_live_document if live else parse_document
+        if prefix:
+            from hushh_mcp.services.drive_document_prefix import PREFIX_LIMIT, parse_prefix_document
+
+            parser, maximum = parse_prefix_document, PREFIX_LIMIT
+        parsed = parser(sys.stdin.buffer.read(maximum + 1), mime)
         result = {"pages": parsed.pages, "truncated": parsed.truncated}
+        if prefix:
+            result["method"] = parsed.method
     except ParseError as error:
         result = {"error": str(error)}
     except Exception:

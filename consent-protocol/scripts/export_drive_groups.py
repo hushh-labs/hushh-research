@@ -138,6 +138,7 @@ async def export(args):
     from sqlalchemy import text
 
     from api.utils.firebase_admin import get_firebase_auth_app
+    from hushh_mcp.services.drive_document_prefix import PREFIX_POLICY
     from hushh_mcp.services.drive_document_processor import IsolatedDocumentParser
     from hushh_mcp.services.drive_groups.adapters import TransportHeadSource
     from hushh_mcp.services.drive_groups.export import csv_text, pending_rows, placement_rows
@@ -168,6 +169,7 @@ async def export(args):
         LocalExportContent,
         content_context,
         open_checkpoint,
+        retry_prefix_failures,
     )
     from scripts.drive_group_local_inventory import load_inventory
 
@@ -270,6 +272,8 @@ async def export(args):
         )
         await sessions.enter_async_context(transport.owner_search_session())
 
+        extraction = {}
+
         class Reads:
             async def read_tool(self, *, user_id, tool_name, arguments):
                 if user_id != user.uid:
@@ -293,7 +297,37 @@ async def export(args):
                         expected_generation=generation,
                     )
 
-                result = await retry_read(fenced_read)
+                try:
+                    result = await retry_read(fenced_read)
+                except DriveReadError as error:
+                    if tool_name == "read_file_content" and str(error) in {
+                        "source_unavailable",
+                        "file_too_large",
+                        "unsupported_format",
+                        "invalid_document",
+                        "no_extractable_text",
+                        "encrypted_document",
+                    }:
+                        extraction[arguments["fileId"]] = {"extraction_reason": str(error)}
+                    raise
+                if tool_name == "read_file_content" and isinstance(result.payload, dict):
+                    from hushh_mcp.services.drive_document_prefix import PREFIX_METHODS
+
+                    payload = result.payload
+                    method, reason = payload.get("extractionMethod"), payload.get("reason")
+                    extraction[arguments["fileId"]] = {
+                        "extraction_method": method if method in PREFIX_METHODS else "",
+                        "extraction_reason": reason
+                        if reason
+                        in {
+                            "file_too_large",
+                            "unsupported_format",
+                            "invalid_document",
+                            "no_extractable_text",
+                            "encrypted_document",
+                        }
+                        else "",
+                    }
                 if not fresh_authority and not await asyncio.to_thread(revision_unchanged):
                     raise DriveReadError("background_preparation_required")
                 return result
@@ -323,6 +357,8 @@ async def export(args):
             if content:
                 open_checkpoint(saved)
             cached = saved["items"]
+            if prefix_mode:
+                cached = retry_prefix_failures(saved, cached)
         elif checkpoint.exists():
             raise RuntimeError("output_exists")
         inventory_started = time.perf_counter()
@@ -378,7 +414,10 @@ async def export(args):
                 "items": cached,
                 "inventory": inventory.checkpoint(completed=len(cached) == len(rows)),
                 **({"content_index": content.header} if content else {}),
+                **({"csv_columns": CONTENT_COLUMNS} if content else {}),
             }
+            if prefix_mode:
+                snapshot["extractor_policy"] = PREFIX_POLICY
             if content:
                 snapshot["content_manifest"] = content.manifest(snapshot)
             serialized = json.dumps(snapshot, ensure_ascii=False, allow_nan=False)
@@ -444,7 +483,19 @@ async def export(args):
             by_id = {row["id"]: row for row in batch}
             for item, file in zip(projected, indexed.files, strict=True):
                 cached[file.file_id] = (
-                    content.seal(by_id[file.file_id], file, item)
+                    content.seal(
+                        by_id[file.file_id],
+                        file,
+                        item,
+                        extraction={
+                            "extractor_policy": PREFIX_POLICY if prefix_mode else "full",
+                            "extraction_method": "",
+                            "extraction_reason": item.get("index_status", "")
+                            if item.get("index_status") != "indexed_raw_prefix"
+                            else "",
+                            **extraction.get(file.file_id, {}),
+                        },
+                    )
                     if content
                     else {
                         "version": versions[file.file_id],

@@ -238,6 +238,24 @@ different context and cannot stand in for persisted evidence. Use a new output
 for the first content rebuild; later `--resume` reuses validated evidence for
 unchanged versions.
 
+Prefix extraction uses the same constrained parser child with a separate
+`drive-prefix-v2` policy. PDF recovery retains only decoded pages rooted in an
+actual Catalog, with complete referenced text streams and font mappings; it can
+retain an earlier page when a later object is cut. DOCX recovery walks local ZIP
+members, including bounded DEFLATE data descriptors, and reads the actual Word
+XML even when the central directory or Content_Types member lies after the
+prefix. Text decoding tolerates only a cut final character, not interior
+corruption. No extra range, tail download, native Workspace export or OCR is
+introduced. Image-only or structurally incomplete prefixes can remain unreadable.
+
+New private CSVs add `extractor_policy`, `extraction_method` and
+`extraction_reason`. `invalid_document` in prefix mode means the supplied prefix
+could not be decoded; it does not establish that the complete source is damaged.
+The authenticated checkpoint records parser policy and CSV columns. Upgrading an
+old content checkpoint retries affected unreadable originals while preserving
+unchanged successful evidence. Original successes retain their v1 provenance.
+The reader also preserves the original column layout when recovering old exports.
+
 The checkpoint is the committed snapshot; the CSV is its projection. If a write
 fails after checkpoint publication, a fresh invocation can recreate the CSV
 without downloading or embedding again. Encryption and serialization finish

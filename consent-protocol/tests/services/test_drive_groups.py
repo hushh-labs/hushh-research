@@ -1155,7 +1155,7 @@ async def test_persistent_export_recovers_committed_content_in_a_fresh_process_w
 
 
 @pytest.mark.parametrize(
-    "change", ["version", "model", "mode", "revision", "file", "ciphertext", "membership"]
+    "change", ["version", "model", "mode", "revision", "file", "ciphertext", "membership", "policy"]
 )
 def test_persisted_evidence_refuses_substitution_and_inventory_tampering(monkeypatch, change):
     import base64
@@ -1194,7 +1194,7 @@ def test_persisted_evidence_refuses_substitution_and_inventory_tampering(monkeyp
     elif change in {"model", "mode", "revision"}:
         key = {"model": "model", "mode": "evidence_mode", "revision": "revision"}[change]
         content = LocalExportContent(owner="owner", context={**context, key: "changed"})
-    elif change == "membership":
+    elif change in {"membership", "policy"}:
         saved = {
             "context": context,
             "content_index": content.header,
@@ -1202,13 +1202,45 @@ def test_persisted_evidence_refuses_substitution_and_inventory_tampering(monkeyp
             "inventory": {"rows": [source], "cursor": "after", "complete": True},
         }
         saved["content_manifest"] = content.manifest(saved)
-        saved["items"].clear()
-        saved["inventory"]["rows"].clear()
+        if change == "membership":
+            saved["items"].clear()
+            saved["inventory"]["rows"].clear()
+        else:
+            saved["extractor_policy"] = "drive-prefix-v2"
         with pytest.raises(RuntimeError, match="content_invalid"):
             open_checkpoint(saved)
         return
     with pytest.raises(RuntimeError, match="content_invalid"):
         content.open(file.file_id, cached)
+
+
+def test_prefix_policy_upgrade_retries_failures_preserves_successes_and_legacy_columns():
+    from scripts.drive_group_local_content import (
+        BASE_CONTENT_COLUMNS,
+        CONTENT_COLUMNS,
+        checkpoint_columns,
+        retry_prefix_failures,
+    )
+
+    success = {
+        "item": {"index_status": "indexed_raw_prefix", "mime_type": PDF},
+        "content": {"unchanged": True},
+    }
+    failed = {"item": {"index_status": "prefix_unreadable", "mime_type": PDF}}
+    native = {
+        "item": {
+            "index_status": "prefix_unavailable",
+            "mime_type": "application/vnd.google-apps.document",
+        }
+    }
+    cached = {"good": success, "bad": failed, "native": native}
+    retry = retry_prefix_failures({}, cached)
+    assert retry == {"good": success, "native": native} and retry["good"] is success
+    assert retry_prefix_failures({"extractor_policy": "drive-prefix-v2"}, cached) is cached
+    with pytest.raises(RuntimeError, match="content_invalid"):
+        retry_prefix_failures({"extractor_policy": "future-policy"}, cached)
+    assert checkpoint_columns({}) == BASE_CONTENT_COLUMNS
+    assert checkpoint_columns({"csv_columns": list(CONTENT_COLUMNS)}) == CONTENT_COLUMNS
 
 
 @pytest.mark.asyncio

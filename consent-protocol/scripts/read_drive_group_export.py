@@ -36,7 +36,7 @@ def main():
         # Runtime imports may load repository defaults; the explicitly selected
         # configuration must be present before that bootstrap can run.
         from hushh_mcp.services.drive_groups.export import csv_text, pending_rows
-        from scripts.drive_group_local_content import CONTENT_COLUMNS, open_checkpoint
+        from scripts.drive_group_local_content import checkpoint_columns, open_checkpoint
         from scripts.export_drive_groups import _load_secrets, _write
 
         if args.key_project and not os.getenv("DRIVE_DOCUMENT_KEY_V1"):
@@ -56,7 +56,7 @@ def main():
             for row in inventory
         ]
         if args.output:
-            _write(args.output, csv_text(rows, columns=CONTENT_COLUMNS))
+            _write(args.output, csv_text(rows, columns=checkpoint_columns(saved)))
         print(
             json.dumps(
                 {

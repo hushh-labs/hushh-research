@@ -266,12 +266,14 @@ class IsolatedDocumentParser:
         # Downloads may overlap more widely than memory-heavy parser children.
         self._parse_slots = asyncio.Semaphore(2)
 
-    async def parse(self, *, content: bytes, mime_type: str, live: bool = False) -> ParsedText:
+    async def parse(
+        self, *, content: bytes, mime_type: str, live: bool = False, raw_prefix: bool = False
+    ) -> ParsedText:
         try:
             async with self._parse_slots:
                 result = await self._process(
                     "parser",
-                    ("live:" if live else "") + mime_type,
+                    ("prefix:" if raw_prefix else "live:" if live else "") + mime_type,
                     content,
                     timeout=25,
                     limit=MAX_TEXT_BYTES * 6 + 4096,
@@ -290,7 +292,13 @@ class IsolatedDocumentParser:
                 or type(result["truncated"]) is not bool
             ):
                 raise DriveReadError("invalid_document")
-            return ParsedText(tuple(pages), result["truncated"])
+            method = result.get("method")
+            if raw_prefix:
+                from hushh_mcp.services.drive_document_prefix import PREFIX_METHODS
+
+                if method not in PREFIX_METHODS:
+                    raise DriveReadError("invalid_document")
+            return ParsedText(tuple(pages), result["truncated"], method if raw_prefix else None)
         except (ValueError, KeyError, TypeError):
             raise DriveReadError("invalid_document") from None
 
