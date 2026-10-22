@@ -14485,6 +14485,7 @@ export function OneLocationAgentPageContent({
     return (
       <AppPageShell
         width="agent"
+        data-location-type-scale="connect"
         headerContentSpacing="compact"
         fitContent
         className="relative isolate [--app-page-content-bottom-gap:0px]"
@@ -14499,6 +14500,7 @@ export function OneLocationAgentPageContent({
           {loadError && !state ? (
             <div
               role="alert"
+              data-location-type-role="helper"
               className="rounded-[20px] border border-[#ff3b30]/30 bg-[#ff3b30]/10 p-4 text-sm font-medium text-[#ff3b30] dark:text-[#ff9f9a]"
             >
               {loadError}

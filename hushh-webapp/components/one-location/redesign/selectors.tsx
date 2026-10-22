@@ -533,6 +533,7 @@ export function PersonSearchInput({
       <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[color:var(--app-tertiary-label)]" />
       <input
         type="search"
+        data-location-type-role="input"
         aria-label={placeholder}
         value={value}
         onChange={(event) => onChange(event.target.value)}

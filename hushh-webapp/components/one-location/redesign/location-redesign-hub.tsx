@@ -1993,7 +1993,7 @@ function LiveShareDurationDialog({
         }}
       >
         <DialogHeader className="gap-1 text-left">
-          <DialogTitle className="text-[20px] font-semibold leading-[25px] text-[color:var(--app-primary-label)]">
+          <DialogTitle data-location-type-role="overlay-title" className="text-[20px] font-semibold leading-[25px] text-[color:var(--app-primary-label)]">
             {title}
           </DialogTitle>
         </DialogHeader>
@@ -2358,7 +2358,7 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
               >
                 {emergencyItem.title}
               </RowLabel>
-              <RowDescription
+              <RowDescription data-location-type-role="row-description"
                 as="span"
                 className="mt-0.5 block min-w-0 !text-[13px] !font-medium !leading-[18px] !text-[color:var(--app-destructive)]"
               >
@@ -2849,7 +2849,7 @@ function LocationDetailFlow({
                           point,
                           false,
                           `${grant.id}:${grantViewportResetKeys[grant.id] ?? 0}`,
-                          <Button
+                          <Button data-location-type-role="compact-action"
                             variant="outline"
                             size="sm"
                             onClick={() => vm.onAskReshare(grant)}
@@ -3167,7 +3167,7 @@ function LocationSettingsFlow({
           embedded
           separatorInset
           shellClassName="[--settings-group-radius:16px] shadow-none"
-          className="[--settings-row-description-gap:2px] [--type-row-description-size:13px] [--type-row-description-line:18px]"
+          className="[--settings-row-description-gap:2px] [--type-row-description-line:18px]"
         >
           <SettingsRow
             title="Auto-approve requests"
@@ -3219,10 +3219,10 @@ function LocationSettingsFlow({
           showCloseButton={false}
         >
           <DialogHeader className="gap-1 text-left">
-            <DialogTitle className="ui-text-card-title">
+            <DialogTitle data-location-type-role="overlay-title" className="ui-text-card-title">
               Auto-approve for
             </DialogTitle>
-            <DialogDescription className="ui-text-page-subtitle">
+            <DialogDescription data-location-type-role="task-description" className="ui-text-page-subtitle">
               All contacts, or any combination of your Circles.
             </DialogDescription>
           </DialogHeader>
@@ -3241,7 +3241,7 @@ function LocationSettingsFlow({
                   <SectionLabel as="p" compact>
                     Circles
                   </SectionLabel>
-                  <button
+                  <button data-location-type-role="utility-action"
                     type="button"
                     onClick={toggleAllDraftCircles}
                     className="press-scale text-[13px] font-semibold text-[color:var(--app-accent)]"
@@ -3575,7 +3575,7 @@ export function PersonRow({
               aria-label={`Share your location with ${name}`}
             >
               {/* A compact fill inside the unchanged 44px touch target. */}
-              <span
+              <span data-location-type-role="compact-action"
                 data-location-action-surface
                 className={cn(
                   "inline-flex h-10 w-full items-center justify-center bg-[color:var(--app-accent)] px-3",
@@ -3598,7 +3598,7 @@ export function PersonRow({
               )}
               aria-label={`Ask ${name} for their location`}
             >
-              <span
+              <span data-location-type-role="compact-action"
                 data-location-action-surface
                 className={cn(
                   "inline-flex h-10 w-full items-center justify-center bg-[#F2F2F7] px-3",
@@ -3790,7 +3790,7 @@ export function CircleSummaryGroup({
           <span data-location-row-title="" className="text-[15px] font-medium leading-5 text-foreground">
             {invitationTitle}
           </span>
-          <span className="text-[15px] font-semibold leading-5 text-[color:var(--app-accent)]">
+          <span data-location-type-role="helper" className="text-[15px] font-semibold leading-5 text-[color:var(--app-accent)]">
             {invitationCount}
           </span>
           <ChevronRight
@@ -3875,11 +3875,11 @@ function CircleInvitationsDialog({
     >
       <DialogContent className="max-w-[420px] rounded-[24px] p-0">
         <DialogHeader className="px-5 pb-2 pt-5 text-left">
-          <DialogTitle className="text-[20px] font-semibold leading-[25px] tracking-[-0.3px]">
+          <DialogTitle data-location-type-role="overlay-title" className="text-[20px] font-semibold leading-[25px] tracking-[-0.3px]">
             Circle invitations
           </DialogTitle>
           {showUnavailable ? (
-            <DialogDescription>
+            <DialogDescription data-location-type-role="task-description">
               This Circle invitation is no longer available.
             </DialogDescription>
           ) : null}
@@ -3935,7 +3935,7 @@ function CircleInvitationsDialog({
                     </p>
                   </div>
                   <div className="col-span-2 flex items-center justify-end gap-2 sm:col-span-1">
-                    <Button
+                    <Button data-location-type-role="compact-action"
                       type="button"
                       variant="ghost"
                       disabled={responding || inviteBusy}
@@ -3944,7 +3944,7 @@ function CircleInvitationsDialog({
                     >
                       {responding && inviteBusy ? "Declining…" : "Decline"}
                     </Button>
-                    <Button
+                    <Button data-location-type-role="compact-action"
                       type="button"
                       disabled={responding || inviteBusy}
                       onClick={() => void respondToInvite(invite.id, "accept")}
@@ -4071,11 +4071,11 @@ function PersonActionsDialog({
               className="h-11 w-11 text-[14px]"
             />
             <div className="min-w-0">
-              <DialogTitle className="break-words text-[20px] font-semibold leading-[25px] tracking-[-0.3px]">
+              <DialogTitle data-location-type-role="overlay-title" className="break-words text-[20px] font-semibold leading-[25px] tracking-[-0.3px]">
                 {name}
               </DialogTitle>
               {status.label || !shareReady ? (
-                <DialogDescription className="mt-0.5 space-y-2 text-[15px] leading-5 text-[color:var(--app-secondary-label)]">
+                <DialogDescription data-location-type-role="task-description" className="mt-0.5 space-y-2 text-[15px] leading-5 text-[color:var(--app-secondary-label)]">
                   {status.label ? <span className="block">{status.label}</span> : null}
                   {!shareReady ? (
                     <span className="block">
@@ -4338,7 +4338,7 @@ export function PeopleHub({
           <div className="flex items-center gap-2">
             <div
               className={cn(
-                "min-w-0 flex-1 [&_input]:h-[46px] [&_input]:rounded-[14px] [&_input]:border-0 [&_input]:bg-[color:var(--app-primary-surface)] [&_input]:pl-[46px] [&_input]:pr-[18px] [&_input]:text-[16px] [&_input]:leading-[22px] dark:[&_input]:bg-[color:var(--app-secondary-surface)]",
+                "min-w-0 flex-1 [&_input]:h-[46px] [&_input]:rounded-[14px] [&_input]:border-0 [&_input]:bg-[color:var(--app-primary-surface)] [&_input]:pl-[46px] [&_input]:pr-[18px] dark:[&_input]:bg-[color:var(--app-secondary-surface)]",
                 "[&_svg]:left-[18px] [&_svg]:text-[color:var(--app-tertiary-label)]",
               )}
               data-testid="one-location-people-search"
@@ -4389,7 +4389,7 @@ export function PeopleHub({
                 );
               })}
               {vm.recipientPageHasMore ? (
-                <div
+                <div data-location-type-role="helper"
                   ref={loadMoreSentinelRef}
                   role="status"
                   data-testid="one-location-people-load-more-sentinel"
@@ -4561,7 +4561,7 @@ export function PublicLinkActionRows({
   return (
     <div className="space-y-2.5 px-4 pb-4 pt-1.5">
       <div className="flex flex-wrap items-center gap-2" data-testid="public-link-actions">
-        <Button
+        <Button data-location-type-role="compact-action"
           onClick={onShare}
           size="compact"
           className="ui-text-button-label h-11 min-w-0 gap-1.5 rounded-full px-3 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
@@ -4569,7 +4569,7 @@ export function PublicLinkActionRows({
           <Share2 className="h-4 w-4" />
           Share
         </Button>
-        <Button
+        <Button data-location-type-role="compact-action"
           variant="outline"
           onClick={handleCopy}
           disabled={copyBusy}
@@ -4582,7 +4582,7 @@ export function PublicLinkActionRows({
         </Button>
       </div>
       <div className="pt-1">
-        <button
+        <button data-location-type-role="compact-action"
           type="button"
           onClick={onRevoke}
           disabled={revokeBusy}
@@ -4614,7 +4614,7 @@ function ActiveLinkRow({
       title={title}
       description={subtitle}
       trailing={
-        <Button
+        <Button data-location-type-role="compact-action"
           variant="outline"
           onClick={onCopy}
           size="sm"
@@ -4720,7 +4720,7 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
                 description="People who have this link can still see your location until it expires. Stop it to create a new link."
               />
               <div className="px-4 pb-4 pt-2">
-                <button
+                <button data-location-type-role="compact-action"
                   type="button"
                   onClick={() => {
                     if (temp) vm.onRevokePublicInvite(temp);
@@ -5060,7 +5060,7 @@ function ShareFlow({
               selected ? (
                 <SelectionDot selected />
               ) : includedThroughCircle ? (
-                <span
+                <span data-location-type-role="source-heading"
                   aria-label={`Included through ${includedThroughCircle.circle.name}`}
                   className="inline-flex min-h-7 shrink-0 items-center gap-1 rounded-full bg-[color:var(--app-accent-surface)] px-2 text-[11px] font-semibold text-[color:var(--app-accent)]"
                 >
@@ -5219,10 +5219,10 @@ function ShareFlow({
             role="alert"
             className="rounded-[var(--app-radius-control)] border border-destructive/20 bg-destructive/[0.06] px-4 py-3"
           >
-            <p className="text-[14px] font-semibold leading-[19px] text-foreground">
+            <p data-location-type-role="section-heading" className="text-[14px] font-semibold leading-[19px] text-foreground">
               Sharing didn’t start
             </p>
-            <p className="mt-0.5 text-[13px] leading-[18px] text-muted-foreground">
+            <p data-location-type-role="helper" className="mt-0.5 text-[13px] leading-[18px] text-muted-foreground">
               {vm.shareError}
             </p>
           </div>
@@ -5274,7 +5274,7 @@ function ShareFlow({
                   className="ui-text-input-value block min-h-[92px] w-full resize-none rounded-[14px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] px-4 pb-8 pt-3.5 outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)] aria-invalid:border-[color:var(--app-destructive)] aria-invalid:focus:ring-[color:var(--app-destructive-border)]"
                 />
                 {showShareNoteCount ? (
-                  <span
+                  <span data-location-type-role="helper"
                     id="one-location-share-note-count"
                     className={cn(
                       "pointer-events-none absolute bottom-2.5 right-3 text-xs tabular-nums",
@@ -5288,7 +5288,7 @@ function ShareFlow({
                 ) : null}
               </div>
               {shareNoteLimitExceeded ? (
-                <p
+                <p data-location-type-role="helper"
                   id="one-location-share-note-error"
                   role="alert"
                   className="text-right text-xs font-medium text-destructive"
@@ -5306,7 +5306,7 @@ function ShareFlow({
           recipients={selectedReady}
           recipientLabel={vm.recipientLabel}
           trailing={
-            <button
+            <button data-location-type-role="utility-action"
               type="button"
               onClick={backToPeople}
               aria-label="Change who can see you"
@@ -5789,11 +5789,11 @@ function RequestRecipientListRow({
       >
         <ContactAvatar label={name} photoUrl={photoUrl} verified={verified} fromContacts={fromContacts} />
         <span className="min-w-0 flex-1">
-          <span className="flex min-w-0 items-center gap-1.5 text-[17px] font-normal leading-[22px] text-foreground">
+          <span data-location-type-role="row-title" className="flex min-w-0 items-center gap-1.5 text-[17px] font-normal leading-[22px] text-foreground">
             <span className="min-w-0 truncate">{name}</span>
           </span>
           {subtitle ? (
-            <span className="mt-0.5 block truncate text-[13px] leading-4 text-muted-foreground">
+            <span data-location-type-role="row-description" className="mt-0.5 block truncate text-[13px] leading-4 text-muted-foreground">
               {subtitle}
             </span>
           ) : null}
@@ -6151,7 +6151,7 @@ function AskFlow({
           recipients={selectedRequestRecipients}
           recipientLabel={vm.recipientLabel}
           trailing={
-            <button
+            <button data-location-type-role="utility-action"
               type="button"
               onClick={() => setStep("person")}
               aria-label="Change who you are asking"
@@ -6272,7 +6272,7 @@ function AskFlow({
             data-testid="one-location-ask-waiting-summary"
             className="rounded-[18px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] px-4 py-3"
           >
-            <p className="text-[15px] font-semibold leading-5 text-foreground">
+            <p data-location-type-role="section-heading" className="text-[15px] font-semibold leading-5 text-foreground">
               {waitingResponsesLabel(pendingNewRequestCount)}
             </p>
           </div>
@@ -6407,7 +6407,7 @@ function AskFlow({
                 description="Find or invite someone first."
               />
             )}
-            <Link
+            <Link data-location-type-role="utility-action"
               href={askFlowConnectRecoveryHref(searchDraft)}
               data-testid="one-location-ask-find-or-invite"
               className="mt-3 inline-flex min-h-11 items-center gap-1 rounded-full px-1 text-[15px] font-medium text-[color:var(--app-accent)]"
@@ -6453,7 +6453,7 @@ function SelectedRecipientsRail({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3 px-1">
-        <p className="text-[13px] font-normal leading-[18px] text-muted-foreground">
+        <p data-location-type-role="source-heading" className="text-[13px] font-normal leading-[18px] text-muted-foreground">
           {title}
         </p>
         {trailing}
@@ -6482,7 +6482,7 @@ function SelectedRecipientsRail({
               +{recipients.length - 3}
             </span>
           </div>
-          <div className="min-w-0 flex-1 text-[17px] leading-[22px] text-[color:var(--app-label)]">
+          <div data-location-type-role="row-title" className="min-w-0 flex-1 text-[17px] leading-[22px] text-[color:var(--app-label)]">
             {recipients.map((recipient) => (
               <span key={recipient.userId} className="sr-only">
                 {recipientLabel(recipient)}
@@ -6513,7 +6513,7 @@ function SelectedRecipientsRail({
                   fromContacts={recipient.connectedFromContacts}
                   className="h-8 w-8 text-[13px]"
                 />
-                <span className="flex min-w-0 flex-1 items-start gap-1.5 text-[17px] font-normal leading-[22px] text-[color:var(--app-label)]">
+                <span data-location-type-role="row-title" className="flex min-w-0 flex-1 items-start gap-1.5 text-[17px] font-normal leading-[22px] text-[color:var(--app-label)]">
                   <span className="min-w-0 truncate">{label}</span>
                 </span>
               </div>
@@ -6548,7 +6548,7 @@ export function InviteFlow({ vm }: { vm: LocationHubViewModel }) {
               <UserRoundPlus className="h-5 w-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-base font-semibold text-foreground">
+              <p data-location-type-role="row-title" className="text-base font-semibold text-foreground">
                 Circle invite
               </p>
               <p className={MUTED_TEXT}>
@@ -6557,7 +6557,7 @@ export function InviteFlow({ vm }: { vm: LocationHubViewModel }) {
                   : "Invite expires soon"}
               </p>
             </div>
-            <span className="rounded-full border border-amber-500/30 bg-amber-500/12 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-300">
+            <span data-location-type-role="status" className="rounded-full border border-amber-500/30 bg-amber-500/12 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-300">
               Pending
             </span>
           </div>

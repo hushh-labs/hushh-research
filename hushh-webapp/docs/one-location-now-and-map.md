@@ -10,57 +10,11 @@ the immersive Your Map route suppresses persistent app chrome.
 
 ## Header and typography contract
 
-The Location hub uses the same persistent `AppTopShell` as Connect:
-`[Back] Location [Profile]`. The current title is the last, non-interactive
-breadcrumb at 17px / 22px / 600. The shared controls, safe areas, responsive
-insets, route parent, validated origin and nested Back layers retain their
-existing owners. The hub's body heading remains an accessible `h1.sr-only`;
-there is no second visible Location title. The existing on/off switch and
-its described status remain together in a compact row above the local tabs,
-with their original handlers, track geometry, colors and accessible names.
+The maintained [Location contract](./ui-contracts/location.md#typography-responsive-geometry-and-layering) owns the complete mounted typography/CTA ledger and evidence. Location reuses Connect's shared `[Back] Location [Profile]` composition, with a17/22/600 current title and one accessible root heading. Its live switch/status retains its existing handler and compact row.
 
-Location keeps its agent measure, gutters, cards, icons, CTA geometry and
-navigation. It does not import Connect's workspace geometry. Text inherits the
-self-hosted Plus Jakarta Sans family and the following Connect role scale:
+The entire mounted journey uses the matching Connect semantic hierarchy: full flow titles28/36/600, ordinary rows14/21/550, descriptions12/18/400 and distinct utility, compact, full-primary, Task and Circle roles. Ordinary semantic inputs use16px through620px and14px above; Task and explicit Circle contexts retain their own verified breakpoint/cascade. Actual portal hosts carry the presentation scope. No blanket descendant reset or workspace geometry is imported.
 
-| Role | Size / line height / requested weight |
-| --- | --- |
-| Current shared header title | 17px / 22px / 600 |
-| Now, People, Links tabs | 15px / 20px / 550 |
-| Section and card headings | 14px / 22px / 600 |
-| Row titles | 14px / 21px / 550 |
-| Supporting descriptions | 12px / 18px / 400 |
-| Compact row actions | 12px / 18px / 550 |
-| Focused task heading | 17px / 22px / 600 |
-| Location-owned dialog/sheet heading | Shared major-section role: 20px / 25px / 600 |
-
-`LocationTypographyProvider` carries a presentation-only scope through React
-portals. `withLocationTypography` repeats the scope on Location-owned dialog,
-sheet, drawer, menu and selector content; shared Circle components retain their
-original typography when opened outside Location. Shared Connect-owned Circle
-photo, message-edit/delete and Add Circle popups retain Connect's existing
-Circle popup typography in both entry contexts. Explicit Location overrides
-win against nested Circle/Profile variables and global heading rules. These
-rules alter typography only; they do not change surfaces or layout tokens.
-Map labels, warning/instruction treatments, prominent CTA labels and shared Connect-owned
-popup titles retain their existing roles rather than receiving blanket text
-resets. The shared saved-place sheet/dialog is scoped only when opened from
-Location; its map, disclosure and form behavior remain unchanged.
-
-Implementation owners:
-[hub](../components/one-location/redesign/location-redesign-hub.tsx),
-[scope](../components/one-location/redesign/location-typography.tsx),
-[shared Back graph](../lib/navigation/back-navigation-graph.ts), and the
-Location block in [global CSS](../app/globals.css). Connect's comparison scale
-is authored in [its workspace CSS](../components/connect/connect-workspace.module.css).
-
-Verification uses production-compiled components, optimized global CSS and the
-bundled product fonts in WebKit, with matching CSS viewports and browser scale
-1. Phone and desktop checks cover the three tabs, Settings, Share, Circle
-creation, duration dialog and saved-place sheet/dialog in both themes. Provider,
-auth and location information are synthetic; these captures do not assert live
-permission, sharing or emergency delivery. Existing behavioral tests cover the
-preserved handler and Back contracts.
+See [role comparison](./ui-contracts/location-typography-roles.md) and [verification report](./ui-contracts/location-verification.md) for source/effective values, screenshots, the request-duration wrapping correction and acceptance gaps. The Location-only toast cascade fix is checked against a Connect scope-exit negative control. Provider/auth/service information in screenshots is synthetic; no live sharing or emergency delivery is asserted.
 
 ## Now
 

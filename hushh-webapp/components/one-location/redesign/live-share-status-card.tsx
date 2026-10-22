@@ -172,7 +172,7 @@ function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
         {remaining > 0 ? (
           <span
             className="ml-1.5 inline-flex shrink-0 items-center text-[12px] font-semibold leading-none text-[color:var(--app-secondary-label)]"
-            data-testid="one-location-live-share-remaining"
+            data-testid="one-location-live-share-remaining" data-location-type-role="row-description"
           >
             +{remaining}
           </span>
@@ -335,7 +335,7 @@ export function LiveShareStatusCard({
             aria-hidden="true"
             className="h-2 w-2 shrink-0 rounded-full bg-emerald-500 motion-safe:animate-pulse"
           />
-          <span className="text-[13px] font-semibold uppercase leading-[18px] tracking-[0.06em] text-emerald-700 dark:text-emerald-300">
+          <span data-location-type-role="status" className="text-[13px] font-semibold uppercase leading-[18px] tracking-[0.06em] text-emerald-700 dark:text-emerald-300">
             Sharing now
           </span>
         </span>
@@ -352,7 +352,7 @@ export function LiveShareStatusCard({
             )}
             data-ui-contract="occlusion-sensitive"
             data-ui-role="control"
-            data-ui-id="location-live-share-stop"
+            data-ui-id="location-live-share-stop" data-location-type-role="compact-action"
           >
             {stopBusy ? (
               <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
@@ -370,7 +370,7 @@ export function LiveShareStatusCard({
             )}
             data-ui-contract="occlusion-sensitive"
             data-ui-role="control"
-            data-ui-id="location-live-share-manage"
+            data-ui-id="location-live-share-manage" data-location-type-role="compact-action"
           >
             Manage
           </Button>
@@ -401,7 +401,7 @@ export function LiveShareStatusCard({
                   data-ui-contract="required-copy"
                   data-ui-id="location-live-share-countdown"
                   data-ui-truncation="forbid"
-                  data-testid="one-location-live-share-countdown"
+                  data-testid="one-location-live-share-countdown" data-location-type-role="helper"
                   className={LIVE_SHARE_CLOCK_CLASSNAME}
                 >
                   {clock}
@@ -484,7 +484,7 @@ export function LiveShareStatusCard({
               )}
               data-ui-contract="occlusion-sensitive"
               data-ui-role="control"
-              data-ui-id="location-live-share-more"
+              data-ui-id="location-live-share-more" data-location-type-role="primary-action"
               data-testid="one-location-live-share-more"
             >
               Share with more
@@ -502,7 +502,7 @@ export function LiveShareStatusCard({
               )}
               data-ui-contract="occlusion-sensitive"
               data-ui-role="control"
-              data-ui-id="location-live-share-duration"
+              data-ui-id="location-live-share-duration" data-location-type-role="compact-action"
               data-testid="one-location-live-share-change-time"
             >
               {openEnded ? "Set an end time" : "Change end time"}

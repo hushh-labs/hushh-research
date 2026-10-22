@@ -625,7 +625,7 @@ export function LocationPickerMap({
             looking at, and this row shares a sheet header with the step rail --
             every word here is a word the title has to fit beside a 44px close
             target at 320px. */}
-          <p className="text-[15px] font-semibold text-foreground">
+          <p data-location-type-role="row-title" className="text-[15px] font-semibold text-foreground">
             Pin your entrance
           </p>
           <button
@@ -704,7 +704,7 @@ export function LocationPickerMap({
                 strokeWidth={2}
                 aria-hidden
               />
-              <p
+              <p data-location-type-role="helper"
                 id={mapUnavailableDescriptionId}
                 className="text-[13px] font-medium text-[#5b6472] dark:text-[#9aa6b6]"
               >
@@ -717,7 +717,7 @@ export function LocationPickerMap({
             // Overlay (not a replacement): on native the map element stays mounted
             // underneath so create() can resolve; this loader simply covers it
             // until ready.
-            <div className="absolute inset-0 flex h-full items-center justify-center gap-2 bg-[#eef2f7] text-[13px] text-[#5b6472] dark:bg-[#10151d] dark:text-[#9aa6b6]">
+            <div data-location-type-role="row-description" className="absolute inset-0 flex h-full items-center justify-center gap-2 bg-[#eef2f7] text-[13px] text-[#5b6472] dark:bg-[#10151d] dark:text-[#9aa6b6]">
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading
               map…
             </div>
@@ -797,12 +797,12 @@ export function LocationPickerMap({
           )}
         </div>
 
-        <p className="text-[12px] leading-[1.45] text-[#5b6472] dark:text-[#9aa6b6]">
+        <p data-location-type-role="row-description" className="text-[12px] leading-[1.45] text-[#5b6472] dark:text-[#9aa6b6]">
           {accuracyHint}
         </p>
 
         {locationError ? (
-          <p
+          <p data-location-type-role="status"
             role="status"
             className="rounded-xl bg-[#fff4ed] px-3 py-2 text-[12px] font-medium leading-[1.4] text-[#b54708] dark:bg-[#7a2e0e]/20 dark:text-[#fdb022]"
           >
@@ -819,16 +819,16 @@ export function LocationPickerMap({
               <MapPin className="h-4 w-4" strokeWidth={2.4} aria-hidden />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-[13px] font-normal leading-[18px] tracking-normal text-[#8b93a1] dark:text-[#7f8a99]">
+              <p data-location-type-role="row-description" className="text-[13px] font-normal leading-[18px] tracking-normal text-[#8b93a1] dark:text-[#7f8a99]">
                 Selected spot
               </p>
               {resolving ? (
-                <span className="mt-0.5 flex items-center gap-1.5 text-[13px] text-[#5b6472] dark:text-[#9aa6b6]">
+                <span data-location-type-role="row-description" className="mt-0.5 flex items-center gap-1.5 text-[13px] text-[#5b6472] dark:text-[#9aa6b6]">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
                   Finding this address…
                 </span>
               ) : (
-                <p className="mt-0.5 text-[14px] font-semibold text-[#111827] dark:text-[#e9eef7]">
+                <p data-location-type-role="row-title" className="mt-0.5 text-[14px] font-semibold text-[#111827] dark:text-[#e9eef7]">
                   {address ||
                     (unavailable
                       ? "Captured point ready"
@@ -847,7 +847,7 @@ export function LocationPickerMap({
           data-testid="location-picker-actions"
           className={PICKER_ACTIONS_CLASSNAME}
         >
-          <button
+          <button data-location-type-role="primary-action"
             type="button"
             onClick={() => void handleConfirm()}
             disabled={!canConfirm}
@@ -867,7 +867,7 @@ export function LocationPickerMap({
           >
             {unavailable ? "Use captured point" : confirmLabel}
           </button>
-          <button
+          <button data-location-type-role="utility-action"
             type="button"
             onClick={onCancel}
             className={PICKER_SECONDARY_ACTION_CLASSNAME}

@@ -636,17 +636,17 @@ function NearbyPersonRow({
       : `${cta.label} with ${attendee.displayName}`;
   return (
     <li className="flex min-h-14 items-center gap-3 border-b border-border/60 py-2.5 last:border-b-0">
-      <span
+      <span data-location-type-role="helper"
         className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--app-accent-surface-strong)] text-xs font-semibold text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]"
         aria-hidden="true"
       >
         {initials(attendee.displayName)}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-semibold">
+        <span data-location-type-role="row-title" className="block truncate text-sm font-semibold">
           {attendee.displayName}
         </span>
-        <span className="block text-xs text-muted-foreground">
+        <span data-location-type-role="row-description" className="block text-xs text-muted-foreground">
           At this place
         </span>
       </span>
@@ -662,7 +662,7 @@ function NearbyPersonRow({
         {busy ? (
           <>
             <Loader2 className="h-4 w-4 animate-spin" />
-            <span className="sr-only">{cta.label}</span>
+            <span data-location-type-role="compact-action" className="sr-only">{cta.label}</span>
           </>
         ) : (
           buttonLabel
@@ -2590,7 +2590,7 @@ export function NearbyCheckInSheet({
   return (
     <>
       <Sheet modal={false} open={open && presentationReady} onOpenChange={onOpenChange}>
-        <TaskSheetContent
+        <TaskSheetContent data-location-type-scale="connect" data-location-type-context="overlay"
           side="bottom"
           // Handle-only, not the whole body.
           //
@@ -2656,7 +2656,7 @@ export function NearbyCheckInSheet({
 
           <TaskSurfaceBody className={sheetStyles.body}>
             {rendererAccess}
-            <p className="sr-only" aria-live="polite" aria-atomic="true">
+            <p data-location-type-role="helper" className="sr-only" aria-live="polite" aria-atomic="true">
               {state.presence
                 ? `Checked in. ${state.attendees.length} ${
                     state.attendees.length === 1 ? "person" : "people"
@@ -2664,7 +2664,7 @@ export function NearbyCheckInSheet({
                 : "Not checked in nearby."}
             </p>
             {loadingPresence && !state.presence ? (
-              <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
+              <div data-location-type-role="row-description" className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Checking your current status…
               </div>
@@ -2675,8 +2675,8 @@ export function NearbyCheckInSheet({
                 className="mb-4 rounded-2xl border border-destructive/20 bg-destructive/10 p-3"
                 role="alert"
               >
-                <p className="text-sm text-destructive">{presenceLoadError}</p>
-                <Button
+                <p data-location-type-role="row-description" className="text-sm text-destructive">{presenceLoadError}</p>
+                <Button data-location-type-role="compact-action"
                   type="button"
                   size="compact"
                   variant="secondary"
@@ -2710,24 +2710,24 @@ export function NearbyCheckInSheet({
                       <Check className="h-4 w-4" />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <h2 className={CHECK_IN_SUBSECTION_TITLE_CLASSNAME}>
+                      <h2 data-location-type-role="section-heading" className={CHECK_IN_SUBSECTION_TITLE_CLASSNAME}>
                         Check-in ended
                       </h2>
                       {completedCheckIn?.placeLabel ? (
-                        <p className="mt-0.5 truncate text-sm font-medium">
+                        <p data-location-type-role="row-title" className="mt-0.5 truncate text-sm font-medium">
                           {completedCheckIn.placeLabel}
                         </p>
                       ) : null}
-                      <p className="mt-0.5 text-sm text-muted-foreground">
+                      <p data-location-type-role="row-description" className="mt-0.5 text-sm text-muted-foreground">
                         {completionCopy(completedCheckIn?.reason)}
                       </p>
                       {completedCheckIn?.saved ? (
-                        <p className="mt-2 text-xs font-medium text-muted-foreground">
+                        <p data-location-type-role="helper" className="mt-2 text-xs font-medium text-muted-foreground">
                           Saved for next time.
                         </p>
                       ) : null}
                       {completedCheckIn?.saveError ? (
-                        <p
+                        <p data-location-type-role="helper"
                           className="mt-2 text-xs font-medium text-destructive"
                           role="alert"
                         >
@@ -2743,7 +2743,7 @@ export function NearbyCheckInSheet({
                     data-testid="nearby-visit-rating"
                   >
                     <div className="min-w-0">
-                      <h2
+                      <h2 data-location-type-role="section-heading"
                         id={VISIT_RATING_HEADING_ID}
                         className={cn(
                           CHECK_IN_SECTION_TITLE_CLASSNAME,
@@ -2768,7 +2768,7 @@ export function NearbyCheckInSheet({
                         if (!fullLabel || !shortName || fullLabel === shortName)
                           return null;
                         return (
-                          <p className="mt-1 line-clamp-2 break-words text-xs leading-4 text-muted-foreground">
+                          <p data-location-type-role="row-description" className="mt-1 line-clamp-2 break-words text-xs leading-4 text-muted-foreground">
                             {fullLabel}
                           </p>
                         );
@@ -2794,20 +2794,20 @@ export function NearbyCheckInSheet({
                         settles the camera three times for one interaction. */}
                     <div className={CHECK_IN_RATING_COMPOSER_CLASSNAME}>
                       {completedCheckIn.ratingSaved ? (
-                        <p className="text-sm text-muted-foreground">
+                        <p data-location-type-role="row-description" className="text-sm text-muted-foreground">
                           {completedCheckIn.rateable.googleReviewUrl
                             ? "Opens Google Maps — you'll type it there."
                             : "Saved to your places."}
                         </p>
                       ) : completedCheckIn.rating ? (
                         <>
-                          <Label
+                          <Label data-location-type-role="form-label"
                             htmlFor={VISIT_RATING_NOTE_ID}
                             className="sr-only"
                           >
                             Add a note (optional)
                           </Label>
-                          <Textarea
+                          <Textarea data-location-type-role="input"
                             id={VISIT_RATING_NOTE_ID}
                             rows={2}
                             maxLength={CHECK_IN_NOTE_MAX_LENGTH}
@@ -2821,7 +2821,7 @@ export function NearbyCheckInSheet({
                           />
                           {ratingNote.length >=
                           CHECK_IN_NOTE_COUNTER_VISIBLE_AT ? (
-                            <p
+                            <p data-location-type-role="helper"
                               aria-live="polite"
                               className="mt-1 text-right text-xs tabular-nums text-muted-foreground"
                             >
@@ -2831,14 +2831,14 @@ export function NearbyCheckInSheet({
                           ) : null}
                         </>
                       ) : (
-                        <p className="text-sm text-muted-foreground">
+                        <p data-location-type-role="row-description" className="text-sm text-muted-foreground">
                           Tap a star to rate. {PLACE_RATING_PRIVACY_LINE}
                         </p>
                       )}
                     </div>
 
                     {completedCheckIn.ratingError ? (
-                      <p
+                      <p data-location-type-role="helper"
                         className="text-xs font-medium text-destructive"
                         role="alert"
                       >
@@ -2909,7 +2909,7 @@ export function NearbyCheckInSheet({
                     }
                   />
                 ) : (
-                  <Button
+                  <Button data-location-type-role="primary-action"
                     type="button"
                     size="prominent"
                     className="w-full"
@@ -2919,7 +2919,7 @@ export function NearbyCheckInSheet({
                   </Button>
                 )}
                 {savePlaceCandidateState && !completedCheckIn?.saved ? (
-                  <Button
+                  <Button data-location-type-role="utility-action"
                     type="button"
                     variant="ghost"
                     size="standard"
@@ -2948,16 +2948,16 @@ export function NearbyCheckInSheet({
                       <Check className="h-4 w-4" />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <h2 className={CHECK_IN_SUBSECTION_TITLE_CLASSNAME}>
+                      <h2 data-location-type-role="section-heading" className={CHECK_IN_SUBSECTION_TITLE_CLASSNAME}>
                         Checked in
                       </h2>
-                      <p
+                      <p data-location-type-role="row-title"
                         className="mt-0.5 break-words text-sm font-medium leading-5"
                         title={state.presence.placeLabel || undefined}
                       >
                         {state.presence.placeLabel || "Your place"}
                       </p>
-                      <p className="mt-0.5 text-sm text-muted-foreground">
+                      <p data-location-type-role="row-description" className="mt-0.5 text-sm text-muted-foreground">
                         {[
                           timeLeftLabel(state.presence.expiresAt),
                           peopleNearbyLabel(state.attendees.length),
@@ -2965,7 +2965,7 @@ export function NearbyCheckInSheet({
                           .filter(Boolean)
                           .join(" · ")}
                       </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
+                      <p data-location-type-role="row-description" className="mt-1 text-xs text-muted-foreground">
                         {state.presence.allowConnectionRequests
                           ? "Name shown · Requests allowed"
                           : "Name shown · Requests off"}
@@ -2980,7 +2980,7 @@ export function NearbyCheckInSheet({
                             className="mt-px h-3.5 w-3.5 shrink-0"
                             aria-hidden="true"
                           />
-                          <span>
+                          <span data-location-type-role="row-description">
                             You’ve moved away. People still see you here.
                           </span>
                         </p>
@@ -3031,14 +3031,14 @@ export function NearbyCheckInSheet({
                     state that already says "nobody", a "0" is the same word
                     twice. */}
                   <div className="flex items-center justify-between gap-3">
-                    <h2
+                    <h2 data-location-type-role="section-heading"
                       id="nearby-people-title"
                       className={CHECK_IN_SECTION_TITLE_CLASSNAME}
                     >
                       People nearby
                     </h2>
                     {state.attendees.length ? (
-                      <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold">
+                      <span data-location-type-role="helper" className="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold">
                         {state.attendees.length}
                       </span>
                     ) : null}
@@ -3075,7 +3075,7 @@ export function NearbyCheckInSheet({
                         timer whether or not it is advertised, and telling
                         someone their empty list will keep checking itself is
                         an implementation detail dressed as reassurance. */}
-                      <p className="mt-2 text-sm font-medium">
+                      <p data-location-type-role="row-title" className="mt-2 text-sm font-medium">
                         Nobody nearby yet
                       </p>
                     </div>
@@ -3092,13 +3092,13 @@ export function NearbyCheckInSheet({
                     to say what the list is. */}
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h2 className={cn(CHECK_IN_SECTION_TITLE_CLASSNAME, "sr-only")}>
+                      <h2 data-location-type-role="section-heading" className={cn(CHECK_IN_SECTION_TITLE_CLASSNAME, "sr-only")}>
                         Nearby places
                       </h2>
                     </div>
                     {/* Keep provider credit visible when the mobile sheet covers map credits. */}
                     {places.length ? (
-                      <span translate="no" className="ml-auto whitespace-nowrap text-xs font-normal text-[#5e5e5e] dark:text-white">Google Maps</span>
+                      <span data-location-type-exception="provider-credit" translate="no" className="ml-auto whitespace-nowrap text-xs font-normal text-[#5e5e5e] dark:text-white">Google Maps</span>
                     ) : null}
                     {capturing ? (
                       <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -3126,16 +3126,16 @@ export function NearbyCheckInSheet({
                           <Compass className="h-4 w-4" />
                         </span>
                         <div className="min-w-0 flex-1">
-                          <h3 className={CHECK_IN_SUBSECTION_TITLE_CLASSNAME}>
+                          <h3 data-location-type-role="section-heading" className={CHECK_IN_SUBSECTION_TITLE_CLASSNAME}>
                             Still finding you
                           </h3>
-                          <p className="mt-0.5 text-sm leading-5 text-muted-foreground">
+                          <p data-location-type-role="row-description" className="mt-0.5 text-sm leading-5 text-muted-foreground">
                             {locationError}
                           </p>
                         </div>
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2">
-                        <Button
+                        <Button data-location-type-role="compact-action"
                           type="button"
                           size="compact"
                           disabled={capturing || busy === "settings"}
@@ -3147,7 +3147,7 @@ export function NearbyCheckInSheet({
                           Try again
                         </Button>
                         {locationRecovery && isNative() ? (
-                          <Button
+                          <Button data-location-type-role="compact-action"
                             type="button"
                             size="compact"
                             variant="secondary"
@@ -3174,12 +3174,12 @@ export function NearbyCheckInSheet({
                             className="mt-px h-3.5 w-3.5 shrink-0"
                             aria-hidden="true"
                           />
-                          <span>
+                          <span data-location-type-role="row-description">
                             Showing places around your last known position
                             {restoredPointAgeLabel(point.capturedAt)} — we
                             couldn’t refresh it just now. Pick where you
                             actually are, or{" "}
-                            <button
+                            <button data-location-type-role="utility-action"
                               type="button"
                               className="font-semibold underline underline-offset-2"
                               disabled={capturing}
@@ -3195,8 +3195,8 @@ export function NearbyCheckInSheet({
                       ) : null}
                       <label className="relative mt-3 block">
                         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                        <span className="sr-only">Search</span>
-                        <Input
+                        <span data-location-type-role="row-description" className="sr-only">Search</span>
+                        <Input data-location-type-role="input"
                           value={search}
                           onChange={(event) => {
                             const nextSearch = event.target.value;
@@ -3225,7 +3225,7 @@ export function NearbyCheckInSheet({
                         aria-label="Nearby place categories"
                       >
                         {typedSearchActive ? (
-                          <span
+                          <span data-location-type-role="row-description"
                             className={cn(
                               CHECK_IN_CATEGORY_CHIP_CLASSNAME,
                               "inline-flex h-9 items-center bg-primary px-3 text-primary-foreground",
@@ -3235,7 +3235,7 @@ export function NearbyCheckInSheet({
                           </span>
                         ) : null}
                         {PLACE_CATEGORIES.map((option) => (
-                          <Button
+                          <Button data-location-type-role="compact-action"
                             key={option.value}
                             type="button"
                             size="sm"
@@ -3298,14 +3298,14 @@ export function NearbyCheckInSheet({
                             >
                               <MapPin className="h-4 w-4 shrink-0 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
                               <span className="min-w-0 flex-1">
-                                <span
+                                <span data-location-type-role="row-title"
                                   title={name}
                                   className={CHECK_IN_PLACE_NAME_CLASSNAME}
                                 >
                                   {name}
                                 </span>
                                 {metadataLabel || ratingSummary ? (
-                                  <span
+                                  <span data-location-type-role="row-description"
                                     title={metadataTitle}
                                     className={CHECK_IN_PLACE_META_CLASSNAME}
                                   >
@@ -3318,11 +3318,11 @@ export function NearbyCheckInSheet({
                                               average lets somebody watching
                                               the list recover each new rating
                                               by subtraction. */}
-                                        <span aria-hidden="true">★</span>
+                                        <span data-location-type-exception="rating-star-glyph" aria-hidden="true">★</span>
                                         {ratingSummary.average.toFixed(
                                           1,
                                         )} · {ratingSummary.countBucket}
-                                        <span className="sr-only">
+                                        <span data-location-type-role="row-description" className="sr-only">
                                           {` Hushh rating ${ratingSummary.average.toFixed(1)} out of 5, from ${ratingSummary.countBucket} people`}
                                         </span>
                                       </>
@@ -3330,7 +3330,7 @@ export function NearbyCheckInSheet({
                                   </span>
                                 ) : null}
                               </span>
-                              <span
+                              <span data-location-type-role="helper"
                                 className={CHECK_IN_PLACE_DISTANCE_CLASSNAME}
                               >
                                 {compactDistanceLabel(place.distanceMeters)}
@@ -3357,7 +3357,7 @@ export function NearbyCheckInSheet({
                             className="mt-px h-3.5 w-3.5 shrink-0"
                             aria-hidden="true"
                           />
-                          <span>{offsetNotice(selectedPlaceOffsetMeters)}</span>
+                          <span data-location-type-role="row-description">{offsetNotice(selectedPlaceOffsetMeters)}</span>
                         </p>
                       ) : null}
                       {!places.length &&
@@ -3369,10 +3369,10 @@ export function NearbyCheckInSheet({
                           className="mt-3 rounded-2xl bg-muted/60 px-4 py-5 text-center"
                           data-testid="nearby-category-empty"
                         >
-                          <h3 className={CHECK_IN_SUBSECTION_TITLE_CLASSNAME}>
+                          <h3 data-location-type-role="section-heading" className={CHECK_IN_SUBSECTION_TITLE_CLASSNAME}>
                             Nothing here
                           </h3>
-                          <Button
+                          <Button data-location-type-role="compact-action"
                             type="button"
                             size="compact"
                             variant="secondary"
@@ -3384,7 +3384,7 @@ export function NearbyCheckInSheet({
                         </div>
                       ) : null}
                       {placesError ? (
-                        <p className="mt-2 text-sm text-muted-foreground">
+                        <p data-location-type-role="row-description" className="mt-2 text-sm text-muted-foreground">
                           {placesError}
                         </p>
                       ) : null}
@@ -3397,7 +3397,7 @@ export function NearbyCheckInSheet({
                     pair, no leading glyph. One of the two section headings
                     carrying an icon and the other not was the only reason
                     they did not read as a pair. */}
-                  <h2
+                  <h2 data-location-type-role="section-heading"
                     className={CHECK_IN_SECTION_TITLE_CLASSNAME}
                     id="nearby-check-in-duration-label"
                   >
@@ -3410,7 +3410,7 @@ export function NearbyCheckInSheet({
                     reliable on web and in the mobile WebView, keeps the same
                     three values, and gives each platform its familiar picker. */}
                   <div className="relative mt-3">
-                    <select
+                    <select data-location-type-role="input"
                       aria-labelledby="nearby-check-in-duration-label"
                       value={durationMinutes}
                       onChange={(event) => {
@@ -3438,7 +3438,7 @@ export function NearbyCheckInSheet({
                 </section>
 
                 <section>
-                  <h2 className={cn(CHECK_IN_SECTION_TITLE_CLASSNAME, "sr-only")}>
+                  <h2 data-location-type-role="section-heading" className={cn(CHECK_IN_SECTION_TITLE_CLASSNAME, "sr-only")}>
                     Visibility
                   </h2>
                   <div className="mt-3 rounded-2xl border border-border/60">
@@ -3451,7 +3451,7 @@ export function NearbyCheckInSheet({
                         }
                       />
                       <span className="min-w-0">
-                        <span
+                        <span data-location-type-role="section-heading"
                           className={cn(
                             CHECK_IN_SUBSECTION_TITLE_CLASSNAME,
                             "block",
@@ -3459,7 +3459,7 @@ export function NearbyCheckInSheet({
                         >
                           Show my name here
                         </span>
-                        <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
+                        <span data-location-type-role="row-description" className="mt-0.5 block text-xs leading-4 text-muted-foreground">
                           Only people checked in nearby can see it.
                         </span>
                       </span>
@@ -3467,7 +3467,7 @@ export function NearbyCheckInSheet({
 
                     <div className="flex min-h-14 items-center justify-between gap-4 border-t border-border/60 p-4">
                       <span className="min-w-0">
-                        <span
+                        <span data-location-type-role="section-heading"
                           className={cn(
                             CHECK_IN_SUBSECTION_TITLE_CLASSNAME,
                             "block",
@@ -3475,7 +3475,7 @@ export function NearbyCheckInSheet({
                         >
                           Allow connection requests
                         </span>
-                        <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
+                        <span data-location-type-role="row-description" className="mt-0.5 block text-xs leading-4 text-muted-foreground">
                           From people checked in nearby.
                         </span>
                       </span>
@@ -3489,7 +3489,7 @@ export function NearbyCheckInSheet({
                   </div>
                 </section>
 
-                <Button
+                <Button data-location-type-role="primary-action"
                   type="button"
                   size="prominent"
                   className="w-full disabled:!bg-muted disabled:!text-muted-foreground disabled:!opacity-100"
@@ -3521,7 +3521,7 @@ export function NearbyCheckInSheet({
           if (busy === null) setAddTimeOpen(nextOpen);
         }}
       >
-        <TaskSheetContent
+        <TaskSheetContent data-location-type-scale="connect" data-location-type-context="overlay"
           side="bottom"
           size="sm"
           className="mx-auto w-full sm:max-w-md md:left-auto md:right-6 md:max-w-sm md:rounded-[var(--app-card-radius-feature)]"
@@ -3534,7 +3534,7 @@ export function NearbyCheckInSheet({
           </SheetHeader>
           <div className={sheetStyles.extension}>
             {([30, 60] as const).map((increment) => (
-              <Button
+              <Button data-location-type-role="utility-action"
                 key={increment}
                 type="button"
                 variant="secondary"

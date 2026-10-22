@@ -169,7 +169,7 @@ export function AgentOneOnboarding({
         invitationContent={invitationContent}
         footer={footer}
       />
-      <span className="ao-sr-only">Screen {currentIndex + 1} of {STORIES.length}</span>
+      <span data-location-type-role="row-description" className="ao-sr-only">Screen {currentIndex + 1} of {STORIES.length}</span>
     </div>
   );
 }

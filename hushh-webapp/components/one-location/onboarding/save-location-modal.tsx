@@ -267,7 +267,7 @@ function SheetDragRegion({
 }) {
   const drag = useSheetDragHandle();
   return (
-    <div
+    <div data-location-type-role="row-description"
       data-testid="save-location-sheet-grabber"
       className={cn(drag && "touch-none select-none", className)}
       onPointerDown={(event) => {
@@ -482,7 +482,7 @@ function SavedLocationCategoryPicker({
 }) {
   return (
     <div role="group" aria-label="Saved location category">
-      <p className={controlLabelClassName}>Kind of place</p>
+      <p data-location-type-role="row-description" className={controlLabelClassName}>Kind of place</p>
       <div className="grid grid-cols-3 gap-2.5">
         {CATEGORY_OPTIONS.map(({ category, label, Icon }) => {
           const selected = value === category;
@@ -501,7 +501,7 @@ function SavedLocationCategoryPicker({
               )}
             >
               <Icon className="h-5 w-5" strokeWidth={1.9} aria-hidden />
-              <span className="text-[13px] font-semibold leading-[18px]">
+              <span data-location-type-role="helper" className="text-[13px] font-semibold leading-[18px]">
                 {label}
               </span>
             </button>
@@ -1106,7 +1106,7 @@ export function SaveLocationModal({
             >
               <ArrowLeft className="h-5 w-5" strokeWidth={2.3} aria-hidden />
             </button>
-            <span className="ui-text-navigation-title text-center">Save a place</span>
+            <span data-location-type-role="row-description" className="ui-text-navigation-title text-center">Save a place</span>
             <span className="h-11 w-11 justify-self-end" aria-hidden />
           </header>
 
@@ -1117,14 +1117,14 @@ export function SaveLocationModal({
             <div className="mx-auto w-full max-w-[1120px]">
               <DialogTitle className="sr-only">Save this place</DialogTitle>
               <div className="max-w-[660px]">
-                <h1
+                <h1 data-location-type-role="flow-title"
                   ref={mapTitleRef}
                   tabIndex={-1}
                   className="ui-text-agent-title text-[color:var(--app-label)] outline-none"
                 >
                   Save this place
                 </h1>
-                <p
+                <p data-location-type-role="row-description"
                   id={descriptionId}
                   className="mt-2 text-[15px] leading-5 text-muted-foreground"
                 >
@@ -1138,7 +1138,7 @@ export function SaveLocationModal({
                   className="min-w-0"
                   aria-labelledby="save-place-map-title"
                 >
-                  <p
+                  <p data-location-type-role="row-title"
                     id="save-place-map-title"
                     className="mb-2 text-[15px] font-semibold text-[color:var(--app-label)]"
                   >
@@ -1164,7 +1164,7 @@ export function SaveLocationModal({
                       }
                     />
                   ) : (
-                    <div className="flex min-h-40 items-center justify-center rounded-2xl border border-border/70 bg-[color:var(--app-card-surface-compact)] px-6 text-center text-sm text-muted-foreground">
+                    <div data-location-type-role="row-description" className="flex min-h-40 items-center justify-center rounded-2xl border border-border/70 bg-[color:var(--app-card-surface-compact)] px-6 text-center text-sm text-muted-foreground">
                       We couldn&apos;t load the map. Go back and try Location
                       again, or skip this place.
                     </div>
@@ -1182,10 +1182,10 @@ export function SaveLocationModal({
                       />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="text-[12px] leading-4 text-muted-foreground">
+                      <p data-location-type-role="row-description" className="text-[12px] leading-4 text-muted-foreground">
                         Selected spot
                       </p>
-                      <p className="mt-0.5 break-words text-[14px] font-semibold leading-5 text-[color:var(--app-label)]">
+                      <p data-location-type-role="row-title" className="mt-0.5 break-words text-[14px] font-semibold leading-5 text-[color:var(--app-label)]">
                         {loadingAddress && !detectedAddress
                           ? "Finding this address…"
                           : detectedAddress ||
@@ -1201,17 +1201,17 @@ export function SaveLocationModal({
                 >
                   <div>
                     <div className={ADDRESS_LABEL_ROW_CLASSNAME}>
-                      <label
+                      <label data-location-type-role="form-label"
                         htmlFor="onboarding-saved-location-address"
                         className={cn(controlLabelClassName, "mb-0")}
                       >
                         Address
                       </label>
-                      <span aria-hidden className={REQUIRED_BADGE_CLASSNAME}>
+                      <span data-location-type-role="row-description" aria-hidden className={REQUIRED_BADGE_CLASSNAME}>
                         Required
                       </span>
                     </div>
-                    <input
+                    <input data-location-type-role="input"
                       id="onboarding-saved-location-address"
                       type="text"
                       required
@@ -1237,7 +1237,7 @@ export function SaveLocationModal({
                       )}
                     />
                     {addressLineError ? (
-                      <p
+                      <p data-location-type-role="row-description"
                         id={addressLineErrorId}
                         role="alert"
                         className="mt-1.5 text-[13px] leading-[18px] text-[color:var(--app-destructive)]"
@@ -1250,17 +1250,17 @@ export function SaveLocationModal({
                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
                     <div>
                       <div className={ADDRESS_LABEL_ROW_CLASSNAME}>
-                        <label
+                        <label data-location-type-role="form-label"
                           htmlFor="onboarding-saved-location-house"
                           className={cn(controlLabelClassName, "mb-0")}
                         >
                           House or flat
                         </label>
-                        <span aria-hidden className={OPTIONAL_BADGE_CLASSNAME}>
+                        <span data-location-type-role="row-description" aria-hidden className={OPTIONAL_BADGE_CLASSNAME}>
                           Optional
                         </span>
                       </div>
-                      <input
+                      <input data-location-type-role="input"
                         id="onboarding-saved-location-house"
                         type="text"
                         value={addressDetails.houseOrFlat}
@@ -1278,17 +1278,17 @@ export function SaveLocationModal({
                     </div>
                     <div>
                       <div className={ADDRESS_LABEL_ROW_CLASSNAME}>
-                        <label
+                        <label data-location-type-role="form-label"
                           htmlFor="onboarding-saved-location-landmark"
                           className={cn(controlLabelClassName, "mb-0")}
                         >
                           Landmark
                         </label>
-                        <span aria-hidden className={OPTIONAL_BADGE_CLASSNAME}>
+                        <span data-location-type-role="row-description" aria-hidden className={OPTIONAL_BADGE_CLASSNAME}>
                           Optional
                         </span>
                       </div>
-                      <input
+                      <input data-location-type-role="input"
                         id="onboarding-saved-location-landmark"
                         type="text"
                         value={addressDetails.landmark}
@@ -1314,13 +1314,13 @@ export function SaveLocationModal({
 
                   {category === "other" ? (
                     <div className="[animation:saveLocFadeIn_.2s_ease-out_both]">
-                      <label
+                      <label data-location-type-role="form-label"
                         htmlFor="onboarding-saved-location-name"
                         className={controlLabelClassName}
                       >
                         Name it
                       </label>
-                      <input
+                      <input data-location-type-role="input"
                         id="onboarding-saved-location-name"
                         type="text"
                         value={customLabel}
@@ -1341,28 +1341,28 @@ export function SaveLocationModal({
           <footer className="shrink-0 border-t border-border/60 bg-[color:var(--app-primary-surface)] px-4 pb-[calc(env(safe-area-inset-bottom,0px)+12px)] pt-3 sm:px-6">
             <div className="mx-auto w-full max-w-[430px]">
               {unifiedSaveError ? (
-                <p
+                <p data-location-type-role="row-description"
                   role="alert"
                   className="mb-2 text-center text-[13px] leading-[18px] text-[color:var(--app-destructive)]"
                 >
                   {unifiedSaveError}
                 </p>
               ) : !mapReady && canPickOnMap ? (
-                <p
+                <p data-location-type-role="status"
                   role="status"
                   className="mb-2 text-center text-[13px] leading-[18px] text-muted-foreground"
                 >
                   Getting the pin ready…
                 </p>
               ) : saveBlockedReason ? (
-                <p
+                <p data-location-type-role="status"
                   role="status"
                   className="mb-2 text-center text-[13px] leading-[18px] text-muted-foreground"
                 >
                   {saveBlockedReason}
                 </p>
               ) : null}
-              <button
+              <button data-location-type-role="primary-action"
                 type="button"
                 onClick={handleSave}
                 disabled={!unifiedCanSave}
@@ -1383,7 +1383,7 @@ export function SaveLocationModal({
                     ? "Try saving again"
                     : "Save & continue"}
               </button>
-              <button
+              <button data-location-type-role="utility-action"
                 type="button"
                 onClick={onSkip}
                 disabled={interactionBusy}
@@ -1416,7 +1416,7 @@ export function SaveLocationModal({
           <DialogTitle ref={mapTitleRef} tabIndex={-1} className="sr-only">
             {rendererReady ? "Pin your entrance" : "Before Google Maps opens"}
           </DialogTitle>
-          <p id={descriptionId} className="sr-only">
+          <p data-location-type-role="row-description" id={descriptionId} className="sr-only">
             {rendererReady
               ? "Move the pin to the entrance."
               : "Review before opening Maps."}
@@ -1498,7 +1498,7 @@ export function SaveLocationModal({
                   shows the address and each field carries its own Required or
                   Optional badge, so on screen it only repeated them. Kept for
                   screen readers, which do not have the badges in view. */}
-            <p id={descriptionId} className="sr-only">
+            <p data-location-type-role="row-description" id={descriptionId} className="sr-only">
               Check the address. The rest helps someone reach your door.
             </p>
           </header>
@@ -1515,17 +1515,17 @@ export function SaveLocationModal({
                 />
               </span>
               <div className="min-w-0 flex-1">
-                <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
+                <p data-location-type-role="row-description" className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                   Pinned
                 </p>
-                <p className="mt-0.5 line-clamp-2 text-[15px] font-semibold leading-5 text-foreground">
+                <p data-location-type-role="row-title" className="mt-0.5 line-clamp-2 text-[15px] font-semibold leading-5 text-foreground">
                   {loadingAddress
                     ? "Finding address…"
                     : detectedAddress || "No address found"}
                 </p>
               </div>
               {canPickOnMap ? (
-                <button
+                <button data-location-type-role="primary-action"
                   type="button"
                   onClick={() => goToSlide(0)}
                   disabled={interactionBusy}
@@ -1556,7 +1556,7 @@ export function SaveLocationModal({
                     technology through `aria-required` instead, which is what
                     that attribute is for. */}
               <div className={ADDRESS_LABEL_ROW_CLASSNAME}>
-                <label
+                <label data-location-type-role="form-label"
                   htmlFor="saved-location-address-line"
                   className={cn(controlLabelClassName, "mb-0")}
                 >
@@ -1565,11 +1565,11 @@ export function SaveLocationModal({
                 {/* The word, not only a red asterisk: an asterisk is a
                       convention people have to already know, and colour on its
                       own carries nothing to anyone who cannot see it. */}
-                <span aria-hidden className={REQUIRED_BADGE_CLASSNAME}>
+                <span data-location-type-role="row-description" aria-hidden className={REQUIRED_BADGE_CLASSNAME}>
                   Required
                 </span>
               </div>
-              <input
+              <input data-location-type-role="input"
                 id="saved-location-address-line"
                 type="text"
                 required
@@ -1595,7 +1595,7 @@ export function SaveLocationModal({
                 )}
               />
               {addressLineError ? (
-                <p
+                <p data-location-type-role="row-description"
                   id={addressLineErrorId}
                   role="alert"
                   className="mt-1.5 text-[13px] leading-[18px] text-[color:var(--app-destructive)]"
@@ -1624,17 +1624,17 @@ export function SaveLocationModal({
             <div className="space-y-3.5">
               <div>
                 <div className={ADDRESS_LABEL_ROW_CLASSNAME}>
-                  <label
+                  <label data-location-type-role="form-label"
                     htmlFor="saved-location-house-or-flat"
                     className={cn(controlLabelClassName, "mb-0")}
                   >
                     House or flat
                   </label>
-                  <span aria-hidden className={OPTIONAL_BADGE_CLASSNAME}>
+                  <span data-location-type-role="row-description" aria-hidden className={OPTIONAL_BADGE_CLASSNAME}>
                     Optional
                   </span>
                 </div>
-                <input
+                <input data-location-type-role="input"
                   id="saved-location-house-or-flat"
                   type="text"
                   value={addressDetails.houseOrFlat}
@@ -1651,17 +1651,17 @@ export function SaveLocationModal({
 
               <div>
                 <div className={ADDRESS_LABEL_ROW_CLASSNAME}>
-                  <label
+                  <label data-location-type-role="form-label"
                     htmlFor="saved-location-landmark"
                     className={cn(controlLabelClassName, "mb-0")}
                   >
                     Landmark
                   </label>
-                  <span aria-hidden className={OPTIONAL_BADGE_CLASSNAME}>
+                  <span data-location-type-role="row-description" aria-hidden className={OPTIONAL_BADGE_CLASSNAME}>
                     Optional
                   </span>
                 </div>
-                <input
+                <input data-location-type-role="input"
                   id="saved-location-landmark"
                   type="text"
                   value={addressDetails.landmark}
@@ -1685,13 +1685,13 @@ export function SaveLocationModal({
 
             {category === "other" ? (
               <div className="[animation:saveLocFadeIn_.2s_ease-out_both]">
-                <label
+                <label data-location-type-role="form-label"
                   htmlFor="saved-location-details-custom-label"
                   className={controlLabelClassName}
                 >
                   Name it
                 </label>
-                <input
+                <input data-location-type-role="input"
                   id="saved-location-details-custom-label"
                   type="text"
                   value={customLabel}
@@ -1711,14 +1711,14 @@ export function SaveLocationModal({
                   "saving is not working" from the outside. When it is off, say
                   which single thing turns it on. */}
             {saveBlockedReason ? (
-              <p
+              <p data-location-type-role="status"
                 role="status"
                 className="text-center text-[13px] leading-[18px] text-muted-foreground"
               >
                 {saveBlockedReason}
               </p>
             ) : null}
-            <button
+            <button data-location-type-role="primary-action"
               type="button"
               onClick={handleSave}
               disabled={!canSave}
@@ -1732,7 +1732,7 @@ export function SaveLocationModal({
               )}
               {saveLabel}
             </button>
-            <button
+            <button data-location-type-role="utility-action"
               type="button"
               onClick={onSkip}
               disabled={interactionBusy}
@@ -1777,7 +1777,7 @@ export function SaveLocationModal({
             <DialogTitle className="mt-3 text-[28px] font-bold leading-[1.12] tracking-normal text-foreground">
               Save this place
             </DialogTitle>
-            <p
+            <p data-location-type-role="row-description"
               id={descriptionId}
               className="mt-2 text-[15px] leading-5 text-muted-foreground"
             >
@@ -1790,22 +1790,22 @@ export function SaveLocationModal({
               <MapPin className="h-[17px] w-[17px]" strokeWidth={1.9} />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
+              <p data-location-type-role="row-description" className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                 Current location
               </p>
               {loadingAddress ? (
-                <span className="mt-0.5 flex items-center gap-1.5 text-[15px] leading-5 text-muted-foreground">
+                <span data-location-type-role="row-description" className="mt-0.5 flex items-center gap-1.5 text-[15px] leading-5 text-muted-foreground">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" /> Finding your
                   address…
                 </span>
               ) : (
-                <p className="mt-0.5 truncate text-[15px] font-semibold leading-5 text-foreground">
+                <p data-location-type-role="row-title" className="mt-0.5 truncate text-[15px] font-semibold leading-5 text-foreground">
                   {resolvedAddress || "Address unavailable"}
                 </p>
               )}
             </div>
             {canEditPlace && !loadingAddress ? (
-              <button
+              <button data-location-type-role="primary-action"
                 type="button"
                 onClick={() => {
                   setEditingPlace(true);
@@ -1842,10 +1842,10 @@ export function SaveLocationModal({
                 />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block text-[15px] font-semibold leading-5 text-[color:var(--app-accent)]">
+                <span data-location-type-role="row-title" className="block text-[15px] font-semibold leading-5 text-[color:var(--app-accent)]">
                   Pin your entrance
                 </span>
-                <span className="block text-[13px] leading-[18px] text-muted-foreground">
+                <span data-location-type-role="row-description" className="block text-[13px] leading-[18px] text-muted-foreground">
                   GPS lands near, not at, your door.
                 </span>
               </span>
@@ -1854,7 +1854,7 @@ export function SaveLocationModal({
 
           {editingPlace ? (
             <div className="space-y-2.5 [animation:saveLocFadeIn_.2s_ease-out_both]">
-              <label
+              <label data-location-type-role="form-label"
                 htmlFor="saved-location-place-search"
                 className={controlLabelClassName}
               >
@@ -1865,7 +1865,7 @@ export function SaveLocationModal({
                   className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[color:var(--app-tertiary-label)]"
                   aria-hidden
                 />
-                <input
+                <input data-location-type-role="input"
                   id="saved-location-place-search"
                   type="search"
                   value={placeQuery}
@@ -1908,14 +1908,14 @@ export function SaveLocationModal({
                         className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--app-accent)]"
                         aria-hidden
                       />
-                      <span>{suggestion.text}</span>
+                      <span data-location-type-role="primary-action">{suggestion.text}</span>
                     </button>
                   ))}
                 </div>
               ) : null}
 
               {placeSearchError ? (
-                <p
+                <p data-location-type-role="row-description"
                   role="alert"
                   className="text-[13px] leading-[18px] text-[color:var(--app-destructive)]"
                 >
@@ -1923,7 +1923,7 @@ export function SaveLocationModal({
                 </p>
               ) : null}
 
-              <button
+              <button data-location-type-role="primary-action"
                 type="button"
                 onClick={() => {
                   setEditingPlace(false);
@@ -1947,13 +1947,13 @@ export function SaveLocationModal({
 
           {category === "other" ? (
             <div className="[animation:saveLocFadeIn_.2s_ease-out_both]">
-              <label
+              <label data-location-type-role="form-label"
                 htmlFor="saved-location-custom-label"
                 className={controlLabelClassName}
               >
                 Name it
               </label>
-              <input
+              <input data-location-type-role="input"
                 id="saved-location-custom-label"
                 type="text"
                 value={customLabel}
@@ -1967,7 +1967,7 @@ export function SaveLocationModal({
           ) : null}
 
           <div className="mt-1 flex flex-col gap-2.5">
-            <button
+            <button data-location-type-role="primary-action"
               type="button"
               onClick={handleSave}
               disabled={!canSave}
@@ -1981,7 +1981,7 @@ export function SaveLocationModal({
               )}
               {saveLabel}
             </button>
-            <button
+            <button data-location-type-role="utility-action"
               type="button"
               onClick={onSkip}
               disabled={interactionBusy}
@@ -2019,6 +2019,7 @@ export function SaveLocationModal({
     return (
       <Sheet open={open} modal onOpenChange={handleSurfaceOpenChange}>
         <SheetContent
+          data-location-type-context={takeover || unifiedOnboarding ? "flow" : "overlay"}
           side="bottom"
           showCloseButton={false}
           showDragHandle={false}
@@ -2055,6 +2056,7 @@ export function SaveLocationModal({
   return (
     <Dialog open={open} modal onOpenChange={handleSurfaceOpenChange}>
       <DialogContent
+        data-location-type-context={takeover || unifiedOnboarding ? "flow" : "overlay"}
         showCloseButton={false}
         data-testid="save-location-modal"
         aria-describedby={descriptionId}

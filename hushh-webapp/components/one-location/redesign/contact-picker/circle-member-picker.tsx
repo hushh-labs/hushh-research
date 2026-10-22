@@ -208,7 +208,7 @@ export function CircleMemberPicker({
 
   return (
     <div data-testid={"circle-picker-" + circle.id}>
-      <button
+      <button data-location-type-role="compact-action"
         type="button"
         onClick={onToggle}
         aria-expanded={expanded}
@@ -227,7 +227,7 @@ export function CircleMemberPicker({
           <UsersRound className="h-[17px] w-[17px]" />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[17px] font-normal leading-[22px] text-foreground">
+          <span data-location-type-role="row-title" className="block truncate text-[17px] font-normal leading-[22px] text-foreground">
             {circle.name}
           </span>
           <span className="mt-0.5 block text-[15px] leading-5 text-muted-foreground">
@@ -254,7 +254,7 @@ export function CircleMemberPicker({
           ) : loadError ? (
             <div role="status" className="py-1">
               <p className="text-[15px] text-muted-foreground">{loadError}</p>
-              <button
+              <button data-location-type-role="compact-action"
                 type="button"
                 onClick={() => void load()}
                 className="mt-2 h-9 rounded-full bg-[color:var(--app-neutral-fill-strong)] px-4 text-[13px] font-semibold text-foreground"
@@ -280,7 +280,7 @@ export function CircleMemberPicker({
 
               {addableIds.length ? (
                 <div className="mb-2 flex items-center justify-between gap-3">
-                  <button
+                  <button data-location-type-role="compact-action"
                     type="button"
                     onClick={toggleAll}
                     className="h-8 rounded-full px-3 text-[13px] font-semibold text-[color:var(--app-accent)]"
@@ -289,7 +289,7 @@ export function CircleMemberPicker({
                       ? "Clear all"
                       : "Select all " + addableIds.length}
                   </button>
-                  <span className="text-[13px] text-muted-foreground">
+                  <span data-location-type-role="row-description" className="text-[13px] text-muted-foreground">
                     {tickedAddable.length} selected
                   </span>
                 </div>
@@ -306,7 +306,7 @@ export function CircleMemberPicker({
                   const blocked = Boolean(row.blockedReason);
                   const checked = added || ticked.has(row.userId);
                   return (
-                    <button
+                    <button data-location-type-role="compact-action"
                       type="button"
                       role="checkbox"
                       aria-checked={checked}
@@ -326,16 +326,16 @@ export function CircleMemberPicker({
                       />
                       <span className="min-w-0 flex-1">
                         <span className="flex min-w-0 items-start gap-1.5">
-                          <span className="min-w-0 truncate text-[17px] font-normal leading-[22px] text-foreground">
+                          <span data-location-type-role="row-title" className="min-w-0 truncate text-[17px] font-normal leading-[22px] text-foreground">
                             {row.label}
                           </span>
                         </span>
                         {row.blockedReason ? (
-                          <span className="mt-0.5 block truncate text-[13px] leading-4 text-muted-foreground">
+                          <span data-location-type-role="row-description" className="mt-0.5 block truncate text-[13px] leading-4 text-muted-foreground">
                             {row.blockedReason}
                           </span>
                         ) : added ? (
-                          <span className="mt-0.5 block text-[13px] leading-4 text-muted-foreground">
+                          <span data-location-type-role="row-description" className="mt-0.5 block text-[13px] leading-4 text-muted-foreground">
                             Already added
                           </span>
                         ) : null}
@@ -359,7 +359,7 @@ export function CircleMemberPicker({
                 }}
               />
 
-              <button
+              <button data-location-type-role="compact-action"
                 type="button"
                 disabled={!tickedAddable.length || adding || busy}
                 onClick={() => void commit()}

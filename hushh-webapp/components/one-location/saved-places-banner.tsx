@@ -21,8 +21,8 @@ export function SavedPlacesBanner({ busy, onSave, onDismiss }: SavedPlacesBanner
         <MapPin className="h-4 w-4" />
       </span>
       <div className="min-w-0 space-y-0.5">
-        <Headline as="h2" id="saved-places-banner-title">Save your places</Headline>
-        <SupportingText>Home, work and more.</SupportingText>
+        <Headline as="h2" data-location-type-role="section-heading" id="saved-places-banner-title">Save your places</Headline>
+        <SupportingText data-location-type-role="row-description">Home, work and more.</SupportingText>
       </div>
       <Button type="button" size="standard" onClick={onSave} disabled={busy} aria-busy={busy || undefined} className="col-span-3 row-start-2 w-full sm:col-span-1 sm:col-start-3 sm:row-start-1 sm:w-auto">
         {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}

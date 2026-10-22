@@ -43,7 +43,7 @@ function WelcomeCue({ kind, label }: { kind: CueKind; label: string }) {
   return (
     <div className={[styles.cue, position].join(" ")} data-welcome-cue={kind}>
       <span className={styles.cueIcon}><WelcomeIcon name={kind} /></span>
-      <span>{label}</span>
+      <span data-location-type-role="source-heading">{label}</span>
     </div>
   );
 }
@@ -88,7 +88,7 @@ export function OneWelcomeStory({
       <OneWelcomeArtwork motionEnabled={motionEnabled} />
       <div className={styles.content}>
         <div ref={headingRef} tabIndex={-1} className={styles.headingFocus}>
-          <h1 className={styles.heading}>
+          <h1 data-location-type-role="flow-title" className={styles.heading}>
             <span>Your private AI agent</span>{" "}
             <span>for everyday life.</span>
           </h1>

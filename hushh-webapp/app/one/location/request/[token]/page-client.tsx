@@ -30,5 +30,5 @@ export default function LegacyPublicLocationRequestRedirect() {
     router.replace(token ? publicLocationViewPath(token) : "/one/location");
   }, [router, token]);
 
-  return <HushhLoader label="Opening shared location..." />;
+  return <HushhLoader label="Opening shared location..." className="ui-text-status [&>p]:[font:inherit]" />;
 }

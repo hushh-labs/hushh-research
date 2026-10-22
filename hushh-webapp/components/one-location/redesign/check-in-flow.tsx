@@ -179,7 +179,7 @@ function ContactRow({
       />
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-start gap-1.5">
-          <MediumRowLabel as="span" className="min-w-0 truncate">
+          <MediumRowLabel as="span" data-location-type-role="row-title" className="min-w-0 truncate">
             {label}
           </MediumRowLabel>
         </span>
@@ -635,7 +635,7 @@ export function CheckInFlow({
           onClick={close}
           className="shrink-0 pt-1 text-[color:var(--app-accent)]"
         >
-          <TrailingAction as="span">Cancel</TrailingAction>
+          <TrailingAction as="span" data-location-type-role="utility-action">Cancel</TrailingAction>
         </button>
       </div>
 
@@ -646,7 +646,7 @@ export function CheckInFlow({
         >
           <Shield className="mt-0.5 h-5 w-5 shrink-0 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]" />
           <div>
-            <MediumRowLabel as="p">
+            <MediumRowLabel as="p" data-location-type-role="section-heading">
               Nearby and private sharing are separate
             </MediumRowLabel>
             <PageSubtitle as="p" className="mt-1">
@@ -661,7 +661,7 @@ export function CheckInFlow({
       <section className={cn(CARD, "overflow-hidden")}>
         <div className="flex items-center gap-3 px-4 py-[13px]">
           <div className="min-w-0 flex-1">
-            <MediumRowLabel as="p">
+            <MediumRowLabel as="p" data-location-type-role="row-title">
               {confirmedPoint
                 ? "Location confirmed for this share"
                 : point
@@ -691,6 +691,7 @@ export function CheckInFlow({
                 ? "Recenter map on the confirmed check-in location"
                 : undefined
             }
+            data-location-type-role="compact-action"
             className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-black/[0.14] px-[13px] py-[7px] text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-60 dark:border-white/20 dark:text-[color:var(--app-accent)]"
           >
             <RefreshCw
@@ -771,7 +772,7 @@ export function CheckInFlow({
                   <UsersRound className="h-[17px] w-[17px]" />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <MediumRowLabel as="span" className="block truncate">
+                  <MediumRowLabel as="span" data-location-type-role="row-title" className="block truncate">
                     {circle.name}
                   </MediumRowLabel>
                   <RowDescription as="span" className="block">
@@ -780,7 +781,7 @@ export function CheckInFlow({
                       : circleMemberCountLabel(circle.memberCount)}
                   </RowDescription>
                 </span>
-                <TrailingAction as="span">
+                <TrailingAction as="span" data-location-type-role="compact-action">
                   {circleLoadingId === circle.id
                     ? "Loading…"
                     : selected
@@ -915,7 +916,7 @@ export function CheckInFlow({
               retryLocked && "cursor-not-allowed opacity-60",
             )}
           >
-            <StatusText as="span">{option.label}</StatusText>
+            <StatusText as="span" data-location-type-role="compact-action">{option.label}</StatusText>
           </button>
         ))}
       </div>

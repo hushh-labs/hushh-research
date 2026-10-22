@@ -110,7 +110,7 @@ import { withLocationTypography } from "../location-typography";
 
 const TaskAlertDialogContent = withLocationTypography(UnscopedTaskAlertDialogContent);
 const TaskDrawerContent = withLocationTypography(UnscopedTaskDrawerContent);
-const DropdownMenuContent = withLocationTypography(UnscopedDropdownMenuContent);
+const DropdownMenuContent = withLocationTypography(UnscopedDropdownMenuContent, "circles");
 
 /* ------------------------------------------------------------------ */
 /* Presentation boundary                                              */

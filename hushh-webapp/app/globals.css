@@ -10258,18 +10258,19 @@ html:has([data-profile-type-scale]),
   overflow-wrap: anywhere;
 }
 
-/* Location reuses Connect typography without adopting its layout.
-   LocationTypographyContext carries this presentation scope into portals. */
+/* Location consumes Connect's role scale without its workspace geometry.
+   The scope sits on existing route roots and actual portal content hosts.
+   Task surfaces and explicit Circle scopes retain their own local tokens. */
 @layer base {
   [data-location-type-scale="connect"] {
-    --foundation-title1-size: 17px;
-    --foundation-title1-line: 22px;
+    --foundation-title1-size: 28px;
+    --foundation-title1-line: 36px;
     --foundation-title1-weight: 600;
     --foundation-title3-size: 14px;
     --foundation-title3-line: 22px;
     --foundation-title3-weight: 600;
-    --type-page-title-size: 17px;
-    --type-page-title-line: 22px;
+    --type-page-title-size: 28px;
+    --type-page-title-line: 36px;
     --type-page-title-weight: 600;
     --type-page-subtitle-size: 12px;
     --type-page-subtitle-line: 18px;
@@ -10293,87 +10294,239 @@ html:has([data-profile-type-scale]),
     --type-row-description-weight: 400;
     --type-row-description-compact-size: 12px;
     --type-row-description-compact-line: 18px;
+    --type-form-label-size: 15px;
+    --type-form-label-line: 22px;
+    --type-form-label-weight: 550;
+    --type-input-value-size: 14px;
+    --type-input-value-line: 22px;
     --type-compact-button-label-size: 12px;
     --type-compact-button-label-line: 18px;
     --type-compact-button-label-weight: 550;
-    --profile-type-header-size: 17px;
-    --profile-type-header-line: 22px;
-    --profile-type-header-weight: 600;
-    --profile-type-label-size: 14px;
-    --profile-type-label-line: 21px;
-    --profile-type-label-weight: 550;
-    --profile-type-description-size: 12px;
-    --profile-type-description-line: 18px;
-    --profile-type-action-size: 12px;
-    --profile-type-action-line: 18px;
-    --profile-type-action-weight: 550;
-    --app-side-pane-section-size: 14px;
-    --app-side-pane-section-line: 22px;
-    --app-side-pane-section-weight: 600;
-    --type-section-title-weight: 600;
-    /* Resolve at the scope so legacy per-row overrides cannot enlarge actions. */
-    --location-compact-action-size: var(--type-compact-button-label-size);
-    --location-compact-action-line: var(--type-compact-button-label-line);
-    --location-compact-action-weight: var(--type-compact-button-label-weight);
     font-family: var(--font-app-body), system-ui, sans-serif;
   }
-}
 
-/* Nested shared Circle screens declare their own local Profile variables.
-   Override only those variables while they are owned by Location. */
-[data-location-type-scale="connect"][data-profile-type-scale="circles"],
-[data-location-type-scale="connect"] [data-profile-type-scale="circles"] {
-    --profile-type-header-size: 17px;
-    --profile-type-header-line: 22px;
-    --profile-type-header-weight: 600;
-    --profile-type-label-size: 14px;
-    --profile-type-label-line: 21px;
-    --profile-type-label-weight: 550;
-    --profile-type-description-size: 12px;
-    --profile-type-description-line: 18px;
-    --profile-type-action-size: 12px;
-    --profile-type-action-line: 18px;
-    --profile-type-action-weight: 550;
-    --app-side-pane-section-size: 14px;
-    --app-side-pane-section-line: 22px;
-    --app-side-pane-section-weight: 600;
-}
-@layer base {
+  /* Raw shared dialogs use their existing title rung. A Task .frame supplies
+     its own unlayered 20/28 title and 13/20 actions on the same DOM element. */
+  [data-location-type-scale="connect"][data-location-type-context="overlay"] {
+    --foundation-title3-size: 20px;
+    --foundation-title3-line: 25px;
+    --foundation-title3-weight: 600;
+  }
+  [data-location-type-scale="connect"][data-location-type-context="flow"] {
+    --foundation-title3-size: var(--foundation-title1-size);
+    --foundation-title3-line: var(--foundation-title1-line);
+    --foundation-title3-weight: var(--foundation-title1-weight);
+  }
+  [data-location-type-scale="connect"][data-task-surface] {
+    --type-page-subtitle-size: 14px;
+    --type-page-subtitle-line: 20px;
+  }
+
+  /* These two supporting labels already used the secondary color. A semantic
+     row-description class must not recolor them during the type refinement. */
   [data-location-type-scale="connect"] :is([data-testid="one-location-header-status"], [data-location-share-description]) {
     color: var(--app-secondary-label) !important;
   }
-}
 
-@layer base {
-  [data-location-type-scale="connect"] :is(.ui-text-section-label, .ui-text-section-title, [data-slot="settings-group-heading"]) {
+  /* Foundation heading locks live in this layer. Only semantic section roles
+     opt into the compact heading rung; explicit Circle roles remain peers of
+     their current Connect counterparts. No bare h1/h2 or descendant reset. */
+  [data-location-type-scale="connect"] :is(.ui-text-section-label, .ui-text-section-title, [data-slot="settings-group-heading"]):not([data-profile-type-scale="circles"] *) {
     font-size: var(--type-section-label-size) !important;
     line-height: var(--type-section-label-line) !important;
     font-weight: var(--type-section-label-weight) !important;
   }
-  [data-location-type-scale="connect"] :is(.ui-text-row-label, [data-slot="settings-row-title"], [data-location-row-title], [data-ui-id="location-live-share-title"]) {
+  [data-location-type-scale="connect"] [data-settings-titles="form-label"] [data-slot="settings-row-title"]:not([data-profile-type-scale="circles"] *) {
+    font-size: var(--type-form-label-size) !important;
+    line-height: var(--type-form-label-line) !important;
+    font-weight: var(--type-form-label-weight) !important;
+  }
+  [data-location-type-scale="connect"] :is([data-location-row-title], [data-ui-id="location-live-share-title"]) {
+    font-family: var(--font-app-body) !important;
     font-size: var(--type-row-label-size) !important;
     line-height: var(--type-row-label-line) !important;
     font-weight: var(--type-row-label-weight) !important;
+    letter-spacing: normal !important;
   }
-}
-
-@layer base {
-  [data-location-type-scale="connect"] :is([data-slot="dialog-title"], [data-slot="alert-dialog-title"], [data-slot="sheet-title"], [data-slot="drawer-title"]) {
-    font-size: var(--type-major-section-title-size) !important;
-    line-height: var(--type-major-section-title-line) !important;
-    font-weight: var(--type-major-section-title-weight) !important;
-  }
-}
-
-@layer base {
   [data-location-type-scale="connect"] [data-location-row-description] {
+    font-family: var(--font-app-body) !important;
     font-size: var(--type-row-description-size) !important;
     line-height: var(--type-row-description-line) !important;
     font-weight: var(--type-row-description-weight) !important;
+    letter-spacing: 0 !important;
   }
-  [data-location-type-scale="connect"] .ui-text-compact-button-label {
-    font-size: var(--location-compact-action-size) !important;
-    line-height: var(--location-compact-action-line) !important;
-    font-weight: var(--location-compact-action-weight) !important;
+  /* This full-page Ask step previously shrank to stay on one line. Match
+     Connect's authoring title and allow a long title to wrap on a phone. */
+  [data-location-type-scale="connect"] .location-request-duration-header h1.ui-text-page-title {
+    font-size: var(--type-page-title-size) !important;
+    line-height: var(--type-page-title-line) !important;
+    font-weight: var(--type-page-title-weight) !important;
+    white-space: normal;
   }
+}
+
+/* Raw app-owned text opts into a named role. These declarations are font-only:
+   color, geometry, wrapping, material, motion and event ownership stay local.
+   Repeating the attribute makes an explicit role win existing heading locks
+   (including the request-duration title) in the same important base layer. */
+@layer base {
+  [data-location-type-scale="connect"] [data-location-type-role="flow-title"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 28px !important;
+    line-height: 36px !important;
+    font-weight: 600 !important;
+    letter-spacing: var(--foundation-title1-tracking) !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="section-heading"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    line-height: 22px !important;
+    font-weight: 600 !important;
+    letter-spacing: normal !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="source-heading"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 12px !important;
+    line-height: 18px !important;
+    font-weight: 600 !important;
+    letter-spacing: normal !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="row-title"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    line-height: 21px !important;
+    font-weight: 550 !important;
+    letter-spacing: normal !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="row-description"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 12px !important;
+    line-height: 18px !important;
+    font-weight: 400 !important;
+    letter-spacing: 0 !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="form-label"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 15px !important;
+    line-height: 22px !important;
+    font-weight: 550 !important;
+    letter-spacing: normal !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="input"][data-location-type-role]:not([data-profile-type-scale="circles"] *) {
+    font-family: var(--font-app-body) !important;
+    font-size: var(--type-input-value-size) !important;
+    line-height: var(--type-input-value-line) !important;
+    font-weight: 400 !important;
+    letter-spacing: normal !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="compact-action"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 12px !important;
+    line-height: 18px !important;
+    font-weight: 550 !important;
+    letter-spacing: normal !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="utility-action"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    line-height: 21px !important;
+    font-weight: 550 !important;
+    letter-spacing: normal !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="helper"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    line-height: 18px !important;
+    font-weight: 400 !important;
+    letter-spacing: 0 !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="status"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    line-height: 18px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0 !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="body"][data-location-type-role]:not([data-profile-type-scale="circles"] *) {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    line-height: 21px !important;
+    font-weight: 400 !important;
+    letter-spacing: normal !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="primary-action"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: var(--type-button-label-size) !important;
+    line-height: var(--type-button-label-line) !important;
+    font-weight: var(--type-button-label-weight) !important;
+    letter-spacing: normal !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="task-title"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 20px !important;
+    line-height: 28px !important;
+    font-weight: 600 !important;
+    letter-spacing: -0.025em !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="task-description"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    line-height: 20px !important;
+    font-weight: 400 !important;
+    letter-spacing: normal !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="task-action"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    line-height: 20px !important;
+    font-weight: 600 !important;
+    letter-spacing: normal !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="overlay-title"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 20px !important;
+    line-height: 25px !important;
+    font-weight: 600 !important;
+    letter-spacing: var(--foundation-title3-tracking) !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="sms-display"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 42px !important;
+    line-height: 42px !important;
+    font-weight: 600 !important;
+    letter-spacing: normal !important;
+  }
+}
+
+/* Connect semantic fields change at 620px. Raw native-safe fields retain the
+   shared <=767px floor; Task fields retain their independent 768px breakpoint,
+   and explicit Circle fields retain the matching shared Circle hierarchy. */
+@media (max-width: 620px) {
+  @layer base {
+    [data-location-type-scale="connect"] {
+      --type-input-value-size: 16px;
+    }
+    [data-location-type-scale="connect"] [data-location-type-role="utility-action"][data-location-type-role] {
+      font-size: 12px !important;
+    }
+  }
+}
+
+/* Sonner lives beside the route, not below its type scope. Its vendor rules
+   otherwise replace the product font and the shared authored 20px line box.
+   Keep this presentation-only correction active for the mounted Location
+   journey; shared feedback elsewhere keeps its existing ownership. */
+html:has([data-location-type-scale="connect"]) [data-sonner-toaster] {
+  font-family: var(--font-app-body);
+}
+html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-title] {
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-description] {
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 400;
 }

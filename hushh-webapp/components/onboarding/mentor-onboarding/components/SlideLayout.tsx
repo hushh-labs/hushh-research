@@ -34,6 +34,7 @@ export function SlideLayout({
       <div className="ao-sheet">
         <div className="ao-copy">
           <h1
+            data-location-type-role="flow-title"
             id={headingId}
             className="ao-title"
             tabIndex={-1}
@@ -43,7 +44,7 @@ export function SlideLayout({
             <span>{story.title[0]}</span>
             <span>{story.title[1]}</span>
           </h1>
-          <p className="ao-description">{description}</p>
+          <p data-location-type-role="row-description" className="ao-description">{description}</p>
           {story.id === "control" && invitationContent ? (
             <div className="ao-invitation">{invitationContent}</div>
           ) : null}
