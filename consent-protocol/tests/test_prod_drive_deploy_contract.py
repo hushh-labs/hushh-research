@@ -467,7 +467,7 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
             for name in (
                 "backend-deploy.sh",
                 "verify-managed-vertex-runtime.sh",
-                *("backend-model-settings.sh", "backend-drive-secret-settings.sh"),
+                *(path.name for path in (ROOT / "scripts/deploy").glob("backend-*-settings.sh")),
                 "commerce-preview-bindings.sh",
                 "scope-commerce-secrets.sh",
                 "pod-release-env.sh",

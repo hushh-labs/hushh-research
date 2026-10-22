@@ -53,7 +53,7 @@ vi.mock("@/hooks/use-effective-avatar-url", () => ({ useEffectiveAvatarUrl: () =
 vi.mock("@/lib/agent/use-one-display-name", () => ({ useOneDisplayName: () => "One" }));
 vi.mock("@/lib/services/model-preference-service", () => ({ ModelPreferenceService: { get: async () => ({ choices: [], effective_model: "test" }) } }));
 vi.mock("@/lib/agent/use-entry-welcome", () => ({ useEntryWelcome: () => null }));
-vi.mock("@/lib/agent/agent-pkm-capture-runtime", async importOriginal => ({ ...await importOriginal<object>(), isAgentPkmProcessingReady: () => fixture.captureReady }));
+vi.mock("@/lib/agent/agent-pkm-capture-runtime", async importOriginal => { const actual = await importOriginal<typeof import("@/lib/agent/agent-pkm-capture-runtime")>(); return { ...actual, isAgentPkmProcessingReady: (...args: Parameters<typeof actual.isAgentPkmProcessingReady>) => fixture.captureReady && actual.isAgentPkmProcessingReady(...args) }; });
 vi.mock("@/lib/agent/agent-pkm-memory", async importOriginal => ({ ...await importOriginal<object>(), loadAgentPkmContext: async () => fixture.memory, peekAgentPkmContext: () => fixture.memory, warmAgentPkmContext: async () => fixture.memory }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/", useSearchParams: () => fixture.search, useRouter: () => fixture.router }));
 
@@ -140,7 +140,7 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     push({ type: "TOOL_CALL_ARGS", toolCallId: "name-call", delta: "{}" });
     push({ type: "TOOL_CALL_END", toolCallId: "name-call" });
     push({ type: "TOOL_CALL_RESULT", toolCallId: "name-call", messageId: "name-result", role: "tool",
-      content: JSON.stringify({ status: "preferred_name_update_ready", preferred_name: "Ruby" }) });
+      content: JSON.stringify({ result: { status: "preferred_name_update_ready", preferred_name: "Ruby", ...(outcome === "completed" ? { proposed: { tone: "warm", length: "short" } } : {}) } }) });
     expect(writes()).toHaveLength(0);
     if (outcome === "stale") advanceVaultSessionEpoch();
     push(outcome === "failed" ? { type: "RUN_ERROR", code: "MODEL_FAILED", message: "Please try again." }
@@ -157,7 +157,7 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
       await waitFor(() => expect(screen.getByRole("button", { name: "Send message" })).toBeInTheDocument());
       expect(writes()).toHaveLength(0);
     }
-    expect(screen.queryByRole("button", { name: "Review in Settings" })).toBeNull();
+    expect(Boolean(screen.queryByRole("button", { name: "Review in Settings" }))).toBe(outcome === "completed");
   });
 
   it.each(["completed", "failed"] as const)("applies a semantic onboarding name only after a %s stream", async outcome => {

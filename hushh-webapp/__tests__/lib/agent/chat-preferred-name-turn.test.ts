@@ -4,22 +4,23 @@ import { beginChatPreferredNameTurn } from "@/lib/agent/chat-preferred-name-turn
 const result = (name = "Ruby") => ({ status: "preferred_name_update_ready", preferred_name: name });
 
 describe("live preferred-name commitment", () => {
-  it("writes once only after a successful turn, preserving the chosen Unicode name", async () => {
+  it.each(["plain", "result", "content", "data"])("writes once after a successful %s result, preserving the chosen Unicode name", async envelope => {
     const save = vi.fn().mockResolvedValue(true);
     const turn = beginChatPreferredNameTurn({ isCurrent: () => true, save });
-    turn.stage(JSON.stringify(result("李 小龍")), "call-1");
-    turn.stage(result("李 小龍"), "call-1"); // Exact transport redelivery.
+    const payload = envelope === "plain" ? result("李 小龍") : { [envelope]: result("李 小龍") };
+    turn.stage(JSON.stringify(payload), "call-1");
+    turn.stage(payload, "call-1"); // Exact transport redelivery.
     expect(save).not.toHaveBeenCalled();
     expect(await turn.finish(true)).toBe(true);
     expect(await turn.finish(true)).toBeNull();
     expect(save).toHaveBeenCalledExactlyOnceWith("李 小龍", expect.any(Function), expect.any(Function));
   });
 
-  it.each(["cancelled", "stale", "conflicting", "malformed", "offer"])("does not write a %s turn", async (mode) => {
+  it.each(["cancelled", "stale", "conflicting", "malformed", "offer", "failed envelope"])("does not write a %s turn", async (mode) => {
     let current = true;
     const save = vi.fn();
     const turn = beginChatPreferredNameTurn({ isCurrent: () => current, save });
-    turn.stage(mode === "malformed" ? result("A".repeat(65)) :
+    turn.stage(mode === "failed envelope" ? { status: "failed", result: result() } : mode === "malformed" ? result("A".repeat(65)) :
       mode === "offer" ? { status: "offer_ready", proposed: { preferred_name: "Ruby" } } : result(), "call-1");
     if (mode === "conflicting") turn.stage(result("Rootman"), "call-2");
     if (mode === "stale") current = false;
