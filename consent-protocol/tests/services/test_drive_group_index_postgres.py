@@ -689,7 +689,9 @@ async def test_worker_resumes_changed_batches_skips_unchanged_and_prunes_only_af
         groups, monkeypatch, [provider_file(), provider_file("file-b")]
     )
     assert (await job.run_one(user_id="owner"))["status"] == "queued"
+    assert (await groups.status(user_id="owner"))["state"] == "indexing"
     assert (await job.run_one(user_id="owner"))["status"] == "indexed"
+    assert (await groups.status(user_id="owner"))["state"] == "ready"
     assert len(rows(groups)) == 2 and parser.await_count == 2
     assert adapter.list_files.await_args.kwargs["order_by"] == "createdTime desc"
     assert [len(call.args[0]) for call in embedder.embed.await_args_list] == [1, 1]
@@ -715,6 +717,19 @@ async def test_worker_resumes_changed_batches_skips_unchanged_and_prunes_only_af
     adapter.list_files.return_value = {"files": [changed]}
     assert (await job.run_one(user_id="owner"))["pruned"] == 1
     assert len(rows(groups)) == 1
+
+    # Historical completion must not label a partly refreshed index as ready.
+    completed = rows(groups, "drive_group_index_state")[0]["initial_completed_at"]
+    with groups.db.engine.begin() as connection:
+        connection.execute(text("UPDATE drive_group_index_state SET next_at=now()"))
+    adapter.list_files.return_value = {
+        "files": [{**changed, "version": "3"}, provider_file("file-c")]
+    }
+    assert (await job.run_one(user_id="owner"))["status"] == "queued"
+    assert (await groups.status(user_id="owner"))["state"] == "indexing"
+    assert rows(groups, "drive_group_index_state")[0]["initial_completed_at"] == completed
+    assert (await job.run_one(user_id="owner"))["status"] == "indexed"
+    assert (await groups.status(user_id="owner"))["state"] == "ready"
 
 
 async def test_worker_incomplete_listing_retains_absent_rows_and_reports_incomplete(

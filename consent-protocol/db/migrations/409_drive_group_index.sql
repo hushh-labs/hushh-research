@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS drive_group_index_state (
   last_error_code TEXT CHECK (last_error_code ~ '^[a-z_]{1,80}$'),
   listed_files INTEGER NOT NULL DEFAULT 0 CHECK (listed_files>=0),
   listing_complete BOOLEAN NOT NULL DEFAULT FALSE,
+  work_remaining BOOLEAN NOT NULL DEFAULT TRUE,
   limited BOOLEAN NOT NULL DEFAULT FALSE,
   model_version TEXT CHECK (model_version ~ '^[0-9a-f]{12}$'),
   last_run_at TIMESTAMPTZ,
@@ -29,6 +30,10 @@ CREATE TABLE IF NOT EXISTS drive_group_index_state (
 );
 CREATE INDEX IF NOT EXISTS drive_group_index_state_due ON drive_group_index_state(next_at)
   WHERE processing_enabled;
+-- Replay also upgrades indexes created by the earlier local slice. Their next
+-- run establishes current completion instead of trusting a historical timestamp.
+ALTER TABLE drive_group_index_state ADD COLUMN IF NOT EXISTS work_remaining
+  BOOLEAN NOT NULL DEFAULT TRUE;
 
 CREATE TABLE IF NOT EXISTS drive_group_index (
   user_id TEXT NOT NULL,

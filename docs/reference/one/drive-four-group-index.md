@@ -18,7 +18,9 @@ freshness hash includes the model and evidence policy, so prior full-read result
 refresh. Each 180-second run prioritizes cheap metadata rows (at most 200 total)
 and attempts up to 20 supported uploaded documents. It bounds head reads to the
 remaining budget after reserving embedding and commit time, cancels unfinished
-reads, and commits completed entries; deferred files remain pending. The inventory
+reads, and commits completed entries; deferred files remain pending. A persisted
+work-remaining flag keeps partial refreshes in the indexing state even after a
+previous run completed. The inventory
 is still repeated per batch. This is bounded background preparation, not a new
 two-minute full-Drive performance claim.
 
@@ -121,7 +123,7 @@ Implemented under `consent-protocol/`:
 - `db/migrations/409_drive_group_index.sql` and `hushh_mcp/services/drive_group_index_store.py`: explicit opt-in with disclosure `drive-four-group-v1`, owner time zone, renewable leases, sealed entries, folder counts, file pages and erase. Connection changes delete the opt-in and entries. Disabling processing pauses it; erase withdraws the opt-in and invalidates in-flight work. The store rejects pruning from an incomplete or capped listing and preserves owner placements, discarding retained text/vector when the final shelf is placed.
 - `hushh_mcp/services/drive_group_index_job.py`: current bounded prefix preparation is described in [Data packets connector delivery](#data-packets-connector-delivery). The existing stable creation-time inventory, source-revision skipping and exhaustive-list-only pruning remain authoritative. No partial listing cursor is persisted.
 - Internal `GoogleDriveRestTransport.read_group_index_tool`: the same live-grant fence, additionally bound to the job's connection generation before provider I/O. The worker rechecks processing authority around reads and embedding, renews its five-minute lease while working, and cancels on lease loss. Systemic parser errors propagate instead of becoming files with no text. Existing chat reads keep their response contract. No Drive mutation or PKM write runs here.
-- `api/routes/drive_groups.py`, registered in `server.py`: current Vault Owner only, private/no-store including authored errors, with a 404 before storage construction while the flag is off. The existing connector catch-all proxy forwards the API; web/native callers use the retained Data packets model described above. See [API Contracts](../architecture/api-contracts.md#owner-drive-four-group-folders).
+- `api/routes/drive_groups.py`, registered through `api/routes/connector_routes.py`: current Vault Owner only, private/no-store including authored errors, with a 404 before storage construction while the flag is off. The existing connector catch-all proxy forwards the API; web/native callers use the retained Data packets model described above. See [API Contracts](../architecture/api-contracts.md#owner-drive-four-group-folders).
 
 Focused acceptance uses a real disposable PostgreSQL 16, the production job/store/transport orchestration, and invented files with synthetic parser and embedding outputs. It covers incremental batches, unchanged-file skipping, complete-list deletion, incomplete-list retention, opt-in/background/lease/erase fences, sealed retention and owner API admission. This is local contract evidence, not Linux isolated-child, authenticated Drive or deployment acceptance.
 

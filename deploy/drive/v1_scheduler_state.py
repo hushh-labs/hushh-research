@@ -208,7 +208,7 @@ def _quarantine() -> None:
         raise V1SchedulerError("V1 scheduler quarantine failed")
 
 
-def main() -> int:
+def _arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "mode",
@@ -226,7 +226,6 @@ def main() -> int:
     parser.add_argument("--snapshot", type=Path)
     parser.add_argument("--stage", choices=("v1", "groups"), default="v1")
     args = parser.parse_args()
-    select_stage(args.stage)
     if (
         args.mode
         in {
@@ -239,6 +238,59 @@ def main() -> int:
         and args.snapshot is None
     ):
         parser.error("--snapshot is required")
+    return args
+
+
+def _restore_snapshot(
+    raw_current: dict | None, origin: str, snapshot_path: Path
+) -> None:
+    """Reconcile only the selected fixed job from its validated prior state."""
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    if snapshot.get("schema") != SCHEMA:
+        raise V1SchedulerError("V1 scheduler snapshot is invalid")
+    before = snapshot.get("job")
+    if before is not None and before not in (
+        {"origin": origin, "state": "ENABLED"},
+        {"origin": origin, "state": "PAUSED"},
+    ):
+        raise V1SchedulerError("V1 scheduler snapshot is outside the UAT boundary")
+    try:
+        restored = _state(raw_current, origin)
+    except V1SchedulerError:
+        restored = None
+    if restored == before and (raw_current is None or restored is not None):
+        return
+    if before is None:
+        if raw_current is not None:
+            _run(
+                "scheduler",
+                "jobs",
+                "delete",
+                JOB,
+                f"--project={PROJECT}",
+                f"--location={REGION}",
+                "--quiet",
+            )
+    else:
+        _set_job(origin)
+        verb = "pause" if before["state"] == "PAUSED" else "resume"
+        applied = _state(_describe(), origin)
+        if applied is None or applied["state"] != before["state"]:
+            _run(
+                "scheduler",
+                "jobs",
+                verb,
+                JOB,
+                f"--project={PROJECT}",
+                f"--location={REGION}",
+            )
+    if _state(_describe(), origin) != before:
+        raise V1SchedulerError("V1 scheduler restoration could not be verified")
+
+
+def main() -> int:
+    args = _arguments()
+    select_stage(args.stage)
     try:
         if args.mode == "quarantine":
             _quarantine()
@@ -297,49 +349,7 @@ def main() -> int:
                     "V1 scheduler is not enabled on the verified worker"
                 )
         else:
-            snapshot = json.loads(args.snapshot.read_text(encoding="utf-8"))
-            if snapshot.get("schema") != SCHEMA:
-                raise V1SchedulerError("V1 scheduler snapshot is invalid")
-            before = snapshot.get("job")
-            if before is not None and before not in (
-                {"origin": origin, "state": "ENABLED"},
-                {"origin": origin, "state": "PAUSED"},
-            ):
-                raise V1SchedulerError(
-                    "V1 scheduler snapshot is outside the UAT boundary"
-                )
-            try:
-                restored = _state(raw_current, origin)
-            except V1SchedulerError:
-                restored = None
-            if restored == before and (raw_current is None or restored is not None):
-                return 0
-            if before is None:
-                if raw_current is not None:
-                    _run(
-                        "scheduler",
-                        "jobs",
-                        "delete",
-                        JOB,
-                        f"--project={PROJECT}",
-                        f"--location={REGION}",
-                        "--quiet",
-                    )
-            else:
-                _set_job(origin)
-                verb = "pause" if before["state"] == "PAUSED" else "resume"
-                applied = _state(_describe(), origin)
-                if applied is None or applied["state"] != before["state"]:
-                    _run(
-                        "scheduler",
-                        "jobs",
-                        verb,
-                        JOB,
-                        f"--project={PROJECT}",
-                        f"--location={REGION}",
-                    )
-            if _state(_describe(), origin) != before:
-                raise V1SchedulerError("V1 scheduler restoration could not be verified")
+            _restore_snapshot(raw_current, origin, args.snapshot)
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
         print(f"V1 scheduler state failed: {exc}", file=sys.stderr)
         return 1

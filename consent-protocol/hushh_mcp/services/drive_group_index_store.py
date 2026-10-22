@@ -189,6 +189,7 @@ class DriveGroupIndexStore(DriveLivePreferences):
                   disclosure_version=EXCLUDED.disclosure_version,
                   time_zone=EXCLUDED.time_zone,
                   revision=drive_group_index_state.revision+1,
+                  work_remaining=TRUE,
                   lease_id=NULL, lease_expires_at=NULL, attempt_count=0, last_error_code=NULL,
                   next_at=clock_timestamp(), updated_at=clock_timestamp()
                 RETURNING revision, processing_enabled
@@ -445,7 +446,8 @@ class DriveGroupIndexStore(DriveLivePreferences):
             connection.execute(
                 text("""
                 UPDATE drive_group_index_state SET listed_files=:listed, listing_complete=:complete,
-                  limited=:limited, model_version=COALESCE(:version,model_version),
+                  limited=:limited, work_remaining=:more,
+                  model_version=COALESCE(:version,model_version),
                   last_run_at=clock_timestamp(), last_error_code=NULL, attempt_count=0,
                   initial_completed_at=COALESCE(initial_completed_at,
                     CASE WHEN :complete AND NOT :more THEN clock_timestamp() END),
@@ -543,7 +545,7 @@ class DriveGroupIndexStore(DriveLivePreferences):
             state["limited"] or not state["listing_complete"] or state["last_error_code"]
         ):
             phase = "incomplete"
-        elif state["initial_completed_at"] is None:
+        elif state["work_remaining"] or state["initial_completed_at"] is None:
             phase = "indexing"
         else:
             phase = "incomplete" if state["last_error_code"] else "ready"

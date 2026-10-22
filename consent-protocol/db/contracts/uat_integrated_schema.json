@@ -3944,6 +3944,7 @@
       "last_error_code",
       "listed_files",
       "listing_complete",
+      "work_remaining",
       "limited",
       "model_version",
       "last_run_at",
