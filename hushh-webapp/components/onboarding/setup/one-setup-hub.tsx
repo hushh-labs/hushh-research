@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import { MarketingPreferencePanel } from "@/components/account/marketing-preference-panel";
+import { useMarketingPreference } from "@/components/account/use-marketing-preference";
 import { PwmResearchDisclosure } from "@/components/onboarding/setup/pwm-research-disclosure";
 import { SetupV10Icon, SetupV10Surface } from "@/components/onboarding/setup/setup-v10-surface";
 import { useInitialContacts } from "@/components/onboarding/initial-contacts-bridge";
@@ -104,6 +106,7 @@ export function OneSetupHub() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, signOut } = useAuth();
+  const emailPreference = useMarketingPreference(user?.uid ?? null, "setup");
   const initialContacts = useInitialContacts();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const queueEntryWelcome = useOneConversationSession(
@@ -518,6 +521,7 @@ export function OneSetupHub() {
               </button>
             ) : null}
             {runtimeChoiceComplete ? <PwmResearchDisclosure compact className={styles.disclosure} /> : null}
+            <MarketingPreferencePanel model={emailPreference} />
             <button
               type="button"
               className={styles.primary}

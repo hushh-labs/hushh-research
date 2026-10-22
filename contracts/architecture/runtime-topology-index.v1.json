@@ -1483,6 +1483,17 @@
       "primary_access_path": "OneLocationAccountSettingsService (owner-level sharing on/off, precision preference, reported OS permission; migration 221) and OneLocationSetupService (voice-first Location setup step machine; migration 223) behind GET/PATCH /api/one/location/account-settings and /setup-progress (vault-owner token) and the One Live Voice tools. Turning sharing off revokes active share grants and public links in the same transaction; Location write paths enforce the posture."
     },
     {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "one_marketing_preferences",
+        "one_marketing_changes"
+      ],
+      "id": "one_marketing_permission",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Firebase-owner-bound optional setup/account email preference. A separately signed production-only integration reads at most 25 coalesced pending revisions and acknowledges exact revisions. Generation-fenced revocation cannot subscribe; fresh permission/address checks precede sending. One settings write and its pending projection commit atomically."
+    },
+    {
       "data_class": "workflow_state",
       "exact_tables": [
         "one_information_request_bundles",
@@ -6551,10 +6562,10 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "079807ec880bc7800616610d4aa2d33f9e0d863b8c51a559cc4b8086f522d139",
-    "action_gateway": "82ae2e249bfc85f8a86ecab5a3349777ceb33be45148b50ec37fb14119ae5d1d",
+    "action_gateway": "0a056cc31553375c3df146a743aa18aa929bfdc2fdd3eacaf8b6307e6e7bdba6",
     "agent_registry": "bde7701609a1896b8cf697334540dc659de3a3f2866093e8dc01a204fc21654d",
     "cache_manifest": "5e379c0f81c18fd3956d90252f4189c9b6c6b5ca6d6d43241bc64fe79e0bc2e8",
-    "data_plane": "76ecb087a5d2b44e361001ea864b5fb3f53aa951e46ee66a7812bdcdecada93f",
+    "data_plane": "21af473718c1a1ae0cc1c066b1f024d2a1501637e8d39228ccd88c8de3654d4e",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "89cfeabb190475072e5d3aebe5f0b8d1838ea0565560fc2e7ad133a231396e40",
     "route_index": "06406725caa658a1c91e6b471ecf5004020b0994a4b3b5ac6a0a42b00dcd084c",
@@ -6565,7 +6576,7 @@
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 266,
+    "actions": 270,
     "agents": 19,
     "aliases": 4,
     "decision_required": 2,
@@ -6573,6 +6584,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 154,
     "semantic_routes": 17,
-    "table_families": 113
+    "table_families": 114
   }
 }

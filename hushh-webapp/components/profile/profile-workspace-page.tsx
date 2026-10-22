@@ -1,6 +1,8 @@
 "use client";
 
 import { LivingMemoryDocument } from "@/components/profile/living-memory-document";
+import { MarketingPreferencePanel } from "@/components/account/marketing-preference-panel";
+import { useMarketingPreference } from "@/components/account/use-marketing-preference";
 
 import { useDocumentFeedStream } from "@/lib/feed/use-document-feed-stream";
 import {
@@ -756,6 +758,7 @@ function ProfilePageContent({
       ? null
       : profileRouteState.panel;
   const activeDetail = activePanel ? profileRouteState.detail : null;
+  const emailPreference = useMarketingPreference(activePanel === "account" ? user?.uid ?? null : null, "account");
   const phoneVaultEpoch = snapshotVaultSessionEpoch();
   const phoneVisit = useMemo(() => ({ active: false, id: Symbol("phone-visit"), userId: user?.uid, owner: snapshotValidatedAuthSessionOwner(),
     vaultEpoch: phoneVaultEpoch, enabled: activePanel === "account" && activeDetail === "phone" &&
@@ -3639,6 +3642,7 @@ function ProfilePageContent({
       )}
     >
       {presentation === "native-page" && nativeAccountException !== "photo" ? <ProfileAvatarEditor /> : null}
+      <MarketingPreferencePanel model={emailPreference} />
       <SettingsGroup title="Identity">
         <SettingsRow
           icon={PROFILE_ICONS.name}
@@ -5000,6 +5004,19 @@ function ProfilePageContent({
       ...(walletCardEntryEnabled ? [{ id: "account-wallet", label: WALLET_CARD_COPY.profileEntry.title,
         detail: WALLET_CARD_COPY.profileEntry.description, enabled: true, artworkId: "account-wallet", chevron: true }] : []),
     ] },
+    { id: "account-email-updates", title: "Optional One email updates", rows: emailPreference.value ? [
+      { id: "email-updates-choice", label: "One tips and product updates", detail: emailPreference.error ?? "Useful tips, demos and news. Unsubscribe anytime.",
+        enabled: !!emailPreference.value && !emailPreference.busy, pending: emailPreference.loading || emailPreference.busy, toggle: true,
+        options: [{ id: "email-updates-on", label: "On", selected: emailPreference.enabledDraft },
+          { id: "email-updates-off", label: "Off", selected: !emailPreference.enabledDraft }] },
+      { id: "email-updates-frequency", label: "Email frequency", enabled: !!emailPreference.value && !emailPreference.busy,
+        options: [{ id: "email-updates-weekly", label: "Weekly digest", selected: emailPreference.frequencyDraft === "weekly" },
+          { id: "email-updates-daily", label: "Daily tips", selected: emailPreference.frequencyDraft === "daily" },
+          { id: "email-updates-news", label: "Product updates only", selected: emailPreference.frequencyDraft === "updates" }] },
+      { id: "email-updates-save", label: emailPreference.busy ? "Saving…" : emailPreference.saved ? "Email preference saved" : "Save email preference", enabled: !emailPreference.busy &&
+        (emailPreference.enabledDraft !== emailPreference.value.enabled || emailPreference.frequencyDraft !== emailPreference.value.frequency), pending: emailPreference.busy },
+    ] : [{ id: "email-updates-retry", label: emailPreference.loading ? "Loading email preference…" : "Retry email preference",
+      detail: emailPreference.error ?? undefined, enabled: !emailPreference.loading, pending: emailPreference.loading }] },
     { id: "account-operations", title: "Account actions", rows: [
       { id: "account-reset", label: "Reset account", detail: resetRowDescription, enabled: !isResetting, artworkId: "account-reset", chevron: true },
       { id: "account-delete", label: deleteButtonLabel, detail: deleteRowDescription, enabled: !isDeleting, destructive: true, artworkId: "account-delete", chevron: true },
@@ -5139,6 +5156,13 @@ function ProfilePageContent({
         ["account-name", () => setEditingDisplayName(true)],
         ["account-phone", () => { if (phoneLookupPending) { void retryPhoneLookup(); return; } updateProfileView({ panel: "account", detail: "phone" }, "push"); }],
         ["account-wallet", () => router.push(ROUTES.ONE_WALLET_CARD)],
+        ["email-updates-on", () => emailPreference.edit(true, emailPreference.frequencyDraft)],
+        ["email-updates-off", () => emailPreference.edit(false, emailPreference.frequencyDraft)],
+        ["email-updates-weekly", () => emailPreference.edit(emailPreference.enabledDraft, "weekly")],
+        ["email-updates-daily", () => emailPreference.edit(emailPreference.enabledDraft, "daily")],
+        ["email-updates-news", () => emailPreference.edit(emailPreference.enabledDraft, "updates")],
+        ["email-updates-save", () => { void emailPreference.save(emailPreference.enabledDraft, emailPreference.frequencyDraft); }],
+        ["email-updates-retry", () => { void emailPreference.refresh(); }],
         ["account-reset", handleResetClick],
         ["account-delete", handleDeleteClick],
         ["account-confirmation-cancel", dismissAccountConfirmation],

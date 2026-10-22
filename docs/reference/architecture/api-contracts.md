@@ -65,8 +65,12 @@ adding this contract does not enable the exporter or campaign delivery.
 OpenAPI. It requires `ONE_PLG_EXPORT_ENABLED=true`, production runtime identity,
 dedicated `ONE_PLG_EXPORT_SECRET` (at least 32 characters), and private
 `ONE_PLG_EXPORT_ACCOUNT_IDS` (1–100 explicitly enrolled production customer
-Firebase UIDs). No browser proxy or native caller is added. Login, legal
+Firebase UIDs), or the canonical recorded-permission cohort when
+`ONE_PLG_SUBSCRIPTION_ENABLED=true`. The snapshot remains server-only. Login, legal
 acceptance and shared Firebase membership do not establish marketing consent.
+Snapshot account IDs use the same opaque 1–128-character Firebase UID contract
+as recorded-permission enrollment. Punctuation is preserved; the signed request,
+enrolled-account allow-list and permission checks still authorize each owner.
 
 `X-PLG-Timestamp` (13-digit Unix milliseconds, within five minutes) and
 `X-PLG-Signature` authenticate HMAC-SHA256 over
@@ -105,6 +109,64 @@ for request size, and 503 for source failures. Reads are bounded; synchronous
 deletion/read barriers are held for each bounded transaction. Production deployment optionally binds
 the two dedicated secrets; `one_plg_export_enabled` in existing
 `BACKEND_RUNTIME_CONFIG_JSON` maps the enable flag, which defaults off.
+
+### Optional email preference and subscription projection
+
+`GET /api/one/plg/preferences` and `PUT` use the existing Firebase owner
+authentication boundary, independently of a vault unlock. Web uses the existing
+One catch-all proxy; native uses the same platform-aware API service. Reads do
+not create a preference, enroll anyone, or assume that a missing record is
+permission. Signed-in setup and Your account load the saved state, stage changes,
+and require a separate manual Save. Setup completion is independent of this
+optional form. Voice and Search may navigate to it but cannot submit permission.
+
+The strict PUT body is `{enabled, frequency, expectedRevision,
+disclosureVersion, surface}`. Frequency is `daily`, `weekly`, or `updates`;
+disclosure version is `one-email-updates-v1`; surface is `setup` or `account`.
+No UID, email, chosen time or generation is accepted from the caller. A positive
+choice checks the current verified Firebase email and binds its lowercase SHA-256
+hash. Opting out requires no identity-provider lookup. The server records the
+choice time and a monotonic revision. Stale revisions return 409
+`preference_conflict`; an unverified recipient returns 409
+`verified_email_required`. Uncertain failures return a sanitized 503 and the UI
+requires a fresh read before another save. All responses are private/no-store.
+
+Migration 370 stores this operational permission outside PKM/Live Memory and
+atomically coalesces one pending hash-only change per account. Product reset
+preserves the choice. Full deletion erases the preference and produces a durable
+hash-only erasure; migration 201 guards prevent resurrection. Browser roles have
+no access. Nonempty permission or change state makes rollback refuse rather
+than silently lose opt-outs.
+
+The private production-only `/api/one/plg/subscriptions/{pull,ack,revoke,check}`
+POSTs require `ONE_PLG_SUBSCRIPTION_ENABLED=true`, project `hushh-pda`, and the
+separate 32+ character `ONE_PLG_SUBSCRIPTION_SECRET`. They use the existing raw-body
+HMAC envelope with purposes `subscriptions.pull`, `.ack`, `.revoke`, `.check`.
+They are hidden from OpenAPI and default disabled. `pull` accepts exactly `{}`,
+returns at most 25 changes, and rechecks deletion/revision after bounded identity
+lookups. `enabled` is the recorded choice; `eligible` separately describes the
+currently verified recipient. Only eligible records contain UID/email/name.
+Availability can recover at the same canonical revision; consumers must apply
+its fresh `checkedAt` without inventing a new choice. Acknowledged records are
+eligible for reconciliation after one hour. Bounded pulls reserve at least five
+slots for indexed reconciliation; backlog can delay a particular account.
+Exact-revision acknowledgements cannot clear newer changes.
+
+`ack` accepts `{changes:[{accountHash,revision}]}` after durable consumer commit.
+`revoke` accepts `{accountHash,generation}` and can only disable that opt-in
+generation. Frequency edits retain the generation; a fresh explicit re-opt-in
+renews it. `check` accepts `{accountId,generation,emailHash,revision}` and returns
+`{allowed,erased}` after fresh permission, lifecycle and recipient checks. A
+frequency edit invalidates an older send decision even with the same generation.
+No request sends email. The consumer must synchronize permission before evidence,
+exclude revoked/ineligible contacts from snapshot batches, and perform `check`
+immediately before a provider attempt. Provider calls already in flight cannot
+be made atomic with a separate permission database transaction.
+
+The feed is a producer contract; its existence does not establish that Matrix
+has migrated its pilot capacity, consumed it, or enabled live delivery. Deployment
+must verify the paired consumer, storage capacity, signing-secret binding and
+controlled acceptance before enabling automatic enrollment.
 
 ### All-agent activity, version 2
 
