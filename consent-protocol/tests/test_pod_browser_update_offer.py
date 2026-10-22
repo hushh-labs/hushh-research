@@ -14,10 +14,13 @@ from tests.helpers.pod_browser_capability import (
 )
 
 
-def configured(provider):
+def configured(provider, monkeypatch):
     row, image, service, qualification, release = browser_capability_fixture()
     plan = plan_from_observation(row, image, service, qualification)
     if provider == "azure":
+        monkeypatch.setenv(
+            "HUSSH_CONSENT_PLANE_SA", "consent-plane@hushh-pda-dev.iam.gserviceaccount.com"
+        )
         row, image, _, qualification, plan, *_ = azure_browser_capability_fixture()
     row["backend_metadata"].update(
         image_digest=image.rsplit("@", 1)[-1],
@@ -41,7 +44,7 @@ def configured(provider):
 @pytest.mark.parametrize("provider", ["gcp", "azure"])
 def test_same_image_changed_policy_is_reviewable_without_approving_it(monkeypatch, provider):
     monkeypatch.setenv("HUSSH_POD_BROWSER_ENABLED", "true")
-    row, image, qualification, release = configured(provider)
+    row, image, qualification, release = configured(provider, monkeypatch)
     before = deepcopy(row)
     assert not browser_review_available(row, image, release)
     changed = deepcopy(qualification)
@@ -63,7 +66,7 @@ def test_changed_same_image_policy_retains_existing_lifecycle_interlocks(
     monkeypatch, provider, interlock
 ):
     monkeypatch.setenv("HUSSH_POD_BROWSER_ENABLED", "true")
-    row, image, _, release = configured(provider)
+    row, image, _, release = configured(provider, monkeypatch)
     row["backend_metadata"].pop("upgradeApproval")
     if interlock == "lease":
         row["backend_metadata"]["upgradeLease"] = "held"

@@ -183,6 +183,9 @@ POST /api/pkm/agent-lab/structure
 POST /api/pkm/get-context
 POST /api/pkm/memory/proposals
 [AUTHORITY]
+GET,PUT /api/one/plg/preferences
+POST /api/one/plg/subscriptions/check
+POST /api/one/plg/subscriptions/revoke
 POST /api/one/pod/browser-approval/issue
 POST /api/one/pod/browser-approval/consume
 POST /api/one/pod/browser-approval/validate
@@ -327,6 +330,8 @@ GET /api/one/voice/readiness
 GET /api/pkm/domain-registry
 POST /api/pkm/slice-price
 [OPS]
+POST /api/one/plg/subscriptions/pull
+POST /api/one/plg/subscriptions/ack
 GET,POST /api/one/plg/activity
 POST /api/one/plg/snapshot
 POST /api/one/plg/audience
