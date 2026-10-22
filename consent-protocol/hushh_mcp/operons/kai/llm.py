@@ -41,6 +41,8 @@ from hushh_mcp.runtime_providers import (
 )
 from hushh_mcp.types import UserID
 
+from .valuation_prompt import valuation_prompt
+
 logger = logging.getLogger(__name__)
 
 # Configure Gemini Client (Vertex-only path).
@@ -414,12 +416,12 @@ async def analyze_stock_with_gemini(
     {personalization}
     
     [Current Fundamentals]
-    Revenue: ${latest_10k.get("revenue", 0):,}
-    Net Income: ${latest_10k.get("net_income", 0):,}
-    Operating Income: ${latest_10k.get("operating_income", 0):,}
-    Operating Cash Flow: ${latest_10k.get("operating_cash_flow", 0):,}
-    Free Cash Flow: ${latest_10k.get("free_cash_flow", 0):,}
-    R&D Investment: ${latest_10k.get("research_and_development", 0):,}
+    Revenue: ${format(latest_10k["revenue"], ",") if latest_10k.get("revenue") is not None else "unavailable"}
+    Net Income: ${format(latest_10k["net_income"], ",") if latest_10k.get("net_income") is not None else "unavailable"}
+    Operating Income: ${format(latest_10k["operating_income"], ",") if latest_10k.get("operating_income") is not None else "unavailable"}
+    Operating Cash Flow: ${format(latest_10k["operating_cash_flow"], ",") if latest_10k.get("operating_cash_flow") is not None else "unavailable"}
+    Free Cash Flow: ${format(latest_10k["free_cash_flow"], ",") if latest_10k.get("free_cash_flow") is not None else "unavailable"}
+    R&D Investment: ${format(latest_10k["research_and_development"], ",") if latest_10k.get("research_and_development") is not None else "unavailable"}
     
     [3-Year Quant Trends]
     Revenue Trend: {quant_metrics.get("revenue_trend_data") if quant_metrics else "N/A"}
@@ -428,9 +430,9 @@ async def analyze_stock_with_gemini(
     R&D Trend: {quant_metrics.get("rnd_trend_data") if quant_metrics else "N/A"}
     
     [Efficiency Ratios]
-    Revenue CAGR (3Y): {quant_metrics.get("revenue_cagr_3y", 0) * 100:.2f}%
-    Revenue Growth (YoY): {quant_metrics.get("revenue_growth_yoy", 0) * 100:.2f}%
-    Net Income Growth (YoY): {quant_metrics.get("net_income_growth_yoy", 0) * 100:.2f}%
+    Revenue CAGR (3Y): {format(quant_metrics["revenue_cagr_3y"] * 100, ".2f") if quant_metrics.get("revenue_cagr_3y") is not None else "unavailable"}%
+    Revenue Growth (YoY): {format(quant_metrics["revenue_growth_yoy"] * 100, ".2f") if quant_metrics.get("revenue_growth_yoy") is not None else "unavailable"}%
+    Net Income Growth (YoY): {format(quant_metrics["net_income_growth_yoy"] * 100, ".2f") if quant_metrics.get("net_income_growth_yoy") is not None else "unavailable"}%
     
     --- MARKET DATA ---
     Current Price: {market_data.get("price", "N/A") if market_data else "N/A"}
@@ -607,69 +609,11 @@ async def analyze_valuation_with_gemini(
 
     logger.info(f"[Gemini Valuation] Analyzing valuation for {ticker}")
 
-    # 2. Build Context
-    peer_context = (
-        "\n".join(
-            [
-                f"- {p.get('ticker', 'N/A')}: P/E={p.get('pe_ratio', 'N/A')}, Growth={p.get('growth', 'N/A')}"
-                for p in (peer_data or [])[:5]
-            ]
-        )
-        if peer_data
-        else "No peer data available."
-    )
-
-    user_risk = user_context.get("risk_tolerance", "Balanced") if user_context else "Balanced"
-
-    context = f"""
-    --- VALUATION ANALYSIS TERMINAL ({ticker}) ---
-    
-    [Market Data]
-    Current Price: ${market_data.get("price", "N/A")}
-    P/E Ratio: {market_data.get("pe_ratio", "N/A")}
-    Forward P/E: {market_data.get("forward_pe", "N/A")}
-    P/B Ratio: {market_data.get("pb_ratio", "N/A")}
-    P/S Ratio: {market_data.get("ps_ratio", "N/A")}
-    EV/EBITDA: {market_data.get("ev_ebitda", "N/A")}
-    Market Cap: ${market_data.get("market_cap", "N/A")}
-    Dividend Yield: {market_data.get("dividend_yield", "N/A")}
-    52-Week Range: ${market_data.get("52w_low", "N/A")} - ${market_data.get("52w_high", "N/A")}
-    
-    [Peer Comparison]
-    {peer_context}
-    
-    [Investor Profile]
-    Risk Tolerance: {user_risk}
-    """
-
-    system_instruction = """
-You are a **Quantitative Valuation Analyst** at an institutional investment firm.
-
-Perform a comprehensive valuation analysis with focus on relative and intrinsic value.
-
-### REPORT STRUCTURE (Strict JSON)
-- `summary`: (String) 1-paragraph valuation assessment
-- `valuation_verdict`: (String) "undervalued", "fair", or "overvalued"
-- `valuation_metrics`: (Dict) Key metrics analyzed with values
-- `peer_ranking`: (String) How this stock ranks vs peers
-- `price_targets`: (Dict) {"conservative": X, "base_case": Y, "optimistic": Z}
-- `upside_downside`: (Dict) {"upside_pct": X, "downside_pct": Y}
-- `confidence`: (Float 0.0-1.0)
-- `recommendation`: (String: "undervalued", "fair", "overvalued")
-
-### RULES
-- Use multiple valuation methods (P/E, EV/EBITDA, DCF if possible)
-- Compare to sector averages
-- Consider growth rates when evaluating multiples
-- Keep wording concise and investor-friendly
-- DO NOT use markdown inside JSON strings
-"""
-
     # 3. Call Gemini
     try:
         analysis = await run_kai_analyst_turn(
             gene_id="agent_kai_valuation",
-            prompt=f"{system_instruction}\n\nCONTEXT:\n{context}",
+            prompt=valuation_prompt(ticker, market_data, peer_data, user_context),
             user_id=str(user_id),
             consent_token=consent_token,
             timeout_seconds=45.0,
@@ -1048,10 +992,10 @@ async def analyze_fundamental_streaming(
     Risk Profile: {risk}
     
     [Current Fundamentals]
-    Revenue: ${latest_10k.get("revenue", 0):,}
-    Net Income: ${latest_10k.get("net_income", 0):,}
-    Operating Cash Flow: ${latest_10k.get("operating_cash_flow", 0):,}
-    Free Cash Flow: ${latest_10k.get("free_cash_flow", 0):,}
+    Revenue: ${format(latest_10k["revenue"], ",") if latest_10k.get("revenue") is not None else "unavailable"}
+    Net Income: ${format(latest_10k["net_income"], ",") if latest_10k.get("net_income") is not None else "unavailable"}
+    Operating Cash Flow: ${format(latest_10k["operating_cash_flow"], ",") if latest_10k.get("operating_cash_flow") is not None else "unavailable"}
+    Free Cash Flow: ${format(latest_10k["free_cash_flow"], ",") if latest_10k.get("free_cash_flow") is not None else "unavailable"}
     
     [3-Year Quant Trends]
     Revenue Trend: {quant_metrics.get("revenue_trend_data") if quant_metrics else "N/A"}

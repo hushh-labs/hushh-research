@@ -602,6 +602,11 @@ tests/test_nav_a2a_agent.py
 tests/test_one_adk_agent_tree.py
 # Finance market tools: providers receive the ticker only, never owner identity.
 tests/test_one_finance_market_tools.py
+
+# Market price sessions, cache reopening and owner validation before runtime ports.
+tests/test_market_refresh_policy.py
+tests/test_market_runtime_port.py
+tests/test_kai_market_session_cache.py
 tests/test_a2a_delegation_scopes.py
 tests/test_connections_a2a.py
 tests/test_specialist_availability.py

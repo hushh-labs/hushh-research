@@ -96,6 +96,34 @@ async def test_other_analyst_operons_route_to_manifest_genes(
     assert calls[0]["gene_id"] == gene_id
 
 
+@pytest.mark.asyncio
+async def test_valuation_agent_preserves_authored_peer_ranking(monkeypatch):
+    from hushh_mcp.agents.kai.valuation_agent import ValuationAgent
+    from hushh_mcp.operons.kai import fetchers
+
+    async def quote(*_args):
+        return {"price": 100, "pe_ratio": None}
+
+    async def targets(*_args):
+        return {"status": "unavailable"}
+
+    async def analyze(**_kwargs):
+        return {
+            "summary": "Grounded summary",
+            "peer_ranking": "middle",
+            "price_targets": {},
+            "confidence": 0.5,
+            "recommendation": "fair",
+        }
+
+    monkeypatch.setattr(fetchers, "fetch_market_data", quote)
+    monkeypatch.setattr(fetchers, "fetch_price_target_consensus", targets)
+    monkeypatch.setattr(llm, "is_gemini_ready", lambda: True)
+    monkeypatch.setattr(llm, "analyze_valuation_with_gemini", analyze)
+    result = await ValuationAgent().analyze("AAPL", "fixture-owner", "fixture-token")
+    assert result.peer_ranking == "middle"
+
+
 def _synthesis_inputs() -> dict[str, object]:
     return {
         "ticker": "AAPL",

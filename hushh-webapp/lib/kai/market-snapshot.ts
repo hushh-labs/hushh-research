@@ -3,6 +3,7 @@ import { KaiMarketHomeResourceService } from "@/lib/kai/kai-market-home-resource
 import { CacheService } from "@/lib/services/cache-service";
 
 export type TickerMarketSnapshot = {
+  ticker: string;
   last_price: number | null;
   change_pct: number | null;
   observed_at: string | null;
@@ -59,7 +60,6 @@ function collectRowCandidate(params: {
   price: unknown;
   changePct?: unknown;
   observedAt?: unknown;
-  payloadGeneratedAt?: string | null;
 }): SnapshotCandidate | null {
   const symbol = String(params.symbol || "")
     .trim()
@@ -70,7 +70,7 @@ function collectRowCandidate(params: {
   if (price === null || price <= 0) return null;
 
   const observedAtRaw = String(params.observedAt || "").trim();
-  const observedAt = observedAtRaw || params.payloadGeneratedAt || null;
+  const observedAt = observedAtRaw || null;
 
   return {
     last_price: price,
@@ -90,7 +90,6 @@ export function extractTickerMarketSnapshotFromKaiHome(
     .toUpperCase();
   if (!normalizedTicker) return null;
 
-  const generatedAt = typeof payload.generated_at === "string" ? payload.generated_at : null;
   let best: SnapshotCandidate | null = null;
 
   const watchlist = Array.isArray(payload.watchlist) ? payload.watchlist : [];
@@ -102,7 +101,6 @@ export function extractTickerMarketSnapshotFromKaiHome(
       price: row?.price,
       changePct: row?.change_pct,
       observedAt: row?.as_of,
-      payloadGeneratedAt: generatedAt,
     });
     if (candidate) best = pickLatestCandidate(best, candidate);
   }
@@ -116,7 +114,6 @@ export function extractTickerMarketSnapshotFromKaiHome(
       price: row?.price,
       changePct: row?.change_pct,
       observedAt: row?.as_of,
-      payloadGeneratedAt: generatedAt,
     });
     if (candidate) best = pickLatestCandidate(best, candidate);
   }
@@ -134,13 +131,13 @@ export function extractTickerMarketSnapshotFromKaiHome(
       price: row?.price,
       changePct: row?.change_pct,
       observedAt: row?.as_of,
-      payloadGeneratedAt: generatedAt,
     });
     if (candidate) best = pickLatestCandidate(best, candidate);
   }
 
   if (!best) return null;
   return {
+    ticker: normalizedTicker,
     last_price: best.last_price,
     change_pct: best.change_pct,
     observed_at: best.observed_at,
@@ -165,7 +162,7 @@ export function getLatestMarketSnapshotFromCache(
       best = candidate;
       continue;
     }
-    best = pickPreferredMarketSnapshot(best, candidate);
+    best = pickPreferredMarketSnapshot(best, candidate, ticker);
   }
   return best;
 }
@@ -190,10 +187,20 @@ export async function fetchLatestMarketSnapshot(
   return extractTickerMarketSnapshotFromKaiHome(payload, params.ticker);
 }
 
+export function marketSnapshotForTicker(
+  snapshot: TickerMarketSnapshot | null,
+  ticker: string,
+): TickerMarketSnapshot | null {
+  return snapshot?.ticker === ticker.trim().toUpperCase() ? snapshot : null;
+}
+
 export function pickPreferredMarketSnapshot(
   current: TickerMarketSnapshot | null,
-  candidate: TickerMarketSnapshot | null
+  candidate: TickerMarketSnapshot | null,
+  ticker: string,
 ): TickerMarketSnapshot | null {
+  current = marketSnapshotForTicker(current, ticker);
+  candidate = marketSnapshotForTicker(candidate, ticker);
   if (!candidate || candidate.last_price === null || candidate.last_price <= 0) {
     return current;
   }
