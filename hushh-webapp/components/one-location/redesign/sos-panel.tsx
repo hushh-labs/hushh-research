@@ -14,7 +14,7 @@ import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
-  AlertDialogContent,
+  AlertDialogContent as UnscopedAlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
@@ -34,6 +34,9 @@ import type {
   EmergencyNumberLookupStatus,
 } from "@/lib/one-location/emergency-numbers";
 import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-limits";
+import { withLocationTypography } from "./location-typography";
+
+const AlertDialogContent = withLocationTypography(UnscopedAlertDialogContent);
 
 const HOLD_DURATION_MS = 2_000;
 export type SmsQuickMessage = "Come get me" | "I'm not safe";

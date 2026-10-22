@@ -14,7 +14,7 @@ import { CheckIcon, ChevronDownIcon, Search } from "@/components/icons";
 
 import {
   Select,
-  SelectContent,
+  SelectContent as UnscopedSelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -44,6 +44,9 @@ import {
   DURATION_EQUAL_BUTTON_CLASSNAME,
   DURATION_EQUAL_BUTTONS_GROUP_CLASSNAME,
 } from "./location-cta-layout";
+import { withLocationTypography } from "./location-typography";
+
+const SelectContent = withLocationTypography(UnscopedSelectContent);
 
 export const LOCATION_SEARCH_INPUT_CLASSNAME =
   "ui-text-input-value h-11 w-full rounded-[14px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] pl-10 pr-4 text-[color:var(--app-label)] outline-none transition-shadow placeholder:text-[color:var(--app-tertiary-label)] focus:ring-2 focus:ring-inset focus:ring-[color:var(--app-accent-ring)] [&::-webkit-search-cancel-button]:appearance-none";

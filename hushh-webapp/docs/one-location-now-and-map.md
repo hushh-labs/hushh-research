@@ -8,6 +8,60 @@ the immersive Your Map route suppresses persistent app chrome.
 
 `/one/location` has one compact default hub: **Now**, **People**, and **Links**.
 
+## Header and typography contract
+
+The Location hub uses the same persistent `AppTopShell` as Connect:
+`[Back] Location [Profile]`. The current title is the last, non-interactive
+breadcrumb at 17px / 22px / 600. The shared controls, safe areas, responsive
+insets, route parent, validated origin and nested Back layers retain their
+existing owners. The hub's body heading remains an accessible `h1.sr-only`;
+there is no second visible Location title. The existing on/off switch and
+its described status remain together in a compact row above the local tabs,
+with their original handlers, track geometry, colors and accessible names.
+
+Location keeps its agent measure, gutters, cards, icons, CTA geometry and
+navigation. It does not import Connect's workspace geometry. Text inherits the
+self-hosted Plus Jakarta Sans family and the following Connect role scale:
+
+| Role | Size / line height / requested weight |
+| --- | --- |
+| Current shared header title | 17px / 22px / 600 |
+| Now, People, Links tabs | 15px / 20px / 550 |
+| Section and card headings | 14px / 22px / 600 |
+| Row titles | 14px / 21px / 550 |
+| Supporting descriptions | 12px / 18px / 400 |
+| Compact row actions | 12px / 18px / 550 |
+| Focused task heading | 17px / 22px / 600 |
+| Location-owned dialog/sheet heading | Shared major-section role: 20px / 25px / 600 |
+
+`LocationTypographyProvider` carries a presentation-only scope through React
+portals. `withLocationTypography` repeats the scope on Location-owned dialog,
+sheet, drawer, menu and selector content; shared Circle components retain their
+original typography when opened outside Location. Shared Connect-owned Circle
+photo, message-edit/delete and Add Circle popups retain Connect's existing
+Circle popup typography in both entry contexts. Explicit Location overrides
+win against nested Circle/Profile variables and global heading rules. These
+rules alter typography only; they do not change surfaces or layout tokens.
+Map labels, warning/instruction treatments, prominent CTA labels and shared Connect-owned
+popup titles retain their existing roles rather than receiving blanket text
+resets. The shared saved-place sheet/dialog is scoped only when opened from
+Location; its map, disclosure and form behavior remain unchanged.
+
+Implementation owners:
+[hub](../components/one-location/redesign/location-redesign-hub.tsx),
+[scope](../components/one-location/redesign/location-typography.tsx),
+[shared Back graph](../lib/navigation/back-navigation-graph.ts), and the
+Location block in [global CSS](../app/globals.css). Connect's comparison scale
+is authored in [its workspace CSS](../components/connect/connect-workspace.module.css).
+
+Verification uses production-compiled components, optimized global CSS and the
+bundled product fonts in WebKit, with matching CSS viewports and browser scale
+1. Phone and desktop checks cover the three tabs, Settings, Share, Circle
+creation, duration dialog and saved-place sheet/dialog in both themes. Provider,
+auth and location information are synthetic; these captures do not assert live
+permission, sharing or emergency delivery. Existing behavioral tests cover the
+preserved handler and Back contracts.
+
 ## Now
 
 Now is intentionally bounded on a normal phone viewport. It contains only:

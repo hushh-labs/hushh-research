@@ -704,10 +704,9 @@ describe("top shell breadcrumbs", () => {
     ];
 
     for (const { path, label } of surfaces) {
-      const expectedItems =
-        path === "/one/location"
-          ? [{ label: "One" }]
-          : [{ label: "One", href: "/one" }, { label }];
+      const expectedItems = path === "/one/location"
+        ? [{ label: "Location" }]
+        : [{ label: "One", href: "/one" }, { label }];
       // No origin → Agents dashboard.
       expect(resolveTopShellBreadcrumb(path)).toEqual({
         backHref: "/one",
@@ -716,16 +715,17 @@ describe("top shell breadcrumbs", () => {
         items: expectedItems,
       });
 
-      // Opened from the dashboard (?from=/one) → back to the dashboard, and the
-      // leading crumb reflects the real origin ("One").
-      const fromOne = new URLSearchParams();
-      fromOne.set("from", "/one");
-      expect(resolveTopShellBreadcrumb(path, fromOne)).toEqual({
-        backHref: "/one",
-        width: "profile",
-        align: "center",
-        items: expectedItems,
-      });
+      // Location keeps its compact title while safe origins still retrace.
+      // Other capability surfaces retain their existing origin handling.
+      for (const origin of path === "/one/location" ? ["/one", "/one/profile"] : ["/one"]) {
+        const fromOne = new URLSearchParams({ from: origin });
+        expect(resolveTopShellBreadcrumb(path, fromOne)).toEqual({
+          backHref: origin,
+          width: "profile",
+          align: "center",
+          items: expectedItems,
+        });
+      }
 
       // Unsafe / protocol-relative origins are rejected → Agents fallback.
       const unsafe = new URLSearchParams();

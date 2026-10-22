@@ -2398,13 +2398,11 @@ describe("OneLocationAgentPage", () => {
     ).toBeNull();
 
     const heading = screen.getByRole("heading", { name: "Location" });
-    const headerRow = heading.closest('[data-slot="page-header-row"]');
+    const headerRow = heading.closest('[data-testid="one-location-status-row"]');
     expect(headerRow).toBeTruthy();
-    expect(headerRow).toHaveClass("flex", "justify-between");
-    expect(screen.getByTestId("page-header").className).toContain(
-      "[&_[data-slot=page-header-row]]:!items-center",
-    );
-    expect(heading).toHaveClass("ui-text-agent-title");
+    expect(headerRow).toHaveClass("flex", "items-center", "justify-end");
+    expect(screen.queryByTestId("page-header")).toBeNull();
+    expect(heading).toHaveClass("sr-only");
     expect(screen.queryByTestId("one-location-header-icon")).toBeNull();
     expect(
       headerRow?.contains(

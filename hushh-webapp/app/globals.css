@@ -10257,3 +10257,123 @@ html:has([data-profile-type-scale]),
   white-space: normal;
   overflow-wrap: anywhere;
 }
+
+/* Location reuses Connect typography without adopting its layout.
+   LocationTypographyContext carries this presentation scope into portals. */
+@layer base {
+  [data-location-type-scale="connect"] {
+    --foundation-title1-size: 17px;
+    --foundation-title1-line: 22px;
+    --foundation-title1-weight: 600;
+    --foundation-title3-size: 14px;
+    --foundation-title3-line: 22px;
+    --foundation-title3-weight: 600;
+    --type-page-title-size: 17px;
+    --type-page-title-line: 22px;
+    --type-page-title-weight: 600;
+    --type-page-subtitle-size: 12px;
+    --type-page-subtitle-line: 18px;
+    --type-card-title-size: 14px;
+    --type-card-title-line: 22px;
+    --type-card-title-weight: 600;
+    --type-section-label-size: 14px;
+    --type-section-label-line: 22px;
+    --type-section-label-weight: 600;
+    --type-section-label-compact-size: 14px;
+    --type-section-label-compact-line: 22px;
+    --type-section-label-compact-weight: 600;
+    --type-row-label-size: 14px;
+    --type-row-label-line: 21px;
+    --type-row-label-weight: 550;
+    --type-row-label-compact-size: 14px;
+    --type-row-label-compact-line: 21px;
+    --type-row-label-compact-weight: 550;
+    --type-row-description-size: 12px;
+    --type-row-description-line: 18px;
+    --type-row-description-weight: 400;
+    --type-row-description-compact-size: 12px;
+    --type-row-description-compact-line: 18px;
+    --type-compact-button-label-size: 12px;
+    --type-compact-button-label-line: 18px;
+    --type-compact-button-label-weight: 550;
+    --profile-type-header-size: 17px;
+    --profile-type-header-line: 22px;
+    --profile-type-header-weight: 600;
+    --profile-type-label-size: 14px;
+    --profile-type-label-line: 21px;
+    --profile-type-label-weight: 550;
+    --profile-type-description-size: 12px;
+    --profile-type-description-line: 18px;
+    --profile-type-action-size: 12px;
+    --profile-type-action-line: 18px;
+    --profile-type-action-weight: 550;
+    --app-side-pane-section-size: 14px;
+    --app-side-pane-section-line: 22px;
+    --app-side-pane-section-weight: 600;
+    --type-section-title-weight: 600;
+    /* Resolve at the scope so legacy per-row overrides cannot enlarge actions. */
+    --location-compact-action-size: var(--type-compact-button-label-size);
+    --location-compact-action-line: var(--type-compact-button-label-line);
+    --location-compact-action-weight: var(--type-compact-button-label-weight);
+    font-family: var(--font-app-body), system-ui, sans-serif;
+  }
+}
+
+/* Nested shared Circle screens declare their own local Profile variables.
+   Override only those variables while they are owned by Location. */
+[data-location-type-scale="connect"][data-profile-type-scale="circles"],
+[data-location-type-scale="connect"] [data-profile-type-scale="circles"] {
+    --profile-type-header-size: 17px;
+    --profile-type-header-line: 22px;
+    --profile-type-header-weight: 600;
+    --profile-type-label-size: 14px;
+    --profile-type-label-line: 21px;
+    --profile-type-label-weight: 550;
+    --profile-type-description-size: 12px;
+    --profile-type-description-line: 18px;
+    --profile-type-action-size: 12px;
+    --profile-type-action-line: 18px;
+    --profile-type-action-weight: 550;
+    --app-side-pane-section-size: 14px;
+    --app-side-pane-section-line: 22px;
+    --app-side-pane-section-weight: 600;
+}
+@layer base {
+  [data-location-type-scale="connect"] :is([data-testid="one-location-header-status"], [data-location-share-description]) {
+    color: var(--app-secondary-label) !important;
+  }
+}
+
+@layer base {
+  [data-location-type-scale="connect"] :is(.ui-text-section-label, .ui-text-section-title, [data-slot="settings-group-heading"]) {
+    font-size: var(--type-section-label-size) !important;
+    line-height: var(--type-section-label-line) !important;
+    font-weight: var(--type-section-label-weight) !important;
+  }
+  [data-location-type-scale="connect"] :is(.ui-text-row-label, [data-slot="settings-row-title"], [data-location-row-title], [data-ui-id="location-live-share-title"]) {
+    font-size: var(--type-row-label-size) !important;
+    line-height: var(--type-row-label-line) !important;
+    font-weight: var(--type-row-label-weight) !important;
+  }
+}
+
+@layer base {
+  [data-location-type-scale="connect"] :is([data-slot="dialog-title"], [data-slot="alert-dialog-title"], [data-slot="sheet-title"], [data-slot="drawer-title"]) {
+    font-size: var(--type-major-section-title-size) !important;
+    line-height: var(--type-major-section-title-line) !important;
+    font-weight: var(--type-major-section-title-weight) !important;
+  }
+}
+
+@layer base {
+  [data-location-type-scale="connect"] [data-location-row-description] {
+    font-size: var(--type-row-description-size) !important;
+    line-height: var(--type-row-description-line) !important;
+    font-weight: var(--type-row-description-weight) !important;
+  }
+  [data-location-type-scale="connect"] .ui-text-compact-button-label {
+    font-size: var(--location-compact-action-size) !important;
+    line-height: var(--location-compact-action-line) !important;
+    font-weight: var(--location-compact-action-weight) !important;
+  }
+}

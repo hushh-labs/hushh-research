@@ -84,16 +84,14 @@ import { Button } from "@/components/ui/button";
 import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
 import {
   Dialog,
-  DialogContent,
+  DialogContent as UnscopedDialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { LocationPermissionRecoveryCard } from "@/components/one-location/location-permission-recovery-card";
-import { PageHeader } from "@/components/app-ui/page-sections";
 import {
-  ButtonLabel,
   FormLabel,
   MediumRowLabel,
   RowDescription,
@@ -360,6 +358,9 @@ import {
   TOP_SHELL_TAB_REGISTRY,
 } from "@/lib/navigation/top-shell-tabs";
 import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
+import { LocationTypographyProvider, withLocationTypography } from "./location-typography";
+
+const DialogContent = withLocationTypography(UnscopedDialogContent);
 
 const LOCATION_TAB_DEFINITION = TOP_SHELL_TAB_REGISTRY.location;
 type LocationHubTab = (typeof LOCATION_TAB_DEFINITION.tabs)[number]["value"];
@@ -1618,6 +1619,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         className="space-y-6 pb-6"
         data-ambient-chrome-ignore
         data-testid="one-location-action-flow"
+        data-location-type-scale="connect"
       >
         {flow === "share" ? (
           <ShareFlow
@@ -1807,16 +1809,13 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   return renderLocationSurface(
     <div
       data-location-hub
+      data-location-type-scale="connect"
       className="mx-auto w-full max-w-[820px] space-y-[var(--page-header-section-gap)]"
     >
-      <PageHeader
-        title="Location"
-        accent="location"
-        titleRole="agent"
-        actionsInlineMobile
-        actions={<LocationHeaderActions vm={vm} />}
-        className="[&>div:first-child]:!gap-2.5 [&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center"
-      />
+      <div className="flex min-w-0 items-center justify-end" data-testid="one-location-status-row">
+        <h1 className="sr-only">Location</h1>
+        <LocationHeaderActions vm={vm} />
+      </div>
 
       {tab === "now" && vm.savedPlacesBanner?.visible ? (
         <SavedPlacesBanner {...vm.savedPlacesBanner} />
@@ -1918,6 +1917,7 @@ function LocationFeatureRoot({
 }) {
   return (
     <>
+      <LocationTypographyProvider>
       <SettingsPresentationProvider density="compact">
         <FeedPushPrompt context="location" />
         {children}
@@ -1926,6 +1926,7 @@ function LocationFeatureRoot({
           triggerRef={liveShareDurationTriggerRef}
         />
       </SettingsPresentationProvider>
+      </LocationTypographyProvider>
     </>
   );
 }
@@ -2254,7 +2255,7 @@ function LocationMenuListRow({
         {leading}
         <RowLabel
           as="span"
-          className="min-w-0 !text-[17px] !font-medium !leading-[22px]"
+          className="min-w-0"
         >
           {title}
         </RowLabel>
@@ -2321,12 +2322,9 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
               {item.icon}
             </span>
             <span className="min-w-0">
-              <ButtonLabel
-                as="span"
-                className="block min-w-0 !text-[15px] !font-semibold !leading-5"
-              >
+              <RowLabel as="span" className="block min-w-0">
                 {item.title}
-              </ButtonLabel>
+              </RowLabel>
             </span>
           </button>
         ))}
@@ -2356,7 +2354,7 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
             <span className="min-w-0">
               <RowLabel
                 as="span"
-                className="block min-w-0 !text-[16px] !font-semibold !leading-5"
+                className="block min-w-0"
               >
                 {emergencyItem.title}
               </RowLabel>
@@ -3532,12 +3530,14 @@ export function PersonRow({
         <div className="min-w-0 flex-1 space-y-0.5">
           <p
             title={name}
+            data-location-row-title=""
             className="min-w-0 truncate text-[17px] font-medium leading-[22px] tracking-[-0.3px] text-foreground"
           >
             {name}
           </p>
           {subtitle ? (
             <p
+              data-location-row-description=""
               className={cn(
                 "text-[13px] font-normal leading-[18px] tracking-[-0.2px] text-[color:var(--app-secondary-label)]",
                 hasQuickActions ? "truncate" : "break-words",
@@ -3762,10 +3762,10 @@ export function CircleSummaryGroup({
         )}
       >
         <span className="min-w-0">
-          <span className="block text-[17px] font-semibold leading-[22px] tracking-[-0.3px] text-foreground">
+          <span data-location-row-title="" className="block text-[17px] font-semibold leading-[22px] tracking-[-0.3px] text-foreground">
             Circles
           </span>
-          <span className="mt-0.5 block text-[13px] font-normal leading-[18px] tracking-[-0.2px] text-[color:var(--app-secondary-label)]">
+          <span data-location-row-description="" className="mt-0.5 block text-[13px] font-normal leading-[18px] tracking-[-0.2px] text-[color:var(--app-secondary-label)]">
             {summary}
           </span>
         </span>
@@ -3787,7 +3787,7 @@ export function CircleSummaryGroup({
           )}
           data-testid="one-location-circle-invitations-summary"
         >
-          <span className="text-[15px] font-medium leading-5 text-foreground">
+          <span data-location-row-title="" className="text-[15px] font-medium leading-5 text-foreground">
             {invitationTitle}
           </span>
           <span className="text-[15px] font-semibold leading-5 text-[color:var(--app-accent)]">
@@ -3927,10 +3927,10 @@ function CircleInvitationsDialog({
                     )}
                   </span>
                   <div className="min-w-0">
-                    <p className="break-words text-[17px] font-medium leading-[22px] tracking-[-0.3px] text-foreground">
+                    <p data-location-row-title="" className="break-words text-[17px] font-medium leading-[22px] tracking-[-0.3px] text-foreground">
                       {circleName}
                     </p>
-                    <p className="mt-0.5 break-words text-[13px] leading-[18px] tracking-[-0.2px] text-[color:var(--app-secondary-label)]">
+                    <p data-location-row-description="" className="mt-0.5 break-words text-[13px] leading-[18px] tracking-[-0.2px] text-[color:var(--app-secondary-label)]">
                       Invited by {inviter}
                     </p>
                   </div>

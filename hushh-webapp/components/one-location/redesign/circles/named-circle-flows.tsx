@@ -37,7 +37,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { AdaptiveSheetContent, TaskSurfaceBody, TaskSurfaceToolbar, TaskSurfaceFooter, TaskAlertDialogContent, useTaskSurfacePresentation, taskSurfaceStyles } from "@/lib/morphy-ux/ui/task-surfaces";
+import { AdaptiveSheetContent as UnscopedAdaptiveSheetContent, TaskSurfaceBody, TaskSurfaceToolbar, TaskSurfaceFooter, TaskAlertDialogContent as UnscopedTaskAlertDialogContent, useTaskSurfacePresentation, taskSurfaceStyles } from "@/lib/morphy-ux/ui/task-surfaces";
 import { SheetCount, SheetSearch } from "@/components/app-ui/sheet-parts";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { SmsTextIcon } from "@/components/one-location/redesign/sms-text-icon";
@@ -127,6 +127,10 @@ import {
   CIRCLE_INVITE_BATCH_LIMIT,
   circleInviteSelectionLimit,
 } from "@/lib/one-location/circle-invite-contract";
+import { withLocationTypography } from "../location-typography";
+
+const TaskAlertDialogContent = withLocationTypography(UnscopedTaskAlertDialogContent);
+const AdaptiveSheetContent = withLocationTypography(UnscopedAdaptiveSheetContent);
 
 const CIRCLES_GROUP_SURFACE =
   "[--settings-group-radius:17px] !rounded-[17px] !bg-[color:var(--app-primary-surface)] !shadow-none";

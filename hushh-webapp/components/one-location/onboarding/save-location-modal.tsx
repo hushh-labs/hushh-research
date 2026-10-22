@@ -23,8 +23,8 @@ import {
   X,
 } from "@/components/icons";
 
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { Sheet, SheetContent, useSheetDragHandle } from "@/components/ui/sheet";
+import { Dialog, DialogContent as UnscopedDialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Sheet, SheetContent as UnscopedSheetContent, useSheetDragHandle } from "@/components/ui/sheet";
 import {
   LocationPickerMap,
   type LocationPickerMapHandle,
@@ -68,6 +68,10 @@ import {
   stripPlusCodeSegment,
   type SavedLocationAddressDetails,
 } from "@/lib/one-location/saved-location-address";
+import { withLocationTypography } from "../redesign/location-typography";
+
+const DialogContent = withLocationTypography(UnscopedDialogContent);
+const SheetContent = withLocationTypography(UnscopedSheetContent);
 
 /**
  * Grows the tappable region to 44x44 while the visible control keeps its size,

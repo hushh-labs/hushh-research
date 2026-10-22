@@ -7,7 +7,7 @@ import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
-  AlertDialogContent,
+  AlertDialogContent as UnscopedAlertDialogContent,
   AlertDialogDescription,
   AlertDialogHeader,
   AlertDialogTitle,
@@ -37,6 +37,9 @@ import {
   sortByContactMode,
   type ContactSortMode,
 } from "@/lib/one-location/contact-picker-controls";
+import { withLocationTypography } from "./location-typography";
+
+const AlertDialogContent = withLocationTypography(UnscopedAlertDialogContent);
 
 type SmsContactsTab = "circles" | "all-contacts";
 

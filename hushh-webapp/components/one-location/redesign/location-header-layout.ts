@@ -14,7 +14,7 @@ export const LOCATION_HEADER_ACTIONS_CLASSNAME =
   "ml-auto flex min-h-0 w-[92px] shrink-0 flex-col items-center justify-center overflow-visible";
 
 export const LOCATION_HEADER_STATUS_CLASSNAME =
-  "mt-0.5 block w-full whitespace-normal text-center font-[family-name:var(--font-app-body)] text-[11px] font-medium leading-[14px] tracking-[-0.01em] text-[color:var(--app-secondary-label)]";
+  "mt-0.5 block w-full whitespace-normal text-center font-[family-name:var(--font-app-body)] ui-text-row-description tracking-[-0.01em] text-[color:var(--app-secondary-label)]";
 
 export const LOCATION_HEADER_TOGGLE_LABEL_CLASSNAME =
   "flex min-h-11 w-full cursor-pointer flex-col items-center justify-center";

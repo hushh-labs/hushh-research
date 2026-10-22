@@ -31,7 +31,7 @@ import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
-  AlertDialogContent,
+  AlertDialogContent as UnscopedAlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
@@ -56,6 +56,9 @@ import type { OneLocationPlaceRating } from "@/lib/one-location/types";
 import { isNative } from "@/lib/capacitor/platform";
 import { cn } from "@/lib/utils";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
+import { withLocationTypography } from "./location-typography";
+
+const AlertDialogContent = withLocationTypography(UnscopedAlertDialogContent);
 
 /** One row: the server's rating, with the vault's note folded in where there
  *  is one to fold. */

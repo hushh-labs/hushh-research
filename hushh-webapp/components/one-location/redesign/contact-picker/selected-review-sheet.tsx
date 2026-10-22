@@ -11,7 +11,7 @@ import { ContactListControls } from "@/components/one-location/redesign/contact-
 import { VirtualContactList } from "@/components/one-location/redesign/contact-picker/virtual-list";
 import {
   Drawer,
-  DrawerContent,
+  DrawerContent as UnscopedDrawerContent,
   DrawerDescription,
   DrawerHeader,
   DrawerTitle,
@@ -24,6 +24,9 @@ import {
 } from "@/lib/one-location/contact-picker-controls";
 import type { OneLocationRecipient } from "@/lib/one-location/types";
 import { cn } from "@/lib/utils";
+import { withLocationTypography } from "../location-typography";
+
+const DrawerContent = withLocationTypography(UnscopedDrawerContent);
 
 /**
  * The selection summary, and the sheet it opens.
