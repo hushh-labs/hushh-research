@@ -581,7 +581,7 @@ describe("AuthProvider terminal session invalidation", () => {
   it("honors a real phone binding removal without resurrecting the old provider phone after cache expiry", async () => {
     mocks.firebaseUser = makeUser("account-owner", "+12025550101");
     render(<AuthProvider><SessionProbe /><VerifiedPhoneProbe /></AuthProvider>);
-    await screen.findByText("Vault content for account-owner");
+    await waitFor(() => expect(mocks.identityRefresh).toHaveBeenCalledTimes(1));
     expect(screen.getByTestId("verified-phone")).toHaveTextContent("+12025550101");
     const identity = { user_id: "account-owner", phone_number: null, phone_verified: false, source: "firebase_phone_claim" };
     mocks.identityPeek.mockReturnValue({ data: identity, isStale: false });
