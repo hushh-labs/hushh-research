@@ -219,6 +219,14 @@
 
   :is(:global(.profile-pane-scroll-root)
     .paneAccountContent, .walletContent)
+    :global(.profile-account-delete-row) {
+    /* Nesting lowering can give the neutral SVG rule higher specificity.
+       Keep its inherited icon token destructive for this row as well. */
+    --account-icon: var(--account-danger);
+  }
+
+  :is(:global(.profile-pane-scroll-root)
+    .paneAccountContent, .walletContent)
     :global(.profile-account-delete-row [data-slot="settings-row-title"]),
   :is(:global(.profile-pane-scroll-root)
     .paneAccountContent, .walletContent)

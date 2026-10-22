@@ -805,6 +805,9 @@ describe("Connect — People", () => {
   it("starts with discovery and keeps saved connections adjacent", async () => {
     render(<ConnectPageClient />);
     await screen.findByText("Person 0");
+    const viewTabs = within(screen.getByRole("tablist", { name: "Connection views" })).getAllByRole("tab");
+    expect(viewTabs[0]).toHaveTextContent("My connections");
+    expect(viewTabs[1]).toHaveTextContent("Find people");
     expect(screen.getByRole("tab", { name: "Find people" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: /My connections/ })).toHaveAttribute("aria-selected", "false");
     expect(screen.getByLabelText("Search people")).toBeVisible();

@@ -6,8 +6,8 @@
  * requirement...", "Checking setup...", "Opening chat...", "Loading chat..."),
  * each painted by a different guard, in a different box (`h-screen` here,
  * `min-h-[60vh]` there), so the text jumped between screens as the guards
- * handed over. This module is the pure half of the replacement: the stages,
- * the line each one shows, and the timing machine that decides whether the
+ * handed over. This module is the pure half of the replacement: the stages
+ * and the timing machine that decides whether the
  * single persistent surface is shown at all. It has no DOM, React or timer
  * dependency, so the thresholds are proven by unit tests, not by eye.
  *
@@ -18,8 +18,8 @@
 /**
  * Every stage a guard can hold the app in, in dependency order. When more
  * than one guard holds at once, the earliest stage is the one actually being
- * waited on (a vault cannot be checked before the session is known), so it is
- * the line shown.
+ * waited on (a vault cannot be checked before the session is known). Stage
+ * details stay internal while the surface keeps one steady title.
  */
 export const BOOT_STAGES = [
   "session",
@@ -33,28 +33,8 @@ export const BOOT_STAGES = [
 
 export type BootStage = (typeof BOOT_STAGES)[number];
 
-export type BootLine = Readonly<{ emoji: string; text: string }>;
-
-/**
- * One short, friendly line per real stage. The line names the step the app is
- * actually waiting on; it never advances on a timer, so it can never claim
- * progress that has not happened.
- */
-export const BOOT_STAGE_LINES: Readonly<Record<BootStage, BootLine>> = {
-  session: { emoji: "🔑", text: "Checking it's you" },
-  redirect: { emoji: "👋", text: "Taking you to sign in" },
-  reconnect: { emoji: "🔄", text: "Reconnecting securely" },
-  vault: { emoji: "🔐", text: "Opening your vault" },
-  phone: { emoji: "📱", text: "Checking your number" },
-  setup: { emoji: "🧭", text: "Checking your setup" },
-  workspace: { emoji: "🤝", text: "Getting One ready" },
-};
-
+/** One stable message throughout the guard chain. */
 export const BOOT_TITLE = "One is getting ready";
-export const BOOT_OFFLINE_LINE: BootLine = {
-  emoji: "📡",
-  text: "Waiting for a connection",
-};
 export const BOOT_STUCK_TEXT = "This is taking longer than usual.";
 export const BOOT_RETRY_LABEL = "Try again";
 
@@ -109,7 +89,7 @@ export type BootLaunch = "native" | "web";
 
 export type BootState = Readonly<{
   phase: BootPhase;
-  /** The stage on screen; kept through `exiting` so the line does not blank. */
+  /** The active guard stage, retained through exit for diagnostics. */
   stage: BootStage | null;
   /** True while the surface is still the cold document's (splash-matched) surface. */
   launch: boolean;
@@ -327,13 +307,4 @@ export function nextBootDeadline(
     case "exiting":
       return state.since + state.exitDuration;
   }
-}
-
-/** The line on screen for a state; offline outranks the stage, because it is what is actually blocking. */
-export function bootLineFor(
-  stage: BootStage | null,
-  offline: boolean,
-): BootLine | null {
-  if (offline) return BOOT_OFFLINE_LINE;
-  return stage ? BOOT_STAGE_LINES[stage] : null;
 }

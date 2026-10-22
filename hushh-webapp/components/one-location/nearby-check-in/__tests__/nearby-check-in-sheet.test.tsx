@@ -26,6 +26,7 @@ const service = vi.hoisted(() => ({
   openAppSettings: vi.fn(),
   openLocationSettings: vi.fn(),
   placeDetails: vi.fn(),
+  reverseGeocode: vi.fn(),
   placesAutocomplete: vi.fn(),
   placesSearchErrorMessage: vi.fn(() => "Place search failed."),
   requestNearbyConnection: vi.fn(),
@@ -494,8 +495,11 @@ describe("NearbyCheckInSheet", () => {
     // primary action with no visible reason. It stays in the open.
     await screen.findByRole("checkbox", { name: /Show my name here/ });
     expect(
-      screen.getByText("Only people checked in at this place can see it."),
+      screen.getByText("Only people checked in nearby can see it."),
     ).toBeInTheDocument();
+    expect(screen.getByText("Let people checked in nearby know you're here.")).toHaveClass("sr-only");
+    expect(screen.getByRole("heading", { name: "Nearby places" })).toHaveClass("sr-only");
+    expect(screen.getByRole("heading", { name: "Visibility" })).toHaveClass("sr-only");
     expect(
       screen.queryByText("People see your name only."),
     ).not.toBeInTheDocument();
@@ -2508,8 +2512,9 @@ describe("NearbyCheckInSheet", () => {
     const renderAndCheckOut = async (
       vaultKey: string | null = "vault-key",
       onOpenChange = vi.fn(),
+      presence = anchoredPresence,
     ) => {
-      service.getNearbyPresence.mockResolvedValue(anchoredPresence);
+      service.getNearbyPresence.mockResolvedValue(presence);
       service.checkoutNearby.mockResolvedValue({
         presence: null,
         attendees: [],
@@ -2616,6 +2621,69 @@ describe("NearbyCheckInSheet", () => {
       expect(
         await screen.findByText("Saved for next time."),
       ).toBeInTheDocument();
+    });
+
+    it("saves the shop name, address and check-in date separately", async () => {
+      savedPlaces.loadSavedLocations.mockResolvedValue([]);
+      savedPlaces.addSavedLocation.mockResolvedValue([]);
+      await renderAndCheckOut("vault-key", vi.fn(), {
+        ...anchoredPresence,
+        presence: { ...anchoredPresence.presence, placeLabel: "Dezzerto, Shop 9, Tower 1, Pune" },
+      });
+      fireEvent.click(await screen.findByRole("button", { name: "Save for faster check-ins" }));
+      await waitFor(() => expect(savedPlaces.addSavedLocation).toHaveBeenCalledWith(expect.objectContaining({ input: expect.objectContaining({
+        label: "Dezzerto",
+        placeName: "Dezzerto",
+        address: "Shop 9, Tower 1, Pune",
+        checkedInAt: anchoredPresence.presence.checkedInAt,
+      }) })));
+    });
+
+    it("invalidates a pending save on a vault-key change and allows saving in the new session", async () => {
+      let resolveAddress!: (value: { formattedAddress: string }) => void;
+      service.reverseGeocode.mockResolvedValue({ formattedAddress: "Campus Drive" }).mockImplementationOnce(() => new Promise((resolve) => { resolveAddress = resolve; }));
+      service.getNearbyPresence.mockResolvedValue(anchoredPresence);
+      savedPlaces.loadSavedLocations.mockResolvedValue([]);
+      savedPlaces.addSavedLocation.mockResolvedValue([]);
+      const capture = vi.fn().mockResolvedValue(point);
+      const onOpenChange = vi.fn();
+      const sheet = (vaultKey: string | null, open = true) => <NearbyCheckInSheet open={open} ownerId="user-1" vaultOwnerToken="owner-token" vaultKey={vaultKey} captureCurrentPosition={capture} onOpenChange={onOpenChange} />;
+      const view = render(sheet("old-key"));
+      await screen.findByTestId("nearby-presence-active");
+      fireEvent.click(screen.getByRole("button", { name: "I'm leaving" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Save for faster check-ins" }));
+      await waitFor(() => expect(service.reverseGeocode).toHaveBeenCalled());
+      view.rerender(sheet(null));
+      view.rerender(sheet("new-key"));
+      expect(screen.getByTestId("nearby-presence-completed")).toBeInTheDocument();
+      await act(async () => resolveAddress({ formattedAddress: "Old-session address" }));
+      expect(savedPlaces.addSavedLocation).not.toHaveBeenCalled();
+      view.rerender(sheet("new-key", false));
+      view.rerender(sheet("new-key"));
+      await screen.findByTestId("nearby-presence-active");
+      fireEvent.click(screen.getByRole("button", { name: "I'm leaving" }));
+      const save = await screen.findByRole("button", { name: "Save for faster check-ins" });
+      expect(save).not.toBeDisabled();
+      fireEvent.click(save);
+      await waitFor(() => expect(savedPlaces.addSavedLocation).toHaveBeenCalledWith(expect.objectContaining({ context: expect.objectContaining({ vaultKey: "new-key" }) })));
+    });
+
+    it("does not read saved places with an old key when the vault locks during checkout", async () => {
+      let finishCheckout!: (value: { presence: null; attendees: []; checkedOut: true }) => void;
+      service.getNearbyPresence.mockResolvedValue(anchoredPresence);
+      service.checkoutNearby.mockImplementationOnce(() => new Promise((resolve) => { finishCheckout = resolve; }));
+      const capture = vi.fn().mockResolvedValue(point);
+      const onOpenChange = vi.fn();
+      const sheet = (vaultKey: string | null) => <NearbyCheckInSheet open ownerId="user-1" vaultOwnerToken="owner-token" vaultKey={vaultKey} captureCurrentPosition={capture} onOpenChange={onOpenChange} />;
+      const view = render(sheet("old-key"));
+      await screen.findByTestId("nearby-presence-active");
+      fireEvent.click(screen.getByRole("button", { name: "I'm leaving" }));
+      await waitFor(() => expect(service.checkoutNearby).toHaveBeenCalled());
+      view.rerender(sheet(null));
+      await act(async () => finishCheckout({ presence: null, attendees: [], checkedOut: true }));
+      await screen.findByTestId("nearby-presence-completed");
+      expect(savedPlaces.loadSavedLocations).not.toHaveBeenCalled();
+      expect(screen.queryByRole("button", { name: "Save for faster check-ins" })).toBeNull();
     });
 
     it("finishes without saving", async () => {

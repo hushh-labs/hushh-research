@@ -305,14 +305,8 @@ const STALE_TINT = { r: 142, g: 142, b: 147, a: 255 } as const;
 const SELF_TINT = { r: 0, g: 122, b: 255, a: 255 } as const;
 /** Green (--app-success). A live check-in is a settled positive fact. */
 const PLACE_ACTIVE_TINT = { r: 52, g: 199, b: 89, a: 255 } as const;
-/**
- * Orange (--app-warning). The venue is chosen but the check-in has not
- * happened yet — "Checking in at", not "Checked in at". Deliberately not the
- * neutral grey, which on this same map already means "gone quiet", and not
- * the accent, which would make the place pin indistinguishable from the
- * "you" pin the legend exists to tell it apart from.
- */
-const PLACE_PENDING_TINT = { r: 255, g: 149, b: 0, a: 255 } as const;
+/** Apple blue for a chosen venue; shape and label distinguish it from you. */
+const PLACE_PENDING_TINT = SELF_TINT;
 
 /** The CSS form of a pin tint, so a legend swatch cannot drift from its pin. */
 function tintCss(tint: { r: number; g: number; b: number }): string {
@@ -756,6 +750,9 @@ export function LocationImmersiveMap({
     : null;
   const mapElement = useRef<HTMLElement | null>(null);
   const mapRef = useRef<GoogleMap | null>(null);
+  // SDK minZoom is fixed for this renderer instance; compatibility fits use it too.
+  const mapMinimumZoomRef = useRef(0);
+  const placeholderCameraRetiredRef = useRef(false);
   const [webAvatarOverlay, setWebAvatarOverlay] =
     useState<WebSelfAvatarOverlay | null>(null);
   const webAvatarOverlayRef = useRef<WebSelfAvatarOverlay | null>(null);
@@ -1770,6 +1767,8 @@ export function LocationImmersiveMap({
         config: {
           center: initialCenter,
           zoom: initialZoom,
+          // Keep the renderer from shrinking the world below its viewport.
+          minZoom: worldView.zoom,
           disableDefaultUI: true,
           // `styles` is deliberately NOT passed.
           //
@@ -1793,6 +1792,8 @@ export function LocationImmersiveMap({
         return;
       }
       mapRef.current = map;
+      mapMinimumZoomRef.current = worldView.zoom;
+      placeholderCameraRetiredRef.current = false;
       if (!isNative()) {
         try {
           const overlay = await createWebSelfAvatarOverlay(
@@ -1955,6 +1956,9 @@ export function LocationImmersiveMap({
           await map.setOnCameraMoveStartedListener((event) => {
             if (!currentInstance()) return;
             if (event.isGesture && rendererReadyRef.current) {
+              // Native reports genuine gestures; Web also labels programmatic
+              // center_changed as gestures, so placeholder ownership uses DOM input.
+              if (isNative()) placeholderCameraRetiredRef.current = true;
               cameraGestureSinceSettle = true;
               cameraReportsAuthorizedRef.current = true;
               cameraCommandGenerationRef.current += 1;
@@ -2592,6 +2596,27 @@ export function LocationImmersiveMap({
     // edge of the map is spoken for, so all three have to re-run the measure.
   }, [isCheckInSurface, mapReady, nearbyCheckInOpen, rendererReady]);
 
+  useEffect(() => {
+    const element = mapElement.current;
+    if (!element || !mapReady || isNative()) return;
+    const retirePlaceholder = () => {
+      if (rendererReadyRef.current) placeholderCameraRetiredRef.current = true;
+    };
+    const onMapKeyDown = (event: KeyboardEvent) => {
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End", "+", "-", "="].includes(event.key)) {
+        retirePlaceholder();
+      }
+    };
+    element.addEventListener("pointerdown", retirePlaceholder, { passive: true });
+    element.addEventListener("wheel", retirePlaceholder, { passive: true });
+    element.addEventListener("keydown", onMapKeyDown, true);
+    return () => {
+      element.removeEventListener("pointerdown", retirePlaceholder);
+      element.removeEventListener("wheel", retirePlaceholder);
+      element.removeEventListener("keydown", onMapKeyDown, true);
+    };
+  }, [mapReady]);
+
   /**
    * Keep the neutral world view filling the box after the box changes size.
    *
@@ -2599,15 +2624,18 @@ export function LocationImmersiveMap({
    * rotation or a window resize changes the arithmetic, and a taller box at the
    * same zoom is exactly how the blank strip above the map comes back.
    *
-   * Deliberately narrow: it runs only while `rendererReady` is false — the
-   * consent screen, whose camera is a placeholder for a location the app has
-   * not been given and has not asked for. Once there is a real position to
-   * show, the camera belongs to the person and to `focusSelfPoint`, and nothing
-   * here may move it.
+   * Only the placeholder camera is ours to adjust. It can remain visible after
+   * consent while the first location is still pending. A real focus, people
+   * frame, or gesture retires it; resizing may never take that camera back.
    */
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapReady || rendererReady) return;
+    if (!map || !mapReady) return;
+    // Real coordinates and actual user input permanently retire this placeholder.
+    if (rendererReady && (mapSelfMarker || visibleMarkers.length || nearbySearchPoint || displayedPlaceFocus)) {
+      placeholderCameraRetiredRef.current = true;
+    }
+    if (rendererReady && placeholderCameraRetiredRef.current) return;
     if (!(mapBox.width > 0) || !(mapBox.height > 0)) return;
     const worldView = neutralWorldCamera({
       width: mapBox.width,
@@ -2621,7 +2649,7 @@ export function LocationImmersiveMap({
         animate: false,
       })
       .catch(() => undefined);
-  }, [mapBox.height, mapBox.width, mapReady, rendererReady]);
+  }, [mapBox.height, mapBox.width, mapReady, rendererReady, mapSelfMarker, visibleMarkers.length, nearbySearchPoint, displayedPlaceFocus]);
 
   // The tray body's rendered box is height-clamped by its scroll container,
   // so its own size never reflects how tall its content actually is. Track
@@ -2830,7 +2858,7 @@ export function LocationImmersiveMap({
         settledCameraRevisionRef.current === nearbyFrameCommand.cameraRevision
       ) {
         cameraReportsAuthorizedRef.current = true;
-        setSettledCameraZoom(fittedZoom);
+        setSettledCameraZoom(Math.max(mapMinimumZoomRef.current, fittedZoom));
       }
     }).catch(() => {
       // Place discovery remains usable from the drawer if an older renderer
@@ -3190,7 +3218,7 @@ export function LocationImmersiveMap({
                 initialFrameCommand.cameraRevision
             ) {
               cameraReportsAuthorizedRef.current = true;
-              setSettledCameraZoom(targetZoom);
+              setSettledCameraZoom(Math.max(mapMinimumZoomRef.current, targetZoom));
             }
           },
           fittingBox,
@@ -3814,7 +3842,7 @@ export function LocationImmersiveMap({
               settledCameraRevisionRef.current === cameraRevision
             ) {
               cameraReportsAuthorizedRef.current = true;
-              setSettledCameraZoom(targetZoom);
+              setSettledCameraZoom(Math.max(mapMinimumZoomRef.current, targetZoom));
             }
           },
           fittingBox,

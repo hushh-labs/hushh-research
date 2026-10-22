@@ -75,7 +75,8 @@ are not invented as additional Connect pages.
 | Shared circle invitation | `/circle/join?code=<code>` | Guest or authenticated preview, then protected Connect handoff. |
 | Old Connect settings link | `/one/connect/settings` | Redirects to canonical Gemini preferences in Profile. |
 
-Find people is the default local view, with My connections adjacent. Each keeps
+My connections is the first local tab and Find people is the second. Find people
+remains the default selected view. The accepted count uses a vertically centered, compact rounded badge: neutral grey when inactive and an accent tint when active. The local tab row has no grey baseline and keeps its blue active indicator. Each keeps
 its own search. Accepted-roster search uses the existing paged service, with the existing People/all or verified-RIA audience, and never overwrites the cached browse page.
 People, RIAs, and Around you are local directory modes inside Find people;
 they are not three additional top-level tabs. Search uses `q` plus the
@@ -92,9 +93,12 @@ This document is not a second executable route or action catalog. Voice navigati
 
 ### Find people and My connections
 
+Circle detail uses the same transparent, person-plus Add people action as Location SMS Circle.
+The action opens the existing picker; its final confirmation retains its primary-button treatment.
+
 | Control or state | Result and product boundary |
 | --- | --- |
-| **Find people / My connections N** | Adjacent local views; discovery opens first. My connections shows accepted relationships, grouped From contacts / Other connections, with its own paged search. Selecting RIAs retains the existing verified-adviser scope, My RIAs count and fail-closed empty state. Switching views does not change relationships or write history. |
+| **My connections N / Find people** | Tabs appear in that order; discovery remains selected by default. My connections shows accepted relationships, grouped From contacts / Other connections, with its own paged search. Selecting RIAs retains the existing verified-adviser scope, My RIAs count and fail-closed empty state. Switching views does not change relationships or write history. |
 | **Refresh** in My connections (accessible label Refresh contacts) | Refreshes the accepted-connections list. This is distinct from address-book **Sync contacts**. Busy disables duplicate refresh. |
 | Accepted person's identity row | Opens the shared person profile when a public reference exists. |
 | Message icon on an accepted connection | Enters private messages through the shared navigation owner. |
@@ -309,7 +313,11 @@ no longer match a starter.
 
 [ConnectCirclesTab](../../components/connect/circles/connect-circles-tab.tsx)
 loads the current account's saved summaries. Owned system circles appear
-before owned named circles; Trusted precedes SMS. **Joined circles** contains
+before owned named circles; Trusted precedes SMS. All owned circles stay under
+**Your circles**, followed by their populated Family, Friends, and custom type
+subheadings. Circles without a saved type label remain under Your circles
+without a generic Other heading. **Joined circles** follows every owned type and precedes
+**Circle ideas**. It contains
 eligible circles created by others and is absent when empty. Foreign SMS
 system circles are filtered out of these lists. Three visible joined circles
 is a sample account state, not a required fixture or product limit.
@@ -317,10 +325,10 @@ is a sample account state, not a required fixture or product limit.
 | List control/state | Result |
 | --- | --- |
 | **Create circle** | Opens the full-page creation route state. |
-| **Join with code** | Opens code entry. |
+| **Join with code** | Opens code entry. Transparent text action with 6px between the key and label. |
 | **Circle name** search | Filters the already-authorized owned and joined summaries. |
 | Circle name/chevron | Opens that saved circle. Rows show the actual count and product description without avatar clusters. |
-| **Options → Delete / Leave circle**, or left swipe | Swipe reveals only. The same shared confirmation precedes the existing mutation, with a fresh server-capability read. System/Trusted circles never expose Delete. Missing authority fails closed. |
+| Left swipe → **Delete / Leave circle** | Swipe reveals only. The same shared confirmation precedes the existing mutation, with a fresh server-capability read. System/Trusted circles never expose Delete. Missing authority fails closed. |
 | **Circles are unavailable** | Tappable retry row; **Loading circles…** is a disabled status row. |
 | No vault | **Finish setting up One**, rather than an unusable unlock action. |
 
@@ -333,6 +341,10 @@ summary. Mutation events and visible-pane repair reads refresh the list.
 
 ### Create a circle
 
+The details form reuses Connect's scoped typography in both its page and modal:
+form labels 15px/550/22px, inputs 14px/400/22px, and supporting or validation text
+12px/400/18px. Field geometry and validation behavior stay unchanged.
+
 The dialog and full-page flow reuse
 [CreateCircleFlow](../../components/one-location/redesign/circles/named-circle-flows.tsx)
 and [its people step](../../components/one-location/redesign/circles/create-circle-people-step.tsx).
@@ -341,7 +353,8 @@ and [its people step](../../components/one-location/redesign/circles/create-circ
 | --- | --- |
 | Details: **Circle name** | Required trimmed name, 1–80 characters. |
 | **Circle type** | Family, Friends and up to three reusable custom types; Other accepts an optional type name of 1–32 normalized characters. Default Family. These are independent from Circle names and the six starter ideas. Custom choices are shown only when the backend advertises `customTypePolicy.version=1,maxTypes=3`. |
-| Custom type groups | Owned ordinary Circles with the same normalized type label appear under that label above Circle ideas. Joined and system Circles do not populate the owner's reusable choices. Deleting a type requires confirmation and moves its Circles to Other without removing members or Circles. A type disappears once no active owned Circle uses it. |
+| Circle hierarchy | Your circles contains product-managed rows first, then populated Family, Friends, and custom type subgroups, followed by untyped rows without an Other heading. Joined circles follows all owned groups and precedes Circle ideas. |
+| Custom type groups | Owned ordinary Circles with the same normalized type label appear inside Your circles under that label: for example, `hussh` contains `US` and `india`. Joined and system Circles do not populate the owner's reusable choices. Deleting a type requires confirmation and leaves its Circles untyped without removing members or Circles. A type disappears once no active owned Circle uses it. |
 | **Next / Saving…** | Persists the circle, then opens the people step. Failure keeps the form available for retry. |
 | People: **Search people** | Searches eligible existing connections; selection survives paging. |
 | Person **Add / selected toggle** | Changes the local batch, bounded by remaining capacity and at most 20 per mutation. |
@@ -569,7 +582,7 @@ prove that a pending invitation, location share or notification was created.
 | --- | --- |
 | Lists | `Circle name`; `Search your and joined circles`; `Your circles {N}`; `Create circle`; `Joined circles {N}`; `Join with code`; `People you add yourself`; `Gets your SMS`; `You'll get their SMS`; `no one yet`; `{N} people`; `No members yet`; `1 person` |
 | Loading/empty | `Finish setting up One`; `Circles need your vault, which is created during setup.`; `Circles are unavailable`; `Tap to try again.`; `Loading circles…`; `No circles found`; `Try a different name.`; `No circles created yet.`; `Make a circle`; `Bring together people you choose.` |
-| List menu/confirm | `Options for {name}`; `Open circle`; `Delete circle`; `Leave circle`; `Delete {name}?` / `Leave {name}?`; `This removes the circle for everyone. This cannot be undone.` / `You will no longer be a member of this circle.`; `Cancel`; `Updating…` |
+| List swipe/detail confirmation | No overflow menu. The row and chevron open detail; swipe reveals the existing confirmed action. `Delete circle`; `Leave circle`; `Delete {name}?` / `Leave {name}?`; `This removes the circle for everyone. This cannot be undone.` / `You will no longer be a member of this circle.`; `Cancel`; `Updating…` |
 | List mutation feedback | `Your permission to change this circle has changed.`; `Circle action cancelled. Return to your current account to try again.`; `Deleting circle…`; `Leaving circle…`; `Circle updated.`; `Could not update this circle.` |
 | Create details | `Create a Circle`; `Step 1 of 2 · Name your Circle, then add people now or later.`; `Circle name`; `Family, close friends, project team`; `Circle type`; `Family`; `Friends`; `Other`; `Next`; `Saving…`; `Enter a Circle name.`; `{N} / 80` |
 | Create people | `Add people`; `Step 2 of 2 · Choose people for {circleName}, or add them later.`; `Search people`; `{N} selected`; ` · Choose up to {N} people`; ` · This Circle is full`; `Loading contacts…`; `Could not load your contacts.`; `Try again`; `No contacts match that name.`; `No connections to add yet. You can add people later.`; `Loading…`; `Load more contacts`; `Add people`; `Add 1 person`; `Add {N} people`; `Back`; `Add people later`; `Could not add those people. Try again or add people later.` |
@@ -719,7 +732,7 @@ not a live measurement of that account.
 | Person row | One column; min72,70≤620; avatar36,32≤350; identity flexible then action siblings | Relationship target44high/min-width88→78≤620→72≤350. Message/Options44, glyph22/20. Long names wrap; buttons do not overlap identity. |
 | People/accepted Options |224wide/p4 | Portal aligned end, offset4, z10100; item anchors own trigger; opening no API. |
 | Directory selector | Web184wide,max viewport−24,radius18,p6 | Bottom/start offset6,collision16; native/local absolute left0/top100%+4,z30,radius14,p4. |
-| Circle row | grid `minmax(0,1fr) 44px 36px`; min84→82≤620; inline-start/end22/12→16/8≤620; vertical12 | Options208wide/p4,end+4,z10100. Swipe horizontally after>14px and1.4×vertical; clamp−92..0; release<−36 reveals92px action. Reveal does not delete. |
+| Circle row | grid `minmax(0,1fr) 44px`; min84→82≤620; inline-start/end22/12→16/8≤620; vertical12 | No Options control. Swipe horizontally after>14px and1.4×vertical; clamp−92..0; release<−36 reveals92px action. Reveal does not delete. |
 | Circle member row | avatar40/flexible identity/actions,gap12,px8phone/16desktop; menu target44/glyph24 | Desktop menu side right,aligncenter,offset22,collision12,width280,max viewport−24,radius14,p4,item min52,px16/py12. Phone Drawer actions and in-place confirm replace menu. |
 | Add people / Rename / Invite | Real `AdaptiveSheetContent` on all sizes: phone fullwidth,bottom keyboard. ≥768 width viewport−48/cap variable; centered Y50%−keyboard/2,maxheight `max(96,min(760,100dvh−64−safeTop−safeBottom)−keyboard)` | Maintains mounted input/selection through breakpoint. This differs from AdaptiveDetailSurface's desktop TaskDialog. |
 | Add people fixed frame | Phone85dvh−keyboard; desktop min720/viewport−64−keyboard | Header/search/footer outside results scroller; All/Selected preserve frame. Constrained layout allows full frame scroll. |

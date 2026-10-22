@@ -982,7 +982,14 @@ export function ConnectCirclesTab({
 
   const customGroups = customCircleTypeGroups(owned);
   const customIds = new Set(customGroups.flatMap(group => group.circles.map(circle => circle.id)));
-  const ordinaryOwned = owned.filter(circle => !customIds.has(circle.id));
+  const systemOwned = owned.filter(circle => systemKindOf(circle) || circle.isSystem);
+  const ordinaryOwned = owned.filter(circle => !systemKindOf(circle) && !circle.isSystem && !customIds.has(circle.id));
+  const untypedOwned = ordinaryOwned.filter(circle => circle.kind !== "family" && circle.kind !== "friends");
+  const ownedGroups = [
+    { label: "Family", circles: ordinaryOwned.filter(circle => circle.kind === "family"), custom: false },
+    { label: "Friends", circles: ordinaryOwned.filter(circle => circle.kind === "friends"), custom: false },
+    ...customGroups.map(group => ({ ...group, custom: true })),
+  ].filter(group => group.circles.length > 0);
 
   return (
     <div className="space-y-4" data-profile-type-scale="circles" data-testid="connect-circles-tab">
@@ -1037,15 +1044,37 @@ export function ConnectCirclesTab({
         </SettingsGroup>
       ) : (
         <>
-          {ordinaryOwned.length ? (
-            <section data-testid="connect-circle-group-owned">
-              <div
-                className={`${CONNECT_CIRCLE_GRID_CLASSNAME} ${styles.circleGroup}`}
-              >
-                {ordinaryOwned.map(renderCircleRow)}
-              </div>
+          {owned.length ? (
+            <section className="space-y-4" aria-label="Your circles" data-testid="connect-circle-group-owned">
+              {systemOwned.length ? (
+                <div className={`${CONNECT_CIRCLE_GRID_CLASSNAME} ${styles.circleGroup}`}>
+                  {systemOwned.map(renderCircleRow)}
+                </div>
+              ) : null}
+              {ownedGroups.map(group => (
+                <section key={group.label.toLocaleLowerCase()} aria-label={`${group.label} circles`}>
+                  <div className={styles.circleHeading}>
+                    <h3>{group.label} <span className={styles.count}>{group.circles.length}</span></h3>
+                    {group.custom && customTypesSupported ? (
+                      <Button type="button" variant="none" effect="fade" size="icon-touch"
+                        aria-label={`Delete ${group.label} type`} disabled={busy}
+                        onClick={() => setPendingTypeDraft({ session: listSession, label: group.label })}>
+                        <Trash2 aria-hidden="true" className="size-4" />
+                      </Button>
+                    ) : null}
+                  </div>
+                  <div className={`${CONNECT_CIRCLE_GRID_CLASSNAME} ${styles.circleGroup}`}>
+                    {group.circles.map(renderCircleRow)}
+                  </div>
+                </section>
+              ))}
+              {untypedOwned.length ? (
+                <div className={`${CONNECT_CIRCLE_GRID_CLASSNAME} ${styles.circleGroup}`}>
+                  {untypedOwned.map(renderCircleRow)}
+                </div>
+              ) : null}
             </section>
-          ) : owned.length ? null : (
+          ) : (
             <div className="py-5 text-center">
               <h3 className="text-sm font-semibold">
                 {circleQuery
@@ -1076,28 +1105,14 @@ export function ConnectCirclesTab({
               </div>
             </section>
           ) : null}
-          {customGroups.map(group => (
-            <section key={group.label.toLocaleLowerCase()} aria-label={`${group.label} circles`}>
-              <div className={styles.circleHeading}>
-                <h2>{group.label} <span className={styles.count}>{group.circles.length}</span></h2>
-                {customTypesSupported ? <Button type="button" variant="none" effect="fade" size="icon-touch"
-                  aria-label={`Delete ${group.label} type`} disabled={busy}
-                  onClick={() => setPendingTypeDraft({ session: listSession, label: group.label })}>
-                  <Trash2 aria-hidden="true" className="size-4" />
-                </Button> : null}
-              </div>
-              <div className={`${CONNECT_CIRCLE_GRID_CLASSNAME} ${styles.circleGroup}`}>
-                {group.circles.map(renderCircleRow)}
-              </div>
-            </section>
-          ))}
+
         </>
       )}
       <AlertDialog open={pendingType !== null} onOpenChange={open => { if (!open && !listMutationRef.current) setPendingTypeDraft(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {pendingType} type?</AlertDialogTitle>
-            <AlertDialogDescription>Your circles and their members will stay. These circles will use Other, and you can create a new type.</AlertDialogDescription>
+            <AlertDialogDescription>Your circles and their members will stay. They will appear without a type heading, and you can create a new type.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
@@ -1234,11 +1249,13 @@ export function ConnectCirclesTab({
             variant="none"
             effect="fade"
             size="compact"
+            className={`${styles.utilityAction} ${styles.joinAction}`}
+            showRipple={false}
             onClick={() => go({ action: "join-circle" })}
             data-testid="connect-circle-join"
           >
-            <KeyRound aria-hidden="true" className="mr-2 size-4" />
-            Join with code
+            <KeyRound aria-hidden="true" className="mr-1.5 size-4" />
+            <span>Join with code</span>
           </Button>
         </div>
       ) : null}

@@ -2,7 +2,8 @@ import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { XIcon, PlusIcon, ShieldIcon, WalletIcon, Key, KeyRound, KeyIcon, AccentedKeyIcon } from "@/components/icons";
+import { XIcon, PlusIcon, ShieldIcon, WalletIcon, Key, KeyRound, KeyIcon, AccentedKeyIcon, PeoplePairIcon, Users, Trash2, TrashIcon } from "@/components/icons";
+import { ProfilePaneDeleteIcon, ProfilePanePrivacyIcon } from "@/components/profile/profile-pane-icons";
 import { PROFILE_MENU_GROUPS } from "@/components/profile/profile-menu-model";
 import * as RowIcons from "@/components/icons/agents/row-icons";
 import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-icon";
@@ -20,6 +21,38 @@ vi.mock("@/lib/capacitor/app-haptics", () => ({ usesNativeHapticPreference: () =
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { promise: vi.fn() } }));
 
 afterEach(cleanup);
+
+it("uses the Feed people pair through the existing invitation and people aliases", () => {
+  const icons = [PeoplePairIcon, Users, PROFILE_ICONS.invite, PROFILE_ICONS.people];
+  const { container } = render(<>{icons.map((Icon, index) => <Icon key={index} />)}</>);
+  for (const svg of container.querySelectorAll("svg")) {
+    expect(svg).toHaveAttribute("viewBox", "0 0 24 24");
+    const heads = [...svg.querySelectorAll("circle")];
+    expect(heads.map(head => head.getAttribute("cy"))).toEqual(["8.2", "8.2"]);
+    expect(heads.map(head => head.getAttribute("cx"))).toEqual(["6.6", "17.4"]);
+    expect(svg.querySelectorAll("path")).toHaveLength(2);
+  }
+});
+
+it("keeps every deletion glyph Apple red despite caller text and inline colors", () => {
+  const icons = [Trash2, TrashIcon, RowIcons.DeleteRowIcon, PROFILE_ICONS.delete, ProfilePaneDeleteIcon];
+  const { container } = render(<>{icons.map((Icon, index) => <Icon key={index} className="text-black" style={{ color: "black" }} />)}</>);
+  for (const svg of container.querySelectorAll("svg")) {
+    expect(svg).toHaveAttribute("data-trash-icon", "true");
+    expect(svg.style.color).toBe("var(--app-destructive)");
+  }
+});
+
+it("uses the supplied filled keyhole for Privacy Policy without replacing Wallet's lock", () => {
+  const Icon = PROFILE_ICONS.privacy;
+  const { container } = render(<><Icon /><ProfilePanePrivacyIcon /></>);
+  const [policy, wallet] = [...container.querySelectorAll("svg")];
+  expect(policy).toHaveAttribute("viewBox", "0 0 24 24");
+  expect(policy).toHaveAttribute("width", "24");
+  expect(policy).toHaveAttribute("stroke-width", "1.75");
+  expect(policy.querySelector("path.profile-pane-icon-accent-fill")).toHaveAttribute("stroke", "none");
+  expect(wallet.querySelector("path.profile-pane-icon-accent-fill")).toBeNull();
+});
 
 it("uses transparent official outline glyphs for controls and capabilities", () => {
   const { container } = render(<><XIcon /><PlusIcon /><ShieldIcon /><WalletIcon /><GiftIcon /></>);
