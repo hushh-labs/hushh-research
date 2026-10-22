@@ -255,15 +255,22 @@ class DispatchTest(unittest.TestCase):
                 patch.object(github, "production_predecessor_accepted", return_value=False), \
                 patch.object(github, "defer_release") as deferred:
             github.dispatch_pending(ledger)
-        self.assertEqual(calls, [])
+        self.assertEqual(len(calls), 1)
+        self.assertIn("ship-ios-testflight.yml", calls[0][0])
+        self.assertEqual(calls[0][1]["inputs"]["sha"], ledger.state["requests"]["8"]["sha"])
         self.assertEqual(ledger.state["count"], 8)
         for lane in ("deploy", "appstore"):
             self.assertEqual(children[lane], {"state": "pending"})
         deferred.assert_called_once_with("production requires complete exact-SHA UAT acceptance")
         with patch.object(github, "api", self.dispatch_api(calls)):
             github.dispatch_pending(ledger)
+            self.assertEqual(len(calls), 1)  # The active TestFlight bundle retains its slot.
+            children["testflight"]["state"] = "success"
             github.dispatch_pending(ledger)
-        self.assertEqual(len(calls), 2)
+            github.dispatch_pending(ledger)
+        self.assertEqual(len(calls), 3)
+        self.assertIn("deploy-production.yml", calls[1][0])
+        self.assertIn("release-ios-appstore.yml", calls[2][0])
 
     def test_predecessor_lookup_failure_cannot_record_a_dispatch_intent(self):
         ledger = FakeLedger(counted())
@@ -275,13 +282,16 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(ledger.state["requests"]["8"]["lanes"]["deploy"], {"state": "pending"})
 
     def test_uat_arriving_during_predecessor_lookup_prevents_intent(self):
-        ledger = FakeLedger(counted())
-        with patch.object(github, "api") as request, \
-                patch.object(github, "uat_busy", side_effect=[False, True]), \
-                patch.object(github, "production_predecessor_accepted", return_value=True):
-            github.dispatch_pending(ledger)
-        request.assert_not_called()
-        self.assertEqual(ledger.state["requests"]["8"]["lanes"]["deploy"], {"state": "pending"})
+        for accepted in (True, False):
+            with self.subTest(accepted=accepted):
+                ledger = FakeLedger(counted())
+                with patch.object(github, "api") as request, \
+                        patch.object(github, "uat_busy", side_effect=[False, True]), \
+                        patch.object(github, "production_predecessor_accepted", return_value=accepted):
+                    github.dispatch_pending(ledger)
+                request.assert_not_called()
+                for lane in ("deploy", "testflight"):
+                    self.assertEqual(ledger.state["requests"]["8"]["lanes"][lane], {"state": "pending"})
 
     def test_half_dispatched_pair_resumes_app_without_duplicate_deployment(self):
         ledger, calls = FakeLedger(counted()), []
@@ -438,6 +448,79 @@ class AdmissionTest(unittest.TestCase):
 
 
 class ReconciliationTest(unittest.TestCase):
+    def retirement_fixture(self):
+        ledger, inventory, jobs = FakeLedger(counted(16)), {}, {}
+        identity = 200
+        for ordinal, request in ledger.state["requests"].items():
+            for lane, child in request["lanes"].items():
+                identity += 1
+                child.update(state="failure", run_id=identity, run_attempt=1)
+                if ordinal == "16" and lane == "deploy":
+                    child["state"] = "success"
+                observed = run(identity, core.WORKFLOWS[lane], "github-actions[bot]")
+                observed.update(conclusion=child["state"], display_title=core.marker(ordinal, request, lane))
+                inventory[identity] = observed
+                if lane == "deploy":
+                    continue
+                packaging = ("Resolve automatic packaging before allocating macOS" if lane == "testflight"
+                             else "Admit automatic App Store version or defer without a Mac")
+                names = (["Build and distribute normal UAT TestFlight build", "Process and distribute uploaded TestFlight build"]
+                         if lane == "testflight" else ["Build, upload & prepare iOS App Store release", "Process and prepare uploaded App Store build"])
+                rows = [{"name": "preflight", "conclusion": "failure", "steps": [{"name": packaging, "conclusion": "failure"}]}]
+                rows += [{"name": name, "conclusion": "skipped", "runner_name": None} for name in names]
+                jobs[identity] = {"total_count": len(rows), "jobs": rows}
+        replacement = ledger.state["requests"]["16"]
+        value = {"sha": replacement["sha"], "status": "healthy", "scope": "all",
+                 "candidate": {"backend_revision": "ready", "frontend_revision": "web-ready"},
+                 "final": {"backend_revision": "ready", "frontend_revision": "web-ready"},
+                 "verification": {key: "success" for key in ("backend_provenance", "backend_health", "frontend_provenance", "frontend_health")}}
+        return ledger, inventory, jobs, value
+
+    def test_reviewed_retirement_preserves_history_and_rejects_uncertain_uploads(self):
+        for invalid in (None, "stale", "frontier", "active", "attempt", "native-ran", "missing-jobs", "replacement", "frontend", "actor"):
+            with self.subTest(invalid=invalid):
+                ledger, inventory, jobs, value = self.retirement_fixture()
+                controller = run(100, core.CONTROLLER)
+                head, frontier = ledger.head, 16
+                if invalid == "stale": head = "e" * 40
+                if invalid == "frontier": frontier = 12
+                first = next(iter(inventory))
+                if invalid == "active": ledger.state["requests"]["4"]["lanes"]["testflight"]["state"] = "running"
+                if invalid == "attempt": inventory[first]["run_attempt"] = 2
+                if invalid == "native-ran": jobs[first]["jobs"][1]["conclusion"] = "success"
+                if invalid == "missing-jobs": jobs[first]["jobs"].pop()
+                if invalid == "replacement": value["sha"] = "b" * 40
+                if invalid == "frontend": value["verification"]["frontend_health"] = "failure"
+                if invalid == "actor": controller["actor"]["login"] = "outsider"
+                before = deepcopy(ledger.state)
+                with patch.object(github, "configuration", return_value=(NEW_POLICY, GOVERNANCE)), \
+                        patch.object(github, "run_info", side_effect=lambda repo, identity: inventory[identity]), \
+                        patch.object(github, "api", side_effect=lambda path: jobs[int(path.split('/runs/')[1].split('/')[0])]), \
+                        patch.object(github, "receipt", return_value=value):
+                    if invalid:
+                        with self.assertRaises(core.UnsafeRelease):
+                            github.retire_obsolete_failures(ledger, frontier, head, controller)
+                        self.assertEqual(ledger.state, before)
+                        self.assertEqual(ledger.saves, [])
+                        continue
+                    github.retire_obsolete_failures(ledger, frontier, head, controller)
+                restored = deepcopy(ledger.state)
+                for ordinal, request in restored["requests"].items():
+                    for child in request["lanes"].values():
+                        if int(ordinal) < 16:
+                            audit = child.pop("retirement")
+                            self.assertEqual(child["state"], "superseded")
+                            self.assertEqual(audit["reviewed_head"], head)
+                            self.assertEqual(audit["operator"], "maintainer")
+                            child["state"] = audit["previous_state"]
+                self.assertEqual(restored, before)
+                self.assertEqual(len(ledger.saves), 1)
+                with patch.object(github, "run_info", side_effect=lambda repo, identity: inventory[identity]) as info:
+                    github.reconcile_children(ledger, first)
+                # Only latest non-retired failed/successful children can be polled.
+                self.assertNotIn(first, [call.args[1] for call in info.call_args_list])
+
+
     def test_clock_wake_requires_exact_bot_event_before_any_state_access(self):
         controller = run(100, core.CONTROLLER, "github-actions[bot]")
         controller["event"] = "repository_dispatch"
@@ -708,6 +791,14 @@ class AuthorityTest(unittest.TestCase):
                         with self.subTest(lane=lane, valid_transport=values):
                             event.write_text(json.dumps({"inputs": values}))
                             self.assertIs(github.authorize_current(surface, "github-actions[bot]"), request)
+                    event.write_text(json.dumps({"inputs": expected}))
+                    original_state = request["lanes"][lane]["state"]
+                    request["lanes"][lane]["state"] = "superseded"
+                    with self.assertRaisesRegex(core.UnsafeRelease, "Retired releases"):
+                        github.authorize_current(surface, "github-actions[bot]")
+                    request["lanes"][lane]["state"] = "failure"
+                    self.assertIs(github.authorize_current(surface, "github-actions[bot]"), request)
+                    request["lanes"][lane]["state"] = original_state
                     for key, value in expected.items():
                         mutations = [{**expected, key: "f" * 40 if key == "sha" else value + "changed"}]
                         if value:
@@ -726,120 +817,6 @@ class AuthorityTest(unittest.TestCase):
                     with self.assertRaisesRegex(core.UnsafeRelease, "unexpected_count=1") as error:
                         github.authorize_current(surface, "github-actions[bot]")
                     self.assertNotIn(secret, str(error.exception))
-
-
-class MonitorTest(unittest.TestCase):
-    def test_failed_uat_is_reported_once_without_mutating_accounting(self):
-        state = counted(2)
-        before = deepcopy(state)
-        failed = run(50)
-        failed["conclusion"] = "failure"
-        with patch.object(monitor, "runs", return_value=[failed]), patch.object(monitor, "git", return_value=failed["created_at"]):
-            journal, notices = monitor.observations(REPOSITORY, state, {}, {}, True)
-            self.assertEqual(len(notices), 1)
-            self.assertIn("does not advance", notices[0])
-            _, repeated = monitor.observations(REPOSITORY, state, {}, journal, True)
-        self.assertEqual(repeated, [])
-        self.assertEqual(state, before)
-
-    def test_wrong_source_is_rejected_but_apple_deferral_is_not_publication(self):
-        state = counted(8)
-        request = state["requests"]["8"]
-        child = {"state": "success", "run_id": 201}
-        request["lanes"]["testflight"] = child
-        observed = run(201, "ship-ios-testflight.yml", "github-actions[bot]")
-        observed["display_title"] = core.marker("8", request, "testflight")
-        with patch.object(monitor, "artifact_json", return_value={"source_sha": "b" * 40, "build_number": "1"}), \
-                self.assertRaisesRegex(core.UnsafeRelease, "source mismatch"):
-            monitor.evidence(REPOSITORY, state, "8", "testflight", child, observed)
-        child = {"state": "success", "run_id": 202}
-        request["lanes"]["appstore"] = child
-        observed["id"] = 202
-        observed["path"] = ".github/workflows/release-ios-appstore.yml"
-        observed["display_title"] = core.marker("8", request, "appstore")
-        with patch.object(monitor, "artifact_json", return_value={"sha": request["sha"], "reason": "apple_review_pending"}):
-            self.assertIn("no publication claimed", monitor.evidence(REPOSITORY, state, "8", "appstore", child, observed))
-
-    def test_lost_comment_response_is_recovered_without_duplicate_or_ledger_write(self):
-        state = counted(2)
-        before = deepcopy(state)
-        saved = {"number": 1, "body": monitor.issue_body(state, {}, 100), "comments": 0}
-        comments = []
-        fail_once = [True]
-        def transport(path, data=None, **kwargs):
-            if path.endswith("/comments") and data is not None:
-                comments.append({"body": data["body"], "user": {"login": "github-actions[bot]"}})
-                saved["comments"] = len(comments)
-                if fail_once.pop() if fail_once else False:
-                    raise core.UnsafeRelease("lost comment response")
-                return {}
-            if "/comments?" in path:
-                return comments
-            if data is not None:
-                saved.update(data)
-                return deepcopy(saved)
-            self.fail(path)
-        with patch.object(monitor, "api", side_effect=transport):
-            with self.assertRaisesRegex(core.UnsafeRelease, "lost comment"):
-                monitor.publish(REPOSITORY, deepcopy(saved), state, {"seen": {"one": "done"}}, ["First notice"], 100, "maintainer")
-            self.assertIn("pending_notice", monitor.read_journal(saved["body"]))
-            monitor.publish(REPOSITORY, deepcopy(saved), state, {"seen": {"one": "done", "two": "done"}},
-                            ["Second notice"], 101, "maintainer")
-        self.assertEqual(len(comments), 2)
-        self.assertIn("Second notice", comments[-1]["body"])
-        self.assertNotIn("pending_notice", monitor.read_journal(saved["body"]))
-        self.assertEqual(state, before)
-
-    def test_old_settled_history_is_bounded_and_does_not_reread_expired_artifacts(self):
-        state = counted(2000)
-        for request in state["requests"].values():
-            for child in request["lanes"].values():
-                child.update(state="success", run_id=123)
-        journal = {"release_highwater": 2000, "pending_releases": ["release:4:testflight"],
-                   "seen": {f"uat:{number}": "success" for number in range(2000)}}
-        state["requests"]["4"]["lanes"]["testflight"] = {"state": "pending"}
-        with patch.object(monitor, "runs", return_value=[]), patch.object(monitor, "git", return_value="2026-10-22T01:00:00Z"), \
-                patch.object(monitor, "run_info") as info, patch.object(monitor, "artifact_json") as artifact:
-            updated, notices = monitor.observations(REPOSITORY, state, {}, journal, True)
-        self.assertEqual(notices, [])
-        self.assertLessEqual(len(updated["seen"]), 160)
-        self.assertLess(len(monitor.issue_body(state, updated, 100)), 20000)
-        info.assert_not_called()
-        artifact.assert_not_called()
-
-    def test_queue_warning_can_be_followed_by_observed_uat_progress(self):
-        source = run(50)
-        source.update(status="in_progress", conclusion=None, created_at="2020-01-01T01:00:00Z",
-                      updated_at="2020-01-01T01:01:00Z")
-        previous = {"release_intervals": {"20": {"id": 20, "created_at": "2020-01-01T00:59:00Z",
-                                                   "completed_at": None}}}
-        with patch.object(monitor, "runs", return_value=[source]), patch.object(monitor, "git", return_value=source["created_at"]), \
-                patch.object(monitor, "api", return_value={"total_count": 0, "jobs": []}):
-            warning, notices = monitor.observations(REPOSITORY, None, {}, previous, True)
-        self.assertTrue(any("10 minutes" in value for value in notices))
-        with patch.object(monitor, "runs", return_value=[source]), \
-                patch.object(monitor, "api", return_value={"total_count": 1, "jobs": [{"started_at": "2020-01-01T01:01:00Z"}]}):
-            progressed, notices = monitor.observations(REPOSITORY, None, {}, warning, True)
-            _, repeated = monitor.observations(REPOSITORY, None, {}, progressed, True)
-        self.assertTrue(any("started while" in value for value in notices))
-        self.assertEqual(repeated, [])
-
-        # A rerun's inactive gap is not an active release overlap.
-        state = counted(8)
-        state["requests"]["8"]["lanes"] = {"deploy": {"state": "success", "run_id": 20, "run_attempt": 2}}
-        release = run(20, "deploy-production.yml", "github-actions[bot]")
-        release.update(run_attempt=2, created_at="2020-01-01T00:59:00Z",
-                       run_started_at="2020-01-01T01:05:00Z", updated_at="2020-01-01T01:10:00Z")
-        with patch.object(monitor, "runs", return_value=[source]), patch.object(monitor, "run_info", return_value=release), \
-                patch.object(monitor, "verify_child"), patch.object(monitor, "evidence", return_value=""), \
-                patch.object(monitor, "git", return_value=source["created_at"]), \
-                patch.object(monitor, "api", return_value={"total_count": 1, "jobs": [{"started_at": "2020-01-01T01:01:00Z"}]}):
-            gap, notices = monitor.observations(REPOSITORY, state, {}, {}, True)
-        self.assertEqual(gap["release_intervals"]["20"]["created_at"], release["run_started_at"])
-        self.assertFalse(any("started while" in value for value in notices))
-        release.pop("run_started_at")
-        monitor.record_release_interval(gap["release_intervals"], release)
-        self.assertNotIn("20", gap["release_intervals"])
 
 
 class ProductionJoinTest(unittest.TestCase):

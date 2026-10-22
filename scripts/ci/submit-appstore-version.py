@@ -206,38 +206,19 @@ def find_app_store_version(
     return data[0] if data else None
 
 
-def resolve_packaging_version(token: str, app_id: str, source_version: str, platform: str, *, testflight: bool = False, defer_if_review: bool = False) -> str:
-    """Read-only automatic train selection; never mutate a reviewed version."""
-    def parts(value: str) -> tuple[int, int, int]:
-        if not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", value):
-            die("automatic packaging requires a numeric x.y.z marketing version")
-        return tuple(int(part) for part in value.split("."))
+def prerelease_versions(token: str, app_id: str, platform: str) -> list[str]:
+    from ios_packaging_version import prerelease_versions as read_versions
+    return read_versions(token, app_id, platform, asc_get=asc_get, die=die, api_root=ASC_API_ROOT)
 
-    minimum = parts(source_version)
-    query = urllib.parse.urlencode({"filter[platform]": platform, "limit": "200"})
-    url = f"{ASC_API_ROOT}/v1/apps/{app_id}/appStoreVersions?{query}"
-    versions = []
-    while url:
-        payload = asc_get(url, token)
-        versions.extend(item.get("attributes") or {} for item in payload.get("data", []))
-        url = (payload.get("links") or {}).get("next")
-    if not versions:
-        return source_version
-    latest = max(versions, key=lambda attrs: parts(attrs["versionString"]))
-    version = parts(latest["versionString"])
-    state = latest.get("appStoreState") or latest.get("appVersionState")
-    if state in EDITABLE_VERSION_STATES:
-        return ".".join(map(str, max(minimum, version)))
-    pending = {"WAITING_FOR_REVIEW", "IN_REVIEW", "PENDING_DEVELOPER_RELEASE", "PENDING_APPLE_RELEASE", "PROCESSING_FOR_APP_STORE"}
-    if state in pending:
-        if testflight:
-            return ".".join(map(str, max(minimum, (version[0], version[1], version[2] + 1))))
-        if defer_if_review:
-            log("Public version is awaiting Apple review or release; defer outside macOS.")
-            raise SystemExit(75)
-    if state not in {"READY_FOR_SALE", "READY_FOR_DISTRIBUTION", "REMOVED_FROM_SALE", "DEVELOPER_REMOVED_FROM_SALE"}:
-        die(f"App Store version is {state}; finish its review/release before preparing its successor")
-    return ".".join(map(str, max(minimum, (version[0], version[1], version[2] + 1))))
+
+def resolve_packaging_version(token: str, app_id: str, source_version: str, platform: str,
+                              *, testflight: bool = False, defer_if_review: bool = False) -> str:
+    from ios_packaging_version import resolve_packaging_version as select_version
+    return select_version(token, app_id, source_version, platform, testflight=testflight,
+                          defer_if_review=defer_if_review, asc_get=asc_get, die=die, log=log,
+                          prerelease_versions=prerelease_versions, api_root=ASC_API_ROOT,
+                          editable_states=EDITABLE_VERSION_STATES)
+
 
 
 def verify_reviewer_account(token: str, version_id: str) -> None:

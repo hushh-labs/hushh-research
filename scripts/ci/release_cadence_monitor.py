@@ -93,7 +93,23 @@ def record_release_interval(intervals: dict, run: dict) -> None:
                            "completed_at": run.get("updated_at") if run["status"] == "completed" else None}
 
 
-def observations(repository: str, state: dict | None, event: dict, previous: dict, healthy: bool) -> tuple[dict, list[str]]:
+def observe_controller_health(observed: dict, healthy: bool, enabled: bool, note, notices: list[str]) -> None:
+    seen = observed["seen"]
+    if not healthy:
+        note("controller-health", "failure", "Cadence accounting or checkpoint publication failed. Inspect the controller run before recovery.")
+    else:
+        if seen.get("controller-health") == "failure":
+            notices.append("Cadence accounting authority verified; monitoring recovered.")
+        seen["controller-health"] = "healthy"
+        if not enabled:
+            note("automation-status", "disabled", "Automatic releases are disabled. Monitoring retains the last certified accounting; no releases are admitted.")
+        elif seen.get("automation-status") == "disabled":
+            note("automation-status", "enabled", "Automatic releases resumed with verified accounting: TestFlight every 2 and production every 4 successful UAT source commits.")
+        observed["automation_enabled"] = enabled
+
+
+def observations(repository: str, state: dict | None, event: dict, previous: dict, healthy: bool,
+                 *, enabled: bool = True) -> tuple[dict, list[str]]:
     """Reuse certified accounting; bounded incremental reads supply observations."""
     observed = json.loads(json.dumps(previous))
     seen = observed.setdefault("seen", {})
@@ -104,12 +120,7 @@ def observations(repository: str, state: dict | None, event: dict, previous: dic
             notices.append(message)
         seen[key] = signature
 
-    if not healthy:
-        note("controller-health", "failure", "Cadence accounting or checkpoint publication failed. Inspect the controller run before recovery.")
-    else:
-        if seen.get("controller-health") == "failure":
-            notices.append("Cadence accounting and checkpoint publication recovered.")
-        seen["controller-health"] = "healthy"
+    observe_controller_health(observed, healthy, enabled, note, notices)
     trigger = event.get("workflow_run") or {}
     since = observed.get("scan_after") or git("log", "-1", "--format=%cI", "--", "scripts/ci/release_cadence_monitor.py")
     inventory = runs(repository, "deploy-uat.yml", since)
@@ -135,7 +146,7 @@ def observations(repository: str, state: dict | None, event: dict, previous: dic
         observed["pending_uat"] = [item["id"] for item in inventory if item.get("status") != "completed"]
         observed["uat_highwater"] = max([highwater] + [item["id"] for item in inventory if item.get("status") == "completed"])
     intervals = observed.setdefault("release_intervals", {})
-    if state is not None and healthy:
+    if state is not None and healthy and enabled:
         for ordinal, request in state["requests"].items():
             for lane, child in request["lanes"].items():
                 identity = child.get("run_id")
@@ -229,6 +240,9 @@ def issue_body(state: dict | None, journal: dict, controller: int) -> str:
              "Completion events and the existing hourly fallback run in GitHub; no laptop is needed.",
              "UAT has separate dependencies and locks. Shared runner capacity is best effort.", "",
              f"Last controller: {controller}. Run links and verified milestones appear in comments."]
+    if journal.get("automation_enabled") is False:
+        lines[3] = (f"Automatic releases disabled. Last certified UAT count: {count}; "
+                    f"checkpoint {journal['checkpoint_at']}. TestFlight every 2; production every 4 when enabled.")
     if state:
         retained = sorted(state["requests"], key=int)
         visible = set(retained[-12:]) | {ordinal for ordinal in retained
@@ -293,7 +307,13 @@ def main() -> int:
     require(assignee in governance["production"]["manual_dispatch_users"], "Monitor recipient is not governed")
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
     path = Path(os.environ["RUNNER_TEMP"], "release-cadence-monitor.json")
-    state = json.loads(path.read_text()) if path.exists() else None
+    snapshot = json.loads(path.read_text()) if path.exists() else None
+    disabled = snapshot is not None and snapshot.get("mode") == "disabled"
+    state = snapshot["state"] if disabled else snapshot
+    if disabled:
+        from release_cadence import state_digest
+        require(not policy["enabled"], "Disabled snapshot conflicts with enabled policy")
+        require(state_digest(state) == snapshot["checkpoint"]["state_sha256"], "Disabled snapshot digest mismatch")
     issue = find_issue(repository)
     previous = read_journal(issue.get("body") or "") if issue else {}
     previous = previous.get("pending_notice", {}).get("journal", previous)
@@ -303,7 +323,11 @@ def main() -> int:
                                        for lane, child in request["lanes"].items()
                                        if child["state"] in {"pending", "running", "dispatching", "deferred"}]
     healthy = state is not None and os.environ.get("CHECKPOINT_OUTCOME") == "success"
-    journal, notices = observations(repository, state, event, previous, healthy)
+    if disabled:
+        healthy = healthy and os.environ.get("ACCOUNTING_OUTCOME") == "success"
+    journal, notices = observations(repository, state, event, previous, healthy, enabled=not disabled)
+    if disabled and healthy:
+        journal["checkpoint_at"] = snapshot["checkpoint"]["checkpoint_at"]
     publish(repository, issue, state, journal, notices, controller, assignee)
     return 0
 
