@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 409,
+  "expected_migration_version": 410,
   "migration_version_policy": "exact",
   "required_functions": [
     "activate_reserved_wallet_cards",
@@ -704,6 +704,23 @@
       "revoked_at",
       "status"
     ],
+    "developer_oauth_authorizations": [
+      "id",
+      "transaction_ref",
+      "app_id",
+      "client_id",
+      "redirect_uri",
+      "code_challenge",
+      "subject_firebase_uid",
+      "requested_scope",
+      "state",
+      "status",
+      "expires_at",
+      "created_at",
+      "consumed_at",
+      "code_hash",
+      "resource"
+    ],
     "developer_oauth_clients": [
       "allowed_grant_types",
       "app_id",
@@ -714,7 +731,9 @@
       "mcp_execution_mode",
       "redirect_uris",
       "revoked_at",
-      "secret_rotated_at"
+      "secret_rotated_at",
+      "registration_method",
+      "token_endpoint_auth_method"
     ],
     "developer_oauth_tokens": [
       "app_id",
@@ -730,7 +749,8 @@
       "subject_firebase_uid",
       "token_hash",
       "token_kind",
-      "token_prefix"
+      "token_prefix",
+      "resource"
     ],
     "developer_tokens": [
       "app_id",
@@ -3952,5 +3972,5 @@
       "updated_at"
     ]
   },
-  "expected_schema_head": 409
+  "expected_schema_head": 410
 }

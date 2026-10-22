@@ -1428,7 +1428,7 @@ function ReadyScreen({
                     onClick={onShare}
                     className="bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
                   >
-                    <Share2 className="h-5 w-5" strokeWidth={2} />
+                    <Share2 onAccent className="h-5 w-5" strokeWidth={2} />
                     Share
                   </Button>
                 </div>

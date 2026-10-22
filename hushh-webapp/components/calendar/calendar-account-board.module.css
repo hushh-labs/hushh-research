@@ -72,10 +72,13 @@
 .insightSummary p { font-size: .83rem; color: var(--app-secondary-label); }
 .footer { display: flex; justify-content: center; padding-top: .3rem; }
 .footer button { min-height: 48px; min-width: min(100%, 20rem); }
-.detail { max-height: 86dvh; overflow-y: auto; }
+.detail { max-height: 86dvh; overflow-y: auto; gap: .75rem; padding: 1.35rem; }
+.detailHeader { gap: .3rem; text-align: left; padding-right: 1.4rem; }
+.detailTitle { font-size: clamp(1.25rem, 2vw, 1.5rem); line-height: 1.3; font-weight: 650; overflow-wrap: anywhere; }
+.detail :global([aria-label="Invitation actions"]) { margin-top: .45rem; }
 .detailSource, .detailDescription { font-size: .83rem; line-height: 1.55; overflow-wrap: anywhere; white-space: pre-wrap; }
 .detailSource { color: var(--app-secondary-label); }
-.join { display: inline-flex; align-items: center; min-height: 44px; color: var(--app-accent); font-size: .85rem; }
+.join { display: inline-flex; align-items: center; width: fit-content; min-height: 44px; color: var(--app-accent); font-size: .9rem; font-weight: 550; }
 .overlapDetail { display: grid; gap: .55rem; padding: .8rem; background: var(--app-warning-surface); border: 1px solid var(--app-warning-border); border-radius: .75rem; }
 .overlapDetail h3 { display: flex; align-items: center; gap: .4rem; font-size: .88rem; font-weight: 650; }
 .overlapItem { padding: .45rem 0; border-top: 1px solid var(--app-warning-border); font-size: .8rem; }

@@ -27557,7 +27557,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_google_drive_adapter.py",
       "symbol": null,
-      "value": 843
+      "value": 833
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -84485,7 +84485,7 @@
         "rank": 0,
         "before": null,
         "after": 99,
-        "source_sha256": "e44e119dd5f94678ba6f121238fb7a76b881d6d4d6308e4c5577708cbeb1a1ec",
+        "source_sha256": "71940d58346c0fe672163f7c0dca33701e03059bdc96b9480f0ba62fb5d8c3b1",
         "reviewer": "registration_schema_review",
         "review": "One real PostgreSQL durable lifecycle suite covers sealed AAD substitution, invalidation, leases, owner overrides, pruning and rollback. Joined-authority test mutates a separate transaction with unchanged-authority positive control. Added completed-to-partial-refresh case protects readiness without resetting historical completion."
       },
@@ -84637,8 +84637,8 @@
         "key": "module_size|consent-protocol/tests/services/test_google_drive_adapter.py||module exceeds the advisory operon budget",
         "rank": 0,
         "before": 760,
-        "after": 843,
-        "source_sha256": "02df53ff7ec9b3adef6a937d4b81863743ac6f3aeb6d579c5fdf07dd46d6fc06",
+        "after": 833,
+        "source_sha256": "2fd22f30446df2a931b37061d73d5c9ddd70796dd93f992cadb995983779127c",
         "reviewer": "registration_schema_review",
         "review": "One HTTP boundary suite validates actual Range/media/encoding headers with a stream that fails if its tail is consumed; invalid partial ranges, compression, native export and wider limits are negative controls."
       },
@@ -84647,7 +84647,7 @@
         "rank": 0,
         "before": null,
         "after": 796,
-        "source_sha256": "e44e119dd5f94678ba6f121238fb7a76b881d6d4d6308e4c5577708cbeb1a1ec",
+        "source_sha256": "71940d58346c0fe672163f7c0dca33701e03059bdc96b9480f0ba62fb5d8c3b1",
         "reviewer": "registration_schema_review",
         "review": "One real PostgreSQL durable lifecycle suite covers sealed AAD substitution, invalidation, leases, owner overrides, pruning and rollback. Joined-authority test mutates a separate transaction with unchanged-authority positive control. Added completed-to-partial-refresh case protects readiness without resetting historical completion."
       },
@@ -84696,6 +84696,8 @@
         "reviewer": "packets_ui_evidence",
         "review": "One coordinator fixture protects exclusive bounded groups dispatch and private-outcome redaction; related aggregate contract cases remain together."
       }
-    ]
+    ],
+    "follow_up_main_revision": "9e8905d1d7",
+    "follow_up_review": "Read-only schema/test review retains MCP409 and moves only unreleased Drive migration to410. Adapter prefix test bodies are unchanged after main metadata-fixture extraction and named Unicode cases. PostgreSQL registration bound follows the migration filename; no wider size ceiling is introduced."
   }
 }

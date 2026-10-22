@@ -33,7 +33,7 @@ from tests.services.test_drive_ingestion import (
     lifecycle,
 )
 
-MIGRATION = Path(__file__).resolve().parents[2] / "db" / "migrations" / "409_drive_group_index.sql"
+MIGRATION = Path(__file__).resolve().parents[2] / "db" / "migrations" / "410_drive_group_index.sql"
 VERSION = "0123456789ab"
 MOMENT = datetime(2026, 5, 2, 9, 30, tzinfo=UTC)
 
@@ -308,7 +308,7 @@ async def test_the_migration_replays_and_the_database_refuses_inconsistent_rows(
         ).scalar()
     for lane in ("uat_integrated_schema", "prod_core_schema", "dev_minimum_schema"):
         contract = json.loads((MIGRATION.parents[1] / "contracts" / f"{lane}.json").read_text())
-        assert contract["expected_migration_version"] >= 368
+        assert contract["expected_migration_version"] >= int(MIGRATION.name.split("_", 1)[0])
         assert "invalidate_drive_group_index" in contract["required_functions"]
         for table, columns in actual.items():
             assert columns <= set(contract["required_tables"][table])
@@ -597,7 +597,7 @@ async def test_behavioral_rollback_preserves_owner_entries_and_invalidates_infli
         connection.execute(text("UPDATE drive_group_index SET group_source='owner'"))
     stored = rows(groups)
     inflight = await groups.claim(user_id="owner")
-    rollback = MIGRATION.parent / "rollback" / "409_drive_group_index.rollback.sql"
+    rollback = MIGRATION.parent / "rollback" / "410_drive_group_index.rollback.sql"
     for _ in range(2):
         with groups.db.engine.begin() as connection:
             connection.exec_driver_sql(

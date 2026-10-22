@@ -155,6 +155,8 @@ tests/test_mcp_log_redaction.py
 
 tests/quality/test_byok_encryption.py
 tests/test_developer_api_routes.py
+tests/test_developer_oauth.py
+tests/test_mcp_oauth_registration.py
 tests/test_developer_commerce_contracts.py
 # Consumer-paid scope admission and accounting: real isolated PostgreSQL,
 # signed provider receipts, and OIDC-only reconciliation through rollback.

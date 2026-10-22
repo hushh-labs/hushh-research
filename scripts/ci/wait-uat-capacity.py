@@ -15,12 +15,13 @@ import importlib.util
 import json
 import os
 import re
-import signal
 import subprocess
 import sys
 import time
 from pathlib import Path
 from typing import Any
+
+from process_group import command_group
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -70,39 +71,26 @@ def command(
 ) -> subprocess.CompletedProcess[str]:
     timeout = remaining_query_seconds()
     try:
-        process = subprocess.Popen(
-            args,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=env,
-            start_new_session=True,
-        )
-        try:
-            stdout, stderr = process.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired as exc:
-            # These descendants belong to this query, including nested gcloud/git.
+        with command_group(
+            args, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
+        ) as (process, stop):
             try:
-                os.killpg(process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            try:
-                process.communicate(timeout=0.5)
-            except subprocess.TimeoutExpired:
+                stdout, stderr = process.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired as exc:
+                stop()
                 try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                process.communicate(timeout=0.5)
-            raise AdmissionError(
-                "UAT admission query timed out; no deployment authorized"
-            ) from exc
-        return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+                    process.communicate(timeout=0.5)
+                except subprocess.TimeoutExpired:
+                    stop(force=True)
+                    process.communicate(timeout=0.5)
+                raise AdmissionError(
+                    "UAT admission query timed out; no deployment authorized"
+                ) from exc
+            return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
     except OSError as exc:
         raise AdmissionError(
             f"UAT admission query could not complete: {type(exc).__name__}"
         ) from exc
-
 
 def require_success(result: subprocess.CompletedProcess[str], operation: str) -> str:
     if result.returncode:

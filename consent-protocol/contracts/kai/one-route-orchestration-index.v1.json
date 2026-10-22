@@ -1416,7 +1416,7 @@
       "context_policy": "suppress",
       "voice_playbook": {
         "playbook_id": "route.oauth.authorize",
-        "purpose": "Help the person approve or cancel a verified MCP connector authorization request.",
+        "purpose": "Help the person review the MCP client identifier and return host before authorizing or cancelling the connection.",
         "screen": "app",
         "entry_cue": "Review the connector request, then authorize it or cancel.",
         "proactivity": "ambient",

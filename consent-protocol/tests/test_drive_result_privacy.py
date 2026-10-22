@@ -212,7 +212,7 @@ def test_incomplete_confirmation_never_reports_successful_finish():
         projection.project(RunFinishedEvent(thread_id="thread", run_id="run"))
 
 
-@pytest.mark.parametrize("delta", ["invalid-json", "x" * 64_001])
+@pytest.mark.parametrize("delta", ["invalid-json", "x" * 64_001], ids=["invalid", "oversized"])
 def test_invalid_confirmation_fails_without_exposing_input(delta):
     projection = ConfirmationWireProjection()
     projection.project(

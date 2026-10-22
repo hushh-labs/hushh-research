@@ -39,9 +39,15 @@ export REPO_JSON PROTECTION_JSON RULESETS_JSON RULESET_LIST_JSON POLICY_FILE BRA
 python3 - "$REQUIRED_CHECKS" "$MIN_APPROVALS" "$REQUIRE_STRICT" "$REQUIRE_MERGE_QUEUE" "$REQUIRE_CONVERSATION_RESOLUTION" "$REPO" "$BRANCH" "$POLICY_KEY" <<'PY'
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+# Pin native subprocesses to the PATH-resolved CLI, including Windows .cmd fixtures.
+gh_executable = shutil.which("gh")
+if not gh_executable:
+    raise SystemExit("GitHub CLI (gh) is required to verify live branch protection")
 
 required_checks_arg, expected_approvals_arg, require_strict_arg, require_merge_queue_arg, require_conversation_resolution_arg, repo, branch, policy_key_arg = sys.argv[1:]
 policy = json.loads(Path(os.environ["POLICY_FILE"]).read_text(encoding="utf-8"))
@@ -142,7 +148,7 @@ for ruleset in ruleset_list:
         continue
     detail = json.loads(
         subprocess.run(
-            ["gh", "api", f"repos/{repo}/rulesets/{ruleset_id}"],
+            [gh_executable, "api", f"repos/{repo}/rulesets/{ruleset_id}"],
             check=True,
             capture_output=True,
             text=True,
@@ -158,7 +164,7 @@ for ruleset in ruleset_list:
             if actor_id:
                 team_detail = json.loads(
                     subprocess.run(
-                        ["gh", "api", f"organizations/140115870/team/{actor_id}"],
+                        [gh_executable, "api", f"organizations/140115870/team/{actor_id}"],
                         check=True,
                         capture_output=True,
                         text=True,
@@ -173,7 +179,7 @@ for ruleset in ruleset_list:
                 if team_slug:
                     memberships = json.loads(
                         subprocess.run(
-                            ["gh", "api", "--paginate", "--slurp", f"organizations/140115870/team/{actor_id}/members"],
+                            [gh_executable, "api", "--paginate", "--slurp", f"organizations/140115870/team/{actor_id}/members"],
                             check=True,
                             capture_output=True,
                             text=True,
@@ -202,7 +208,7 @@ for ruleset in ruleset_list:
                 for expected_login in expected_queue_bypass:
                     user_detail = json.loads(
                         subprocess.run(
-                            ["gh", "api", f"users/{expected_login}"],
+                            [gh_executable, "api", f"users/{expected_login}"],
                             check=True,
                             capture_output=True,
                             text=True,
@@ -226,7 +232,7 @@ if missing_queue_bypass and expected_queue_bypass_team_slug in merge_queue_bypas
     # state as advisory. Missing, inaccessible or inconsistent membership still
     # fails, as do every extra actor and all other protection checks below.
     actor = json.loads(subprocess.run(
-        ["gh", "api", "user"], check=True, capture_output=True, text=True,
+        [gh_executable, "api", "user"], check=True, capture_output=True, text=True,
     ).stdout).get("login")
     if actor not in expected_queue_bypass or actor not in expected_queue_team_members:
         errors.append("authenticated operator is not an active governed queue-team member")
@@ -234,7 +240,7 @@ if missing_queue_bypass and expected_queue_bypass_team_slug in merge_queue_bypas
         organization = repo.split("/", 1)[0]
         for login in missing_queue_bypass:
             result = subprocess.run(
-                ["gh", "api", f"orgs/{organization}/teams/{expected_queue_bypass_team_slug}/memberships/{login}"],
+                [gh_executable, "api", f"orgs/{organization}/teams/{expected_queue_bypass_team_slug}/memberships/{login}"],
                 capture_output=True, text=True,
             )
             if result.returncode != 0:

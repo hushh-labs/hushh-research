@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api import developer_auth
-from api.routes import developer
+from api.routes import developer, developer_oauth
 from hushh_mcp.services.developer_oauth_service import (
     DeveloperOAuthService,
     OAuthClient,
@@ -126,7 +126,7 @@ def test_redirect_uri_validation_is_exact_and_safe():
 def test_authorize_rejects_non_s256_and_unregistered_redirect(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
-    monkeypatch.setattr(developer, "DeveloperOAuthService", _OAuthService)
+    monkeypatch.setattr(developer_oauth, "DeveloperOAuthService", _OAuthService)
     client = TestClient(_app())
     base = {
         "response_type": "code",
@@ -137,7 +137,7 @@ def test_authorize_rejects_non_s256_and_unregistered_redirect(monkeypatch):
     }
     response = client.get("/oauth/authorize", params={**base, "code_challenge_method": "plain"})
     assert response.status_code == 400
-    assert response.json()["detail"]["error"] == "unsupported_response_type"
+    assert response.json()["error"] == "unsupported_response_type"
     response = client.get(
         "/oauth/authorize",
         params={
@@ -147,7 +147,7 @@ def test_authorize_rejects_non_s256_and_unregistered_redirect(monkeypatch):
         },
     )
     assert response.status_code == 400
-    assert response.json()["detail"]["error"] == "invalid_request"
+    assert response.json()["error"] == "invalid_request"
 
 
 def test_pkce_values_must_be_url_safe_before_storage():
@@ -167,13 +167,13 @@ def test_pkce_values_must_be_url_safe_before_storage():
 def test_authorization_approval_and_pkce_exchange_contract(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
-    monkeypatch.setattr(developer, "DeveloperOAuthService", _OAuthService)
+    monkeypatch.setattr(developer_oauth, "DeveloperOAuthService", _OAuthService)
     client = TestClient(_app())
     response = client.post("/oauth/authorize/oar_0123456789abcdef0123456789abcdef/approve")
     assert response.status_code == 200
     assert (
         response.json()["redirect_uri"]
-        == "https://connector.example.test/callback?code=hca_test_code"
+        == "https://connector.example.test/callback?code=hca_test_code&iss=http%3A%2F%2Ftestserver"
     )
 
     bad = client.post(
@@ -188,7 +188,7 @@ def test_authorization_approval_and_pkce_exchange_contract(monkeypatch):
         },
     )
     assert bad.status_code == 400
-    assert bad.json()["detail"]["error"] == "invalid_grant"
+    assert bad.json()["error"] == "invalid_grant"
 
     good = client.post(
         "/oauth/token",
@@ -209,7 +209,7 @@ def test_authorization_approval_and_pkce_exchange_contract(monkeypatch):
 def test_client_credentials_is_advertised_and_returns_no_refresh_token(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
-    monkeypatch.setattr(developer, "DeveloperOAuthService", _OAuthService)
+    monkeypatch.setattr(developer_oauth, "DeveloperOAuthService", _OAuthService)
     client = TestClient(_app())
     metadata = client.get("/.well-known/oauth-authorization-server")
     assert metadata.status_code == 200
@@ -348,7 +348,7 @@ def test_client_policy_update_preserves_secret_and_existing_tokens(monkeypatch):
 def test_refresh_replay_and_revoke_contract(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
-    monkeypatch.setattr(developer, "DeveloperOAuthService", _OAuthService)
+    monkeypatch.setattr(developer_oauth, "DeveloperOAuthService", _OAuthService)
     client = TestClient(_app())
     replay = client.post(
         "/oauth/token",
@@ -360,7 +360,7 @@ def test_refresh_replay_and_revoke_contract(monkeypatch):
         },
     )
     assert replay.status_code == 400
-    assert replay.json()["detail"]["error"] == "invalid_grant"
+    assert replay.json()["error"] == "invalid_grant"
     revoke = client.post(
         "/oauth/revoke",
         data={"client_id": "hco_demo_client", "client_secret": "secret", "token": "hdo_rt_old"},
@@ -420,3 +420,5 @@ def test_oauth_migration_is_in_the_developer_release_lane():
     assert uat["expected_migration_version"] >= 109
     assert "109_oauth_client_credentials_consent_execution.sql" in manifest["ordered_migrations"]
     assert "109_oauth_client_credentials_consent_execution.sql" in manifest["groups"]["developer"]
+    assert "409_mcp_oauth_client_registration.sql" in manifest["groups"]["developer"]
+    assert "409_mcp_oauth_client_registration.sql" in manifest["ordered_migrations"]

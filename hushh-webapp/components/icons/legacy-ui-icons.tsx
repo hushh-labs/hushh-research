@@ -3,6 +3,7 @@
 import * as Phosphor from "@phosphor-icons/react";
 import { forwardRef } from "react";
 import { AccentedKeyIcon } from "./ui/accented-key-icon";
+import { AccentedShareNetworkIcon } from "./ui/accented-share-network-icon";
 import { AppleTrashIcon } from "./ui/trash-icon";
 import { PeoplePairIcon } from "./ui/people-action-icons";
 import type { Icon, IconProps, IconWeight } from "@phosphor-icons/react";
@@ -234,7 +235,7 @@ export const StopSquare = createCanonicalIcon(Phosphor.Square, "fill");
 export const SendHorizontal = createCanonicalIcon(Phosphor.PaperPlaneRight);
 export const Settings = createCanonicalIcon(Phosphor.GearSix);
 export const Settings2 = createCanonicalIcon(Phosphor.Sliders);
-export const Share2 = createCanonicalIcon(Phosphor.ShareNetwork);
+export const Share2 = AccentedShareNetworkIcon;
 export const Shield = createCanonicalIcon(Phosphor.Shield);
 export const ShieldAlert = createCanonicalIcon(Phosphor.ShieldWarning);
 export const ShieldCheck = createCanonicalIcon(Phosphor.ShieldCheck);

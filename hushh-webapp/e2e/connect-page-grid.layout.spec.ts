@@ -8,7 +8,8 @@ import {
   productFontStyle,
   stripAppFontFaces,
 } from "./fixtures/product-font";
-import { assertNeutralFocusedCircleType } from "./helpers/circle-type-focus";
+import { assertThinFocusedCircleType } from "./helpers/circle-type-focus";
+import { assertConnectionRemoveDialog } from "./helpers/connection-remove-dialog";
 
 /** Production Connect page against synthetic identity/network boundaries. */
 const WIDTHS = [320, 375, 393, 430, 640, 768, 1440] as const;
@@ -279,15 +280,7 @@ for (const dark of [false, true]) {
       expect(geometry[1].top).toBeGreaterThan(geometry[0].top);
       expect(geometry.every((r) => Math.abs(r.width - geometry[0].width) <= 1)).toBe(true);
       await page.getByRole("tab", { name: /My connections/ }).click();
-      await page.getByRole("button", { name: "Options for Alex Chen", exact: true }).click();
-      await page.getByRole("button", { name: /Remove connection with Alex Chen/ }).click();
-      const dialog = page.getByRole("alertdialog");
-      await expect(dialog).toBeVisible();
-      await expect(dialog.getByRole("button", { name: "Remove", exact: true })).toBeVisible();
-      const bounds = await dialog.boundingBox();
-      expect(bounds).not.toBeNull();
-      expect(Math.abs(bounds!.x + bounds!.width / 2 - width / 2)).toBeLessThan(2);
-      await page.getByRole("button", { name: "Cancel", exact: true }).click();
+      await assertConnectionRemoveDialog(page, "Alex Chen", width);
       await page.getByRole("tab", { name: "Find people", exact: true }).click();
       await expect(page.locator("#connect-my-connections-panel")).toBeHidden();
       await page.getByRole("tab", { name: /My connections/ }).click();
@@ -680,7 +673,7 @@ for (const width of [393, 1440]) {
       await expect(form.getByRole("radio", { name: "Finance", exact: true })).toBeVisible();
       await form.getByRole("radio", { name: "Other", exact: true }).click();
       const type = form.getByRole("textbox", { name: "Type name (optional)" });
-      await assertNeutralFocusedCircleType(type);
+      await assertThinFocusedCircleType(type);
       await expect(form.getByText("Type name (optional)", { exact: true })).toHaveCSS("font-size", "15px");
       const error = form.getByText("Enter a Circle name.", { exact: true });
       await expect(error).toHaveCSS("font-size", "12px");
