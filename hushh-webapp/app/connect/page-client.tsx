@@ -11,7 +11,6 @@ import {
   ChevronDown,
   Loader2,
   RefreshCw,
-  Trash2,
   MoreHorizontal,
   Search as SearchIcon,
   X,
