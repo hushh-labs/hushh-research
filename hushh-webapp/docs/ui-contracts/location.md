@@ -1,7 +1,7 @@
 # Location UI Contract
 
 Status: **Implementation complete / acceptance pending**, 22 October 2026.
-Initial full-audit main baseline: `b34d1e93d291cfa106b08893a9587973867044f2`. Latest shared-owner composition review: `9e8905d1d770719cb0af1a093f53da790115d0d1`; see [verification](./location-verification.md) for bounded refreshes and evidence provenance.
+Initial full-audit main baseline: `b34d1e93d291cfa106b08893a9587973867044f2`. Latest composition review: `901838b512c426656c30a87c4f61f09760d1b09e`; see [verification](./location-verification.md) for bounded refreshes and evidence provenance.
 The fresh mounted inventory and typography evidence supersede the earlier
 `47026022e873ac03f62423eda5122e4f3f117945` source review; unchanged functional chapters remain below.
 Owner: frontend architecture with Location, onboarding, consent, native and
