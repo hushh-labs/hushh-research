@@ -287,19 +287,23 @@ test("Member-action Drawer uses the solid dark task canvas through its confirmat
   await page.getByRole("button").click();
   const drawer = page.locator('[data-task-surface="drawer"]');
   await expect(drawer).toBeVisible();
+  await expect(drawer.getByRole("menu")).toHaveCount(0);
+  const share = drawer.getByRole("button", { name: "Share location with Asha" });
+  await expect(share).toBeVisible();
   const colors = await drawer.evaluate(node => {
-    const menu = node.querySelector('[role="menu"]')!;
-    return { canvas: getComputedStyle(node).backgroundColor, menu: getComputedStyle(menu).backgroundColor,
-      label: getComputedStyle(menu.querySelector('[role="menuitem"]')!).color,
+    const share = node.querySelector('[aria-label="Share location with Asha"]')!;
+    return { canvas: getComputedStyle(node).backgroundColor,
+      label: getComputedStyle(share).color,
       titleWeight: getComputedStyle(node.querySelector('[data-slot="drawer-title"]')!).fontWeight };
   });
-  expect(colors.menu).toBe(colors.canvas);
-  expect(colors.label).not.toBe(colors.menu);
+  expect(colors.canvas).not.toBe("rgba(0, 0, 0, 0)");
+  expect(colors.label).not.toBe(colors.canvas);
   expect(colors.titleWeight).toBe("600");
   await drawer.getByRole("button", { name: "Remove from Circle", exact: true }).click();
   await expect(drawer.getByRole("button", { name: "Remove", exact: true })).toBeVisible();
+  await expect(drawer).toHaveCSS("background-color", colors.canvas);
   await drawer.getByRole("button", { name: "Cancel", exact: true }).click();
-  await expect(drawer.getByRole("menuitem", { name: "Share location", exact: true })).toBeVisible();
+  await expect(share).toBeVisible();
   await expect(page.getByRole("alertdialog")).toHaveCount(0);
 });
 

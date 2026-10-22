@@ -71,15 +71,22 @@ SELECT DISTINCT c.commit_id::text AS action_id, c.created_at AS occurred_at,
   e.metadata->'provenance'->>'authorization_mode' AS authorization_mode,
   e.metadata->'provenance'->>'writer_id' AS writer_id
 FROM pkm_domain_commits c
-JOIN pkm_events e ON e.user_id = c.user_id AND e.domain = c.domain
-  AND e.operation_type = 'content_write'
-  AND e.metadata->>'data_version' = c.result_content_revision::text
+-- Keep the event lookup correlated to the commit's revision. In a generic
+-- 25-owner plan, flattening this join can scan an owner's entire audit history.
+-- OFFSET 0 is a planner boundary, not a row limit; retain every matching event.
+CROSS JOIN LATERAL (
+  SELECT metadata FROM pkm_events e
+  WHERE e.user_id = c.user_id AND e.domain = c.domain
+    AND e.operation_type = 'content_write'
+    AND e.metadata->>'data_version' = c.result_content_revision::text
+    AND e.metadata->'provenance'->>'authorization_mode' = 'owner_confirmed'
+    AND NULLIF(BTRIM(e.metadata->'provenance'->>'mutation_plan_id'), '') IS NOT NULL
+    AND NULLIF(BTRIM(e.metadata->'provenance'->>'confirmation_receipt_id'), '') IS NOT NULL
+  OFFSET 0
+) e
 WHERE c.user_id = $1 AND c.commit_kind = 'mutation'
   AND c.result_content_revision IS NOT NULL
   AND c.created_at >= $2 AND c.created_at <= $3
-  AND e.metadata->'provenance'->>'authorization_mode' = 'owner_confirmed'
-  AND NULLIF(BTRIM(e.metadata->'provenance'->>'mutation_plan_id'), '') IS NOT NULL
-  AND NULLIF(BTRIM(e.metadata->'provenance'->>'confirmation_receipt_id'), '') IS NOT NULL
 ORDER BY occurred_at DESC, action_id LIMIT 101
 """
 CALENDAR_SQL = """

@@ -2546,12 +2546,6 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   height: 44px !important;
 }
 
-.profile-pane-header--inner :is(button, [data-slot="sheet-title"]) svg {
-  width: 17px;
-  height: 17px;
-  stroke-width: 1.8;
-}
-
 .profile-pane-close,
 .app-side-pane-close,
 [data-agent-history-drawer] [data-agent-history-close] {
@@ -2560,7 +2554,7 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   height: 44px !important;
   border: 1px solid transparent !important;
   background: var(--profile-pane-surface-soft) !important;
-  color: var(--ios-account-secondary-label) !important;
+  color: var(--foreground) !important;
   transition:
     background-color 180ms ease,
     color 180ms ease,

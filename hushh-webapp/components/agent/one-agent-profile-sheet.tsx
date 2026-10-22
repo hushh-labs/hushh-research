@@ -392,7 +392,7 @@ function WebOneAgentProfile({
         <SheetClose asChild>
           <button type="button" aria-label="Close One profile"
             className="app-side-pane-close absolute right-5 z-10 inline-flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-            <X className="size-4" aria-hidden />
+            <X className="size-[22px]" aria-hidden />
           </button>
         </SheetClose>
         <SheetDescription className="sr-only">One profile and activity.</SheetDescription>

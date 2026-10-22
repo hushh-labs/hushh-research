@@ -52,9 +52,9 @@ export function HistoryConnectorsPage({ open, native, owner, context, onBack, on
       event.preventDefault(); event.stopPropagation(); back();
     }}>
     <header className="flex min-h-14 shrink-0 items-center gap-2 px-4 py-3">
-      <ShellActionSurface ref={backButton} aria-label={connector ? "Back to connectors" : "Back to chats"} onClick={back}><ArrowLeftIcon className="size-5" /></ShellActionSurface>
+      <ShellActionSurface ref={backButton} className="size-11 text-foreground" aria-label={connector ? "Back to connectors" : "Back to chats"} onClick={back}><ArrowLeftIcon className="size-[22px]" /></ShellActionSurface>
       <h2 className="min-w-0 flex-1 truncate text-lg font-semibold">{title}</h2>
-      <ShellActionSurface aria-label="Close connectors" onClick={onClose}><XIcon className="size-5" /></ShellActionSurface>
+      <ShellActionSurface className="size-11 text-foreground" aria-label="Close connectors" onClick={onClose}><XIcon className="size-[22px]" /></ShellActionSurface>
     </header>
     <div data-history-connectors-scroll className="min-h-0 flex-1 overflow-y-auto overscroll-contain">{content}</div>
   </div>;

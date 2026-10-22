@@ -20,6 +20,7 @@ import { AddPeopleAction } from "@/components/app-ui/add-people-action";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import { INPUT_CLASSNAME } from "@/components/ui/input";
+import { InputGroup, InputGroupInput } from "@/components/ui/input-group";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -925,9 +926,11 @@ export function CreateCircleFlowBody({ model }: { model: CreateCircleFlowModel }
           {model.customTypesSupported && kind === "other" ? (
             <label className="flex flex-col gap-2">
               <span className="ui-text-form-label">Type name (optional)</span>
-              <input aria-label="Type name (optional)" className={INPUT_CLASSNAME} value={model.customTypeLabel} maxLength={MAX_CIRCLE_TYPE_LABEL_LENGTH}
-                placeholder="For example, Finance" onChange={event => model.setCustomTypeLabel(event.target.value)}
-                aria-invalid={Boolean(model.typeError)} aria-describedby="circle-custom-type-help" />
+              <InputGroup className="h-11 !bg-[color:var(--app-neutral-fill)] shadow-none">
+                <InputGroupInput aria-label="Type name (optional)" className="h-full" value={model.customTypeLabel} maxLength={MAX_CIRCLE_TYPE_LABEL_LENGTH}
+                  placeholder="For example, Finance" onChange={event => model.setCustomTypeLabel(event.target.value)}
+                  aria-invalid={Boolean(model.typeError)} aria-describedby="circle-custom-type-help" />
+              </InputGroup>
               <span id="circle-custom-type-help" className={cn(connectStyles.circleCreateDescription, model.typeError ? "text-destructive" : "text-muted-foreground")}>
                 {model.typeError || "Reuse this type for other circles. You can keep up to 3 custom types."}
               </span>
