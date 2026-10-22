@@ -69,8 +69,8 @@ Production owners include the Location page, map/public route clients, onboardin
 - `hushh-webapp/components/one-location/redesign/sos-panel.tsx`
 - `hushh-webapp/components/one-location/saved-locations-section.tsx`
 - `hushh-webapp/components/one-location/saved-places-banner.tsx`
-- `hushh-webapp/contracts/ui-review/back/7c2cad38a70ad19f3cd5bb3de5e91a158755516bce0a74f1af29cf0a25f7c021.json`
-- `hushh-webapp/contracts/ui-review/search/5f0f9ae58b1f0b4227024cd90dfdc9f3f6bab9dc66e6e97a53eb978a9f5d3b75.json`
+- `hushh-webapp/contracts/ui-review/back/4b99d9111c48ffdf722e5e599a0b481e2eacc74f004a85193120de3e833ecb17.json`
+- `hushh-webapp/contracts/ui-review/search/6742669baedb66e618f092f01b67d7e1eef01d89143073cd6eae3651cdc19b65.json`
 - `hushh-webapp/docs/one-location-now-and-map.md`
 - `hushh-webapp/docs/ui-contracts/README.md`
 - `hushh-webapp/docs/ui-contracts/location-action-coverage.md`
@@ -212,3 +212,5 @@ The final freshness review incorporates main `38082590d287830fef4dfdf7e3f25b6ab4
 The next freshness review incorporates main `4da24d00ab79039422699209ffe473b0b532afb6`, including upstream Nearby discovery, strict Café/Stays categories and incomplete-discovery recovery. The inherited API/service behavior remains unchanged relative to main. This PR adds only the matching row-description and compact-action typography hooks to the new warning and retry text. The ledger records 1144 text/a11y sites and extends the existing K.retry contract; the action count remains 163. Old Nearby captures do not cover the new branch; fresh owner verification and supplemental mounted captures are recorded separately. Root Now/Connect/header and Circle member screenshot owners remain unchanged.
 
 Supplemental Nearby evidence (task artifact `location-nearby-main-refresh`): 12 actual mounted-route/sheet captures at360/393/430/768/1024/1440, light/dark,100% zoom, with the refreshed shipped stylesheet. All24 new warning/retry observations match Plus Jakarta Sans, normal tracking,12px/18px with weight400/550 respectively; both texts are in view in every capture. Zero page/interaction errors or outer horizontal overflow. Source16e1c1c4326b3435d3b9c13e0b613ad74a888065 is bound by metadata and stylesheet hashes. Owner verification passed89 Nearby/service/category cases,9 duration-mapping cases and27 WebKit layout cases;134 focused backend cases also pass against the unchanged inherited backend tree, which exactly matches green upstream PR8348. The two new ledger records carry these observations; real transport/provider/native acceptance remains pending.
+
+The subsequent combined-source review incorporates main `e9a02af1fc8f886a3323f5e3a2f6fc428d712198`, including inherited MCP OAuth registration, Dev runtime recovery and CI portability. Location render owners and global typography remain unchanged; these upstream changes add no backend or business-logic delta to this PR. Both Back and Search source receipts are refreshed because the inherited OAuth UI changes their input graphs. The dedicated Back-only CI job does not replace the broader local/Web Core verification. Exact backend API, MCP, database and dependency identities are compared with green upstream PR8350; fresh bounded composition checks and exact-head hosted validation remain distinct release evidence.
