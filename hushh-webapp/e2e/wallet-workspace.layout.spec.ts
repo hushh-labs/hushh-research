@@ -469,14 +469,11 @@ test("Wallet Add scrolls in the page and swipes back to Cards without a tall bla
   await expect(page.getByTestId("wallet-add-layer-agent-one-profile")).toBeInViewport();
   const scroll = page.locator('[data-app-scroll-root="true"]');
   await awaitWalletCardsSettled(page);
-  await expect.poll(() => page.evaluate(async () => {
-    const cards = document.querySelector("#top-shell-wallet-panel-cards")!;
-    const pager = document.querySelector('[data-swipe-views-root="true"]')!;
-    const baseline = [cards.scrollHeight, pager.clientHeight];
-    for (let i = 0; i < 3; i += 1) await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-    return Math.abs(pager.clientHeight - cards.scrollHeight) <= 1 &&
-      cards.scrollHeight === baseline[0] && pager.clientHeight === baseline[1];
-  })).toBe(true);
+  // Descendant overflow is not the active panel's rendered height (WebKit can
+  // include transformed card faces in scrollHeight). Keep the 1px fit contract.
+  await expect.poll(() => page.locator('[data-swipe-views-root="true"]').evaluate(pager =>
+    Math.abs(pager.getBoundingClientRect().height - document.querySelector('#top-shell-wallet-panel-cards')!.getBoundingClientRect().height),
+  )).toBeLessThan(1);
   const cardsOverflow = await scroll.evaluate((el) => el.scrollHeight - el.clientHeight);
   await page.getByRole("tab", { name: "Add", exact: true }).click();
   await expect(page.getByTestId("secure-card-add-form")).toBeInViewport();

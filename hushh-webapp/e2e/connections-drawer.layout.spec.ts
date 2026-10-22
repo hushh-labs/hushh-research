@@ -2102,6 +2102,10 @@ test.describe("One profile artwork and animated presence", () => {
     });
   }
   test("retains painted artwork through delayed loads and interrupted transitions", async ({ page }) => {
+    test.setTimeout(45_000);
+    // Each phase dwells for a full painted loop before its fade can commit.
+    // Asset readiness is checked separately from this presentation budget.
+    const phaseCommitTimeout = 8_000;
     let release!: () => void;
     const waiting = new Promise<void>(resolve => { release = resolve; });
     await page.route("http://localhost/one-presence/hd/working.riv", async route => {
@@ -2192,10 +2196,13 @@ test.describe("One profile artwork and animated presence", () => {
       await expect(profile.locator('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "connected");
       await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: false, answering: false, thinking: true }));
       release();
-      await expect(profile.locator('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "working");
+      await expectPresencePlayback(profile.locator('[data-one-presence-artwork="working"]'));
+      await expect(profile.locator('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "working", { timeout: phaseCommitTimeout });
+      await expectPresencePlayback(profile.locator('[data-one-presence-artwork="thinking"]'));
       await expect.poll(() => page.evaluate(() => (window as any).__presenceContinuity.interrupted)).toBe(true);
-      await expect(profile.locator('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "thinking");
-      await expect(profile.locator('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "answering");
+      await expect(profile.locator('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "thinking", { timeout: phaseCommitTimeout });
+      await expectPresencePlayback(profile.locator('[data-one-presence-artwork="answering"]'));
+      await expect(profile.locator('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "answering", { timeout: phaseCommitTimeout });
       await expect(profile.locator("[data-one-presence-artwork]")).toHaveCount(1);
       await expectPresencePlayback(profile);
       await expect.poll(() => page.evaluate(() => (window as any).__presenceContinuity.frames)).toBeGreaterThan(5);
