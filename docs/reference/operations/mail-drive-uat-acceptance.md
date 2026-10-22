@@ -340,6 +340,11 @@ ENVIRONMENT=uat HUSSH_RELEASE_ENVIRONMENT=uat GCP_PROJECT_ID=hushh-pda-uat \
   python scripts/ops/reconcile_google_drive_uat_connector.py
 ```
 
+Registry reconciliation runs with the attested database configuration before
+application security profiles are hydrated. Its fixed OAuth vocabulary comes
+from an import-safe contract; it does not require application signing or vault
+keys and does not initialize the OAuth execution runtime.
+
 The first command can create or reactivate only the reviewed UAT row; the
 second is read-only verification. Both require the canonical UAT environment,
 project, Cloud SQL instance and server-derived database identity. They accept

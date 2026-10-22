@@ -27,6 +27,7 @@ tests/test_uat_connector_rollout_contract.py
 tests/services/test_external_connector_registry_ownership.py
 tests/services/test_external_connector_dev_overlay.py
 tests/test_drive_uat_registry_provisioning.py
+tests/test_drive_registry_import_boundary.py
 tests/services/test_google_drive_adapter.py
 tests/services/test_drive_document_selection.py
 tests/services/test_drive_ingestion.py

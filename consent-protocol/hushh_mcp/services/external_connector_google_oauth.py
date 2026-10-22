@@ -31,18 +31,38 @@ from hushh_mcp.services.external_connector_credentials_service import (
 )
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
 from hushh_mcp.services.google_drive_adapter import (
-    DRIVE_FILE_SCOPE,
     DRIVE_POLICY,
     LIVE_POLICY_HASH,
     GoogleDriveAdapter,
 )
+from hushh_mcp.services.google_drive_oauth_contract import (
+    AUTHORIZE_URL as AUTHORIZE_URL,
+)
+from hushh_mcp.services.google_drive_oauth_contract import (
+    CONNECTOR_ID as CONNECTOR_ID,
+)
+from hushh_mcp.services.google_drive_oauth_contract import (
+    DRIVE_FILE_SCOPE as DRIVE_FILE_SCOPE,
+)
+from hushh_mcp.services.google_drive_oauth_contract import (
+    LIVE_DRIVE_SCOPE as LIVE_DRIVE_SCOPE,
+)
+from hushh_mcp.services.google_drive_oauth_contract import (
+    LIVE_SCOPES as LIVE_SCOPES,
+)
+from hushh_mcp.services.google_drive_oauth_contract import (
+    REGISTRY_SCOPES as REGISTRY_SCOPES,
+)
+from hushh_mcp.services.google_drive_oauth_contract import (
+    REVOKE_URL as REVOKE_URL,
+)
+from hushh_mcp.services.google_drive_oauth_contract import (
+    SCOPES as SCOPES,
+)
+from hushh_mcp.services.google_drive_oauth_contract import (
+    TOKEN_URL as TOKEN_URL,
+)
 from hushh_mcp.services.owner_placement_guard import admit_hub_content
-
-CONNECTOR_ID = "google_drive"
-AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
-TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105 - public provider URL, not a token
-REVOKE_URL = "https://oauth2.googleapis.com/revoke"
-SCOPES = ("openid", "email", DRIVE_FILE_SCOPE)
 
 
 def registered_redirect_uris(connector: Any) -> tuple[str, ...]:
@@ -62,9 +82,6 @@ def registered_redirect_uris(connector: Any) -> tuple[str, ...]:
     return registered if local in registered else (*registered, local)
 
 
-LIVE_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
-LIVE_SCOPES = ("openid", "email", LIVE_DRIVE_SCOPE)
-REGISTRY_SCOPES = (*SCOPES, LIVE_DRIVE_SCOPE)
 DriveProfile = Literal["selected", "live"]
 RESPONSE_LIMIT = 256 * 1024
 RESUME_TIMEOUT_SECONDS = 5

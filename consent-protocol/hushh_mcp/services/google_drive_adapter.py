@@ -28,10 +28,10 @@ from hushh_mcp.services.drive_search_paging_config import (
     valid_file_list_page_size,
 )
 from hushh_mcp.services.drive_telemetry import drive_logger
+from hushh_mcp.services.google_drive_oauth_contract import DRIVE_FILE_SCOPE as DRIVE_FILE_SCOPE
 
 logger = drive_logger(__name__)
 
-DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 DRIVE_BASE = "https://www.googleapis.com/drive/v3"
 METADATA_LIMIT = 256 * 1024
 OWNER_SEARCH_METADATA_LIMIT = OWNER_SEARCH_METADATA_BYTES_MAX
