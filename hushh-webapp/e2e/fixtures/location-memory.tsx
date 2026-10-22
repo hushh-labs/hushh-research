@@ -2,13 +2,12 @@ import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { LocationMemoryView } from "../../components/profile/location-memory-view";
 import { PkmMemoryDetail } from "../../components/profile/pkm-memory-detail";
-import { SettingsGroup, SettingsRow } from "../../components/app-ui/settings-ui";
+import { SegmentedTabs, SettingsGroup, SettingsRow } from "../../components/app-ui/settings-ui";
 import { buildLocationMemoryPresentation, resolveLocationMemoryField } from "../../lib/profile/location-memory-presentation";
 import { ROUTES } from "../../lib/navigation/routes";
 import { PkmSettingsShell } from "../../components/profile/pkm-settings-shell";
 import { SoulMemoryPanelBody } from "../../components/profile/soul-memory-panel";
 import type { SoulMemoryModel } from "../../components/profile/use-soul-memory-model";
-import { TopShellTabs } from "../../components/app-ui/top-shell-tabs";
 
 const MEMORY = "# memory.md\n\n## Facts\n- Synthetic detail with a long reference: " + "reference".repeat(14)
   + "\n- A second detail that stays aligned.\n\n## Preferences\n- Concise answers.\n\n## Commitments\n- Review next week.\n";
@@ -24,11 +23,10 @@ function MemoryWorkspace() {
     retryLoad() {}, reloadLatest() {},
   };
   return <PkmSettingsShell title="Memory" titleRole="agent" shellWidth="agent">
-    <div className="space-y-3.5">
-      <TopShellTabs tabSet={{ id: "memory", label: "Memory", queryParam: "tab", activeValue: "browse", tabs: [
-        { value: "browse", label: "Saved", href: "/one/pkm?tab=browse" },
-        { value: "add", label: "Add", href: "/one/pkm?tab=add" },
-      ] }} onValueChange={() => {}} />
+    <div className="space-y-[var(--page-header-section-gap)]">
+      <SegmentedTabs tabSetId="memory" ariaLabel="Memory" value="browse" options={[
+        { value: "browse", label: "Saved" }, { value: "add", label: "Add" },
+      ]} mobileColumns={2} variant="agent-top" onValueChange={() => {}} />
       <SoulMemoryPanelBody model={model} />
     </div>
   </PkmSettingsShell>;

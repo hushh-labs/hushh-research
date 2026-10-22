@@ -107,7 +107,7 @@ for (const width of [390, 1440]) for (const theme of ["light", "dark"]) {
 }
 
 for (const width of [320, 390, 768, 1440]) for (const theme of ["light", "dark"]) {
-  test(`Memory uses Location's grouped reading rhythm at ${width}px, ${theme}`, async ({ page }, testInfo) => {
+  test(`Memory keeps its UI with Location text and padding at ${width}px, ${theme}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
     await page.emulateMedia({ reducedMotion: "reduce" });
     const errors: string[] = [];
@@ -119,7 +119,9 @@ for (const width of [320, 390, 768, 1440]) for (const theme of ["light", "dark"]
     expect(errors).toEqual([]);
     const panel = page.getByRole("region", { name: "memory.md", exact: true });
     const live = page.getByTestId("live-mirror-preview").locator('[data-slot="settings-group-shell"]');
-    const tabs = page.getByRole("tablist", { name: "Memory navigation" });
+    const tabs = page.getByRole("tablist", { name: "Memory", exact: true });
+    await expect(tabs).toHaveAttribute("data-ui-variant", "agent-top");
+    await expect(page.locator(".memory-document-panel")).toHaveCount(0);
     await expect(panel).toBeVisible();
     const bounds = await Promise.all([panel, live, tabs].map(locator => locator.boundingBox()));
     for (const item of bounds) expect(item).not.toBeNull();
@@ -132,25 +134,26 @@ for (const width of [320, 390, 768, 1440]) for (const theme of ["light", "dark"]
       const row = getComputedStyle(document.querySelector('[data-testid="live-mirror-fact"] [data-slot="settings-row-title"]')!);
       const body = getComputedStyle(element.querySelector("li")!);
       const section = getComputedStyle(element.querySelector("h2")!);
-      const liveStyle = getComputedStyle(document.querySelector('[data-testid="live-mirror-preview"] [data-slot="settings-group-shell"]')!);
       const heading = document.querySelector('.app-page-header-region')!.getBoundingClientRect();
       const content = document.querySelector('.app-page-content-region')!.getBoundingClientRect();
       return {
         padding: [panelStyle.paddingTop, panelStyle.paddingRight, panelStyle.paddingBottom, panelStyle.paddingLeft],
-        radius: [panelStyle.borderRadius, liveStyle.borderRadius],
-        surface: [panelStyle.backgroundColor, liveStyle.backgroundColor],
+        radius: panelStyle.borderRadius,
+        surface: panelStyle.backgroundColor,
+        shadow: panelStyle.boxShadow,
         body: [body.fontFamily, body.fontSize, body.lineHeight, body.color],
         row: [row.fontFamily, row.fontSize, row.lineHeight, row.color],
         sectionSize: section.fontSize,
         headerGap: content.top - heading.bottom,
       };
     });
-    expect(styles.padding).toEqual(["16px", "16px", "16px", "16px"]);
-    expect(styles.radius[0]).toBe(styles.radius[1]);
-    expect(styles.surface[0]).toBe(styles.surface[1]);
+    expect(styles.padding).toEqual(["0px", "16px", "24px", "16px"]);
+    expect(styles.radius).toBe("0px");
+    expect(styles.surface).toBe("rgba(0, 0, 0, 0)");
+    expect(styles.shadow).toBe("none");
     expect(styles.body).toEqual(styles.row);
     expect(styles.sectionSize).toBe("15px");
-    expect(styles.headerGap).toBeLessThanOrEqual(width < 640 ? 1 : 7);
+    expect(styles.headerGap).toBe(16);
     if (width < 640) {
       const copy = await panel.getByText("The memory One uses in every conversation.").boundingBox();
       const edit = await panel.getByRole("button", { name: "Edit memory.md" }).boundingBox();

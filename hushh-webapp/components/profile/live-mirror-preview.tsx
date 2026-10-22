@@ -77,14 +77,11 @@ function ConflictRow({ conflict, now }: { conflict: LiveMirrorConflict; now: str
 export function LiveMirrorPreview({
   onNavigate,
   showOpenMemory = true,
-  headingClassName,
 }: {
   /** Runs before a link navigates, so a sheet can close first. */
   onNavigate?: () => void;
   /** Off where the preview already sits inside Memory. */
   showOpenMemory?: boolean;
-  /** The containing workspace owns the gap before this section. */
-  headingClassName?: string;
 }) {
   const mirror = useLiveMirrorView();
   const locked = mirror.status === "locked";
@@ -109,7 +106,6 @@ export function LiveMirrorPreview({
         embedded
         separatorInset
         title="Live memory"
-        headingClassName={headingClassName}
         description={locked ? undefined : LIVE_MEMORY_BOUNDARY_COPY}
         titleAction={
           locked ? undefined : (

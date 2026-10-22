@@ -9,10 +9,10 @@ import {
 
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import {
+  SegmentedTabs,
   SettingsGroup,
   SettingsRow,
 } from "@/components/app-ui/settings-ui";
-import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { LocationMemoryView } from "@/components/profile/location-memory-view";
 import { PkmMemoryDetail } from "@/components/profile/pkm-memory-detail";
@@ -439,21 +439,17 @@ export function PkmNaturalPanelBody({
   return (
     <>
       {nativeBeacon}
-      <div className="space-y-3.5">
-        <TopShellTabs
-          tabSet={{
-            id: "memory",
-            label: "Memory",
-            queryParam: "tab",
-            activeValue: workspaceTab,
-            tabs: MEMORY_WORKSPACE_TABS.map((tab) => ({
-              ...tab,
-              href: `${ROUTES.PKM}?tab=${tab.value}`,
-            })),
-          }}
+      <div className="space-y-[var(--page-header-section-gap)]">
+        <SegmentedTabs
+          tabSetId="memory"
+          ariaLabel="Memory"
+          value={workspaceTab}
           onValueChange={(value) =>
             setWorkspaceTab(value as MemoryWorkspaceTab)
           }
+          options={MEMORY_WORKSPACE_TABS}
+          mobileColumns={2}
+          variant="agent-top"
         />
         <SwipeViews
           options={MEMORY_WORKSPACE_TABS}
@@ -465,7 +461,7 @@ export function PkmNaturalPanelBody({
           viewportMinHeight="fill"
           heightMode="active"
         >
-          <div className="space-y-3.5 pb-1 pr-px" data-pkm-saved-panel="true">
+          <div className="space-y-5 pb-1 pr-px" data-pkm-saved-panel="true">
             <SoulMemoryPanelBody model={soul} />
             <div className="relative">
               <Input
@@ -619,7 +615,7 @@ export function PkmNaturalPanelBody({
             isVaultUnlocked={isVaultUnlocked} exportBusy={exportBusy} exportStatus={exportStatus}
             exportError={exportError} handleExportMemory={handleExportMemory} updateSharingBundles={updateSharingBundles} />
           </div>
-          <div className="space-y-3.5 pb-1 pr-px">
+          <div className="space-y-5 pb-1 pr-px">
             <SurfaceInset
               className="space-y-4 p-4"
               data-pkm-memory-capture="true"
