@@ -220,8 +220,8 @@ jobs:
           # file in the repository.
           predicate-quantifier: 'some-with-excludes'
           # scripts/ci is split by the lane that executes each script.
-          # The web lanes run nothing under scripts/ci except orchestrate.sh
-          # and the web-*.sh scripts it dispatches. The shared web-common.sh
+          # The web lanes run orchestrate.sh, its web-*.sh scripts and the
+          # shared UI review-base resolver. The shared web-common.sh
           # helper also schedules backend contracts that exercise its fixtures.
           # Every other script, including any
           # added later, stays on the backend side, which covers the protocol,
@@ -238,6 +238,7 @@ jobs:
               - '.github/workflows/main-post-merge-smoke.yml'
               - 'scripts/ci/orchestrate.sh'
               - 'scripts/ci/web-*.sh'
+              - 'scripts/ci/resolve-ui-contract-base.py'
             backend:
               - 'consent-protocol/**'
               - 'deploy/plg/**'
