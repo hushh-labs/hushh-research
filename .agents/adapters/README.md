@@ -1,9 +1,20 @@
 # Host adapters
 
-The [shared operating contract](../instructions.md) owns repository behavior.
-[Claude invocation context](claude/instructions.md) and classified templates live
-here once. The existing platform-source inventory records their authority and
-pending import review; moving a source does not approve its execution.
+The [shared operating contract](../instructions.md) owns repository behavior for
+every AI tool. Adapters translate native startup, discovery and invocation formats;
+they must not introduce independent persona or operating policy. Redundant
+legacy aliases are retired; the remaining Claude routing bridge supplies native
+invocation syntax and reads the same canonical owners.
+
+Claude's [startup loader](claude/session_start.py) delivers the root `AGENTS.md`
+and the absolute canonical instructions path through its documented SessionStart
+hook. It validates the pointer; the agent must read the complete contract before
+acting. Hook failure reports an error but cannot itself block Claude execution.
+There is no root `CLAUDE.md` or Qwen policy copy. A new host needs an adapter only
+where its supported native discovery differs from the canonical structure.
+
+The existing platform-source inventory records classified templates and pending
+import review; moving a source does not approve its execution.
 
 Native settings live here in [codex/config.toml](codex/config.toml) and
 [claude/settings.json](claude/settings.json). Host-required `.codex/config.toml`
@@ -20,8 +31,7 @@ under `claude/agents`; `.claude/agents` links there.
 Run either with `--write`, then `--check`; edit the canonical source first.
 
 The pinned [Impeccable dependency](../imports/impeccable/) retains its original
-bytes, licenses and pending-review classification. Its legacy Claude discovery
-path is a link. Nested imported writers are not members of the approved fleet;
+bytes, licenses and pending-review classification. Its legacy native discovery link is retired. Nested imported writers are not members of the approved fleet;
 relocation does not enable their hooks or subprocesses. Review the pinned upstream
 revision, dependencies and authority before any import update. Use the canonical
 frontend owner for product design; the imported library does not override it.

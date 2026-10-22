@@ -244,7 +244,7 @@ Build commands use the portable `generic/platform=iOS Simulator` destination
 rather than a pinned simulator UDID, because Xcode updates retire device types
 and a pinned id fails only after a full build. Simulator launches resolve a
 concrete device at launch time. The compatibility command
-`APP_RUNTIME_PROFILE=dev .claude/skills/run-ios-sim/launch.sh [UDID]` delegates to
+`APP_RUNTIME_PROFILE=dev .agents/skills/mobile-native/scripts/run-ios-sim.sh [UDID]` delegates to
 `.agents/skills/mobile-native/scripts/launch-ios-simulator.sh` through the canonical
 native environment resolver. It keeps Simulator in the background, bounds boot
 readiness to 120 seconds, and verifies the bundled backend before installation.

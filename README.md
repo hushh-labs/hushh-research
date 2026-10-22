@@ -1,6 +1,29 @@
-# Hussh Research
+<h1 align="center">Hussh Research</h1>
 
-**One: a private agent built around owner choice, encrypted information, and explicit consent.**
+<p align="center">
+  <strong>The Private Agent Platform</strong><br/>
+  <em>Consent-first private agents & scoped information infrastructure.</em><br/>
+  <em>Your information. Your vault. Your private agents.</em>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Hussh-Consent--First-0f172a?style=flat-square" alt="Hussh Consent First"/>
+  <img src="https://img.shields.io/badge/Next.js-16-black?style=flat-square&logo=next.js&logoColor=white" alt="Next.js 16"/>
+  <img src="https://img.shields.io/badge/FastAPI-Python_3.13-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI Python 3.13"/>
+  <img src="https://img.shields.io/badge/Google%20ADK-Agent%20Runtime-4285F4?style=flat-square&logo=google&logoColor=white" alt="Google ADK"/>
+  <br/>
+  <img src="https://img.shields.io/badge/A2A-Google%20Compatible-1a73e8?style=flat-square" alt="Google A2A Compatible"/>
+  <img src="https://img.shields.io/badge/MCP-Developer%20Surface-7c3aed?style=flat-square" alt="MCP Developer Surface"/>
+  <img src="https://img.shields.io/badge/License-Apache%202.0-d22128?style=flat-square" alt="Apache 2.0"/>
+  <a href="https://discord.gg/fd38enfsH5"><img src="https://img.shields.io/badge/Discord-Join%20the%20community-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Discord"/></a>
+</p>
+
+**Hussh is your personal agent for the digital world—trusted by design, consent-first by default, and accountable only to you.**
+
+“An agent should work for the person whose life it touches.” The approved
+[Personal Data Agent identity](docs/vision/agent-ontology.md#personal-data-agent-founder-identity)
+guides product decisions: duty of care, discretion, consent and your information
+as your private capital. Hussh is the platform; One is your private agent.
 
 This monorepo contains the web and native apps, agent runtime, consent protocol,
 and deployment tooling. People can use the Shared runtime or connect a private
@@ -18,7 +41,7 @@ flowchart TB
   accDescr: The app uses the hub for coordination and admitted direct routes for a private agent. Shared is a separate selected runtime.
   app["One app<br/>Web · iOS · Android"]
   hub["Hussh control plane<br/>Identity · consent · placement · releases"]
-  shared["Shared runtime<br/>Managed Gemini and consented foreground tools"]
+  shared["Shared runtime<br/>Managed AI and consented foreground tools"]
   pod["Owner's private agent<br/>Google Cloud or Microsoft Azure"]
   ai["Owner-selected AI connection"]
   storage["Owner-cloud encrypted storage<br/>Recovery · Files"]
@@ -44,8 +67,10 @@ system, runtime, flow, deployment, and information-boundary views.
 - **Puppy** uses a trusted device and owner-approved private relay on BYOC.
 - **Updates** are managed for Shared. Private-pod installation requires approval for
   the exact release, followed by recovery and installed-version verification.
-- **Computer Use** remains gated per cloud until native sandbox isolation qualifies.
-  A configured pod alone does not make the browser capability available.
+- **Computer Use** shares the owner pod and remains gated by exact cloud, image,
+  model and lifecycle qualification. Chromium’s internal sandbox is enabled on
+  GCP and explicitly disabled in Azure’s reviewed configuration; the whole owner
+  container is the compromise boundary. A configured pod alone is not acceptance.
 
 The [private-agent north star](docs/reference/architecture/private-agent-north-star.md)
 owns custody, processing consent, recovery, revocation, and erasure requirements.

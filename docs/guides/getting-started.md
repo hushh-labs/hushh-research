@@ -25,7 +25,7 @@ The product guarantees you should keep in mind while developing:
 Required:
 
 - `git`
-- `node >= 20`
+- Node.js 24 recommended; the frontend requires at least 22.12.
 - `npm >= 10`
 - `python3 >= 3.13`
 - `jq`
