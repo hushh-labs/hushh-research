@@ -56,13 +56,13 @@ def findings(root: Path) -> list[str]:
         except (OSError, ValueError):
             valid = False
         if not valid:
-            errors.append(f'{target.relative_to(root)}: must link to {source.relative_to(root)}')
+            errors.append(f'{target.relative_to(root).as_posix()}: must link to {source.relative_to(root).as_posix()}')
     obsolete = root / '.codex/skills'
     if obsolete.exists() and any(obsolete.iterdir()):
         errors.append('.codex/skills: duplicate discovery; use native .agents/skills')
     discovery = root / '.claude/skills'
     if discovery.is_dir():
-        errors.extend(f'{p.relative_to(root)}: unregistered host discovery entry'
+        errors.extend(f'{p.relative_to(root).as_posix()}: unregistered host discovery entry'
                       for p in discovery.iterdir() if p not in links)
     return errors
 
@@ -78,13 +78,13 @@ def write_links(root: Path) -> None:
         source.resolve(strict=True).relative_to((root / '.agents').resolve())
         target.parent.resolve().relative_to(root.resolve())
         if target.is_symlink() and str(target.readlink()) != os.path.relpath(source, target.parent):
-            raise ValueError(f'Preserve the existing local link first: {target.relative_to(root)}')
+            raise ValueError(f'Preserve the existing local link first: {target.relative_to(root).as_posix()}')
     for target, source in links.items():
         if not source.exists():
-            raise ValueError(f'Missing canonical source: {source.relative_to(root)}')
+            raise ValueError(f'Missing canonical source: {source.relative_to(root).as_posix()}')
         target.parent.mkdir(parents=True, exist_ok=True)
         relative = os.path.relpath(source, target.parent)
-        if target.is_symlink() and target.readlink().as_posix() == relative:
+        if target.is_symlink() and str(target.readlink()) == relative:
             continue
         target.symlink_to(relative, target_is_directory=source.is_dir())
 
@@ -144,6 +144,7 @@ def self_test() -> list[str]:
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text('Synthetic source')
         write_links(root)
+        write_links(root)  # Existing correct links remain idempotent on every host.
         assert not findings(root)
         source = root / '.agents/adapters/codex/config.toml'
         source.unlink()

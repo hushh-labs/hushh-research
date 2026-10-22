@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Collect candidate-bound provider evidence and enforce UAT's any-provider rule.
 
-This decides deployment readiness, never invocation, information or action authority.
-Provider bodies, credentials and customer information are never retained.
+Decides readiness, never invocation, information or action authority; retains no provider bodies, credentials or customer information.
 """
 
 from __future__ import annotations
@@ -12,6 +11,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -62,7 +62,7 @@ def context(env):
 
 def run_json(args):
     result = subprocess.run(
-        ["gcloud", *args, "--format=json"],
+        [shutil.which("gcloud") or "gcloud", *args, "--format=json"],
         capture_output=True,
         text=True,
         timeout=300 if args[:3] == ["run", "services", "update"] else 60,
