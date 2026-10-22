@@ -5594,6 +5594,38 @@ body:has([data-testid="one-location-onboarding"])
     letter-spacing: var(--type-section-label-tracking) !important;
   }
 
+  /* Memory keeps its existing composition. Match Location's text roles and
+     insets without replacing tabs, controls, cards or their geometry. */
+  .app-page-shell [data-pkm-workspace] [data-slot="settings-row-title"].ui-text-row-label[data-ui-role] {
+    font-size: var(--type-row-label-size) !important;
+    line-height: var(--type-row-label-line) !important;
+    color: var(--app-label) !important;
+  }
+  .app-page-shell [data-pkm-workspace] [data-slot="settings-row-description"].ui-text-row-description[data-ui-role],
+  .app-page-shell [data-pkm-workspace] [data-slot="settings-group-description"].ui-text-row-description[data-ui-role],
+  .app-page-shell [data-pkm-workspace] section[aria-label="memory.md"] .ui-text-row-description {
+    font-size: var(--type-row-description-size) !important;
+    line-height: var(--type-row-description-line) !important;
+    color: var(--app-secondary-label) !important;
+  }
+  .app-page-shell [data-pkm-workspace] [data-slot="settings-group-shell"] {
+    background-color: var(--app-primary-surface) !important;
+  }
+  .app-page-shell [data-pkm-workspace] section[aria-label="memory.md"] {
+    padding-inline: var(--settings-row-px);
+  }
+  .app-page-shell [data-pkm-workspace] section[aria-label="memory.md"] > div:first-child {
+    padding-inline: 0 !important;
+  }
+  .app-page-shell [data-pkm-workspace] .soul-memory-document :is(h2, h3, h4, h5, h6) {
+    font-size: var(--type-section-label-size) !important;
+    line-height: var(--type-section-label-line) !important;
+    color: var(--app-section-label);
+  }
+  .app-page-shell [data-pkm-workspace] .soul-memory-document a {
+    color: var(--app-accent);
+  }
+
   /* Give Memory's longer document label room on a phone without changing
      the shared Location tab type or reducing its font size. */
   @media (max-width: 639px) {
