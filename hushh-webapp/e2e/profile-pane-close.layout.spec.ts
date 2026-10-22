@@ -525,7 +525,7 @@ test.describe("Profile pane custom close layout", () => {
     </style><style id="mobile-profile-geometry">${mobileRules}</style></head><body>
       <section class="profile-pane-sheet" data-slot="sheet-content">
         <header class="profile-pane-header">Profile</header>
-        <button class="profile-pane-close" style="position:absolute;right:20px">Close</button>
+        <button class="profile-pane-close" style="position:absolute;right:16px">Close</button>
         <div class="profile-pane-scroll-root"><div style="height: 1200px">Settings</div></div>
       </section>
     </body></html>`);
@@ -611,7 +611,7 @@ test.describe("Profile pane custom close layout", () => {
           <div><button type="button" aria-label="Back in Profile">←</button><h2 data-slot="sheet-title">Appearance &amp; preferences</h2></div>
           <p class="sr-only" data-slot="sheet-description">Profile settings</p>
         </header>
-        <button class="profile-pane-close" style="position:absolute;right:20px" aria-label="Close Profile">×</button>
+        <button class="profile-pane-close" style="position:absolute;right:16px" aria-label="Close Profile">×</button>
         <div class="profile-pane-scroll-root">
           <div class="app-page-shell profile-pane-page--inner">
             <div data-profile-stack-content="true">
@@ -656,7 +656,7 @@ test.describe("Profile pane custom close layout", () => {
     }
   });
 
-  test("keeps the close button inset inside the card", () => {
+  test("keeps the right-safe-area declaration on the owning Close slot", () => {
     const source = fs.readFileSync(PROFILE_PANE_SOURCE, "utf8");
     const closeMarkup = source.match(/<NativeChatChrome\s+kind="close"[\s\S]*?<\/NativeChatChrome>/)?.[0];
 

@@ -9,6 +9,7 @@ Run: python tests/fixtures/drive_packet_eval/generate_adversarial.py
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -34,7 +35,7 @@ def unknown_status():
     }
 
 
-def statement(document_id, *, month="09", last=30, account="1122", sha=SHA_A, modified=None):
+def statement(document_id, *, month="09", last=30, account="1122", sha=None, modified=None):
     names = {"09": "September", "10": "October"}
     period_line = f"Statement period {names[month]} 1, 2026 to {names[month]} {last}, 2026"
     text = (
@@ -45,7 +46,7 @@ def statement(document_id, *, month="09", last=30, account="1122", sha=SHA_A, mo
         "document_id": document_id,
         "source_version": "7",
         "complete": True,
-        "content_sha256": sha,
+        "content_sha256": sha or hashlib.sha256(text.encode()).hexdigest(),
         "metadata": {"modifiedTime": modified or "2025-01-15T10:00:00Z"},
         "pages": {"1": text},
         "facts": {
@@ -271,7 +272,7 @@ def build():
         case(
             "wire-request-executed-copy",
             "Request-only source; the model claims the transfer was executed. "
-            "The runtime must replace the visible copy (fence from c3878efdad).",
+            "The independent checker refuses the unsupported completion claim.",
             [wire],
             proposal(
                 ["doc-wire"],
@@ -285,6 +286,11 @@ def build():
             ),
         )
     )
+    cases[-1]["verdict"] = {
+        **verdict("unable_to_verify"),
+        "correct_record_status": False,
+        "issues": ["Completion is not supported by the requested record."],
+    }
     cases.append(
         case(
             "wire-request-as-snapshot",
@@ -323,6 +329,12 @@ def build():
             "(incident class: a recent edit read as a recent statement).",
             [trap],
             proposal(["doc-trap"], periods=[dict(trap["facts"]["periods"][0])]),
+            verdict={
+                **verdict(),
+                "state": "unable_to_verify",
+                "correct_coverage": False,
+                "issues": ["File modification does not establish the claimed content period."],
+            },
         )
     )
     copy_a = statement("doc-copy-a", sha=SHA_A)
@@ -346,6 +358,12 @@ def build():
                 periods=september(sep) + [dict(wrong["facts"]["periods"][0])],
                 pricing=pricing(scope="multi_period"),
             ),
+            verdict={
+                **verdict(),
+                "state": "unable_to_verify",
+                "correct_subject_and_account": False,
+                "issues": ["The selected statements name different accounts."],
+            },
         )
     )
     cases.append(

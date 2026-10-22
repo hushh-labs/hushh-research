@@ -86,7 +86,7 @@ export function useWorldModelClaimInvitation({
   const claim = () => run(async () => {
     if (!claimToken) return;
     const capture = guard();
-    const claimed = await WorldModelInvitationsService.claim(session, claimToken, offerResearch && researchConsent);
+    const claimed = await WorldModelInvitationsService.claim({ ...session, isCurrent: capture.isCurrent, signal: ownerSession.controller.signal }, claimToken, offerResearch && researchConsent);
     await capture.assertCurrent();
     clearWorldModelInvitationHandoffsForToken(claimToken);
     setMessage(claimed.research_started || claimed.draft_id
@@ -100,7 +100,7 @@ export function useWorldModelClaimInvitation({
   });
   const decline = () => run(async () => {
     if (!claimToken) return;
-    const capture = guard(); await WorldModelInvitationsService.reject(session, claimToken); await capture.assertCurrent();
+    const capture = guard(); await WorldModelInvitationsService.reject({ ...session, isCurrent: capture.isCurrent, signal: ownerSession.controller.signal }, claimToken); await capture.assertCurrent();
     clearWorldModelInvitationHandoffsForToken(claimToken); setClaimToken(null); setReceivedPreview(null);
     setMessage("Invitation declined."); complete();
   });

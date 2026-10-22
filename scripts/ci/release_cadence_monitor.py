@@ -80,6 +80,19 @@ def evidence(repository: str, state: dict, ordinal: str, lane: str, child: dict,
             if request["submit_for_review"] else "Production-backed build prepared; no review submission or publication claimed.")
 
 
+def record_release_interval(intervals: dict, run: dict) -> None:
+    """Do not count the idle gap before a later attempt as release activity."""
+    identity = str(run["id"])
+    started = run.get("run_started_at")
+    if not started and run.get("run_attempt", 1) == 1:
+        started = run["created_at"]
+    if not started:
+        intervals.pop(identity, None)
+        return
+    intervals[identity] = {"id": run["id"], "created_at": started,
+                           "completed_at": run.get("updated_at") if run["status"] == "completed" else None}
+
+
 def observations(repository: str, state: dict | None, event: dict, previous: dict, healthy: bool) -> tuple[dict, list[str]]:
     """Reuse certified accounting; bounded incremental reads supply observations."""
     observed = json.loads(json.dumps(previous))
@@ -137,8 +150,7 @@ def observations(repository: str, state: dict | None, event: dict, previous: dic
                 if child["state"] == "running" or seen.get(key) != signature:
                     run = run_info(repository, identity)
                     verify_child(state, run, repository, ordinal, str(request["origin_run_id"]))
-                    intervals[str(identity)] = {"id": identity, "created_at": run["created_at"],
-                                                "completed_at": run.get("updated_at") if run["status"] == "completed" else None}
+                    record_release_interval(intervals, run)
                     if seen.get(key) != signature:
                         message = f"Milestone {ordinal}, {lane}, source {request['sha']}: {child['state']}. [Exact run](https://github.com/{repository}/actions/runs/{identity})."
                         if child["state"] in {"success", "deferred"}:

@@ -73,6 +73,8 @@ describe("three-account Calendar board", () => {
     mocks.confirmAttendance.mockResolvedValue({ calendar: "declined", email: "sent", calendar_error: null, email_error: null });
   });
 
+  afterEach(() => vi.useRealTimers());
+
   it("shows all three accounts, shared free time, and resolves a cross-account overlap inline", async () => {
     render(page());
     await screen.findByText("Planning review");

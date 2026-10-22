@@ -188,11 +188,11 @@ pane and client changes alone:
 ```bash
 gh workflow run deploy-uat.yml -f scope=frontend -f sha=<green main sha>
 gh run list --workflow deploy-uat.yml --limit 3 --json databaseId,status,conclusion,headSha,url
-python3 .codex/skills/uat-scoped-deploy/scripts/cloud_run_service_evidence.py --project hushh-pda-uat --service hushh-webapp --format text
+python3 .agents/skills/uat-scoped-deploy/scripts/cloud_run_service_evidence.py --project hushh-pda-uat --service hushh-webapp --format text
 ```
 
 Use `scope=frontend` only when the delta since the deployed backend SHA is
-frontend-only (see `.codex/skills/uat-scoped-deploy/`); queue the backend
+frontend-only (see `.agents/skills/uat-scoped-deploy/`); queue the backend
 half for after the model project is restored. Never deploy backend changes
 to work around the probe.
 

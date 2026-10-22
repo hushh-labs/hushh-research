@@ -1,5 +1,7 @@
 "use client";
 
+import { nativeProfileSceneCanPrepare, nativeProfileActionsAllowed } from "@/lib/capacitor/native-profile-preparation";
+
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
@@ -61,7 +63,7 @@ function NativePhoneScene({ model, destinationId, mode, onCancel, onFallback, on
   model: PhoneVerificationModel; destinationId: string; mode: "link" | "replace"; onCancel: () => void; onFallback: () => void;
   onDraft: (draft: NativePhoneDraft | null) => void;
 }) {
-  const plugin = nativeDrawers as HushhNativeDrawersPlugin & NativePhoneScenePort;
+  const plugin = nativeDrawers() as HushhNativeDrawersPlugin & NativePhoneScenePort;
   const pathname = usePathname();
   const appearance = useNativeControlAppearance("secondary");
   const privacy = useSyncExternalStore(subscribeNativePrivacyObservation, () => nativePrivacyObservation().state, () => undefined);
@@ -99,7 +101,7 @@ function NativePhoneScene({ model, destinationId, mode, onCancel, onFallback, on
   }), []);
   const publish = useCallback(() => {
     const current = replica.current, next = live.current;
-    if (!current || !next.model.current() || !next.appearance || !next.privacy || next.privacy.shielded || !next.privacy.appIsActive) return;
+    if (!current || !next.model.current() || !next.appearance || !next.privacy || !nativeProfileSceneCanPrepare(next.privacy, current.identity.scene, current.identity.destinationId)) return;
     const { model } = next;
     const state = { ...current.identity, ...next.appearance, privacyGeneration: next.privacy.generation,
       draftRevision: current.sequence + 1, acknowledgedEditRevision: current.editRevision,
@@ -114,15 +116,15 @@ function NativePhoneScene({ model, destinationId, mode, onCancel, onFallback, on
   }, [actions]);
   useEffect(() => { if (!nativePrivacyObservation().state) void nativeDrawerAcknowledged(getNativeSessionPrivacyState()).catch(() => setPhase("blocked")); }, []);
   const epoch = snapshotVaultSessionEpoch();
-  const generation = privacy?.generation, shielded = privacy?.shielded, active = privacy?.appIsActive;
+  const generation = privacy?.generation, presentationBlocked = !nativeProfileSceneCanPrepare(privacy, "phone", destinationId), active = privacy?.appIsActive;
   useEffect(() => {
-    if (!model.ready || generation === undefined || shielded || !active || !live.current.model.current()) return;
+    if (!model.ready || generation === undefined || presentationBlocked || !active || !live.current.model.current()) return;
     const base = createNativeDrawerIdentity("profile");
     if (!base) return;
     const identity: NativePhoneIdentity = { ...base, family: "profile", scene: "phone", destinationId };
     let current = true;
     const isCurrent = () => current && live.current.model.current() && snapshotVaultSessionEpoch() === epoch && nativeDrawerOwnerIsCurrent(identity) &&
-      live.current.privacy?.generation === generation && !live.current.privacy.shielded && live.current.privacy.appIsActive;
+      live.current.privacy?.generation === generation && nativeProfileSceneCanPrepare(live.current.privacy, identity.scene, identity.destinationId);
     const presentation = new NativeProfileScenePresentation<NativePhoneProjection, NativePhoneEdit, NativePhoneAction, undefined>(identity, {
       source: plugin, apply: state => plugin.applyProfilePhoneScene(state), confirm: event => plugin.confirmProfilePhoneAction(event),
       settle: event => plugin.settleProfilePhoneAction(event), retire: () => plugin.retireProfilePhoneScene(identity),
@@ -130,11 +132,11 @@ function NativePhoneScene({ model, destinationId, mode, onCancel, onFallback, on
     }, new NativePhoneFence(identity), validNativePhoneProjection, isCurrent, next => {
       if (!current) return;
       setPhase(next); if (next === "fallback") live.current.onFallback();
-    }, false, state => ({ ...state, draft: { ...state.draft }, countries: state.countries.map(option => ({ ...option })) }));
+    }, false, state => ({ ...state, draft: { ...state.draft }, countries: state.countries.map(option => ({ ...option })) }), () => isCurrent() && nativeProfileActionsAllowed());
     replica.current = { identity, presentation, sequence: 0, editRevision: 0, composing: false, fingerprint: null };
     void presentation.listen().then(ready => { if (ready && isCurrent()) publish(); });
     return () => { current = false; if (replica.current?.identity === identity) replica.current = null; void presentation.retire(); };
-  }, [destinationId, model.ready, epoch, generation, shielded, active, plugin, actions, publish]);
+  }, [destinationId, model.ready, epoch, generation, presentationBlocked, active, plugin, actions, publish]);
   useLayoutEffect(() => { publish(); });
   useBackLayer(pathname, 100, () => {
     const current = replica.current;

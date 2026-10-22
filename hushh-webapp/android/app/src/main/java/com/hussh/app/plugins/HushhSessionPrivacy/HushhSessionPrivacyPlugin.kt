@@ -45,6 +45,14 @@ class HushhSessionPrivacyPlugin : Plugin() {
     }
 
     @PluginMethod
+    fun prepareSessionValidation(call: PluginCall) {
+        // Android keeps its complete React presentation and never advertises
+        // Profile preparation. Refuse an unsupported caller without changing
+        // privacy, document or operation state.
+        call.reject("Native Profile preparation is unavailable.", "session_privacy/preparation_unsupported")
+    }
+
+    @PluginMethod
     fun completeSessionValidation(call: PluginCall) {
         val generation = call.getInt("generation")
         val documentId = call.getString("documentId")

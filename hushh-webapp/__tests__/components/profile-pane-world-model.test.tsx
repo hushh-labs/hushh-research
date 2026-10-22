@@ -4,7 +4,7 @@
  * A pane address naming the model must show the model, never the Profile root
  * menu and never a redirect back to the route (which proxy.ts sends back here).
  */
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const nav = vi.hoisted(() => ({
@@ -83,6 +83,7 @@ import { StepProgressProvider } from "@/lib/progress/step-progress-context";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { ConsentCenterService } from "@/lib/services/consent-center-service";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { ReferralService } from "@/lib/services/referral-service";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -113,6 +114,28 @@ function activeScreen() {
 }
 
 describe("Profile pane: Personal World Model", () => {
+  it("opens Invite friends in the existing Profile stack without leaving the workspace", async () => {
+    nav.query = "profile_pane=1";
+    window.history.replaceState(null, "", `/one?${nav.query}`);
+    vi.spyOn(ReferralService, "getSummary").mockResolvedValue({ joined_count: 2, qualified_count: 1,
+      in_progress_count: 1, under_review_count: 0, required_active_minutes: 15,
+      new_users_only: true, slug: "synthetic-invite", link: "https://example.test/r/synthetic-invite", referrals: [] });
+    const view = render(<StepProgressProvider><ProfilePage presentation="pane"
+      paneLocation={{ panel: null, detail: null }} /></StepProgressProvider>);
+    fireEvent.click(within(activeScreen()!).getByRole("button", { name: "Invite friends" }));
+    expect(window.location.pathname).toBe("/one");
+    expect(new URLSearchParams(window.location.search).get("profile_pane")).toBe("1");
+    expect(new URLSearchParams(window.location.search).get("profile_panel")).toBe("referrals");
+    expect(nav.router.push).not.toHaveBeenCalled();
+    expect(nav.router.replace).not.toHaveBeenCalled();
+    nav.query = window.location.search.slice(1);
+    view.rerender(<StepProgressProvider><ProfilePage presentation="pane"
+      paneLocation={{ panel: "referrals", detail: null }} /></StepProgressProvider>);
+    await waitFor(() => expect(activeScreen()?.dataset.profileStackScreen).toBe("panel:referrals"));
+    expect(await within(activeScreen()!).findByRole("button", { name: "Copy" })).toBeInTheDocument();
+    expect(within(activeScreen()!).getByRole("button", { name: "Share" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Referrals" })).not.toBeInTheDocument();
+  });
   it("does not replace an explicit Memory refresh with a late initialization response", async () => {
     nav.query = "profile_pane=1&profile_panel=my-data";
     window.history.replaceState(null, "", `/one?${nav.query}`);

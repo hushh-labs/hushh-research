@@ -18,7 +18,10 @@ plus an ADK rehearsal, never a best-effort name-prefix heuristic.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 
@@ -62,3 +65,27 @@ GEMINI_LIVE_COMPATIBILITY: dict[str, GeminiLiveCompatibility] = {
         operator_enablement_required=True,
     ),
 }
+
+
+@lru_cache(maxsize=1)
+def _authored_one_live_model() -> str:
+    from hushh_mcp.hushh_adk.manifest import ManifestLoader
+
+    manifest = ManifestLoader.load(str(Path(__file__).parents[1] / "agents/one/agent.yaml"))
+    heads = manifest.capabilities.get("heads", {})
+    legacy_default = "gemini-3.1-flash-live-preview"
+    return str(heads.get("live") or legacy_default) if isinstance(heads, dict) else legacy_default
+
+
+def configured_one_live_model() -> str:
+    """Resolve the same authored model for capability reporting and execution."""
+    return (os.getenv("AGENT_ONE_ADK_MODEL") or _authored_one_live_model()).strip()
+
+
+def private_live_model_supported(model: str) -> bool:
+    compatibility = GEMINI_LIVE_COMPATIBILITY.get(model)
+    return (
+        compatibility is not None
+        and compatibility.transport == "vertex"
+        and compatibility.supports_mid_session_client_content
+    )

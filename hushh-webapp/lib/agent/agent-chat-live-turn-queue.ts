@@ -62,7 +62,7 @@ export function parseQueuedInputNotice(value: unknown): QueuedInputNotice | null
   return { phase: record.phase, joined: ids(record.joined), returned: ids(record.returned) };
 }
 
-export type LiveTurnSettlement = { joined: string[]; waiting: string[] };
+export type LiveTurnSettlement = { joined: string[]; waiting: string[]; unresolved?: string[] };
 
 export class LiveTurnQueue {
   private conversationId: string | null = null;
@@ -131,6 +131,9 @@ export class LiveTurnQueue {
     if (!conversationId || !this.held.has(clientMessageId)) return "not_held";
     try {
       const status = await this.ports.withdraw(conversationId, clientMessageId);
+      // A drained message can still be sealing when withdrawal is requested.
+      // Its `queued` receipt does not prove it was withdrawn.
+      if (status === "queued" || status === "unknown") return "not_held";
       this.held.delete(clientMessageId);
       return status === "delivered" ? "joined" : "withdrawn";
     } catch {
@@ -154,27 +157,39 @@ export class LiveTurnQueue {
 
   /**
    * The turn ended. Resolve every message it still holds from the server's
-   * record before anything else is sent, so none is sent twice or lost. Only if
-   * the record cannot be read at all does a message fall back to the next turn.
+   * record before anything else is sent. A queued or unreadable receipt is
+   * unresolved, never permission to send the text as a new turn. The caller
+   * keeps later turns parked and can call settle() again after reconnection.
    */
   async settle(): Promise<LiveTurnSettlement> {
     const conversationId = this.conversationId;
-    this.conversationId = null;
     this.accepting = false;
     const pending = [...this.held];
-    this.held.clear();
-    if (!conversationId || pending.length === 0) return { joined: [], waiting: [] };
+    if (!conversationId || pending.length === 0) {
+      this.conversationId = null;
+      return { joined: [], waiting: [] };
+    }
+    const joined: string[] = [];
+    const waiting: string[] = [];
     for (let attempt = 0; attempt <= SETTLE_RETRY_DELAYS_MS.length; attempt += 1) {
       try {
-        const statuses = await this.ports.status(conversationId, pending);
-        const joined = pending.filter((id) => statuses[id] === "delivered");
-        return { joined, waiting: pending.filter((id) => !joined.includes(id)) };
-      } catch {
-        const delay = SETTLE_RETRY_DELAYS_MS[attempt];
-        if (delay === undefined) break;
-        await this.wait(delay);
-      }
+        const statuses = await this.ports.status(conversationId, [...this.held]);
+        for (const id of [...this.held]) {
+          if (statuses[id] === "delivered") {
+            this.held.delete(id);
+            joined.push(id);
+          } else if (statuses[id] === "returned") {
+            this.held.delete(id);
+            waiting.push(id);
+          }
+        }
+      } catch { /* A failed status read leaves the receipt unresolved. */ }
+      if (this.held.size === 0) break;
+      const delay = SETTLE_RETRY_DELAYS_MS[attempt];
+      if (delay !== undefined) await this.wait(delay);
     }
-    return { joined: [], waiting: pending };
+    if (this.held.size === 0) this.conversationId = null;
+    const unresolved = [...this.held];
+    return unresolved.length ? { joined, waiting, unresolved } : { joined, waiting };
   }
 }

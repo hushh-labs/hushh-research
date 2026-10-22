@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 
 const mock = vi.hoisted(() => ({
@@ -98,7 +98,10 @@ it("lets a verified recipient claim a previewless invitation without promising s
   fireEvent.click(screen.getByRole("button", { name: "Claim my model" }));
   await waitFor(() =>
     expect(mock.claim).toHaveBeenCalledWith(
-      { vaultKey: "vault-key", vaultOwnerToken: "owner-token" },
+      expect.objectContaining({
+        vaultKey: "vault-key", vaultOwnerToken: "owner-token",
+        isCurrent: expect.any(Function), signal: expect.any(AbortSignal),
+      }),
       token,
       false,
     ),
@@ -153,7 +156,7 @@ it("never turns on Azure/Bing research through an invitation claim", async () =>
   expect(screen.getByText(/review Bing search use before turning it on/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Claim my model" }));
   await waitFor(() => expect(mock.claim).toHaveBeenCalledWith(
-    { vaultKey: "vault-key", vaultOwnerToken: "owner-token" },
+    { vaultKey: "vault-key", vaultOwnerToken: "owner-token", isCurrent: expect.any(Function), signal: expect.any(AbortSignal) },
     token,
     false,
   ));
@@ -191,7 +194,7 @@ it.each([
     fireEvent.click(screen.getByRole("button", { name: "Claim my model" }));
     await waitFor(() =>
       expect(mock.claim).toHaveBeenCalledWith(
-        { vaultKey: "vault-key", vaultOwnerToken: "owner-token" },
+        expect.objectContaining({ vaultKey: "vault-key", vaultOwnerToken: "owner-token", isCurrent: expect.any(Function), signal: expect.any(AbortSignal) }),
         token,
         check,
       ),
@@ -211,7 +214,10 @@ it("clears the handoff after the recipient declines the invitation", async () =>
   await screen.findByRole("button", { name: "Decline" });
   fireEvent.click(screen.getByRole("button", { name: "Decline" }));
   await waitFor(() => expect(mock.reject).toHaveBeenCalledWith(
-    { vaultKey: "vault-key", vaultOwnerToken: "owner-token" },
+    expect.objectContaining({
+        vaultKey: "vault-key", vaultOwnerToken: "owner-token",
+        isCurrent: expect.any(Function), signal: expect.any(AbortSignal),
+      }),
     token,
   ));
   expect(await screen.findByText("Invitation declined.")).toBeInTheDocument();
@@ -238,4 +244,23 @@ it("routes a different signed-in account back to explicit invitation recovery", 
   expect(destination).toMatch(/^\/world-model\/invite\?handoff=/);
   expect(destination).not.toContain(token);
   expect(mock.claim).not.toHaveBeenCalled();
+});
+
+
+it("cancels a claim and preserves its handoff when its owner view unmounts", async () => {
+  let finish!: (value: unknown) => void;
+  mock.claim.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+  const view = render(<WorldModelClaimInvitation ownerId="recipient" vaultKey="vault-key" vaultOwnerToken="owner-token" />);
+  fireEvent.click(await screen.findByRole("button", { name: "Claim my model" }));
+  await waitFor(() => expect(mock.claim).toHaveBeenCalledOnce());
+  const session = mock.claim.mock.calls[0][0];
+  expect(session.isCurrent()).toBe(true);
+  const handoff = new URL(window.location.href).searchParams.get("handoff")!;
+  view.unmount();
+  expect(session.signal.aborted).toBe(true);
+  expect(session.isCurrent()).toBe(false);
+  await act(async () => { finish({ claimed: true }); });
+  expect(mock.reloadResearch).not.toHaveBeenCalled();
+  expect(mock.replace).not.toHaveBeenCalled();
+  expect(readWorldModelInvitationHandoff(handoff, "recipient")).toBe(token);
 });

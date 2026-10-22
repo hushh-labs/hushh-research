@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import asdict
+from functools import partial
 
 from firebase_admin import auth as firebase_auth
 
@@ -26,6 +27,7 @@ from hushh_mcp.services.google_drive_permission_adapter import (
     GoogleDrivePermissionAdapter,
     same_expiration,
 )
+from hushh_mcp.services.owner_placement_guard import admit_hub_content, hub_content_check
 
 # Reasons a reconciled absence may carry instead of a generic rejection.
 SHARE_REFUSAL_CODES = frozenset({"recipient_needs_google_account", "drive_policy_blocked"})
@@ -143,6 +145,15 @@ def verified_issuer(credentials: dict) -> dict:
     return {"subject": subject, "oauthClientId": client}
 
 
+def permission_request(file_id, credential, require_current):
+    """Provider request arguments with the same freshness callback for every read/write."""
+    return {
+        "file_id": file_id,
+        "access_token": credential["accessToken"],
+        "require_current": require_current,
+    }
+
+
 class DrivePermissionExecutor:
     def __init__(self, *, store=None, oauth=None, adapter=None, verify_recipient=None):
         self.oauth = oauth or get_external_connector_oauth_service().drive()
@@ -151,9 +162,11 @@ class DrivePermissionExecutor:
         self.verify_recipient = verify_recipient or require_recipient_identity
 
     async def grant(self, *, user_id: str, operation_id: str) -> str:
+        await admit_hub_content(user_id, "drive_permission_prepare")
         job = await self.store.claim_grant(user_id=user_id, operation_id=operation_id)
         if job is None:
             return "not_claimed"
+        require_current = hub_content_check(user_id, partial(self.store.require_current, job))
         dispatched = False
         provider_succeeded = False
         try:
@@ -167,11 +180,7 @@ class DrivePermissionExecutor:
                 if row["connection_generation"] != job["connection_generation"]:
                     raise DriveSharingError("connection_changed")
                 issuer = verified_issuer(credentials)
-                args = {
-                    "file_id": plan["file_id"],
-                    "access_token": credentials["accessToken"],
-                    "require_current": lambda: self.store.require_current(job),
-                }
+                args = permission_request(plan["file_id"], credentials, require_current)
                 inspect_options = (
                     {
                         "metadata_only": True,
@@ -197,7 +206,7 @@ class DrivePermissionExecutor:
                 existing = existing_individual_permission(before, email=plan["recipient"]["email"])
                 if existing is not None:
                     # Never downgrade an existing writer/owner or claim its provenance.
-                    await self.store.require_current(job)
+                    await require_current()
                     await self.store.settle(
                         job,
                         state="preexisting",
@@ -280,6 +289,7 @@ class DrivePermissionExecutor:
             return "not_claimed"
         target_plan = self.store._plan(target)
         row, credentials = await self.oauth.current_credential(
+            cleanup=True,
             user_id=user_id,
             required_profile="live" if target_plan.get("source_kind") == "live" else "selected",
         )

@@ -15,20 +15,21 @@ import {
   useState,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { isNative } from "@/lib/capacitor/platform";
 import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { backendPhoneIsMissing } from "@/lib/auth/phone-identity";
 import {
   WarningIcon as AlertTriangle,
-  BriefcaseIcon as BriefcaseBusiness,
   SpinnerGapIcon as Loader2,
   ArrowsClockwiseIcon as RefreshCw,
-  UserCircleIcon as User,
 } from "@/components/icons";
+import { FinanceAgentIcon } from "@/components/icons/agents";
 import { PROFILE_ICONS } from "@/components/icons/profile-icons";
 import accountStyles from "@/components/profile/profile-your-account.module.css";
 import auxiliaryTabStyles from "@/components/profile/profile-auxiliary-tabs.module.css";
 import secondaryTypographyStyles from "@/components/profile/profile-secondary-typography.module.css";
 import { toast } from "sonner";
+import { AgentSettingsPanel } from "@/components/profile/agent-settings-panel";
 import { NativeProfilePresentation } from "./native-profile-menu";
 import { AccountConfirmationPreparation } from "./account-confirmation-preparation";
 import { useNativeProfilePreferences } from "./use-native-profile-preferences";
@@ -38,11 +39,14 @@ import { projectNativeProfileLegal } from "./profile-native-legal";
 import type { NativeProfilePage } from "@/lib/capacitor/native-drawers";
 import { PROFILE_LABELS, profileMenuGroups, type ProfileMenuActions } from "./profile-menu-model";
 import { VaultMethodsPanel } from "@/components/profile/vault-methods-panel";
+import { PaymentsAndEarnings } from "@/components/consent/payments-and-earnings";
 import { useProfileVaultMethodsModel } from "./use-profile-vault-methods-model";
 import { useNativeVaultMethods } from "./use-native-vault-methods";
 import { NativeVaultPasswordEditor } from "./native-vault-password-editor";
 import { NativeRequestPricingEditor, projectNativeRequestPricing } from "./native-request-pricing";
 import { useNativePayouts } from "./use-native-payouts";
+import { useNativeReferrals } from "./use-native-referrals";
+import { ReferralsPanelView } from "./referrals-panel";
 import { useNativeConnectors } from "./use-native-connectors";
 import { useNativeMemory } from "./use-native-memory";
 import { NativeMemoryEditor } from "./native-memory-editor";
@@ -76,7 +80,6 @@ import { SharedWithYouGroup } from "@/components/profile/shared-with-you-group";
 import { useMemorySharedModel } from "@/components/profile/use-memory-shared-model";
 import { PersonalWorldModelPage, usePersonalWorldModelModel } from "@/components/profile/personal-world-model-page";
 import { useNativeWorldModel } from "@/components/profile/use-native-world-model";
-import { DocumentHashcoinPayouts } from "@/components/consent/document-hashcoins";
 import { DocumentRequestPricingCard } from "@/components/consent/document-request-pricing-card";
 import { SecretsListGroup } from "@/components/secrets/secrets-list-group";
 import { useSecretsListModel } from "@/components/secrets/use-secrets-list-model";
@@ -86,7 +89,9 @@ import {
 } from "@/components/profile/profile-stack-navigator";
 import { ProfileKaiPreferencesPanel } from "@/components/profile/profile-kai-preferences-panel";
 import { CommunicationPreferencesSection } from "@/components/profile/communication-preferences-section";
-import { GeminiLogo } from "@/components/brand/gemini-logo";
+import { Brain } from "@/components/icons";
+import { AccountCloudCleanup } from "@/components/profile/account-cloud-cleanup";
+import { azureAccountCleanupRequired } from "@/lib/services/account-cloud-cleanup";
 import { GeminiRuntimeSettingsView, useGeminiRuntimeSettingsModel } from "@/components/connections/gemini-runtime-settings-card";
 import { useNativeRuntimeSettings } from "@/components/profile/use-native-runtime-settings";
 import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-panel";
@@ -98,6 +103,7 @@ import {
   buildProfileLegalStackEntries,
 } from "@/components/profile/profile-legal-section";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
+import { ProfileAppearancePreferences } from "@/components/profile/profile-appearance-preferences";
 import { ProfileAppearanceControls } from "@/components/profile/profile-appearance-controls";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import {
@@ -164,6 +170,7 @@ import {
   type ProfileDetail,
   type ProfilePanel,
 } from "@/lib/navigation/profile-routes";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import {
   popProfilePaneLocation,
   profileLegalParentForPresentation,
@@ -185,9 +192,8 @@ import { usePersonaState } from "@/lib/persona/persona-context";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { SegmentedControl } from "@/lib/morphy-ux/ui/segmented-control";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
-import { AppleIcon, GoogleIcon } from "@/lib/morphy-ux/social-icons";
+import { getProvider, ProviderIcon } from "@/components/profile/provider-identity";
 import { EmailIdentityMark } from "@/components/app-ui/email-identity-mark";
-import { shouldUseGoogleBrandMark } from "@/lib/profile/profile-auth-provider-presentation";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { cn } from "@/lib/utils";
 import { DisplayNameEditor } from "@/components/profile/display-name-editor";
@@ -266,7 +272,7 @@ import {
 import { useVault } from "@/lib/vault/vault-context";
 import { resolveVaultAvailabilityState } from "@/lib/vault/vault-access-policy";
 import { useConsentActions } from "@/lib/consent";
-import { useAccent } from "@/lib/theme/accent";
+import { useAccent, writeAccent } from "@/lib/theme/accent";
 
 type FinancialContextCategory =
   "general" | "portfolio" | "risk" | "kyc" | "tax" | "documents";
@@ -455,46 +461,6 @@ function _formatProfileAccessBadge(params: {
   return `${params.activeGrantCount} active`;
 }
 
-function getProvider(user: ReturnType<typeof useAuth>["user"]) {
-  if (!user?.providerData || user.providerData.length === 0) {
-    return { name: "Unknown", id: "unknown" };
-  }
-
-  const providerId = user.providerData[0]?.providerId;
-  switch (providerId) {
-    case "google.com":
-      return { name: "Google", id: "google" };
-    case "apple.com":
-      return { name: "Apple", id: "apple" };
-    case "password":
-      return { name: "Mail/Password", id: "password" };
-    default:
-      return { name: providerId || "Unknown", id: providerId || "unknown" };
-  }
-}
-
-function ProviderIcon({
-  providerId,
-  email,
-}: {
-  providerId: string;
-  email: string | null | undefined;
-}) {
-  if (providerId === "google") {
-    if (shouldUseGoogleBrandMark(providerId, email)) {
-      return <GoogleIcon className="shrink-0" size={17} />;
-    }
-
-    return <Icon icon={BriefcaseBusiness} size="xs" className="shrink-0" />;
-  }
-
-  if (providerId === "apple") {
-    return <AppleIcon className="shrink-0" size={17} />;
-  }
-
-  return <Icon icon={User} size="xs" className="shrink-0" />;
-}
-
 function readableMethod(method: VaultMethod | null): string {
   if (method === "generated_default_native_biometric")
     return "Device biometric";
@@ -612,6 +578,8 @@ function ProfilePageContent({
     "profile_data" | "delete_account" | "reset_account"
   >("profile_data");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [cloudCleanupRequired, setCloudCleanupRequired] = useState(false);
+  useEffect(() => { setCloudCleanupRequired(false); }, [user?.uid]);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
@@ -1047,6 +1015,9 @@ function ProfilePageContent({
   const nativePayoutActive = presentation === "native-page" && nativeMenuOpen && nativePayoutAvailable &&
     activePanel === "payouts" && !activeDetail && vaultAccess.canMutateSecureData;
   const nativePayout = useNativePayouts(nativePayoutActive);
+  const nativeReferralActive = presentation === "native-page" && nativeMenuOpen &&
+    activePanel === "referrals" && isVaultUnlocked;
+  const nativeReferrals = useNativeReferrals(presentation === "native-page" && nativeMenuOpen && activePanel === "referrals", user?.uid ?? null);
   useBackLayer(pathname, nativePayoutActive && nativePayout.nested ? 3 : 0, nativePayout.back,
     isPanePresentation ? { profile_pane: "1" } : undefined);
   const [nativePricingEditorOpen, setNativePricingEditorOpen] = useState(false);
@@ -1339,7 +1310,7 @@ function ProfilePageContent({
     needsVaultCreation: vaultAccess.needsVaultCreation, needsUnlock: vaultAccess.needsUnlock,
     onRequestVaultCreation: () => requestVaultUnlock("profile_data"), onRequestVaultUnlock: () => requestVaultUnlock("profile_data"),
     enabled: activePanel === "preferences" && activeDetail === "gemini" && (presentation !== "native-page" || nativeMenuOpen) });
-  const nativeRuntimeEligible = nativeRuntimeAvailable && voiceParent !== null && presentation === "native-page" && nativeMenuOpen &&
+  const nativeRuntimeEligible = runtimeSettings.placement === "shared" && !runtimeSettings.otherProvider && nativeRuntimeAvailable && voiceParent !== null && presentation === "native-page" && nativeMenuOpen &&
     activePanel === "preferences" && activeDetail === "gemini" && isVaultUnlocked;
   const nativeRuntime = useNativeRuntimeSettings(runtimeSettings, nativeDetailOwner, nativeRuntimeEligible);
   const nativeRuntimeActive = nativeRuntimeEligible && !nativeRuntime.failed;
@@ -1744,6 +1715,7 @@ function ProfilePageContent({
   const handleDeleteAccount = async (): Promise<LifecycleOutcome> => {
     if (!user) return "auth_failed";
 
+    let needsCloudReview = false;
     setIsDeleting(true);
 
     // Resolve auth first so a vault-unlock requirement is handled as a guard
@@ -1811,6 +1783,8 @@ function ProfilePageContent({
       });
       return "deleted";
     } catch (error) {
+      needsCloudReview = azureAccountCleanupRequired(error);
+      if (needsCloudReview) setCloudCleanupRequired(true);
       (isHandledAccountDeletionOutcome(error) ? console.warn : console.error)(
         "Delete account error:",
         error,
@@ -1818,7 +1792,7 @@ function ProfilePageContent({
       return classifyDeletionError(error);
     } finally {
       setIsDeleting(false);
-      setShowDeleteConfirm(false);
+      setShowDeleteConfirm(needsCloudReview);
     }
   };
 
@@ -2292,7 +2266,7 @@ function ProfilePageContent({
     const profileHomeControls = [
       {
         id: "profile_payouts",
-        label: "Payouts",
+        label: "Payments and earnings",
         purpose:
           "opens payout setup, linked bank details, and transaction history.",
         actionId: "route.profile_payouts",
@@ -2390,7 +2364,12 @@ function ProfilePageContent({
       },
       {
         id: "profile_support",
-        label: PROFILE_LABELS.support,
+        label:
+          activePanel === "hosting"
+            ? "Hosting"
+            : activePanel === "software-updates"
+              ? "Software updates"
+              : PROFILE_LABELS.support,
         purpose: "opens support routing and compose flows.",
         actionId: "route.profile_support_panel",
         role: "card",
@@ -2447,7 +2426,7 @@ function ProfilePageContent({
               actionId: "profile.retry_phone_lookup",
               role: "control",
             }] : []
-        : activePanel === "payouts" || activePanel === "world-model" || activePanel === "request-pricing"
+        : activePanel === "hosting" || activePanel === "software-updates" || activePanel === "payouts" || activePanel === "world-model" || activePanel === "request-pricing"
           ? []
           : profileHomeControls;
     const activeControl =
@@ -2461,7 +2440,7 @@ function ProfilePageContent({
             : activePanel === "world-model"
               ? "Personal World Model"
             : activePanel === "payouts"
-              ? "Payouts"
+              ? "Payments and earnings"
               : activePanel === "request-pricing"
                 ? "Request pricing"
                 : activePanel === "my-data"
@@ -2480,7 +2459,9 @@ function ProfilePageContent({
       : [
           PROFILE_LABELS.account,
           PROFILE_LABELS.preferences,
-          "Payouts",
+          "Hosting",
+          "Software updates",
+          "Payments and earnings",
           "Request pricing",
           "Memory",
           "Access & sharing",
@@ -2522,7 +2503,7 @@ function ProfilePageContent({
               : activePanel === "account"
                 ? phoneNumber ? ["Change phone number"] : phoneNumberStatus === "missing"
                   ? ["Add phone number"] : phoneNumberStatus === "unavailable" ? ["Retry phone lookup"] : []
-                : activePanel === "preferences"
+                : activePanel === "preferences" || activePanel === "hosting" || activePanel === "software-updates"
                   ? []
                   : activePanel === "security"
                     ? [
@@ -2554,19 +2535,23 @@ function ProfilePageContent({
             : activePanel === "world-model"
               ? "Personal World Model"
             : activePanel === "payouts"
-              ? "Payouts"
+              ? "Payments and earnings"
               : activePanel === "request-pricing"
                 ? "Request pricing"
-                : activePanel === "my-data"
-                  ? "Memory"
-                  : activePanel === "connected-systems"
-                    ? "Connected Systems"
-                    : activePanel === "preferences"
-                      ? PROFILE_LABELS.preferences
-                      : activePanel === "security"
-                        ? PROFILE_LABELS.security
-                        : activePanel === "gmail"
-                          ? "Mail receipts"
+            : activePanel === "my-data"
+              ? "Memory"
+              : activePanel === "connected-systems"
+                ? "Connected Systems"
+                : activePanel === "preferences"
+                  ? PROFILE_LABELS.preferences
+                  : activePanel === "security"
+                    ? PROFILE_LABELS.security
+                    : activePanel === "gmail"
+                      ? "Mail receipts"
+                      : activePanel === "hosting"
+                        ? "Hosting"
+                        : activePanel === "software-updates"
+                          ? "Software updates"
                           : PROFILE_LABELS.support
           : "Profile",
         purpose:
@@ -2916,7 +2901,9 @@ function ProfilePageContent({
 
   const popProfileStack = () => {
     if (isPanePresentation) {
-      popProfilePaneLocation(pathname, searchParams);
+      if (!unwindBackLayer(pathname, searchParams, { profile_pane: "1" })) {
+        popProfilePaneLocation(pathname, searchParams);
+      }
       return;
     }
     if (activeDetail) {
@@ -3720,6 +3707,13 @@ function ProfilePageContent({
           />
         ) : null}
       </SettingsGroup>
+      <SettingsGroup title="Payments">
+        <SettingsRow icon={FinanceAgentIcon} iconTone="capability"
+          title="Payments and earnings" description="Purchase balance, earnings and transactions."
+          voiceControlId="profile_payouts" voiceActionId="route.profile_payouts"
+          voiceLabel="Payments and earnings" voicePurpose="Opens purchase balance, payout setup and transaction history."
+          chevron onClick={() => openVaultBackedPanel("payouts")} />
+      </SettingsGroup>
       <SettingsGroup title="Account actions">
         <SettingsRow
           icon={PROFILE_ICONS.reset}
@@ -3748,12 +3742,28 @@ function ProfilePageContent({
   const appearanceControls = <ProfileAppearanceControls value={appAccent} nativeContext={preferenceChrome} />;
   const preferencesContent = (
     <div className="profile-preferences-content space-y-4">
+      {isPanePresentation && (!isNative() || !nativeControlsEligible) ? (
+        <ProfileAppearancePreferences
+          accent={appAccent}
+          onAccentChange={writeAccent}
+          onGeminiClick={() =>
+            updateProfileView(
+              { panel: "preferences", detail: "gemini" },
+              "push",
+            )
+          }
+          onVoiceClick={() =>
+            updateProfileView({ panel: "preferences", detail: "voice" }, "push")
+          }
+        />
+      ) : (
+      <>
       {appearanceControls}
       <SettingsGroup>
         <SettingsRow
-          leading={<GeminiLogo className="h-8 w-8" />}
-          title="Gemini"
-          description="Choose managed or BYOK."
+          leading={<Brain className="h-8 w-8" />}
+          title="AI connection"
+          description="Cloud connection or your own key."
           chevron
           onClick={() =>
             updateProfileView(
@@ -3773,6 +3783,8 @@ function ProfilePageContent({
           }
         />
       </SettingsGroup>
+      </>
+      )}
       <CommunicationPreferencesSection
         nativeScene={presentation === "native-page"}
         userId={user?.uid ?? null}
@@ -4208,7 +4220,20 @@ function ProfilePageContent({
 
   const profileStackEntries: ProfileStackEntry[] = [];
 
-  if (!routeBlockedByVault && activePanel === "account") {
+  if (
+    !routeBlockedByVault &&
+    (activePanel === "hosting" || activePanel === "software-updates")
+  ) {
+    profileStackEntries.push({
+      key: `panel:${activePanel}`,
+      title: activePanel === "hosting" ? "Hosting" : "Software updates",
+      description:
+        activePanel === "hosting"
+          ? "Where your private agent runs."
+          : "Your version and available updates.",
+      content: <AgentSettingsPanel kind={activePanel} userId={user.uid} />,
+    });
+  } else if (!routeBlockedByVault && activePanel === "account") {
     profileStackEntries.push({
       key: "panel:account",
       title: "Account",
@@ -4269,7 +4294,7 @@ function ProfilePageContent({
   } else if (!routeBlockedByVault && activePanel === "payouts") {
     profileStackEntries.push({
       key: "panel:payouts",
-      title: "Payouts",
+      title: "Payments and earnings",
       content: (
         <div
           className={cn(
@@ -4279,7 +4304,7 @@ function ProfilePageContent({
             isPanePresentation && accountStyles.managedContent,
           )}
         >
-          <DocumentHashcoinPayouts />
+          <PaymentsAndEarnings key={user?.uid} />
         </div>
       ),
     });
@@ -4511,8 +4536,8 @@ function ProfilePageContent({
     } else if (activeDetail === "gemini") {
       profileStackEntries.push({
         key: "detail:gemini",
-        title: "Gemini",
-        description: "Gemini access.",
+        title: "AI connection",
+        description: "Choose your AI connection.",
         content: (
           <GeminiRuntimeSettingsView model={runtimeSettings} />
         ),
@@ -4597,7 +4622,7 @@ function ProfilePageContent({
       key: "panel:referrals",
       title: PROFILE_LABELS.referrals,
       description: "Your link and referrals.",
-      content: <ReferralsPanel panePresentation={isPanePresentation} />,
+      content: presentation === "native-page" ? <ReferralsPanelView panePresentation model={nativeReferrals.model} /> : <ReferralsPanel panePresentation={isPanePresentation} />,
     });
   } else if (!routeBlockedByVault && activePanel === "support") {
     profileStackEntries.push({
@@ -4610,6 +4635,8 @@ function ProfilePageContent({
 
   const menuGroups = profileMenuGroups(canShowPkmAgentLab);
   const menuActions: ProfileMenuActions = {
+    hosting: () => updateProfileView({ panel: "hosting", detail: null }, "push"),
+    "software-updates": () => updateProfileView({ panel: "software-updates", detail: null }, "push"),
     account: openAccountPanel,
     payouts: () => openVaultBackedPanel("payouts"),
     "request-pricing": () => openVaultBackedPanel("request-pricing"),
@@ -4619,7 +4646,7 @@ function ProfilePageContent({
     security: openSecurityPanel,
     devices: () => openVaultBackedPanel("security", "trusted-devices"),
     connectors: () => openVaultBackedPanel("connectors"),
-    invite: () => router.push(ROUTES.ONE_REFERRALS),
+    invite: () => updateProfileView({ panel: "referrals", detail: null }, "push"),
     support: () => updateProfileView({ panel: "support", detail: null }, "push"),
     "developer-tools": () => router.push("/one/profile/pkm-agent-lab"),
     privacy: () => updateProfileView({ panel: "legal", detail: "privacy" }, "push"),
@@ -4905,12 +4932,13 @@ function ProfilePageContent({
         <AlertDialogContent
           className={cn(
             "w-[calc(100%-1rem)] sm:max-w-lg",
-            accountStyles.accountDialogCompact,
-            isPanePresentation && accountStyles.accountDialog,
-            isPanePresentation && accountStyles.dangerDialog,
+            cloudCleanupRequired && "max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain",
+            !cloudCleanupRequired && accountStyles.accountDialogCompact,
+            !cloudCleanupRequired && isPanePresentation && accountStyles.accountDialog,
+            !cloudCleanupRequired && isPanePresentation && accountStyles.dangerDialog,
           )}
           overlayClassName={
-            isPanePresentation ? accountStyles.accountDialogOverlay : undefined
+            !cloudCleanupRequired && isPanePresentation ? accountStyles.accountDialogOverlay : undefined
           }
         >
           <AlertDialogHeader>
@@ -4919,15 +4947,18 @@ function ProfilePageContent({
               {deleteDialogTitle}
             </AlertDialogTitle>
             <AlertDialogDescription className={accountStyles.accountDialogDescription}>
-              {deleteDialogDescription}
+              {cloudCleanupRequired ? "Cloud cleanup is required before account deletion." : deleteDialogDescription}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {cloudCleanupRequired && user ? <AccountCloudCleanup key={user.uid} userId={user.uid} token={vaultOwnerToken ?? null}
+            onUnlock={() => { setShowDeleteConfirm(false); requestVaultUnlock("delete_account"); }}
+            onFinish={handleDeleteAccount} /> : null}
           <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
             <AlertDialogCancel
               className="w-full sm:w-auto"
               disabled={isDeleting}
             >
-              Cancel
+              {cloudCleanupRequired ? "Close" : "Cancel"}
             </AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
@@ -4936,7 +4967,8 @@ function ProfilePageContent({
                 event.preventDefault();
                 void handleDeleteAccount();
               }}
-              disabled={isDeleting}
+              disabled={isDeleting || cloudCleanupRequired}
+              hidden={cloudCleanupRequired}
             >
               {isDeleting ? "Deleting..." : "Delete account"}
             </AlertDialogAction>
@@ -5004,6 +5036,9 @@ function ProfilePageContent({
       ...(walletCardEntryEnabled ? [{ id: "account-wallet", label: WALLET_CARD_COPY.profileEntry.title,
         detail: WALLET_CARD_COPY.profileEntry.description, enabled: true, artworkId: "account-wallet", chevron: true }] : []),
     ] },
+    { id: "account-payments", title: "Payments", rows: [
+      { id: "account-payments-open", label: "Payments and earnings", enabled: true, artworkId: "account-wallet", chevron: true },
+    ] },
     { id: "account-email-updates", title: "Optional One email updates", rows: emailPreference.value ? [
       { id: "email-updates-choice", label: "One tips and product updates", detail: emailPreference.error ?? "Useful tips, demos and news. Unsubscribe anytime.",
         enabled: !!emailPreference.value && !emailPreference.busy, pending: emailPreference.loading || emailPreference.busy, toggle: true,
@@ -5044,8 +5079,10 @@ function ProfilePageContent({
     ] }],
   } : undefined;
   return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable} onDevicesCapability={setNativeDevicesAvailable} onVaultCapability={setNativeVaultAvailable} onPricingCapability={setNativePricingAvailable} onPayoutCapability={setNativePayoutAvailable} onMemoryCapability={setNativeMemoryAvailable} onSharedMemoryCapability={setNativeSharedMemoryAvailable} onSecretMemoryCapability={setNativeSecretsAvailable} onFinanceCapability={setNativeFinanceAvailable} onWorldModelCapability={setNativeWorldModelAvailable} onRuntimeCapability={setNativeRuntimeAvailable} onConnectorsCapability={setNativeConnectorsAvailable}
+    referrals={{ active: nativeReferralActive, pages: nativeReferrals.pages, rows: nativeReferrals.rows, editor: nativeReferrals.editor, formScene: nativeReferrals.formScene,
+      root: () => updateProfileView({ panel: null, detail: null }, "replace") }}
     workspace={activePanel === "connectors" ? { kind: "connectors", active: nativeConnectorsActive && !showVaultUnlock,
-      visitKey: activeDetail ?? "catalog", pages: nativeConnectors.pages, rows: nativeConnectors.rows, editor: nativeConnectors.editor, ancestor: nativeConnectors.ancestor,
+      visitKey: activeDetail ?? "catalog", pages: nativeConnectors.pages, rows: nativeConnectors.rows, editor: nativeConnectors.editor, ancestor: nativeConnectors.ancestor, formScene: nativeConnectors.formScene,
       back: () => { if (nativeConnectors.navigationBlocked()) return false; if (!nativeConnectors.back()) popProfileStack(); return true; },
       root: () => {
         if (nativeConnectors.navigationBlocked()) return false;
@@ -5053,11 +5090,12 @@ function ProfilePageContent({
         updateProfileView({ panel: null, detail: null }, "replace"); return true;
       }
     } : activePanel === "world-model" ? { kind: "world-model", active: nativeWorldModelActive && !showVaultUnlock,
-      pages: nativeWorldModel.pages, rows: nativeWorldModel.rows, ancestor: nativeWorldModel.ancestor, editor: nativeWorldModel.editor,
+      pages: nativeWorldModel.pages, rows: nativeWorldModel.rows, ancestor: nativeWorldModel.ancestor, editor: nativeWorldModel.editor, formScene: nativeWorldModel.formScene,
       back: () => { if (nativeWorldModel.navigationBlocked()) return false; if (!nativeWorldModel.back()) popProfileStack(); return true; },
       root: () => { if (nativeWorldModel.navigationBlocked()) return false; updateProfileView({ panel: null, detail: null }, "replace"); return true; }
     } : activePanel === "my-data" ? { kind: "memory", visitKey: activeDetail ?? "root", active: nativeMemoryActive && !showVaultUnlock && !nativeMemoryWebBody,
       pages: nativeMemory.pages, rows: nativeMemory.rows, ancestor: nativeMemory.ancestor,
+      formScene: nativeContextOpen && !nativeContextFailed ? "memory-financial-context" : null,
       editor: destinationId => nativeContextOpen && !nativeContextFailed ? <NativeMemoryEditor owner={nativeDetailOwner} destinationId={destinationId}
         model={{ current: contextVisit.current, draft: { category: financialContextCategory, text: financialContextText },
           inputRevision: () => financialDraft.current.revision, mutationPending: () => memoryOperations.writing("financial"),
@@ -5076,7 +5114,8 @@ function ProfilePageContent({
       ancestor: nativePayout.ancestor,
       back: () => { if (!nativePayout.back()) popProfileStack(); },
       root: () => updateProfileView({ panel: null, detail: null }, "replace") } : { kind: "request-pricing", active: nativePricingActive && !showVaultUnlock, pages: [nativePricing.page], rows: nativePricing.rows,
-      root: () => updateProfileView({ panel: null, detail: null }, "replace"), editor: destinationId => nativePricingEditorOpen ?
+      root: () => updateProfileView({ panel: null, detail: null }, "replace"), formScene: nativePricingEditorOpen ? "request-price" : null,
+      editor: destinationId => nativePricingEditorOpen ?
         <NativeRequestPricingEditor userId={user.uid} model={nativePricingModel} destinationId={destinationId}
           onClose={() => setNativePricingEditorOpen(false)} onFallback={() => { setNativePricingEditorOpen(false); setNativePricingFailed(true); }} /> : null }}
     detailOverlay={<>{nativeAccountException === "photo" ? <ProfileAvatarEditor openOnMount optionsOnMount
@@ -5107,6 +5146,7 @@ function ProfilePageContent({
     settings={{ active: !showVaultUnlock && (activePanel === "preferences" && (!activeDetail || activeDetail === "voice" && voiceParent !== null || nativeFinanceActive || nativeRuntimeActive) ||
         activePanel === "security" && (!activeDetail || activeDetail === "session" || devicesActive && nativeDevicesAvailable && devicesParent !== null ||
           vaultNativeActive && vaultParent !== null && !nativeVaultPasswordFallback)),
+      formScene: vaultNativeActive && passphraseDialogOpen ? "vault-passphrase" : nativeRuntimeActive ? nativeRuntime.formScene : nativePreferences.formScene,
       requiresVoice: activePanel === "preferences" && activeDetail === "voice",
       requiresFinance: nativeFinanceActive,
       requiresRuntime: nativeRuntimeActive,
@@ -5146,7 +5186,7 @@ function ProfilePageContent({
         {vaultNativeActive && passphraseDialogOpen && destinationId ? <NativeVaultPasswordEditor model={vaultMethods} userId={user.uid}
           destinationId={destinationId} onFallback={() => setNativeVaultPasswordFallback(true)} /> : null}</> }}
     account={{ active: activePanel === "account" && (!activeDetail || activeDetail === "phone" && !phoneLookupPending) && !nativeAccountException && !showVaultUnlock,
-      page: nativeAccountPage, confirmation: accountConfirmation,
+      page: nativeAccountPage, confirmation: accountConfirmation, formScene: editingDisplayName && activePanel === "account" && !activeDetail ? "account-name" : null,
       root: () => {
         if (isDeleting || isResetting) return;
         dismissAccountConfirmation(); updateProfileView({ panel: null, detail: null }, "replace");
@@ -5156,6 +5196,7 @@ function ProfilePageContent({
         ["account-name", () => setEditingDisplayName(true)],
         ["account-phone", () => { if (phoneLookupPending) { void retryPhoneLookup(); return; } updateProfileView({ panel: "account", detail: "phone" }, "push"); }],
         ["account-wallet", () => router.push(ROUTES.ONE_WALLET_CARD)],
+        ["account-payments-open", () => openVaultBackedPanel("payouts")],
         ["email-updates-on", () => emailPreference.edit(true, emailPreference.frequencyDraft)],
         ["email-updates-off", () => emailPreference.edit(false, emailPreference.frequencyDraft)],
         ["email-updates-weekly", () => emailPreference.edit(emailPreference.enabledDraft, "weekly")],

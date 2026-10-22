@@ -51,6 +51,73 @@ def shared_pending_store(monkeypatch: pytest.MonkeyPatch):
     return install_fake_pending_store(monkeypatch)
 
 
+@pytest.fixture
+def shared_hub_owner(monkeypatch: pytest.MonkeyPatch):
+    """Explicit Shared placement for isolated connector execution fixtures.
+
+    Keep the real admission guard. Boundary tests can change this resolver to
+    private/unknown; unrelated fake stores must not accidentally hit a real DB.
+    """
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services import owner_placement_guard
+
+    resolver = AsyncMock(return_value="shared")
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", resolver)
+    monkeypatch.setattr(owner_placement_guard, "pod_mode", lambda: False)
+    return resolver
+
+
+@pytest.fixture
+def legacy_shared_files_absent(monkeypatch: pytest.MonkeyPatch):
+    """Pre-Shared-Files unit fixtures prove absent schema without a live DB.
+
+    Keep the production placement guard. Real storage/race acceptance uses the
+    dedicated disposable PostgreSQL fixture instead of this absent-schema port.
+    """
+    from contextlib import asynccontextmanager
+
+    from hushh_mcp.services.shared_files import registry
+
+    class Connection:
+        @asynccontextmanager
+        async def transaction(self):
+            yield
+
+        async def execute(self, sql, *args):
+            assert sql.startswith("SELECT pg_advisory_xact_lock")
+
+        async def fetchval(self, sql):
+            assert sql == "SELECT to_regclass('public.shared_files_storage')"
+            return None
+
+    class Pool:
+        @asynccontextmanager
+        async def acquire(self):
+            yield Connection()
+
+    async def get_pool():
+        return Pool()
+
+    monkeypatch.delenv("HUSSH_SHARED_FILES_ENABLED", raising=False)
+    monkeypatch.setattr(registry, "get_pool", get_pool)
+
+
+@pytest.fixture
+def legacy_account_without_shared_files(monkeypatch: pytest.MonkeyPatch):
+    """Legacy account SQL inventories contain no provisioned Files resources.
+
+    Real erasure/key fences remain in the dedicated isolated PostgreSQL suite.
+    """
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.account_service import AccountService
+
+    monkeypatch.setattr(
+        AccountService, "_erase_shared_files_if_present", AsyncMock(return_value=None)
+    )
+
+
 @pytest.fixture(autouse=True)
 def isolate_runtime_env(monkeypatch: pytest.MonkeyPatch):
     # Local import: hushh_mcp.config resolves APP_SIGNING_KEY at import time,
@@ -72,6 +139,14 @@ def isolate_runtime_env(monkeypatch: pytest.MonkeyPatch):
         "APP_FRONTEND_ORIGIN",
         "GENAI_GOOGLE_CLOUD_PROJECT",
         "BACKEND_RUNTIME_CONFIG_JSON",
+        # Connect Azure hub configuration. An operator's .env (loaded into
+        # os.environ by runtime_settings) would otherwise make unit tests mint
+        # real Google credentials from whatever ADC is on the machine; tests
+        # that need these set them with monkeypatch.
+        "HUSSH_AZURE_APP_CLIENT_ID",
+        "HUSSH_AZURE_BROKER_SA",
+        "HUSSH_AZURE_OAUTH_REDIRECT_URI",
+        "HUSSH_POD_IMAGE_READER_SA",
     ):
         monkeypatch.delenv(key, raising=False)
     yield
@@ -346,6 +421,12 @@ def cleanup_revoked_tokens():
         _revoked_tokens.clear()
     except ImportError:
         pass  # Module not available in all test contexts
+
+
+@pytest.fixture(autouse=True)
+def enabled_chat_history_for_domain_tests(monkeypatch):
+    """Exercise write-enabled domain behavior; rollout tests explicitly assert the hold."""
+    monkeypatch.setattr("hushh_mcp.services.chat_history_rollout.CHAT_HISTORY_WRITES_ENABLED", True)
 
 
 # --- Registration-only connector fixture ------------------------------------

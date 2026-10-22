@@ -52,6 +52,11 @@ from hushh_mcp.consent.export_envelope import normalize_refresh_policy
 from hushh_mcp.consent.pkm_scope_policy import is_source_library_pkm_scope
 from hushh_mcp.consent.scope_generator import get_scope_generator
 from hushh_mcp.consent.scope_helpers import scope_matches
+from hushh_mcp.services.consent_event_authority import (
+    append_event_receipt,
+    owner_lineage_is_active,
+)
+from hushh_mcp.services.consent_export_storage import normalized_export_identity
 from hushh_mcp.services.consent_request_links import build_consent_request_url
 
 logger = logging.getLogger(__name__)
@@ -64,6 +69,8 @@ _DEFAULT_BACKGROUND_SCAN_LIMIT = 2000
 _BACKGROUND_CONSENT_ACTIONS = [
     "REQUESTED",
     "CONSENT_GRANTED",
+    "CONSENT_PAID_APPROVED",
+    "CONSENT_PAID_FUNDED",
     "CONSENT_DENIED",
     "CANCELLED",
     "REVOKED",
@@ -76,6 +83,8 @@ _REQUEST_RESOLVED_ACTIONS = [
     "CANCELLED",
     "CONSENT_DENIED",
     "CONSENT_GRANTED",
+    "CONSENT_PAID_APPROVED",
+    "CONSENT_PAID_FUNDED",
     "REVOKED",
     "TIMEOUT",
 ]
@@ -323,6 +332,7 @@ class ConsentDBService:
             )
             or "X25519-AES256-GCM"
         )
+        envelope_aad = self._parse_metadata(row.get("envelope_aad")) or None
 
         return {
             "consent_token": str(row.get("consent_token") or "").strip() or None,
@@ -342,7 +352,7 @@ class ConsentDBService:
             "source_manifest_revision": row.get("source_manifest_revision"),
             "refresh_status": self._normalize_refresh_status(row.get("refresh_status")),
             "refresh_policy": normalize_refresh_policy(row.get("refresh_policy")),
-            "export_id": str(row.get("export_id") or "").strip() or None,
+            "export_id": normalized_export_identity(row, envelope_aad),
             "envelope_version": int(row.get("envelope_version") or 1),
             "grant_id": str(row.get("grant_id") or "").strip() or None,
             "app_id": str(row.get("app_id") or "").strip() or None,
@@ -351,7 +361,7 @@ class ConsentDBService:
             or None,
             "payload_algorithm": str(row.get("payload_algorithm") or "AES-256-GCM").strip()
             or "AES-256-GCM",
-            "envelope_aad": self._parse_metadata(row.get("envelope_aad")) or None,
+            "envelope_aad": envelope_aad,
             "envelope_aad_sha256": str(row.get("envelope_aad_sha256") or "").strip() or None,
             "ciphertext_sha256": str(row.get("ciphertext_sha256") or "").strip() or None,
             "ciphertext_bytes": int(row.get("ciphertext_bytes") or 0) or None,
@@ -802,10 +812,8 @@ class ConsentDBService:
     ) -> List[Dict]:
         """
         Get active consent tokens for a user.
-        Active = CONSENT_GRANTED with no subsequent REVOKED and not expired.
-
-        Note: Uses Python post-processing to handle DISTINCT ON logic.
-        Uniqueness is keyed by (agent_id, scope), not just scope.
+        Free grants retain latest-per-agent-and-scope lineage. Purchased terms
+        remain independent exact grants and use commercial database time.
         """
         db = self._get_db()
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
@@ -814,67 +822,16 @@ class ConsentDBService:
         query = db.table("consent_audit").select("*")
         built_query = (
             self._apply_user_filter(query, user_id, user_ids)
-            .in_("action", ["CONSENT_GRANTED", "REVOKED"])
+            .in_("action", ["CONSENT_GRANTED", "REVOKED", "CONSENT_DENIED"])
             .order("issued_at", desc=True)
         )
         response = await asyncio.to_thread(built_query.execute)
 
-        # Post-process to get latest per (agent_id, scope) (DISTINCT ON equivalent)
-        latest_per_agent_scope = {}
-        for row in response.data:
-            if not self._is_external_audit_row(row):
-                continue
-            row_scope = row.get("scope")
-            row_agent_id = row.get("agent_id") or ""
-            if not row_scope:
-                continue
+        from hushh_mcp.consent.paid_admission import active_external_grants
 
-            if agent_id and row_agent_id != agent_id:
-                continue
-            if scope and row_scope != scope:
-                continue
-
-            key = (row_agent_id, row_scope)
-            if key not in latest_per_agent_scope:
-                latest_per_agent_scope[key] = row
-                continue
-
-            current_issued = latest_per_agent_scope[key].get("issued_at", 0)
-            new_issued = row.get("issued_at", 0)
-            if new_issued > current_issued:
-                latest_per_agent_scope[key] = row
-
-        # Filter to only active (CONSENT_GRANTED and not expired)
-        results = []
-        for row in latest_per_agent_scope.values():
-            if row.get("action") == "CONSENT_GRANTED":
-                if is_source_library_pkm_scope(str(row.get("scope") or "")):
-                    continue
-                expires_at = row.get("expires_at")
-                if expires_at is None or expires_at > now_ms:
-                    token_id = row.get("token_id")
-                    results.append(
-                        {
-                            "id": (
-                                token_id[:20] + "..."
-                                if token_id and len(token_id) > 20
-                                else str(row.get("id"))
-                            ),
-                            "user_id": row.get("user_id") or user_id,
-                            "scope": row.get("scope"),
-                            "developer": row.get("agent_id"),
-                            "agent_id": row.get("agent_id"),
-                            "issued_at": row.get("issued_at"),
-                            "expires_at": expires_at,
-                            "time_remaining_ms": ((expires_at - now_ms) if expires_at else 0),
-                            "request_id": row.get("request_id"),
-                            "token_id": token_id,
-                            "source_record_id": row.get("id"),
-                            "metadata": self._parse_metadata(row.get("metadata")) or None,
-                        }
-                    )
-
-        return results
+        return await active_external_grants(
+            self, response.data or [], user_id, agent_id, scope, now_ms
+        )
 
     async def get_active_token_export_revisions(
         self,
@@ -1200,7 +1157,7 @@ class ConsentDBService:
         agent_id: Optional[str] = None,
         *,
         token_id: Optional[str] = None,
-        conn=None,
+        conn: Any = None,
     ) -> bool:
         """Check the exact grant under its principal's revocation policy.
 
@@ -1218,102 +1175,30 @@ class ConsentDBService:
         if normalized_agent_id == "self" and normalized_scope == "vault.owner" and token_id:
             # One statement sees exact grant + subsequent revocations together.
             # No fallback to a different ledger or a merely newer owner grant.
-            owner_query = """
-                    SELECT grant_event.id FROM internal_access_events AS grant_event
-                    WHERE grant_event.user_id = :user_id AND grant_event.agent_id = 'self'
-                      AND grant_event.scope = 'vault.owner'
-                      AND grant_event.action = 'CONSENT_GRANTED'
-                      AND grant_event.token_id = :token_id
-                      AND grant_event.expires_at > :now_ms
-                      AND grant_event.id = (
-                        SELECT MIN(original.id) FROM internal_access_events AS original
-                        WHERE original.user_id = grant_event.user_id
-                          AND original.agent_id = 'self' AND original.scope = 'vault.owner'
-                          AND original.action = 'CONSENT_GRANTED'
-                          AND original.token_id = grant_event.token_id
-                      )
-                      AND NOT EXISTS (
-                        SELECT 1 FROM internal_access_events AS revoked
-                        WHERE revoked.user_id = grant_event.user_id
-                          AND revoked.agent_id = 'self' AND revoked.scope = 'vault.owner'
-                          AND revoked.action = 'REVOKED' AND revoked.id > grant_event.id
-                      ) LIMIT 1
-                """
             if conn is not None:
-                query = (
-                    owner_query.replace(":user_id", "$1")
-                    .replace(":token_id", "$2")
-                    .replace(":now_ms", "$3")
+                from hushh_mcp.services.consent_event_authority import (
+                    owner_lineage_active_in_transaction,
                 )
-                return bool(await conn.fetchval(query, user_id, token_id, now_ms, timeout=5))
 
-            def owner_lineage_is_active():
-                rows = (
-                    self._get_db()
-                    .execute_raw(
-                        owner_query,
-                        {"user_id": user_id, "token_id": token_id, "now_ms": now_ms},
-                    )
-                    .data
-                )
-                return bool(rows)
-
-            return await asyncio.to_thread(owner_lineage_is_active)
-        is_internal_lookup = self._is_internal_event(
-            agent_id=normalized_agent_id,
-            action="CONSENT_GRANTED",
-            scope=normalized_scope,
-        )
-
-        rows: List[Dict[str, Any]]
-
-        if is_internal_lookup:
-            try:
-                db = self._get_db()
-                query = (
-                    db.table("internal_access_events")
-                    .select("action,expires_at,issued_at,token_id")
-                    .eq("user_id", user_id)
-                    .eq("scope", normalized_scope)
-                    .in_("action", ["CONSENT_GRANTED", "REVOKED"])
-                )
-                if normalized_agent_id:
-                    query = query.eq("agent_id", normalized_agent_id)
-                order_field = (
-                    "id"
-                    if normalized_agent_id == "self" and normalized_scope == "vault.owner"
-                    else "issued_at"
-                )
-                rows = await asyncio.to_thread(
-                    lambda: query.order(order_field, desc=True).limit(1).execute().data or []
-                )
-            except DatabaseExecutionError as exc:
-                if not self._is_missing_internal_access_events_error(exc):
-                    raise
-                logger.warning(
-                    "internal_access_events_missing fallback=consent_audit action=is_token_active"
-                )
-                rows = await self._get_legacy_internal_rows(
-                    user_id,
-                    agent_id=normalized_agent_id,
-                    scope=normalized_scope,
-                    actions=["CONSENT_GRANTED", "REVOKED"],
-                    limit=1,
-                )
-        else:
-            db = self._get_db()
-            query = (
-                db.table("consent_audit")
-                .select("action,expires_at,issued_at,token_id")
-                .eq("user_id", user_id)
-                .eq("scope", normalized_scope)
-                .in_("action", ["CONSENT_GRANTED", "REVOKED"])
+                return await owner_lineage_active_in_transaction(conn, user_id, token_id, now_ms)
+            return await asyncio.to_thread(
+                owner_lineage_is_active, self._get_db(), user_id, token_id, now_ms
             )
-            if normalized_agent_id:
-                query = query.eq("agent_id", normalized_agent_id)
-            rows = await asyncio.to_thread(
-                lambda: query.order("issued_at", desc=True).limit(1).execute().data or []
+
+        if token_id and normalized_scope.startswith("attr."):
+            # Independent purchased terms are exact grants, not replaceable
+            # latest-per-scope aliases. Existing free lineage remains separate.
+            from hushh_mcp.consent.paid_admission import exact_paid_scope_admission
+
+            paid = await exact_paid_scope_admission(
+                self._get_db(), user_id, normalized_scope, normalized_agent_id, token_id
             )
+            if paid is not None:
+                return paid
+
+        from hushh_mcp.services.consent_commerce_ports import active_lineage_rows
+
+        rows = await active_lineage_rows(self, user_id, normalized_scope, normalized_agent_id)
 
         if not rows:
             return False
@@ -1325,7 +1210,13 @@ class ConsentDBService:
             return False
 
         expires_at = row.get("expires_at")
-        return expires_at is None or expires_at > now_ms
+        if expires_at is not None and expires_at <= now_ms:
+            return False
+        from hushh_mcp.consent.paid_admission import paid_grant_is_admitted
+
+        return await paid_grant_is_admitted(
+            str(row.get("token_id") or ""), self._parse_metadata(row.get("metadata"))
+        )
 
     async def was_recently_denied(
         self,
@@ -1640,6 +1531,7 @@ class ConsentDBService:
         expires_at: Optional[int] = None,
         poll_timeout_at: Optional[int] = None,
         metadata: Optional[Dict] = None,
+        connection: Any = None,
     ) -> int:
         """
         Insert a consent event into consent_audit table.
@@ -1662,44 +1554,24 @@ class ConsentDBService:
                 metadata=metadata,
             )
 
-        db = self._get_db()
+        from hushh_mcp.services.consent_commerce_ports import append_external_event
 
-        issued_at = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
-        token_id = token_id or f"evt_{issued_at}"
-
-        # Prepare metadata as JSON string
-        metadata_json = json.dumps(metadata) if metadata else None
-
-        data = {
-            "token_id": token_id,
-            "user_id": user_id,
-            "agent_id": agent_id,
-            "scope": scope,
-            "action": action,
-            "request_id": request_id,
-            "scope_description": scope_description,
-            "issued_at": issued_at,
-            "expires_at": expires_at,
-            "poll_timeout_at": poll_timeout_at,
-            "metadata": metadata_json,
-        }
-
-        # Remove None values
-        data = {k: v for k, v in data.items() if v is not None}
-
-        response = await asyncio.to_thread(lambda: db.table("consent_audit").insert(data).execute())
-
-        # Extract event ID from response
-        if response.data and len(response.data) > 0:
-            event_id = response.data[0].get("id")
-            logger.info(f"Inserted {action} event: {event_id}")
-            return event_id
-        else:
-            # Fallback: return issued_at as ID if response doesn't have id
-            logger.warning(
-                f"Inserted {action} event but no ID returned, using issued_at: {issued_at}"
-            )
-            return issued_at
+        return await append_external_event(
+            self,
+            {
+                "user_id": user_id,
+                "agent_id": agent_id,
+                "scope": scope,
+                "action": action,
+                "token_id": token_id,
+                "request_id": request_id,
+                "scope_description": scope_description,
+                "expires_at": expires_at,
+                "poll_timeout_at": poll_timeout_at,
+                "metadata": metadata,
+            },
+            connection,
+        )
 
     async def insert_internal_event(
         self,
@@ -1733,6 +1605,17 @@ class ConsentDBService:
         }
         data = {k: v for k, v in data.items() if v is not None}
 
+        def insert_event():
+            try:
+                return db.table("internal_access_events").insert(data).execute(), False
+            except DatabaseExecutionError as exc:
+                if not self._is_missing_internal_access_events_error(exc):
+                    raise
+                logger.warning(
+                    "internal_access_events_missing fallback=consent_audit action=insert_internal_event"
+                )
+                return db.table("consent_audit").insert(data).execute(), True
+
         if agent_id == "self" and scope == "vault.owner" and action == "REVOKED":
 
             def insert_owner_revocation():
@@ -1757,31 +1640,20 @@ class ConsentDBService:
                         },
                     ).scalar_one()
 
-            return await asyncio.to_thread(insert_owner_revocation)
+            event_id = await asyncio.to_thread(insert_owner_revocation)
+            landed_in_primary_ledger = False
+        else:
+            response, landed_in_primary_ledger = await asyncio.to_thread(insert_event)
+            event_id = response.data[0].get("id") if response.data else None
 
-        def insert_event():
-            try:
-                return db.table("internal_access_events").insert(data).execute()
-            except DatabaseExecutionError as exc:
-                if not self._is_missing_internal_access_events_error(exc):
-                    raise
-                logger.warning(
-                    "internal_access_events_missing fallback=consent_audit action=insert_internal_event"
-                )
-                return db.table("consent_audit").insert(data).execute()
-
-        response = await asyncio.to_thread(insert_event)
-        if response.data and len(response.data) > 0:
-            event_id = response.data[0].get("id")
-            logger.info("Inserted internal %s event: %s", action, event_id)
-            return event_id
-
-        logger.warning(
-            "Inserted internal %s event but no ID returned, using issued_at: %s",
-            action,
-            issued_at,
+        await append_event_receipt(
+            data,
+            issued_at=issued_at,
+            event_id=event_id,
+            internal=not landed_in_primary_ledger,
         )
-        return issued_at
+
+        return event_id if event_id is not None else issued_at
 
     async def renew_vault_owner_token(self, user_id: str, prior_token: str) -> dict:
         """Renew an authenticated proof only while its durable lineage is intact.
@@ -2256,7 +2128,9 @@ class ConsentDBService:
         )
 
         if response.data and len(response.data) > 0:
-            return self._format_request_status_row(response.data[0])
+            return await self._admitted_request_status(
+                self._format_request_status_row(response.data[0])
+            )
         return None
 
     def _format_request_status_row(self, row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -2320,7 +2194,7 @@ class ConsentDBService:
             if not request_id or request_id in seen_request_ids:
                 continue
             seen_request_ids.add(request_id)
-            formatted = self._format_request_status_row(row)
+            formatted = await self._admitted_request_status(self._format_request_status_row(row))
             if formatted is not None:
                 latest[request_id] = formatted
         return latest
@@ -2356,11 +2230,18 @@ class ConsentDBService:
         row = response.data[0]
         if not self._is_external_audit_row(row):
             return None
-        return {
-            **row,
-            "metadata": self._parse_metadata(row.get("metadata")),
-            "approval_timeout_at": self._effective_pending_timeout_at(row),
-        }
+        return await self._admitted_request_status(
+            {
+                **row,
+                "metadata": self._parse_metadata(row.get("metadata")),
+                "approval_timeout_at": self._effective_pending_timeout_at(row),
+            }
+        )
+
+    async def _admitted_request_status(self, row: Dict[str, Any] | None) -> Dict[str, Any] | None:
+        from hushh_mcp.consent.paid_requests import admitted_request_status
+
+        return await admitted_request_status(row)
 
     # =========================================================================
     # Consent Exports (MCP Zero-Knowledge Flow)
@@ -2394,80 +2275,30 @@ class ConsentDBService:
         envelope_aad_sha256: str | None = None,
         ciphertext_sha256: str | None = None,
         ciphertext_bytes: int | None = None,
+        connection: Any = None,
     ) -> bool:
-        """
-        Store encrypted export data for strict wrapped-key zero-knowledge flow.
+        """Persist owner-authorized ciphertext through the canonical storage adapter."""
+        from hushh_mcp.services.consent_export_storage import store_export
 
-        This persists the encrypted data to the database so it survives
-        server restarts and is available across all instances.
-
-        Args:
-            consent_token: The consent token this export is for
-            user_id: The user ID
-            encrypted_data: Base64-encoded ciphertext
-            iv: Base64-encoded initialization vector
-            tag: Base64-encoded authentication tag
-            export_key: Deprecated legacy field, ignored in strict mode
-            wrapped_key_bundle: Wrapped export-key metadata for strict zero-knowledge flow
-            scope: The scope this export is for
-            expires_at_ms: Expiry timestamp in milliseconds
-
-        Returns:
-            True if stored successfully, False otherwise
-        """
-        db = self._get_db()
-
-        # Convert ms timestamp to ISO format for Cloud SQL
-        from datetime import datetime, timezone
-
-        expires_at = datetime.fromtimestamp(expires_at_ms / 1000, tz=timezone.utc).isoformat()
-        normalized_bundle = self._normalize_wrapped_key_bundle(wrapped_key_bundle)
-        if normalized_bundle is None:
-            logger.error(
-                "Refusing to store consent export without a wrapped key bundle token_fp=%s",
-                _token_fingerprint(consent_token),
-            )
-            return False
-        normalized_envelope_version = int(envelope_version or 1)
-        if normalized_envelope_version == 2 and not all(
-            (
-                export_id,
-                grant_id,
-                app_id,
-                scope_handle,
-                recipient_key_fingerprint,
-                envelope_aad,
-                envelope_aad_sha256,
-                ciphertext_sha256,
-                ciphertext_bytes,
-            )
-        ):
-            logger.error(
-                "Refusing incomplete consent export envelope v2 token_fp=%s",
-                _token_fingerprint(consent_token),
-            )
-            return False
-
-        try:
-            # Upsert to handle re-approvals
-            export_row = {
+        return await store_export(
+            self,
+            {
                 "consent_token": consent_token,
                 "user_id": user_id,
                 "encrypted_data": encrypted_data,
                 "iv": iv,
                 "tag": tag,
-                "export_key": None,
-                "wrapped_key_bundle": normalized_bundle,
-                "connector_key_id": normalized_bundle.get("connector_key_id"),
-                "connector_wrapping_alg": normalized_bundle.get("wrapping_alg"),
-                "export_revision": max(1, int(export_revision or 1)),
-                "export_generated_at": export_generated_at
-                or datetime.now(timezone.utc).isoformat(),
+                "wrapped_key_bundle": wrapped_key_bundle,
+                "scope": scope,
+                "expires_at_ms": expires_at_ms,
+                "export_revision": export_revision,
+                "export_generated_at": export_generated_at,
                 "source_content_revision": source_content_revision,
                 "source_manifest_revision": source_manifest_revision,
-                "refresh_status": self._normalize_refresh_status(refresh_status),
-                "refresh_policy": normalize_refresh_policy(refresh_policy),
-                "envelope_version": normalized_envelope_version,
+                "refresh_status": refresh_status,
+                "refresh_policy": refresh_policy,
+                "export_id": export_id,
+                "envelope_version": envelope_version,
                 "grant_id": grant_id,
                 "app_id": app_id,
                 "scope_handle": scope_handle,
@@ -2477,25 +2308,15 @@ class ConsentDBService:
                 "envelope_aad_sha256": envelope_aad_sha256,
                 "ciphertext_sha256": ciphertext_sha256,
                 "ciphertext_bytes": ciphertext_bytes,
-                "scope": scope,
-                "expires_at": expires_at,
-            }
-            if export_id:
-                export_row["export_id"] = export_id
-            query = db.table("consent_exports").upsert(
-                export_row,
-                on_conflict="consent_token",
-            )
-            await asyncio.to_thread(query.execute)
+            },
+            connection=connection,
+        )
 
-            logger.info(
-                "Stored consent export for token_fp=%s",
-                _token_fingerprint(consent_token),
-            )
-            return True
-        except Exception as e:
-            logger.error(f"Failed to store consent export: {e}")
-            return False
+    async def _export_is_admitted(self, export: Dict[str, Any]) -> bool:
+        """Keep all existing export readers behind the same admission authority."""
+        from hushh_mcp.consent.paid_exports import export_is_admitted
+
+        return await export_is_admitted(self, export)
 
     async def get_consent_export(self, consent_token: str) -> Optional[Dict]:
         """
@@ -2520,7 +2341,8 @@ class ConsentDBService:
             response = await asyncio.to_thread(query.execute)
 
             if response.data and len(response.data) > 0:
-                return self._normalize_export_row(response.data[0])
+                export = self._normalize_export_row(response.data[0])
+                return export if await self._export_is_admitted(export) else None
             return None
         except Exception as exc:
             logger.error("Failed to get consent export error_type=%s", type(exc).__name__)
@@ -2546,7 +2368,10 @@ class ConsentDBService:
                 .limit(1)
             )
             response = await asyncio.to_thread(query.execute)
-            return self._normalize_export_row(response.data[0]) if response.data else None
+            if not response.data:
+                return None
+            export = self._normalize_export_row(response.data[0])
+            return export if await self._export_is_admitted(export) else None
         except Exception as exc:
             logger.error("Failed to resolve app-bound consent export: %s", type(exc).__name__)
             return None
@@ -2581,6 +2406,18 @@ class ConsentDBService:
             "legacy_export_key_present": export.get("legacy_export_key_present"),
         }
 
+    async def get_continuous_refresh_candidates_for_domain(
+        self, user_id: str, domain: str
+    ) -> List[Dict[str, Any]]:
+        """Internal owner refresh inputs include staged terms without pre-T access."""
+        from db.connection import get_pool
+        from hushh_mcp.services.consent_commerce_ports import staged_refresh_candidates
+
+        active = await self.get_active_tokens(user_id)
+        staged = await staged_refresh_candidates(await get_pool(), user_id, domain)
+        seen = {str(row.get("token_id") or "") for row in active}
+        return active + [row for row in staged if row["token_id"] not in seen]
+
     async def get_consent_export_by_id(self, export_id: str) -> Optional[Dict[str, Any]]:
         """Load one non-expired resource by its unguessable export id."""
 
@@ -2594,7 +2431,10 @@ class ConsentDBService:
                 .limit(1)
             )
             response = await asyncio.to_thread(query.execute)
-            return self._normalize_export_row(response.data[0]) if response.data else None
+            if not response.data:
+                return None
+            export = self._normalize_export_row(response.data[0])
+            return export if await self._export_is_admitted(export) else None
         except Exception as exc:
             logger.error(
                 "Failed to get consent export resource error_type=%s",
@@ -2627,6 +2467,9 @@ class ConsentDBService:
             True if deleted, False otherwise
         """
         db = self._get_db()
+        from hushh_mcp.consent.paid_exports import revoke_paid_export
+
+        await revoke_paid_export(db, consent_token)
 
         try:
             query = db.table("consent_exports").delete().eq("consent_token", consent_token)
@@ -2847,32 +2690,36 @@ class ConsentDBService:
         ciphertext_bytes: int,
         source_content_revision: int | None,
         source_manifest_revision: int | None,
+        grant_metadata: Dict[str, Any] | None = None,
     ) -> bool:
-        """Commit one revision with a DB-side lease and revision CAS."""
+        """Commit one revision with the owning DB-side lease and revision CAS."""
+        from hushh_mcp.consent.paid_admission import is_paid_grant
+        from hushh_mcp.consent.paid_exports import complete_paid_refresh
 
+        params = {
+            "p_user_id": user_id,
+            "p_claim_id": claim_id,
+            "p_expected_export_revision": expected_export_revision,
+            "p_encrypted_data": encrypted_data,
+            "p_iv": iv,
+            "p_tag": tag,
+            "p_wrapped_key_bundle": wrapped_key_bundle,
+            "p_connector_key_id": connector_key_id,
+            "p_connector_wrapping_alg": connector_wrapping_alg,
+            "p_envelope_aad": envelope_aad,
+            "p_envelope_aad_sha256": envelope_aad_sha256,
+            "p_ciphertext_sha256": ciphertext_sha256,
+            "p_ciphertext_bytes": ciphertext_bytes,
+            "p_source_content_revision": source_content_revision,
+            "p_source_manifest_revision": source_manifest_revision,
+        }
+
+        if is_paid_grant(grant_metadata):
+            return await complete_paid_refresh(params, grant_metadata)
         db = self._get_db()
 
         def complete_refresh():
-            call = db.rpc(
-                "complete_consent_export_refresh_v2",
-                {
-                    "p_user_id": user_id,
-                    "p_claim_id": claim_id,
-                    "p_expected_export_revision": expected_export_revision,
-                    "p_encrypted_data": encrypted_data,
-                    "p_iv": iv,
-                    "p_tag": tag,
-                    "p_wrapped_key_bundle": wrapped_key_bundle,
-                    "p_connector_key_id": connector_key_id,
-                    "p_connector_wrapping_alg": connector_wrapping_alg,
-                    "p_envelope_aad": envelope_aad,
-                    "p_envelope_aad_sha256": envelope_aad_sha256,
-                    "p_ciphertext_sha256": ciphertext_sha256,
-                    "p_ciphertext_bytes": ciphertext_bytes,
-                    "p_source_content_revision": source_content_revision,
-                    "p_source_manifest_revision": source_manifest_revision,
-                },
-            )
+            call = db.rpc("complete_consent_export_refresh_v2", params)
             return call.execute() if hasattr(call, "execute") else call
 
         response = await asyncio.to_thread(complete_refresh)

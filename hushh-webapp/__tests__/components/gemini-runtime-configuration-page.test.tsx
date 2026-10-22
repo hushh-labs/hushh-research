@@ -1,18 +1,10 @@
-import {
-  act,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GeminiRuntimeConfigurationPage } from "@/components/connections/gemini-runtime-configuration-page";
 import {
   PwmResearchDisclosure,
   PWM_AZURE_RESEARCH_DISCLOSURE_COMPACT,
-  PWM_RESEARCH_DISCLOSURE_COMPACT,
 } from "@/components/onboarding/setup/pwm-research-disclosure";
-import { buildInitialContactsWelcomeRoute } from "@/lib/navigation/routes";
 
 const state = vi.hoisted(() => ({
   user: { uid: "recipient" },
@@ -23,12 +15,18 @@ const state = vi.hoisted(() => ({
   finance: vi.fn(),
   welcome: vi.fn(),
   hasFinanceIntent: false,
+  runtimeChoiceSaved: true,
   setupChoice: "managed",
   hasGeminiRuntimeDraft: false,
   savedGeminiKey: false,
-  pendingContactsWelcome: false,
 }));
-vi.mock("next/navigation", () => ({ useRouter: () => state.router }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => state.router,
+  useSearchParams: () => new URLSearchParams(window.location.search),
+}));
+vi.mock("@/lib/utils/browser-navigation", () => ({
+  requestInternalAppNavigation: () => false,
+}));
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: state.user, loading: false }),
 }));
@@ -54,11 +52,8 @@ vi.mock("@/components/vault/vault-unlock-dialog", () => ({
 vi.mock("@/lib/services/vault-service", () => ({ VaultService: {} }));
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
   PreVaultUserStateService: {
-    getCachedBootstrapState: () => ({
-      oneRuntimeSetupChoice: state.setupChoice,
-      initialContactsWelcomeAcknowledged: !state.pendingContactsWelcome,
-    }),
-    hasOneRuntimeChoice: () => true,
+    getCachedBootstrapState: () => ({ oneRuntimeSetupChoice: state.setupChoice }),
+    hasOneRuntimeChoice: () => state.runtimeChoiceSaved,
   },
 }));
 vi.mock("@/lib/services/initial-contacts-onboarding-service", () => ({
@@ -106,10 +101,10 @@ beforeEach(() => {
   vi.resetAllMocks();
   state.user = { uid: "recipient" };
   state.hasFinanceIntent = false;
+  state.runtimeChoiceSaved = true;
   state.setupChoice = "managed";
   state.hasGeminiRuntimeDraft = false;
   state.savedGeminiKey = false;
-  state.pendingContactsWelcome = false;
   state.finalize.mockResolvedValue(undefined);
   state.sync.mockResolvedValue(undefined);
   state.finance.mockResolvedValue(undefined);
@@ -152,93 +147,37 @@ describe("AI-choice setup invitation continuation", () => {
     },
   );
 
-  it("does not acknowledge BYOK setup when the encrypted key is missing", async () => {
-    state.setupChoice = "byok_pending_vault";
-    render(<GeminiRuntimeConfigurationPage setupMode />);
+  it.each([false, true])("embedded readiness requires the durable AI choice (%s)", (saved) => {
+    state.runtimeChoiceSaved = saved;
+    const ready = vi.fn();
+    render(<GeminiRuntimeConfigurationPage setupMode embeddedInCloudSetup onSetupReadyChange={ready} />);
+    expect(screen.getByRole("region", { name: "AI access" })).toBeVisible();
+    expect(screen.queryByRole("main")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Choose AI" }));
-    fireEvent.click(screen.getByTestId("one-setup-connections-terminal"));
-    await waitFor(() => expect(screen.getByRole("alert"))
-      .toHaveTextContent("Your Gemini key was not saved"));
-    expect(state.acknowledge).not.toHaveBeenCalled();
-  });
-
-  it.each([false, true])("keeps the invite captured across completion (pending Finance: %s)", async (hasFinanceIntent) => {
-    state.hasFinanceIntent = hasFinanceIntent;
-    let complete!: () => void;
-    state.acknowledge.mockImplementation(
-      () =>
-        new Promise<void>((resolve) => {
-          complete = resolve;
-        }),
-    );
-    render(<GeminiRuntimeConfigurationPage setupMode />);
-    // Show the disclosure at the actionable decision, before Continue is enabled.
-    expect(screen.queryByTestId("pwm-research-disclosure")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Choose AI" }));
-    expect(screen.getByTestId("pwm-research-disclosure")).toHaveTextContent(
-      PWM_RESEARCH_DISCLOSURE_COMPACT,
-    );
-    fireEvent.click(screen.getByTestId("one-setup-connections-terminal"));
-    await waitFor(() => expect(state.acknowledge).toHaveBeenCalledOnce());
+    expect(ready).toHaveBeenLastCalledWith(saved);
+    if (!saved) expect(ready).not.toHaveBeenCalledWith(true);
     expect(state.router.replace).not.toHaveBeenCalled();
-    // Completion publishes a cache change. The guard can settle this route
-    // while the component's finalization promise is still resuming.
-    window.history.replaceState(null, "", destination);
-    await act(async () => complete());
-    expect(state.router.replace).toHaveBeenCalledWith(
-      hasFinanceIntent
-        ? "/one/setup/finance/import?return_to=" + encodeURIComponent(destination)
-        : destination,
-    );
-    expect(state.router.replace).not.toHaveBeenCalledWith("/");
-    expect(state.finalize).toHaveBeenCalledOnce();
-    expect(state.sync).toHaveBeenCalledOnce();
-    expect(state.finance).toHaveBeenCalledOnce();
   });
 
-  it("keeps the invitation destination when returning to the setup hub", () => {
-    render(<GeminiRuntimeConfigurationPage setupMode />);
-    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
-    expect(state.router.replace).toHaveBeenCalledWith(
-      "/one/setup?return_to=" + encodeURIComponent(destination),
-    );
-  });
-
-  it("offers a real account action that keeps the invitation destination", () => {
-    render(<GeminiRuntimeConfigurationPage setupMode />);
-    fireEvent.click(screen.getByRole("button", { name: "Account actions" }));
-    fireEvent.click(screen.getByRole("button", { name: "Back to setup" }));
-    expect(state.router.replace).toHaveBeenCalledWith(
-      "/one/setup?return_to=" + encodeURIComponent(destination),
-    );
-  });
-
-  it("shows the pending Contacts welcome before an invitation and withholds the chat greeting", async () => {
-    state.pendingContactsWelcome = true;
+  it("returns to the setup hub with the invitation preserved", () => {
     render(<GeminiRuntimeConfigurationPage setupMode />);
     fireEvent.click(screen.getByRole("button", { name: "Choose AI" }));
-    fireEvent.click(screen.getByTestId("one-setup-connections-terminal"));
-    await waitFor(() => expect(state.router.replace).toHaveBeenCalledWith(
-      buildInitialContactsWelcomeRoute(destination),
-    ));
-    expect(state.welcome).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(state.router.replace).toHaveBeenCalledOnce();
+    const href = state.router.replace.mock.calls[0][0] as string;
+    const route = new URL(href, "https://one.example");
+    expect(route.pathname).toBe("/one/setup");
+    expect(route.searchParams.get("return_to")).toBe(destination);
   });
 
-  it("does not navigate an old invitation after the setup component unmounts", async () => {
-    let complete!: () => void;
-    state.acknowledge.mockImplementation(
-      () =>
-        new Promise<void>((resolve) => {
-          complete = resolve;
-        }),
-    );
-    const view = render(<GeminiRuntimeConfigurationPage setupMode />);
+  it("does not carry an external return target into setup", () => {
+    window.history.replaceState(null, "", "/one/setup/connections?return_to=https%3A%2F%2Fother.example");
+    render(<GeminiRuntimeConfigurationPage setupMode />);
     fireEvent.click(screen.getByRole("button", { name: "Choose AI" }));
-    fireEvent.click(screen.getByTestId("one-setup-connections-terminal"));
-    await waitFor(() => expect(state.acknowledge).toHaveBeenCalledOnce());
-    view.unmount();
-    await act(async () => complete());
-    expect(state.router.replace).not.toHaveBeenCalled();
-    expect(state.welcome).toHaveBeenCalledWith("recipient");
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    const route = new URL(state.router.replace.mock.calls[0][0] as string, "https://one.example");
+    expect(route.pathname).toBe("/one/setup");
+    expect(route.searchParams.has("return_to")).toBe(false);
   });
 });

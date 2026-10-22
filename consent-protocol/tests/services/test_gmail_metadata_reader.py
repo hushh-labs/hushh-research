@@ -1064,7 +1064,7 @@ async def test_mailbox_change_runs_only_after_review_with_exact_labels(
         "removeLabelIds": remove,
     }
     # Single use: the same confirmation cannot run twice.
-    with pytest.raises(GmailApiError, match="expired or was already used"):
+    with pytest.raises(GmailApiError, match="no longer available"):
         await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
     assert len(writes) == 1
 
@@ -1119,8 +1119,9 @@ async def test_trash_failure_reports_confirmed_prefix_and_consumes_review(
     result = await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
     assert result == {"status": expected_status, "action": "trash", "count": 1, "total": 2}
     assert db.rows[proposal["proposal_id"]]["status"] == "executing"
-    with pytest.raises(GmailApiError, match="already used"):
+    with pytest.raises(GmailApiError) as replay_refused:
         await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
+    assert replay_refused.value.code == "GMAIL_MAILBOX_PROPOSAL_UNAVAILABLE"
     assert len(writes) == 2
 
 
@@ -1147,8 +1148,9 @@ async def test_batch_modify_503_is_unknown_and_cannot_be_replayed():
     )
     result = await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
     assert result == {"status": "outcome_unknown", "action": "archive", "count": 0, "total": 2}
-    with pytest.raises(GmailApiError, match="already used"):
+    with pytest.raises(GmailApiError) as replay_refused:
         await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
+    assert replay_refused.value.code == "GMAIL_MAILBOX_PROPOSAL_UNAVAILABLE"
     assert len(writes) == 1
 
 
@@ -1181,8 +1183,9 @@ async def test_trash_timeout_is_bounded_and_review_cannot_be_replayed(monkeypatc
     assert result["status"] == "outcome_unknown"
     assert result["count"] == 0
     assert db.rows[proposal["proposal_id"]]["status"] == "executing"
-    with pytest.raises(GmailApiError, match="already used"):
+    with pytest.raises(GmailApiError) as replay_refused:
         await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
+    assert replay_refused.value.code == "GMAIL_MAILBOX_PROPOSAL_UNAVAILABLE"
     assert len(writes) == 2
 
 
@@ -1203,7 +1206,7 @@ async def test_unapproved_or_foreign_proposals_never_reach_gmail():
     # Negative control: no confirmation, a guessed id, or another owner's
     # confirmation never calls Gmail.
     for owner, proposal_id in [("owner", "gmod_guessed"), ("intruder", proposal["proposal_id"])]:
-        with pytest.raises(GmailApiError, match="expired or was already used"):
+        with pytest.raises(GmailApiError, match="no longer available"):
             await service.execute(user_id=owner, proposal_id=proposal_id)
     # A different Gmail account connected since review cannot receive the IDs.
     gmail.row["google_sub"] = "another-account"
@@ -1236,20 +1239,20 @@ async def test_mailbox_receipt_outage_preserves_provider_success_and_prevents_re
         "status"
     ] == "executed"
     assert len(writes) == 1
-    with pytest.raises(Exception, match="already used"):
+    with pytest.raises(GmailApiError, match="no longer available"):
         await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
     assert len(writes) == 1
 
 
-async def test_mailbox_change_without_modify_grant_asks_for_it_before_any_read():
+async def test_mailbox_change_without_modify_grant_asks_for_it_before_any_read(monkeypatch):
     from hushh_mcp.agents.email.mailbox_tools import propose_gmail_mailbox_change
     from hushh_mcp.services import gmail_mailbox_actions
 
     service = _mailbox(
         _ModifyGmail(modify=False), _ProposalDb(), lambda _: pytest.fail("provider called")
     )
-    state = {"hussh:user_id": "owner", "temp:one_execution_surface": "typed_chat"}
-    context = type("Ctx", (), {"state": state})()
+    context = _mailbox_context(monkeypatch)
+    state = context.state
     original = gmail_mailbox_actions._service
     gmail_mailbox_actions._service = service
     try:
@@ -1267,14 +1270,14 @@ async def test_mailbox_change_without_modify_grant_asks_for_it_before_any_read()
     assert "directive" not in result
 
 
-async def test_proposal_card_carries_subjects_but_the_model_result_does_not():
+async def test_proposal_card_carries_subjects_but_the_model_result_does_not(monkeypatch):
     from hushh_mcp.agents.email.mailbox_tools import propose_gmail_mailbox_change
     from hushh_mcp.services import gmail_mailbox_actions
 
     writes = []
     service = _mailbox(_ModifyGmail(), _ProposalDb(), _mailbox_provider(writes))
-    state = {"hussh:user_id": "owner", "temp:one_execution_surface": "typed_chat"}
-    context = type("Ctx", (), {"state": state})()
+    context = _mailbox_context(monkeypatch)
+    state = context.state
     original = gmail_mailbox_actions._service
     gmail_mailbox_actions._service = service
     try:
@@ -1290,6 +1293,129 @@ async def test_proposal_card_carries_subjects_but_the_model_result_does_not():
     assert result["status"] == "confirmation_required" and result["count"] == 2
     assert "Project plan" not in json.dumps(result)
     assert writes == []
+
+
+def _mailbox_context(monkeypatch, *, sdk_owner="owner", authorized=True):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.one_adk import workspace_mcp_tools
+    from hushh_mcp.one_adk.request_secrets import store_request_secret
+
+    monkeypatch.setattr(workspace_mcp_tools, "pod_mode", lambda: False)
+    monkeypatch.setattr(workspace_mcp_tools, "connector_feature_enabled", lambda *args: True)
+    monkeypatch.setattr(
+        workspace_mcp_tools, "validate_first_party_owner_token", AsyncMock(return_value=authorized)
+    )
+    return SimpleNamespace(
+        user_id=sdk_owner,
+        state={
+            "hussh:user_id": "owner",
+            "temp:one_execution_surface": "typed_chat",
+            workspace_mcp_tools.WORKSPACE_CHAT_ADMISSION_STATE: True,
+            "hussh:consent_token": store_request_secret("synthetic-owner-token"),
+        },
+    )
+
+
+@pytest.mark.parametrize("tool", ["propose_gmail_mailbox_change", "propose_gmail_todo"])
+@pytest.mark.parametrize("sdk_owner,authorized", [("other", True), ("owner", False)])
+async def test_mailbox_proposal_refuses_unbound_or_revoked_owner(
+    monkeypatch, sdk_owner, authorized, tool
+):
+    from hushh_mcp.agents.email import mailbox_tools
+
+    monkeypatch.setattr(
+        mailbox_tools, "get_gmail_mailbox_actions", lambda: pytest.fail("service accessed")
+    )
+    context = _mailbox_context(monkeypatch, sdk_owner=sdk_owner, authorized=authorized)
+    result = await getattr(mailbox_tools, tool)(
+        context, **({"action": "archive"} if tool == "propose_gmail_mailbox_change" else {})
+    )
+    assert result["status"] == "unavailable"
+    assert "hussh:pending_directive:gmail_mailbox" not in context.state
+
+
+@pytest.mark.parametrize("reconnect", [False, True])
+async def test_mailbox_execution_rechecks_account_after_token_refresh(monkeypatch, reconnect):
+    gmail, writes = _ModifyGmail(), []
+    service = _mailbox(gmail, _ProposalDb(), _mailbox_provider(writes))
+    proposal = await service.propose(
+        user_id="owner",
+        action="archive",
+        query="",
+        mailbox="inbox",
+        limit=2,
+        label="",
+        require_access=_allowed,
+    )
+
+    async def refresh(*, user_id):
+        gmail.row["token_updated_at"] = "refreshed"
+        if reconnect:
+            gmail.row["google_sub"] = "another-account"
+        return "synthetic-refreshed", deepcopy(gmail.row)
+
+    monkeypatch.setattr(gmail, "_ensure_access_token", refresh)
+    if reconnect:
+        with pytest.raises(GmailApiError) as caught:
+            await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
+        assert caught.value.code == "GMAIL_MAILBOX_CONNECTION_CHANGED"
+        assert writes == []
+    else:
+        assert (await service.execute(user_id="owner", proposal_id=proposal["proposal_id"]))[
+            "status"
+        ] == "executed"
+        assert len(writes) == 1
+
+
+@pytest.mark.parametrize("failure", ["lost_response", "partial_trash", "cleanup"])
+async def test_mailbox_never_retries_an_ambiguous_or_completed_write(failure):
+    writes, db = [], _ProposalDb()
+    normal = _mailbox_provider(writes)
+
+    def provider(request):
+        if request.method == "POST":
+            if failure == "lost_response":
+                writes.append(request)
+                raise httpx.ReadError("synthetic lost response", request=request)
+            if failure == "partial_trash" and "/m-2/" in request.url.path:
+                return httpx.Response(403)
+        return normal(request)
+
+    service = _mailbox(_ModifyGmail(), db, provider)
+    proposal = await service.propose(
+        user_id="owner",
+        action="trash" if failure == "partial_trash" else "archive",
+        query="",
+        mailbox="inbox",
+        limit=2,
+        label="",
+        require_access=_allowed,
+    )
+    if failure == "cleanup":
+        execute_raw = db.execute_raw
+
+        def unavailable_cleanup(sql, params):
+            if sql.lstrip().startswith("DELETE") and "WHERE proposal_id" in sql:
+                raise RuntimeError("synthetic receipt cleanup failure")
+            return execute_raw(sql, params)
+
+        db.execute_raw = unavailable_cleanup
+        assert (await service.execute(user_id="owner", proposal_id=proposal["proposal_id"]))[
+            "status"
+        ] == "executed"
+    else:
+        result = await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
+        assert result["status"] == (
+            "outcome_unknown" if failure == "lost_response" else "partially_executed"
+        )
+        assert result["count"] == (0 if failure == "lost_response" else 1)
+    count = len(writes)
+    assert count > 0
+    with pytest.raises(GmailApiError):
+        await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
+    assert len(writes) == count
 
 
 async def test_gmail_todo_card_uses_opaque_ids_and_keeps_email_details_out_of_model_result(
@@ -1323,8 +1449,8 @@ async def test_gmail_todo_card_uses_opaque_ids_and_keeps_email_details_out_of_mo
 
     monkeypatch.setattr(mailbox_tools, "GmailMetadataReader", Reader)
     monkeypatch.setattr(mailbox_tools, "get_gmail_receipts_service", lambda: object())
-    state = {"hussh:user_id": "owner", "temp:one_execution_surface": "typed_chat"}
-    context = type("Ctx", (), {"state": state})()
+    context = _mailbox_context(monkeypatch)
+    state = context.state
 
     result = await mailbox_tools.propose_gmail_todo(
         context,

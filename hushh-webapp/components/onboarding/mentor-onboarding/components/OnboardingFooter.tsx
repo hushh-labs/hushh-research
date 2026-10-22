@@ -1,3 +1,4 @@
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { STORIES } from "../content";
 import { Icon } from "./Icons";
 
@@ -61,6 +62,7 @@ export function OnboardingFooter({
           onClick={onSkip}
         >
           Skip
+          <MaterialRipple variant="none" effect="glass" disabled={busy || completionDisabled} />
         </button>
         <button
           type="button"
@@ -72,6 +74,7 @@ export function OnboardingFooter({
         >
           <span>{busy ? "Continuing…" : last ? finalActionLabel : "Next"}</span>
           <Icon name="arrow" size={19} />
+          <MaterialRipple variant="none" effect="fill" disabled={busy || (last && completionDisabled)} />
         </button>
       </div>
       {error ? <p className="ao-error" role="alert">{error}</p> : null}

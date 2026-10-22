@@ -176,8 +176,15 @@ def test_the_key_is_mirrored_from_the_project_that_owns_it(monkeypatch):
 
 def test_the_deploy_step_mounts_the_key_into_the_backend():
     """A mirrored secret nothing mounts is a secret the runtime never sees."""
-    cloudbuild = (_REPO_ROOT / "deploy" / "backend.cloudbuild.yaml").read_text()
-    assert "add_secret NWS_NEARBY_API_KEY NWS_NEARBY_API_KEY" in cloudbuild
+    # The deploy body lives in scripts/deploy/backend-deploy.sh (extracted for
+    # Cloud Build's 10,000-char step-arg cap); this repo names the secret-binding
+    # helper append_optional_secret. Read the whole deploy surface -- both files.
+    cloudbuild = (
+        (_REPO_ROOT / "deploy" / "backend.cloudbuild.yaml").read_text()
+        + "\n"
+        + (_REPO_ROOT / "scripts" / "deploy" / "backend-deploy.sh").read_text()
+    )
+    assert "append_optional_secret NWS_NEARBY_API_KEY NWS_NEARBY_API_KEY" in cloudbuild
 
 
 def test_each_lane_mirrors_its_own_v4_credential() -> None:

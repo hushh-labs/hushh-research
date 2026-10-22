@@ -1,5 +1,9 @@
 import type { ConsentCenterEntry } from "@/lib/services/consent-center-service";
-import { isAnswerRequestEntry } from "@/lib/consent/answer-request-consent";
+import {
+  answerRequestSelection,
+  isAnswerRequestEntry,
+  isAnswerRequestSelection,
+} from "@/lib/consent/answer-request-consent";
 import { driveSharingSelectionId } from "@/lib/consent/drive-query-consent";
 
 /**
@@ -18,7 +22,11 @@ import { driveSharingSelectionId } from "@/lib/consent/drive-query-consent";
  * discriminator only by being named here, next to the card that decides it.
  */
 export function consentSelectionId(entry: ConsentCenterEntry): string {
-  if (isAnswerRequestEntry(entry)) return entry.id;
+  if (isAnswerRequestEntry(entry)) {
+    return isAnswerRequestSelection(entry.id)
+      ? entry.id
+      : answerRequestSelection(entry.request_id ?? entry.id);
+  }
   // Both Drive lanes already keep their own discriminated id.
   return driveSharingSelectionId(entry);
 }

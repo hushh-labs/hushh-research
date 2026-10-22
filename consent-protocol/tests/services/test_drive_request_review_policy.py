@@ -232,7 +232,7 @@ async def test_content_coverage_and_file_activity_keep_distinct_eligibility(revi
 
 
 @pytest.mark.asyncio
-async def test_owner_review_stops_auto_before_freezing_payment_or_approval():
+async def test_owner_review_stops_auto_before_freezing_payment_or_approval(shared_hub_owner):
     sharing = SimpleNamespace(
         trusted_request_authority=AsyncMock(return_value={}),
         request_owner_review_required=AsyncMock(return_value=True),

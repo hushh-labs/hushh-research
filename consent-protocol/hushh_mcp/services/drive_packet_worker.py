@@ -29,6 +29,7 @@ from hushh_mcp.services.drive_work_wake import wake_drive_work
 from hushh_mcp.services.drive_worker_limits import facts_owner_leases, packet_slots
 from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
 from hushh_mcp.services.google_drive_adapter import DriveReadError
+from hushh_mcp.services.owner_placement_guard import ModeResolver, admit_hub_content
 
 logger = logging.getLogger(__name__)
 
@@ -113,9 +114,9 @@ def compact_evidence(document):
         **(
             {"content_digest": document["content_digest"]} if document.get("content_digest") else {}
         ),
-        # The file's creation time tells two undated originals of one record
-        # apart from two records. The builder and checker never show it to the
-        # model: a file time never dates coverage.
+        # Preserve host evidence metadata through bounded batching. File time
+        # is withheld from the model and cannot establish reporting coverage
+        # or duplicate-record meaning.
         **({"created_time": document["created_time"]} if document.get("created_time") else {}),
     }
 
@@ -132,6 +133,7 @@ class DrivePacketWorker:
         checker=verify_packet,
         policy=facts_policy_version,
         wake=wake_drive_work,
+        placement_resolver: ModeResolver | None = None,
     ):
         self.facts_store = facts_store or DriveDocumentFactsStore()
         self.packet_store = packet_store or DrivePacketStore(
@@ -140,10 +142,23 @@ class DrivePacketWorker:
         self.page_assessor, self.consolidator = page_assessor, consolidator
         self.constructor, self.checker, self.policy, self.wake = constructor, checker, policy, wake
         self._key_folds: dict[str, list] = {}
+        self._placement_resolver = placement_resolver
 
     def _policy_current(self, expected):
         if self.policy() != expected:
             raise DriveReadError("packet_policy_changed")
+
+    async def _facts_current(self, job):
+        await self.facts_store.require_current(job)
+        await admit_hub_content(
+            job["user_id"], "drive_packet_facts", resolve_mode=self._placement_resolver
+        )
+
+    async def _packet_current(self, job):
+        await self.packet_store.require_packet_current(job)
+        await admit_hub_content(
+            job["user_id"], "drive_packet_build", resolve_mode=self._placement_resolver
+        )
 
     @contextlib.asynccontextmanager
     async def _key_fold(self, user_id):
@@ -164,6 +179,9 @@ class DrivePacketWorker:
                 self._key_folds.pop(user_id, None)
 
     async def run_facts_one(self, *, user_id, document_ids=None, enqueue=True):
+        await admit_hub_content(
+            user_id, "drive_packet_facts_claim", resolve_mode=self._placement_resolver
+        )
         targets = document_targets(document_ids)
         targeted = {"document_ids": targets} if targets is not None else {}
         policy = self.policy()
@@ -193,12 +211,13 @@ class DrivePacketWorker:
                 if not pages:
                     raise DriveReadError("facts_unavailable")
                 complete = pages[-1]["page"] == job["total_pages"]
-                await self.facts_store.require_current(job)
+                await self._facts_current(job)
                 observed = await self.page_assessor(user_id=user_id, pages=pages)
-                await self.facts_store.require_current(job)
+                await self._facts_current(job)
                 self._policy_current(policy)
                 stage = "document_facts"
                 async with self._key_fold(user_id) if complete else contextlib.nullcontext():
+                    await self._facts_current(job)
                     canonical_context = (
                         await self.packet_store.canonical_key_context(
                             user_id=user_id, policy_version=policy
@@ -206,6 +225,8 @@ class DrivePacketWorker:
                         if complete
                         else None
                     )
+                    await self._facts_current(job)
+                    self._policy_current(policy)
                     folded = await self.consolidator(
                         user_id=user_id,
                         previous=job["previous"],
@@ -213,7 +234,7 @@ class DrivePacketWorker:
                         complete=complete,
                         canonical_context=canonical_context,
                     )
-                    await self.facts_store.require_current(job)
+                    await self._facts_current(job)
                     self._policy_current(policy)
                     stage = "persist_facts"
                     result = await self.facts_store.commit_batch(
@@ -254,7 +275,7 @@ class DrivePacketWorker:
             return "facts_unavailable"
 
     async def _check(self, job, *, packet, documents, complete, scope, owner):
-        await self.packet_store.require_packet_current(job)
+        await self._packet_current(job)
         self._policy_current(job["policy_version"])
         result = await self.checker(
             user_id=job["user_id"],
@@ -264,11 +285,14 @@ class DrivePacketWorker:
             batch_scope={**scope, "canonical_key": job["key"]},
             owner=owner,
         )
-        await self.packet_store.require_packet_current(job)
+        await self._packet_current(job)
         self._policy_current(job["policy_version"])
         return _payload(result)
 
     async def run_packet_one(self, *, user_id):
+        await admit_hub_content(
+            user_id, "drive_packet_build_claim", resolve_mode=self._placement_resolver
+        )
         stage, started = "claim_packet", time.monotonic()
         try:
             job = await self.packet_store.claim_packet(
@@ -286,14 +310,15 @@ class DrivePacketWorker:
                 if build and build.get("policy_version") != job["policy_version"]:
                     raise DriveReadError("packet_policy_changed")
                 build["policy_version"] = job["policy_version"]
-                # The owner's name on file is read once per job for the Ready
-                # fence on whom each source names. An unreadable name releases
-                # the job for retry; a missing one closes the packet as
-                # unconfirmed inside the builder and checker, never as Ready.
+                # Read server-owned comparison context once per job. Unreadable
+                # context retries; the authored builder/checker assess names.
+                # Recheck placement and consent after the awaited read.
                 stage = "load_owner_identity"
                 owner = await self.packet_store.owner_identity(user_id=job["user_id"])
+                await self._packet_current(job)
                 if job["build_phase"] in {"construct", "verify"}:
                     stage = "load_member_evidence"
+                    await self._packet_current(job)
                     page = await self.packet_store.evidence_page(
                         job, after_document_id=job["after_document_id"], limit=4
                     )
@@ -301,7 +326,7 @@ class DrivePacketWorker:
                     last = page["next_cursor"] is None
                     if job["build_phase"] == "construct":
                         stage = "check_packet_current"
-                        await self.packet_store.require_packet_current(job)
+                        await self._packet_current(job)
                         stage = "construct_packet"
                         answer = await self.constructor(
                             user_id=user_id,
@@ -452,6 +477,11 @@ class DrivePacketWorker:
                             if user_id not in enqueued:
                                 enqueued.add(user_id)
                                 try:
+                                    await admit_hub_content(
+                                        user_id,
+                                        "drive_packet_facts_enqueue",
+                                        resolve_mode=self._placement_resolver,
+                                    )
                                     await self.facts_store.enqueue(
                                         user_id=user_id, policy_version=self.policy()
                                     )

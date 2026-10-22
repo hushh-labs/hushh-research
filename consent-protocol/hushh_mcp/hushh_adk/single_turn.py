@@ -26,6 +26,7 @@ from hushh_mcp.runtime_providers.gemini_config import (
     resolve_fleet_model_name,
     thinking_config_for,
 )
+from hushh_mcp.runtime_providers.json_schema import normalize_json_schema as _json_schema
 
 _SINGLE_TURN_REQUEST_LABELS: ContextVar[dict[str, str] | None] = ContextVar(
     "single_turn_request_labels", default=None
@@ -123,28 +124,6 @@ def _prompt_text(prompt_parts: str | Sequence[Any]) -> str:
     if not prompt:
         raise ValueError("single-turn prompt is required")
     return prompt
-
-
-def _json_schema(schema: dict[str, Any]) -> dict[str, Any]:
-    """Normalize Gemini schema types without touching example/default payloads."""
-    result = dict(schema)
-    kind = result.get("type")
-    if isinstance(kind, str):
-        result["type"] = kind.lower()
-    elif isinstance(kind, list):
-        result["type"] = [value.lower() for value in kind]
-    if result.pop("nullable", False):
-        result = {"anyOf": [result, {"type": "null"}]}
-    for key in ("properties", "$defs", "definitions", "patternProperties"):
-        if isinstance(result.get(key), dict):
-            result[key] = {name: _json_schema(value) for name, value in result[key].items()}
-    for key in ("items", "additionalProperties", "not"):
-        if isinstance(result.get(key), dict):
-            result[key] = _json_schema(result[key])
-    for key in ("anyOf", "oneOf", "allOf", "prefixItems"):
-        if isinstance(result.get(key), list):
-            result[key] = [_json_schema(value) for value in result[key]]
-    return result
 
 
 def _decode(text: str, schema: Any) -> Any:

@@ -54,6 +54,7 @@ READ_TOOLS = {
     "ask_documents_agent": "google_drive_chat_reads",
     "read_selected_drive_search_result": "google_drive_chat_reads",
     "inspect_selected_drive_files": "google_drive_chat_reads",
+    "read_google_drive": "google_drive_chat_reads",
     # Calendar event fields are provider-authored text. A Calendar read ends
     # this invocation's action authority just like a Mail or Drive read, and
     # its arguments/results must be removed from durable ADK history.
@@ -150,12 +151,22 @@ def _selected_share_requested(context: Any) -> bool:
 
 
 def before_external_read_tool(tool: Any, args: dict, tool_context: Any) -> dict | None:
+    from hushh_mcp.one_adk.scheduled_one_agent import (
+        admitted_scheduled_surface,
+        scheduled_finish_tool,
+    )
+
+    if scheduled_finish_tool(tool, tool_context):
+        return None
     if _reviewed_mcp_tool(tool):
         invocation = getattr(tool_context, "invocation_id", None)
         if (
             not isinstance(invocation, str)
             or not invocation
-            or tool_context.state.get(STATE_EXECUTION_SURFACE) != "typed_chat"
+            or not (
+                tool_context.state.get(STATE_EXECUTION_SURFACE) == "typed_chat"
+                or admitted_scheduled_surface(tool_context)
+            )
         ):
             return {"status": "blocked", "reason": "invocation_required"}
         tool_context.state[STATE_EXTERNAL_READ] = invocation
@@ -256,6 +267,8 @@ def after_external_read_tool(tool: Any, args: dict, tool_context: Any, tool_resp
 
 
 def before_external_read_model(callback_context: Any, llm_request: Any) -> LlmResponse | None:
+    from hushh_mcp.one_adk.scheduled_one_agent import scheduled_finish_tool
+
     invocation = getattr(callback_context, "invocation_id", None)
     outcome = getattr(callback_context, "state", {}).get(STATE_DRIVE_READ_OUTCOME)
     if (
@@ -294,7 +307,8 @@ def before_external_read_model(callback_context: Any, llm_request: Any) -> LlmRe
         admitted = {
             name: tool
             for name, tool in llm_request.tools_dict.items()
-            if _reviewed_mcp_tool(tool)
+            if scheduled_finish_tool(tool, callback_context)
+            or _reviewed_mcp_tool(tool)
             or _reviewable_draft_tool(tool)
             or (
                 _selected_share_ready(callback_context)

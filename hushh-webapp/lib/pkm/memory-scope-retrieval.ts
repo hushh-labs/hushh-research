@@ -1,6 +1,7 @@
 "use client";
 
 import { buildConsentExportForScope, createConsentExportReadSession } from "@/lib/consent/export-builder";
+import { settleWithConcurrency } from "@/lib/consent/bounded-concurrency";
 import { currentPkmSourceEpoch } from "@/lib/cache/pkm-invalidation-epoch";
 import { answerProfilePhotoUrl, isAnswerProfilePhotoScope } from "@/lib/answers/answer-profile-photo";
 import { approvedScopesBackedBySoul, isOwnProfileNameScope, projectApprovedSoulFacts, SCOPE_PATH_TO_LABEL } from "@/lib/pkm/identity-memory-facts";
@@ -101,9 +102,11 @@ function hasStructuredCounterpart(scope: string, source: MemoryScopeSourceRevisi
   const path = scopePath(scope).replace(/\.\*$/, "");
   return (source.readablePaths ?? []).some(leaf => leaf === path || leaf.startsWith(`${path}.`));
 }
-function scopeBlocked(scope: string, source: MemoryScopeSourceRevision): boolean {
-  const path = scopePath(scope).replace(/\.\*$/, "");
+function pathBlocked(path: string, source: MemoryScopeSourceRevision): boolean {
   return (source.blockedPaths ?? []).some(blocked => path === blocked || path.startsWith(`${blocked}.`));
+}
+function scopeBlocked(scope: string, source: MemoryScopeSourceRevision): boolean {
+  return pathBlocked(scopePath(scope).replace(/\.\*$/, ""), source);
 }
 function freshnessMetadata(slices: ReadonlyMap<string, MemoryScopeSlice>): ApprovedMemoryRetrieval["sourceFreshness"] {
   return Object.fromEntries([...slices].map(([scope, slice]) => {
@@ -210,7 +213,7 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
     for (const scope of scopes) {
       const slice = stored?.scopeSlices?.[scope];
       const current = dependencies(scope, sources).map(domain => sources[domain]!);
-      if (!scopeBlocked(scope, sources[scopeDomain(scope)]!) && slice?.scope === scope && record(slice.payload) === slice.payload && sameSources(slice.sources, current) &&
+      if (!scopeBlocked(scope, sources[scopeDomain(scope)]!) && slice?.admissionVersion === 2 && slice.scope === scope && record(slice.payload) === slice.payload && sameSources(slice.sources, current) &&
           slice.accountFingerprint === accountFingerprints.get(scope) &&
           slice.freshnessDate === (requiresAgeDerivation(scope, sources) ? date : null)) slices.set(scope, slice);
       else rebuild.push(scope);
@@ -224,7 +227,7 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
       const policyFailed = new Set(rebuild.filter(scope => scopeBlocked(scope, sources[scopeDomain(scope)]!)));
       const failed = new Set<string>(policyFailed);
       const originals = new Map<string, { payload: Record<string, unknown>; contentRevision: number | null; manifestRevision: number | null }>();
-      await Promise.all(rebuild.map(async scope => {
+      await settleWithConcurrency(rebuild, 4, async scope => {
         if (policyFailed.has(scope)) return;
         try {
           const result = await buildConsentExportForScope({ ...params, scope, readSession: sessionScopes.includes(scope) ? readSession : createConsentExportReadSession({ ...params, scopes: [scope] }) });
@@ -235,7 +238,7 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
               result.sourceContentRevision === undefined && !source.absent && hasStructuredCounterpart(scope, source)) throw new Error("Memory revision changed during rebuild");
           originals.set(scope, { payload: record(result.payload), contentRevision: result.sourceContentRevision ?? null, manifestRevision: result.sourceManifestRevision ?? null });
         } catch { failed.add(scope); }
-      }));
+      });
       valid();
       const soulScopes = rebuild.filter(usesSoul);
       let memory: Awaited<ReturnType<typeof loadMarkdownMemory>> = null;
@@ -252,7 +255,7 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
       // Neither a labelled override nor a derived fact may resurrect them.
       const labelled = new Map([...readLabelledSoulFacts(memory?.markdown)].filter(([label]) => !deleted.has(label)));
       const facts = projectApprovedSoulFacts({ approvedScopes: rebuild, markdown: memory?.markdown, now })
-        .filter(fact => !deleted.has(soulFactKey(fact.sourceLabel)));
+        .filter(fact => !deleted.has(soulFactKey(fact.sourceLabel)) && !pathBlocked(fact.relativePath, sources[scopeDomain(fact.scope)]!));
       let birth: string | null = labelled.get("date of birth")?.value ?? null;
       let ageRevision = memory?.dataVersion ?? null;
       let ageManifestRevision: number | null = null;
@@ -279,12 +282,10 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
         if (memory && usesSoul(scope)) {
           // A successfully checked Soul source can settle the synthetic optional
           // identity selectors even when no structured counterpart exists.
-          const ownFacts = facts.filter(fact => fact.scope === scope);
-          const settlesExactFact = !scope.endsWith(".*") && (ownFacts.length > 0 ||
-            isOwnProfileNameScope(scope) && (labelled.has("legal name") || deleted.has("legal name")) ||
-            isLegacySexScope(scope) && (labelled.has("sex") || deleted.has("sex")) ||
-            isAgeScope(scope));
-          if (original || !hasStructuredCounterpart(scope, sources[domain]!) || settlesExactFact) failed.delete(scope);
+          // A failed materialized export remains unavailable even when another
+          // document contains a matching fact. Only confirmed absent selectors
+          // or a successful exact export admit the owner-labelled projection.
+          if (original || !hasStructuredCounterpart(scope, sources[domain]!)) failed.delete(scope);
           const removed = SCOPE_PATH_TO_LABEL.filter(([, label]) => deleted.has(soulFactKey(label))).map(([path]) => path);
           if (deleted.has("sex")) removed.push("profile.sex");
           if (deleted.has("legal name") && isOwnProfileNameScope(scope)) removed.push(scopePath(scope));
@@ -296,11 +297,11 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
           if (isOwnProfileNameScope(scope) && labelled.has("legal name")) {
             setPath(payload, scopePath(scope), labelled.get("legal name")!.value); contentRevision = memory.dataVersion ?? null; manifestRevision = null;
           }
-          if (isLegacySexScope(scope) && (labelled.has("sex") || deleted.has("sex")) &&
+          if (isLegacySexScope(scope) && !pathBlocked("profile.sex", sources[domain]!) && (labelled.has("sex") || deleted.has("sex")) &&
               (scope !== "attr.professional.profile.*" || getPath(payload, "profile.sex") !== undefined)) {
             setPath(payload, "profile.sex", deleted.has("sex") ? undefined : labelled.get("sex")!.value); contentRevision = memory.dataVersion ?? null; manifestRevision = null;
           }
-          for (const path of agePaths(scope).filter(path => scope !== "attr.professional.profile.*" || getPath(payload, path) !== undefined)) {
+          for (const path of agePaths(scope).filter(path => !pathBlocked(path, sources[domain]!) && (scope !== "attr.professional.profile.*" || getPath(payload, path) !== undefined))) {
             setPath(payload, path, age === null ? undefined : String(age));
             contentRevision = ageRevision; manifestRevision = ageManifestRevision;
           }
@@ -317,7 +318,7 @@ export async function retrieveApprovedMemoryScopes(params: ApprovedMemoryRetriev
           contentRevision = null; manifestRevision = null;
         }
         if (failed.has(scope)) continue;
-        slices.set(scope, { scope, payload, contentRevision, manifestRevision, sources: dependencies(scope, sources).map(dependency => sources[dependency]!),
+        slices.set(scope, { admissionVersion: 2, scope, payload, contentRevision, manifestRevision, sources: dependencies(scope, sources).map(dependency => sources[dependency]!),
           accountFingerprint: accountFingerprints.get(scope) ?? null, freshnessDate: requiresAgeDerivation(scope, sources) ? date : null, builtAt });
       }
       valid();

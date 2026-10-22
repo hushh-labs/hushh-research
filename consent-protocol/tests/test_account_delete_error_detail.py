@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -136,6 +137,47 @@ class TestAccountDeleteErrorDetail:
             "code": "ACCOUNT_DELETION_PAUSED",
         }
         assert self._SENTINEL not in resp.text
+
+    @pytest.mark.parametrize(
+        ("code", "message"),
+        [
+            (
+                "FILES_ERASURE_IN_PROGRESS",
+                "Files cleanup is still in progress. Account not deleted. Try again to continue.",
+            ),
+            (
+                "FILES_ERASURE_WAITING_FOR_WRITES",
+                "An upload outcome is unverified. Account not deleted. Contact support before retrying.",
+            ),
+        ],
+    )
+    def test_bounded_files_cleanup_preserves_pending_without_deleting_identity(self, code, message):
+        with (
+            patch.object(
+                account_module.AccountService,
+                "delete_account",
+                new_callable=AsyncMock,
+                return_value={
+                    "success": False,
+                    "account_deleted": False,
+                    "error_code": code,
+                    "message": self._SENTINEL,
+                },
+            ) as delete,
+            patch.object(
+                account_module, "_delete_firebase_auth_user", new_callable=AsyncMock
+            ) as firebase,
+        ):
+            resp = _client().delete(self._URL)
+
+        assert resp.status_code == 409
+        assert resp.json() == {
+            "detail": message,
+            "code": code,
+        }
+        assert self._SENTINEL not in resp.text
+        delete.assert_awaited_once_with("test-uid", target="both")
+        firebase.assert_not_awaited()
 
     def test_successful_deletion_returns_200(self):
         """A successful deletion must return 200 (not 422 or 500)."""

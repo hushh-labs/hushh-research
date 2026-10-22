@@ -14,7 +14,6 @@ from uuid import uuid4
 
 from google.adk.tools.tool_context import ToolContext
 
-from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.gmail_mailbox_actions import (
     LABEL_ACTIONS,
     MAILBOX_ACTIONS,
@@ -117,27 +116,22 @@ async def propose_gmail_mailbox_change(
     many matching emails, 1 to 25. label is the label name for add_label and
     remove_label only.
     """
-    user_id = str(tool_context.state.get(_STATE_USER_ID) or "").strip()
-    if (
-        not user_id
-        or tool_context.state.get(_STATE_EXECUTION_SURFACE) != "typed_chat"
-        or not connector_feature_enabled("gmail_chat_reads", user_id)
-    ):
-        return {"status": "unavailable", "message": "Mailbox changes are available in chat only."}
+    from hushh_mcp.one_adk.workspace_mcp_tools import _owner
+
+    user_id = await _owner(tool_context, "gmail")
+    if user_id is None:
+        return {"status": "unavailable", "message": "Mailbox changes require an authorized chat."}
     if action not in MAILBOX_ACTIONS:
         return {"status": "invalid_action", "message": "Choose one mailbox change."}
     if (action in LABEL_ACTIONS) != bool(str(label or "").strip()):
         return {"status": "invalid_label", "message": "Name the label for a label change only."}
 
     async def require_access() -> None:
-        # The chat turn's owner and surface, rechecked around every provider hop.
-        if (
-            str(tool_context.state.get(_STATE_USER_ID) or "").strip() != user_id
-            or tool_context.state.get(_STATE_EXECUTION_SURFACE) != "typed_chat"
-        ):
+        if await _owner(tool_context, "gmail") != user_id:
             raise PermissionError("Mail owner authority is unavailable")
 
     try:
+        await require_access()
         proposal = await get_gmail_mailbox_actions().propose(
             user_id=user_id,
             action=action,
@@ -216,19 +210,14 @@ async def propose_gmail_todo(
     and an email's received time is never treated as a due date.
     """
 
-    user_id = str(tool_context.state.get(_STATE_USER_ID) or "").strip()
-    if (
-        not user_id
-        or tool_context.state.get(_STATE_EXECUTION_SURFACE) != "typed_chat"
-        or not connector_feature_enabled("gmail_chat_reads", user_id)
-    ):
-        return {"status": "unavailable", "message": "Gmail follow-ups are available in chat only."}
+    from hushh_mcp.one_adk.workspace_mcp_tools import _owner
+
+    user_id = await _owner(tool_context, "gmail")
+    if user_id is None:
+        return {"status": "unavailable", "message": "Gmail follow-ups require an authorized chat."}
 
     async def require_access() -> None:
-        if (
-            str(tool_context.state.get(_STATE_USER_ID) or "").strip() != user_id
-            or tool_context.state.get(_STATE_EXECUTION_SURFACE) != "typed_chat"
-        ):
+        if await _owner(tool_context, "gmail") != user_id:
             raise PermissionError("Mail owner authority is unavailable")
 
     bounded_limit = limit if type(limit) is int and 1 <= limit <= 10 else 10
@@ -245,6 +234,7 @@ async def propose_gmail_todo(
             require_access=require_access,
         )
         preview = await reader.read(operation, arguments)
+        await require_access()
     except GmailApiError as exc:
         return _todo_read_error(exc)
     except GmailMetadataError as exc:

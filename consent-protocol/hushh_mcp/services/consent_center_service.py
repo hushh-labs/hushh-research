@@ -129,7 +129,8 @@ class ConsentCenterService:
     _PENDING_STATUSES = {"pending", "request_pending", "sent"}
     _ACTIVE_STATUSES = {"active"}
 
-    def __init__(self, *, require_complete: bool = False) -> None:
+    def __init__(self, *, read_only: bool = False, require_complete: bool = False) -> None:
+        self._read_only = read_only
         self._require_complete = require_complete
         self._consent_db = ConsentDBService()
         self._identity = ActorIdentityService()
@@ -147,10 +148,8 @@ class ConsentCenterService:
                     OneLocationCenterContributor,
                 )
 
-                self._location_center = (
-                    OneLocationCenterContributor(require_complete=True)
-                    if require_complete
-                    else OneLocationCenterContributor()
+                self._location_center = OneLocationCenterContributor(
+                    read_only=read_only, require_complete=require_complete
                 )
             except Exception as exc:  # never block the consent surface
                 if require_complete:
@@ -255,9 +254,8 @@ class ConsentCenterService:
             if getattr(self, "_require_complete", False):
                 raise
             logger.warning(
-                "consent_center.marketplace_collect_failed user=%s error=%s",
-                user_id,
-                exc,
+                "consent_center.marketplace_collect_failed type=%s",
+                type(exc).__name__,
             )
             return empty
 
@@ -271,17 +269,7 @@ class ConsentCenterService:
         except Exception as error:
             if getattr(self, "_require_complete", False):
                 raise
-            # Name the person and the cause, like the marketplace sibling above.
-            # Logging only the exception class left a dropped Request scope row
-            # indistinguishable from "this person has none": the owner's
-            # Consent Center read empty and every downstream metric read
-            # healthy. A substitution nobody can observe is the failure mode
-            # the semantic-boundary contract forbids.
-            logger.warning(
-                "answer_center.unavailable user=%s error=%s",
-                user_id,
-                error,
-            )
+            logger.warning("answer_center.unavailable type=%s", type(error).__name__)
             return marketplace
         return {key: [*marketplace.get(key, []), *answers.get(key, [])] for key in marketplace}
 
@@ -502,7 +490,7 @@ class ConsentCenterService:
         try:
             identifiers = (
                 await self._identity.list_account_identifiers(normalized_user_id, refresh=False)
-                if getattr(self, "_require_complete", False)
+                if (getattr(self, "_read_only", False) or getattr(self, "_require_complete", False))
                 else await self._identity.list_account_identifiers(normalized_user_id)
             )
         except Exception as exc:
@@ -599,7 +587,11 @@ class ConsentCenterService:
             and str(entry.get("counterpart_id") or "").strip()
         ]
         identity_ids.extend(person_user_ids.values())
-        identities = await self._identity.ensure_many(identity_ids)
+        identities = (
+            await self._identity.get_many(identity_ids)
+            if getattr(self, "_read_only", False) or getattr(self, "_require_complete", False)
+            else await self._identity.ensure_many(identity_ids)
+        )
 
         hydrated: list[dict[str, Any]] = []
         for entry in entries:

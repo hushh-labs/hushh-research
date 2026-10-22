@@ -19,9 +19,10 @@ import {
 import { shouldRequirePhoneMandate } from "@/lib/services/phone-mandate-service";
 import type { PreVaultOnboardingAnswers } from "@/lib/services/pre-vault-onboarding-service";
 
-// The setup hub is the first screen after phone verification. It introduces
-// the required AI choice before the lock and recovery-key steps.
-const PRE_VAULT_ROUTE = ROUTES.ONE_SETUP;
+// Unresolved onboarding begins with verified hosting. The same wizard then
+// records AI access; neither the login handoff nor the setup hub adds another
+// AI-choice step. Explicit invitation continuations still use the setup hub.
+const PRE_VAULT_ROUTE = ROUTES.ONE_SETUP_CLOUD;
 // The canonical post-auth landing is the root Chat workspace. `/one` remains
 // an explicit dashboard destination; it must not win over an organic login.
 const DEFAULT_HOME_ROUTE = ROUTES.HOME;
@@ -136,6 +137,7 @@ export class PostAuthRouteService {
     phoneVerified?: boolean | null;
     hostname?: string | null;
     enableFirstRunSetupGate?: boolean;
+    allowNativeRouteAuditBypass?: boolean;
   }): Promise<string> {
     const requestedRoute = normalizeRedirectPath(params.redirectPath);
     const safeExplicitRedirect = normalizeInternalRouteHref(requestedRoute);
@@ -180,7 +182,7 @@ export class PostAuthRouteService {
       if (remoteState.setupCompleted === false && !setupResolved) {
         if (
           hasExplicitRedirect &&
-          (isSetupHubRedirect || fallbackPathname === ROUTES.ONE_SETUP_CONNECTIONS)
+          (isSetupHubRedirect || fallbackPathname === PRE_VAULT_ROUTE || fallbackPathname === ROUTES.ONE_SETUP_CONNECTIONS)
         )
           return fallbackRoute;
         return hasExplicitRedirect && fallbackRoute !== PRE_VAULT_ROUTE
@@ -265,14 +267,16 @@ export class PostAuthRouteService {
     // Brand-new Google accounts may not have an identity shadow yet. Resolve
     // that missing claim through the existing identity refresh before deciding;
     // retrying bootstrap alone would keep returning unknown indefinitely.
-    let phoneStatusKnown = remoteState.phoneVerified != null || params.phoneVerified != null;
-    if (!phoneStatusKnown && shouldRequirePhoneMandate({
+    const requiresPhone = () => shouldRequirePhoneMandate({
       phoneNumber: params.phoneNumber,
       phoneVerified,
       hasVault: remoteState.hasVault,
       setupResolved,
       hostname: params.hostname ?? (typeof window === "undefined" ? null : window.location.hostname),
-    })) {
+      allowNativeRouteAuditBypass: params.allowNativeRouteAuditBypass,
+    });
+    let phoneStatusKnown = remoteState.phoneVerified != null || params.phoneVerified != null;
+    if (!phoneStatusKnown && requiresPhone()) {
       const idToken = params.idToken || await AuthService.getIdToken();
       const identity = idToken
         ? await AccountIdentityService.refreshIdentityForSession(params.userId, idToken)
@@ -281,17 +285,7 @@ export class PostAuthRouteService {
       phoneVerified = AccountIdentityService.hasVerifiedPhone(identity);
     }
 
-    if (
-      shouldRequirePhoneMandate({
-        phoneNumber: params.phoneNumber,
-        phoneVerified,
-        hasVault: remoteState.hasVault,
-        setupResolved,
-        hostname:
-          params.hostname ??
-          (typeof window === "undefined" ? null : window.location.hostname),
-      })
-    ) {
+    if (requiresPhone()) {
       if (remoteState.hasVault !== false ||
           !phoneStatusKnown) {
         throw new Error("Unable to verify account onboarding. Please try again.");

@@ -204,8 +204,45 @@ def _handle_connection_error(
     )
 
 
+async def _serve_via_door(
+    tool_context: ToolContext, calendar_read: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
+    """Read through the consented door in a hosted pod; None means read locally."""
+    from hushh_mcp.one_adk.pod_connector_tools import (
+        calendar_reads_via_door,
+        calendar_turn_refusal,
+    )
+
+    if not calendar_reads_via_door():
+        return await calendar_turn_refusal(tool_context)  # owner cloud: owner session only
+    if calendar_read is not None:
+        from hushh_mcp.services.pod_data_door import CalendarReadOptions
+
+        calendar_read = CalendarReadOptions.model_validate(calendar_read).model_dump(mode="json")
+    from hushh_mcp.one_adk.pod_data_door_specialist import (  # noqa: PLC0415
+        serve_specialist_via_data_door,
+    )
+
+    options = {"calendar_read": calendar_read} if calendar_read is not None else {}
+    payload = await serve_specialist_via_data_door("agent_calendar", tool_context, **options)
+    if payload is None:
+        return {"status": "failed", "message": _CALENDAR_UNAVAILABLE_MESSAGE}
+    if calendar_read is not None:
+        return {
+            **payload.get("state", {}),
+            "status": payload.get("status", "failed"),
+            "source": "data_door",
+        }
+    text = str(payload.get("text") or "").strip()
+    return {"status": "ok", "source": "data_door", "summary": text, "message": text}
+
+
 async def _run_calendar_read(
-    tool_context: ToolContext, call: Callable[[str], Awaitable[dict[str, Any]]]
+    tool_context: ToolContext,
+    call: Callable[[str], Awaitable[dict[str, Any]]],
+    *,
+    calendar_read: dict[str, Any] | None = None,
+    owner_local_only: bool = False,
 ) -> dict[str, Any]:
     """Resolve the user id and run a Calendar read call inside one error
     boundary, converting any failure into a clean result instead of letting
@@ -224,6 +261,17 @@ async def _run_calendar_read(
     try:
         user_id = _user_id(tool_context)
         async with asyncio.timeout(25):
+            if owner_local_only:
+                from hushh_mcp.one_adk.pod_connector_tools import calendar_reads_via_door
+
+                if calendar_reads_via_door():
+                    return {
+                        "status": "unavailable",
+                        "message": "This Calendar read requires your owner-cloud agent.",
+                    }
+            served = await _serve_via_door(tool_context, calendar_read)
+            if served is not None:
+                return served
             return await call(user_id)
     except TimeoutError:
         return {"status": "timeout", "message": "Calendar took too long. Please try again."}
@@ -263,8 +311,8 @@ async def _run_calendar_read(
                 "message": "I need a valid Calendar date, time, or selection to check that.",
             }
         return {"status": "failed", "message": _CALENDAR_UNAVAILABLE_MESSAGE}
-    except Exception:  # noqa: BLE001 - the model must be told something failed, not why internally
-        logger.warning("one_adk_calendar_call_failed reason=unexpected")
+    except Exception as exc:  # noqa: BLE001 - keep provider information out of diagnostics
+        logger.warning("one_adk_calendar_call_failed error_type=%s", type(exc).__name__)
         return {"status": "failed", "message": _CALENDAR_UNAVAILABLE_MESSAGE}
 
 
@@ -316,7 +364,41 @@ async def calendar_summary(tool_context: ToolContext, days: int = 7) -> dict[str
         )
         return {"status": "ok", "range_start": start_at, "range_end": end_at, **result}
 
-    return await _run_calendar_read(tool_context, _call)
+    return await _run_calendar_read(
+        tool_context,
+        _call,
+        calendar_read={"operation": "events", "start_at": start_at, "end_at": end_at},
+    )
+
+
+async def _event_calendar_id(
+    tool_context: ToolContext,
+    service: Any,
+    user_id: str,
+    calendar_id: str,
+    calendar_ordinal: int | None,
+) -> str:
+    if calendar_ordinal is not None:
+        if calendar_id != "primary":
+            raise GoogleConnectionError(
+                "Choose a Calendar by position",
+                status_code=422,
+                reason_code="calendar_list_offer_required",
+            )
+        return await _selected_calendar_id(
+            tool_context=tool_context,
+            service=service,
+            user_id=user_id,
+            ordinal=calendar_ordinal,
+        )
+    elif calendar_id == "primary":
+        return "primary"
+    else:
+        raise GoogleConnectionError(
+            "Show subscribed calendars and choose one by position",
+            status_code=422,
+            reason_code="calendar_list_offer_required",
+        )
 
 
 async def calendar_events(
@@ -342,27 +424,9 @@ async def calendar_events(
     async def _call(user_id: str) -> dict[str, Any]:
         tool_context.state[STATE_EVENT_OFFER] = None
         service = get_google_calendar_service()
-        if calendar_ordinal is not None:
-            if calendar_id != "primary":
-                raise GoogleConnectionError(
-                    "Choose a Calendar by position",
-                    status_code=422,
-                    reason_code="calendar_list_offer_required",
-                )
-            selected_id = await _selected_calendar_id(
-                tool_context=tool_context,
-                service=service,
-                user_id=user_id,
-                ordinal=calendar_ordinal,
-            )
-        elif calendar_id == "primary":
-            selected_id = "primary"
-        else:
-            raise GoogleConnectionError(
-                "Show subscribed calendars and choose one by position",
-                status_code=422,
-                reason_code="calendar_list_offer_required",
-            )
+        selected_id = await _event_calendar_id(
+            tool_context, service, user_id, calendar_id, calendar_ordinal
+        )
         before = await _read_binding(service, user_id)
         result = await service.list_events(
             user_id=user_id,
@@ -388,7 +452,20 @@ async def calendar_events(
             **result,
         }
 
-    return await _run_calendar_read(tool_context, _call)
+    return await _run_calendar_read(
+        tool_context,
+        _call,
+        calendar_read={
+            "operation": "events",
+            "query": query,
+            "event_limit": _bounded_limit(limit),
+            "start_at": _calendar_iso(start_at, tool_context),
+            "end_at": _calendar_iso(end_at, tool_context),
+        },
+        owner_local_only=calendar_ordinal is not None
+        or calendar_id != "primary"
+        or page_token is not None,
+    )
 
 
 async def calendar_calendars(
@@ -417,7 +494,7 @@ async def calendar_calendars(
             **result,
         }
 
-    return await _run_calendar_read(tool_context, _call)
+    return await _run_calendar_read(tool_context, _call, owner_local_only=True)
 
 
 async def calendar_event_detail(tool_context: ToolContext, ordinal: int) -> dict[str, Any]:
@@ -450,7 +527,7 @@ async def calendar_event_detail(tool_context: ToolContext, ordinal: int) -> dict
             **result,
         }
 
-    return await _run_calendar_read(tool_context, _call)
+    return await _run_calendar_read(tool_context, _call, owner_local_only=True)
 
 
 def _bounded_limit(value: object) -> int:
@@ -481,7 +558,15 @@ async def calendar_availability(
             ),
         }
 
-    return await _run_calendar_read(tool_context, _call)
+    return await _run_calendar_read(
+        tool_context,
+        _call,
+        calendar_read={
+            "operation": "availability",
+            "start_at": _calendar_iso(start_at, tool_context),
+            "end_at": _calendar_iso(end_at, tool_context),
+        },
+    )
 
 
 async def calendar_free_slots(
@@ -511,7 +596,17 @@ async def calendar_free_slots(
             ),
         }
 
-    return await _run_calendar_read(tool_context, _call)
+    return await _run_calendar_read(
+        tool_context,
+        _call,
+        calendar_read={
+            "operation": "openings",
+            "start_at": _calendar_iso(start_at, tool_context),
+            "end_at": _calendar_iso(end_at, tool_context),
+            "duration_minutes": duration_minutes,
+            "limit": limit,
+        },
+    )
 
 
 async def propose_calendar_event(
@@ -602,6 +697,16 @@ async def _propose(
     payload: dict[str, Any],
     tool_context: ToolContext,
 ) -> dict[str, Any]:
+    from hushh_mcp.one_adk.pod_connector_tools import (
+        calendar_reads_via_door,
+        calendar_turn_refusal,
+    )
+
+    if calendar_reads_via_door() or await calendar_turn_refusal(tool_context):
+        return {
+            "status": "runtime_unavailable",
+            "message": "Prepare and confirm calendar changes in the owner app.",
+        }
     try:
         proposal = await get_google_calendar_service().propose(
             user_id=_user_id(tool_context), action=action, payload=payload
@@ -908,10 +1013,8 @@ async def calendar_invitations(
     """
 
     async def call(user_id):
-        from hushh_mcp.services.calendar_schedule_service import get_calendar_schedule_service
-
-        service = get_calendar_schedule_service()
-        binding = await _read_binding(service.calendar, user_id)
+        service = get_google_calendar_service()
+        binding = await _read_binding(service, user_id)
         tool_context.state[STATE_INVITATION_OFFER] = None
         window = {}
         if start_at:
@@ -925,7 +1028,7 @@ async def calendar_invitations(
             selected_event_id=selected_event_id or None,
             **window,
         )
-        await _check_stable_binding(service.calendar, user_id, binding)
+        await _check_stable_binding(service, user_id, binding)
         account = str(result.get("account_email") or "")
         if expected_account_email and account.casefold() != expected_account_email.casefold():
             raise GoogleConnectionError(

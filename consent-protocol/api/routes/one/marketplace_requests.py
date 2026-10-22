@@ -55,6 +55,7 @@ class ApproveRequestBody(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     envelope: dict[str, Any] | None = None
+    duration_seconds: int | None = Field(default=None, strict=True, ge=3600, le=7_776_000)
 
 
 class DeliverRequestBody(BaseModel):
@@ -184,6 +185,7 @@ async def approve_marketplace_request(
             owner_user_id=token_data["user_id"],
             request_id=request_id,
             envelope=envelope,
+            duration_seconds=body.duration_seconds if body else None,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

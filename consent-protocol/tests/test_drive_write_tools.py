@@ -73,7 +73,7 @@ _IDENTITY = ("user_id", "session_id", "adk_app_name", "action_id", "context_revi
 
 
 @pytest.fixture
-def drive_review(monkeypatch):
+def drive_review(shared_hub_owner, monkeypatch):
     from hushh_mcp.one_adk import drive_write_tools as drive
 
     ledger = _Ledger()

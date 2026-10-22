@@ -8,7 +8,7 @@ clients reach them through the Next.js proxy layer.
 ```mermaid
 flowchart TB
   subgraph creds["Credential planes"]
-    fb["Firebase ID Token<br/>identity bootstrap and pilot metadata"]
+    fb["Firebase ID Token<br/>bootstrap, account/financial operations and pilot metadata"]
     vo["VAULT_OWNER Token, 24h<br/>POST /api/consent/vault-owner-token"]
     devtok["Developer Token<br/>Authorization Bearer"]
     hct["Consent Token HCT<br/>app-bound scoped grant"]
@@ -31,10 +31,12 @@ flowchart TB
     fabric["pwm.py and fabric.py<br/>/api/pwm and /api/fabric"]
     ria["ria.py and account.py<br/>/api/ria and /api/account"]
     dev["developer.py<br/>/api/v1 and /api/developer"]
+    commerce["scope_commerce.py<br/>/api/scope-commerce"]
   end
 
   fb --> vo
   fb --> dev
+  fb --> commerce
   anon --> pub
   vo --> svc
   svc --> proxy
@@ -45,6 +47,7 @@ flowchart TB
   proxy --> one
   proxy --> fabric
   proxy --> ria
+  proxy --> commerce
   devtok --> dev
   devtok --> fabric
   con --> hct
@@ -53,6 +56,113 @@ flowchart TB
 ```
 
 ---
+
+## Azure software-update continuation
+
+An `upgrade_started` result from the existing Azure authorization-completion
+route includes the launched `jobId` and, when available, the approved
+`operationId` and `releaseId`. Clients retain that tuple through popup handback
+and status following. Older responses without the tuple remain readable but
+cannot establish verified completion.
+
+Completion requires `installedReleaseVerified` and a `completedUpdate` receipt
+matching the followed operation, release and installed image digest, with a
+verified pod incarnation and timestamp. A recorded job, version label or newer
+available offer is insufficient. See the
+[existing-pod update runbook](../operations/dev-pod-first-light-runbook.md).
+
+### Pod maintenance recovery
+
+The existing machine-authenticated `/api/one/pod/upgrade/{prepare,status,release}`
+family retains exact pod-incarnation checks. Status distinguishes current-runtime
+`idleReceipt` from `retainedIdleRecord`, the sealed cursor preserved across restart.
+`releaseReceipt` identifies the last sealed release and its operation.
+
+Release accepts an optional `expectedIdleRecord: {seq, sha}`. The pod compares it
+atomically with its retained cursor. A retry returns the same sealed receipt only
+for the same operation and checked cursor, with no newer active fence. A lost
+append response is reconciled from the sealed log before work is admitted.
+Cursor-checked terminal releases cannot be reopened by a repeated prepare request.
+Existing failed-update callers may omit the cursor and retain their retry contract.
+
+This is a control-plane contract, with no browser proxy or native-plugin change.
+It does not prove VM image, identity or encrypted recovery by itself; the caller
+must establish those before release. See the
+[Browser runtime lifecycle](../../../consent-protocol/docs/reference/private-browser-runtime.md).
+
+## Consumer scope commerce
+
+`/api/scope-commerce` uses Firebase identity for account, tariff, quote, human
+purchase confirmation, funding, payouts and buyer cancellation. Inactive owner
+approval, export context/preparation/staging and owner revocation require
+vault-owner authority. Financial confirmation alone never releases information:
+access additionally requires canonical consent and a staged v2 export at the
+server-fixed activation time. The reconciliation worker uses dedicated Google
+OIDC, independently of purchase admission.
+
+Authenticated `GET /api/scope-commerce/readiness` and the additive `account.readiness`
+projection distinguish free-sharing controls, locally configured/persisted
+platform readiness, seller eligibility and action capabilities. These reads
+perform no wallet bootstrap or provider I/O. An unset or explicitly free tariff
+keeps the existing consent flow without Stripe; owners can reset an exact tariff
+to free while paid admission is unavailable. Positive tariffs fail closed and
+never become free because setup is missing. Accepted quotes retain their terms.
+Existing financial obligations and access enforcement survive an admission pause.
+
+Owner-bound `GET /api/pkm/scopes/{user_id}` includes an authoritative `scope_handle`
+on each compact `scope_entries` row. It preserves the registry handle when present
+and otherwise uses the canonical owner/scope fallback. Memory and chat consume this
+metadata to review an eligible whole-bundle tariff; they never invent domain handles
+or infer a wildcard from child sections. Existing vault-owner matching, exposure
+rules and restricted-domain policies remain authoritative. The web proxy and native
+transports preserve the additive metadata without a separate payment endpoint.
+
+Authenticated `POST /api/scope-commerce/payouts/manage` accepts an empty object
+and returns a short-lived Stripe Express login URL for the caller's existing
+information-access payout account. The server checks the pinned platform, test/live
+mode and current source binding before and after provider I/O. Caller-supplied
+account identifiers are rejected. No login URL is persisted in the financial
+journal, and creating it neither transfers funds nor proves settlement. The
+existing fenced management window keeps the initiating vault session in memory.
+
+The package-local [consumer scope commerce reference](../../../consent-protocol/docs/reference/consumer-scope-commerce.md)
+owns the wire families, exact scope binding, hosted return, configuration,
+financial lifecycle and verification limits. The Next proxy preserves the same
+snake-case contract; native transport uses the existing direct backend service.
+
+## Private Memory preparation
+
+An admitted app-role session can call `POST /api/one/pod/memory/proposals`
+with the existing PKM preparation request and response shapes. The exact ingress
+entry requires `pkm.read`, the current held incarnation and a matching owner ID.
+The pod runs the existing authored structure and reconciliation agents against
+its owner's selected model, with bounded admission and disconnect cancellation.
+AI selection changes invalidate preparation and process-memory continuation
+reuse. Failed provider preparation refuses rather than selecting managed inference.
+
+The owner app routes private notes directly to this door; unplaced or unresolved
+hosting refuses before transmission. The browser separately fetches authorized
+exact-section sharing metadata from the hub and requires review for affected
+recipients. Missing or malformed metadata blocks preparation. Information stays
+in the owner runtime and browser; encryption and confirmed commits retain their
+existing authority. Older pods require the governed owner update flow; no hub
+fallback is available for private notes.
+
+## Direct Puppy turn cancellation
+
+An admitted app-role pod session can call
+`POST /api/one/pod/turn/cancel` with `{requestId, puppyDeviceId}`. The request ID
+must match the originating `/api/one/pod/turn/stream` `X-Request-ID` header.
+Cancellation is bound to the verified owner, pod key/incarnation, app subject,
+device and request; a different app subject cannot cancel another turn.
+The route retains the held-incarnation check and does not grant device settings
+or hub authority. It is an exact pod ingress allowlist entry.
+
+`state: stopped` means the matching producer settled after cancellation, including
+its broker cleanup and admission release; it is not a device acknowledgement.
+Absent, completed or mismatched turns return `state: unconfirmed`. The browser
+bounds the stop wait and displays uncertainty rather than claiming success.
+See the [stream implementation](../streaming/streaming-implementation-guide.md#direct-puppy-streams).
 
 ## One PLG pilot task evidence
 
@@ -898,6 +1008,15 @@ from attempting its legacy issuance before returning the incompatible response.
 | DELETE | `/api/notifications/unregister`                       | Unregister FCM tokens (logout)                                                                                                                                  |
 | POST   | `/api/kai/consent/grant`                              | Grant consent for Kai scopes                                                                                                                                    |
 
+### Private Agent Space Name
+
+`GET` and `PUT /api/one/personal-agent/space-name` require Firebase owner
+authentication and the existing personal-agent feature flag. PUT accepts
+`spaceName`, validates the handle, and updates only the existing owner row's
+`space_id`. It preserves pod status, custody, billing identity and lifecycle
+timestamps. An absent or concurrently deleted row returns the existing
+`409 NO_AGENT`; naming cannot create a registry row.
+
 ### WorkOS enterprise SSO (flagged)
 
 Gated by `WORKOS_SSO_ENABLED` (default off). While off, every sign-in route answers `404` (the webhook too, until `WORKOS_WEBHOOK_SECRET` is provisioned; after that it keeps deprovisioning, so turning sign-in off as a rollback never drops offboarding) and Firebase sign-in is unchanged. SSO proves identity only: a successful exchange returns a Firebase custom token and grants no role, consent, or vault access. WorkOS is the authority for organizations, DNS-verified domains and connections; there is no Hussh-side registry or table. See the [ADR](./enterprise-sso-workos-adr.md). Both sign-in routes are rate limited per client IP.
@@ -1381,8 +1500,15 @@ authenticated and `private, no-store`. Without query parameters their strict
 owner-receipt response is unchanged. Updated clients opt into
 `?include_policy=true` to additionally receive `processing_policy`:
 `{enabled,basis:owner_approval|uat_policy|disabled,version,generation,
-scope:one_text_chat_and_drive_requests}`. Effective administrator status never
+scope:one_text_chat_and_drive_requests}`. Adding
+`&include_processing_provider=true` includes the nested
+`provider:azure_openai|gemini|null`; existing strict clients retain their response shape.
+Effective administrator status never
 changes the owner receipt's `enabled`, `accepted_at`, `revoked_at` or CAS generation.
+The nested provider follows the current policy generation. The legacy top-level
+`provider:azure_openai` identifies historical pilot receipts, not the effective
+processor. Clients receiving older responses without the nested provider show
+provider-neutral processing information rather than infer a primary.
 The old PUT remains a historical personal receipt operation; it cannot choose the
 managed UAT processor. Updated clients expose read-only processing information.
 
@@ -1410,6 +1536,25 @@ See [UAT policy and recovery](../iam/rollout-and-environments.md#uat-managed-tex
 | Method | Path                               | Auth            | Description                                                                                                                                                                                                                                                                                                               |
 | ------ | ---------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | POST   | `/api/one/runtime/gemini/validate` | Firebase Bearer | Run a bounded, non-persistent Gemini generation probe before encrypted BYOK storage; validates Google AI Studio or explicit Vertex project/location access and distinguishes invalid credentials, IAM, API-enablement, quota/rate-limit, billing, model, and temporary failures without logging or storing the credential |
+| POST | `/api/one/runtime/managed/select` | Firebase Bearer | Verify the selected runtime through the existing connection gate. BYOC probes use the owner's resolved bootstrap authority and compare the registry/cloud observation again before reporting or scheduling. |
+| POST | `/api/one/pod/wake` | Firebase Bearer | Wake the recorded owner pod. A confirmed absent host earns fresh-setup guidance only after a conditional registry transition matching the pre-probe snapshot. |
+
+Managed selection returns `409 CLOUD_CONFIGURATION_CHANGED` when the probed
+registry or resolved cloud changed, and `503 CLOUD_STATUS_UNAVAILABLE` when
+required registry observation or recovery persistence fails. Wake uses
+`409 POD_STATE_CHANGED` and `503 POD_STATUS_UNAVAILABLE` for those respective
+boundaries. These errors ask the caller to retry; they never claim that a stale
+probe proves the current host is gone. Existing successful response shapes remain
+unchanged. Parked BYOC setup can still resolve before a registry cloud exists;
+its probe cannot clear authorization on an unrelated registry row.
+
+Private pod storage uses the existing error responses for unavailable history.
+Migration export and import return a sanitized `409` when ordinary log replay
+is refused, including an authenticated erasure fence. A pod turn that encounters
+that fence while resolving local grounding returns `409`; it does not continue
+to the model with an empty local context. Request and successful response shapes
+are unchanged. These storage checks are not a public erasure endpoint or a
+replacement for consent, lifecycle admission, or draining already admitted work.
 
 `POST /db/vault/bootstrap-state` and `POST /db/vault/pre-vault-state` also
 carry the strict non-secret `oneRuntimeSetupChoice` setup enum. It is limited to
@@ -1636,6 +1781,12 @@ one eligible request actually creates or advances work.
 | POST   | `/api/one/kyc/workflows/{workflow_id}/redraft`                              | VAULT_OWNER Bearer          | Record typed or voice-originated redraft instruction metadata; draft revision is client-local                                                                                                                                                                         |
 | POST   | `/api/one/kyc/retention/purge`                                              | `X-Hushh-Maintenance-Token` | Redact terminal workflow drafts after the retention window                                                                                                                                                                                                            |
 
+The retained public client-connector registry authenticates its GET and POST with
+`require_vault_owner_token` and requires the requested `user_id` to equal that
+validated owner. It accepts the existing VAULT_OWNER bearer used by web and native
+clients; it does not reinterpret a Firebase UID string as consent-token metadata.
+Missing or revoked owner authority refuses registry access before any service call.
+
 ### One Owner-Approved Gmail Email
 
 Personal Gmail delivery is separate from the One Email KYC platform mailbox.
@@ -1689,6 +1840,27 @@ server-side, then bind both actions to that source.
 
 The maintained architecture reference is [Personal Gmail Information Requests](./personal-gmail-information-requests.md).
 
+### One-time Public Profile Discovery
+
+Discovery is explicitly opt-in, one-time, and independent of PKM storage. Public
+findings stay in the service-only shared pool; private edits are client-encrypted
+under the unlocked vault; `claimed` is an owner-scoped terminal handoff state.
+The background worker uses HusshOne's existing scan API and never runs in the
+browser request path.
+
+| Method | Path | Auth | Description |
+| ------ | ---- | ---- | ----------- |
+| GET | `/api/one/profile-discovery` | Firebase Bearer | Read only the signed-in owner's job and, once ready, its revision-pinned public profile. |
+| POST | `/api/one/profile-discovery/start` | Firebase Bearer | Start or resume the owner's one-time job. Requires versioned public-web consent; external phone matching has a separate opt-in. |
+| POST | `/api/one/profile-discovery/anchors` | Firebase Bearer | Add optional name, email, public profile URL, employer or city details to a pending owner job. These do not write to the shared public pool. |
+| POST | `/api/one/profile-discovery/draft` | `VAULT_OWNER` | Store only the encrypted owner review draft for the pinned profile revision. |
+| POST | `/api/one/profile-discovery/claim` | `VAULT_OWNER` | Complete the one-time handoff after the client reports all selected PKM writes succeeded, or after explicit reject-all. |
+| POST | `/api/one/profile-discovery/cancel` | Firebase Bearer | Cancel pending owner discovery. |
+| POST | `/api/internal/profile-discovery/drain` | Cloud Scheduler OIDC | Process a bounded batch under a dedicated scheduler identity and publish the transactional Feed outbox. |
+
+The global feature and worker gates default off. Hosted access also requires a
+small Firebase UID allowlist. See [public profile discovery storage and rollout](./public-profile-discovery.md)
+for the current implementation boundary and release checks.
 ### B2B profile suggestion — directory discovery, review and confirmation
 
 Real mode is independently default-off: `ONE_BUSINESS_DIRECTORY_ENABLED=true`
@@ -2056,6 +2228,18 @@ merging two businesses merely because their names or contact details overlap.
 
 ### One Google Calendar
 
+Private-pod Calendar reads use the existing owner-bound
+`POST /api/one/pod/specialist/calendar/read` broker. Its optional `calendarRead`
+contains `operation` (`events`, `availability`, or `openings`), offset-qualified
+`start_at`/`end_at` spanning at most 31 days, and for openings a 5–720 minute
+`duration_minutes` with `limit` 1–20. No owner selector or write operation is
+accepted. The pod verifies the returned operation and range; older hub responses
+without coverage fail safely. Event results expose `coverage_complete` because
+provider pagination may truncate the bounded result. Failed free/busy responses
+cannot become free slots. These are transitional consented hub reads, not proof
+of pod-native specialist execution.
+
+
 Calendar is a live Google provider integration. Connection lifecycle uses
 Firebase identity; legacy event reads and all action proposals require `VAULT_OWNER`.
 The two first-party Schedule reads instead verify Firebase identity and the
@@ -2224,9 +2408,11 @@ The Request scope dialog contains a recipient, one labelled question field and C
 | GET | `/answerable` | Approved, unprepared work plus historical paid, unanswered recovery; requester public key with exact participant/consent checks. |
 | POST | `/{id}/compose`, `/{id}/deliver` | Separate default-off transient Gemini composer; exact approved scope values, narrow `memory` and optional source/freshness metadata only. A complete nonempty answer with no reported gaps yields a request/owner/terms/model-bound composition receipt. Successful staging requires that receipt and requester-only ciphertext; verified payment alone releases it. Confirmed absence remains unchargeable, and incomplete reads or model failures remain retryable. No backend PKM decryption or key transfer. |
 | GET | `/{id}/answer` | Ciphertext to its requester only; ungated, so pausing payments never strands an answer already paid for. |
-| GET / POST | `/payout-account`, `/payout-account/{action}` | Verified mode-specific owner account, onboarding or bank-management link; Drive resumption is excluded. |
+| GET / POST | `/payout-account`, `/payout-account/{action}` | Verified mode-specific owner account, onboarding or bank-management link; Drive resumption is excluded. Onboarding accepts an optional strict body `{attempt_id: UUID, purpose?: "verify"}` and returns the matching opaque attempt, hosted URL and canonical Payouts return URL with `source=answers`. Legacy calls without a body remain supported. Owner, account and mode are server-owned. |
 
 Answers remain manual while unlocked. Exact approved plaintext reaches the backend composer and Google Vertex AI for one call, with application NO_CONTENT telemetry and no plaintext persistence. Live mode additionally requires provider-retention review attestation; it does not establish provider zero retention. Payments retain Drive's 3% platform fee, actual Stripe fee, full refund and owner-earnings rules. The separate authenticated answer drain handles deadlines, refunds and settlement even when admission is paused. Historical unbound modes and approvals without consent require explicit reconciliation. See [enablement steps](../operations/env-and-secrets.md#request-scope-enablement-follow-up-2026-10-11) and [memory/runtime boundary](./living-memory-freshness-adr.md).
+
+Answer payout setup uses the shared fenced hosted-browser flow. A warm return preserves the initiating unlocked session; a cold Payouts return requires normal authentication and unlock before answer-specific status or fresh-link recovery. Only opaque attempt/source/purpose metadata persists. Return notifications trigger authenticated reads and never establish eligibility. Answer and document markers are separate; scope events accept neither source. Bank-management links use a separately admitted auxiliary window or native browser and are retired when the owner or vault session changes.
 
 Every new successful answer, including a single name, age or sex, is composed by Gemini. Exact source-linked scope slices share Profile Memory's encrypted `one_living_sources._private.memory_document`; authoritative PKM revisions and exposure metadata are checked before reuse, and missing/stale slices are refreshed before absence is reported. Existing account name/photo supply only their exact approved scopes, explicitly saved legal name takes precedence, and current age is derived from validated saved DOB with no DOB in an age-only slice. Sex requires an explicitly recorded value. Canonical approved photo bytes/reference remain in encrypted presentation and render with the existing Avatar after release; the model receives only a bounded photo descriptor. No KYC repetition is required.
 
@@ -2785,6 +2971,12 @@ opaque thought signatures and function-call associations stay server-side.
 The client rejects legacy reasoning events before SDK message storage and uses
 deterministic activity/status text instead of a reasoning detail view.
 
+Shared and private-pod AG-UI routes admit the same closed receipt-tool
+declarations. A receipt continuation must match the authenticated owner,
+conversation and pending call in that owner's encrypted session. Client state
+and caller-selected schemas cannot grant receipt authority; invalid pod
+continuations fail with `POD_CHAT_RECEIPT_NOT_ADMITTED` before agent construction.
+
 #### One Voice
 
 `consent-protocol/api/routes/one/voice.py` owns One Live Voice (Gemini Live on
@@ -3016,7 +3208,7 @@ backend identity-refresh freshness interval do not expire a verified phone.
 | GET    | `/api/account/email-aliases`                      | List vault-owner account email aliases                                                                                                                                                                   |
 | POST   | `/api/account/email-aliases/verification/start`   | Start explicit email alias verification; dev/UAT review mode may echo the code                                                                                                                           |
 | POST   | `/api/account/email-aliases/verification/confirm` | Confirm an email alias before it can match One Email KYC intake                                                                                                                                          |
-| DELETE | `/api/account/delete`                             | Delete the account, user-owned Vault/profile/application records, and the authenticated Firebase UID. Required append-only or regulated evidence follows its approved retention/redaction policy rather than an incidental cascade. Returns `409 ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING` without deleting anything when parked personal-agent/BYOC state may still own an external resource. |
+| DELETE | `/api/account/delete`                             | Delete the account, user-owned Vault/profile/application records, and the authenticated Firebase UID. Required append-only or regulated evidence follows its approved retention/redaction policy rather than an incidental cascade. Returns `409 ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING` without deleting anything when parked personal-agent/BYOC state may still own an external resource. A settled bounded Shared Files batch returns `409 FILES_ERASURE_IN_PROGRESS` while versions remain; keys are retained and completion requires subsequent qualified absence. The owner may retry deliberately after active-account confirmation; uncertain delivery is never replayed automatically. |
 | GET | `/api/account/delete-lost-vault/options` | Firebase-authenticated, no-store discovery for a signed-in person with an inaccessible vault. Returns whether a verified linked phone is required, a masked hint, and enrolled Google/Apple provider IDs. It grants no deletion or vault authority. |
 | POST | `/api/account/delete-lost-vault` | Full account deletion without a vault secret. Requires a fresh (at most five minutes) Google/Apple reauthentication bearer for the exact current UID; when an account has a verified linked phone, also requires a fresh Firebase phone ID token for that exact stored number. A phone token alone, a newly entered number in the request, a different UID/provider, or a stale bearer cannot authorize deletion. The body is `{method:"provider"}` when no linked phone is required or `{method:"phone",phone_id_token:"..."}` when one is required. Reuses the full erasure and Firebase cleanup lifecycle and its external-resource blockers. `ready_to_start_fresh` is true only when the old Firebase identity was deleted or already absent; otherwise the client must show a pending cleanup state. |
 
@@ -4449,6 +4641,15 @@ masked email/phone visibility remains unchanged. The Next proxy and native HTTP
 transport forward these additive fields. Older servers omit them; clients omit
 the badge rather than inventing a mutual relationship. No migration is required.
 
+### Private email send recovery
+
+An admitted owner app session may read `GET /api/one/pod/actions/{gmod_id}/status`
+with `pod.act` authority and the current held incarnation. The response contains
+only the matching proposal ID, `gmail_mailbox` kind and prepared, expired, sent
+or outcome-unknown state. It reads the existing sealed proposal ledger and never
+contacts Google, dispatches an action or falls back to the hub. Executing or failed
+settlement remains uncertain; only durable executed settlement proves delivery.
+Unknown, foreign and non-send proposals are unavailable.
 
 ## Referral dashboard reads
 
@@ -4515,7 +4716,7 @@ responses are private/no-store. The web connector proxy preserves `PUT` for
 | `PUT /api/connectors/google_drive/sharing/pricing` | `{enabled,amountCents,expectedVersion}`; whole USD dollars from $1 to $500. Concurrent edits fail with `price_changed`; existing orders keep their amount. |
 | `POST /api/connectors/google_drive/sharing/requests/{id}/price` | Owner's `{revision,amountCents,confirmed:true}` for a pending Trusted request without a price. Sets this request's quote, without extending sharing consent or replacing current trust checks. Refuses stale, closed, already searched or ordered requests. |
 | `GET /api/one/payouts/account?fresh=true` | Current `stripeMode` and safe Connect readiness booleans/status, verified with Stripe. Optional default USD bank display name/last four/status, `bankStatus`, `canManageBank`, `verification` (state, due date, what Stripe needs, in plain codes) and `payoutSchedule`. A masked status is cached 30 s per owner, mode and account; `fresh=true` (a return from Stripe, Retry) reads Stripe directly. Display only: money paths re-verify. No provider account ID or banking credentials. |
-| `POST /api/one/payouts/account/onboard` | One US Express account per owner and Stripe mode; a fresh Stripe setup URL returns to Profile → Payouts. Optional body `{purpose:"verify"}` opens Stripe's update flow for details Stripe needs. Test setup never satisfies live readiness. |
+| `POST /api/one/payouts/account/onboard` | One US Express account per owner and Stripe mode; a fresh Stripe setup URL returns to Profile → Payouts. Optional strict body `{attempt_id: UUID, purpose?: "verify"}` correlates the hosted return with `source=documents`; `purpose:"verify"` opens Stripe's update flow for details Stripe needs. Legacy calls without a body remain supported. Test setup never satisfies live readiness. |
 | `POST /api/one/payouts/account/manage` | A fresh Stripe Express login link for the authenticated owner's existing US Express account, including restricted accounts needing bank repair. Deleted/non-US/non-Express accounts are rejected. No caller-selected destination account. |
 | `GET /api/one/payouts/account/earnings?cursor=…&mode=live\|test` | Owner-scoped document transactions, at most 20 per page, newest first; opaque request UUID cursor; `mode` defaults to the payment mode. Shows gross, refund, 3% commission, actual allocated processing fee, net earnings, reversal and delivery counts. Unknown amounts remain null. |
 | `GET /api/one/payouts/account/bank-payouts?cursor=…` | Up to 20 recorded Stripe bank payout statuses per page with `nextCursor`. Each keeps the masked bank it was sent to (write-once), the payout method, Stripe's bank trace and reconciliation status, and when the status changed; a same-status provider update still applies. An account transfer is never reported as a bank deposit. |

@@ -18,6 +18,8 @@ const state = vi.hoisted(() => ({
   balance: vi.fn(),
   redeemTest: vi.fn(),
   redeemLive: vi.fn(),
+  hosted: vi.fn(),
+  popup: { closed: false, opener: null, location: { replace: vi.fn() }, close: vi.fn() },
   epoch: 1,
   native: false,
   activityItems: [] as PayoutActivityItem[],
@@ -30,6 +32,11 @@ vi.mock("@/lib/capacitor/session-privacy", () => ({
   subscribeNativePrivacyObservation: (listener: () => void) => { state.privacyListeners.add(listener); return () => state.privacyListeners.delete(listener); },
 }));
 
+vi.mock("@/lib/services/scope-commerce-browser", () => ({
+  COMMERCE_RETURN_EVENT: "hushh:commerce-return",
+  openCommerceHostedWindow: () => state.native ? null : state.popup,
+  openCommerceHostedUrl: state.hosted,
+}));
 vi.mock("@/lib/capacitor/platform", () => ({ isNative: () => state.native }));
 vi.mock("next/navigation", () => ({
   usePathname: () => state.pathname,
@@ -41,11 +48,15 @@ vi.mock("@/lib/vault/vault-context", () => ({
 }));
 vi.mock("@/lib/vault/session-epoch", () => ({
   snapshotVaultSessionEpoch: () => state.epoch,
+  subscribeVaultSessionEpoch: () => () => {},
   isVaultSessionEpochCurrent: (epoch: number) => epoch === state.epoch,
 }));
 vi.mock("@/lib/services/document-payout-service", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/services/document-payout-service")>(),
-  DocumentPayoutService: { account: state.account, onboard: state.onboard, bankPayouts: state.bankPayouts, manage: state.manage, earnings: state.earnings, hashcoins: state.hashcoins, balance: state.balance, redeemTest: state.redeemTest, redeemLive: state.redeemLive },
+  DocumentPayoutService: { account: state.account, onboard: async (token: string, purpose?: "verify", attemptId?: string) => {
+    const value = await state.onboard(token, purpose, attemptId);
+    return { ...value, attemptId, source: "documents", returnUrl: `https://one.hushh.ai/one/profile/payouts?commerceReturn=1&commerceAttemptId=${attemptId}&commerceSource=documents` };
+  }, bankPayouts: state.bankPayouts, manage: state.manage, earnings: state.earnings, hashcoins: state.hashcoins, balance: state.balance, redeemTest: state.redeemTest, redeemLive: state.redeemLive },
 }));
 // Activity, its sheets and the freshness line have their own tests; here they
 // only show what Payouts hands them.
@@ -85,46 +96,13 @@ import {
   dispatchPayoutStateChanged, subscribePayoutStateChanged, type PayoutStateChangedDetail,
 } from "@/lib/payouts/payout-events";
 import { ApiError } from "@/lib/services/api-client";
-import { liveWallet, readyAccount, settle } from "./payout-fixtures";
-
-const noBalance = {
-  stripeMode: "live", currency: "USD", accountLinked: false, inStripeCents: 0, availableCents: 0, pendingCents: 0,
-  nextAvailableOn: null, nextAvailableCents: null, asOf: "2026-10-11T10:00:00.000Z", stale: false,
-};
-// Stripe paused payouts over verification; the bank itself is linked and fine.
-const pausedForVerification = { ...readyAccount, payoutsEnabled: false, ready: false, status: "restricted",
-  bank: { name: "Example Bank", last4: "6789", status: "verified" } };
-const verificationNeeded = { state: "past_due", deadline: null, items: ["identity"], eventuallyDue: false, hasErrors: false,
-  disabledReason: "requirements_past_due" };
-const inStripe = {
-  ...noBalance, accountLinked: true, inStripeCents: 155, availableCents: 100, pendingCents: 55,
-  nextAvailableOn: "2026-10-14T00:00:00.000Z", nextAvailableCents: 55,
-};
+import { liveWallet, readyAccount, settle, resetPayoutState, noBalance, pausedForVerification, verificationNeeded, inStripe } from "./payout-fixtures";
 
 describe("document payout account", () => {
   beforeEach(() => {
-    state.query = "";
-    state.pathname = "/one/profile/payouts";
-    state.router.replace.mockReset();
-    window.sessionStorage.clear();
-    state.epoch = 1;
-    state.native = false;
+    resetPayoutState(state);
     state.activityItems = []; state.receipt = null;
     state.privacy = { generation: 0, shielded: false, appIsActive: true }; state.privacyListeners.clear();
-    state.manage.mockReset().mockResolvedValue({ url: "https://example.invalid/unsafe" });
-    state.earnings.mockReset().mockResolvedValue({ currency: "USD", transactions: [], nextCursor: null });
-    state.token = "owner-token";
-    state.account.mockReset().mockResolvedValue({ account: null });
-    state.onboard.mockReset().mockResolvedValue({ url: "https://example.invalid/unsafe" });
-    state.bankPayouts.mockReset().mockResolvedValue({ currency: "USD", payouts: [] });
-    state.balance.mockReset().mockResolvedValue(noBalance);
-    state.hashcoins.mockReset().mockResolvedValue({
-      coinName: "Hussh Coins", coinsPerDollar: 100, currency: "USD", payoutMode: "test", testPayouts: true, liveRedemptionEnabled: false, maxRedeemCoins: 50000,
-      live: { balanceCoins: 911, reservedCoins: 0, availableCoins: 911, amountCents: 911, held: false },
-      sandbox: { balanceCoins: 911, reservedCoins: 0, availableCoins: 911, amountCents: 911, held: false }, latestRedemption: null,
-    });
-    state.redeemTest.mockReset();
-    state.redeemLive.mockReset();
     vi.spyOn(window, "open").mockReturnValue(null);
   });
   afterEach(() => { vi.restoreAllMocks(); });
@@ -189,7 +167,7 @@ describe("document payout account", () => {
     });
     state.account.mockResolvedValue({ account: null, stripeMode: "test" });
     render(<DocumentHashcoinPayouts />);
-    const live = await screen.findByRole("region", { name: "Your money" });
+    const live = await screen.findByRole("region", { name: "Document and answer earnings" });
     await waitFor(() => expect(live).toHaveTextContent("911 Hussh Coins"));
     expect(live).toHaveTextContent("100 Hussh Coins = $1");
     expect(live).toHaveTextContent("$9.11");
@@ -218,7 +196,7 @@ describe("document payout account", () => {
     await waitFor(() => expect(state.account).toHaveBeenCalledExactlyOnceWith("owner-token"));
     await act(async () => { finishAccount({ account: null, stripeMode: "live" }); });
     await waitFor(() => expect(bankAction).toBeEnabled());
-    expect(screen.getByRole("region", { name: "Your money" })).toHaveTextContent("911 Hussh Coins");
+    expect(screen.getByRole("region", { name: "Document and answer earnings" })).toHaveTextContent("911 Hussh Coins");
     expect(screen.queryByRole("region", { name: "Payout sandbox" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Test redeem|Check test redemption/ })).toBeNull();
     expect(state.redeemTest).not.toHaveBeenCalled();
@@ -238,12 +216,12 @@ describe("document payout account", () => {
     try {
       render(<DocumentHashcoinPayouts />);
       const redeem = await screen.findByRole("region", { name: "Redeem Hussh Coins" });
-      expect(screen.getByRole("region", { name: "Your money" })).toHaveTextContent("1,822 Hussh Coins");
+      expect(screen.getByRole("region", { name: "Document and answer earnings" })).toHaveTextContent("1,822 Hussh Coins");
       const button = within(redeem).getByRole("button", { name: "Redeem $9.11" });
       expect(button).toHaveAttribute("data-voice-control-id", "profile_payouts_redeem");
       await waitFor(() => expect(button).toBeEnabled());
       // One paid request at a time: this tap sends the next earning, not the whole balance.
-      expect(screen.getByRole("region", { name: "Your money" })).toHaveTextContent("$18.22 ready to redeem");
+      expect(screen.getByRole("region", { name: "Document and answer earnings" })).toHaveTextContent("$18.22 ready to redeem");
       expect(redeem).toHaveTextContent("$9.11 of $18.22 ready · one paid request at a time");
       fireEvent.click(button);
       expect(await within(redeem).findByRole("button", { name: "Sending…" })).toBeDisabled();
@@ -287,7 +265,7 @@ describe("document payout account", () => {
     render(<DocumentHashcoinPayouts />);
     const redeem = await screen.findByRole("region", { name: "Redeem Hussh Coins" });
     expect(await within(redeem).findByText(reason)).toBeVisible();
-    expect(screen.getByRole("region", { name: "Your money" })).toHaveTextContent(coinState);
+    expect(screen.getByRole("region", { name: "Document and answer earnings" })).toHaveTextContent(coinState);
     if (coinState.includes("waiting")) expect(document.body).not.toHaveTextContent("ready to redeem");
     if (reason !== "Fix your bank to redeem") expect(redeem).not.toHaveTextContent("Fix your bank");
     // One line: the reason takes the scope line's place.
@@ -364,7 +342,7 @@ describe("document payout account", () => {
     render(<DocumentHashcoinPayouts />);
     const redeem = await screen.findByRole("region", { name: "Redeem Hussh Coins" });
     expect(redeem).toHaveTextContent("Refunded payment. Transfer reversed.");
-    expect(screen.getByRole("region", { name: "Your money" })).toHaveTextContent("Under review");
+    expect(screen.getByRole("region", { name: "Document and answer earnings" })).toHaveTextContent("Under review");
     expect(document.body).not.toHaveTextContent("Sent to Stripe");
     // Nothing is ready, so there is no action to offer, and never "$0.00".
     expect(within(redeem).queryByRole("button", { name: /^Redeem|Check transfer/ })).toBeNull();
@@ -381,7 +359,7 @@ describe("document payout account", () => {
       live: { balanceCoins: 911, amountCents: 911, held: false, nextRedeemCoins: 911 },
       sandbox: { availableCoins: 911, held: false }, latestRedemption: null });
     render(<DocumentHashcoinPayouts />);
-    await waitFor(() => expect(screen.getByRole("region", { name: "Your money" })).toHaveTextContent("911 Hussh Coins"));
+    await waitFor(() => expect(screen.getByRole("region", { name: "Document and answer earnings" })).toHaveTextContent("911 Hussh Coins"));
     expect(screen.queryByRole("region", { name: "Payout sandbox" })).toBeNull();
     expect(screen.queryByRole("region", { name: "Redeem Hussh Coins" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Test redeem|Check test redemption|^Redeem|Check transfer/ })).toBeNull();
@@ -411,7 +389,7 @@ describe("document payout account", () => {
     // One failure, one line: the wallet's own line stands in for the freshness line.
     expect(screen.queryByText("Payouts freshness")).toBeNull();
     expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1);
-    expect(screen.getByRole("region", { name: "Your money" })).toHaveTextContent("1,822 Hussh Coins");
+    expect(screen.getByRole("region", { name: "Document and answer earnings" })).toHaveTextContent("1,822 Hussh Coins");
     expect(within(redeem).getByRole("button", { name: "Redeem $9.11" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
     expect(state.redeemLive).not.toHaveBeenCalled();
@@ -429,8 +407,10 @@ describe("document payout account", () => {
       expect(screen.queryByRole("button", { name: "Retry balance" })).toBeNull();
       fireEvent.click(screen.getByRole("button", { name: "Reload" }));
       expect(reload).toHaveBeenCalledOnce();
-      // The one bank control still takes Stripe's return.
-      await waitFor(() => expect(state.onboard).toHaveBeenCalledExactlyOnceWith("owner-token"));
+      // Expired setup stays explicit even when the coin reader cannot load.
+      expect(state.onboard).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Get a new payout setup link" }));
+      await waitFor(() => expect(state.onboard).toHaveBeenCalledExactlyOnceWith("owner-token", undefined, expect.any(String)));
       // A native build bundles its reader, so only an update helps.
       state.native = true;
       view.rerender(<DocumentHashcoinPayouts />);
@@ -525,10 +505,10 @@ describe("document payout account", () => {
     state.account.mockResolvedValue({ stripeMode: mode, account: readyAccount });
     state.balance.mockResolvedValue({ ...noBalance, accountLinked: true });
     render(<DocumentHashcoinPayouts />);
-    const money = await screen.findByRole("region", { name: "Your money" });
+    const money = await screen.findByRole("region", { name: "Document and answer earnings" });
     await waitFor(() => expect(money).toHaveTextContent("0 Hussh Coins"));
     expect(money).toHaveTextContent(mode === "live" ? "Nothing ready to redeem" : "100 Hussh Coins = $1");
-    // The one freshness line ages with the balances, so it sits under "Your money".
+    // The one freshness line ages with the balances, so it sits under "Document and answer earnings".
     expect(money).toHaveTextContent("Payouts freshness");
     expect(screen.getByRole("region", { name: "Activity" })).not.toHaveTextContent("Payouts freshness");
     await waitFor(() => expect(state.balance).toHaveBeenCalled());
@@ -555,7 +535,7 @@ describe("document payout account", () => {
     render(<DocumentHashcoinPayouts />);
     const redeem = await screen.findByRole("region", { name: "Redeem Hussh Coins" });
     await waitFor(() => expect(within(redeem).getByRole("button", { name: "Redeem $9.11" })).toBeEnabled());
-    expect(screen.getByRole("region", { name: "Your money" })).toHaveTextContent(coinState);
+    expect(screen.getByRole("region", { name: "Document and answer earnings" })).toHaveTextContent(coinState);
     if (scopeLine) expect(redeem).toHaveTextContent(scopeLine);
     else expect(redeem).not.toHaveTextContent(/ of \$/);
   });
@@ -665,7 +645,7 @@ describe("document payout account", () => {
       ] } });
     state.account.mockResolvedValue({ stripeMode: "live", account: readyAccount });
     render(<DocumentHashcoinPayouts />);
-    const money = await screen.findByRole("region", { name: "Your money" });
+    const money = await screen.findByRole("region", { name: "Document and answer earnings" });
     await waitFor(() => expect(money).toHaveTextContent("Under review · 2 items"));
     const row = screen.getByTestId("payout-hold-row");
     expect(row).toHaveTextContent("A refund left your balance below zero.");
@@ -685,7 +665,7 @@ describe("document payout account", () => {
     expect(row).toHaveTextContent("The buyer's bank is reviewing this payment.");
     expect(row).toHaveTextContent("Tax return 2025 · Wait for the bank");
     expect(row).toHaveTextContent("$9.11");
-    expect(screen.getByRole("region", { name: "Your money" })).not.toHaveTextContent("items");
+    expect(screen.getByRole("region", { name: "Document and answer earnings" })).not.toHaveTextContent("items");
   });
 
   it("takes a receipt's next step with the bank rows' own Manage and Verify details, never a money action", async () => {
@@ -698,20 +678,21 @@ describe("document payout account", () => {
       state.onboard.mockResolvedValue({ url: "https://connect.stripe.com/setup/safe_link" });
       state.account.mockResolvedValue({ stripeMode: "live", account: { ...pausedForVerification, verification: verificationNeeded } });
       render(<DocumentHashcoinPayouts />);
-      const money = await screen.findByRole("region", { name: "Your money" });
+      const money = await screen.findByRole("region", { name: "Document and answer earnings" });
       expect(await within(money).findByRole("button", { name: /Verify details/ })).toBeEnabled();
       const activity = screen.getByRole("region", { name: "Activity" });
 
       fireEvent.click(within(activity).getByRole("button", { name: "Receipt step verify" }));
-      await waitFor(() => expect(assign).toHaveBeenCalledExactlyOnceWith("https://connect.stripe.com/setup/safe_link"));
-      expect(state.onboard).toHaveBeenCalledExactlyOnceWith("owner-token", "verify");
+      await waitFor(() => expect(state.hosted).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ source: "documents" }), "onboarding", state.popup, expect.any(AbortSignal)));
+      expect(state.onboard).toHaveBeenCalledExactlyOnceWith("owner-token", "verify", expect.any(String));
       expect(state.manage).not.toHaveBeenCalled();
       await waitFor(() => expect(within(money).getByRole("button", { name: /Verify details/ })).toBeEnabled());
 
+      vi.mocked(window.open).mockReturnValue(state.popup as unknown as Window);
       fireEvent.click(within(activity).getByRole("button", { name: "Receipt step manage_bank" }));
       // Stripe's bank settings open in a new tab from inside the click, like the bank row.
       expect(window.open).toHaveBeenCalledExactlyOnceWith("about:blank", "_blank");
-      await waitFor(() => expect(assign).toHaveBeenLastCalledWith("https://stripe.com/express/acct_owner/login_token"));
+      await waitFor(() => expect(state.popup.location.replace).toHaveBeenLastCalledWith("https://stripe.com/express/acct_owner/login_token"));
       expect(state.manage).toHaveBeenCalledExactlyOnceWith("owner-token");
       expect(state.onboard).toHaveBeenCalledOnce();
       expect(state.redeemLive).not.toHaveBeenCalled();
@@ -723,7 +704,7 @@ describe("document payout account", () => {
     state.hashcoins.mockResolvedValue(liveWallet);
     state.account.mockResolvedValue({ stripeMode: "live", account: readyAccount });
     render(<DocumentHashcoinPayouts />);
-    const money = await screen.findByRole("region", { name: "Your money" });
+    const money = await screen.findByRole("region", { name: "Document and answer earnings" });
     const row = await within(money).findByRole("button", { name: /1,822 Hussh Coins/ });
     fireEvent.click(row);
     const sheet = await screen.findByRole("dialog", { name: "Activity: coins" });
@@ -761,7 +742,7 @@ describe("document payout account", () => {
     state.hashcoins.mockResolvedValue(liveWallet);
     state.account.mockResolvedValue({ stripeMode: "live", account: readyAccount });
     render(<DocumentHashcoinPayouts />);
-    await screen.findByRole("region", { name: "Your money" });
+    await screen.findByRole("region", { name: "Document and answer earnings" });
     await waitFor(() => expect(state.balance).toHaveBeenCalledOnce());
     await settle();
     expect(screen.queryByText("In Stripe")).toBeNull();
@@ -774,7 +755,7 @@ describe("document payout account", () => {
     render(<DocumentHashcoinPayouts />);
     // Stripe dates funds by UTC day; whatever the device's zone, that day is shown.
     const day = new Date("2026-10-14T12:00:00.000Z").toLocaleDateString(undefined, { month: "short", day: "numeric" });
-    const money = await screen.findByRole("region", { name: "Your money" });
+    const money = await screen.findByRole("region", { name: "Document and answer earnings" });
     const row = await within(money).findByRole("button", { name: /In Stripe/ });
     expect(row).toHaveTextContent(`Settling · available ${day}`);
     expect(row).toHaveTextContent("$1.55");

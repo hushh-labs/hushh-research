@@ -1,0 +1,26 @@
+{
+  "_provenance": "Ed25519 consent-token golden vectors. Signed with the TEST seed bytes(range(32)) -- committed on purpose, test-only, never a production key. Ed25519 (RFC 8032) is deterministic, so these signatures are stable expected outputs: a codec change that alters them is a wire-format break.",
+  "kid": "hushh-consent-test-1",
+  "public_key_b64": "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg=",
+  "test_seed_b64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+  "vectors": [
+    {
+      "payload": "user_vec_1|agent_one|vault.owner|1754300000000|1754904800000",
+      "signature": "ed25519.hushh-consent-test-1.BSoFtojkh7S9QlJltpnKUs-_ohdOZA4XoycgsfdSFrP_raC710qjkBouKAL0BqNrIXjEFSRWc15ujvtnPsf4Aw",
+      "token": "HCT:dXNlcl92ZWNfMXxhZ2VudF9vbmV8dmF1bHQub3duZXJ8MTc1NDMwMDAwMDAwMHwxNzU0OTA0ODAwMDAw.ed25519.hushh-consent-test-1.BSoFtojkh7S9QlJltpnKUs-_ohdOZA4XoycgsfdSFrP_raC710qjkBouKAL0BqNrIXjEFSRWc15ujvtnPsf4Aw",
+      "commercial": false
+    },
+    {
+      "payload": "user_vec_2|agent_kai|attr.financial.*|1754300000000|1754904800000",
+      "signature": "ed25519.hushh-consent-test-1.6fruqTvv8PneWibNBloqHhHbcG3x-YvoGiuyhDw12_UVYoGTZDlAd5SRBUsKfnayN8BUWeBmXLblOf3gavmWAQ",
+      "token": "HCT:dXNlcl92ZWNfMnxhZ2VudF9rYWl8YXR0ci5maW5hbmNpYWwuKnwxNzU0MzAwMDAwMDAwfDE3NTQ5MDQ4MDAwMDA=.ed25519.hushh-consent-test-1.6fruqTvv8PneWibNBloqHhHbcG3x-YvoGiuyhDw12_UVYoGTZDlAd5SRBUsKfnayN8BUWeBmXLblOf3gavmWAQ",
+      "commercial": false
+    },
+    {
+      "payload": "user_vec_3|agent_one|cap.one.invoke|1754300000000|1754904800000|commercial",
+      "signature": "ed25519.hushh-consent-test-1.cx_r-wCEB4PDHRhIqiz0NfK0YRC-DOGeZ_quuADfeHcC8dFh4LRq7hQK8bgZLLM1ShRFzySr4dPnegTRJfUTCQ",
+      "token": "HCT:dXNlcl92ZWNfM3xhZ2VudF9vbmV8Y2FwLm9uZS5pbnZva2V8MTc1NDMwMDAwMDAwMHwxNzU0OTA0ODAwMDAwfGNvbW1lcmNpYWw=.ed25519.hushh-consent-test-1.cx_r-wCEB4PDHRhIqiz0NfK0YRC-DOGeZ_quuADfeHcC8dFh4LRq7hQK8bgZLLM1ShRFzySr4dPnegTRJfUTCQ",
+      "commercial": true
+    }
+  ]
+}

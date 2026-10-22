@@ -303,6 +303,7 @@ export class AccountServiceImpl {
     const response = await ApiService.apiFetch("/api/account/export", {
       method: "GET",
       cache: "no-store",
+      timeoutMs: 240_000,
       headers: {
         Authorization: `Bearer ${vaultOwnerToken}`,
       },

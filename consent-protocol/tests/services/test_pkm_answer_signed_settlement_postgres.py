@@ -67,7 +67,7 @@ def status(engine, request):
 )
 @pytest.mark.parametrize("legacy_without_receipt", [False, True])
 async def test_signed_dispatch_releases_exact_staged_answer_once(
-    answer_engine,  # noqa: F811 - pytest injects the imported fixture
+    answer_engine,  # noqa: F811
     monkeypatch,
     event_type,
     stripe_mode,
@@ -270,7 +270,7 @@ async def test_signed_dispatch_releases_exact_staged_answer_once(
 
 @pytest.mark.parametrize("stripe_mode", ["test", "live"])
 async def test_async_pending_then_success_and_expiry_are_signed_lane_events(
-    answer_engine,  # noqa: F811 - pytest injects the imported fixture
+    answer_engine,  # noqa: F811
     monkeypatch,
     stripe_mode,
 ):
@@ -326,7 +326,7 @@ async def test_async_pending_then_success_and_expiry_are_signed_lane_events(
 
 @pytest.mark.parametrize("cancel_first", [False, True])
 async def test_disconnect_before_delayed_payment_withholds_stage_and_refunds(
-    answer_engine,  # noqa: F811 - pytest injects the imported fixture
+    answer_engine,  # noqa: F811
     monkeypatch,
     cancel_first,
 ):

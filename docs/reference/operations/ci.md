@@ -20,6 +20,7 @@ flowchart TB
   end
 
   subgraph release["Environment deployment lanes"]
+    devdeploy["Deploy to Dev<br/>main-owned workflow + CI-green branch SHA"]
     green["Green main SHA"]
     smoke["Main Post-Merge Smoke<br/>deploy-authority on main"]
     uat["Deploy to UAT<br/>manual exact-SHA dispatch"]
@@ -29,6 +30,7 @@ flowchart TB
   feat --> pr --> prci
   prci --> freshness
   prci --> status
+  prci -->|"exact SHA passes CI Status Gate"| devdeploy
   freshness --> queue
   status --> queue
   queue --> queueci --> main --> smoke --> green
@@ -36,10 +38,21 @@ flowchart TB
   green --> prod
 ```
 
-This document describes the queue-first CI model and how to stay aligned with it so code changes do not fail CI or deploy from the wrong authority gate. Run the local mirror before opening or updating a pull request, and before commits that touch core authority surfaces.
+This document describes CI and deployment authority. During implementation, run
+focused contract checks. Before an ordinary push, run the local core mirror once
+on the completed candidate; GitHub owns full web and browser validation. The
+dedicated pre-PR workflow retains its exhaustive local gate. Dev can deploy an
+exact CI-green branch SHA without merging application content to main.
+
+The database connection budget inventories every dedicated caller. All share
+a process-wide ceiling of three in `db.connection`, reserved before connecting
+and released after session teardown. Saturation returns a retryable receipt-scan
+busy state or defers background sweeps to their next interval; it never borrows
+from the request pool. Per-caller limits still apply. The source-bound budget
+and concurrency/failure checks must agree before changing this ceiling.
 
 The canonical state-changing operator procedure is the
-[Admin merge and release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md).
+[Admin merge and release SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md).
 This page defines CI behavior; it does not redefine Admin bypass or deployment
 authority.
 
@@ -55,6 +68,119 @@ Canonical pre-PR command:
 ```
 
 This command runs the same blocking local CI surface that feeds GitHub `PR Validation` and `CI Status Gate`. Use `./bin/hushh codex pre-pr --include-advisory` only when you intentionally want the wider non-blocking readiness lane too.
+
+## Workflow catalog and naming
+
+Workflow files and required check names are stable API identifiers. Display names
+use a clear action and purpose: **Deploy**, **Release**, **Resume**, **Verify**,
+**Measure**, **Warm**, **Schedule**, **Maintain**, **Provision** or **Rollback**.
+`PR Validation`, `Queue Validation` and `Main Post-Merge Smoke` keep their existing
+names because governance and external tooling use them as release authority.
+App Store and Android publication also retain the exact display names checked
+by their dispatch verifiers; filenames and release receipts remain unchanged.
+Never rename required job/check contexts for cosmetic consistency.
+
+| Family | Workflow files | Purpose / trigger |
+| --- | --- | --- |
+| Validation | `ci.yml`, `queue-validation.yml`, `main-post-merge-smoke.yml` | PR checks; identical-tree queue reuse; landed-main smoke. No duplicate full suite in the queue |
+| Deployment | `deploy-dev.yml`, `deploy-uat.yml`, `deploy-production.yml` | Governed manual exact-SHA deployment through existing shared build/provenance helpers |
+| Scoped compatibility deployment | `deploy-uat-one-chat.yml` | Explicit backend cutover with its own capacity/recovery contract; no schedule or automatic deployment |
+| Native releases | `ship-ios-testflight.yml`, `release-ios-appstore.yml`, `ship-android-playstore-v1.yml`, `resume-ios-testflight.yml` | Explicit release or continuation of a known upload; recovery does not rebuild/upload again |
+| Device qualification | `ios-voice-device.yml` | Explicit/reusable physical-device evidence; not another PR suite |
+| Capacity | `capacity-maintenance-clock.yml`, `capacity-maintenance.yml` | Due-work controller, authenticated bounded cleanup; timer wait occurs before runner assignment |
+| Operational recovery | `rollback.yml`, `prod-cloudsql-backup-posture.yml` | Governed rollback and daily live backup-posture verification |
+| Security | `verify-protected-lists.yml`, `supply-chain.yml` | Hourly protected-configuration drift; changed-dependency SBOM/provenance |
+| Performance | `editor-performance-nightly.yml` | Daily runner/browser performance drift check, complementing changed-path PR coverage |
+| Dependency cache | `ios-swift-package-cache.yml` | Daily main-owned cache preparation and bounded cold-fetch verification |
+| Signing / package publication | `provision-wallet-pass-certificate.yml`, `publish-hushh-mcp.yml` | Explicit signing-resource creation and verified package publication |
+
+The local candidate removes the separate weekly offline pod drill and weekday
+completion-judge workflows. Both core test suites remain in Protocol CI's manifest;
+the judge CLI and live completion receipts remain in the existing
+[readiness workflow](./pod-completion-judge.md). No scheduled failure is needed to
+announce an unchanged external prerequisite. These removals take effect on GitHub
+only after the source lands on the default branch.
+
+Capacity tick run titles are protocol inputs for checkpoint reconciliation. They
+retain their exact names independently of the workflow's display name. Dispatchers
+and provenance readers should bind to workflow file paths rather than presentation
+labels unless a specific authority contract explicitly requires the label.
+
+GitHub also exposes platform-managed CodeQL, Dependabot and Copilot workflows,
+and may retain entries for deleted workflow files. Those entries are not proof of
+an active source workflow or a duplicate test. Reconcile old entries with main and
+recent runs before disabling anything. Required security coverage must remain.
+No remote disable, cancellation or schedule change is authorized by this local edit.
+
+## Run-history review — 2026-10-18
+
+Read-only sample: 100 recent runs for discovery, then the last 20 completed PR
+validations and 10 completed deployments per environment. Job/step metadata uses
+the latest attempt; failed and cancelled runs are excluded from success timing.
+These small, different source cohorts are diagnostic samples, not a speed SLA or
+a controlled benchmark. Elapsed times include gates and waits, not billed CPU time.
+
+| Successful scope | Dev median | UAT median | Sample count |
+| --- | --- | --- | --- |
+| Backend only | 16.5 min | 32.1 min | Dev 5; UAT 3 |
+| Backend + frontend | 25.4 min | 37.5 min | Dev 4; UAT 4 |
+| Frontend only | Not sampled | 14.8 min | UAT 2 |
+
+Sources: [dev backend](https://github.com/hushh-labs/hushh-research/actions/runs/39091378215),
+[UAT backend](https://github.com/hushh-labs/hushh-research/actions/runs/39167882081),
+[dev both services](https://github.com/hushh-labs/hushh-research/actions/runs/39082250085),
+[UAT both services](https://github.com/hushh-labs/hushh-research/actions/runs/39177524405),
+[UAT frontend](https://github.com/hushh-labs/hushh-research/actions/runs/39161330609).
+Comparing a frontend-only UAT run with a backend dev release is misleading.
+
+The PR sample contains 10 successes, 7 failures and 3 cancellations. Successful
+elapsed median is 19.8 min across changing lane sets. Protocol validation is the
+largest repeated measured step (14.8 min median, 5 observations); iOS compilation
+and tests take 7.7 min median (2). Observed macOS job starts are 5–9 seconds after
+preflight in 5 successful jobs, so runner contention is not established as the
+cause of those runs. [Example native-inclusive validation](https://github.com/hushh-labs/hushh-research/actions/runs/39175468636).
+
+Successful dev steps: backend deploy wrapper 7.2 min median (9), image pin/build
+2.8 min (9), migrations/schema 3.4 min (9). UAT additionally spends 7.8 min on its
+private Drive worker deployment/attestation (7). That worker reuses the pinned
+backend image; this is not a second image build. Frontend builds already overlap
+backend preparation in both environments. Step medians are not additive estimates.
+
+### Failure causes and next improvements
+
+- **PR preparation:** missing Live Memory impact declarations and an unauthorized
+  protected-policy edit produced valid early refusals. Use the current PR template
+  and existing governance preflight before publication; retain those checks.
+  [Missing declaration](https://github.com/hushh-labs/hushh-research/actions/runs/39169067111),
+  [protected-policy refusal](https://github.com/hushh-labs/hushh-research/actions/runs/39149416659).
+- **Browser fixtures and behavior:** a source extractor could no longer locate the
+  agent-name anchor; another run failed a WebKit drag assertion. Repair the owning
+  fixture or interaction with unchanged behavioral limits; do not remove browser
+  coverage. [Extractor failure](https://github.com/hushh-labs/hushh-research/actions/runs/39173344405),
+  [drag failure](https://github.com/hushh-labs/hushh-research/actions/runs/39176000165).
+- **Runtime/native tests:** a Vitest case exceeded its 5-second deadline; iOS reached
+  test execution and failed assertions. These are observed failures, not proven
+  flakes. Establish the cause before changing timeouts or workers.
+  [Vitest](https://github.com/hushh-labs/hushh-research/actions/runs/39173073117),
+  [iOS](https://github.com/hushh-labs/hushh-research/actions/runs/39169674663).
+- **Deployment:** Cloud Build readback confirms image build, IAM verification,
+  backend deployment and Azure memory verification succeeded in the failed UAT
+  run. `verify-managed-vertex-runtime` failed; the detailed provider condition
+  remains unclassified. This is a model-readiness refusal, not a Docker build failure.
+  [Failed release](https://github.com/hushh-labs/hushh-research/actions/runs/39114036433),
+  [Cloud Build record](https://console.cloud.google.com/cloud-build/builds/8c705e26-b042-49b8-9110-71b95044bfd3?project=hushh-pda-uat).
+- **Highest-value profiling:** split protocol time into dependency setup, generated
+  checks, lint/types/security, parallel tests and serial database tests before
+  selecting an optimization. Profile Drive worker startup/attestation separately.
+  Preserve database isolation, scanning, migration fences and exact-image readback.
+- **Reuse what already exists:** targeted PR Node packs defer to the mandatory
+  three-shard Vitest suite. Queue validation reuses equivalent green source.
+  Dev pod-image building stays off unless the pod artifact actually changed.
+  Batch completed fixes into one push; rerun only failed jobs when source is unchanged.
+
+Future reviews should compare the same scope, lane set and attempt, with sample
+counts, cache observations and failure causes. Reuse existing run timestamps and
+release receipts; add no monitoring workflow or scheduled test loop for this review.
 
 ## Automatic native release cadence
 
@@ -263,6 +389,21 @@ Codex-first RCA surface:
 
 Use this command when the failure is already on a core authority surface and the next step is classification, not generic monitoring. It preserves structured artifacts and keeps helper-only drift advisory unless it masks a runtime, deploy, DB, or semantic verification failure.
 
+**Read `unevaluable_checks` before any blocking classification.** The runner reports three
+states, not two: `healthy`, `blocked`, and `unevaluable` (exit `0`, `1`, `2`). An entry under
+`unevaluable_checks` means a check could not run at all, so nothing was verified either way, and
+it names the domain class it would otherwise have been blamed for. Never remediate a domain class
+that came from an unevaluable check.
+
+Why this matters, measured 2026-08-29: the uat surface reported `db_contract_drift` and
+"Resolve DB release-contract drift before treating the surface as deployable" because
+`verify_runtime_db_contract.sh` died at `import asyncpg`. The database contract was fine. In the
+same run the semantic verifier died at `import dotenv` and produced *no* classification, so a
+crashed release check read as a clean one, and the `ci` surface reported `core_ci_failed` for an
+exit code of 143, which is SIGTERM: CI had not failed, CI had been killed. (The check it killed, `verify-runtime-config-contract.py`, was measured at 486s under heavy load; it scans every tracked file against 23 patterns.) Sub-reports now land
+in `tmp/rca/<surface>/` (gitignored) instead of a temp directory that evaporated before anyone
+could open the path the runner printed.
+
 Canonical watcher:
 
 ```bash
@@ -295,13 +436,19 @@ To prevent CI check-sprawl, only these queue/PR checks are hard-blocking by defa
 4. `scripts/ci/integration-check.sh`
 
 Web validation is intentionally split. The targeted node job runs once and the
-browser packs run across three Playwright shards; each job has a 30-minute budget.
+browser packs run across four Playwright shards; each job has a 30-minute budget. Run `39649422912` exhausted that budget twice after its approximately thirteen-minute WebKit group passed. The fourth shard retains all tests, worker limits and engine coverage; it changes the partition rather than the timeout.
 Individual interaction and performance assertions keep their own deadlines.
 
 1. PRs run `web-core` for install, preflight, docs/design contracts, typecheck, lint, and the required Next production build.
-2. PRs run `web-targeted` for deterministic changed-path contract packs such as voice gateway, cache, analytics, routes/surface map, phone verification, and Capacitor static parity. Its four jobs are `Web Targeted Contracts (node)` and `(browser-1-of-3)` through `(browser-3-of-3)`. `WEB_TARGETED_PART=node` runs the Vitest and verifier packs once without downloading a browser. The three `WEB_TARGETED_PART=browser` jobs run matched Playwright packs with `PLAYWRIGHT_WORKERS=3` and complementary `PLAYWRIGHT_SHARD=1/3`, `2/3` or `3/3`; the matrix aggregate must succeed for frontend changes. Each pack is classified by whether its npm script reaches `playwright`; a local unsharded run (`all`) still runs every pack. `scripts/ci/test_web_ci_lane_partition.py`, run by the governance check, proves the partition against the real script.
+2. PRs run `web-targeted` for deterministic changed-path contract packs such as voice gateway, cache, analytics, routes/surface map, phone verification, and Capacitor static parity. Its five jobs are `Web Targeted Contracts (node)` and `(browser-1-of-4)` through `(browser-4-of-4)`. `WEB_TARGETED_PART=node` runs the Vitest and verifier packs once without downloading a browser. All four `WEB_TARGETED_PART=browser` jobs run the matched Playwright packs with `PLAYWRIGHT_WORKERS=3` and complementary `PLAYWRIGHT_SHARD=1/4` through `4/4`; the matrix aggregate must succeed for frontend changes. The Connections pack uses one worker; its timing, geometry and engine coverage remain unchanged. Each pack is classified by whether its npm script reaches `playwright`; a local unsharded run (`all`) still runs every pack. `scripts/ci/test_web_ci_lane_partition.py`, run by the governance check, proves the partition against the real script.
 3. PRs run `web-full-suite` (job `Web Full Suite (Vitest)`) for the whole Vitest suite (`npm run test:ci`, ~9,700 tests) plus the voice gateway, One Voice, surface-map, Capacitor static-parity and Capacitor plugin-contract checks. It runs in parallel with `web-core` as three Vitest shards (`WEB_FULL_SUITE_SHARD=<i>/3`, `vitest --shard`, jobs `Web Full Suite (Vitest) 1/3` to `3/3`); shard 1 also runs the contract verifiers, once. `CI Status Gate` reads the matrix's aggregate result, which is `success` only when every shard succeeded, and requires it to have **succeeded** (not merely not failed) whenever the frontend filter matches. Until 2026-09-26 this suite ran only in `Queue Validation`, which nothing merged through, so it gated no merge.
 4. `web-full` is `web-core` followed by `web-full-suite`, for local and exhaustive runs. The legacy `web` stage remains an alias for `web-full` so older local wrappers keep their exhaustive behavior.
+
+The mandatory full suite owns matching Vitest cases in hosted validation. Analytics'
+Android-scope verifier and Node failure tests remain in the targeted Node leg because
+Vitest does not collect them. Siri runs once through `verify:voice-gateway`; the full
+suite runs native static parity separately. Standalone focused npm commands retain
+their complete behavior. The lane-partition contract checks these boundaries.
 
 Flake budget: in CI each Playwright test gets one retry (`retries` in
 `hushh-webapp/playwright.config.ts`), so a test that fails twice fails its
@@ -313,10 +460,9 @@ fails the shard early instead of holding a runner to the job limit.
 
 Failed final Wallet layout runs retain `wallet-layout-failures-<matrix-label>`
 for seven days: only the synthetic workspace fixture's trace, failure screenshot
-and error context are admitted. This is not a blanket `test-results` upload;
-protected reviewer journeys must never enter these artifacts. Earlier browser
-commands can clear their output, so this receipt does not establish retention
-for every preceding pack or for first-attempt failures that pass their retry.
+and error context are admitted. Protected reviewer journeys must never enter
+these artifacts. Earlier commands can clear their output; this does not prove
+retention for preceding packs or failures that pass on retry.
 
 Fail-fast contract:
 
@@ -367,7 +513,7 @@ Local/UAT release rehearsal should additionally run the Kai no-write PKM drill b
 The canonical blocker for that broader surface is:
 
 1. [scripts/ci/pkm-upgrade-gate.sh](../../../scripts/ci/pkm-upgrade-gate.sh)
-2. [scripts/ci/resolve-uat-verification-plan.py](../../../scripts/ci/resolve-uat-verification-plan.py) is the single changed-SHA selector used by PR, queue, post-merge, and UAT lanes
+2. [scripts/ci/resolve-uat-verification-plan.py](../../../scripts/ci/resolve-uat-verification-plan.py) is the single changed-SHA selector used by PR, queue, post-merge, dev and UAT lanes
 3. `integration-check.sh` runs the PKM gate only when that selector finds a PKM upgrade, stored-shape, migration, or fixture change; selector-policy changes are covered by always-on classifier contract tests. Ordinary UI, consent, MCP, RIA, and provider changes keep their own focused checks without repeating the PKM cycle
 4. a missing or unproven comparison base fails closed to the deterministic PKM/reviewer plan, never to implicit paid model calls
 5. when `PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL` is set for a selected PKM release, the same gate also runs the live Playwright investor / RIA / PKM audits against that runtime
@@ -378,6 +524,21 @@ reason. This is evidence only: authority checks, migrations, deployment
 provenance, runtime health, and directly affected frontend/backend checks remain
 mandatory regardless of the expensive-lane selection.
 
+Dev and UAT execute selected preservation through
+[scripts/ci/run-release-pkm-gate.sh](../../../scripts/ci/run-release-pkm-gate.sh)
+independently of backend deployment. A frontend-only change can therefore require
+preservation without a backend migration. The helper owns its proxy and temporary
+resources, pins the environment/project, and propagates the existing synthetic
+preservation gate's result. Selected reviewer navigation uses memory-only Secret
+Manager resolution; dev refuses release acceptance when its required receipt is
+missing, skipped or failed. Candidate health, schema, provenance and semantic
+verification keep their existing authority.
+
+Dev, UAT and production expose `scope=auto` against each service's actual serving
+SHA; explicit scopes remain available. Dev consumes the exact green branch SHA
+without an application merge to main. UAT and production retain their main-SHA
+and environment gates. Workflow changes become active only after governed main
+landing; feature-branch source does not change the running workflow definition.
 For reviewer BYOK, `required` selects execution; the existing UAT rollout
 classifier still records the result as advisory. A green step conclusion under
 `continue-on-error` is not a passing rehearsal: inspect the release receipt's
@@ -447,8 +608,8 @@ readiness or model calls caused by an explicitly exercised product journey.
 
 - **Frontend jobs** run when `hushh-webapp/**`, protected CI workflow files, `scripts/ci/orchestrate.sh`, or `scripts/ci/web-*.sh` change.
 - **Backend jobs** run when `consent-protocol/**`, `packages/hushh-mcp/**`, protected CI workflow files, or backend/shared `scripts/ci/**` files change. Dedicated web-only lane scripts are excluded; `web-common.sh` also schedules the backend contracts that exercise its build defaults.
-- **iOS native job** (`ios-native-check`) runs when the `ios` filter matches; that filter lists the web surfaces the XCUITests render alongside the native shell paths, and it is pinned by `consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py`, so a native test that starts rendering a new web surface fails CI until the filter names it. Inside the job, the simulator boots in the background after the web export (not during it, so it never competes with `next build` for the runner's memory) while resolution and compilation run, and the authoritative `xcodebuild -resolvePackageDependencies` runs after `cap sync`, into a Swift package clone directory restored from `main` when `main` already resolved the same package graph (see [Build Caches](#build-caches)).
-- **Editor performance job** (`web-editor-performance-check`, `Web Editor Performance (macOS)`) runs when the `editor` filter matches, not on every frontend change. The filter lists what `npm run test:layout-editor-performance` builds and reads: the spec, the fixture it bundles and their transitive imports, `app/globals.css`, the inlined Plus Jakarta Sans font files, and the Playwright, TypeScript, Tailwind and PostCSS configs, `package.json` and `package-lock.json`. It took one of the org's five macOS slots on every frontend run, while its inputs changed in 78 of the 378 merged PRs that touched the frontend from 2026-10-01 to 2026-10-15. `consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py` derives those inputs from the job itself and fails when one would not schedule it, and `.github/workflows/editor-performance-nightly.yml` runs the same steps on `main` every night at 23:17 UTC and opens (or comments on) one `Editor performance nightly failed on main` issue when it fails.
+- **iOS native job** (`ios-native-check`) runs when the `ios` filter matches; that filter lists the web surfaces the XCUITests render alongside the native shell paths, and it is pinned by `consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py`, so a native test that starts rendering a new web surface fails CI until the filter names it. Package resolution runs sequentially after `cap sync`, using the job-local package cache. `scripts/ci/resolve-ios-packages.sh` retries once only for exit 74 with the known cold binary-download cache collision; it retains verified cache entries and both attempt logs. Other failures and a second failure block the lane. Native compilation and tests are never retried by this helper. This is a bounded workaround for the [upstream SwiftPM race](https://github.com/swiftlang/swift-package-manager/pull/10203), not evidence that native checks passed. The simulator boots after the web export so it does not compete with `next build` for memory. Swift package clones may restore only under the verified graph key; a failed partial restore is cleared before resolution.
+- **Editor and drawer performance job** (`web-editor-performance-check`, `Web Editor Performance (macOS)`) runs when the `editor` filter matches, not on every frontend change. The filter lists what `npm run test:layout-editor-performance` builds and reads: the editor and History motion specs, the fixtures they bundle and their transitive imports, `app/globals.css`, the inlined Plus Jakarta Sans font files, and the Playwright, TypeScript, Tailwind and PostCSS configs, `package.json` and `package-lock.json`. It took one of the org's five macOS slots on every frontend run, while its inputs changed in 78 of the 378 merged PRs that touched the frontend from 2026-10-01 to 2026-10-15. `consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py` derives those inputs from the job itself and fails when one would not schedule it, and `.github/workflows/editor-performance-nightly.yml` runs the same steps on `main` every night at 23:17 UTC and opens (or comments on) one `Editor performance nightly failed on main` issue when it fails. The History motion case preserves its 100 ms onset and 360/260 ms observation windows in both engines on this same serial macOS lane. Linux retains tap/close geometry and interrupted-pull cancellation; its software-rendered WebKit clock is not an absolute latency measurement.
 - **Integration job** runs when either frontend or backend paths change.
 
 The existing macOS performance job also runs the shared History motion contract
@@ -709,6 +870,10 @@ Practical maintainer rule:
 
 `bash scripts/ci/orchestrate.sh core` is the fast local pre-push run: secret and governance, then protocol and web-core in parallel (separate Python and Node runtimes), then mcp-package and integration, which need the protocol stage's Python environment. Measured on 2026-09-26 it took 374 s, against about 1,126 s for every stage run serially. The browser layout packs (`web-targeted`, 429 s) and the full Vitest suite (`web-full-suite`) are not in the core mirror; GitHub Actions runs them and stays the authority. Set `CORE_SERIAL=1` to run protocol and web-core one after the other. `web-targeted` runs every matched pack and lists every failure instead of stopping at the first, so one broken pack no longer hides the next.
 
+When the broad Chromium/WebKit layout pack is selected, it owns the agent
+surface spec; `web-targeted-check.sh` retains its standalone invocation for
+agent-only changes. The lane partition check proves both paths and both engines.
+
 Tests follow the same economy: add a test only for a real regression, a trust boundary (with a negative control), or a public API or schema contract, and extend existing test files before creating new ones (`AGENTS.md`, Verification rules 5 to 8).
 
 ### Script Lifecycle Policy
@@ -720,14 +885,14 @@ Tests follow the same economy: add a test only for a real regression, a trust bo
 ## Branch Lanes
 
 1. `integration/pr-train` is the intake branch for non-maintainer contributor and agent work; governed maintainers may open branches cut from `origin/main` directly to `main`. `main` remains the sole promotion authority for UAT and production.
-2. A successful `Main Post-Merge Smoke` run produces the only deployable source of truth: the green `main` SHA.
+2. UAT and production use a green `main` SHA with successful `Main Post-Merge Smoke`. Dev accepts an exact CI-green branch SHA through the [Dev Fast Lane](./dev-fast-lane.md).
 3. UAT deploys only by an explicit manual dispatch of that green `main` SHA through `.github/workflows/deploy-uat.yml`.
 4. Manual UAT dispatch is limited to the current
    `uat.manual_dispatch_users` cohort in `config/ci-governance.json`; do not
    transcribe actor names into this document.
 5. Production deploys only through a manual SHA dispatch in `.github/workflows/deploy-production.yml`, and only actors listed in `production.manual_dispatch_users` may trigger it.
 6. Manual UAT or production redeploys must use a SHA that is reachable from `origin/main` and already green in post-merge smoke.
-7. Feature or hotfix branches never deploy directly; they merge through `main`.
+7. Feature and hotfix branches may deploy to dev through its governed main-owned dispatch. UAT and production require promotion through `main`.
 
 Deploy to UAT is expected to behave as a closed-loop release lane:
 
@@ -891,8 +1056,10 @@ path and key its saver writes.
 **Parallel pytest (2026-09-26).** `consent-protocol/scripts/run-test-ci.sh` runs the manifest with
 `-n auto --dist loadfile`: one worker per CPU, and every test in a file stays on
 one worker in file order, so module-scoped fixtures behave as they do serially.
-The script is the switch; there is no environment flag. `protocol-check` in CI
-and the local `orchestrate.sh core` stage both reach it through
+Parallel execution is enabled by the script. On a loaded local host, the pinned
+xdist supports `PYTEST_XDIST_AUTO_NUM_WORKERS=<count>` to bound the auto worker
+count; this changes scheduling only, never test coverage or deadlines.
+`protocol-check` in CI and the local `orchestrate.sh core` stage both reach it through
 `consent-protocol/scripts/ci/backend-check.sh`. `tests/conftest.py` gives each
 xdist worker its own `OFFLINE_DB_PATH` file so workers never share SQLite rows;
 the Postgres-backed tests already create a uniquely named schema or database
@@ -904,6 +1071,14 @@ passed, 203 skipped); three parallel runs each passed the same 6,388 with the
 same 203 skipped and zero failures, in 186 s, 59 s and 103 s. The three
 `ONE_COMMAND_TEST_DATABASE_URL` Postgres files, run concurrently against one
 shared database three times, passed 57/57 each time and left no schema behind.
+The protocol service uses PostgreSQL 17 with pgvector 0.8.6, pinned to the
+upstream OCI index `sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f`
+through Google's public `mirror.gcr.io` cache. On October 9, two hosted runs were
+refused by Docker Hub before checkout. Both registries returned that same index
+and platform digests; the mirror changes transport without changing the database
+fixture. A missing cached digest must fail initialization. See
+[Google's cache contract](https://docs.cloud.google.com/artifact-registry/docs/pull-cached-dockerhub-images).
+
 Before the switch CI spent 321 s in serial pytest (of a 7.8 min `Protocol
 (Python)` p50). Enabling it surfaced one class of defect: two route tests
 baked a module-level `uuid4()` into their parametrize ids, so every worker
@@ -974,9 +1149,19 @@ Minimum checks for streaming changes:
 
 ---
 
-## Running CI Locally (Before Every Commit)
+## Running CI Locally
 
-**Recommended:** Run the script that mirrors CI. It uses the same versions and steps as GitHub Actions.
+During implementation, use the focused checks for the changed contract. Before
+an ordinary push, run the local core mirror once on the completed candidate:
+
+```bash
+scripts/ci/orchestrate.sh core
+```
+
+GitHub Actions remains authoritative for full web and browser validation. A
+local pass does not prove hosted success. The dedicated pre-PR workflow and an
+explicit full-mirror investigation still use the full command below; `codex
+pre-pr` already calls it, so running both duplicates the same local suite.
 
 ```bash
 ./bin/hushh ci
@@ -1008,7 +1193,8 @@ To verify the live GitHub branch gate matches the documented minimum contract:
 ./scripts/ci/verify-main-branch-protection.sh
 ```
 
-If it exits 0, CI should pass. If it fails, fix the reported step before committing.
+Fix failures in the selected local checks before pushing. Successful hosted
+validation of the exact SHA remains required before deployment.
 
 Secret-scan note:
 
@@ -1206,6 +1392,15 @@ the suite actually ran.
 The gate is deliberately separate from the manifest: the manifest answers "which
 suites gate a merge", and the gate answers "can every test file still be loaded".
 
+### Browser setup mirror — 2026-10-08
+
+PR run `37836804949` restored cached browsers, but the hosted Ubuntu mirror
+downloaded 116 MB of system dependencies in 23 minutes 9 seconds. The 30-minute
+job deadline interrupted the browser pack. The browser job removes only the
+runner's `azure.archive.ubuntu.com` mirror preference and retains its existing
+official archive/security entries and signed package checks. Chromium, WebKit,
+matched packs, workers and timeout remain unchanged. A faster install is a
+hosted measurement to verify, not a guaranteed mirror characteristic.
 ## Combined UI Contracts gate
 
 Every PR runs one mandatory **UI Contracts** job before expensive lanes. It installs only the locked TypeScript parser, shares source reads, rejects Back/Search coverage and freshness drift, and verifies Surface Map, Gateway, Siri and Route Orchestration mirrors. It runs mutation regressions that prove either owner failure rejects the combined check. Target validation execution is 5–10 seconds; dependency downloads, checkout, runner startup and queue time are separate. The command prints its actual elapsed time. Preflight and CI Status require success; frontend changes also require Web Core and the full Vitest suite, which retain behavior coverage.

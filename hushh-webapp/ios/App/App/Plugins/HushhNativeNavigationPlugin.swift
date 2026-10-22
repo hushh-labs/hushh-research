@@ -105,6 +105,34 @@ enum HushhNativeNavigationArtwork {
     }
 }
 
+/// The existing DOM shell owns width and content padding. UIKit owns its safe area.
+struct HushhNativeNavigationColumn {
+    let x: CGFloat
+    let width: CGFloat
+    let contentHeight: CGFloat
+    let viewportWidth: CGFloat
+
+    init?(projection: JSObject?) {
+        guard let projection, let x = projection["x"] as? Double,
+              let width = projection["width"] as? Double, let height = projection["contentHeight"] as? Double,
+              let viewport = projection["viewportWidth"] as? Double,
+              [x, width, height, viewport].allSatisfy({ $0.isFinite }),
+              x >= 0, width >= 220, (49...120).contains(height), viewport > 0,
+              x + width <= viewport + 0.5 else { return nil }
+        self.x = x; self.width = width; contentHeight = height; viewportWidth = viewport
+    }
+
+    func frame(in host: UIView, webView: UIView, bottomInset: CGFloat) -> CGRect? {
+        let scale = webView.bounds.width / viewportWidth
+        let origin = webView.convert(CGPoint(x: x * scale, y: 0), to: host).x
+        let projectedWidth = width * scale
+        guard scale.isFinite, scale > 0, origin >= 0,
+              origin + projectedWidth <= host.bounds.width + 0.5 else { return nil }
+        let fullHeight = contentHeight + bottomInset
+        return CGRect(x: origin, y: host.bounds.height - fullHeight, width: projectedWidth, height: fullHeight)
+    }
+}
+
 @objc(HushhNativeNavigationPlugin)
 final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDelegate {
     let identifier = "HushhNativeNavigationPlugin"
@@ -129,6 +157,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     private var keyboardHidePending = false
     private var contentHeight: CGFloat = 0
     private var bottomInset: CGFloat = 0
+    private var column: HushhNativeNavigationColumn?
     private var tapSequence = 0
     private var confirmedSequence = 0
     private var retiredRestartGeneration = -1
@@ -177,7 +206,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             if #available(iOS 26.0, *) {
-                call.resolve(["contractVersion": HushhNativeNavigationState.contractVersion, "interactionIsolation": true,
+                call.resolve(["contractVersion": HushhNativeNavigationState.contractVersion, "columnLayout": true, "interactionIsolation": true,
                               "underlayPresentation": self.compositor != nil && self.compositor?.contentBackedPresentation != true,
                               "contentBackedPresentation": self.compositor?.legacyRegionPresentation == true,
                               "reservedPresentationRegions": self.compositor?.legacyRegionPresentation == true,
@@ -201,6 +230,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             guard let document = call.getString("documentId"), let revision = call.getInt("revision"),
                   let visible = call.getBool("visible"), let selected = call.getString("selected"),
                   let epoch = call.getInt("interactionEpoch"),
+                  let column = HushhNativeNavigationColumn(projection: call.getObject("column")),
                   let theme = HushhNativeControlAppearance(appearance: call.getString("appearance"),
                     accentHex: call.getString("accentHex"), foregroundHex: call.getString("foregroundHex")) else {
                 call.reject("NATIVE_NAVIGATION_INVALID_STATE"); return
@@ -223,6 +253,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             }
             self.admissionRegionRevision = call.getInt("presentationRegionRevision")
             self.admissionPrivacyGeneration = call.getInt("privacyGeneration")
+            self.column = column
             self.scrollState.invalidate()
             self.scrollFollowing = call.getBool("scrollFollowing") == true && self.compositor?.wholeNativeDrawers == true &&
                 UIDevice.current.userInterfaceIdiom == .phone
@@ -304,6 +335,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
                 call.getInt("interactionEpoch") == self.state.interactionEpoch &&
                 call.getInt("privacyGeneration") == privacy.generation &&
                 sequence == self.tapSequence && sequence > self.confirmedSequence &&
+                self.currentColumnFrame != nil &&
                 self.state.acceptsTap(tab, appIsActive: privacy.appIsActive,
                                       shielded: privacy.shielded, keyboardVisible: self.keyboardVisible)
             if valid { self.confirmedSequence = sequence }
@@ -356,19 +388,22 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         #endif
     }
 
+    private var currentColumnFrame: CGRect? {
+        guard let host = bridge?.viewController?.view, let webView = bridge?.webView, let column else { return nil }
+        return column.frame(in: host, webView: webView, bottomInset: host.safeAreaInsets.bottom)
+    }
+
     func layoutTabBar() {
-        guard let bar = tabBar, let host = bridge?.viewController?.view else { return }
+        guard let bar = tabBar, let column, let restingFrame = currentColumnFrame else {
+            tabBar?.isHidden = true; tabBar?.isUserInteractionEnabled = false; return
+        }
         let previousFrame = CGRect(origin: CGPoint(x: bar.center.x - bar.bounds.width / 2, y: bar.center.y - bar.bounds.height / 2), size: bar.bounds.size)
-        let inset = host.safeAreaInsets.bottom
-        let height = bar.sizeThatFits(CGSize(width: host.bounds.width, height: 0)).height
-        // UITabBar's fitting height includes its own safe-area inset once attached.
-        let fullHeight = max(height, 49 + inset)
-        let restingFrame = CGRect(x: 0, y: host.bounds.height - fullHeight, width: host.bounds.width, height: fullHeight)
         // UIView.frame is undefined under a nonidentity transform. Layout owns
-        // resting bounds/center; scroll owns only presentation translation.
+        // the authored column's resting bounds/center; scroll owns translation.
         bar.bounds = CGRect(origin: .zero, size: restingFrame.size)
         bar.center = CGPoint(x: restingFrame.midX, y: restingFrame.midY)
-        let next = fullHeight - inset
+        let next = column.contentHeight
+        let inset = restingFrame.height - next
         if abs(next - contentHeight) > 0.5 || abs(inset - bottomInset) > 0.5 || previousFrame != restingFrame {
             contentHeight = next
             bottomInset = inset
@@ -383,10 +418,10 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             state.retireDocument()
             retiredRestartGeneration = privacy.generation
         }
-        let show = state.isPresented(appIsActive: privacy.appIsActive,
+        let show = currentColumnFrame != nil && state.isPresented(appIsActive: privacy.appIsActive,
                                      shielded: privacy.shielded, keyboardVisible: keyboardVisible && compositor?.wholeNativeDrawers != true)
-        let interactive = state.acceptsTap(state.selected, appIsActive: privacy.appIsActive,
-                                          shielded: privacy.shielded, keyboardVisible: keyboardVisible)
+        let interactive = currentColumnFrame != nil && compositor?.interactionIsolated != true && state.acceptsTap(state.selected, appIsActive: privacy.appIsActive,
+                                          shielded: privacy.shielded, keyboardVisible: keyboardVisible && compositor?.wholeNativeDrawers != true)
         tabBar?.isHidden = !show
         tabBar?.isUserInteractionEnabled = interactive
         tabBar?.accessibilityElementsHidden = !interactive
@@ -441,8 +476,8 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         let tab = HushhNativeNavigationState.tabs[item.tag]
         let privacy = HushhSessionPrivacyShield.shared.snapshot()
         updatePresentation() // Do not commit a selection before React's existing guard accepts it.
-        guard compositor?.interactionIsolated != true, state.acceptsTap(tab, appIsActive: privacy.appIsActive,
-                              shielded: privacy.shielded, keyboardVisible: keyboardVisible) else { return }
+        guard currentColumnFrame != nil, compositor?.interactionIsolated != true, state.acceptsTap(tab, appIsActive: privacy.appIsActive,
+                              shielded: privacy.shielded, keyboardVisible: keyboardVisible && compositor?.wholeNativeDrawers != true) else { return }
         // Tracking has completed. Reveal for this deliberate tab intent only
         // now, never by moving its target during touch-up-inside tracking.
         invalidateScroll(snap: true)

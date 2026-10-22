@@ -26,7 +26,7 @@ test.beforeAll(async () => {
         "@/lib/agent/chat-onboarding/use-chat-onboarding", "@/lib/profile/gmail-connector-store",
         "@/lib/navigation/use-root-chat-deferred-ready", "@/lib/one-voice/readiness", "@/hooks/use-effective-avatar-url",
         "@/lib/agent/use-one-display-name", "@/lib/agent/use-entry-welcome", "@/lib/services/model-preference-service",
-        "@/lib/services/auth-service", "@/lib/firebase/config", "@/components/vault/vault-unlock-dialog", "next/navigation",
+        "@/lib/services/auth-service", "./auth-service", "@/lib/firebase/config", "@/lib/firebase", "@/components/vault/vault-unlock-dialog", "next/navigation",
       ].map(find => ({ find: new RegExp(`^${find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`), replacement: boundary })),
       { find: "@", replacement: root },
     ] },
@@ -58,6 +58,8 @@ for (const [width, anonymous, entry] of [[393, false, "Create new chat"], [768, 
     await page.route("http://localhost/**", async route => {
       const url = new URL(route.request().url());
       if (url.pathname === "/new-chat-fixture") return route.fulfill({ contentType: "text/html", body: `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><div id="root"></div><script>${script.replace(/<\/script/gi, "<\\/script")}</script>` });
+      if (url.pathname === "/api/one/personal-agent/status" && route.request().method() === "GET")
+        return route.fulfill({ contentType: "application/json", body: JSON.stringify({ hostingMode: "shared" }) });
       if (url.pathname === "/api/one/agent-chat" && route.request().method() === "POST") {
         const body = route.request().postDataJSON();
         const turn = ++turns;
@@ -122,8 +124,6 @@ for (const [width, anonymous, entry] of [[393, false, "Create new chat"], [768, 
     await composer.fill("Unsaved draft مرحبا");
     await page.getByRole("button", { name: "Open chat history", exact: true }).click();
     const create = page.getByRole("button", { name: entry, exact: true });
-    // Let the drawer finish its initial focus before choosing a keyboard target.
-    await expect(page.getByRole("button", { name: "Open Connectors", exact: true })).toBeFocused();
     await expect(create).toBeEnabled();
     await create.focus();
     await expect(create).toBeFocused();

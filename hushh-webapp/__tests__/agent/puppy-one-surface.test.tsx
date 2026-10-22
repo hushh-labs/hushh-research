@@ -7,6 +7,24 @@ const mocks = vi.hoisted(() => ({
   fetchPuppyJobs: vi.fn(),
   setPuppyJobPaused: vi.fn(),
   link: { current: null as unknown },
+  localHost: true,
+  owner: "owner",
+  hosting: vi.fn(),
+}));
+
+vi.mock("@/lib/firebase", () => ({ useAuth: () => ({ user: { uid: mocks.owner } }) }));
+vi.mock("@/lib/services/auth-service", () => ({
+  AuthService: { getCurrentUser: () => ({ uid: mocks.owner }) },
+}));
+vi.mock("@/lib/services/api-service", () => ({
+  ApiService: { getPersonalAgentStatus: mocks.hosting },
+}));
+vi.mock("@/lib/hermes/local-host", () => ({
+  isLocalHost: () => mocks.localHost,
+}));
+
+vi.mock("@/components/agent/private-puppy-inference-panel", () => ({
+  PrivatePuppyInferencePanel: () => <div data-testid="private-puppy-panel" />,
 }));
 
 vi.mock("@/lib/services/puppy-one-service", async (importOriginal) => {
@@ -30,7 +48,10 @@ vi.mock("@/components/agent/puppy-model-picker", () => ({
 }));
 
 import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
+import { AgentDockProvider, AgentDockVoiceBoundary } from "@/components/agent/agent-dock";
+import { AgentBarSurface, RetainedAgentBar } from "@/components/agent/agent-bar-surface";
 import type { PuppyLink } from "@/lib/services/puppy-one-service";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 /**
  * The Puppy One mode, as the workspace mounts it.
@@ -70,6 +91,11 @@ function reporting(): PuppyLink {
 }
 
 beforeEach(() => {
+  mocks.owner = "owner";
+  publishValidatedAuthSessionOwner(null);
+  publishValidatedAuthSessionOwner(mocks.owner);
+  mocks.hosting.mockResolvedValue({ hostingMode: "byoc", state: "active", hushhId: "pod-1" });
+  mocks.localHost = true;
   mocks.fetchPuppyStatus.mockResolvedValue({ connected: false });
   mocks.fetchPuppyResources.mockResolvedValue({
     configured: true,
@@ -89,12 +115,79 @@ afterEach(() => {
 });
 
 describe("PuppyOneSurface identity", () => {
+  it.each([true, false])("keeps Shared off the local bridge and relay (localhost=%s)", async (localHost) => {
+    mocks.localHost = localHost;
+    mocks.hosting.mockResolvedValue({ hostingMode: "shared" });
+    render(<PuppyOneSurface />);
+    expect(await screen.findByText("Puppy needs your own cloud.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Hosting" })).toHaveAttribute("href", "/one/profile/hosting");
+    expect(screen.queryByTestId("private-puppy-panel")).not.toBeInTheDocument();
+    expect(mocks.fetchPuppyStatus).not.toHaveBeenCalled();
+    expect(mocks.fetchPuppyResources).not.toHaveBeenCalled();
+  });
+
+  it("rejects a previous owner's delayed placement response", async () => {
+    let resolve!: (value: object) => void;
+    mocks.localHost = false;
+    mocks.hosting.mockImplementationOnce(() => new Promise(value => { resolve = value; }));
+    const view = render(<PuppyOneSurface />);
+    mocks.owner = "next-owner";
+    publishValidatedAuthSessionOwner(mocks.owner);
+    mocks.hosting.mockResolvedValue({ hostingMode: "shared" });
+    view.rerender(<PuppyOneSurface />);
+    await screen.findByText("Puppy needs your own cloud.");
+    await act(async () => { resolve({ hostingMode: "byoc", hushhId: "old-pod" }); });
+    expect(screen.queryByTestId("private-puppy-panel")).not.toBeInTheDocument();
+  });
+
+  it("fences an old placement read across sign-out and sign-in to the same account", async () => {
+    let settle!: (value: object) => void;
+    mocks.localHost = false;
+    mocks.hosting.mockImplementationOnce(() => new Promise(resolve => { settle = resolve; }));
+    const view = render(<PuppyOneSurface />);
+    publishValidatedAuthSessionOwner(null);
+    publishValidatedAuthSessionOwner("owner");
+    mocks.hosting.mockResolvedValue({ hostingMode: "shared" });
+    view.rerender(<PuppyOneSurface />);
+    await screen.findByText("Puppy needs your own cloud.");
+    await act(async () => { settle({ hostingMode: "byoc", hushhId: "old-pod" }); });
+    expect(screen.queryByTestId("private-puppy-panel")).not.toBeInTheDocument();
+  });
+
+  it("retains the admitted transcript across a failed status refresh", async () => {
+    mocks.localHost = false;
+    const view = render(<PuppyOneSurface />);
+    const transcript = await screen.findByTestId("private-puppy-panel");
+    view.rerender(<PuppyOneSurface active={false} />);
+    mocks.hosting.mockRejectedValueOnce(new Error("offline"));
+    view.rerender(<PuppyOneSurface active />);
+    await screen.findByText("Couldn’t check your agent.");
+    expect(screen.getByTestId("private-puppy-panel")).toBe(transcript);
+    expect(transcript.closest("[inert]")).toBeNull();
+  });
+
+  it("uses the owner pod relay on a deployed origin", async () => {
+    mocks.localHost = false;
+    mocks.link.current = reporting();
+    const view = render(<AgentDockProvider>
+      <PuppyOneSurface sharedDock />
+      <AgentDockVoiceBoundary><RetainedAgentBar><AgentBarSurface><button>Cloud voice</button></AgentBarSurface></RetainedAgentBar></AgentDockVoiceBoundary>
+    </AgentDockProvider>);
+    expect(await screen.findByTestId("private-puppy-panel")).toBeInTheDocument();
+    expect(mocks.fetchPuppyStatus).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Cloud voice" })).not.toBeInTheDocument();
+    view.rerender(<AgentDockProvider>
+      <PuppyOneSurface sharedDock active={false} />
+      <AgentDockVoiceBoundary><RetainedAgentBar><AgentBarSurface><button>Cloud voice</button></AgentBarSurface></RetainedAgentBar></AgentDockVoiceBoundary>
+    </AgentDockProvider>);
+    expect(await screen.findByRole("button", { name: "Cloud voice" })).toBeInTheDocument();
+  });
   it("says what Puppy One is to someone who has never connected one", async () => {
     mocks.link.current = link({ state: "unlinked" });
     render(<PuppyOneSurface />);
     expect(
       await screen.findByText(
-        /A personal supercomputer you own\. Pin a model to this machine and answers never leave it\./,
+        /A local model on your trusted machine\. Requests and replies travel through your private pod\./,
       ),
     ).toBeInTheDocument();
   });
@@ -104,7 +197,7 @@ describe("PuppyOneSurface identity", () => {
     render(<PuppyOneSurface />);
     await waitFor(() => expect(mocks.fetchPuppyStatus).toHaveBeenCalled());
     expect(
-      screen.queryByText(/A personal supercomputer you own/),
+      screen.queryByText(/A local model on your trusted machine/),
     ).not.toBeInTheDocument();
   });
 });

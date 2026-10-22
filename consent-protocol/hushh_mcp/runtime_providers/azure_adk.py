@@ -20,13 +20,18 @@ from google.adk.models.llm_response import LlmResponse
 from google.genai import types
 from pydantic import BaseModel, Field, field_validator
 
+from .azure_response_history import (
+    browser_message_part,
+    reasoning_part,
+    restore_browser_message,
+    restore_reasoning,
+)
+
 
 class AzureAuthenticationError(RuntimeError):
     """Workload authentication failed before model I/O; not a model outage."""
 
 
-_SIGNATURE_PREFIX = b"azure-responses-v1:"
-_MAX_SIGNATURE_BYTES = 256 * 1024
 _MAX_ARGUMENT_BYTES = 256 * 1024
 _MAX_MEDIA_BYTES = 25 * 1024 * 1024
 _MAX_REQUEST_MEDIA_BYTES = 50 * 1024 * 1024
@@ -115,19 +120,6 @@ def _instruction(value: Any) -> str:
     return "\n\n".join(output)
 
 
-def _reasoning_part(item: Any) -> types.Part | None:
-    if not isinstance(_value(item, "encrypted_content"), str):
-        return None
-    if hasattr(item, "model_dump"):
-        item = item.model_dump(mode="json", exclude_none=True)
-    if not isinstance(item, dict):
-        raise ValueError("Invalid Azure reasoning item")
-    signature = _SIGNATURE_PREFIX + _json(item).encode()
-    if len(signature) > _MAX_SIGNATURE_BYTES:
-        raise ValueError("Azure reasoning history exceeds bounds")
-    return types.Part(thought=True, thought_signature=signature)
-
-
 def _inline_media(part: types.Part) -> dict:
     """Translate already-admitted bytes; never fetch URLs or persist provider files."""
     blob = part.inline_data
@@ -162,7 +154,7 @@ def _inline_media(part: types.Part) -> dict:
     }
 
 
-def _history(contents: list[types.Content]) -> list[dict]:
+def _history(contents: list[types.Content], *, preserve_message_phase: bool = False) -> list[dict]:
     output, pending, seen = [], {}, set()
     media_bytes = 0
     for content in contents:
@@ -206,14 +198,12 @@ def _history(contents: list[types.Content]) -> list[dict]:
                     text.clear()
                 rich.append(_inline_media(part))
                 continue
-            if part.thought_signature and part.thought_signature.startswith(_SIGNATURE_PREFIX):
-                if role != "assistant" or len(part.thought_signature) > _MAX_SIGNATURE_BYTES:
-                    raise ValueError("Invalid Azure reasoning history")
+            preserved = restore_browser_message(
+                part, role=role, allowed=preserve_message_phase
+            ) or restore_reasoning(part, role=role)
+            if preserved is not None:
                 flush()
-                item = json.loads(part.thought_signature[len(_SIGNATURE_PREFIX) :])
-                if not isinstance(item, dict) or item.get("type") != "reasoning":
-                    raise ValueError("Invalid Azure reasoning history")
-                output.append(item)
+                output.append(preserved)
                 continue
             if part.thought:
                 continue  # Provider-private reasoning is not a user instruction.
@@ -321,7 +311,13 @@ def _tools(
     return tools, choices[mode]
 
 
-def _request(request: LlmRequest, deployment: str, *, allow_web_search: bool = False) -> dict:
+def _request(
+    request: LlmRequest,
+    deployment: str,
+    *,
+    preserve_message_phase: bool = False,
+    allow_web_search: bool = False,
+) -> dict:
     config = request.config or types.GenerateContentConfig()
     if (
         config.cached_content
@@ -334,7 +330,7 @@ def _request(request: LlmRequest, deployment: str, *, allow_web_search: bool = F
     tools, choice = _tools(config, allow_web_search=allow_web_search)
     kwargs: dict[str, Any] = {
         "model": deployment,
-        "input": _history(request.contents),
+        "input": _history(request.contents, preserve_message_phase=preserve_message_phase),
         "store": False,
         "include": ["reasoning.encrypted_content"],
     }
@@ -386,7 +382,11 @@ def _request(request: LlmRequest, deployment: str, *, allow_web_search: bool = F
 
 
 def _response(
-    response: Any, *, allowed_names: set[str], allow_web_search: bool = False
+    response: Any,
+    *,
+    allowed_names: set[str],
+    preserve_message_phase: bool = False,
+    allow_web_search: bool = False,
 ) -> LlmResponse:
     if _value(response, "status") != "completed" or _value(response, "incomplete_details"):
         raise ValueError("Azure model response did not complete")
@@ -394,7 +394,7 @@ def _response(
     for item in _value(response, "output", []) or []:
         kind = _value(item, "type")
         if kind == "reasoning":
-            part = _reasoning_part(item)
+            part = reasoning_part(item)
             if part is not None:
                 parts.append(part)
             for summary in _value(item, "summary", []) or []:
@@ -404,6 +404,9 @@ def _response(
                     raise ValueError("Unsupported Azure reasoning summary")
                 parts.append(types.Part(text=_value(summary, "text"), thought=True))
         elif kind == "message":
+            if preserve_message_phase and _value(item, "phase") is not None:
+                parts.append(browser_message_part(item))
+                continue
             for segment in _value(item, "content", []) or []:
                 if _value(segment, "type") != "output_text":
                     raise ValueError("Unsupported or refused Azure output")

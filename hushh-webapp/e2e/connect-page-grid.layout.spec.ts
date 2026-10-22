@@ -151,6 +151,9 @@ async function settle(page: Page, _width: number) {
   // parallel workers before the timed network even starts.
   await expect(group.locator("[data-voice-label]")).toHaveCount(6, { timeout: 30_000 });
   await expect(page.getByTestId("connect-directory-group").getByText("Avery Stone")).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Connections", exact: true })).toHaveAttribute("aria-selected", "true");
+  // Circle discovery belongs to Circles, never the Connections panel.
+  await expect(page.getByRole("button", { name: /Your Trusted Circle/ })).toBeHidden();
   // Circles now lives in an inactive pager pane, including desktop; it must
   // not expose off-screen controls while the Connections pane is selected.
   await expect(page.locator('[data-connect-surface="circles"]').getByRole("button", { name: /Circle ideas/, includeHidden: true })).toHaveCount(1);

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { PRIVATE_TEXT_DISCLOSURE_VERSION } from "@/lib/legal/private-text-disclosure";
 import { ApiError, apiErrorCode, apiJson } from "@/lib/services/api-client";
 
-const ENDPOINT = "/api/one/models/private-text-approval?include_policy=true";
+const ENDPOINT = "/api/one/models/private-text-approval?include_policy=true&include_processing_provider=true";
 const approvalSchema = z.object({
   provider: z.literal("azure_openai"),
   disclosure_version: z.literal(PRIVATE_TEXT_DISCLOSURE_VERSION),
@@ -13,6 +13,7 @@ const approvalSchema = z.object({
   revoked_at: z.string().min(1).nullable(),
   processing_policy: z.object({
     enabled: z.boolean(),
+    provider: z.enum(["azure_openai", "gemini"]).nullable().optional(),
     basis: z.enum(["owner_approval", "uat_policy", "disabled"]),
     version: z.string().min(1).nullable(),
     generation: z.uuid().nullable(),

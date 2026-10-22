@@ -1,0 +1,30 @@
+# Disposable qualification only; no pod application or owner credentials.
+FROM mcr.microsoft.com/playwright/python@sha256:72bd171a9ffc2b4b59532aaa6210e21014d07093120dc25528870c0b840da1f0
+RUN apt-get update && apt-get install -y --no-install-recommends bubblewrap libseccomp2 \
+    && dpkg-query -W bubblewrap libseccomp2 \
+    && rm -rf /var/lib/apt/lists/*
+RUN python3 -m pip install --no-cache-dir playwright==1.63.0 pydantic==2.12.5 httpx==0.28.1
+WORKDIR /opt/probe
+COPY hushh_mcp/services/public_endpoint_policy.py \
+     hushh_mcp/services/mcp_public_http.py \
+     hushh_mcp/services/public_network_address.py /opt/probe/hushh_mcp/services/
+COPY hushh_mcp/services/pod_browser/namespace_probe.py \
+     hushh_mcp/services/pod_browser/namespace_bridge_probe.py \
+     hushh_mcp/services/pod_browser/namespace_public_probe.py \
+     hushh_mcp/services/pod_browser/process_guard.py \
+     hushh_mcp/services/pod_browser/connected_transport.py \
+     hushh_mcp/services/pod_browser/connected_executor.py \
+     hushh_mcp/services/pod_browser/network.py \
+     hushh_mcp/services/pod_browser/contracts.py \
+     hushh_mcp/services/pod_browser/mailbox.py \
+     hushh_mcp/services/pod_browser/playwright_executor.py \
+     hushh_mcp/services/pod_browser/session_state.py \
+     hushh_mcp/services/pod_browser/origin.py \
+     /opt/probe/hushh_mcp/services/pod_browser/
+RUN groupadd --gid 10002 browser-probe \
+    && useradd --uid 10002 --gid 10002 --no-create-home browser-probe \
+    && mkdir /agent && printf synthetic > /agent/synthetic-secret \
+    && chmod 0644 /agent/synthetic-secret
+ENV HUSSH_POD_CANARY=synthetic-only PYTHONDONTWRITEBYTECODE=1
+USER 10002:10002
+CMD ["python3", "-m", "hushh_mcp.services.pod_browser.namespace_public_probe"]

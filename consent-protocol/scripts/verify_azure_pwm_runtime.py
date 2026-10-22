@@ -9,6 +9,7 @@ without an owner identity, Bing search, a vault key, or any database write.
 from __future__ import annotations
 
 import asyncio
+import base64
 import importlib.util
 import json
 import os
@@ -97,6 +98,15 @@ def _initialize_synthetic_runtime() -> None:
     """
     os.environ["APP_SIGNING_KEY"] = secrets.token_hex(32)
     os.environ["VAULT_DATA_KEY"] = secrets.token_hex(32)
+    # Strict UAT imports now verify an enabled audit signer. Qualify against a
+    # fresh process-only signer rather than borrowing application custody or
+    # disabling that startup check. No receipts or stores are opened by this probe.
+    os.environ["CONSENT_AUDIT_SIGNING_ALG"] = "ed25519"
+    os.environ["CONSENT_AUDIT_ED25519_PRIVATE_KEY"] = base64.b64encode(
+        secrets.token_bytes(32)
+    ).decode("ascii")
+    os.environ["CONSENT_AUDIT_ED25519_KID"] = "synthetic-readiness"
+    os.environ["CONSENT_AUDIT_ED25519_PUBLIC_KEYS"] = ""
 
 
 def _production_contract_examples() -> tuple[dict, dict]:

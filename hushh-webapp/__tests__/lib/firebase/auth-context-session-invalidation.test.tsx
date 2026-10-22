@@ -69,6 +69,8 @@ vi.mock("@capacitor/core", () => ({
 }));
 
 vi.mock("@/lib/capacitor/session-privacy", () => ({
+  subscribeNativeProfilePreparation: () => () => undefined,
+  nativeProfilePreparationRevision: () => 0,
   getNativeSessionPrivacyState: vi.fn().mockResolvedValue({
     shielded: false,
     generation: 0,

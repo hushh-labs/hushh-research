@@ -1,10 +1,151 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // The harness owns this policy; no browser, account, or secrets are needed here.
 // @ts-expect-error The canonical Node rehearsal script has no TS declaration.
-import { installReadOnlyMutationGuard, waitForReviewerVaultAdmission } from "../../../.codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs";
+import { installReadOnlyMutationGuard, waitForReviewerVaultAdmission } from "../../../.agents/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs";
 import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 
 describe("reviewer preparation-only authority", () => {
+  it("rejects a connector-only port before it can advertise broader mutation authority", async () => {
+    vi.stubEnv("REVIEWER_ALLOW_SHARED_MUTATIONS", "true");
+    const context = { route: vi.fn() };
+    await expect(installReadOnlyMutationGuard(context, {
+      appOrigin: "https://dev.one.hussh.ai", admitOwnerPodConnectorOperation: () => true,
+    })).rejects.toThrow("requires bounded mutation admission");
+    expect(context.route).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["catalog", true, true, false, "POST", "", true],
+    ["verify", true, true, false, "POST", "", true],
+    ["oauth/begin", true, true, false, "POST", "", true],
+    ["oauth/complete", true, true, false, "POST", "", true],
+    ["oauth/cancel", true, true, false, "POST", "", true],
+    ["tools/call", true, true, false, "POST", "", false],
+    ["verify", false, true, false, "POST", "", false],
+    ["verify", true, false, false, "POST", "", false],
+    ["verify", true, true, true, "POST", "", false],
+    ["verify", true, true, false, "DELETE", "", false],
+    ["verify", true, true, false, "POST", "?account=other", false],
+    ["verify", true, true, false, "POST", "#other", false],
+  ])("bounds private connector %s to explicit current-owner admission", async (operation, authorized, current, navigation, method, suffix, allowed) => {
+    vi.stubEnv("REVIEWER_ALLOW_SHARED_MUTATIONS", String(authorized));
+    let handler!: (route: unknown) => Promise<void>;
+    const admission = vi.fn(() => current);
+    const guard = await installReadOnlyMutationGuard({ route: vi.fn(async (_glob, callback) => { handler = callback; }) }, {
+      appOrigin: "https://dev.one.hussh.ai", admitMutation: () => false,
+      admitOwnerPodConnectorOperation: admission,
+    });
+    const path = "/api/one/pod/agent-chat/connectors/custom_" + "a".repeat(32) + "/mcp/";
+    const route = { request: () => ({ url: () => "https://owner-pod.example" + path + operation + suffix,
+      method: () => method, isNavigationRequest: () => navigation }), continue: vi.fn(), fulfill: vi.fn() };
+    await handler(route);
+    expect(route.continue).toHaveBeenCalledTimes(allowed ? 1 : 0);
+    if (allowed) expect(() => guard.assertNoBlockedMutation()).not.toThrow();
+    else expect(() => guard.assertNoBlockedMutation()).toThrow("blocked");
+    if (!authorized || navigation || method !== "POST" || suffix || operation === "tools/call")
+      expect(admission).not.toHaveBeenCalled();
+  });
+  it.each(["truthy", "throw"])("rejects unverifiable private preparation admission (%s)", async failure => {
+    let handler!: (route: unknown) => Promise<void>;
+    const guard = await installReadOnlyMutationGuard({ route: vi.fn(async (_glob, callback) => { handler = callback; }) }, {
+      appOrigin: "https://dev.one.hussh.ai", allowMemoryPreparation: true,
+      admitOwnerPodMemoryPreparation: () => {
+        if (failure === "throw") throw new Error("private-sentinel");
+        return "approved";
+      },
+    });
+    const route = { request: () => ({ url: () => "https://owner-pod.example/api/one/pod/memory/proposals",
+      method: () => "POST", isNavigationRequest: () => false }), continue: vi.fn(), fulfill: vi.fn() };
+    await handler(route);
+    expect(route.continue).not.toHaveBeenCalled();
+    expect(() => guard.assertNoBlockedMutation()).toThrow("blocked");
+    expect(JSON.stringify(route.fulfill.mock.calls)).not.toContain("private-sentinel");
+  });
+  it("retains private preparation admission under shared-mutation authorization", async () => {
+    vi.stubEnv("REVIEWER_ALLOW_SHARED_MUTATIONS", "true");
+    let handler!: (route: unknown) => Promise<void>;
+    const admission = vi.fn(() => false);
+    const guard = await installReadOnlyMutationGuard({ route: vi.fn(async (_glob, callback) => { handler = callback; }) }, {
+      appOrigin: "https://dev.one.hussh.ai", allowMemoryPreparation: true,
+      admitOwnerPodMemoryPreparation: admission,
+    });
+    const route = { request: () => ({ url: () => "https://owner-pod.example/api/one/pod/memory/proposals",
+      method: () => "POST", isNavigationRequest: () => false }), continue: vi.fn(), fulfill: vi.fn() };
+    await handler(route);
+    expect(admission).toHaveBeenCalledOnce();
+    expect(route.continue).not.toHaveBeenCalled();
+    expect(() => guard.assertNoBlockedMutation()).toThrow("blocked");
+  });
+  it.each([
+    ["https://owner-pod.example/api/one/pod/memory/proposals", "POST", true, false, true, true],
+    ["https://other-pod.example/api/one/pod/memory/proposals", "POST", true, false, false, false],
+    ["https://owner-pod.example/api/one/pod/memory/proposals", "POST", false, false, true, false],
+    ["https://owner-pod.example/api/one/pod/memory/proposals", "POST", true, true, true, false],
+    ["https://owner-pod.example/api/one/pod/memory/proposals?account=other", "POST", true, false, true, false],
+    ["https://owner-pod.example/api/one/pod/memory/proposals", "DELETE", true, false, true, false],
+    ["https://owner-pod.example/api/one/pod/memory/revoke", "POST", true, false, true, false],
+    ["https://owner-pod.example/api/scope-commerce/purchases", "POST", true, false, true, false],
+  ])("keeps private preparation behind endpoint and owner admission (%s %s)", async (url, method, enabled, navigation, ownerCurrent, allowed) => {
+    let handler!: (route: unknown) => Promise<void>;
+    const admission = vi.fn((request: { url: () => string }) =>
+      ownerCurrent && new URL(request.url()).origin === "https://owner-pod.example");
+    const guard = await installReadOnlyMutationGuard({ route: vi.fn(async (_glob, callback) => { handler = callback; }) }, {
+      appOrigin: "https://dev.one.hussh.ai", allowMemoryPreparation: enabled,
+      admitOwnerPodMemoryPreparation: admission,
+    });
+    const route = { request: () => ({ url: () => url, method: () => method, isNavigationRequest: () => navigation }),
+      continue: vi.fn(), fulfill: vi.fn() };
+    await handler(route);
+    expect(route.continue).toHaveBeenCalledTimes(allowed ? 1 : 0);
+    if (allowed) expect(() => guard.assertNoBlockedMutation()).not.toThrow();
+    else expect(() => guard.assertNoBlockedMutation()).toThrow("blocked");
+    if (!enabled || navigation || method !== "POST" || new URL(url).search || !url.endsWith("/memory/proposals"))
+      expect(admission).not.toHaveBeenCalled();
+  });
+  it.each([
+    [true, "https://access.stripe.com/mcp/oauth2/authorize?state=synthetic", true, true, true],
+    [true, "https://access.stripe.com/mcp/oauth2/authorize", true, true, false, false],
+    [true, "https://access.stripe.com/mcp/oauth2/token", true, true, false],
+    [true, "https://access.stripe.com/v1/payouts", true, true, false],
+    [true, "https://api.stripe.com/mcp/oauth2/authorize", true, true, false],
+    [true, "https://access.stripe.com/mcp/oauth2/authorize#other", true, true, false],
+
+    [true, "https://login.microsoftonline.com/common/Consent/Set", true, true, true],
+    [true, "https://login.microsoftonline.com/common/Consent/Set", false, true, false],
+    [true, "https://login.microsoftonline.com/common/Consent/Set", true, false, false],
+    [true, "https://evil.invalid/common/Consent/Set", true, true, false],
+    [false, "https://login.microsoftonline.com/common/Consent/Set", true, true, false],
+  ])("admits only explicit owner OAuth document navigation (%s %s %s %s)", async (authorized, url, navigation, topFrame, allowed, current = true) => {
+    vi.stubEnv("REVIEWER_ALLOW_SHARED_MUTATIONS", String(authorized));
+    let handler!: (route: unknown) => Promise<void>;
+    const guard = await installReadOnlyMutationGuard({ route: vi.fn(async (_glob, callback) => { handler = callback; }) }, {
+      appOrigin: "https://dev.one.hussh.ai", admitMutation: () => false,
+      admitProviderOAuth: (request: { url: () => string }) => current &&
+        ["/common/Consent/Set", "/mcp/oauth2/authorize"].includes(new URL(request.url()).pathname),
+    });
+    const route = { request: () => ({ url: () => url, method: () => "POST", isNavigationRequest: () => navigation,
+      resourceType: () => navigation ? "document" : "fetch", frame: () => ({ parentFrame: () => topFrame ? null : {} }) }),
+      continue: vi.fn(), fulfill: vi.fn() };
+    await handler(route);
+    expect(route.continue).toHaveBeenCalledTimes(allowed ? 1 : 0);
+    if (allowed) expect(() => guard.assertNoBlockedMutation()).not.toThrow();
+    else expect(() => guard.assertNoBlockedMutation()).toThrow("blocked");
+  });
+  it.each([
+    ["https://browser.events.data.microsoft.com/OneCollector/1.0/", true],
+    ["https://browser.events.data.microsoft.com/other", false],
+    ["https://browser.events.data.microsoft.com.evil.invalid/OneCollector/1.0/", false],
+  ])("suppresses only the exact provider telemetry endpoint %s", async (url, suppressed) => {
+    let handler!: (route: unknown) => Promise<void>;
+    const guard = await installReadOnlyMutationGuard({ route: vi.fn(async (_glob, callback) => { handler = callback; }) }, {
+      appOrigin: "https://dev.one.hussh.ai",
+    });
+    const route = { request: () => ({ url: () => url, method: () => "POST" }), continue: vi.fn(), fulfill: vi.fn() };
+    await handler(route);
+    expect(route.continue).not.toHaveBeenCalled();
+    expect(guard.suppressedAnalyticsRequests()).toBe(suppressed ? 1 : 0);
+    if (suppressed) expect(route.fulfill).toHaveBeenCalledWith({ status: 204, body: "" });
+    else expect(() => guard.assertNoBlockedMutation()).toThrow("blocked");
+  });
   it("requires the expected unlocked owner, not an anonymous route beacon", async () => {
     let predicate!: (expected: string) => boolean;
     const page = { waitForFunction: vi.fn(async (check, expected, options) => {

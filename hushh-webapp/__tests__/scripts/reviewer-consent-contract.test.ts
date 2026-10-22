@@ -6,8 +6,8 @@ import {
   assertRequestDraft, assertRequestState, assertStreamProof,
   createDraftAdmission, safeFailureCode, matchesExpectedJson, matchesExpectedJsonDigest, assertConfirmationReview, assertAllStreamProofs,
   matchesOwnerBinding, assertGrantTiming, createFixtureMutationAdmission, createFixtureReviewGate,
-} from "../../../.codex/skills/reviewer-app-testing/scripts/consent-rehearsal-contract.mjs";
-import { installConsentStreamProbe } from "../../../.codex/skills/reviewer-app-testing/scripts/consent-rehearsal-stream-probe.mjs";
+} from "../../../.agents/skills/reviewer-app-testing/scripts/consent-rehearsal-contract.mjs";
+import { installConsentStreamProbe } from "../../../.agents/skills/reviewer-app-testing/scripts/consent-rehearsal-stream-probe.mjs";
 
 const expected = {
   bundleId: "fresh-request", personRef: "intended-owner", purpose: "unique-run-purpose",
@@ -21,7 +21,7 @@ const payload = () => ({
 
 describe("Profile rehearsal startup safety", () => {
   it("refuses Memory import before authentication without explicit mutation authority", () => {
-    const script = path.resolve(process.cwd(), "../.codex/skills/reviewer-app-testing/scripts/verify-reviewer-memory-import.mjs");
+    const script = path.resolve(process.cwd(), "../.agents/skills/reviewer-app-testing/scripts/verify-reviewer-memory-import.mjs");
     const result = spawnSync(process.execPath, [script], {
       env: { REVIEWER_ALLOW_SHARED_MUTATIONS: "false" }, encoding: "utf8", timeout: 10000,
     });
@@ -42,7 +42,7 @@ describe("Profile rehearsal startup safety", () => {
       REVIEWER_PERSON_REF: "synthetic-person", REVIEWER_CONSENT_SCOPE_REF: "synthetic-scope", REVIEWER_EXPECTED_PAYLOAD_JSON: '{"role":"synthetic"}',
       REVIEWER_EXPECTED_PAYLOAD_SHA256: "a".repeat(64) }, "EXACT_SYNTHETIC_PAYLOAD_REQUIRED"],
   ])("fails closed before authentication and emits only safe diagnostics", (env, code) => {
-    const script = path.resolve(process.cwd(), "../.codex/skills/reviewer-app-testing/scripts/verify-reviewer-consent-profile.mjs");
+    const script = path.resolve(process.cwd(), "../.agents/skills/reviewer-app-testing/scripts/verify-reviewer-consent-profile.mjs");
     const result = spawnSync(process.execPath, [script], {
       env, encoding: "utf8", timeout: 10000,
     });

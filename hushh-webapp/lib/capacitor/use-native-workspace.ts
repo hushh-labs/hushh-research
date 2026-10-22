@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import type { PluginListenerHandle } from "@capacitor/core";
 import { customNativePresentationEnabled } from "./native-presentation-policy";
 import { captureNativeDrawerOwner, nativeDrawerOwnerIsCurrent } from "./native-drawer-owner";
-import { nativeDrawers, nativeDrawerAcknowledged, subscribeNativeDrawerIsolation, nativeDrawerIsolation, observeNativeDrawerIsolation } from "./native-drawers";
+import { nativeDrawers, nativeDrawerAcknowledged, subscribeNativeDrawerIsolation, nativeDrawerIsolation, observeNativeDrawerIsolation, trackNativeWorkspaceRetirement } from "./native-drawers";
 import { nativePrivacyObservation, subscribeNativePrivacyObservation } from "./session-privacy";
 import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "../vault/session-epoch";
 import { useNativeControlAppearance } from "./native-control-appearance";
@@ -36,7 +36,9 @@ export function useNativeWorkspace({ owner, content, actions, back, current, edi
   useLayoutEffect(() => { live.current = { owner, content, actions, back, current, appearance, privacy, editor, onRetirementOwner }; });
   const publish = useRef<() => void>(() => {});
   useLayoutEffect(() => { publish.current(); });
-  useEffect(() => {
+  // Layout cleanup precedes the persistent shell's next layout publish. A
+  // passive cleanup registers withdrawal too late for that same-commit handoff.
+  useLayoutEffect(() => {
     if (!customNativePresentationEnabled()) return;
     const base = captureNativeDrawerOwner();
     if (!base || !privacy?.appIsActive || privacy.shielded) return;
@@ -76,7 +78,11 @@ export function useNativeWorkspace({ owner, content, actions, back, current, edi
     };
     const retire = () => {
       withdrawing = true; desired = undefined; applied = undefined; fingerprint = "";
-      withdrawal ??= retireOnce(); return withdrawal;
+      if (!withdrawal) {
+        withdrawal = retireOnce();
+        trackNativeWorkspaceRetirement(identity, withdrawal, port);
+      }
+      return withdrawal;
     };
     const fail = async () => { const absent = await retire(); if (active) setPhase(absent ? "web" : "blocked"); };
     const flush = async () => {
@@ -171,17 +177,18 @@ export function useNativeWorkspace({ owner, content, actions, back, current, edi
     };
     void (async () => {
       try {
-        const capabilities = await nativeDrawerAcknowledged(nativeDrawers.getCapabilities());
+        const plugin = nativeDrawers();
+        const capabilities = await nativeDrawerAcknowledged(plugin.getCapabilities());
         if (!isCurrent()) return;
         if (capabilities.contractVersion !== 1 || !capabilities.supported || !capabilities.routeWorkspaces?.includes(content.workspace) ||
-          !nativeDrawers.applyWorkspace || !nativeDrawers.retireWorkspace || !nativeDrawers.confirmWorkspaceChoice || !nativeDrawers.settleWorkspaceChoice || !nativeDrawers.getWorkspaceState) { setPhase("web"); return; }
-        port = { applyWorkspace: nativeDrawers.applyWorkspace.bind(nativeDrawers), retireWorkspace: nativeDrawers.retireWorkspace.bind(nativeDrawers),
-          confirmWorkspaceChoice: nativeDrawers.confirmWorkspaceChoice.bind(nativeDrawers), settleWorkspaceChoice: nativeDrawers.settleWorkspaceChoice.bind(nativeDrawers), getWorkspaceState: nativeDrawers.getWorkspaceState.bind(nativeDrawers) };
-        handle = await nativeDrawers.addListener("workspaceChoice", value => { void choose(value).catch(() => undefined); });
-        editHandle = await nativeDrawers.addListener("workspaceEdit", value => acceptEdit(value, false));
-        finalHandle = await nativeDrawers.addListener("workspaceFinalEdit", value => acceptEdit(value, true));
+          !plugin.applyWorkspace || !plugin.retireWorkspace || !plugin.confirmWorkspaceChoice || !plugin.settleWorkspaceChoice || !plugin.getWorkspaceState) { setPhase("web"); return; }
+        port = { applyWorkspace: plugin.applyWorkspace.bind(plugin), retireWorkspace: plugin.retireWorkspace.bind(plugin),
+          confirmWorkspaceChoice: plugin.confirmWorkspaceChoice.bind(plugin), settleWorkspaceChoice: plugin.settleWorkspaceChoice.bind(plugin), getWorkspaceState: plugin.getWorkspaceState.bind(plugin) };
+        handle = await plugin.addListener("workspaceChoice", value => { void choose(value).catch(() => undefined); });
+        editHandle = await plugin.addListener("workspaceEdit", value => acceptEdit(value, false));
+        finalHandle = await plugin.addListener("workspaceFinalEdit", value => acceptEdit(value, true));
         if (!acceptFinal) void finalHandle.remove().catch(() => undefined);
-        isolationHandle = await subscribeNativeDrawerIsolation(nativeDrawers);
+        isolationHandle = await subscribeNativeDrawerIsolation(plugin);
         if (!isCurrent()) return;
         const seat = document.querySelector<HTMLElement>('[data-native-workspace-seat="true"]');
         if (!seat) throw new Error("NATIVE_WORKSPACE_SEAT_MISSING");

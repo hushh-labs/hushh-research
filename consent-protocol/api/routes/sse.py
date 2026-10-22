@@ -8,10 +8,11 @@ Regulated cutover rules:
 - Consent polling endpoint is deprecated and disabled.
 """
 
-import asyncio
 import json
 import logging
 import os
+import time
+from contextlib import aclosing
 from typing import Annotated, AsyncGenerator, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Path, Query, Request
@@ -30,6 +31,7 @@ from api.routes.document_feed_stream import (
     open_document_feed_stream,
     stream_lifetime_seconds,
 )
+from api.routes.notification_stream import notification_events, open_notification_stream
 from api.utils.firebase_auth import verify_firebase_bearer
 from hushh_mcp.services.consent_request_links import (
     build_consent_request_path,
@@ -199,85 +201,61 @@ def _sse_payload_from_event_payload(payload: dict[str, object]) -> dict[str, obj
     }
 
 
-async def consent_event_generator(user_id: str, request: Request) -> AsyncGenerator[dict, None]:
-    """
-    Generate SSE events for consent notifications.
-
-    Event-driven: waits on per-user queue (NOTIFY pushes here). No DB polling.
-    Backfills once on connect, then only yields when NOTIFY delivers an event.
-    Heartbeat every 30s to keep connection alive.
-    """
-    from datetime import datetime
-
-    from api.consent_listener import subscribe_consent_queue, unsubscribe_consent_queue
+async def consent_event_generator(
+    user_id: str,
+    request: Request,
+    *,
+    lease: feed_stream.StreamLease | None = None,
+    authorization: str | None = None,
+    lifetime_seconds: float | None = None,
+    auth_recheck_seconds: float = FEED_AUTH_RECHECK_SECONDS,
+) -> AsyncGenerator[dict[str, str], None]:
+    """Bounded event-driven notifications with one subscribe-before-backfill read."""
     from hushh_mcp.services.consent_db import ConsentDBService
 
-    logger.info("consent_sse.open user_id=%s", user_id)
-    connection_start_ms = int(datetime.now().timestamp() * 1000)
-    backfill_window_ms = 2 * 60 * 1000
-    after_timestamp_ms = connection_start_ms - backfill_window_ms
-    notified_event_ids = set()
-    heartbeat_interval = 30
-    # Subscribe before the backfill read so a transition committed during that
-    # query is still queued. Event ids deduplicate the harmless overlap.
-    queue = await subscribe_consent_queue(user_id)
+    after_timestamp_ms = int(time.time() * 1000) - 2 * 60 * 1000
+    notified_event_ids: set[str] = set()
 
-    try:
-        service = ConsentDBService()
-        recent_events = await service.get_recent_consent_events(
-            user_id=user_id,
-            after_timestamp_ms=after_timestamp_ms,
-            limit=10,
+    async def backfill() -> list[dict]:
+        rows = await ConsentDBService().get_recent_consent_events(
+            user_id=user_id, after_timestamp_ms=after_timestamp_ms, limit=10
         )
-        for event in recent_events:
-            if event.get("type") in {"document_share_feed_changed", "bank_payout_changed"}:
-                continue
-            event_id = _sse_event_id(event)
-            if not event_id or event_id in notified_event_ids:
-                continue
+        if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+            raise ValueError("Consent notification backfill is unavailable.")
+        return [dict(row) for row in rows]
 
-            notified_event_ids.add(event_id)
-            yield {
-                "event": "consent_update",
-                "id": event_id,
-                "data": json.dumps(_sse_payload_from_event_payload(event)),
-            }
-
-        while True:
-            if await request.is_disconnected():
-                logger.info("consent_sse.disconnected user_id=%s", user_id)
-                break
-
-            try:
-                data = await asyncio.wait_for(queue.get(), timeout=heartbeat_interval)
-            except asyncio.TimeoutError:
-                import time
-
+    async with aclosing(
+        notification_events(
+            user_id,
+            request,
+            lease=lease,
+            authorize=_owner_recheck(user_id, authorization),
+            backfill=backfill,
+            lifetime_seconds=lifetime_seconds,
+            auth_recheck_seconds=auth_recheck_seconds,
+        )
+    ) as events:
+        async for data in events:
+            if data is None:
                 yield {
                     "event": "heartbeat",
                     "data": json.dumps({"timestamp": int(time.time() * 1000)}),
                 }
                 continue
-
-            event_id = _sse_event_id(data)
             if data.get("type") in {"document_share_feed_changed", "bank_payout_changed"}:
                 continue
+            event_id = _sse_event_id(data)
             if not event_id or event_id in notified_event_ids:
                 continue
-
             notified_event_ids.add(event_id)
+            if len(notified_event_ids) > 500:
+                notified_event_ids.clear()
+                notified_event_ids.add(event_id)
             yield {
                 "event": "consent_update",
                 "id": event_id,
                 "data": json.dumps(_sse_payload_from_event_payload(data)),
             }
-    except asyncio.CancelledError:
-        logger.info("consent_sse.cancelled user_id=%s", user_id)
-    except Exception as e:
-        logger.error("consent_sse.error user_id=%s error=%s", user_id, e)
-        raise
-    finally:
-        await unsubscribe_consent_queue(user_id, queue)
 
 
 def _owner_recheck(user_id: str, authorization: str | None) -> Authorize | None:
@@ -382,13 +360,12 @@ async def consent_events(
     _ensure_consent_sse_enabled()
     await run_in_threadpool(_authorize_sse_user, user_id, authorization)
 
-    return EventSourceResponse(
-        consent_event_generator(user_id, request),
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+    return open_notification_stream(
+        user_id,
+        request,
+        lambda lease: consent_event_generator(
+            user_id, request, lease=lease, authorization=authorization
+        ),
     )
 
 

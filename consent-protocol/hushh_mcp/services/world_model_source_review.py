@@ -57,11 +57,15 @@ class SourceReviewInput(BaseModel):
 
 
 async def require_owner(user_id, token):
+    from hushh_mcp.services.owner_placement_guard import admit_hub_content
     from hushh_mcp.services.world_model_invitations import verified_owner
 
+    await admit_hub_content(user_id, "world_model_source_review")
     if not one_profile_research_enabled():
         raise PermissionError("Research is disabled")
-    return await verified_owner(user_id, token)
+    identity = await verified_owner(user_id, token)
+    await admit_hub_content(user_id, "world_model_source_review")
+    return identity
 
 
 def successful_sources(response, urls):
@@ -95,6 +99,7 @@ async def prepare(user_id, token, body: SourceReviewInput):
     if body.purpose == "owner" and body.name.strip() != identity["full_name"]:
         raise ValueError("Use your current profile name")
     state = await STORE.get(user_id)
+    await require_owner(user_id, token)
     starts = [at for at in (state or {}).get("starts", []) if at > time.time() - 3600]
     if len(starts) >= 3:
         raise ValueError("Source review limit reached; retry later")
@@ -104,6 +109,7 @@ async def prepare(user_id, token, body: SourceReviewInput):
     if revision is None:
         raise RuntimeError("Source draft changed")
     try:
+        await require_owner(user_id, token)
         from google.adk.agents import LlmAgent
         from google.genai import types
 
@@ -215,6 +221,7 @@ async def prepare(user_id, token, body: SourceReviewInput):
         }
         if await store.write(user_id, finished, revision) is None:
             raise RuntimeError("Source draft changed")
+        await require_owner(user_id, token)
         return result
     except BaseException:
         try:
@@ -233,6 +240,7 @@ async def prepare(user_id, token, body: SourceReviewInput):
 async def read(user_id, token, draft_id=None):
     await require_owner(user_id, token)
     state = await STORE.get(user_id)
+    await require_owner(user_id, token)
     if (
         not state
         or state.get("status") != "offered"
@@ -249,5 +257,6 @@ async def discard(user_id, token, draft_id):
     tombstone = {"job_id": state["job_id"], "status": "saved", "starts": state["starts"]}
     if await validate_first_party_owner_token(user_id, token) is None:
         raise PermissionError("Owner session ended")
+    await require_owner(user_id, token)
     if await scoped_store(token).write(user_id, tombstone, state) is None:
         raise RuntimeError("Source draft changed")

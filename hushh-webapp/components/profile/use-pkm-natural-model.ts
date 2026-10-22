@@ -68,6 +68,7 @@ import { useVault } from "@/lib/vault/vault-context";
 import { useSoulMemoryModel } from "./use-soul-memory-model";
 import {
   snapshotVaultSessionEpoch,
+  subscribeVaultSessionEpoch,
   isVaultSessionEpochCurrent,
 } from "@/lib/vault/session-epoch";
 type DomainDetailState = {
@@ -82,10 +83,8 @@ type MemoryReadSession = symbol;
 
 export type MemoryWorkspaceTab = "soul" | "browse" | "add" | "sharing";
 export const MEMORY_WORKSPACE_TABS = [
-  { value: "soul", label: "memory.md" },
   { value: "browse", label: "Saved" },
   { value: "add", label: "Add" },
-  { value: "sharing", label: "Sharing" },
 ];
 
 const EMPTY_DOMAIN_DETAIL: DomainDetailState = {
@@ -529,9 +528,13 @@ export function usePkmNaturalModel({
     vaultOwnerToken,
   ]);
   const [workspaceTab, setWorkspaceTab] = useState<MemoryWorkspaceTab>(
-    view === "home" ? "soul" : "browse",
+    "browse",
   );
   const [captureText, setCaptureText] = useState("");
+  const [identifierApproval, setIdentifierApproval] = useState<{ note: string; epoch: number } | null>(null);
+  const identifierProcessingApproved = () => captureIsCurrent && identifierApproval?.note === captureText && isVaultSessionEpochCurrent(identifierApproval.epoch);
+  useEffect(() => subscribeVaultSessionEpoch(() => setIdentifierApproval(null)), []);
+
   const [captureOwner, setCaptureOwner] = useState(presentationOwner);
   const captureIsCurrent = captureOwner === presentationOwner;
   const [captureCards, setCaptureCards] = useState<AgentPkmPreviewCard[]>([]);
@@ -581,6 +584,7 @@ export function usePkmNaturalModel({
     setCaptureOwner(presentationOwner);
     captureRevision.current += 1;
     setCaptureText("");
+    setIdentifierApproval(null);
     setCaptureCards([]);
     setCaptureUnresolvedSections([]);
     setCaptureSourceSnapshot("");
@@ -1029,7 +1033,7 @@ export function usePkmNaturalModel({
   useEffect(() => {
     let cancelled = false;
     if (
-      workspaceTab !== "sharing" ||
+      (workspaceTab !== "browse" && workspaceTab !== "sharing") ||
       !user ||
       !vaultOwnerToken ||
       visibleMetadataDomains.length === 0
@@ -1060,6 +1064,7 @@ export function usePkmNaturalModel({
       cancelled = true;
     };
   }, [
+    refreshNonce,
     pkmChangeRevision,
     setSharingManifests,
     user,
@@ -1415,6 +1420,7 @@ export function usePkmNaturalModel({
         currentDomains: visibleMetadataDomains.map((domain) => domain.key),
         vaultOwnerToken,
         source: "memory_workspace",
+        allowIdentifierProcessing: identifierProcessingApproved(),
         allowEmpty: true,
         isEffectCurrent: guard.isCurrent,
         findDuplicate: (candidate) =>
@@ -1517,6 +1523,7 @@ export function usePkmNaturalModel({
         currentDomains: visibleMetadataDomains.map((domain) => domain.key),
         vaultOwnerToken,
         source: "memory_workspace",
+        allowIdentifierProcessing: identifierProcessingApproved(),
         allowEmpty: true,
         isEffectCurrent: guard.isCurrent,
         findDuplicate: (candidate) =>
@@ -1941,20 +1948,34 @@ export function usePkmNaturalModel({
       !authLoading &&
       !selectedCard &&
       !selectedMetadataDomain &&
-      workspaceTab === "soul",
+      workspaceTab === "browse",
   });
   const changeCaptureText = (text: string) => {
     if (memoryReadSessionRef.current !== memoryReadSession || captureSaving)
       return;
     captureRevision.current += 1;
     setCaptureText(text);
+    setIdentifierApproval(null);
     setCaptureCards([]);
     setCaptureUnresolvedSections([]);
     setCaptureRetryingSectionKey(null);
     setCaptureMessage(null);
     setCaptureLoading(false);
   };
+  const setIdentifierProcessingApproval = (approved: boolean) => {
+    if (memoryReadSessionRef.current !== memoryReadSession || captureLoading || captureSaving) return;
+    captureRevision.current += 1;
+    setIdentifierApproval(approved ? { note: captureText, epoch: snapshotVaultSessionEpoch() } : null);
+    setCaptureCards([]);
+    setCaptureUnresolvedSections([]);
+    setCaptureRetryingSectionKey(null);
+    setCaptureMessage(null);
+  };
   return {
+    ownerId: user?.uid ?? "",
+    identifierProcessingApproved,
+    setIdentifierProcessingApproval,
+    memoryScopeShareBundle,
     authLoading,
     sessionVerificationRequired,
     isVaultUnlocked,

@@ -12,14 +12,38 @@ describe("One setup hub terminal action contract", () => {
 
     expect(source).toContain('const masterActionLabel = "Finish setup"');
     expect(source).toContain('data-voice-action-id="setup.hub_master_ack"');
-    expect(source).toContain('className={styles.primary}');
-    expect(source).toContain('disabled={!runtimeChoiceComplete || dismissing}');
     expect(source).toContain("FinanceSetupDraftService.finalizeForVault");
-    expect(source.lastIndexOf("FinanceSetupDraftService.finalizeForVault")).toBeLessThan(
-      source.indexOf("const completion = acknowledgeOneSetupExit"),
-    );
+    expect(
+      source.lastIndexOf("FinanceSetupDraftService.finalizeForVault"),
+    ).toBeLessThan(source.indexOf("const completion = acknowledgeOneSetupExit"));
   });
 
+  it("uses the same responsive in-flow terminal action as a capability workspace", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain('data-testid="one-setup-master-ack"');
+    // Cloud, verified phone, and AI choice gate the exit together.
+    expect(source).toContain("disabled={!setupPrerequisitesComplete}");
+    expect(source).toContain(
+      "cloudComplete && phoneVerified && runtimeChoiceComplete",
+    );
+    // Hosting and AI share one wizard; neither durable prerequisite is removed.
+    expect(source.indexOf('id="cloud"')).toBeLessThan(
+      source.indexOf('title="Verify your phone"'),
+    );
+    expect(source).toContain(
+      "hasReadyRuntimeChoice({",
+    );
+    expect(source).toContain('data-testid="one-setup-master-ack"');
+    expect(source).toContain("<div className={styles.flatChecklist}>");
+    expect(source.indexOf('data-testid="one-setup-master-ack"')).toBeGreaterThan(
+      source.indexOf("<div className={styles.flatChecklist}>"),
+    );
+    expect(source).not.toContain("actions={");
+  });
 
   it("leaves fixed-chrome clearance to the shared app scroll root", () => {
     const styles = readFileSync(
@@ -34,28 +58,29 @@ describe("One setup hub terminal action contract", () => {
     expect(styles).not.toContain("--app-bottom-inset");
   });
 
-
   it("marks the one mandatory row as required rather than leaving it a quiet grey status", () => {
     const hub = readFileSync(
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
       "utf8",
     );
-    const styles = readFileSync(
-      join(
-        process.cwd(),
-        "components/onboarding/setup/one-setup-hub.module.css",
-      ),
-      "utf8",
-    );
+    const tile = readFileSync(join(process.cwd(), "components/onboarding/setup/capability-setup-tile.tsx"), "utf8");
 
     // "Required" in the same muted grey as every other trailing label reads as
     // one more optional status. The blocking row takes the accent pill and the
-    // current-step role so it is legible as the thing to do first.
-    expect(hub).toContain('{runtimeChoiceComplete ? "Selected" : "Required"}');
-    expect(hub).toContain('className={`${styles.status} ${runtimeChoiceComplete ? styles.selected : ""}`}');
-    expect(styles).toContain(".status {");
-    expect(styles).toContain("background: #eaf3fe;");
-    expect(styles).toContain("color: #1672d1;");
+    // current-step role so it is legible as the thing to do first. The cloud
+    // row's label is dynamic now (it reads "Setting up (step N of 6)" while
+    // the background job runs), and "Required" stays its resting default.
+    // The cloud row is pinned first in both states; its label walks
+    // The combined row stays required until both durable choices are saved.
+    expect(hub).toContain("? cloudSetupStageLabel");
+    expect(hub).toContain(
+      'statusTone={cloudComplete && runtimeChoiceComplete ? undefined : "required"}',
+    );
+    expect(hub).toContain("isCurrent={!cloudComplete || !runtimeChoiceComplete}");
+    expect(hub).toContain("isComplete={cloudComplete && runtimeChoiceComplete}");
+    expect(tile).toContain('statusTone === "required"');
+    expect(tile).toContain("bg-[var(--app-accent-tint)]");
+    expect(tile).toContain('aria-current={isCurrent ? "step" : undefined}');
   });
 
   it("uses the canonical setup icon geometry instead of a setup-specific icon map", () => {
@@ -78,24 +103,78 @@ describe("One setup hub terminal action contract", () => {
     expect(icon).toContain('glyph: "h-[22px] w-[22px]"');
   });
 
+  it("keeps the checklist without a redundant progress bar", () => {
+    const source = readFileSync(join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"), "utf8");
+    expect(source).not.toContain('role="progressbar"');
+    expect(source).toContain("setupPrerequisitesComplete");
+  });
 
-  it("does not publish the master action before the AI-access choice settles", () => {
+  it("does not publish the master action before the pod prerequisites settle", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
       "utf8",
     );
 
-    expect(source).toContain(
-      'const hubStateLoading = runtimeChoiceState === "loading"',
-    );
+    expect(source).toContain('runtimeChoiceState === "loading"');
+    expect(source).toContain('cloudComplete && phoneVerified && runtimeChoiceComplete');
     expect(source).toContain("<SetupHubLoadingState />");
     expect(source).not.toContain("<Skeleton");
     expect(source).toContain("Checking your setup…");
-    expect(source).toContain(
-      "hubStateLoading || dismissing || !runtimeChoiceComplete",
-    );
+    expect(source).toContain('dismissing || !setupPrerequisitesComplete');
   });
 
+  it("spends the accent only on a finish that can actually go through", () => {
+    const hub = readFileSync(
+      join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
+      "utf8",
+    );
+    const footer = readFileSync(
+      join(
+        process.cwd(),
+        "components/onboarding/setup/setup-completion-footer.tsx",
+      ),
+      "utf8",
+    );
+
+    // The master action is gated on the same mandatory AI access choice and
+    // must LOOK gated. `disabled:opacity-40/50` over the accent still
+    // reads as the blue primary action, which is what made a blocked finish
+    // look tappable and then swallow the tap.
+    expect(footer).toContain(
+      "const isBlockedFilledAction = disabled && !busy && !isQuietSetupAction",
+    );
+    expect(footer).toContain("disabled:!bg-muted/60");
+    // ...and a visible edge with it. `muted` is the page surface in the light
+    // theme, so the fill alone leaves no control on screen.
+    expect(footer).toContain("disabled:!border-border");
+    expect(footer).toContain(
+      "aria-disabled={isBlockedTappableAction || undefined}",
+    );
+    expect(hub).not.toContain("disabled:opacity-40");
+
+    // ...but "looks gated" must not mean "eats the tap". The master action
+    // stay tappable while blocked and answer with a toast, because that is the
+    // moment someone is asking. The permanent supporting line and the phone
+    // `title` tooltip that used to carry the reason are gone -- the tooltip
+    // never rendered on touch anyway, which is the only place that action ships.
+    expect(footer).toContain("blocked?: boolean");
+    expect(footer).toMatch(
+      /const isBlockedTappableAction =\s+blocked && !disabled && !busy && !isQuietSetupAction/,
+    );
+    // One block, not a stacked description -- the two-line toast ceiling.
+    expect(hub).toContain('toast.info("Finish your agent setup."');
+    expect(hub).not.toContain('description: "Pick how One gets its AI');
+    expect(hub).not.toContain(
+      "title={\n                !runtimeChoiceComplete",
+    );
+    expect(hub).not.toContain(
+      '? "Choose your AI first."\n                    : "Set up the rest later."',
+    );
+
+    // The header summary still names it on both layouts, so the blocker is
+    // legible before the tap as well as after it.
+    expect(hub).toContain('"Finish your agent setup."');
+  });
 
   it("keeps the mandatory-step language out of system nouns", () => {
     const hub = readFileSync(
@@ -139,8 +218,8 @@ describe("One setup hub terminal action contract", () => {
     );
 
     expect(source).toContain('size="prominent"');
-    expect(source).toContain("disabled={disabled || blocked}");
-    expect(source).not.toContain("disabled:!opacity-100");
+    expect(source).toContain("disabled={disabled}");
+    expect(source).toContain("aria-disabled={isBlockedTappableAction || undefined}");
   });
 
   it("prevents KYC setup settlement while its server preference is saving", () => {
@@ -180,6 +259,18 @@ describe("One setup hub terminal action contract", () => {
     expect(source).toContain("isOneSetupSurfaceRoute(path) ? null : raw");
   });
 
+  it("keeps the master action in the shared in-flow footer on mobile and desktop", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
+      "utf8",
+    );
+
+    // One primary setup action should stay in the shared footer; the footer owns
+    // bottom-safe-area clearance, so mobile does not need a separate header CTA.
+    expect(source).not.toContain('data-testid="one-setup-master-ack-mobile"');
+    expect(source).not.toContain('<div className="hidden sm:block">');
+    expect(source).toContain('data-testid="one-setup-master-ack"');
+  });
 
   it("does not reserve header space for a duplicate mobile action", () => {
     const source = readFileSync(
@@ -187,7 +278,9 @@ describe("One setup hub terminal action contract", () => {
       "utf8",
     );
 
-    expect(source).not.toContain('<div className="flex flex-wrap items-start gap-3">');
+    expect(source).not.toContain(
+      '<div className="flex flex-wrap items-start gap-3">',
+    );
     expect(source).not.toContain('<div className="min-w-[8rem] flex-1">');
     expect(source).not.toContain('<div className="min-w-0 flex-1">');
     expect(source).not.toContain("basis-[8rem]");
@@ -200,7 +293,9 @@ describe("One setup hub terminal action contract", () => {
     );
 
     expect(source).toContain("setVaultInvitationOpen(true);");
-    expect(source).toContain("const completeSetupAfterVault = useCallback(async ()");
+    expect(source).toContain(
+      "const completeSetupAfterVault = useCallback(async ()",
+    );
     const masterHandler = source.slice(source.indexOf("const handleMasterAck"));
     expect(masterHandler).not.toContain("acknowledgeOneSetupExit");
     expect(source).toContain("Set a lock");
@@ -231,14 +326,18 @@ describe("One setup hub terminal action contract", () => {
     expect(source).not.toContain("showVaultInvitation");
     expect(source).not.toContain('data-testid="one-setup-vault-invitation"');
     expect(source).not.toContain("A private place for what matters");
-    expect(source).not.toContain('data-testid="one-setup-vault-invitation-open"');
+    expect(source).not.toContain(
+      'data-testid="one-setup-vault-invitation-open"',
+    );
 
     // ...and the promise that screen carried moves onto the step that needs it.
     const vaultFlow = readFileSync(
       join(process.cwd(), "components/vault/vault-flow.tsx"),
       "utf8",
     );
-    expect(vaultFlow).toContain('description="Only you can open what you save."');
+    expect(vaultFlow).toContain(
+      'description="Only you can open what you save."',
+    );
   });
 
   it("keeps AI access one tap from the hub instead of behind a prologue", () => {
@@ -261,15 +360,10 @@ describe("One setup hub terminal action contract", () => {
     // its own Continue button in front of a two-option choice is pure friction.
     expect(page).not.toContain("CapabilityCinematicIntroGate");
     expect(gate).not.toContain('"connections"');
-    // The provider marks the prologue used to carry now render inline on the
-    // real screen, so no context is lost with the screen.
-    expect(page).toContain("data-runtime-provider-lane");
-    expect(page).toContain("RUNTIME_PROVIDER_CATALOG");
-    expect(gate).not.toContain("data-runtime-provider-lane");
-
     // Saving either choice requires a separate, enabled Continue action.
     expect(page).not.toContain("void finishSetupAndGoHome();");
     expect(page).toContain("disabled={!canContinue || finishing}");
+    expect(page).toContain("returnToSetupHub();");
   });
 
   it("names the recommended AI option so the default is not worked out by elimination", () => {
@@ -281,9 +375,19 @@ describe("One setup hub terminal action contract", () => {
       "utf8",
     );
 
-    expect(card).toContain('<Badge variant="outline">Recommended</Badge>');
-    expect(card).toContain('title="Use Hussh\'s AI"');
-    expect(card).toContain('title="Use my own key"');
+    const cloudChoice = readFileSync(join(process.cwd(), "components/connections/cloud-ai-choice.tsx"), "utf8");
+    expect(cloudChoice).toContain('<Badge variant="outline">Recommended</Badge>');
+    expect(card).toContain("title={defaultLabel}");
+    for (const label of ["Use existing cloud", "Use Hussh AI"]) {
+      expect(card).toContain(label);
+    }
+    expect(cloudChoice).toContain("Azure AI ·");
+    expect(cloudChoice).toContain("Vertex AI ·");
+    const keyChoice = readFileSync(
+      join(process.cwd(), "components/connections/gemini-key-choice.tsx"), "utf8",
+    );
+    expect(card).toContain("GeminiKeyChoice");
+    expect(keyChoice).toContain('title="Gemini"');
     // System nouns and vendor plumbing stay out of the two rows a person reads.
     expect(card).not.toContain("Hussh managed Gemini");
     expect(card).not.toContain("Use my Gemini access");
@@ -304,7 +408,10 @@ describe("One setup hub terminal action contract", () => {
     }
 
     const emailSetupSource = readFileSync(
-      join(process.cwd(), "app/one/setup/email/email-onboarding-setup-client.tsx"),
+      join(
+        process.cwd(),
+        "app/one/setup/email/email-onboarding-setup-client.tsx",
+      ),
       "utf8",
     );
     expect(emailSetupSource).toContain("CapabilityVaultPrerequisite");
@@ -318,5 +425,54 @@ describe("One setup hub terminal action contract", () => {
       const source = readFileSync(join(process.cwd(), relativePath), "utf8");
       expect(source).toContain("allowVaultCreation={false}");
     }
+  });
+});
+
+describe("One setup hub reaches the cloud choice", () => {
+  // Pins the defect `firstrun-person-reaches-cloud-choice` was opened for. Measured
+  // on 2026-08-28: the hub painted eight capability tiles and one_setup_tile_cloud
+  // was in NEITHER the Remaining nor the Complete group, so nothing in the app
+  // routed to /one/setup/cloud and the whole BYOC path -- a finished backend, a
+  // mounted card, a live route -- was unreachable by a person.
+  //
+  // WHAT THIS DOES AND DOES NOT PROVE. It proves the tile is rendered, pinned, and
+  // aimed at the canonical route. It does NOT prove a brand-new person REACHES it;
+  // only first-run-reachability.mjs settles that, and it needs maintainer-only
+  // credentials. So this is a floor under the regression, never the receipt.
+  const source = () =>
+    readFileSync(
+      join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
+      "utf8",
+    );
+
+  it("renders a cloud tile aimed at the canonical setup route", () => {
+    expect(source()).toContain('id="cloud"');
+    expect(source()).toContain("href={buildOneSetupCloudRoute(returnTo)}");
+    expect(source()).toContain('voiceControlId="one_setup_tile_cloud"');
+  });
+
+  it("keeps the cloud tile unconditional, which is the half that broke", () => {
+    // The tile existing in the file was never the question -- it can exist and
+    // still render for nobody. This asserts nothing gates it between the group it
+    // belongs to and its own tag, so a future `{cloudEnabled && (` reintroducing
+    // the 2026-08-28 defect fails here rather than in somebody's first run.
+    const src = source();
+    const group = src.indexOf('testId="one-setup-foundation"');
+    const tile = src.indexOf('id="cloud"', group);
+    expect(group).toBeGreaterThan(-1);
+    expect(tile).toBeGreaterThan(group);
+    const between = src.slice(group, tile);
+    expect(between).not.toMatch(/&&\s*\(/);
+    expect(between).not.toMatch(/\?\s*\(/);
+  });
+
+  it("pins the cloud choice above the capability lists", () => {
+    // Founder direction 2026-09-02: where the agent lives decides what can be
+    // chosen after it, so it leads in both states rather than sinking into
+    // "Complete" once connected.
+    const src = source();
+    expect(src.indexOf('testId="one-setup-foundation"')).toBeLessThan(
+      src.indexOf("{item.copy.href}"),
+    );
   });
 });

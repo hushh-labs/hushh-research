@@ -23,6 +23,7 @@ import {
   type IconProps,
   type IconWeight,
 } from "@phosphor-icons/react";
+import { FolderRowIcon } from "./row-icons";
 
 // Authored capability palette shared by the React glyphs and native Profile
 // projection. Brand accents remain a separate app-authoritative preference.
@@ -300,6 +301,7 @@ export const AGENT_ICON_MAP = {
   calendar: CalendarAgentIcon,
   email: KycAgentIcon,
   pkm: MemoryAgentIcon,
+  files: FolderRowIcon,
   consent: ConsentAgentIcon,
   marketplace: MarketplaceAgentIcon,
   "connected-systems": ConnectedSystemsAgentIcon,

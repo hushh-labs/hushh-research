@@ -449,8 +449,11 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
     }
     private var settledUpdateSequence = 0
     var presentationSettled: Bool {
+        presentationLayoutSettled && model.allowsPageInteraction
+    }
+    var presentationLayoutSettled: Bool {
         !motion.retired && viewIfLoaded?.window != nil && !view.bounds.isEmpty && animator == nil && !dragging && !intentPending && !awaitingReadmission &&
-            model.allowsPageInteraction && settledUpdateSequence == model.projection.updateSequence &&
+            !model.navigationTransitioning && settledUpdateSequence == model.projection.updateSequence &&
             (!model.projection.open || model.projection.profileStack == nil ||
                 model.profileNavigationController?.hasCompletedProjectedDestination == true)
     }
@@ -471,6 +474,13 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
     }
     #endif
     var leadingHeaderFrame: (() -> CGRect?)?
+    private var privacyQuarantined = false
+    func setPrivacyQuarantined(_ quarantined: Bool) {
+        guard privacyQuarantined != quarantined else { return }
+        privacyQuarantined = quarantined
+        view.endEditing(true)
+        reconcileIsolation()
+    }
     func setFormCoverage(_ covered: Bool) {
         guard formCovered != covered else { return }
         formCovered = covered
@@ -666,7 +676,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         pose(current)
     }
     func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
-        guard !motion.retired, !intentPending, !awaitingReadmission, model.projection.enabled, model.projection.navigationLocked != true, model.allowsPageInteraction, covered,
+        guard !privacyQuarantined, !motion.retired, !intentPending, !awaitingReadmission, model.projection.enabled, model.projection.navigationLocked != true, model.allowsPageInteraction, covered,
               let pan = gesture as? UIPanGestureRecognizer else { return false }
         let velocity = pan.velocity(in: view)
         // A nested native page owns its system edge-pop. The outer drawer's
@@ -750,7 +760,9 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
             }
             self.pose(target)
             self.reportPresentationCompletion()
-            UIAccessibility.post(notification: .screenChanged, argument: open ? self.host.view : nil)
+            if !HushhSessionPrivacyShield.shared.snapshot().shielded {
+                UIAccessibility.post(notification: .screenChanged, argument: open ? self.host.view : nil)
+            }
         }
         animator = next
         reconcileIsolation()
@@ -763,16 +775,16 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
     }
     private func reconcileIsolation() {
         let covered = covered
-        scrim.isUserInteractionEnabled = covered
+        scrim.isUserInteractionEnabled = covered && !privacyQuarantined
         view.accessibilityViewIsModal = covered
-        host.view.accessibilityElementsHidden = !covered || formCovered
-        let interactive = covered && !formCovered && model.projection.enabled && !intentPending && !awaitingReadmission && !dragging && animator == nil
+        host.view.accessibilityElementsHidden = !covered || formCovered || privacyQuarantined
+        let interactive = covered && !formCovered && !privacyQuarantined && model.projection.enabled && !intentPending && !awaitingReadmission && !dragging && animator == nil
         host.view.isUserInteractionEnabled = interactive
         if model.interactionEnabled != interactive { model.interactionEnabled = interactive }
         isolation?(covered)
     }
     func allowsInteraction(_ action: String, row: String?, text: String? = nil) -> Bool {
-        guard !motion.retired, !formCovered, !awaitingReadmission, !dragging, animator == nil,
+        guard !motion.retired, !privacyQuarantined, !formCovered, !awaitingReadmission, !dragging, animator == nil,
               model.projection.allows(action: action, row: row, text: text) else { return false }
         return !intentPending || action == "open" || action == "close"
     }
@@ -1083,11 +1095,26 @@ struct NativeDrawerContent: View {
                                     .accessibilityIdentifier("native-profile-group-\(section.id)")
                             }
                             VStack(spacing: 0) {
+                                if section.id == "referral-link", let link = section.rows.first {
+                                    profileRow(link)
+                                    HStack(spacing: 12) {
+                                        ForEach(section.rows.filter { ["referral-copy", "referral-share"].contains($0.id) }) { row in
+                                            Button { model.choice("row", row: row.id) } label: {
+                                                Label(row.label, systemImage: row.id == "referral-copy" ? "doc.on.doc" : "square.and.arrow.up")
+                                                    .frame(maxWidth: .infinity, minHeight: 44)
+                                            }.buttonStyle(.bordered)
+                                                .disabled(!row.enabled || !model.controlsEnabled || model.choicePending)
+                                                .accessibilityIdentifier("native-profile-row-\(row.id)")
+                                        }
+                                    }.padding(.horizontal, 16).padding(.bottom, 12)
+                                    ForEach(section.rows.filter { $0.id == "referral-copy-error" }) { row in profileRow(row) }
+                                } else {
                                 ForEach(Array(section.rows.enumerated()), id: \.element.id) { index, row in
                                     profileRow(row)
                                     if index < section.rows.count - 1 {
                                         Divider().padding(.leading, NativeProfileArtwork.resolve(row.artworkId ?? row.id) != nil || row.symbol != nil ? 60 : 16).padding(.trailing, 16)
                                     }
+                                }
                                 }
                             }.background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
                         }
@@ -1230,6 +1257,11 @@ struct NativeSettingsRowLabel: View {
                     if let detail = row.detail {
                         Text(detail).font(.subheadline).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if let progress = row.progress {
+                        ProgressView(value: progress.value, total: progress.total)
+                            .accessibilityLabel(row.label)
+                            .accessibilityValue("\(progress.value.formatted()) of \(progress.total.formatted())")
                     }
                 }
                 Spacer(minLength: 8)

@@ -209,9 +209,13 @@ def get_embedding_client() -> EmbeddingClient:
 
 
 def _warmup_owns_model_load() -> bool:
-    """True when this image bakes the model, so the startup warmup loads it."""
+    """True when the hub startup warmup owns loading the baked model."""
+    from hushh_mcp.runtime_settings import pod_mode
     from hushh_mcp.services.embedding_client_leaf import BAKED_MODEL_DIR, BAKED_MODEL_DIR_ENV
 
+    # Pods have no action warmup; their first semantic search loads offline.
+    if pod_mode():
+        return False
     return os.getenv(BAKED_MODEL_DIR_ENV) == BAKED_MODEL_DIR and os.path.isdir(BAKED_MODEL_DIR)
 
 

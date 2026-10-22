@@ -74,6 +74,8 @@ EXTRA_IDENTITY_COLUMNS = {"consent_audit_receipts": {"subject_id"}}
 
 # Every function whose SQL runs inside the full-account erasure transaction.
 ERASURE_METHODS = (
+    "_delete_full_account_transaction",
+    "_assert_personal_agent_external_resources_absent",
     "_delete_full_account",
     "_delete_personal_agent_state",
     "_delete_one_referral_graph",
@@ -83,7 +85,7 @@ ERASURE_METHODS = (
 # transaction by AccountService._clear_external_connector_data.
 DRIVE_ERASURE = (
     "hushh_mcp/services/drive_sharing_retention.py",
-    ("erase_drive_account_in_transaction", "_erase_private_connector_registrations"),
+    ("erase_drive_account_in_transaction", "_erase_private_connector_settings"),
 )
 
 _TABLE_CONSTRAINT_HEADS = {"constraint", "primary", "unique", "check", "foreign", "exclude", "like"}
@@ -339,6 +341,19 @@ def uncovered_identity_tables(
             if not columns or table in covered:
                 continue
             foreign_keys = schema.tables[table].foreign_keys.values()
+            # These writers copy both job_id and user_id from the same parent.
+            # The executing erasure inventory test also checks their exact FK.
+            if table in {"one_profile_discovery_events", "one_profile_discovery_feed_outbox"}:
+                if columns == {"user_id"} and any(
+                    fk.columns == ("job_id",)
+                    and fk.parent == "one_profile_discovery_jobs"
+                    and fk.parent in covered
+                    and fk.on_delete == "CASCADE"
+                    for fk in foreign_keys
+                ):
+                    covered.add(table)
+                    changed = True
+                    continue
             if all(
                 any(
                     column in fk.columns

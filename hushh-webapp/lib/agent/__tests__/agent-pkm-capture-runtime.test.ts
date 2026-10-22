@@ -2,14 +2,39 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import {
+  agentPkmCaptureJobKey,
   aggregateAgentPkmCaptures,
   createAgentPkmCaptureGuard,
   describeAgentPkmCapture,
+  resumedAgentPkmCaptureMessageId,
   shouldPresentAgentPkmCapture,
   shouldPublishAgentPkmCapture,
 } from "../agent-pkm-capture-runtime";
 
 describe("Memory capture session boundary", () => {
+  it("keeps a resumed receipt bound to its actual bubble in the displayed conversation", () => {
+    const displayed = new Set(["current-answer"]);
+    expect(resumedAgentPkmCaptureMessageId("current-answer", undefined, displayed)).toBe("current-answer");
+    expect(resumedAgentPkmCaptureMessageId("old-answer", "current-answer", displayed)).toBeNull();
+    expect(resumedAgentPkmCaptureMessageId("current-answer", "other-answer", displayed)).toBeNull();
+    expect(resumedAgentPkmCaptureMessageId(undefined, "current-answer", displayed)).toBeNull();
+    expect(resumedAgentPkmCaptureMessageId("current-answer", undefined, new Set())).toBeNull();
+  });
+  it("does not fulfill an explicit or restricted save with an ambient capture promise", () => {
+    const turn = { assistantMessageId: "turn", sourceMessage: "Synthetic note" };
+    const ambient = agentPkmCaptureJobKey(turn);
+    expect(agentPkmCaptureJobKey({ ...turn, explicitRequest: true })).not.toBe(ambient);
+    const kyc = { ...turn, kycInformationSaveConfirmed: true, kycInformationRequestWorkflowId: "request-a" };
+    expect(agentPkmCaptureJobKey(kyc)).not.toBe(ambient);
+    expect(agentPkmCaptureJobKey({ ...kyc, kycInformationRequestWorkflowId: "request-b" })).not.toBe(agentPkmCaptureJobKey(kyc));
+    expect(agentPkmCaptureJobKey(turn)).toBe(ambient);
+  });
+  it("retains expired same-workspace receipts but refuses publication after owner/conversation retirement", () => {
+    const terminal = { phase: "saved" as const, saved: 1 };
+    expect(shouldPublishAgentPkmCapture(terminal, false, true)).toBe(true);
+    expect(shouldPublishAgentPkmCapture(terminal, true, false)).toBe(false);
+    expect(shouldPublishAgentPkmCapture(terminal, false, false)).toBe(false);
+  });
   it("retains every invocation receipt regardless of completion order", () => {
     const receipts = [
       { phase: "saved" as const, saved: 2 },

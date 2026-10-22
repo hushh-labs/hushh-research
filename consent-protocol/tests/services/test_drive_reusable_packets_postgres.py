@@ -16,6 +16,7 @@ from hushh_mcp.services.drive_document_facts_store import DriveDocumentFactsStor
 from hushh_mcp.services.drive_packet_store import LISTING_DISCLOSURE, DrivePacketStore
 from hushh_mcp.services.drive_packet_worker import DrivePacketWorker
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
+from hushh_mcp.services.drive_sharing_retention import erase_drive_account_in_transaction
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from tests.services.test_drive_ingestion import (
     collection,
@@ -753,10 +754,20 @@ async def test_independent_checker_failure_prevents_ready_and_listing(reusable, 
         )
 
 
+@pytest.mark.parametrize("erasure", ["connector", "reset"])
 async def test_reference_fk_does_not_block_connector_deletion_or_mutate_request_terms(
-    reusable, sharing
+    reusable, sharing, erasure
 ):
     packet = await ready_packet(reusable)
+    await reusable.packets.set_listing(
+        user_id="owner",
+        packet_id=packet["packetId"],
+        version=1,
+        decision="allow",
+        price_cents=51,
+        expected_revision=0,
+        disclosure=LISTING_DISCLOSURE,
+    )
     created = await request(sharing)
     with reusable.facts.db.engine.begin() as connection:
         connection.execute(
@@ -768,11 +779,40 @@ async def test_reference_fk_does_not_block_connector_deletion_or_mutate_request_
             text("SELECT request_envelope FROM drive_share_requests WHERE request_id=:id"),
             {"id": created["requestId"]},
         ).scalar_one()
-        connection.execute(
+        generation = connection.execute(
             text(
-                "DELETE FROM user_external_connector_connections WHERE user_id='owner' AND connector_id='google_drive'"
+                "SELECT connection_generation FROM user_external_connector_connections WHERE user_id='owner' AND connector_id='google_drive'"
             )
-        )
+        ).scalar_one()
+        connection.execute(text("UPDATE drive_packet_heads SET dirty=TRUE WHERE user_id='owner'"))
+    late_job = await reusable.packets.claim_packet(user_id="owner", policy_version=POLICY)
+    assert late_job
+    with reusable.facts.db.engine.begin() as connection:
+        if erasure == "reset":
+            erase_drive_account_in_transaction(
+                connection, user_id="owner", permanent=False, cipher=sharing.cipher
+            )
+        else:
+            connection.execute(
+                text(
+                    "DELETE FROM user_external_connector_connections WHERE user_id='owner' AND connector_id='google_drive'"
+                )
+            )
+        for table in (
+            "drive_packet_heads",
+            "drive_packet_members",
+            "drive_packet_versions",
+            "drive_packet_version_sources",
+            "drive_packet_listings",
+        ):
+            assert connection.execute(text(f"SELECT count(*) FROM {table}")).scalar_one() == 0
+        if erasure == "reset":
+            state = connection.execute(
+                text(
+                    "SELECT status, connection_generation FROM user_external_connector_connections WHERE user_id='owner' AND connector_id='google_drive'"
+                )
+            ).one()
+            assert state.status == "revoked" and state.connection_generation == generation + 1
         row = (
             connection.execute(
                 text(
@@ -781,126 +821,16 @@ async def test_reference_fk_does_not_block_connector_deletion_or_mutate_request_
                 {"id": created["requestId"]},
             )
             .mappings()
-            .one()
+            .one_or_none()
         )
-    assert row["request_envelope"] == before
-    assert row["reusable_packet_id"] is None and row["reusable_packet_version"] is None
-
-
-async def test_account_reset_erases_packet_evidence_while_retaining_generation_fence(reusable):
-    from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
-    from hushh_mcp.services.drive_sharing_retention import erase_drive_account_in_transaction
-
-    packet = await ready_packet(reusable)
-    await reusable.packets.set_listing(
-        user_id="owner",
-        packet_id=packet["packetId"],
-        version=1,
-        decision="allow",
-        price_cents=51,
-        expected_revision=0,
-        disclosure=LISTING_DISCLOSURE,
-    )
-    with reusable.facts.db.engine.begin() as connection:
-        before = connection.execute(
-            text("""SELECT connection_generation
-            FROM user_external_connector_connections
-            WHERE user_id='owner' AND connector_id='google_drive'""")
-        ).scalar_one()
-        assert (
-            connection.execute(text("SELECT count(*) FROM drive_packet_versions")).scalar_one() > 0
-        )
-        lock_connection_graph_users(connection, user_ids=["owner"])
-        erase_drive_account_in_transaction(connection, user_id="owner", permanent=False)
-        for table in (
-            "drive_packet_heads",
-            "drive_packet_members",
-            "drive_packet_versions",
-            "drive_packet_version_sources",
-            "drive_packet_listings",
-        ):
-            assert connection.exec_driver_sql(f"SELECT count(*) FROM {table}").scalar_one() == 0
-        row = (
-            connection.execute(
-                text("""SELECT status,connection_generation
-            FROM user_external_connector_connections
-            WHERE user_id='owner' AND connector_id='google_drive'""")
-            )
-            .mappings()
-            .one()
-        )
-        assert row["status"] == "revoked" and row["connection_generation"] == before + 1
-
-
-async def test_expired_fact_lease_cannot_commit_after_reclaim(reusable):
-    await originals(reusable)
-    await reusable.facts.enqueue(user_id="owner", policy_version=POLICY)
-    old = await reusable.facts.claim(user_id="owner", policy_version=POLICY)
-    with reusable.facts.db.engine.begin() as connection:
-        connection.execute(
-            text(
-                "UPDATE drive_document_facts SET lease_expires_at=clock_timestamp()-interval '1 second'"
-            )
-        )
-    new = await reusable.facts.claim(user_id="owner", policy_version=POLICY)
-    assert old["lease_id"] != new["lease_id"]
-    pages = [{"page": 1, "text": "Synthetic statement evidence"}]
-    with pytest.raises(DriveReadError, match="facts_superseded"):
-        await reusable.facts.commit_batch(
-            old, page_facts=page_facts(pages), document_facts=document_facts(pages)
-        )
-    await reusable.facts.commit_batch(
-        new, page_facts=page_facts(pages), document_facts=document_facts(pages)
-    )
-
-
-async def test_listing_deny_and_connection_revocation_remove_buyer_access(reusable):
-    packet = await ready_packet(reusable)
-    await reusable.packets.set_listing(
-        user_id="owner",
-        packet_id=packet["packetId"],
-        version=1,
-        decision="allow",
-        price_cents=125,
-        expected_revision=0,
-        disclosure=LISTING_DISCLOSURE,
-    )
-    await reusable.packets.set_listing(
-        user_id="owner",
-        packet_id=packet["packetId"],
-        version=1,
-        decision="deny",
-        price_cents=125,
-        expected_revision=1,
-        disclosure=None,
-    )
-    assert (await reusable.packets.list_packets(user_id="recipient", owner_user_id="owner"))[
-        "packets"
-    ] == []
-    with reusable.facts.db.engine.begin() as connection:
-        connection.execute(text("UPDATE connections SET status='revoked'"))
-    with pytest.raises(DriveSharingError, match="connection_required"):
-        await reusable.packets.list_packets(user_id="recipient", owner_user_id="owner")
-
-
-@pytest.mark.parametrize("change", ["pause", "generation"])
-async def test_packet_lease_fences_late_construction_after_authority_change(reusable, change):
-    await originals(reusable)
-    await reusable.worker.run_facts_one(user_id="owner")
-    job = await reusable.packets.claim_packet(user_id="owner", policy_version=POLICY)
-    assert job
-    if change == "pause":
-        await reusable.collection.set_processing(user_id="owner", enabled=False)
+    if erasure == "connector":
+        assert row["request_envelope"] == before
+        assert row["reusable_packet_id"] is None and row["reusable_packet_version"] is None
     else:
-        with reusable.facts.db.engine.begin() as connection:
-            connection.execute(
-                text(
-                    "UPDATE user_external_connector_connections SET connection_generation=connection_generation+1 WHERE user_id='owner'"
-                )
-            )
+        assert row is None
     with pytest.raises(DriveReadError):
         await reusable.packets.commit_build(
-            job, build={"assessment": {}}, after_document_id=None, phase="verify"
+            late_job, build={"assessment": {}}, after_document_id=None, phase="verify"
         )
     with reusable.facts.db.engine.connect() as connection:
         assert (
@@ -1082,9 +1012,13 @@ async def test_packet_failures_keep_safe_diagnostics_and_retry_behavior(
     assert secret not in caplog.text
 
 
-async def test_packet_claim_failure_is_logged_without_changing_exception_or_exposing_text(caplog):
+async def test_packet_claim_failure_is_logged_without_changing_exception_or_exposing_text(
+    caplog, monkeypatch
+):
     from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
 
+    admission = AsyncMock()
+    monkeypatch.setattr("hushh_mcp.services.drive_packet_worker.admit_hub_content", admission)
     secret = "private-sql-parameters-and-token"
     error = ConnectorLifecycleError(secret)
     store = SimpleNamespace(claim_packet=AsyncMock(side_effect=error), release_packet=AsyncMock())
@@ -1094,6 +1028,9 @@ async def test_packet_claim_failure_is_logged_without_changing_exception_or_expo
     with pytest.raises(ConnectorLifecycleError) as captured:
         await worker.run_packet_one(user_id="private-owner-id")
     assert captured.value is error
+    admission.assert_awaited_once_with(
+        "private-owner-id", "drive_packet_build_claim", resolve_mode=None
+    )
     store.release_packet.assert_not_awaited()
     assert (
         "stage=claim_packet code=connector_storage_unavailable attempt=0 elapsed_ms=" in caplog.text
@@ -1735,6 +1672,8 @@ async def test_semantic_sweep_runs_parallel_facts_with_one_enqueue_per_owner(reu
 async def test_semantic_sweep_gives_every_owner_work_before_parallel_facts(monkeypatch):
     from collections import Counter
 
+    admission = AsyncMock()
+    monkeypatch.setattr("hushh_mcp.services.drive_packet_worker.admit_hub_content", admission)
     monkeypatch.setenv("DRIVE_FACTS_OWNER_LEASES", "4")
     monkeypatch.setenv("DRIVE_PACKET_SLOTS", "3")
     facts = SimpleNamespace(
@@ -1767,6 +1706,9 @@ async def test_semantic_sweep_gives_every_owner_work_before_parallel_facts(monke
     # One packet build for the one owner with a build due; packet slots that
     # found none ran facts instead, so every slot did work.
     assert await worker.run(max_jobs=10) == {"packet_queued": 1, "facts_queued": 9, "idle": 5}
+    assert {call.args for call in admission.await_args_list} == {
+        (owner, "drive_packet_facts_enqueue") for owner in ("a", "b", "c", "d")
+    }
     facts_calls = [user_id for kind, user_id in calls if kind == "facts"]
     # Owner b is never starved by owner a: every owner with facts work gets a
     # job before any owner gets a second, then owners with more work get extra
@@ -2069,10 +2011,86 @@ async def test_incomplete_packet_reports_every_gap_and_cannot_be_listed(reusable
     assert view["state"] == "incomplete" and view["gaps"] == gaps and not view["canList"]
 
 
-async def test_packet_gates_read_the_file_creation_time_the_manifest_never_keeps(reusable):
-    # The same-statement gate tells two undated originals of one record apart
-    # by the day their files were created. The store carries that time to the
-    # builder and checker; the immutable manifest never keeps it.
+async def test_expired_fact_lease_cannot_commit_after_reclaim(reusable):
+    await originals(reusable)
+    await reusable.facts.enqueue(user_id="owner", policy_version=POLICY)
+    old = await reusable.facts.claim(user_id="owner", policy_version=POLICY)
+    with reusable.facts.db.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE drive_document_facts SET lease_expires_at=clock_timestamp()-interval '1 second'"
+            )
+        )
+    new = await reusable.facts.claim(user_id="owner", policy_version=POLICY)
+    assert old["lease_id"] != new["lease_id"]
+    pages = [{"page": 1, "text": "Synthetic statement evidence"}]
+    with pytest.raises(DriveReadError, match="facts_superseded"):
+        await reusable.facts.commit_batch(
+            old, page_facts=page_facts(pages), document_facts=document_facts(pages)
+        )
+    await reusable.facts.commit_batch(
+        new, page_facts=page_facts(pages), document_facts=document_facts(pages)
+    )
+
+
+async def test_listing_deny_and_connection_revocation_remove_buyer_access(reusable):
+    packet = await ready_packet(reusable)
+    await reusable.packets.set_listing(
+        user_id="owner",
+        packet_id=packet["packetId"],
+        version=1,
+        decision="allow",
+        price_cents=125,
+        expected_revision=0,
+        disclosure=LISTING_DISCLOSURE,
+    )
+    await reusable.packets.set_listing(
+        user_id="owner",
+        packet_id=packet["packetId"],
+        version=1,
+        decision="deny",
+        price_cents=125,
+        expected_revision=1,
+        disclosure=None,
+    )
+    assert (await reusable.packets.list_packets(user_id="recipient", owner_user_id="owner"))[
+        "packets"
+    ] == []
+    with reusable.facts.db.engine.begin() as connection:
+        connection.execute(text("UPDATE connections SET status='revoked'"))
+    with pytest.raises(DriveSharingError, match="connection_required"):
+        await reusable.packets.list_packets(user_id="recipient", owner_user_id="owner")
+
+
+@pytest.mark.parametrize("change", ["pause", "generation"])
+async def test_packet_lease_fences_late_construction_after_authority_change(reusable, change):
+    await originals(reusable)
+    await reusable.worker.run_facts_one(user_id="owner")
+    job = await reusable.packets.claim_packet(user_id="owner", policy_version=POLICY)
+    assert job
+    if change == "pause":
+        await reusable.collection.set_processing(user_id="owner", enabled=False)
+    else:
+        with reusable.facts.db.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE user_external_connector_connections SET connection_generation=connection_generation+1 WHERE user_id='owner'"
+                )
+            )
+    with pytest.raises(DriveReadError):
+        await reusable.packets.commit_build(
+            job, build={"assessment": {}}, after_document_id=None, phase="verify"
+        )
+    with reusable.facts.db.engine.connect() as connection:
+        assert (
+            connection.execute(text("SELECT count(*) FROM drive_packet_versions")).scalar_one() == 0
+        )
+
+
+async def test_worker_carries_host_file_time_without_persisting_it_in_manifest(reusable):
+    # The store carries creation time through the host worker evidence ports.
+    # This is metadata conservation, not model-context or semantic proof;
+    # model input filters and the immutable manifest separately withhold it.
     from dataclasses import replace
 
     seen, checker = [], reusable.worker.checker

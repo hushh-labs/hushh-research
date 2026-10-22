@@ -157,6 +157,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/release-tools"
+          cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
           git checkout --detach "${{ steps.resolve-sha.outputs.sha }}"
 
       - name: Validate Google Cloud workload identity configuration
@@ -1108,6 +1110,8 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_ENV"
 
+
+
       - name: Semantic dev verification
         id: verify-dev-1
         continue-on-error: true
@@ -1436,6 +1440,21 @@ jobs:
           echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
           echo "frontend_url=${frontend_url}" >> "$GITHUB_OUTPUT"
 
+          for component in backend frontend; do
+            if [ "${component}" = backend ]; then
+              revision="${backend_revision}"
+            else
+              revision="${frontend_revision}"
+            fi
+            serving_sha=""
+            if [ -n "${revision}" ]; then
+              serving_sha="$(gcloud run revisions describe "${revision}" \
+                --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+                --format='value(metadata.labels.deploy-sha)')"
+            fi
+            echo "${component}_sha=${serving_sha}" >> "$GITHUB_OUTPUT"
+          done
+
       - name: Write dev release status artifact
         if: always()
         shell: bash
@@ -1446,7 +1465,7 @@ jobs:
           BACKEND_ROLLBACK_DONE=true
           FRONTEND_ROLLBACK_DONE=true
 
-          if [ "${{ steps.classify-dev-release.outputs.release_failed }}" != "true" ]; then
+          if [ "${{ steps.classify-dev-release.outputs.release_failed }}" = "false" ]; then
             STATUS="healthy"
           else
             if [ "${{ steps.classify-dev-release.outputs.backend_failure }}" = "true" ] && [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] && [ "${{ steps.predeploy-state.outputs.backend_revision }}" != "" ]; then
@@ -1515,8 +1534,10 @@ jobs:
               },
               "final": {
                   "backend_revision": "${{ steps.final-state.outputs.backend_revision }}",
+                  "backend_sha": "${{ steps.final-state.outputs.backend_sha }}",
                   "backend_url": "${{ steps.final-state.outputs.backend_url }}",
                   "frontend_revision": "${{ steps.final-state.outputs.frontend_revision }}",
+                  "frontend_sha": "${{ steps.final-state.outputs.frontend_sha }}",
                   "frontend_url": "${{ steps.final-state.outputs.frontend_url }}",
               },
               "verification_plan": {
@@ -1554,6 +1575,21 @@ jobs:
           }
           Path("/tmp/dev-release-status.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
           PY
+
+      - name: Produce exact-SHA dev acceptance
+        if: always() && env.DEV_TARGET == 'shared-dev'
+        run: |
+          python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" create \
+            --environment dev --status /tmp/dev-release-status.json \
+            --output /tmp/dev-acceptance/acceptance.json
+
+      - name: Upload immutable dev acceptance
+        if: always() && env.DEV_TARGET == 'shared-dev'
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-acceptance-dev-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/dev-acceptance/acceptance.json
+          if-no-files-found: ignore
 
       - name: Cancel an unused parallel frontend image build
         # Hygiene only: a release that stopped before the frontend deploy leaves

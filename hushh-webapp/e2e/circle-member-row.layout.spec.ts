@@ -988,6 +988,15 @@ test.describe("Circle roster row", () => {
           await expect(menu).toHaveCSS("border-radius", "20px");
           const share = page.getByRole("menuitem", { name: "Share location" });
           await expect(share).toHaveCSS("height", "52px");
+          const readAccent = (cssVariable = "--app-accent-deep") => sheet.evaluate((element, cssVariable) => {
+            const probe = document.createElement("span");
+            probe.style.color = `var(${cssVariable})`;
+            element.append(probe);
+            const color = getComputedStyle(probe).color;
+            probe.remove();
+            return color;
+          }, cssVariable);
+          const defaultAccent = await readAccent();
           await expect(share).toHaveCSS("font-size", "17px");
           const colors = await share.locator("svg").evaluate(svg => ({
             outline: getComputedStyle(svg.querySelector("path")!).stroke,
@@ -995,14 +1004,29 @@ test.describe("Circle roster row", () => {
           }));
           expect(colors.outline).not.toBe(colors.accent);
           expect(colors.accent).not.toBe("none");
+          const accentPaths = share.locator(".profile-pane-icon-accent");
+          const accentCount = await accentPaths.count();
+          expect(accentCount).toBeGreaterThan(0);
+          for (let index = 0; index < accentCount; index++) {
+            await expect(accentPaths.nth(index)).toHaveCSS("stroke", await readAccent("--ios-account-accent"));
+          }
           const cancel = sheet.getByRole("button", { name: "Cancel", exact: true });
-          await expect(cancel).toHaveCSS("height", "50px");
+          await expect(cancel).toHaveCSS("height", "52px");
           if (!owner) {
             await expect(remove).toHaveCSS("justify-content", "center");
             await expect(remove).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
             await expect(remove).toHaveCSS("border-width", "0px");
           }
-          await expect(cancel).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+          await expect(cancel).toHaveCSS("background-color", "rgb(242, 242, 247)");
+          await expect(cancel).toHaveCSS("color", defaultAccent);
+          await page.evaluate(() => document.documentElement.dataset.accent = "gold");
+          const goldAccent = await readAccent();
+          expect(goldAccent).not.toBe(defaultAccent);
+          for (let index = 0; index < accentCount; index++) {
+            await expect(accentPaths.nth(index)).toHaveCSS("stroke", await readAccent("--ios-account-accent"));
+          }
+          await expect(cancel).toHaveCSS("color", goldAccent);
+          await page.evaluate(() => delete document.documentElement.dataset.accent);
           const sheetGeometry = await sheet.evaluate((element) => {
             const menu = element.querySelector<HTMLElement>('[role="menu"]')!;
             const body = element.querySelector<HTMLElement>('[data-task-region="body"]')!;

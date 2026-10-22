@@ -11,7 +11,7 @@ export type NativeConnectorEditorModel = PrivateProfileEditorModel<NativeConnect
 const adapter: PrivateProfileEditorAdapter<NativeConnectorDraft, NativeConnectorScene> = {
   valid: validNativeConnectorProjection, validFinal: validNativeConnectorFinalEdit, fence: identity => new NativeConnectorFence(identity),
   connect: identity => {
-    const source = nativeDrawers as typeof nativeDrawers & NativeConnectorScenePort;
+    const source = nativeDrawers() as ReturnType<typeof nativeDrawers> & NativeConnectorScenePort;
     return { port: { source, apply: state => source.applyProfileConnectorScene(state), confirm: action => source.confirmProfileConnectorAction(action),
       settle: action => source.settleProfileConnectorAction(action), retire: () => source.retireProfileConnectorScene(identity),
       edits: callback => source.addListener("profileConnectorEdit", callback), choices: callback => source.addListener("profileConnectorAction", callback) },

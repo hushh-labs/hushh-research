@@ -8,7 +8,7 @@ import { NativePrivateProfileForm } from "./native-private-profile-form";
 const adapter: PrivateProfileEditorAdapter<NativeMemoryDraft, "memory-financial-context"> = {
   valid: validNativeMemoryProjection, validFinal: validNativeMemoryFinalEdit, fence: identity => new NativeMemoryFence(identity),
   connect: identity => {
-    const source = nativeDrawers as typeof nativeDrawers & NativeMemoryScenePort;
+    const source = nativeDrawers() as ReturnType<typeof nativeDrawers> & NativeMemoryScenePort;
     return { port: { source, apply: state => source.applyProfileMemoryScene(state), confirm: action => source.confirmProfileMemoryAction(action),
       settle: action => source.settleProfileMemoryAction(action), retire: () => source.retireProfileMemoryScene(identity),
       edits: callback => source.addListener("profileMemoryEdit", callback), choices: callback => source.addListener("profileMemoryAction", callback) },

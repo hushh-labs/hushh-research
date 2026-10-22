@@ -145,8 +145,8 @@
         "_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET": "UAT connector credential encryption material must not cross environment boundaries; dev requires independently provisioned keys.",
         "_DRIVE_DOCUMENT_KEY_V1_SECRET": "UAT document encryption material must not cross environment boundaries; dev requires independently provisioned keys.",
         "_DRIVE_SHARING_KEY_V1_SECRET": "UAT sharing-receipt encryption material must not cross environment boundaries; dev requires independently provisioned keys.",
-        "_STRIPE_CONNECT_SECRET_KEY_SECRET": "The independent UAT Connect binding may select test or live mode; dev retains its existing payment-mode Connect key and has Hussh Coins enrollment disabled.",
-        "_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET": "UAT-only sandbox connected-account endpoint secret; must not cross environment boundaries. This lane retains its existing Connect webhook.",
+        "_STRIPE_CONNECT_SECRET_KEY_SECRET": "Shared Dev resolves its optional environment-local STRIPE_CONNECT_SECRET_KEY through backend-deploy.sh; missing credentials leave bank setup unavailable. No UAT or scope-commerce credential fallback; Hussh Coins enrollment remains disabled.",
+        "_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET": "Shared Dev resolves its optional environment-local STRIPE_CONNECT_TEST_WEBHOOK_SECRET through backend-deploy.sh. Its dedicated sandbox endpoint never borrows UAT signing material.",
         "_REVIEWER_COUNTERPART_UID_SECRET": "UAT-only counterpart reviewer credential; this lane requires independently provisioned identities and must not inherit UAT vault credentials.",
         "_REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET": "UAT-only counterpart reviewer credential; this lane requires independently provisioned identities and must not inherit UAT vault credentials."
       }

@@ -1,6 +1,92 @@
 import SwiftUI
 import UIKit
 
+/// Public preference controls use the existing fenced presenter outside the chat pilot.
+enum HushhNativePreferencePresentation {
+    static var families: [String] {
+        families(for: UIDevice.current.userInterfaceIdiom)
+    }
+    static func families(for idiom: UIUserInterfaceIdiom) -> [String] {
+        if #available(iOS 17.0, *), idiom == .phone || idiom == .pad {
+            return ["appearance", "accent"]
+        }
+        return []
+    }
+    static func admitsWidth(_ width: Double, kind: String) -> Bool {
+        width.isFinite && ((132...320).contains(width) || (kind == "accent" && width == 44))
+    }
+    @available(iOS 17.0, *)
+    static func control(kind: String, value: String?, width: CGFloat, theme: HushhNativeControlAppearance, focus: ChromeFocusRequest,
+                        select: @escaping (String) -> Void, open: @escaping () -> Void, layout: @escaping (CGSize) -> Void) -> AnyView? {
+        if kind == "appearance" {
+            return AnyView(NativeAppearanceSelector(selected: value ?? "system", width: width, theme: theme, action: select, layout: layout))
+        }
+        if kind == "accent", width >= 132 {
+            return AnyView(NativeAccentSelector(selected: value ?? "blue", width: width, theme: theme, action: open, layout: layout, focus: focus))
+        }
+        return nil // Preserve the previous icon presentation for legacy 44pt accent slots.
+    }
+}
+
+/// System remains the saved preference; it is never replaced by resolved darkness.
+@available(iOS 17.0, *)
+struct NativeAppearanceSelector: View {
+    let selected: String
+    let width: CGFloat
+    let theme: HushhNativeControlAppearance
+    let action: (String) -> Void
+    let layout: (CGSize) -> Void
+    var body: some View {
+        Picker("Appearance", selection: Binding(get: { selected }, set: action)) {
+            Image(systemName: "sun.max").tag("light").accessibilityLabel("Light")
+            Image(systemName: "moon").tag("dark").accessibilityLabel("Dark")
+            Image(systemName: "desktopcomputer").tag("system").accessibilityLabel("System")
+        }
+        .pickerStyle(.segmented).controlSize(.large)
+        .tint(Color(uiColor: theme.accent)).accessibilityIdentifier("profile-appearance")
+        .frame(width: width, height: 44)
+        .onGeometryChange(for: CGSize.self, of: { $0.size }, action: layout)
+    }
+}
+
+/// The saved color and its menu opener occupy one native, accessible control.
+@available(iOS 17.0, *)
+struct NativeAccentSelector: View {
+    let selected: String
+    let width: CGFloat
+    let theme: HushhNativeControlAppearance
+    let action: () -> Void
+    let layout: (CGSize) -> Void
+    @ObservedObject var focus: ChromeFocusRequest
+    @AccessibilityFocusState private var accessibilityFocused: Bool
+    var body: some View {
+        styledButton
+        .buttonBorderShape(.capsule).tint(Color(uiColor: theme.accent))
+        .accessibilityLabel("App accent color").accessibilityValue(selected == "gold" ? "Molten Gold" : "iOS Blue")
+        .accessibilityIdentifier("profile-accent").accessibilityFocused($accessibilityFocused)
+        .onChange(of: focus.sequence) { _, _ in accessibilityFocused = true }
+        .frame(width: width, height: 44)
+        .onGeometryChange(for: CGSize.self, of: { $0.size }, action: layout)
+    }
+
+    @ViewBuilder
+    private var styledButton: some View {
+        if #available(iOS 26.0, *) { button.buttonStyle(.glass) }
+        else { button.buttonStyle(.bordered) }
+    }
+
+    private var button: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Circle().fill(Color(uiColor: theme.accent)).frame(width: 12, height: 12)
+                Text(selected == "gold" ? "Molten Gold" : "iOS Blue").font(.subheadline)
+                Image(systemName: "chevron.down").font(.caption.weight(.semibold))
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                .foregroundStyle(Color(uiColor: theme.foreground))
+        }
+    }
+}
+
 struct HushhChromeOption {
     let value: String
     let label: String

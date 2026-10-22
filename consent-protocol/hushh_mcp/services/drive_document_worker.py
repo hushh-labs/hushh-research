@@ -17,6 +17,7 @@ from hushh_mcp.services.drive_document_processor import LocalDocumentProcessor
 from hushh_mcp.services.drive_document_store import PROCESSING_DISCLOSURE_VERSION
 from hushh_mcp.services.drive_ingestion_service import DriveIngestionService
 from hushh_mcp.services.drive_worker_limits import extraction_owner_slots, semantic_slots
+from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
 # Lower bound on concurrent extraction jobs across all owners in one sweep.
 SWEEP_SLOTS_MIN = 4
@@ -215,6 +216,7 @@ class DriveDocumentWorker:
                             # The database lease cap and SKIP LOCKED keep these
                             # jobs on distinct documents across slots/instances.
                             async with gate:
+                                await admit_hub_content(owner, "drive_document_worker")
                                 outcome = await self.service.run_one(
                                     user_id=owner, prefer_profile_upgrade=prefer_profile_upgrade
                                 )

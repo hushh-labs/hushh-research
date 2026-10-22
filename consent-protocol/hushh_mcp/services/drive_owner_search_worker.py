@@ -16,6 +16,7 @@ from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchServic
 from hushh_mcp.services.drive_telemetry import drive_logger, drive_stage
 from hushh_mcp.services.drive_trusted_auto_service import DriveTrustedAutoService
 from hushh_mcp.services.drive_work_wake import wake_drive_work
+from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
 logger = drive_logger(__name__)
 
@@ -119,25 +120,8 @@ class DriveOwnerSearchWorker:
                 slices += 1
                 more = False
                 try:
-                    authority = (
-                        await trusted_auto.search_authority_for_job(
-                            user_id=job["user_id"], job_id=str(job["job_id"])
-                        )
-                        if trusted_auto
-                        else None
-                    )
-                    outcome = await self.service.run_one(
-                        user_id=job["user_id"],
-                        job_id=str(job["job_id"]),
-                        deadline_seconds=min(90, remaining),
-                        **(
-                            {
-                                "require_current": authority,
-                                "after_page": trusted_auto.after_search_page,
-                            }
-                            if authority is not None
-                            else {}
-                        ),
+                    outcome = await self._run_admitted_job(
+                        job, remaining, trusted_auto=trusted_auto
                     )
                     if outcome == "queued":
                         # The slice has released its lease. A retry backoff
@@ -201,3 +185,26 @@ class DriveOwnerSearchWorker:
         if work_remains and not woke:
             await wake_drive_work(stage)
         return {"schema_version": "drive.owner_search.worker.v1", "outcomes": dict(counts)}
+
+    async def _run_admitted_job(self, job, remaining, *, trusted_auto):
+        await admit_hub_content(job["user_id"], "drive_search_worker")
+        authority = (
+            await trusted_auto.search_authority_for_job(
+                user_id=job["user_id"], job_id=str(job["job_id"])
+            )
+            if trusted_auto
+            else None
+        )
+        return await self.service.run_one(
+            user_id=job["user_id"],
+            job_id=str(job["job_id"]),
+            deadline_seconds=min(90, remaining),
+            **(
+                {
+                    "require_current": authority,
+                    "after_page": trusted_auto.after_search_page,
+                }
+                if authority is not None
+                else {}
+            ),
+        )

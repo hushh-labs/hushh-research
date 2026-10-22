@@ -121,3 +121,12 @@ describe("device guard", () => {
     ]);
   });
 });
+
+it("requires explicit identifier processing permission and still refuses credentials", () => {
+  const information = "My SSN is 123-45-6789";
+  expect(() => assertNoUnguardedSecrets([information])).toThrow();
+  expect(() => assertNoUnguardedSecrets([information], { allowIdentifierProcessing: true })).not.toThrow();
+  expect(() => assertNoUnguardedSecrets([information, ["password:", "synthetic", "credential"].join(" ")], {
+    allowIdentifierProcessing: true,
+  })).toThrow();
+});

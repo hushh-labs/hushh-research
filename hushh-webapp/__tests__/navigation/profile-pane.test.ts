@@ -33,8 +33,9 @@ import {
   resolveProfileRouteState,
 } from "@/lib/navigation/profile-routes";
 import { backProfilePane } from "@/lib/navigation/profile-pane-back";
-import { registerBackLayer } from "@/lib/navigation/back-layers";
 import { projectNativeProfileLegal } from "@/components/profile/profile-native-legal";
+
+import { registerBackLayer } from "@/lib/navigation/back-layers";
 
 const ACCOUNT = { panel: "account" as const, detail: null };
 const PHONE = { panel: "account" as const, detail: "phone" as const };
@@ -301,6 +302,37 @@ describe("Profile pane navigation state", () => {
     popProfilePaneLocation("/one", window.location.search);
     expect(back).toHaveBeenCalledOnce();
     back.mockRestore();
+  });
+
+  it("unwinds only active pane disclosures before navigation, preserving Phone and underlying Memory", () => {
+    openProfilePane("/one", window.location.search, ACCOUNT);
+    const underlying = vi.fn(() => true);
+    const releaseUnderlying = registerBackLayer({ pathname: "/one", depth: 9, back: underlying });
+    let receipt = true, history = true;
+    const query = { profile_pane: "1", profile_panel: "account" };
+    const releaseHistory = registerBackLayer({ pathname: "/one", query, depth: 1, back: () => {
+      if (!history) return false;
+      history = false; return true;
+    } });
+    const releaseReceipt = registerBackLayer({ pathname: "/one", query, depth: 2, back: () => {
+      if (!receipt) return false;
+      receipt = false; return true;
+    } });
+    try {
+      popProfilePaneLocation("/one", window.location.search);
+      expect(receipt).toBe(false); expect(history).toBe(true);
+      popProfilePaneLocation("/one", window.location.search);
+      expect(history).toBe(false);
+      expect(resolveProfilePaneUrlState(window.location.search).location).toEqual(ACCOUNT);
+      popProfilePaneLocation("/one", window.location.search);
+      expect(resolveProfilePaneUrlState(window.location.search).location.panel).toBeNull();
+      replaceProfilePaneLocation("/one", window.location.search, PHONE);
+      history = true;
+      popProfilePaneLocation("/one", window.location.search);
+      expect(history).toBe(true);
+      expect(resolveProfilePaneUrlState(window.location.search).location).toEqual(ACCOUNT);
+      expect(underlying).not.toHaveBeenCalled();
+    } finally { releaseReceipt(); releaseHistory(); releaseUnderlying(); }
   });
 
   it("pops a resumed child to its parent instead of closing the sheet", () => {

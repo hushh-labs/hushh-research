@@ -20,6 +20,7 @@ import {
   useCallback,
   useDeferredValue,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -72,7 +73,7 @@ import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
 import { WalletCardBrowser } from "@/components/wallet/wallet-card-browser";
 import { isAgentWalletCard, type WalletDemoProfile } from "@/components/wallet/wallet-demo-cards";
 import { useBackLayer } from "@/lib/navigation/back-layers";
-import { ROUTES } from "@/lib/navigation/routes";
+
 import browserStyles from "@/components/wallet/wallet-card-browser.module.css";
 import { WalletSharing } from "@/components/wallet/wallet-sharing";
 import { useAuth } from "@/hooks/use-auth";
@@ -99,6 +100,7 @@ import {
   walletViewReducer,
 } from "@/lib/wallet/wallet-view-state";
 import { takeReservedOfferPrefill } from "@/lib/pkm/reserved-offer";
+import { ROUTES } from "@/lib/navigation/routes";
 
 
 
@@ -265,6 +267,7 @@ export function WalletWorkspace() {
   const demoProfile = profileVisit.authorized && loadedProfile?.visit === profileVisit
     ? loadedProfile.profile
     : { ownerId: renderedOwnerId ?? undefined, displayName: fallbackName, shareUrl: null, cardPayload: null };
+
   // Read the token getter through a ref: its identity changes with the vault
   // context, and putting it in effect deps re-ran the list load on every render.
   const getVaultOwnerTokenRef = useRef(getVaultOwnerToken);
@@ -287,7 +290,6 @@ export function WalletWorkspace() {
   const introductionSaving = introductionWrite?.ownerId === renderedOwnerId;
   const introductionLoading = !renderedOwnerId || introduction?.ownerId !== renderedOwnerId;
   const introductionOpen = introductionLoading || !introduction?.seen;
-  const [cardDockHost, setCardDockHost] = useState<HTMLDivElement | null>(null);
   const [formRevision, setFormRevision] = useState(0);
   const [artworkRetryRevision, setArtworkRetryRevision] = useState(0);
   const consumedArtworkRetryRevision = useRef(0);
@@ -327,6 +329,7 @@ export function WalletWorkspace() {
       }
     }
   };
+  const [cardDockHost, setCardDockHost] = useState<HTMLDivElement | null>(null);
   const [selectedDeckCardId, setSelectedDeckCardId] = useState<string | null>(null);
   const tabHistory = useRef<{ tab: WalletTab; cardId: string | null }[]>([]);
   const addSaveInFlight = useRef<symbol | null>(null);
@@ -334,6 +337,9 @@ export function WalletWorkspace() {
   const [searchOpen, setSearchOpen] = useState(Boolean(searchParams?.get("q")));
   const ready = !authBlocked && (view.kind === "list" || view.kind === "add" || view.kind === "reveal");
   const activeTab = view.kind === "add" ? "add" : tab;
+  // Pager and tab controls can report one selection in the same event stack.
+  const activeTabCursor = useRef<WalletTab>(activeTab);
+  useLayoutEffect(() => { activeTabCursor.current = activeTab; }, [activeTab, renderedOwnerId, vaultKey]);
   const cardReadRevision = useRef(0);
   const [cardSnapshot, setCardSnapshot] = useState<ReturnType<typeof presentationState> | null>(() => warmSnapshot ? presentationState(warmSnapshot) : null);
   const ownedSnapshot = !authBlocked && vaultKey && cardSnapshot?.ownerId === renderedOwnerId && cardSnapshot.epoch === vaultEpoch ? cardSnapshot : null;
@@ -359,6 +365,7 @@ export function WalletWorkspace() {
       tabHistory.current = [];
       setSelectedDeckCardId(null);
       setRemovingCardId(null);
+      activeTabCursor.current = "cards";
       setTab("cards");
       setFiling(null);
       setOfferNickname(null);
@@ -368,7 +375,7 @@ export function WalletWorkspace() {
 
   useEffect(() => {
     if (!ready || activeTab !== "cards") return;
-    const visit = profileVisit;
+    const visit = profileVisitRef.current;
     let second = 0;
     const first = window.requestAnimationFrame(() => {
       second = window.requestAnimationFrame(() => {
@@ -380,12 +387,13 @@ export function WalletWorkspace() {
       window.cancelAnimationFrame(first);
       if (second) window.cancelAnimationFrame(second);
     };
-  }, [activeTab, ready, profileVisit]);
+  }, [activeTab, ready]);
 
   const selectTab = (value: string) => {
-    if (!ready || value === activeTab || !WALLET_TABS.some((option) => option.value === value)) return;
+    if (!ready || value === activeTabCursor.current || !WALLET_TABS.some((option) => option.value === value)) return;
     if (value === "cards") tabHistory.current = [];
-    else tabHistory.current = [...tabHistory.current.slice(-23), { tab: activeTab, cardId: selectedDeckCardId }];
+    else tabHistory.current = [...tabHistory.current.slice(-23), { tab: activeTabCursor.current, cardId: selectedDeckCardId }];
+    activeTabCursor.current = value as WalletTab;
     // Drop revealed values and reject an in-flight reveal when leaving Cards.
     dispatch({ type: "unfocus" });
     dispatch({ type: "close_add" });
@@ -394,7 +402,7 @@ export function WalletWorkspace() {
   };
   const returnToWalletView = () => {
     if (addSaveInFlight.current) return true;
-    if (activeTab === "add") {
+    if (activeTabCursor.current === "add") {
       setFormRevision(revision => revision + 1);
       setOfferNickname(null);
       clearSecretOffer();
@@ -403,6 +411,7 @@ export function WalletWorkspace() {
     const previous = tabHistory.current.pop() ?? { tab: "cards" as const, cardId: null };
     dispatch({ type: "unfocus" });
     dispatch({ type: "close_add" });
+    activeTabCursor.current = previous.tab;
     setTab(previous.tab);
     const cardId = previous.tab === "cards" && previous.cardId && (isAgentWalletCard(previous.cardId) || cards.some(card => card.cardId === previous.cardId)) ? previous.cardId : null;
     setSelectedDeckCardId(cardId);
@@ -450,18 +459,23 @@ export function WalletWorkspace() {
       return;
     }
     let cancelled = false;
+    let requestSequence = 0;
     let loading = false;
     const recoveryAttempts = new Set<number | null>();
     const load = async () => {
       if (cancelled || loading || document.visibilityState === "hidden") return;
+      const sequence = ++requestSequence;
       const token = getVaultOwnerTokenRef.current();
-      if (!token) return;
+      if (!token) {
+        if (!cancelled && profileVisitRef.current === profileVisit) setLoadedProfile(null);
+        return;
+      }
       const isCurrent = () =>
-        !cancelled && profileVisitRef.current === profileVisit &&
+        !cancelled && sequence === requestSequence &&
+        profileVisitRef.current === profileVisit &&
         isVaultSessionEpochCurrent(profileVisit.epoch) &&
         activeOwnerIdRef.current === ownerId &&
         getVaultOwnerTokenRef.current() === token;
-      if (!isCurrent()) return;
       loading = true;
       try {
         const state = await WalletCardService.getCard({ userId: ownerId, vaultOwnerToken: token });
@@ -540,15 +554,17 @@ export function WalletWorkspace() {
   const revokeReferral = useCallback(async (slug: string) => {
     const visit = profileVisit;
     const context = vaultContext();
-    if (!user || !context) throw new Error("Unlock your vault to revoke access.");
+    const revision = cardActionScopeRef.current.revision;
     const isCurrent = () => profileVisitRef.current === visit &&
-      activeOwnerIdRef.current === context.userId && getVaultOwnerTokenRef.current() === context.vaultOwnerToken;
-    if (!isCurrent()) throw new Error("Your session changed.");
+      cardActionScopeRef.current.revision === revision && document.visibilityState !== "hidden" &&
+      activeOwnerIdRef.current === context?.userId && getVaultOwnerTokenRef.current() === context?.vaultOwnerToken;
+    if (!user || !context || !isCurrent()) throw new Error("Unlock your vault to revoke access.");
     const idToken = await user.getIdToken();
     if (!isCurrent()) throw new Error("Your session changed.");
     ++referralReadRevision.current;
     const summary = await ReferralService.rotateShareLink({ idToken, slug });
-    if (!isCurrent()) return;
+    if (!isCurrent()) throw new Error("Your session changed.");
+    // Only the current visit may retire pre-mutation reads.
     ++referralReadRevision.current;
     setReferralState({ visit, summary });
     setReferralErrorVisit(null);
@@ -563,7 +579,7 @@ export function WalletWorkspace() {
     return () => { window.clearInterval(timer); window.removeEventListener("focus", visible); };
   }, [user, referralConnected, loadReferral]);
   const referralSummary = referralState?.visit === profileVisit ? referralState.summary : null;
-  const walletIdentity = demoProfile.ownerId === renderedOwnerId ? { ...demoProfile, referralUrl: referralSummary?.link ?? null } : null;
+  const walletIdentity = demoProfile ? { ...demoProfile, referralUrl: referralSummary?.link ?? null } : null;
   // Decryption is asynchronous; whether the vault is still open is re-read
   // from the latest render when it settles, never from the tap that began it.
   const vaultContextRef = useRef(vaultContext);
@@ -1131,18 +1147,17 @@ export function WalletWorkspace() {
 
           {hasCards && searchOpen && deferredQuery ? <ul className="mx-auto w-full max-w-[820px] space-y-2" aria-label="Card search results">{filteredCards.map((card) => <li key={card.cardId}><Button variant="secondary" size="standard" className="w-full justify-start" onClick={() => selectCard(card.cardId)}>{card.nickname || cardNetworkLabel(card.brand)} · {cardNetworkLabel(card.brand)} ending {card.last4}</Button></li>)}</ul> : null}
           {ready && !(searchOpen && deferredQuery) ? (
-            <WalletCardBrowser demoProfile={walletIdentity} referralSummary={referralSummary} referralError={referralErrorVisit === profileVisit} onRevokeReferral={revokeReferral} onRetryReferral={() => void loadReferral()} ownerId={renderedOwnerId || undefined}
-              key={renderedOwnerId || "wallet"}
+            <WalletCardBrowser dockHost={cardDockHost} demoProfile={walletIdentity} referralSummary={referralSummary} referralError={referralErrorVisit === profileVisit} onRetryReferral={() => void loadReferral()} onRevokeReferral={revokeReferral} ownerId={renderedOwnerId || undefined}
+              key={renderedOwnerId}
               cards={cards}
               cardholderNames={cardholderNames}
               artworks={artworks}
               pendingArtworkIds={ownedSnapshot?.pendingArtworkIds}
               selectedCardId={selectedDeckCardId}
               onSelect={selectCard}
-              onOverview={() => { setSelectedDeckCardId(null); dispatch({ type: "unfocus" }); }}
+              onOverview={() => { cardActionScopeRef.current.revision += 1; setSelectedDeckCardId(null); dispatch({ type: "unfocus" }); }}
               onAdd={() => selectTab("add")}
               details={cardDetails}
-              dockHost={cardDockHost}
               active={activeTab === "cards"}
               onRemove={requestRemove}
               busyCardId={removingCardId}
@@ -1154,6 +1169,7 @@ export function WalletWorkspace() {
           {ready ? (
             <div className="mx-auto w-full max-w-[820px] pb-4">
               <SecureCardAddForm
+                backRoute={ROUTES.ONE_WALLET}
                 collectSecurityCode
                 showIntroduction={false}
                 getNetworkContext={vaultContext}
@@ -1229,6 +1245,7 @@ export function WalletWorkspace() {
                     }
                     setFormRevision((revision) => revision + 1);
                     tabHistory.current = [];
+                    activeTabCursor.current = "cards";
                     setTab("cards");
                     dispatch({ type: "close_add" });
                     if (savedCardId) dispatch({ type: "focus", cardId: savedCardId });

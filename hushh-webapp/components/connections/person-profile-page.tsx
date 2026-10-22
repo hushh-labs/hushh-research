@@ -1,4 +1,5 @@
 "use client";
+import { PersonRequestHistoryHeading } from "@/components/connections/person-request-history-heading";
 
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 
@@ -44,7 +45,6 @@ import {
   StatusPill,
 } from "@/lib/morphy-ux/ui/surface-primitives";
 import { PersonProfileHero, PersonProfileTaskContent, PersonProfileEmptyState } from "./person-profile-hero";
-import { HelperText, RowLabel } from "@/components/app-ui/typography";
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
 import { SharedWithYouCard } from "@/components/agent/consent/shared-with-you-card";
 import { humanSharedLabel, type SharedWithMeCardItem } from "@/lib/agent/agui-structured-experiences";
@@ -412,11 +412,28 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
       const detail = (event as CustomEvent<{ data?: { type?: string } }>).detail;
       if (["consent_resolved", "shared_information_updated"].includes(String(detail?.data?.type || ""))) refresh();
     };
-    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, refresh);
+    const onConsentChanged = (event: Event) => {
+      const detail = (event as CustomEvent<Record<string, unknown>>).detail;
+      // Pending-count hydration is bookkeeping, not a change to this person's
+      // requestable information. Do not discard an in-progress request for it.
+      // Explicit mutations, reconciliation requests and unknown legacy events
+      // still invalidate the catalog before another request can be submitted.
+      if (!detail?.action && detail?.reconcile !== true
+        && ["cached_pending", "queued_pending", "hydrated_pending", "fallback_reconciled", "fcm_opened"].includes(String(detail?.source || ""))) return;
+      // A changed grant invalidates the reviewed terms immediately, including
+      // while the replacement catalog is still loading.
+      setReviewOpen(false);
+      setSelectedScopeRefs(new Set());
+      setPurpose("");
+      setDurationHours(DEFAULT_REQUEST_DURATION_HOURS);
+      setDisplayState({ personRef: resolvedPersonRef, viewerUid: user.uid, profile: null });
+      refresh();
+    };
+    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, onConsentChanged);
     window.addEventListener(FCM_MESSAGE_EVENT, onPush);
     return () => {
       unsubscribe();
-      window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, refresh);
+      window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, onConsentChanged);
       window.removeEventListener(FCM_MESSAGE_EVENT, onPush);
     };
   }, [resolvedPersonRef, user]);
@@ -1045,6 +1062,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
                 testIdPrefix="person-profile-scope"
                 selection={{
                   selectedIds: selectedScopeRefs,
+                  grantedIds: grantedScopeRefs,
                   onToggleMany: (ids, select) =>
                     setSelectedScopeRefs((current) => toggleRequestScopes(
                       allScopes, current, ids.filter((id) => !grantedScopeRefs.has(id)), select,
@@ -1085,19 +1103,14 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
                       );
                       return (
                         <div key={bundleId} className={styles.historyRow}>
-                          <div className="min-w-0 flex-1">
-                            <RowLabel as="p" className={`ui-text-row-label-emphasized ${styles.historyTitle}`}>{title}</RowLabel>
-                            <HelperText className={styles.historySupporting}>{requestPurpose}</HelperText>
-                            {createdAt ? (
-                              <HelperText className={styles.historySupporting}>
-                                {new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(createdAt))}
-                              </HelperText>
-                            ) : null}
-                          </div>
+                          <PersonRequestHistoryHeading title={title} requestPurpose={requestPurpose} createdAt={createdAt} />
                           <div className={styles.historyActions}>
                             <StatusPill tone={statusItems.length === itemCount && grantedCount === itemCount ? "ready" : "neutral"}>
                               {statusLabel}
                             </StatusPill>
+                            {statusItems.filter(item => /^[A-Za-z0-9_-]{1,128}$/.test(item.requestId)).map(item => (
+                              <Button key={item.requestId} asChild type="button" variant="none" effect="fade"><Link href={`/one/consent?commerceRequestId=${encodeURIComponent(item.requestId)}`}>Review request</Link></Button>
+                            ))}
                             {!details ? (
                               <Button
                                 type="button"

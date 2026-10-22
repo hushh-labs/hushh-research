@@ -46,7 +46,8 @@ export class NativeProfileScenePresentation<P extends NativeProfileSceneState,
     private readonly ownerIsCurrent: () => boolean,
     private readonly onPhase: (phase: "active" | "blocked" | "fallback") => void,
     private readonly closeOnSaved = true,
-    private readonly copyState: (state: P) => P = state => ({ ...state })) {}
+    private readonly copyState: (state: P) => P = state => ({ ...state }),
+    private readonly interactionIsCurrent: () => boolean = ownerIsCurrent) {}
 
   async listen(): Promise<boolean> {
     if (this.disposed || this.listening) return false;
@@ -106,11 +107,11 @@ export class NativeProfileScenePresentation<P extends NativeProfileSceneState,
     }
   }
   private edit(event: E): void {
-    if (this.disposed || !this.ownerIsCurrent() || !this.current || !this.fence.consumeEdit(event)) return;
+    if (this.disposed || !this.interactionIsCurrent() || !this.ownerIsCurrent() || !this.current || !this.fence.consumeEdit(event)) return;
     try { this.current.actions.edit(event); } catch { void this.fail(); }
   }
   private async choose(event: A): Promise<void> {
-    if (this.disposed || !this.ownerIsCurrent() || !event || !sameNativeDrawer(event, this.identity) ||
+    if (this.disposed || !this.interactionIsCurrent() || !this.ownerIsCurrent() || !event || !sameNativeDrawer(event, this.identity) ||
         event.scene !== this.identity.scene || !Number.isSafeInteger(event.sequence) || event.sequence <= this.seenAction) return;
     this.seenAction = event.sequence;
     if (!this.fence.allows(event)) { await this.reject(event); return; }
@@ -120,7 +121,7 @@ export class NativeProfileScenePresentation<P extends NativeProfileSceneState,
     if (!this.fence.allows(event)) { await this.reject(event); return; }
     try {
       const accepted = await this.fence.consumeAction(event, () => acknowledged(this.port.confirm(event)),
-        () => !this.disposed && (event.action === "cancel" || this.current === current) && this.ownerIsCurrent());
+        () => !this.disposed && (event.action === "cancel" || this.current === current) && this.ownerIsCurrent() && this.interactionIsCurrent());
       if (!accepted) { await acknowledged(this.port.settle(event)); return; }
       if (event.action === "cancel") {
         if (await this.retire() && this.ownerIsCurrent()) current.actions.cancel();

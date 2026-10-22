@@ -268,15 +268,19 @@ it("lets a non-file lane replace the Drive delivery sentence", () => {
   renderSheet({
     settlement: <span>Answer account setup</span>,
     description: "They pay this price before the answer is written.",
+    deliveryDescription: "One written answer",
   });
   expect(
     screen.getByText("They pay this price before the answer is written."),
   ).toBeVisible();
   expect(screen.queryByText(/matching files/)).toBeNull();
+  expect(screen.getByText("One written answer")).toBeVisible();
+  expect(screen.queryByText("Viewer, until removed")).toBeNull();
 });
 
 it("keeps the Drive sentence when no lane description is supplied", () => {
   // Negative control: the document workflow's own wording is unchanged.
   renderSheet();
   expect(screen.getByText(/matching files are found/)).toBeVisible();
+  expect(screen.getByText("Viewer, until removed")).toBeVisible();
 });

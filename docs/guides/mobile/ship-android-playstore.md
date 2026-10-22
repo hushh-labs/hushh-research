@@ -1,7 +1,7 @@
 # Ship Android to Google Play
 
 Release authority, exact-SHA proof, branch restoration, and terminal monitoring follow the
-[canonical Admin release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md).
+[canonical Admin release SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md).
 This guide adds Android Play Store-specific build and verification detail only.
 
 ## Visual Context

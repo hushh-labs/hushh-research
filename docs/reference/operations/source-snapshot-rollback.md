@@ -4,7 +4,7 @@
 
 Canonical visual owner: [Operations Index](./README.md). This runbook covers
 source, hosted runtime, and native release recovery; merge and release
-authority stays in the [Admin merge and release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md).
+authority stays in the [Admin merge and release SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md).
 
 ## Purpose and scope
 
@@ -194,13 +194,13 @@ without bypassing gates.
 ## 5. Merge and verify the landed main tree
 
 Use the returned PR link. Follow the canonical
-[Admin merge and release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md):
+[Admin merge and release SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md):
 require CI and reviews on the exact current PR head, request the normal merge
 queue, and confirm the PR actually lands. This runbook grants no Admin bypass
 or direct push to `main`.
 
 If `main` advances before landing, refresh the **same** recovery branch through
-the [maintainer freshness procedure](../../../.codex/skills/repo-operations/references/maintainer-branch-freshness.md),
+the [maintainer freshness procedure](../../../.agents/skills/repo-operations/references/maintainer-branch-freshness.md),
 reapply the selected snapshot, review the new diff, and rerun the required
 verification before another push. Do not repeat the initial clone block over
 an existing recovery checkout or assume a queued merge preserves the snapshot.

@@ -164,6 +164,7 @@ it("accepts a deep PWM draft with scored evidence but rejects padded duplicates"
 const session = {
   vaultKey: "synthetic-key",
   vaultOwnerToken: "synthetic-token",
+  isCurrent: () => true,
 };
 const progress = (searches: number): PwmProgress => ({
   stage: "coverage",

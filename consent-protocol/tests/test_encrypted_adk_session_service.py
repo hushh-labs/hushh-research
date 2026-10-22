@@ -375,6 +375,282 @@ async def test_overlapping_snapshots_preserve_both_committed_events(monkeypatch)
     assert [event.id for event in after_retry.events].count("request_submission_source_1") == 1
 
 
+async def test_explicit_repository_keeps_owner_cipher_and_never_uses_hub_database(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.chat_key import ChatKeyMismatchError
+
+    class EmptyRepository:
+        def __bool__(self):
+            return False
+
+    repository = EmptyRepository()
+    repository.create = AsyncMock(return_value=SimpleNamespace(data=[{"revision": 1}]))
+    repository.get = AsyncMock()
+    monkeypatch.setattr(
+        "hushh_mcp.one_adk.encrypted_session_service.get_db",
+        lambda: pytest.fail("explicit runtime repository reached hub database"),
+    )
+    shared_outbox = AsyncMock(side_effect=AssertionError("Private session reached shared outbox"))
+    monkeypatch.setattr(
+        "hushh_mcp.one_adk.adk_session_repository._replace_with_reply_usage", shared_outbox
+    )
+    service = EncryptedAdkSessionService(
+        static_chat_cipher(), repository=repository, referral_usage_app_name="one"
+    )
+    session = await service.create_session(
+        app_name="one",
+        user_id="owner",
+        session_id="thread",
+        state={"note": "synthetic private note"},
+    )
+    sealed = repository.create.call_args.kwargs
+    assert sealed["user"] == "owner"
+    assert "synthetic private note" not in str(sealed)
+    repository.get.return_value = SimpleNamespace(
+        data=[
+            {
+                "session_id": "thread",
+                "revision": 1,
+                **{
+                    "payload_" + key: sealed[key]
+                    for key in ("ciphertext", "iv", "tag", "algorithm")
+                },
+            }
+        ]
+    )
+    restored = await service.get_session(app_name="one", user_id="owner", session_id="thread")
+    assert restored.state == session.state
+    foreign = EncryptedAdkSessionService(static_chat_cipher("ab" * 32), repository=repository)
+    with pytest.raises(ChatKeyMismatchError):
+        await foreign.get_session(app_name="one", user_id="owner", session_id="thread")
+
+    phases = []
+    monkeypatch.setattr(service, "_record_phase", lambda phase, _started: phases.append(phase))
+    repository.replace = AsyncMock(return_value=SimpleNamespace(data=[{"revision": 2}]))
+    await service.append_event(restored, Event(author="one", timestamp=1.0))
+    assert phases == ["append", "persistence"]
+    replaced = repository.replace.call_args.kwargs
+    assert replaced["user"] == "owner" and replaced["session"] == "thread"
+    assert "synthetic private note" not in str(replaced)
+
+    await service.append_event(
+        restored,
+        Event(
+            author="user",
+            timestamp=3.0,
+            invocation_id="private-turn",
+            content=types.Content(role="user", parts=[types.Part(text="synthetic private prompt")]),
+        ),
+    )
+    await service.append_event(
+        restored,
+        Event(
+            author="one",
+            timestamp=4.0,
+            invocation_id="private-turn",
+            content=types.Content(role="model", parts=[types.Part(text="synthetic private reply")]),
+        ),
+    )
+    assert "reply_usage" not in repository.replace.call_args.kwargs
+    shared_outbox.assert_not_awaited()
+
+    phases.clear()
+    repository.replace.side_effect = RuntimeError("synthetic persistence failure")
+    with pytest.raises(RuntimeError, match="synthetic persistence failure"):
+        await service.append_event(restored, Event(author="one", timestamp=2.0))
+    assert phases == ["append", "persistence"]
+
+
+@pytest.mark.asyncio
+async def test_pod_repository_recovers_owner_cipher_and_rejects_stale_or_revoked_access(
+    tmp_path, monkeypatch
+):
+    from hushh_mcp.one_adk import pod_adk_checkpoint
+    from hushh_mcp.one_adk.pod_adk_session_repository import (
+        PodAdkSessionProjection,
+        PodAdkSessionRepository,
+        PodAdkSessionUnavailable,
+    )
+    from hushh_mcp.services.chat_key import CHAT_CIPHERTEXT_LIKE
+    from hushh_mcp.services.pod_commit_log import (
+        LocalObjectStore,
+        PodCommitLog,
+        PodLogFenced,
+        PodLogTampered,
+    )
+
+    monkeypatch.setattr(pod_adk_checkpoint, "INTERVAL", 1)
+
+    monkeypatch.setattr(
+        "hushh_mcp.one_adk.encrypted_session_service.get_db",
+        lambda: pytest.fail("private conversation reached hub database"),
+    )
+    log = PodCommitLog(LocalObjectStore(str(tmp_path / "log")), b"k" * 32, owner_id="HA1fixture")
+    admitted = True
+
+    async def access():
+        if not admitted:
+            raise PermissionError("session expired")
+
+    def repository():
+        return PodAdkSessionRepository(
+            projection=PodAdkSessionProjection(owner_id="owner", hushh_id="HA1fixture", log=log),
+            require_access=access,
+        )
+
+    repo = repository()
+    service = EncryptedAdkSessionService(static_chat_cipher(), repository=repo)
+    identity = {"app_name": "hussh_one", "user_id": "owner", "session_id": "fixture-chat"}
+    session = await service.create_session(**identity, state={"fixture": "synthetic private text"})
+    old = await service.get_session(**identity)
+    await service.append_event(
+        session,
+        Event(
+            author="user",
+            content=types.Content(role="user", parts=[types.Part(text="synthetic message")]),
+        ),
+    )
+    # A second request gets a fresh admission callback and may share only sealed records.
+    restarted_repo = repository()
+    restarted = EncryptedAdkSessionService(static_chat_cipher(), repository=restarted_repo)
+    restored = await restarted.get_session(**identity)
+    assert restored.state["fixture"] == "synthetic private text"
+    assert len(restored.events) == 1
+    assert "synthetic private text" not in repr(restarted_repo._projection._entries)
+    # Turn completion checkpoints even a short tail below the periodic interval.
+    with monkeypatch.context() as patch:
+        patch.setattr(pod_adk_checkpoint, "INTERVAL", 10000)
+        await log.append("unrelated", {"synthetic": True})
+        await restarted_repo._projection.snapshot(force_save=True)
+        assert restarted_repo._projection._checkpoint_seq == restarted_repo._projection._cursor.seq
+    # A lost optimization write cannot erase the authoritative conversation.
+    with monkeypatch.context() as patch:
+        from unittest.mock import AsyncMock
+
+        patch.setattr(log._store, "put_if_generation", AsyncMock(side_effect=OSError("synthetic")))
+        seq, entries = await restarted_repo._projection.snapshot(force_save=True)
+        assert seq and entries and not restarted_repo._projection._loaded
+    # Once checkpointed, cold recovery reads no historic record objects.
+    with monkeypatch.context() as patch:
+
+        async def no_history_read(_key):
+            pytest.fail("checkpoint recovery replayed old records")
+
+        patch.setattr(log._store, "get", no_history_read)
+        cold = EncryptedAdkSessionService(static_chat_cipher(), repository=repository())
+        assert len((await cold.get_session(**identity)).events) == 1
+    coords = {
+        "app": "hussh_one",
+        "user": "owner",
+        "session": "fixture-chat",
+        "chat_marker": CHAT_CIPHERTEXT_LIKE,
+    }
+    assert not (
+        await repo.replace(**coords, revision=service._revision(old), **service._encode(old))
+    ).data
+    with pytest.raises(PodAdkSessionUnavailable, match="owner mismatch"):
+        await repo.get(**{**coords, "user": "foreign"})
+    admitted = False
+    with pytest.raises(PermissionError, match="expired"):
+        await restarted.get_session(**identity)  # warm cache does not confer authority
+    admitted = True
+    await restarted.delete_session(**identity)
+    assert await service.get_session(**identity) is None
+    assert not (
+        await repo.replace(
+            **coords, revision=service._revision(restored), **service._encode(restored)
+        )
+    ).data
+    assert (
+        await EncryptedAdkSessionService(static_chat_cipher(), repository=repository()).get_session(
+            **identity
+        )
+        is None
+    )
+    blob, generation = await log._store.get_with_generation(pod_adk_checkpoint.KEY)
+    assert b"synthetic message" not in blob
+    # A stale cache publisher cannot replace the current encrypted checkpoint.
+    stale = str(int(generation) - 1 or "")  # the version before the current one
+    assert await log._store.put_if_generation(pod_adk_checkpoint.KEY, blob, stale) is None
+    corrupted_generation = await log._store.put_if_generation(
+        pod_adk_checkpoint.KEY, blob[:-1] + bytes([blob[-1] ^ 1]), generation
+    )
+    with pytest.raises(PodLogTampered):
+        await repository().get(**coords)
+    await log._store.put_if_generation(pod_adk_checkpoint.KEY, blob, corrupted_generation)
+    # Erasure can race after a valid projection read; a warm result must still
+    # pass the final log fence before leaving the request-bound repository.
+    snapshot = restarted_repo._projection.snapshot
+
+    async def erased_after_snapshot():
+        result = await snapshot()
+        await log.fence_for_erasure(owner_id="HA1fixture", attempt_id="fixture-erasure")
+        return result
+
+    with monkeypatch.context() as patch:
+        patch.setattr(restarted_repo._projection, "snapshot", erased_after_snapshot)
+        with pytest.raises(PodLogFenced):
+            await restarted.get_session(**identity)
+    with pytest.raises(PodLogFenced):
+        await restarted.get_session(**identity)
+
+
+@pytest.mark.asyncio
+async def test_pod_chat_recovers_across_more_than_ten_thousand_unrelated_commits():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.one_adk.pod_adk_session_repository import PodAdkSessionProjection
+    from hushh_mcp.services.pod_commit_log import PodCommitLog, _canonical, _record_sha
+
+    objects = {}
+    store = SimpleNamespace(
+        get=AsyncMock(side_effect=lambda key: objects.get(key)),
+        get_with_generation=AsyncMock(side_effect=lambda key: (objects.get(key), "1")),
+        get_bounded_with_generation=AsyncMock(side_effect=lambda key, **_: (objects.get(key), "1")),
+        put_if_generation=AsyncMock(return_value="2"),
+    )
+    log = PodCommitLog(store, b"k" * 32, owner_id="HA1fixture")
+    previous_key = previous_sha = None
+    for seq in range(1, 10002):
+        kind, payload = "unrelated", {}
+        if seq == 1:
+            kind = "pod.adk.session.v1"
+            payload = {
+                "format": 1,
+                "owner": "owner",
+                "hushhId": "HA1fixture",
+                "app": "one",
+                "session": "fixture",
+                "previous": 0,
+                "operation": "delete",
+            }
+        digest = _record_sha(seq, kind, payload, previous_sha)
+        key = f"records/{seq:012d}-abcdef12.bin"
+        objects[key] = log._seal(
+            {
+                "seq": seq,
+                "kind": kind,
+                "payload": payload,
+                "prev_key": previous_key,
+                "prev_sha": previous_sha,
+                "sha": digest,
+            }
+        )
+        previous_key, previous_sha = key, digest
+    objects[log.HEAD] = _canonical({"seq": seq, "key": key, "sha": digest})
+    projection = PodAdkSessionProjection(owner_id="owner", hushh_id="HA1fixture", log=log)
+    observed_seq, entries = await projection.snapshot()
+    assert observed_seq == 10001
+    assert entries == {
+        ("one", "fixture"): {"revision": 1, "deleted": True, "session_id": "fixture"}
+    }
+    assert (
+        store.get.await_count == 10001
+    )  # Verification visits every link without retaining the chain.
+
+
 def test_a_row_sealed_with_invocation_state_opens_without_it(monkeypatch) -> None:
     """Rows sealed before 2026-09-28 hold an answer turn's ``temp:`` record; a
     new invocation must never start with it (the same-chat consent leak)."""

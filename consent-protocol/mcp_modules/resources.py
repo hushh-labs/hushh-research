@@ -63,6 +63,36 @@ async def list_resources() -> list[Resource]:
     ]
 
 
+def _consent_lifecycle_information() -> dict:
+    return {
+        "steps": [
+            {
+                "tool": "search-user-scopes",
+                "rule": "Select the narrowest returned scope that satisfies the declared purpose.",
+            },
+            {
+                "tool": "request-consent",
+                "rule": "Create or reuse one app-bound request; retain only request_ref or grant_ref.",
+            },
+            {
+                "tool": "check-consent-status",
+                "rule": "Poll at the returned interval and stop at a terminal state or timeout.",
+            },
+            {
+                "tool": "get-encrypted-scoped-export",
+                "rule": "Fetch only after grant; require expected_scope and never request plaintext fallback.",
+            },
+        ],
+        "terminal_states": ["granted", "denied", "expired", "revoked", "cancelled"],
+        "revocation": "A revoked or expired grant must fail closed on every subsequent export attempt.",
+        "paid_access": {
+            "initial_request": "Tariff estimates only; the owner approves exact scope and duration before the quote is frozen.",
+            "confirmation": "The authenticated app owner confirms the exact quote in the Hussh app. MCP credentials and caller settlement references never authorize spending.",
+            "activation": "Consent, payment and access states are separate. A paid request stays pending until encrypted delivery is ready and its fixed activation time has arrived.",
+        },
+    }
+
+
 async def read_resource(uri: str) -> str:
     uri_str = str(uri).strip().rstrip("/")
     contract = get_public_contract()
@@ -102,7 +132,7 @@ async def read_resource(uri: str) -> str:
         payload: dict[str, object] = {
             "tools": tool_names,
             "flow": contract["server"]["instructions"]["consent_flow"],
-            "stdio": "The local connector manages its X25519 keypair and returns bounded approved information.",
+            "stdio": "For free grants, local stdio manages its X25519 keypair and returns bounded approved information. Paid exports always stay encrypted for trusted recipient decryption outside model context.",
             "hosted": "The connector receives ciphertext and flat envelope primitives over MCP, validates envelope v2, and decrypts outside model context.",
             "never_disclose": [
                 "caller or internal user identifiers",
@@ -128,28 +158,7 @@ async def read_resource(uri: str) -> str:
             ],
         }
     elif uri_str == "hushh://info/consent-lifecycle":
-        payload = {
-            "steps": [
-                {
-                    "tool": "search-user-scopes",
-                    "rule": "Select the narrowest returned scope that satisfies the declared purpose.",
-                },
-                {
-                    "tool": "request-consent",
-                    "rule": "Create or reuse one app-bound request; retain only request_ref or grant_ref.",
-                },
-                {
-                    "tool": "check-consent-status",
-                    "rule": "Poll at the returned interval and stop at a terminal state or timeout.",
-                },
-                {
-                    "tool": "get-encrypted-scoped-export",
-                    "rule": "Fetch only after grant; require expected_scope and never request plaintext fallback.",
-                },
-            ],
-            "terminal_states": ["granted", "denied", "expired", "revoked", "cancelled"],
-            "revocation": "A revoked or expired grant must fail closed on every subsequent export attempt.",
-        }
+        payload = _consent_lifecycle_information()
     else:
         logger.warning("Unknown MCP resource requested")
         payload = {"error_code": "RESOURCE_NOT_FOUND", "message": "Unknown MCP resource."}

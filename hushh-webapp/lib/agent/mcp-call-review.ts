@@ -9,15 +9,23 @@ export type McpCallReviewReference = {
   expiresAt: string;
 };
 
+export type PodMcpReview = {
+  kind: "pod_mcp_review_v1"; ownerId: string; hushhId: string; podKeyId: string;
+  environment: string; epoch: number; conversationId: string; connectorId: string;
+  toolName: string; callId: string; catalogRevision: string; commitment: string; serviceUid: string;
+};
+
 export type McpCallPreview = McpCallReviewReference & {
   connectorLabel: string;
   toolLabel: string;
   arguments: Record<string, unknown>;
+  podReview?: PodMcpReview;
+  replacesDirectiveId?: string;
 };
 
 export type McpCallApproval = Pick<McpCallReviewReference,
   "connectorId" | "toolName" | "directiveId" | "pendingHandle"
-> & { receipt: string };
+> & { receipt: string; replacesDirectiveId?: string };
 
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -61,9 +69,12 @@ export function parseMcpCallPreview(
 ): McpCallPreview | null {
   const preview = record(value);
   if (!preview || preview.status !== "review_required") return null;
-  for (const key of [...Object.keys(patterns), "expiresAt"]) {
+  for (const key of [...Object.keys(patterns), "expiresAt"].filter(key => key !== "directiveId")) {
     if (preview[key] !== reference[key as keyof McpCallReviewReference]) return null;
   }
+  const replaced = preview.directiveId !== reference.directiveId;
+  if (typeof preview.directiveId !== "string" || !patterns.directiveId.test(preview.directiveId) ||
+      (replaced && (!preview.podReview || preview.replacesDirectiveId !== reference.directiveId))) return null;
   const args = record(preview.arguments);
   if (!args || typeof preview.toolLabel !== "string" ||
       !preview.toolLabel.trim() || preview.toolLabel.length > 256) return null;
@@ -72,12 +83,25 @@ export function parseMcpCallPreview(
   try {
     if (new TextEncoder().encode(JSON.stringify(args)).length > 32_768) return null;
   } catch { return null; }
-  return { ...reference, connectorLabel: preview.connectorLabel, toolLabel: preview.toolLabel, arguments: args };
+  let podReview: PodMcpReview | undefined;
+  if (preview.podReview !== undefined) {
+    const value = record(preview.podReview);
+    const textFields = ["ownerId", "hushhId", "podKeyId", "environment", "conversationId",
+      "connectorId", "toolName", "callId", "catalogRevision", "commitment", "serviceUid"];
+    if (!value || Object.keys(value).length !== textFields.length + 2 ||
+        value.kind !== "pod_mcp_review_v1" || !Number.isSafeInteger(value.epoch) || Number(value.epoch) < 1 ||
+        textFields.some(key => typeof value[key] !== "string" || !value[key] || String(value[key]).length > 256) ||
+        value.connectorId !== reference.connectorId || value.toolName !== reference.toolName ||
+        !/^[a-f0-9]{64}$/.test(String(value.commitment))) return null;
+    podReview = value as PodMcpReview;
+  }
+  return { ...reference, directiveId: preview.directiveId, ...(replaced ? { replacesDirectiveId: reference.directiveId } : {}),
+    ...(podReview ? { podReview } : {}), connectorLabel: preview.connectorLabel, toolLabel: preview.toolLabel, arguments: args };
 }
 
 /** Approval travels only in scrubbed forwardedProps, not native tool output. */
 export function parseMcpCallApproval(
-  value: unknown, reference: McpCallReviewReference,
+  value: unknown, reference: McpCallReviewReference & { replacesDirectiveId?: string },
 ): McpCallApproval | null {
   const receipt = record(value);
   if (!receipt || receipt.status !== "confirmed" ||
@@ -87,5 +111,6 @@ export function parseMcpCallApproval(
     connectorId: reference.connectorId, toolName: reference.toolName,
     directiveId: reference.directiveId, pendingHandle: reference.pendingHandle,
     receipt: receipt.receipt,
+    ...(reference.replacesDirectiveId ? { replacesDirectiveId: reference.replacesDirectiveId } : {}),
   };
 }

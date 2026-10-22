@@ -2,6 +2,10 @@
 
 ## Visual Context
 
+### Dev-only migration promotion
+
+Promotion is separate release work, not part of a private-pod dev rollout. Inspect the current release and dev manifests, migration authority and environment contracts before choosing migration identifiers. Reconcile already-applied dev migrations and checksums; do not assume renumbered SQL is safe to replay. Update affected dev-manifest entries in the same change so moved files cannot break dev deployment; retain the lane while other dev-only migrations remain. Update table-family lifecycle declarations and regenerate their projections. Rehearse against a disposable restoration and run the existing release-migration contract gates before an authorized rollout. Historical migration numbers and blanket idempotence claims are not instructions.
+
 Canonical visual owner: [Operations Index](README.md). Use that map for the top-down operations view; this page defines the database migration authority and the environment contract model.
 
 ## Visual Map
@@ -37,7 +41,7 @@ stateDiagram-v2
 
   replay --> observe: HUSHH_MIGRATION_MODE set to observe
   observe --> baselineGate: bounded write-freeze, evidence captured
-  baselineGate --> ledger: baseline recorded, local/test/UAT only
+  baselineGate --> ledger: baseline recorded, local/test/Dev/UAT only
   baselineGate --> failClosed: incomplete or unverified preservation evidence
   ledger --> ledger: re-run executes zero bodies
   observe --> failClosed: an accepted checksum changed
@@ -69,6 +73,49 @@ Migration execution authority is implemented by:
 The SQL migration files remain the authored schema history. The ledger records
 which immutable checksums an environment has accepted; it is not a second
 authored manifest.
+
+## Shared-dev compatibility deferral — 2026-10-09
+
+Main's canonical migration 249 is destructive chat-history cleanup. This branch
+previously used that number for a public-profile bridge, now registered as 298.
+Shared-dev runs **replay**, which ignores ledger/baseline coverage and records no
+release receipts. Synchronizing the canonical SQL must not trigger another
+history cutover during an ordinary application deployment.
+
+The existing dev manifest pins 249's filename and checksum as deferred. Only an
+explicit `hushh-pda-dev` / `shared-dev` / `postgres` target using the production
+base lane excludes it from replay execution. Observe still inspects canonical
+history; ledger refuses until the deferral is resolved. Production, UAT and the
+isolated commerce preview retain their canonical selectors and baselines.
+Changed SQL or invalid deferral metadata refuses before migration execution.
+
+A release schema check proves shape and the minimum head, not execution of every
+canonical migration. Record this deferral in deployment evidence. The prior
+parked 944 receipt is separate and cannot stand in for canonical 249. Removing
+the deferral requires the approved history-cutover recovery, writer drain and
+command-settlement evidence; do not change a baseline or mark 249 applied.
+
+## Private-action replay continuity
+
+Shared dev replays canonical migrations but applies parked migrations only once.
+Consequently, matching 945/966 ledger checksums did not prove that their action
+channel checks were still installed: canonical 212/231/248 restored older checks
+and the first installed Browser review returned 503. Dev-only 971 repairs those
+two checks after validating the exact private-action restriction under a table
+lock. It changes no accepted migration body or checksum.
+
+The existing replay authority uses a narrowly pinned adapter for those three
+historical files. It preserves only the qualified 971 successor's two checks;
+all document, command and ADK DDL still runs. Full validated definitions and
+lineage markers must agree. Missing or altered successor evidence refuses replay.
+Without that successor, historical behavior remains unchanged. Ledger and observe
+modes retain their original authority.
+
+Verify affected installed constraints and a real review across repeated canonical
+replay, not only manifest parity. Application rollback may disable the capability
+while preserving compatible review history. The 971 SQL down path refuses while
+private reviews remain; never delete history to force it. Restoring its earlier
+schema requires the separately reviewed forward qualification before re-enablement.
 
 ## Execution Modes
 
@@ -129,6 +176,28 @@ enforced; an unknown or unvalidated successor cannot use this exception.
 
 ## UAT Zero-Loss Baseline Gate
 
+The same preservation authority supports an explicitly authorized Dev cutover.
+Verify the complete canonical release history before recording its baseline;
+parked migration receipts do not prove a release prefix. Preserve divergent
+preview SQL and receipts without relabeling accepted history. A Dev baseline
+requires the same backup, restored-clone, source-preservation and readback proof.
+The CLI admits qualified nonproduction targets, including explicitly bound Dev.
+Shared Dev must resolve its release deferrals before baseline establishment;
+target flags and an earlier clone comparison do not replace fresh authorization
+or permit production use.
+
+Canonical migration 249 and parked cleanup 944 have different refusal guards.
+Do not use 944's tests as proof that 249 executed. Qualify the unchanged canonical
+SQL against the disposable restored schema, including marked command checkpoints,
+directive receipts and capability runs. For the actual Dev cutover, independently
+verify the connected database identity, public relation bindings and
+`search_path=pg_catalog,public,pg_temp` (explicitly keeping temporary relations last), drain
+incompatible revisions, tagged endpoints, jobs and workers, and resolve command
+effects. Expiry alone does not prove settlement. Under the bounded freeze, verify
+zero targets using 249's actual predicates, including conversations after unmarked
+messages would be removed; retain fresh backup, restore and preservation evidence
+before establishing and reading back the baseline.
+
 Before establishing a UAT baseline:
 
 1. capture the read-only preservation manifest with
@@ -150,7 +219,33 @@ operators set `PG_RESTORE_BIN` explicitly when the host default differs.
 Reports remain under ignored `tmp/` and never contain plaintext protected
 information.
 
-This logical dump/restore procedure is a **UAT baseline tool only**. It is not the
+Capture runs within one repeatable-read, read-only transaction, including the
+catalog, table digests, null counts and ciphertext aggregates. For a logical
+backup, keep an exporting transaction open and pass its `pg_export_snapshot()`
+identifier to both the capture tool's `--snapshot-id` and `pg_dump --snapshot`.
+Close the exporter only after both operations finish. Keep the identifier in
+process memory. The final source-preservation check still requires current
+state under the bounded write-freeze; an earlier shared snapshot cannot prove
+that subsequent writes preserved the source.
+
+Row digests order collatable primary-key components with explicit `C` collation;
+numeric and UUID keys retain their native comparisons. Every component reverses
+for the maximum composite-key bound. This prevents libc/ICU ordering differences
+from masquerading as changed information. Capture both comparison reports with
+the current ordering contract and the same snapshot/backup; retain historical
+reports unchanged. Exact catalog and full-information comparison still apply.
+
+Pin extension namespaces and versions before restoring into the empty clone.
+PostgreSQL client-major parity alone does not prevent `CREATE EXTENSION` from
+selecting a newer default version. A restore that differs in extension version
+or catalog representation is not accepted evidence. Reconstruct a deparsed
+object only in the disposable clone, from its exact authored migration DDL,
+after independently checking its column types, constraint/index flags and
+bindings. Retain the repair recipe and source hashes, then rerun the unchanged
+exact catalog and information comparison. Do not normalize away differences or
+omit changing operational tables to obtain a pass.
+
+This logical dump/restore procedure is a **nonproduction baseline tool**. It is not the
 production recovery path: production recovery is Cloud SQL automated backups plus
 PITR, described in
 [production-db-backup-and-recovery.md](./production-db-backup-and-recovery.md).
@@ -295,3 +390,37 @@ When a new numbered migration lands:
 7. run `./bin/hushh codex data-model-audit` before claiming the migration is production-ready
 
 Every new table must have a declared owner, data class, primary access path, expected row-growth posture, retention policy, deletion behavior, and plaintext/ciphertext posture. Prefer adding the table to an existing family. Create a new family only when the table cannot honestly fit an existing bounded context.
+
+### Infrastructure integration lineage (2026-10-09)
+
+Main migrations 284–288 retain their canonical identities. The infrastructure
+branch's earlier commerce and explicit Shared-choice SQL was registered as 289
+and 290 at that integration stage; the current manifest owns the later IDs.
+Original branch-only 284/287 files and rollbacks remain in `db/legacy/`
+as historical preview evidence, outside the release manifest. Never relabel an
+applied ledger row or replay this lineage on a preview that recorded the old IDs.
+The shared dev ledger readback contained neither old ID; recheck the target ledger
+and recovery immediately before any governed deployment.
+
+### Infrastructure integration lineage (2026-10-10)
+
+Main 299–305 retain their canonical identities. Infrastructure 299–304 moved to
+306–311 with byte-identical SQL and rollbacks; the exact prior `f0517d5f` manifest
+and original files remain under `db/legacy/scope-commerce-infrastructure-f0517d5f/`.
+The current release manifest owns the combined head. Shared Dev's 59 parked
+receipts and absent canonical baseline permit source registration; they do not
+prove canonical application or authorize receipt relabeling. Revalidate the target
+ledger, existing deferral, recovery and schema gates before deployment.
+
+### Infrastructure integration lineage (2026-10-11)
+
+Frozen main `f74922bf` retains Business Profile 306, Feed 313 and Magic 314.
+The pending infrastructure suffix now occupies 315–320; the intermediate
+312–317 mapping is superseded before any recorded deployment. SQL and rollback
+bodies match both parent branches; numbering comments may change.
+The prior `6fee7dba` manifest and original files remain under
+`db/legacy/scope-commerce-infrastructure-6fee7dba/`; the earlier f051 archive
+remains unchanged. Shared Dev readback at 14:10:29Z shows 59 historical
+receipts, no baseline and no accepted 306–317 receipts. This permits source
+registration, not receipt relabeling. Refresh target-specific lineage, recovery
+and schema evidence before rollout. No UAT or production deployment is implied.

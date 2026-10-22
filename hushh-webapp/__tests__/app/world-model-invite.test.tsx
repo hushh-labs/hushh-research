@@ -10,6 +10,7 @@ const mock = vi.hoisted(() => ({
   user: null as null | { uid: string },
   unlocked: false,
   verificationRequired: false,
+  generation: 0,
   push: vi.fn(),
   preview: vi.fn(),
   resolve: vi.fn(),
@@ -21,6 +22,12 @@ vi.mock("@/lib/firebase/auth-context", () => ({
     loading: false,
     sessionVerificationRequired: mock.verificationRequired,
   }),
+}));
+vi.mock("@/lib/auth/session-owner", () => ({
+  snapshotValidatedAuthSessionOwner: () => mock.user
+    ? { userId: mock.user.uid, generation: mock.generation } : null,
+  isValidatedAuthSessionOwnerCurrent: (owner: { userId: string; generation: number }) =>
+    owner.userId === mock.user?.uid && owner.generation === mock.generation,
 }));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ isVaultUnlocked: mock.unlocked }),
@@ -65,6 +72,7 @@ beforeEach(() => {
   mock.user = null;
   mock.unlocked = false;
   mock.verificationRequired = false;
+  mock.generation = 0;
   window.history.replaceState({}, "", path);
   mock.preview.mockResolvedValue(result);
   mock.resolve.mockImplementation(async ({ redirectPath }) => redirectPath);
@@ -281,4 +289,61 @@ it("ignores a late response after changing invitation tokens", async () => {
   await screen.findByText("Hello Bob");
   await act(async () => finish(result));
   expect(screen.queryByText("Hello Alice")).not.toBeInTheDocument();
+});
+
+
+it.each(["account switch", "account round trip", "auth generation", "vault round trip", "invitation change", "unmount"])("keeps the invitation when post-auth settles after %s", async (interruption) => {
+  mock.user = { uid: "recipient" };
+  let finish!: (value: string) => void;
+  mock.resolve.mockImplementation(() => new Promise<string>((resolve) => { finish = resolve; }));
+  const view = render(<Page />);
+  await screen.findByText("Published project");
+  fireEvent.click(screen.getByRole("button", { name: "Continue to review" }));
+  await waitFor(() => expect(mock.resolve).toHaveBeenCalledOnce());
+  const destination = mock.resolve.mock.calls[0][0].redirectPath as string;
+  const id = handoffFrom(destination);
+  if (interruption === "unmount") view.unmount();
+  else if (interruption === "auth generation") mock.generation += 2;
+  else if (interruption === "vault round trip") {
+    mock.unlocked = true; view.rerender(<Page />);
+    mock.unlocked = false; view.rerender(<Page />);
+  } else if (interruption === "invitation change") {
+    await act(async () => {
+      window.history.replaceState({}, "", `/world-model/invite#claim=${"b".repeat(43)}`);
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+  } else {
+    mock.user = { uid: "another-owner" }; view.rerender(<Page />);
+    if (interruption === "account round trip") {
+      mock.user = { uid: "recipient" }; view.rerender(<Page />);
+    }
+  }
+  await act(async () => { finish(destination); });
+  expect(mock.push).not.toHaveBeenCalled();
+  expect(readWorldModelInvitationHandoff(id, "recipient")).toBe(token);
+  if (interruption === "auth generation") {
+    fireEvent.click(screen.getByRole("button", { name: "Continue to review" }));
+    expect(mock.resolve).toHaveBeenCalledTimes(2);
+    await act(async () => { finish(mock.resolve.mock.calls[1][0].redirectPath); });
+    expect(mock.push).toHaveBeenCalledOnce();
+  }
+});
+
+it("lets a fresh continuation finish after an invalidated attempt settles", async () => {
+  mock.user = { uid: "recipient" };
+  const pending: Array<(value: string) => void> = [];
+  mock.resolve.mockImplementation(() => new Promise<string>((resolve) => pending.push(resolve)));
+  const view = render(<Page />);
+  const button = await screen.findByRole("button", { name: "Continue to review" });
+  fireEvent.click(button);
+  mock.unlocked = true; view.rerender(<Page />);
+  fireEvent.click(button);
+  expect(mock.resolve).toHaveBeenCalledTimes(2);
+  await act(async () => pending[0](mock.resolve.mock.calls[0][0].redirectPath));
+  expect(mock.push).not.toHaveBeenCalled();
+  fireEvent.click(button);
+  expect(mock.resolve).toHaveBeenCalledTimes(2);
+  await act(async () => pending[1](mock.resolve.mock.calls[1][0].redirectPath));
+  expect(mock.push).toHaveBeenCalledOnce();
+  expect(new URL(lastPush(), "https://one.local").pathname).toBe("/one/profile/world-model");
 });

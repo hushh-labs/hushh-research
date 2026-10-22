@@ -242,8 +242,9 @@ export function KeyboardInsetManager() {
       if (vv) {
         const onViewport = () => {
           const overlap = window.innerHeight - vv.height - vv.offsetTop;
-          if (overlap <= KB_MIN_SHRINK_PX) cancelScroll();
+
           const keyboardOpen = overlap > KB_MIN_SHRINK_PX;
+          if (!keyboardOpen) cancelScroll();
           setKeyboardHeight(keyboardOpen ? overlap : 0);
           // A fixed setup screen must fit the visual viewport on iPhone web.
           // This measured height avoids subtracting the keyboard twice in

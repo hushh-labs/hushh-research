@@ -37,7 +37,8 @@ Lifetimes: v2 840 s +/- 60 s (below the iOS stream plugin's 900 s resource
 timeout); v1 110-120 s; any stream through the Next proxy 90-110 s, below the
 web server's 120 s production request timeout (300 s in UAT).
 
-Admission: at most 6 document-feed streams per worker and 3 per uid per worker.
+Admission: Feed, consent and message subscriptions share at most 6 streams per
+worker and 3 per uid per worker.
 A fourth stream for one uid evicts that uid's oldest; a new stream on a full
 worker gets 503 with ``Retry-After: 60``.
 """
@@ -56,6 +57,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
+import anyio
 from fastapi import HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
 from starlette.types import Receive, Scope, Send
@@ -229,6 +231,28 @@ class StreamAdmission:
 
 
 _ADMISSION = StreamAdmission()
+
+
+def admit_stream(
+    user_id: str,
+    version: int,
+    lifetime_seconds: float,
+    *,
+    admission: StreamAdmission | None = None,
+) -> StreamLease:
+    """One shared per-worker budget for Feed, consent and message subscriptions."""
+    lease = (admission or _ADMISSION).admit(user_id, version, lifetime_seconds)
+    if lease is None:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "FEED_STREAM_BUSY", "message": "Live updates are busy right now."},
+            headers={
+                "Retry-After": str(BUSY_RETRY_AFTER_SECONDS),
+                "Cache-Control": "private, no-store",
+                "Access-Control-Expose-Headers": "Retry-After",
+            },
+        )
+    return lease
 
 
 class PayoutChangeCoalescer:
@@ -496,13 +520,31 @@ class _LeasedEventSourceResponse(EventSourceResponse):
         send_timeout: float,
     ) -> None:
         super().__init__(content, headers=dict(_STREAM_HEADERS), send_timeout=send_timeout)
+        self._content = content
         self._lease = lease
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         try:
             await super().__call__(scope, receive, send)
         finally:
-            self._lease.release()
+            try:
+                # A disconnect or failed send can leave the generator suspended
+                # at yield. Close it explicitly so its queue cannot outlive its
+                # admission slot; response cancellation must not cancel cleanup.
+                with anyio.move_on_after(FEED_SEND_TIMEOUT_SECONDS, shield=True):
+                    await self._content.aclose()
+            finally:
+                self._lease.release()
+
+
+def leased_event_response(
+    content: AsyncGenerator[dict[str, str], None],
+    *,
+    lease: StreamLease,
+    send_timeout: float = FEED_SEND_TIMEOUT_SECONDS,
+) -> EventSourceResponse:
+    """Release admission even if ASGI never starts iterating the body."""
+    return _LeasedEventSourceResponse(content, lease=lease, send_timeout=send_timeout)
 
 
 def open_document_feed_stream(
@@ -527,19 +569,8 @@ def open_document_feed_stream(
         if lifetime_seconds is None
         else lifetime_seconds
     )
-    lease = (admission or _ADMISSION).admit(user_id, version, lifetime)
-    if lease is None:
-        logger.warning("document_feed.stream_busy version=%s proxied=%s", version, proxied)
-        raise HTTPException(
-            status_code=503,
-            detail={"code": "FEED_STREAM_BUSY", "message": "Live updates are busy right now."},
-            headers={
-                "Retry-After": str(BUSY_RETRY_AFTER_SECONDS),
-                "Cache-Control": "private, no-store",
-                "Access-Control-Expose-Headers": "Retry-After",
-            },
-        )
-    return _LeasedEventSourceResponse(
+    lease = admit_stream(user_id, version, lifetime, admission=admission)
+    return leased_event_response(
         document_feed_event_generator(
             user_id,
             request,

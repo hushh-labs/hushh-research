@@ -7,7 +7,7 @@ Cloud Run deployment runbook.
 ## Release authority
 
 Use the canonical
-[Admin merge and release SOP](../.codex/skills/repo-operations/references/admin-release-sop.md)
+[Admin merge and release SOP](../.agents/skills/repo-operations/references/admin-release-sop.md)
 for merge queue, explicit Admin PR landing, exact-SHA UAT/production dispatch,
 monitoring, evidence, rollback, and branch restoration.
 
@@ -367,7 +367,7 @@ Read-only inspection is allowed when it does not mutate runtime state. Prefer
 workflow artifacts, then use repository helpers such as:
 
 ```bash
-python3 .codex/skills/uat-scoped-deploy/scripts/cloud_run_service_evidence.py \
+python3 .agents/skills/uat-scoped-deploy/scripts/cloud_run_service_evidence.py \
   --project hushh-pda-uat \
   --service hushh-webapp \
   --service consent-protocol \

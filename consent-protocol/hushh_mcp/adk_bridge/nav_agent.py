@@ -6,6 +6,7 @@ changing the core Nav manifest or the working Location A2A path.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -38,40 +39,62 @@ class NavAgent:
         *,
         model: Any | None = None,
         connections_service: Any | None = None,
+        consent_service: Any | None = None,
+        admit_owner: Callable[[str, str], Awaitable[int]] | None = None,
+        require_read: Callable[[A2ATask], Awaitable[None]] | None = None,
+        scope_tokens: dict[str, str] | None = None,
     ) -> None:
         self._manifest_path = Path(manifest_path) if manifest_path else _default_manifest_path()
         self._manifest = ManifestLoader.load(str(self._manifest_path))
         self._model = model
         self._connections_service = connections_service
+        self._consent_service = consent_service
+        self._admit_owner = admit_owner
+        self._require_read = require_read
+        self._scope_tokens = dict(scope_tokens or {})
+        if admit_owner is not None and (require_read is None or consent_service is None):
+            raise ValueError("Private Nav requires explicit information and admission ports")
+
+    async def _private_access(self, task: A2ATask) -> None:
+        if self._admit_owner is None:
+            return
+        self._require_invocation(task, self._manifest)
+        await self._admit_owner(task.user_id, task.consent_token)
+        await self._require_read(task)
 
     async def handle(self, task: A2ATask) -> SpecialistTurnResult:
-        validation = await validate_a2a_consent_token_with_db(self.agent_id, task.consent_token)
-        owner_matches = validation.user_id == task.user_id
-        if not validation.ok or not owner_matches:
-            return SpecialistTurnResult(
-                conversation_id=task.conversation_id or "",
-                # Owner words only: the scope id stays in the directive payload
-                # below, where the app reads it, never in the sentence.
-                text="I can review your sharing once you allow the consent assistant to see it.",
-                directive=A2ADirective(
-                    kind="prompt",
-                    payload={
-                        "kind": "consent_required",
-                        "agentId": self.agent_id,
-                        "requiredScope": validation.required_scope.value,
-                        "reason": validation.reason if not validation.ok else "owner_mismatch",
-                    },
-                ),
-                is_complete=True,
-                model=DELEGATED_MODEL,
-                state_changed=False,
-            )
+        if self._admit_owner is not None:
+            await self._private_access(task)
+        else:
+            validation = await validate_a2a_consent_token_with_db(self.agent_id, task.consent_token)
+            owner_matches = validation.user_id == task.user_id
+            if not validation.ok or not owner_matches:
+                return SpecialistTurnResult(
+                    conversation_id=task.conversation_id or "",
+                    # Owner words only: the scope id stays in the directive payload
+                    # below, where the app reads it, never in the sentence.
+                    text="I can review your sharing once you allow the consent assistant to see it.",
+                    directive=A2ADirective(
+                        kind="prompt",
+                        payload={
+                            "kind": "consent_required",
+                            "agentId": self.agent_id,
+                            "requiredScope": validation.required_scope.value,
+                            "reason": validation.reason if not validation.ok else "owner_mismatch",
+                        },
+                    ),
+                    is_complete=True,
+                    model=DELEGATED_MODEL,
+                    state_changed=False,
+                )
 
         target = task.specialist_target or "consent"
         if target not in {"consent", "connections"}:
             raise PermissionError("Invalid specialist target")
         connections_tools = None
         if target == "connections":
+            if self._admit_owner is not None and self._connections_service is None:
+                raise PermissionError("Private connection information adapter unavailable")
             if task.delegate_result is not None:
                 raise PermissionError("Connection actions require the governed action gateway")
             connections_tools = await self._connections_tools(task)
@@ -97,7 +120,12 @@ class NavAgent:
             consent_token=task.consent_token,
             message=message,
             state={TIMEZONE_STATE_KEY: task.timezone or "UTC", "nav_target": target},
+            service_ports={"consent_center": self._consent_service}
+            if self._consent_service is not None
+            else {},
+            scope_tokens=self._scope_tokens,
         )
+        await self._private_access(task)
         raw = turn.state.get(DIRECTIVE_STATE_KEY)
         directive = A2ADirective(kind=raw["kind"], payload=raw["payload"]) if raw else None
         answer_text = turn.final_text
@@ -151,7 +179,9 @@ class NavAgent:
 
         async def before_read():
             self._require_invocation(child_task, child_manifest)
-            if await validate_first_party_owner_token(task.user_id, task.consent_token) is None:
+            if self._admit_owner is not None:
+                await self._private_access(task)
+            elif await validate_first_party_owner_token(task.user_id, task.consent_token) is None:
                 raise PermissionError("Connection owner authority is unavailable")
 
         await before_read()
