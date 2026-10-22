@@ -98,14 +98,14 @@ resources, product agents and release authority are unchanged.
 
 ## 1. Finish and freeze the source
 
-- Main through `e4a7f78935` is integrated locally at `0464d0235c`; dev remains
+- Main through `904fbd215c` is integrated locally at `a926dfff61`; dev remains
   `91b987b017`. Account exports retain bounded server
   cursors and browser Blob assembly; retired owners cannot keep Feed streams
   alive. These are hub/frontend changes, not new pod image provenance. The
   earlier capacity-recovery changes
   preserve manual authorization and durable predecessor/successor reconciliation;
   they change no pod executable or dependency. The union preserves main’s
-  Profile/mobile, consent, deletion, PLG, Calendar and migrations 365–369 alongside
+  Profile/mobile, consent, deletion, optional email permission, PLG, Calendar and migrations 365–370 alongside
   pod authority. New content routes retain Shared-only admission; signed PLG
   operational exports retain their separate bounds and disabled defaults. The
   managed Azure provider update keeps its required admission aggregate. One Vertex
