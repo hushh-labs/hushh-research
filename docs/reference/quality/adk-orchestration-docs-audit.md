@@ -149,6 +149,11 @@ main's `62fecdf7944d63a5` revision and rejects those stale action runs. Executab
 contracts are unchanged; canonical generation and all 20 nearest compatibility
 checks pass. The original failed core result is retained; final validation is
 still required before push.
+The canonical frontend graph command also regenerates the dependent Location
+workflow-card catalog. Its paired verifier, all backend generation checks,
+395-source mypy, Bandit and UI contracts pass after the catalog correction.
+Automatic downstream releases are held through the existing cadence policy flag
+for this UAT-only MVP; manual release authority and historical accounting remain.
 
 ## Performance and economics
 

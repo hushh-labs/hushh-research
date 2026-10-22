@@ -63,6 +63,12 @@ repairable deletion failures must never be reported as completed cleanup.
 Publishing a release does not install it; every owner installation still needs
 exact approval. Stable publication and production deployment remain unauthorized.
 
+The existing automatic release cadence is held with
+`config/release-cadence.json` → `enabled: false` for this UAT-only MVP pass.
+Manual governed deployments and recorded cadence history remain available.
+Re-enabling automatic TestFlight/App Store/production dispatch requires a separate
+release decision; a successful UAT run must not silently promote this candidate.
+
 ## Visual Context
 
 Use the [CI delivery map](../../reference/operations/ci.md) for the existing
