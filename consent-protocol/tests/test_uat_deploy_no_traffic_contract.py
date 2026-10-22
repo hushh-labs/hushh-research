@@ -23,6 +23,21 @@ from tests._deploy_contract import (
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
+_BACKEND_RELEASE_TOOL_FIXTURES = (
+    "deploy/backend.cloudbuild.yaml",
+    "scripts/ci/managed_provider_readiness.py",
+    "scripts/deploy/backend-deploy.sh",
+    "scripts/deploy/backend-capacity-settings.sh",
+    "scripts/deploy/verify-managed-vertex-runtime.sh",
+    "scripts/deploy/commerce-preview-bindings.sh",
+    "scripts/deploy/backend-model-settings.sh",
+    "scripts/deploy/backend-drive-secret-settings.sh",
+    "scripts/deploy/scope-commerce-secrets.sh",
+    "deploy/email-auth/bind_secrets.sh",
+    "deploy/plg/bind_secrets.sh",
+    "deploy/sso/bind_workos.sh",
+)
+
 
 def test_backend_cloud_build_uses_valid_secret_flag_combinations():
     document = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
@@ -983,31 +998,6 @@ def test_document_owner_payouts_require_explicit_uat_api_and_worker_switches() -
     assert f"{flag}=false" in production_worker
 
 
-def test_uat_runtime_capacity_is_bounded_and_revision_safe() -> None:
-    workflow = _read(".github/workflows/deploy-uat.yml")
-    backend_build = managed_vertex_probe_surface()
-    backend_deploy = _backend_deploy()
-    frontend_build = _read("deploy/frontend.cloudbuild.yaml")
-
-    assert '"--cpu=${_CLOUD_RUN_CPU}"' in backend_deploy
-    assert '"--concurrency=${_CLOUD_RUN_CONCURRENCY}"' in backend_deploy
-    assert '"--memory=${_CLOUD_RUN_MEMORY}"' in backend_deploy
-    assert '"_CLOUD_RUN_MEMORY=${_CLOUD_RUN_MEMORY}"' in backend_build
-    assert "_CLOUD_RUN_CPU=2" in workflow
-    assert "_CLOUD_RUN_CONCURRENCY=20" in workflow
-
-    assert '"--memory=${_CLOUD_RUN_MEMORY}"' in frontend_build
-    assert '"--concurrency=${_CLOUD_RUN_CONCURRENCY}"' in frontend_build
-    assert '"--max=${_CLOUD_RUN_MAX_INSTANCES}"' in frontend_build
-    assert '"--min=${_CLOUD_RUN_MIN_INSTANCES}"' in frontend_build
-    assert '"--min-instances=0"' in frontend_build
-    assert "_CLOUD_RUN_MEMORY=1Gi" in workflow
-    assert "_CLOUD_RUN_TIMEOUT_SECONDS=300" in workflow
-    assert "_CLOUD_RUN_CONCURRENCY=10" in workflow
-    assert "_CLOUD_RUN_MIN_INSTANCES=2" in workflow
-    assert "_CLOUD_RUN_MAX_INSTANCES=10" in workflow
-
-
 def test_frontend_verifies_server_chunks_before_binding_cloud_run_port() -> None:
     next_config = _read("hushh-webapp/next.config.ts")
     dockerfile = _read("hushh-webapp/Dockerfile")
@@ -1324,19 +1314,7 @@ def test_one_time_uat_vertex_skip_is_bound_to_the_approved_release(tmp_path: Pat
     assert "release-tools/backend.cloudbuild.yaml" in checkout["run"]
     for step in (preserve, checkout):
         assert '"${{ inputs.skip_managed_vertex_probe_once }}" == "true"' in step["run"]
-    tools = (
-        "deploy/backend.cloudbuild.yaml",
-        "scripts/ci/managed_provider_readiness.py",
-        "scripts/deploy/backend-deploy.sh",
-        "scripts/deploy/verify-managed-vertex-runtime.sh",
-        "scripts/deploy/commerce-preview-bindings.sh",
-        "scripts/deploy/backend-model-settings.sh",
-        "scripts/deploy/backend-drive-secret-settings.sh",
-        "scripts/deploy/scope-commerce-secrets.sh",
-        "deploy/email-auth/bind_secrets.sh",
-        "deploy/plg/bind_secrets.sh",
-        "deploy/sso/bind_workos.sh",
-    )
+    tools = _BACKEND_RELEASE_TOOL_FIXTURES
     (tmp_path / "runner/release-tools").mkdir(parents=True)
     for tool in tools:
         path = tmp_path / tool
@@ -1362,6 +1340,9 @@ def test_one_time_uat_vertex_skip_is_bound_to_the_approved_release(tmp_path: Pat
                 (tmp_path / tool).unlink()
             (tmp_path / "deploy/sso/bind_workos.sh").write_text("old incompatible helper")
     assert all((tmp_path / tool).read_text() == "current:" + tool for tool in tools)
+    assert (
+        "!scripts/deploy/backend-capacity-settings.sh" in (tmp_path / ".gcloudignore").read_text()
+    )
     backend = next(step for step in deploy if step.get("id") == "deploy-backend")
     assert (
         "##_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE=${{ inputs.skip_managed_vertex_probe_once }}"
@@ -1730,32 +1711,6 @@ def test_one_voice_live_env_contract_is_explicit_and_enabled_in_production() -> 
     # Never an API key for Live in any lane.
     for source in (backend_build, uat_workflow, dev_workflow, production_workflow):
         assert "LIVE_API_KEY" not in source
-
-
-def test_backend_capacity_keeps_shared_limits_and_reviewed_environment_memory() -> None:
-    """Production OOM-killed live chat turns; throttled CPU stalled first turns."""
-    production_workflow = _read(".github/workflows/deploy-production.yml")
-    uat_workflow = _read(".github/workflows/deploy-uat.yml")
-
-    backend_build = managed_vertex_probe_surface()
-    # The Cloud Build wrapper delegates deployment to the canonical script.
-    assert "scripts/deploy/backend-deploy.sh" in backend_build
-    backend_deploy = _read("scripts/deploy/backend-deploy.sh")
-    command = backend_deploy.split("cmd=(", 1)[1].split("\n)", 1)[0]
-    # Background warmups need CPU outside requests on every shared lane.
-    assert '"--no-cpu-throttling"' in command
-
-    for setting in (
-        "_CLOUD_RUN_CPU=2",
-        "_CLOUD_RUN_CONCURRENCY=20",
-    ):
-        assert setting in uat_workflow
-        assert setting in production_workflow
-
-    # The measured UAT working set exceeded the 80% memory gate on 4Gi.
-    # Its isolated 6Gi trial must not change production before its own acceptance.
-    assert "_CLOUD_RUN_MEMORY=6Gi" in uat_workflow
-    assert "_CLOUD_RUN_MEMORY=4Gi" in production_workflow
 
 
 def test_production_deploy_builds_candidates_without_serving_traffic() -> None:

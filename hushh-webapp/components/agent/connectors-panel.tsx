@@ -2494,14 +2494,14 @@ function OwnerConnectorsPanel({
         {activeConnector ? (
           <ShellActionSurface
             ref={detailBackRef}
-            className="size-11"
+            className="size-11 text-foreground"
             onClick={() => {
               setConfirm(null);
               setActiveConnector(null);
             }}
             aria-label="Back to connectors"
           >
-            <ArrowLeftIcon className="h-5 w-5" aria-hidden="true" />
+            <ArrowLeftIcon className="size-[22px]" aria-hidden="true" />
           </ShellActionSurface>
         ) : null}
         {activeConnector ? <ConnectorGlyph id={activeConnector} /> : null}
@@ -2511,14 +2511,14 @@ function OwnerConnectorsPanel({
             : "Connectors"}
         </h2>
         <ShellActionSurface
-          className="size-11"
+          className="size-11 text-foreground"
           onClick={() => {
             setConfirm(null);
             onClose();
           }}
           aria-label="Close connectors"
         >
-          <XIcon className="size-4" aria-hidden="true" />
+          <XIcon className="size-[22px]" aria-hidden="true" />
         </ShellActionSurface>
       </header>}
       <div

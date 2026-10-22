@@ -8,9 +8,9 @@ import {
   productFontStyle,
   stripAppFontFaces,
 } from "./fixtures/product-font";
+import { assertNeutralFocusedCircleType } from "./helpers/circle-type-focus";
 
 /** Production Connect page against synthetic identity/network boundaries. */
-
 const WIDTHS = [320, 375, 393, 430, 640, 768, 1440] as const;
 
 const STUBBED = [
@@ -680,7 +680,7 @@ for (const width of [393, 1440]) {
       await expect(form.getByRole("radio", { name: "Finance", exact: true })).toBeVisible();
       await form.getByRole("radio", { name: "Other", exact: true }).click();
       const type = form.getByRole("textbox", { name: "Type name (optional)" });
-      await expect(type).toHaveCSS("font-size", "14px");
+      await assertNeutralFocusedCircleType(type);
       await expect(form.getByText("Type name (optional)", { exact: true })).toHaveCSS("font-size", "15px");
       const error = form.getByText("Enter a Circle name.", { exact: true });
       await expect(error).toHaveCSS("font-size", "12px");

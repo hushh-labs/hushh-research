@@ -213,6 +213,29 @@ projection. Setup, failure, support and canonical enrollment remain separate
 producers. Version 1 remains compatible; the version 2 observation extension
 below introduces migration 365.
 
+The Memory projection uses a correlated event lookup for each committed
+revision, with a planner boundary that retains every matching audit event.
+Migrations 407–408 add and validate the nonunique, partial text-revision index
+on `pkm_events`. This preserves the confirmed-provenance filters, duplicate
+deduplication, date window, owner isolation and per-owner overflow sentinel.
+Generic 25-owner plans must not flatten the lookup into repeated scans of a
+heavy owner's complete event history. The five-second query budget is unchanged.
+
+A concurrent build interrupted before completion can leave an invalid index.
+Validation 408 rejects missing, invalid and incompatible same-named indexes,
+including a different predicate or key definition. Stop overlapping migration
+runners, inspect the exact index, and use the authored rollback 407 followed by
+407 outside a transaction and validation 408 under the canonical migration
+authority. Do not automatically drop a valid incompatible index or edit accepted
+ledger checksums. Application rollback may retain this compatible index.
+
+Both the query and index are required for the qualified heavy-history repair.
+An index-only operation does not release the new query or prove the complete
+directory works. Deploy through the normal UAT/production gates at a qualified
+main SHA. If that SHA also contains unrelated unreleased changes, qualify the
+complete release delta; a partial schema repair must never claim the full
+migration head or authorize an unqualified application upgrade.
+
 Responses are `private, no-store`: sanitized 400 for invalid requests or result
 limits, 401 for signatures, 404 for disabled/nonproduction configuration, 413
 for request size, and 503 for source failures. Reads are bounded; synchronous

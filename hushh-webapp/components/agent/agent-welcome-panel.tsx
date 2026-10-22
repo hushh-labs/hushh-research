@@ -31,7 +31,7 @@ export function AgentWelcomePanel({
   return (
     // Keep the greeting close to the header; viewport-height centering creates
     // an increasingly large gap on taller screens.
-    <section className="flex flex-col pb-2 pt-2">
+    <section className="-mt-3 flex flex-col pb-2 pt-2 sm:mt-0">
       <div className="mx-auto flex w-full max-w-2xl flex-col items-start px-1 text-left sm:px-2">
         <h2 data-profile-role="identity-name" className="max-w-full break-words text-foreground [overflow-wrap:anywhere]">
           Hi {name}

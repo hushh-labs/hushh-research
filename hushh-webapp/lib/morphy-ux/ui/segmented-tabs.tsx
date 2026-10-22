@@ -133,14 +133,14 @@ export function SegmentedTabs({
                 variant === "agent-top"
                   ? "h-full min-h-0 rounded-[8px] px-1 py-0 min-[360px]:px-2 sm:px-3"
                   : isSubordinate
-                    ? "h-full min-h-0 rounded-none border-b-2 px-3 py-0 text-sm sm:px-4"
+                    ? "h-full min-h-0 rounded-none border-x-0 border-t-0 border-b-2 px-3 py-0 text-sm sm:px-4"
                     : isFilter
                       ? "h-8 min-h-8 flex-none rounded-full px-3 py-0 text-xs sm:text-sm"
                       : "min-h-10 rounded-[12px] px-3 py-2 sm:px-4",
                 isActive
                   ? cn(
                       isSubordinate
-                        ? "z-10 border-[color:var(--app-accent)] bg-transparent text-[color:var(--app-accent)] font-semibold shadow-none"
+                        ? "z-10 border-b-[color:var(--app-accent)] bg-transparent text-[color:var(--app-accent)] font-semibold shadow-none"
                         : isFilter
                           ? "z-10 border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)] font-semibold shadow-none"
                           : "z-10 border-transparent bg-white dark:bg-zinc-800 text-[color:var(--app-accent)] font-semibold shadow-[0_1px_3px_rgba(0,0,0,0.1),0_1px_2px_rgba(0,0,0,0.06)]",

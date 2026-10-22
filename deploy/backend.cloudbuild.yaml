@@ -412,7 +412,7 @@ steps:
     env:
       - "PROJECT_ID=$PROJECT_ID"
       - "_IMAGE_SETTINGS=${_SKIP_IMAGE_BUILD}|${_IMAGE_REFERENCE}|${_CLOUD_RUN_TAG}|${_BUILD_POD_IMAGE}|${_SECRET_PREFIX}"
-      - "_CLOUD_RUN_CAPACITY=max=${_CLOUD_RUN_MAX_INSTANCES},min=${_CLOUD_RUN_MIN_INSTANCES},no_traffic=${_CLOUD_RUN_NO_TRAFFIC},cpu=${_CLOUD_RUN_CPU},concurrency=${_CLOUD_RUN_CONCURRENCY}"
+      - "_CLOUD_RUN_CAPACITY=max=${_CLOUD_RUN_MAX_INSTANCES},min=${_CLOUD_RUN_MIN_INSTANCES},no_traffic=${_CLOUD_RUN_NO_TRAFFIC},cpu=${_CLOUD_RUN_CPU},concurrency=${_CLOUD_RUN_CONCURRENCY},scaling_target=${_CLOUD_RUN_SCALING_CONCURRENCY_TARGET}"
       - "_DB_POOL_SETTINGS=acquire_timeout=${_DB_POOL_ACQUIRE_TIMEOUT_SECONDS},max=${_DB_POOL_MAX_SIZE},min=${_DB_POOL_MIN_SIZE},sa_max_overflow=${_DB_SQLALCHEMY_MAX_OVERFLOW},sa_pool_size=${_DB_SQLALCHEMY_POOL_SIZE}"
       - "_MODEL_SETTINGS=puppy_relay_url=${_PUPPY_INFERENCE_RELAY_URL},puppy_model=${_PUPPY_INFERENCE_MODEL},puppy_timeout=${_PUPPY_INFERENCE_TIMEOUT_SECONDS},gemini_text=${_HUSSH_GEMINI_TEXT_MODEL},chat_vertex_project=${_HUSHH_ONE_CHAT_VERTEX_PROJECT},voice_vertex_project=${_HUSHH_ONE_VOICE_VERTEX_PROJECT},voice_enabled=${_ONE_VOICE_LIVE_ENABLED},calendar_narration=${_ONE_VOICE_CALENDAR_NARRATION_ENABLED},voice_model=${_VERTEX_LIVE_MODEL_ID},voice_location=${_VERTEX_LIVE_LOCATION}"
       - "_DRIVE_SEARCH_SETTINGS=${_DRIVE_REQUEST_SEMANTIC_SEARCH_ENABLED}|${_DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER}"
@@ -884,6 +884,8 @@ substitutions:
   _CLOUD_RUN_CPU: "1"
   _CLOUD_RUN_MEMORY: "1Gi"
   _CLOUD_RUN_CONCURRENCY: "80"
+  # Optional revision utilization target. Empty preserves the existing/default target.
+  _CLOUD_RUN_SCALING_CONCURRENCY_TARGET: ""
   _RUNTIME_ENVIRONMENT: ""
   # Direct backend builds remain conservative. The UAT workflow explicitly
   # overrides this from its authoritative changed-SHA verification plan.

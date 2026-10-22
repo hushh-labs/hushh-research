@@ -197,6 +197,15 @@ def owner_style_instruction(state_getter: Callable[[str], Any] | None) -> str:
     return _HEADER + "\n".join(lines) + _FOOTER
 
 
+def _name_owner_admitted(tool_context: ToolContext, user_id: str) -> bool:
+    from hushh_mcp.one_adk.workspace_mcp_tools import WORKSPACE_CHAT_ADMISSION_STATE
+
+    return (
+        tool_context.state.get(WORKSPACE_CHAT_ADMISSION_STATE) is True
+        or tool_context.state.get(STATE_POD_STYLE_OWNER) == user_id
+    )
+
+
 async def propose_style_settings(
     tool_context: ToolContext,
     preferred_name: str = "",
@@ -234,7 +243,6 @@ async def propose_style_settings(
     """
     from hushh_mcp.one_adk.agent_tree import STATE_USER_ID
     from hushh_mcp.one_adk.external_read_boundary import STATE_EXECUTION_SURFACE
-    from hushh_mcp.one_adk.workspace_mcp_tools import WORKSPACE_CHAT_ADMISSION_STATE
 
     user_id = str(tool_context.state.get(STATE_USER_ID) or "").strip()
     if (
@@ -243,6 +251,7 @@ async def propose_style_settings(
         or tool_context.state.get(STATE_EXECUTION_SURFACE) != "typed_chat"
     ):
         return {"status": "unavailable", "message": "Style settings can be changed in chat only."}
+    owner_admitted = _name_owner_admitted(tool_context, user_id)
     if onboarding_action != "" or onboarding_request_id != "":
         context = tool_context.state.get("hussh:voice_context") or {}
         screen_state = context.get("screen_state", {}) if isinstance(context, dict) else {}
@@ -250,7 +259,7 @@ async def propose_style_settings(
             screen_state.get("onboarding_name_request") if isinstance(screen_state, dict) else None
         )
         if (
-            tool_context.state.get(WORKSPACE_CHAT_ADMISSION_STATE) is not True
+            not owner_admitted
             or not isinstance(pending, str)
             or not re.fullmatch(r"[a-p]{32}", pending)
             or onboarding_request_id != pending
@@ -293,10 +302,7 @@ async def propose_style_settings(
     if not proposed:
         return {"status": "invalid", "message": "Name at least one style setting to change."}
     if "preferred_name" in proposed:
-        if (
-            tool_context.state.get(WORKSPACE_CHAT_ADMISSION_STATE) is not True
-            and tool_context.state.get(STATE_POD_STYLE_OWNER) != user_id
-        ):
+        if not owner_admitted:
             return {"status": "unavailable", "message": "Unlock your memory to save your name."}
         name = proposed.pop("preferred_name")
         return {
