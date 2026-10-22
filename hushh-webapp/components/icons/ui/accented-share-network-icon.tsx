@@ -31,7 +31,7 @@ export const AccentedShareNetworkIcon = forwardRef<SVGSVGElement, AccentedShareN
       <defs>
         <pattern id={toneId} patternUnits="userSpaceOnUse" width="256" height="256">
           <rect width="256" height="256" fill="currentColor" />
-          <circle className="profile-pane-icon-accent-fill" cx="64" cy="128" r="36" fill={source} />
+          <circle className="profile-pane-icon-accent profile-pane-icon-accent-fill" cx="64" cy="128" r="36" fill={source} />
         </pattern>
       </defs>
     </ShareNetwork>

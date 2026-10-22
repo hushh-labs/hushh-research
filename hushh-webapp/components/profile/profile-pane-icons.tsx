@@ -39,8 +39,8 @@ export function ProfilePaneCopyIcon(props: ProfilePaneIconProps) {
   </PaneIcon>;
 }
 
-export function ProfilePaneShareIcon(props: ProfilePaneIconProps) {
-  return <AccentedShareNetworkIcon {...props} />;
+export function ProfilePaneShareIcon({ className, ...props }: ProfilePaneIconProps) {
+  return <AccentedShareNetworkIcon {...props} className={["profile-pane-icon", className].filter(Boolean).join(" ")} />;
 }
 
 export function ProfilePaneBriefcaseIcon(props: ProfilePaneIconProps) {
