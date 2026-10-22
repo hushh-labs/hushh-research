@@ -170,7 +170,7 @@ export const getColumns = ({
 
       return (
         <Badge variant="outline" className={cn("font-bold", colorClass)}>
-          {decisionPresentation.label}
+          {decisionPresentation.label}{row.original.raw_card?.analysis_degraded ? " · Limited analysis" : ""}
         </Badge>
       );
     },
@@ -180,7 +180,7 @@ export const getColumns = ({
     header: "Confidence",
     cell: ({ row }) => {
       const val = row.original.confidence;
-      const percent = val >= 1 ? val : Math.round(val * 100);
+      const percent = val > 1 ? val : Math.round(val * 100);
       return (
         <div className="flex items-center gap-2">
            <div className="h-1.5 w-16 overflow-hidden rounded-full bg-foreground/[0.08]">

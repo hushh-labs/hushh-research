@@ -5179,6 +5179,8 @@ export class ApiService {
     if (typeof data.pickSource === "string" && data.pickSource.trim()) {
       query.set("pick_source", data.pickSource.trim());
     }
+    // This surface shows US indices regardless of the viewer's timezone.
+    query.set("exchange", "US");
     const clientTimezone = resolveClientTimezone();
     if (clientTimezone) {
       query.set("tz", clientTimezone);

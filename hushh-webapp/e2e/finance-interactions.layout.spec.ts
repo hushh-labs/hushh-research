@@ -89,6 +89,7 @@ test.beforeAll(async () => {
           "next/navigation", "@/hooks/use-auth", "@/lib/firebase/auth-context",
           "@/lib/vault/vault-context", "@/lib/cache/use-stale-resource",
           "@/lib/kai/kai-financial-resource", "@/lib/kai/kai-market-home-resource",
+          "@/lib/kai/kai-market-news-resource", "@/lib/services/api-service",
           "@/lib/services/kai-token-guard", "@/lib/kai/actions/voice-surface-metadata",
         ].map(find => ({ find: new RegExp(`^${find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`), replacement: boundary })),
         { find: "@", replacement: root },
@@ -185,6 +186,28 @@ for (const width of [320, 375, 393, 430, 768, 1440]) {
       await page.screenshot({ path: test.info().outputPath(`finance-${width}-${theme}.png`) });
     });
   }
+}
+
+for (const result of ["success", "error"]) {
+  test(`All news ignores an obsolete page ${result} after its snapshot changes`, async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 932 });
+    await page.route("http://localhost/finance-market-news-fixture", route => route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body data-defer-news="true"><div id="root"></div></body></html>`,
+    }));
+    await page.goto("http://localhost/finance-market-news-fixture");
+    await page.addScriptTag({ content: marketScript });
+    await page.getByRole("button", { name: "Load more", exact: true }).click();
+    await expect(page.locator("body")).toHaveAttribute("data-news-pending", "true");
+    await page.evaluate(() => window.dispatchEvent(new Event("finance-fixture-replace-news")));
+    await expect(page.getByText("Latest replacement headlines", { exact: true })).toBeVisible();
+    await page.evaluate(outcome => window.dispatchEvent(new CustomEvent("finance-fixture-complete-news", { detail: outcome })), result);
+    await expect(page.locator("body")).toHaveAttribute("data-news-pending", "false");
+    await expect(page.locator("article")).toHaveCount(1);
+    await expect(page.getByText("More headlines from the same snapshot", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("status")).toHaveCount(0);
+    await expect(page.locator("body")).not.toHaveAttribute("data-news-refreshed", "true");
+  });
 }
 
 test.afterAll(() => {

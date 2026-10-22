@@ -15,7 +15,8 @@ import {
 } from "@/lib/services/device-resource-cache-service";
 
 const DEVICE_TTL_MS = 24 * 60 * 60 * 1000;
-const MARKET_HOME_RESOURCE_VERSION = "v5";
+// Retire snapshots whose session status was selected from the viewer's timezone.
+const MARKET_HOME_RESOURCE_VERSION = "v6";
 const inflightRefreshes = new Map<string, Promise<KaiHomeInsightsV2 | null>>();
 
 const TICKER_CANDIDATE_RE = /^[A-Z][A-Z0-9.-]{0,5}$/;

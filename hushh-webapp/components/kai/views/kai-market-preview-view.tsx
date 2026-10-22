@@ -238,7 +238,11 @@ export function toMoverGroups(
   const active = dedupeOneMarketRows(toOneMarketRows(payload?.movers?.active))
     .sort((left, right) => Number(right.volume || 0) - Number(left.volume || 0))
     .slice(0, 4);
-  return { gain: gainers, lose: losers, active };
+  const groupDegraded = Boolean(payload?.movers?.degraded);
+  const withGroupStatus = (rows: OneMarketDisplayRow[]) => rows.map((row) => ({
+    ...row, degraded: Boolean(row.degraded || groupDegraded),
+  }));
+  return { gain: withGroupStatus(gainers), lose: withGroupStatus(losers), active: withGroupStatus(active) };
 }
 
 export function toIndexStripItems(
@@ -331,6 +335,7 @@ export function OneMarketIndexStrip({
     ? firstStatus : null;
   return (
     <div className={marketBriefingStyles.typography}>
+    <p className="mb-2 text-xs leading-[18px] text-muted-foreground">Index levels in points</p>
     <div className="grid w-full divide-y divide-border/50 sm:grid-cols-4 sm:divide-x sm:divide-y-0">
       {metrics.map((metric) => (
         <button key={metric.id || metric.label} type="button"
@@ -360,7 +365,7 @@ export function OneMarketIndexStrip({
   );
 }
 
-function OneMarketMovers({ groups }: { groups: Record<OneMarketMoverTab, OneMarketDisplayRow[]> }) {
+export function OneMarketMovers({ groups }: { groups: Record<OneMarketMoverTab, OneMarketDisplayRow[]> }) {
   return (
     <div className="space-y-3">
       {([{ key: "gain", title: "Gainers" }, { key: "lose", title: "Decliners" }] as const).map(({ key, title }) => (
@@ -369,7 +374,7 @@ function OneMarketMovers({ groups }: { groups: Record<OneMarketMoverTab, OneMark
           {groups[key].length ? <div className="divide-y divide-border/50">
             {groups[key].slice(0, 3).map((row) => (
               <button key={row.symbol} type="button"
-                onClick={() => openOneMarketHref(buildKaiMarketRoute("analysis", { symbol: row.symbol }))}
+                onClick={() => openOneMarketHref(buildKaiMarketRoute("analysis", { ticker: row.symbol }))}
                 className="flex min-h-12 w-full items-center gap-2.5 py-1 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
                 <SymbolAvatar symbol={row.symbol} name={row.companyName} size="md" className="h-6 w-6 rounded-full [&_img]:h-4 [&_img]:w-4" />
                 <span className="min-w-0 flex-1">

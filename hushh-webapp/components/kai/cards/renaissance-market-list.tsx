@@ -69,6 +69,8 @@ function formatCurrency(value: number | null | undefined): string {
 function formatCompactNumber(value: number | null | undefined): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "N/A";
   return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
     notation: "compact",
     maximumFractionDigits: 1,
   }).format(value);
@@ -692,7 +694,7 @@ export function RiaPicksList({
                   ? row.change_pct
                   : null;
               const cap = factsBySymbol[row.quote_symbol || row.symbol]?.market_cap ?? row.company_facts?.market_cap ?? row.market_cap;
-              const capLabel = typeof cap === "number" && cap > 0 ? `$${formatCompactNumber(cap)} cap` : "Cap unavailable";
+              const capLabel = typeof cap === "number" && cap > 0 ? `${formatCompactNumber(cap)} cap` : "Cap unavailable";
 
               return (
                 <button

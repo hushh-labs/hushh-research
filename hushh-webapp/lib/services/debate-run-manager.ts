@@ -625,6 +625,8 @@ class DebateRunManager {
             >)
           : {};
       rawCard.debate_run_id = task.runId;
+      rawCard.analysis_degraded = Boolean(payload.analysis_degraded || rawCard.analysis_degraded);
+      rawCard.degraded_agents = Array.isArray(payload.degraded_agents) ? payload.degraded_agents : rawCard.degraded_agents;
       const transcript = buildTranscriptFromEnvelopes(buffer);
       items.push({
         task,
@@ -1166,6 +1168,8 @@ class DebateRunManager {
           >)
         : ({} as Record<string, unknown>);
     rawCard.debate_run_id = runId;
+    rawCard.analysis_degraded = Boolean(payload.analysis_degraded || rawCard.analysis_degraded);
+    rawCard.degraded_agents = Array.isArray(payload.degraded_agents) ? payload.degraded_agents : rawCard.degraded_agents;
 
     const entry: AnalysisHistoryEntry = {
       ticker: toUpperTicker(String(payload.ticker || task.ticker)),

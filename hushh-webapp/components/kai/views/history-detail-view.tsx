@@ -24,6 +24,7 @@ import type { AnalysisHistoryEntry } from "@/lib/services/kai-history-service";
 import {
   fetchLatestMarketSnapshot,
   getLatestMarketSnapshotFromCache,
+  marketSnapshotForTicker,
   pickPreferredMarketSnapshot,
   type TickerMarketSnapshot,
 } from "@/lib/kai/market-snapshot";
@@ -123,7 +124,8 @@ export function HistoryDetailView({
     };
   }, [entry]);
 
-  const [marketSnapshot, setMarketSnapshot] = useState<TickerMarketSnapshot | null>(null);
+  const [marketSnapshotState, setMarketSnapshot] = useState<TickerMarketSnapshot | null>(null);
+  const marketSnapshot = marketSnapshotForTicker(marketSnapshotState, entry.ticker);
 
   useEffect(() => {
     if (!userId) return;
@@ -131,7 +133,7 @@ export function HistoryDetailView({
 
     const cached = getLatestMarketSnapshotFromCache(userId, entry.ticker);
     if (!cancelled) {
-      setMarketSnapshot((prev) => pickPreferredMarketSnapshot(prev, cached));
+      setMarketSnapshot((prev) => pickPreferredMarketSnapshot(prev, cached, entry.ticker));
     }
 
     if (!vaultOwnerToken) return () => {
@@ -147,7 +149,7 @@ export function HistoryDetailView({
           daysBack: 7,
         });
         if (!cancelled) {
-          setMarketSnapshot((prev) => pickPreferredMarketSnapshot(prev, live));
+          setMarketSnapshot((prev) => pickPreferredMarketSnapshot(prev, live, entry.ticker));
         }
       } catch {
         // keep best-known quote

@@ -220,6 +220,7 @@ function VersionOptions({
                 </div>
                 <span className="truncate text-xs text-muted-foreground">
                   {timestamp ? format(timestamp, "PPpp") : ""}
+                  {rawCard?.analysis_degraded ? " · Limited analysis" : ""}
                 </span>
               </div>
               <span className="text-xs text-muted-foreground">Open</span>
