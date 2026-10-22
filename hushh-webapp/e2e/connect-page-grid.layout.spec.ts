@@ -8,9 +8,9 @@ import {
   productFontStyle,
   stripAppFontFaces,
 } from "./fixtures/product-font";
+import { assertNeutralFocusedCircleType } from "./helpers/circle-type-focus";
 
 /** Production Connect page against synthetic identity/network boundaries. */
-
 const WIDTHS = [320, 375, 393, 430, 640, 768, 1440] as const;
 
 const STUBBED = [
@@ -680,22 +680,7 @@ for (const width of [393, 1440]) {
       await expect(form.getByRole("radio", { name: "Finance", exact: true })).toBeVisible();
       await form.getByRole("radio", { name: "Other", exact: true }).click();
       const type = form.getByRole("textbox", { name: "Type name (optional)" });
-      await expect(type).toHaveCSS("font-size", "14px");
-      await type.focus();
-      const typeField = type.locator("..");
-      await expect(typeField).toHaveAttribute("data-slot", "input-group");
-      const fieldColors = await typeField.evaluate(node => {
-        const reference = document.createElement("span");
-        reference.style.backgroundColor = "var(--app-neutral-fill)";
-        node.appendChild(reference);
-        const actual = getComputedStyle(node).backgroundColor;
-        const expected = getComputedStyle(reference).backgroundColor;
-        reference.remove();
-        return { actual, expected };
-      });
-      expect(fieldColors.actual).toBe(fieldColors.expected);
-      expect(await type.evaluate(input => getComputedStyle(input).boxShadow)).not.toMatch(/0px 0px 0px 3px/);
-      await expect(typeField).toHaveCSS("box-shadow", /3px/);
+      await assertNeutralFocusedCircleType(type);
       await expect(form.getByText("Type name (optional)", { exact: true })).toHaveCSS("font-size", "15px");
       const error = form.getByText("Enter a Circle name.", { exact: true });
       await expect(error).toHaveCSS("font-size", "12px");

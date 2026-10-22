@@ -3,12 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
+import { assertCalendarAccountLabel, assertCalendarBoardGeometry } from "./helpers/calendar-board-geometry";
 
 // Real component + actual typed Calendar transport; only authentication/router
 // and HTTP provider boundaries are synthetic. This is rendered UI evidence,
 // not proof that an external Google account was available in the test session.
 test.use({ timezoneId: "Asia/Kolkata" });
-
 let script: string;
 let css: string;
 let fixtureDirectory: string;
@@ -268,20 +268,11 @@ async function assertActionsClearChrome(page: Page, width: number, suffix: strin
 for (const width of [390, 1440]) {
   test(`three-account board and inline conflict review at ${width}px`, async ({ page }) => {
     const { errors, unexpectedRequests, calls } = await openFixture(page, width, false, "standard", false, true);
-    await expect(page.locator("[data-calendar-account-board]")).toBeVisible();
-    const boardShell = page.locator('[data-app-shell-width="agent"]').filter({ has: page.locator("[data-calendar-account-board]") });
-    await expect(boardShell).toBeVisible();
-    const shellBox = (await boardShell.boundingBox())!;
-    expect(shellBox.width).toBeLessThanOrEqual(880);
-    if (width === 1440) expect(Math.abs(shellBox.x - (width - shellBox.width) / 2)).toBeLessThanOrEqual(1);
+    await assertCalendarBoardGeometry(page, width);
     for (const email of ["qa-owner@example.com", "qa-work@example.com", "qa-projects@example.com"]) {
       const label = page.getByRole("group", { name: `Calendar account ${email}` }).getByText(email, { exact: true });
       await expect(label).toBeVisible();
-      await expect(label).toHaveCSS("font-size", "14px");
-      if (width === 1440) {
-        const labelHeight = await label.evaluate(element => element.getBoundingClientRect().height);
-        expect(labelHeight).toBeLessThanOrEqual(22);
-      }
+      await assertCalendarAccountLabel(label, width);
     }
     for (const event of ["QA Design Review", "QA Client Call", "QA Project Focus"]) await expect(page.getByRole("button", { name: new RegExp(`^Open ${event}`) })).toBeVisible();
     await expect(page.getByText("1 cross-account overlap")).toBeVisible();
