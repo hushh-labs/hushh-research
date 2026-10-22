@@ -80,7 +80,7 @@ export class SecureDurableResourceService {
       return records.filter(e => e.key === keyOf(userId, e.resourceKey) && e.resourceKey.startsWith(prefix)).map(e => e.resourceKey);
     } finally { db.close(); }
   }
-  static async read<T>(userId: string, resourceKey: string, vaultKey: string): Promise<(DurableVersion & { value: T }) | null> {
+  static async read<T>(userId: string, resourceKey: string, vaultKey: string, isCurrent?: () => boolean): Promise<(DurableVersion & { value: T }) | null> {
     const db = await database();
     let e: Envelope | undefined;
     try {
@@ -88,6 +88,7 @@ export class SecureDurableResourceService {
       const done = completed(tx);
       [e] = await Promise.all([get<Envelope>(tx.objectStore(DURABLE_RESOURCE_STORE), keyOf(userId, resourceKey)), done]);
     } finally { db.close(); }
+    if (isCurrent && !isCurrent()) throw new DurableResourceError("authority_changed", "authority", "Receipt authority changed.");
     if (!e) return null;
     if (e.userId !== userId || e.resourceKey !== resourceKey || e.key !== keyOf(userId, resourceKey))
       throw new DurableResourceError("binding_invalid", "readback", "Encrypted resource binding is invalid.");
@@ -96,9 +97,10 @@ export class SecureDurableResourceService {
     const current = await this.version(userId, resourceKey);
     if (current.generation !== e.generation || current.revision !== e.revision)
       throw new Error("Encrypted resource changed. Read it again.");
+    if (isCurrent && !isCurrent()) throw new DurableResourceError("authority_changed", "authority", "Receipt authority changed.");
     return { value, generation: e.generation, revision: e.revision };
   }
-  static async write<T>(params: { userId: string; resourceKey: string; vaultKey: string; value: T; expected: DurableVersion; isCurrent: () => boolean; validateReadback?: (value: unknown) => void }): Promise<DurableVersion> {
+  static async write<T>(params: { userId: string; resourceKey: string; vaultKey: string; value: T; expected: DurableVersion; isCurrent: () => boolean; signal?: AbortSignal; validateReadback?: (value: unknown) => void }): Promise<DurableVersion> {
     const { userId, resourceKey, expected } = params;
     const binding = { key: keyOf(userId, resourceKey), userId, resourceKey, generation: expected.generation, revision: expected.revision + 1 };
     const stagingKey = JSON.stringify([userId, resourceKey, "pending", crypto.randomUUID()]);
@@ -106,7 +108,7 @@ export class SecureDurableResourceService {
     let stage: DurableResourceStage = "encryption";
     let db: IDBDatabase | undefined;
     const ensureCurrent = () => {
-      if (!params.isCurrent()) throw new DurableResourceError("authority_changed", "authority", "Receipt authority changed.");
+      if (params.signal?.aborted || !params.isCurrent()) throw new DurableResourceError("authority_changed", "authority", "Receipt authority changed.");
     };
     const ensureVersion = (generation: number | undefined, prior: Envelope | undefined) => {
       ensureCurrent();
@@ -124,6 +126,8 @@ export class SecureDurableResourceService {
       const pending: Envelope = { ...binding, key: stagingKey, payload };
       const tx = db.transaction([DURABLE_RESOURCE_STORE, DURABLE_GENERATION_STORE], "readwrite");
       const done = completed(tx);
+      const abortStage = () => { try { tx.abort(); } catch { /* Already committed. */ } };
+      params.signal?.addEventListener("abort", abortStage, { once: true });
       try {
         const [generation, prior] = await Promise.all([
           get<number>(tx.objectStore(DURABLE_GENERATION_STORE), userId),
@@ -136,7 +140,7 @@ export class SecureDurableResourceService {
         try { tx.abort(); } catch { /* Transaction already settled. */ }
         await done.catch(() => undefined);
         throw error;
-      }
+      } finally { params.signal?.removeEventListener("abort", abortStage); }
       stage = "readback";
       const readTx = db.transaction(DURABLE_RESOURCE_STORE, "readonly");
       const readDone = completed(readTx);
@@ -155,6 +159,8 @@ export class SecureDurableResourceService {
       // Promote the exact verified ciphertext atomically, rechecking Reset/revision.
       const commitTx = db.transaction([DURABLE_RESOURCE_STORE, DURABLE_GENERATION_STORE], "readwrite");
       const commitDone = completed(commitTx);
+      const abortCommit = () => { try { commitTx.abort(); } catch { /* Already committed. */ } };
+      params.signal?.addEventListener("abort", abortCommit, { once: true });
       try {
         const store = commitTx.objectStore(DURABLE_RESOURCE_STORE);
         const [generation, prior, candidate] = await Promise.all([
@@ -171,7 +177,7 @@ export class SecureDurableResourceService {
         try { commitTx.abort(); } catch { /* Transaction already settled. */ }
         await commitDone.catch(() => undefined);
         throw error;
-      }
+      } finally { params.signal?.removeEventListener("abort", abortCommit); }
       return { generation: binding.generation, revision: binding.revision };
     } catch (error) {
       // Delete only this candidate; never restore old data after a Reset.

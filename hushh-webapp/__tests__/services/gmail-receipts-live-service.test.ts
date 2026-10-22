@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiFetchMock = vi.hoisted(() => vi.fn());
+const privateOwnerMock = vi.hoisted(() => vi.fn().mockResolvedValue(false));
+
+vi.mock("@/lib/services/private-agent-specialist-chat", () => ({
+  ownerContentIsPrivate: privateOwnerMock,
+}));
 
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: { apiFetch: apiFetchMock },
@@ -121,6 +126,15 @@ describe("GmailReceiptsService live backend receipt contract", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    privateOwnerMock.mockResolvedValue(false);
+  });
+
+  it("refuses private receipt reads before any shared request", async () => {
+    privateOwnerMock.mockResolvedValue(true);
+    const authority = { idToken: "synthetic", vaultOwnerToken: "synthetic", userId: "owner-uid" };
+    await expect(GmailReceiptsService.scanReceipts(authority)).rejects.toMatchObject({ code: "PRIVATE_GOOGLE_OPERATION_UNAVAILABLE" });
+    await expect(GmailReceiptsService.getReceiptDetail({ ...authority, sourceId: liveItem.source_id })).rejects.toMatchObject({ code: "PRIVATE_GOOGLE_OPERATION_UNAVAILABLE" });
+    expect(apiFetchMock).not.toHaveBeenCalled();
   });
 
   it("sends a sealed no-store scan request and accepts evidence-backed nullable fields", async () => {
@@ -340,4 +354,14 @@ describe("GmailReceiptsService live backend receipt contract", () => {
     expect(result.items[0]?.durable_source_ref).toBe(liveItem.durable_source_ref);
     expect(result.items[0]?.amount_decimal).toBe(liveItem.amount_decimal);
   });
+});
+
+
+it("admits only an explicit bounded incremental rollover continuation", async () => {
+  const payload = scanPayload({ page: 50, has_more: true, sync_mode: "delta", checkpoint: null, next_cursor: "grc1_" + "a".repeat(40), coverage: { ...scanPayload().coverage, pages_scanned: 1, max_pages: 50, reached_limit: true } });
+  apiFetchMock.mockResolvedValueOnce(jsonResponse(payload));
+  const request = { idToken: "synthetic", vaultOwnerToken: "synthetic", userId: "owner-uid", page: 50, incremental: true };
+  expect(await GmailReceiptsService.scanReceipts(request)).toMatchObject({ has_more: true, next_cursor: payload.next_cursor, coverage: { reached_limit: true } });
+  apiFetchMock.mockResolvedValueOnce(jsonResponse({ ...payload, sync_mode: undefined }));
+  await expect(GmailReceiptsService.scanReceipts(request)).rejects.toMatchObject({ code: "GMAIL_RECEIPT_INVALID_RESPONSE" });
 });

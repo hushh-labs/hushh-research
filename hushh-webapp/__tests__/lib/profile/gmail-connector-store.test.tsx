@@ -450,6 +450,7 @@ describe("gmail-connector-store", () => {
       _timeout?: number,
       ...args: unknown[]
     ) => {
+      if (_timeout === 10_000) return realTimeout(handler, _timeout, ...args);
       if (typeof handler === "function") {
         queueMicrotask(() => handler(...args));
       }
@@ -822,11 +823,13 @@ describe("gmail-connector-store", () => {
   });
 
   it("starts polling active runs discovered from a plain status fetch and hands off to backfill", async () => {
+    const realTimeout = window.setTimeout.bind(window);
     const setTimeoutSpy = vi.spyOn(window, "setTimeout").mockImplementation(((
       handler: TimerHandler,
       _timeout?: number,
       ...args: unknown[]
     ) => {
+      if (_timeout === 10_000) return realTimeout(handler, _timeout, ...args);
       if (typeof handler === "function") {
         queueMicrotask(() => handler(...args));
       }
@@ -1077,4 +1080,39 @@ describe("gmail-connector-store", () => {
       }),
     );
   });
+
+  it.each([undefined, false])("shares consumers and preserves queued reconcile intent (%s)", async reconcile => {
+  const owner = `synthetic-force-burst-${String(reconcile)}`; clearConnectorStatus(owner);
+  const status = { configured: true, connected: true, status: "connected", scope_csv: "gmail.readonly", auto_sync_enabled: false, revoked: false };
+  let finish!: (value: typeof status) => void;
+  vi.mocked(GmailReceiptsService.getStatus).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  if (reconcile === false) vi.mocked(GmailReceiptsService.getStatus).mockResolvedValueOnce(status);
+  else vi.mocked(GmailReceiptsService.reconcile).mockResolvedValueOnce(status);
+  const provider = vi.fn().mockResolvedValue("synthetic-id-token");
+  const view = renderHook(() => useGmailConnectorStatus({ userId: owner, idTokenProvider: provider }));
+  await waitFor(() => expect(GmailReceiptsService.getStatus).toHaveBeenCalledOnce());
+  const requests: Promise<unknown>[] = [];
+  act(() => { for (let i = 0; i < 10; i++) requests.push(view.result.current.refreshStatus({ force: true, reconcile })); });
+  await act(async () => { finish(status); await Promise.all(requests); });
+  expect(GmailReceiptsService.getStatus).toHaveBeenCalledTimes(reconcile === false ? 2 : 1);
+  expect(GmailReceiptsService.reconcile).toHaveBeenCalledTimes(reconcile === false ? 0 : 1);
+  expect(view.result.current.refreshingStatus).toBe(false);
+  view.unmount(); clearConnectorStatus(owner);
+});
+
+it("bounds token acquisition before any status request", async () => {
+  const owner = "synthetic-hung-token"; clearConnectorStatus(owner);
+  const provider = vi.fn(() => new Promise<string>(() => {}));
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.useFakeTimers();
+  const view = renderHook(() => useGmailConnectorStatus({ userId: owner, idTokenProvider: provider }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(10_001); });
+  expect(provider).toHaveBeenCalledOnce();
+  expect(GmailReceiptsService.getStatus).not.toHaveBeenCalled();
+  expect(GmailReceiptsService.reconcile).not.toHaveBeenCalled();
+  expect(view.result.current.refreshingStatus).toBe(false);
+  expect(view.result.current.statusError).toBeTruthy();
+  view.unmount(); clearConnectorStatus(owner); vi.useRealTimers(); log.mockRestore();
+});
+
 });

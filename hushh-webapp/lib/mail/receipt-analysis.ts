@@ -35,7 +35,8 @@ export function paidReceiptMoney(row: SnapshotRow): { amount: string; currency: 
 }
 export function analyzeReceipts(operation: ReceiptFunction, input: unknown, source: ReceiptSnapshot, revision: number) {
   const request = parseReceiptAnalysisRequest(operation, input);
-  const snapshot = validateReceiptSnapshot(source);
+  const validated = validateReceiptSnapshot(source);
+  const snapshot = { ...validated, rows: validated.rows.filter(row => !validated.sync?.archive_refs.includes(row.ref)) };
   const matched = snapshot.rows.filter(r => r.transaction_date && (() => { const day = localDay(r.transaction_date, request.timezone); return day >= request.from_date && day < request.to_date; })());
   const refunds = matched.filter(r => r.status === "refunded" || r.events.some(e => e.kind === "refund"));
   const included = matched.filter(r => paidReceiptMoney(r));
