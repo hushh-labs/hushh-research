@@ -21,8 +21,10 @@ function failure(status: number, error: string, headers: Record<string, string> 
  */
 function upstreamErrorCode(body: unknown): string | undefined {
   const detail = body && typeof body === "object" ? (body as { detail?: unknown }).detail : undefined;
-  const code = detail && typeof detail === "object" ? (detail as { error_code?: unknown }).error_code : undefined;
-  return typeof code === "string" ? code : undefined;
+  if (!detail || typeof detail !== "object") return undefined;
+  const { error_code: code, code: legacyCode } = detail as { error_code?: unknown; code?: unknown };
+  // Feed admission uses `code`; project only its closed, content-free reason.
+  return typeof code === "string" ? code : legacyCode === "FEED_STREAM_BUSY" ? legacyCode : undefined;
 }
 
 /** Only these two authenticated backend streams may be reached by this proxy. */

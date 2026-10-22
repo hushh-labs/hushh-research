@@ -14,6 +14,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { PREFERRED_NAME_MAX, sanitizeStyleText } from "@/lib/agent/owner-style-settings";
+import { parseRecord, unwrapToolResult } from "@/lib/agent/tool-result-envelope";
 import { containsSecretSpan } from "@/lib/pkm/secret-patterns";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
@@ -86,10 +87,12 @@ export function beginChatOnboardingNameTurn(host: ChatOnboardingHost): Onboardin
       if (typeof raw === "string") {
         try { raw = JSON.parse(raw); } catch { invalid = true; return; }
       }
-      if (finished || !isCurrent() || !raw || typeof raw !== "object") return;
-      const result = raw as Record<string, unknown>;
+      if (finished || !isCurrent()) return;
+      const record = parseRecord(raw);
+      const result = record?.status ? record : unwrapToolResult(record);
+      if (!result) return;
       if (result.status !== "onboarding_name_assessed") return;
-      const fingerprint = JSON.stringify(raw);
+      const fingerprint = JSON.stringify(result);
       if (firstCallId === callId && firstResult === fingerprint) return; // Transport redelivery.
       if (firstCallId !== null) { invalid = true; return; }
       firstCallId = callId;

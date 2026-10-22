@@ -185,6 +185,13 @@ Bounds, per backend worker:
 | blocked send | 10 s, then the response ends and frees its subscription and slot |
 | streams | at most 6 per worker and 3 per user; a fourth evicts that user's oldest; a full worker answers 503 with `Retry-After: 60` |
 
+UAT keeps maximum API concurrency at 20 and requests earlier scale-out with a
+20% concurrency utilization target; this preserves ordinary API/Voice ingress
+headroom. Worker limits still apply during bursts and maximum-instance
+saturation. The Next proxy preserves the closed `FEED_STREAM_BUSY` reason as
+`detail.error_code` alongside the 503 and retry delay, without forwarding the
+upstream diagnostic message.
+
 The proxy marks its upstream request with the fixed header
 `X-Hussh-Stream-Via: next-proxy`; the server trusts it only to shorten the
 lifetime. `DOCUMENT_FEED_WEB_STREAM_ENABLED` turns the direct web endpoint on or
