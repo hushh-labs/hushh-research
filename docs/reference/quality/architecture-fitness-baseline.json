@@ -22066,7 +22066,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_memory_routes.py",
       "symbol": null,
-      "value": 1886
+      "value": 1887
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -84894,5 +84894,17 @@
     "reviewer": "store_boundary_review",
     "review": "The existing owner-local status/revoke test validates closed response shapes, exactly two known opaque IDs and the existing short secret sentinels. Only the validated ID list is excluded from plaintext scanning. The module gains 20 lines from its actual parent source and 16 over its recorded ceiling. Global budgets, limits, scanner and exclusions remain unchanged.",
     "validation": "The exact assertion block accepts a colliding opaque hash and rejects eight leakage or malformed-shape controls. Ninety focused route, rollout and account-erasure tests pass. Full POSIX-backed memory route execution remains a hosted Linux check."
+  },
+  "ci_revocation_status_review_20261023": {
+    "parent_revision": "bceec86114183396d1881dbc013b1b8b8d065231",
+    "source_revision": "af5850b2f88ad5bc878aac12b611969b901b5a47",
+    "key": "module_size|consent-protocol/tests/test_pod_memory_routes.py||module exceeds the advisory operon budget",
+    "rank": 0,
+    "before": 1886,
+    "after": 1887,
+    "source_sha256": "ca9c5e6f313029037c9d6fdbade6163fc948caf0c15b4bbb4becd9b9c863f753",
+    "reviewer": "store_boundary_review",
+    "review": "The same privacy case validates closed response shapes independently across revocation, allowing the legitimate provider stale-state transition. Counts, known opaque IDs and short secret checks remain. Only one source line is added; global budgets, limits, scanner and exclusions are unchanged.",
+    "validation": "The actual service in documented no-log mode changes stale from false to true after revocation. Its outputs pass the exact assertion block while the old equality fails. A legitimate colliding hash passes and ten leakage or malformed-shape controls fail. Hosted Linux remains responsible for durable replay and complete route execution."
   }
 }
