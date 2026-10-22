@@ -35,6 +35,11 @@
   font-weight: var(--type-row-description-weight);
   line-height: var(--type-row-description-line);
 }
+.circleCreateField:focus {
+  border-color: var(--app-accent) !important;
+  box-shadow: none !important;
+  outline: none;
+}
 .workspace :global([data-slot="settings-row-title"]),
 .workspace :global([data-profile-role="name"]) {
   font-size: 14px;

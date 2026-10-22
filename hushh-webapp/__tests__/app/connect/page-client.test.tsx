@@ -987,13 +987,9 @@ describe("Connect — People", () => {
 
     mocks.routerPush.mockClear();
     fireEvent.click(screen.getByRole("button", { name: "Options for Scoped Friend" }));
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "Remove connection with Scoped Friend",
-      }),
-    );
-
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("Remove Scoped Friend from your connections?");
     expect(mocks.routerPush).not.toHaveBeenCalled();
+    expect(mocks.removeConnection).not.toHaveBeenCalled();
   });
 
   it("loads page 2 in stable server order within each provenance group", async () => {
@@ -1375,11 +1371,8 @@ describe("Connect — People", () => {
       screen.getByRole("button", { name: "Load more connections" }),
     );
     fireEvent.click(await screen.findByRole("button", { name: "Options for Remove Me" }));
-    const remove = await screen.findByRole("button", {
-      name: "Remove connection with Remove Me",
-    });
-    fireEvent.click(remove);
-    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    const dialog = await screen.findByRole("alertdialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remove", exact: true }));
 
     expect(await screen.findByText("Shifted Boundary")).toBeTruthy();
     expect(mocks.onConnectionGraphMutated).toHaveBeenCalledWith("me");
@@ -2699,8 +2692,7 @@ describe("Connect — the phone-width geometry QA reported", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Message Abdul Rashid" }));
     expect(mocks.messageSelection).toHaveBeenCalledWith({ personRef: "person-ref-rashid" });
     fireEvent.click(screen.getByRole("button", { name: "Options for Abdul Rashid" }));
-    fireEvent.click(screen.getByRole("button", { name: "Remove connection with Abdul Rashid" }));
-    expect(screen.getByRole("alertdialog")).toHaveTextContent("Remove connection?");
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("Remove connection");
     expect(mocks.removeConnection).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(mocks.removeConnection).not.toHaveBeenCalled();
@@ -3593,7 +3585,6 @@ describe("Connect saved view entry and removal", () => {
     fireEvent.mouseDown(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
     fireEvent.change(screen.getByLabelText("Search my connections by name, email or phone"), { target: { value: "Searched" } });
     fireEvent.click(await screen.findByRole("button", { name: "Options for Searched Friend" }));
-    fireEvent.click(screen.getByRole("button", { name: "Remove connection with Searched Friend" }));
     const dialog = screen.getByRole("alertdialog");
     expect(dialog).toHaveTextContent("Searched Friend");
     expect(mocks.removeConnection).not.toHaveBeenCalled();
