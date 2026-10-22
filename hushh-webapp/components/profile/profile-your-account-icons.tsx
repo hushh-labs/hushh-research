@@ -115,7 +115,7 @@ export function ProfileAccountResetIcon({ size = 24, ...props }: AccountIconProp
 
 export function ProfileAccountDeleteIcon(props: AccountIconProps) {
   return (
-    <AccountIcon {...props}>
+    <AccountIcon {...props} data-trash-icon="true" style={{ ...props.style, color: "var(--app-destructive)" }}>
       <path d="M4.5 6.5h15M9.5 6V4.8A1.3 1.3 0 0 1 10.8 3.5h2.4A1.3 1.3 0 0 1 14.5 4.8V6" />
       <path d="M6.5 6.5l.8 12a2 2 0 0 0 2 1.9h5.4a2 2 0 0 0 2-1.9l.8-12M10 10.5v6M14 10.5v6" />
     </AccountIcon>

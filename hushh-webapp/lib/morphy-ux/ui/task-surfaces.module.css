@@ -129,6 +129,7 @@
   width: 44px;
   height: 44px;
   padding: 0;
+  background: transparent;
   opacity: 1;
 }
 
@@ -140,6 +141,11 @@
   background: var(--app-neutral-fill);
   content: "";
   z-index: -1;
+}
+
+/* The 28px disk owns the surface; hovering the 44px target adds no second disk. */
+.frame :is(:global([data-slot="sheet-close"]), :global([data-slot="dialog-close"]), :global([data-slot="drawer-close"])):hover {
+  background: transparent;
 }
 
 .frame :global([data-slot="sheet-drag-handle"]) { position: static; }

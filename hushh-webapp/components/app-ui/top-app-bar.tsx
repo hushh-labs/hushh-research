@@ -1446,7 +1446,7 @@ function OnboardingRouteActions() {
           <DropdownMenuItem
             variant="destructive"
             onClick={() => void requestDeleteAccount()}
-            className="cursor-pointer rounded-[10px] hover:!bg-[color:var(--app-destructive)] hover:!text-[color:var(--app-destructive-fg)] hover:[&_svg]:!stroke-[color:var(--app-destructive-fg)] hover:[&_svg]:!text-[color:var(--app-destructive-fg)] focus:!bg-[color:var(--app-destructive)] focus:!text-[color:var(--app-destructive-fg)] focus:[&_svg]:!stroke-[color:var(--app-destructive-fg)] focus:[&_svg]:!text-[color:var(--app-destructive-fg)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70"
+            className="cursor-pointer rounded-[10px] hover:!bg-[color:var(--app-destructive-tint)] hover:!text-destructive focus:!bg-[color:var(--app-destructive-tint)] focus:!text-destructive focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-destructive)]"
           >
             <Trash2 className="h-4 w-4 text-current" />
             Delete account

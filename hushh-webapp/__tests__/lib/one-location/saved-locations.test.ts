@@ -25,6 +25,7 @@ import {
   defaultLabelForCategory,
   DuplicateSavedLocationError,
   findDuplicateSavedLocation,
+  favoriteSavedLocation,
   loadSavedLocations,
   LOCATION_PKM_DOMAIN,
   removeSavedLocation,
@@ -73,6 +74,30 @@ beforeEach(() => {
 });
 
 describe("encrypted saved-locations PKM store", () => {
+  it("moves a check-in to favorites without losing its visit or duplicating its pin", async () => {
+    const [saved] = await addSavedLocation({
+      context: CONTEXT,
+      input: {
+        category: "other",
+        savedFrom: "check_in",
+        label: "Dezzerto",
+        placeName: "Dezzerto",
+        placeId: "venue-1",
+        address: "Shop 9, Tower 1, Pune",
+        checkedInAt: "2026-10-21T19:30:00.000Z",
+        latitude: 18.57,
+        longitude: 73.77,
+      },
+    });
+    await favoriteSavedLocation({ context: CONTEXT, id: saved.id });
+    await favoriteSavedLocation({ context: CONTEXT, id: saved.id });
+    const locations = await loadSavedLocations(CONTEXT);
+    expect(locations).toHaveLength(1);
+    expect(locations[0]).toMatchObject({ ...saved, savedFrom: undefined });
+    await expect(favoriteSavedLocation({ context: CONTEXT, id: "deleted" })).rejects.toThrow("no longer available");
+    await expect(favoriteSavedLocation({ context: { ...CONTEXT, vaultKey: null }, id: saved.id })).rejects.toThrow("Unlock your vault");
+  });
+
   it("keeps a checked-in place in its collection through reload and edit", async () => {
     const [saved] = await addSavedLocation({
       context: CONTEXT,
@@ -99,6 +124,21 @@ describe("encrypted saved-locations PKM store", () => {
       id: saved.id,
       savedFrom: "check_in",
       label: "Favorite coffee shop",
+    });
+  });
+
+  it("preserves a favorite's full venue name and visit time when its address changes", async () => {
+    const name = "Blue Bottle Coffee at the Stanford Shopping Center";
+    const [saved] = await addSavedLocation({ context: CONTEXT, input: {
+      category: "other", savedFrom: "check_in", label: name, placeName: name,
+      checkedInAt: "2026-10-21T12:00:00.000Z", latitude: 37.42, longitude: -122.16,
+    } });
+    await favoriteSavedLocation({ context: CONTEXT, id: saved.id });
+    await updateSavedLocation({ context: CONTEXT, id: saved.id, input: {
+      category: "other", label: name, latitude: saved.latitude, longitude: saved.longitude, address: "Updated street address",
+    } });
+    expect((await loadSavedLocations(CONTEXT))[0]).toMatchObject({
+      placeName: name, checkedInAt: saved.checkedInAt, address: "Updated street address", savedFrom: undefined,
     });
   });
 
@@ -481,7 +521,7 @@ describe("encrypted saved-locations PKM store", () => {
     // Read normalizes the v2 fields onto a v1 entry, so it loads with the
     // parts explicitly absent rather than undefined.
     expect(await loadSavedLocations(CONTEXT)).toEqual([
-      { ...concurrentlySavedHome, addressBase: null, addressDetails: null },
+      { ...concurrentlySavedHome, addressBase: null, addressDetails: null, placeName: null, placeId: null, checkedInAt: null },
     ]);
   });
 

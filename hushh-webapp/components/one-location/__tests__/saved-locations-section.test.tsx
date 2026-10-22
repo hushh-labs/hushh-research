@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   },
   loadSavedLocations: vi.fn(),
   addSavedLocation: vi.fn(),
+  favoriteSavedLocation: vi.fn(),
   removeSavedLocation: vi.fn(),
   updateSavedLocationAddress: vi.fn(),
   captureCurrentPosition: vi.fn(),
@@ -69,6 +70,7 @@ vi.mock("@/lib/one-location/saved-locations", () => ({
     ) ?? null,
   loadSavedLocations: mocks.loadSavedLocations,
   addSavedLocation: mocks.addSavedLocation,
+  favoriteSavedLocation: mocks.favoriteSavedLocation,
   removeSavedLocation: mocks.removeSavedLocation,
   updateSavedLocationAddress: mocks.updateSavedLocationAddress,
   sortSavedLocationsForDisplay: (locations: Array<Record<string, unknown>>) =>
@@ -165,6 +167,7 @@ describe("SavedLocationsSection", () => {
     mocks.vault.vaultOwnerToken = "vault-owner-token";
     mocks.loadSavedLocations.mockReset().mockResolvedValue([HOME]);
     mocks.addSavedLocation.mockReset().mockResolvedValue([HOME]);
+    mocks.favoriteSavedLocation.mockReset();
     mocks.removeSavedLocation.mockReset().mockResolvedValue([]);
     mocks.updateSavedLocationAddress.mockReset().mockResolvedValue([HOME]);
     mocks.captureCurrentPosition.mockReset().mockResolvedValue({
@@ -255,6 +258,66 @@ describe("SavedLocationsSection", () => {
     ).toBeInTheDocument();
     expect(mocks.loadSavedLocations).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: /add place/i })).toBeDisabled();
+  });
+
+  it("shows the venue, address and visit date before expansion, then moves it to favorites", async () => {
+    const visit = {
+      ...HOME,
+      id: "visit",
+      category: "other",
+      label: "Dezzerto, Shop 9, Tower 1, Godrej Gre",
+      address: null,
+      savedFrom: "check_in",
+      checkedInAt: "2026-10-21T12:00:00.000Z",
+    };
+    mocks.loadSavedLocations.mockResolvedValue([HOME, visit]);
+    mocks.reverseGeocode.mockResolvedValue({ formattedAddress: "Shop 9, Tower 1, Godrej Green Cove, Pune" });
+    mocks.favoriteSavedLocation.mockResolvedValue([HOME, { ...visit, placeName: "Dezzerto", savedFrom: undefined }]);
+    render(<SavedLocationsSection />);
+    const region = await screen.findByRole("region", { name: "Checked In Places" });
+    const checkedIn = within(region);
+    expect(await checkedIn.findByText("Shop 9, Tower 1, Godrej Green Cove, Pune")).toBeInTheDocument();
+    expect(checkedIn.getByText("Dezzerto")).toBeInTheDocument();
+    expect(region.querySelector("time")).toHaveAttribute("datetime", visit.checkedInAt);
+    expect(region.querySelector("time")).toHaveAttribute("title", expect.stringContaining("Checked in on"));
+    expect(checkedIn.queryByText("Address unavailable")).toBeNull();
+    fireEvent.click(checkedIn.getByRole("button", { name: /Dezzerto/ }));
+    expect(checkedIn.queryByRole("button", { name: "Edit" })).toBeNull();
+    fireEvent.click(checkedIn.getByRole("button", { name: "Add to favorites" }));
+    await waitFor(() => expect(mocks.favoriteSavedLocation).toHaveBeenCalledWith({
+      context: { userId: "user-123", vaultKey: "vault-key", vaultOwnerToken: "vault-owner-token" },
+      id: "visit",
+    }));
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "Favorite Places" })).getByText("Dezzerto")).toBeInTheDocument());
+    expect(checkedIn.queryByText("Dezzerto")).toBeNull();
+  });
+
+  it("uses a saved-date label for legacy visits and keeps recovery inside the vault session", async () => {
+    let resolveAddress!: (value: { formattedAddress: string }) => void;
+    mocks.reverseGeocode.mockReturnValue(new Promise((resolve) => { resolveAddress = resolve; }));
+    mocks.loadSavedLocations.mockResolvedValue([{ ...HOME, id: "legacy", category: "other", label: "Cafe, Shop 3, Pune", address: null, savedFrom: "check_in" }]);
+    const view = render(<SavedLocationsSection />);
+    expect(await screen.findByText("Shop 3, Pune")).toBeInTheDocument();
+    expect(screen.getByText("Saved")).toBeInTheDocument();
+    await waitFor(() => expect(mocks.reverseGeocode).toHaveBeenCalled());
+    mocks.vault.isVaultUnlocked = false;
+    mocks.vault.vaultKey = null;
+    mocks.vault.vaultOwnerToken = null;
+    view.rerender(<SavedLocationsSection />);
+    await act(async () => resolveAddress({ formattedAddress: "Private recovered address" }));
+    expect(screen.queryByText("Private recovered address")).toBeNull();
+    expect(screen.queryByText("Cafe")).toBeNull();
+  });
+
+  it("retries a legacy address after reconnecting and exposes manual recovery on failure", async () => {
+    const visit = { ...HOME, id: "legacy", category: "other", label: "Cafe, Shop 3, Pune", address: null, savedFrom: "check_in" };
+    mocks.loadSavedLocations.mockImplementation(async () => [{ ...visit }]);
+    mocks.reverseGeocode.mockRejectedValueOnce(new Error("offline")).mockResolvedValue({ formattedAddress: "Shop 3, Full street, Pune" });
+    render(<SavedLocationsSection />);
+    fireEvent.click(await screen.findByRole("button", { name: /Cafe/ }));
+    expect(await screen.findByRole("button", { name: "Find address" })).toBeInTheDocument();
+    fireEvent(window, new Event("online"));
+    expect(await screen.findByText("Shop 3, Full street, Pune")).toBeInTheDocument();
   });
 
   it("does not request device location while Location is paused", async () => {

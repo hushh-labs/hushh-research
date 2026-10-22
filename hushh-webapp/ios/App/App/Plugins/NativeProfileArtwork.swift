@@ -41,7 +41,7 @@ enum NativeProfileArtwork {
         case "account-phone": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "account-wallet": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "account-reset": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
-        case "account-delete": colorHex = nil; accentColorHex = nil; hasAccent = false; original = false
+        case "account-delete": colorHex = "#ff3b30"; accentColorHex = nil; hasAccent = false; original = false
         case "appearance": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "accent": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "voice": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false

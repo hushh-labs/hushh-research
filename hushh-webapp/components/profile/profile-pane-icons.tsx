@@ -1,5 +1,6 @@
 import type { ReactNode, SVGProps } from "react";
 import { AccentedKeyIcon } from "@/components/icons/ui/accented-key-icon";
+import { PeoplePairIcon, AddPeopleIcon } from "@/components/icons/ui/people-action-icons";
 
 type ProfilePaneIconProps = SVGProps<SVGSVGElement> & {
   size?: number | string;
@@ -128,24 +129,11 @@ export function ProfilePaneConnectorsIcon(props: ProfilePaneIconProps) {
 }
 
 export function ProfilePaneInviteIcon(props: ProfilePaneIconProps) {
-  return (
-    <PaneIcon {...props}>
-      <circle cx="9" cy="8" r="3" />
-      <path d="M3.5 19c.2-3.8 2.2-5.8 5.5-5.8 2 0 3.5.7 4.4 2" />
-      <circle className="profile-pane-icon-accent" cx="17" cy="9" r="2.5" />
-      <path className="profile-pane-icon-accent" d="M14 14.4c.8-.8 1.8-1.2 3.1-1.2 2.4 0 3.8 1.6 3.9 4.8" />
-    </PaneIcon>
-  );
+  return <PeoplePairIcon {...props} />;
 }
 
 export function ProfilePaneAddPeopleIcon(props: ProfilePaneIconProps) {
-  return (
-    <PaneIcon {...props}>
-      <circle cx="9" cy="8" r="3" />
-      <path d="M3.5 19c.3-4 2.2-6 5.5-6s5.2 2 5.5 6" />
-      <path className="profile-pane-icon-accent" d="M17.5 5.5v7M14 9h7" />
-    </PaneIcon>
-  );
+  return <AddPeopleIcon {...props} />;
 }
 
 export function ProfilePaneHelpIcon(props: ProfilePaneIconProps) {
@@ -196,6 +184,16 @@ export function ProfilePanePrivacyIcon(props: ProfilePaneIconProps) {
       <path d="M12 2.8 20 6v5.2c0 5-3.3 8.3-8 10-4.7-1.7-8-5-8-10V6z" />
       <path className="profile-pane-icon-accent" d="M9 11v-1a3 3 0 0 1 6 0v1" />
       <path className="profile-pane-icon-accent" d="M8 11h8v6H8z" />
+    </PaneIcon>
+  );
+}
+
+/** Supplied shield/keyhole artwork, retaining the Profile family's 24px well. */
+export function ProfilePrivacyPolicyIcon(props: ProfilePaneIconProps) {
+  return (
+    <PaneIcon strokeWidth="1.75" {...props}>
+      <path d="M12 3C9.66 4.35 7.11 5.14 4.5 5.5V11.75C4.5 16.05 7.14 19.39 12 21C16.86 19.39 19.5 16.05 19.5 11.75V5.5C16.89 5.14 14.34 4.35 12 3Z" />
+      <path className="profile-pane-icon-accent-fill" fill="var(--ios-account-accent)" stroke="none" d="M12 8.25A2.15 2.15 0 0 0 10.88 12.24L10.36 15.29A.55.55 0 0 0 10.9 15.93H13.1A.55.55 0 0 0 13.64 15.29L13.12 12.24A2.15 2.15 0 0 0 12 8.25Z" />
     </PaneIcon>
   );
 }
@@ -297,7 +295,7 @@ export function ProfilePaneRotateIcon(props: ProfilePaneIconProps) {
 }
 
 export function ProfilePaneDeleteIcon(props: ProfilePaneIconProps) {
-  return <PaneIcon {...props}><path stroke="var(--ios-account-label)" d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15" /><path className="profile-pane-icon-accent" d="M10 10v7M14 10v7" /></PaneIcon>;
+  return <PaneIcon {...props} data-trash-icon="true" style={{ ...props.style, color: "var(--app-destructive)" }}><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15" /><path d="M10 10v7M14 10v7" /></PaneIcon>;
 }
 
 export function ProfilePaneScanIcon(props: ProfilePaneIconProps) {

@@ -5,10 +5,7 @@ import { BootRouteCommitted, BootSurface } from "@/components/app-ui/boot-surfac
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import {
   activeBootStage,
-  BOOT_STAGE_LINES,
-  BOOT_STAGES,
   BOOT_TIMING,
-  bootLineFor,
   IDLE_BOOT_STATE,
   isBootSurfaceShown,
   launchBootState,
@@ -26,7 +23,7 @@ import {
 
 /**
  * The boot surface's contract: one surface for the whole cold-start chain,
- * a line per REAL stage, nothing painted on a fast path, no flash once shown,
+ * one steady title, nothing painted on a fast path, no flash once shown,
  * a clean hand-off to interactive screens, and a way out of a hang.
  */
 
@@ -46,24 +43,6 @@ function run(initial: BootState, events: Array<[BootStage | null | "tick", numbe
 }
 
 describe("boot stage machine", () => {
-  it("maps every stage to its own emoji line", () => {
-    const texts = new Set<string>();
-    for (const stage of BOOT_STAGES) {
-      const line = BOOT_STAGE_LINES[stage];
-      expect(line.emoji.length, stage).toBeGreaterThan(0);
-      expect(line.text, stage).not.toMatch(/[\u2013\u2014]/); // no en or em dashes in copy
-      texts.add(line.text);
-    }
-    expect(texts.size).toBe(BOOT_STAGES.length);
-    // U+2728 is the glyph the founder rule bans everywhere.
-    expect(JSON.stringify(BOOT_STAGE_LINES)).not.toContain("✨");
-    expect(bootLineFor("vault", false)).toEqual({ emoji: "🔐", text: "Opening your vault" });
-    expect(bootLineFor("phone", false)).toEqual({ emoji: "📱", text: "Checking your number" });
-    expect(bootLineFor("workspace", false)).toEqual({ emoji: "🤝", text: "Getting One ready" });
-    // Offline is what is actually blocking, so it outranks the stage.
-    expect(bootLineFor("vault", true)?.emoji).toBe("📡");
-  });
-
   it("shows the earliest stage when guards overlap", () => {
     expect(activeBootStage(["workspace", "vault", "phone"])).toBe("vault");
     expect(activeBootStage(["setup", "session"])).toBe("session");
@@ -216,7 +195,7 @@ describe("boot surface with real guards", () => {
     }
   }
 
-  it("keeps one surface across a guard chain and announces each real stage", async () => {
+  it("keeps one title across a guard chain without stage sublines", async () => {
     const view = render(<App stage="session" />);
     await advance(20);
     const surface = screen.getByTestId("boot-surface");
@@ -227,13 +206,13 @@ describe("boot surface with real guards", () => {
     await advance(showAfterMs);
     expect(screen.getByTestId("boot-surface")).toBe(surface);
     expect(surface).toHaveAttribute("data-boot-phase", "visible");
-    expect(screen.getByRole("status")).toHaveTextContent("Opening your vault");
-    expect(surface.querySelector("[data-boot-line='current']")).toHaveTextContent("🔐Opening your vault");
+    expect(screen.getByRole("status")).toHaveTextContent("One is getting ready");
+    expect(surface.querySelector("[data-boot-line]")).toBeNull();
 
     view.rerender(<App stage="phone" />);
     await advance(20);
     expect(screen.getByTestId("boot-surface")).toBe(surface);
-    expect(screen.getByRole("status")).toHaveTextContent("Checking your number");
+    expect(screen.getByRole("status")).toHaveTextContent("One is getting ready");
     // The guard's own loader paints nothing; the detail stays diagnostic only.
     expect(document.querySelector("[data-boot-detail='detail phone']")).toHaveAttribute("hidden");
     expect(document.querySelectorAll("[data-boot-surface]")).toHaveLength(1);
@@ -289,7 +268,7 @@ describe("boot surface with real guards", () => {
     view.rerender(<App stage={null} redirecting />);
     await advance(120);
     expect(surface).toHaveAttribute("data-boot-phase", "visible");
-    expect(screen.getByRole("status")).toHaveTextContent("Taking you to sign in");
+    expect(screen.getByRole("status")).toHaveTextContent("One is getting ready");
     // The destination commits on its own path: the hold ends and the surface exits.
     navigation.pathname = "/login";
     view.rerender(<App stage={null} />);
@@ -342,7 +321,7 @@ describe("boot surface with real guards", () => {
     await advance(showAfterMs + 50);
     const surface = screen.getByTestId("boot-surface");
     expect(surface).toHaveAttribute("data-boot-phase", "launch");
-    expect(screen.getByRole("status")).toHaveTextContent("Checking it's you");
+    expect(screen.getByRole("status")).toHaveTextContent("One is getting ready");
     // Hydration drops the holder without a claim or release: the re-check sees it.
     view.rerender(<Shell serverHolder={false} />);
     await advance(150);

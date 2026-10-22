@@ -18,7 +18,7 @@ const after = <T,>(ms: number, value: T) =>
   new Promise<T>((resolve) => window.setTimeout(() => resolve(value), ms));
 
 // ---- routing ----------------------------------------------------------------
-let currentQuery = "";
+let currentQuery = dataset().initialQuery ?? "";
 const routeListeners = new Set<() => void>();
 const navigate = (href: string) => {
   document.body.dataset.lastNavigation = href;
@@ -195,7 +195,7 @@ export function ConnectCirclesTab({
     return () => window.clearTimeout(timer);
   }, [onStateChange]);
   if (document.documentElement.dataset.realCircles === "1") {
-    return <ProductionCirclesTab createDialogOpen={createDialogOpen} onCreateDialogOpenChange={onCreateDialogOpenChange} />;
+    return <ProductionCirclesTab createDialogOpen={dataset().createModal === "1" || createDialogOpen} onCreateDialogOpenChange={onCreateDialogOpenChange} />;
   }
   return createDialogOpen ? <ProductionCirclesTab createDialogOpen onCreateDialogOpenChange={onCreateDialogOpenChange} /> : <div data-fixture-circles-tab="">Circles</div>;
 }
@@ -203,9 +203,15 @@ export const NearbyDirectories = () => null;
 let fixtureTypeDeleted = false;
 function fixtureCircles() {
   if (document.documentElement.dataset.customCircles !== "1") return [];
-  return [{ id: "fixture-investments", name: "Investments", kind: "other", role: "owner", memberCount: 1, memberLimit: 20,
-    ...(fixtureTypeDeleted ? {} : { customTypeLabel: "Finance" }),
-    viewerCapabilities: { canDeleteCircle: true, canLeaveCircle: false, canManageCircle: true } }];
+  return [
+    { id: "fixture-family", name: "Weekend family", kind: "family", role: "owner", memberCount: 3, memberLimit: 20 },
+    { id: "fixture-friends", name: "Old classmates", kind: "friends", role: "owner", memberCount: 4, memberLimit: 20 },
+    { id: "fixture-investments", name: "Investments", kind: "other", role: "owner", memberCount: 1, memberLimit: 20,
+      ...(fixtureTypeDeleted ? {} : { customTypeLabel: "Finance" }),
+      viewerCapabilities: { canDeleteCircle: true, canLeaveCircle: false, canManageCircle: true } },
+    { id: "fixture-other", name: "Project team", kind: "other", role: "owner", memberCount: 2, memberLimit: 20 },
+    { id: "fixture-joined", name: "Shared budget", kind: "other", role: "member", memberCount: 4, memberLimit: 20 },
+  ];
 }
 export const OneLocationService = {
   ensureTrustedSystemCircle: async () => ({}),
