@@ -250,6 +250,7 @@ tests/test_cloudbuild_step_arg_limit.py
 tests/test_one_wallet_card_deploy_parity.py
 tests/test_gmail_information_request_release_contract.py
 tests/test_uat_deploy_no_traffic_contract.py
+tests/test_feed_stream_capacity_contract.py
 tests/test_verify_env_secrets_parity.py
 tests/test_deploy_sha_gate_payload_size.py
 tests/services/test_advisor_directory_service.py
