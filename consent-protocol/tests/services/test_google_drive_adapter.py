@@ -13,21 +13,7 @@ import pytest
 
 from hushh_mcp.services import google_drive_adapter as drive
 from mcp_modules.log_redaction import redact_log_value
-
-
-def metadata(**changes):
-    return {
-        "id": "selected-file",
-        "name": "Synthetic report",
-        "mimeType": "text/plain",
-        "version": "1",
-        "modifiedTime": "2026-09-22T00:00:00Z",
-        "size": "14",
-        "trashed": False,
-        "isAppAuthorized": True,
-        "capabilities": {"canDownload": True, "canAccessViaGenAi": True},
-        **changes,
-    }
+from tests.helpers.drive_metadata import metadata
 
 
 @pytest.fixture
@@ -319,7 +305,11 @@ async def test_long_provider_name_survives_discovery_read_and_share_rechecks(ada
     assert listed.version == read.version == share.version == "1"
 
 
-@pytest.mark.parametrize("name", [None, "", "\ud800", "अ" * (drive.METADATA_LIMIT // 3 + 1)])
+@pytest.mark.parametrize(
+    "name",
+    [None, "", "\ud800", "अ" * (drive.METADATA_LIMIT // 3 + 1)],
+    ids=["missing", "empty", "invalid-unicode", "over-byte-limit"],
+)
 def test_provider_name_retains_type_unicode_and_metadata_byte_bounds(name):
     from hushh_mcp.services.drive_collection_sync import _metadata
 

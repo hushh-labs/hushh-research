@@ -1,7 +1,4 @@
-"""Live-lane file formats: complete Sheets XLSX, CSV, and honest refusals.
-
-Synthetic bytes only. No Google account, grant or credential is used.
-"""
+"""Synthetic Sheets XLSX/CSV and refusal tests; no Google account, grant or credential."""
 
 # ruff: noqa: S106 -- all bearer values below are synthetic test inputs.
 
@@ -135,6 +132,9 @@ def test_sheet_padding_columns_are_not_a_cut():
         (b"a," + b"q" * (200 * 1024), "invalid_document"),
         (b"a" * (MAX_INPUT_BYTES + 1), "file_too_large"),
     ],
+    ids=(
+        "empty whitespace invalid-utf8 binary nul unclosed-quote oversized-field oversized-file"
+    ).split(),
 )
 def test_live_csv_parser_fails_closed(content, code):
     limit = csv.field_size_limit()
