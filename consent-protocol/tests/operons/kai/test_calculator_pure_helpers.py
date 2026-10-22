@@ -483,7 +483,11 @@ class TestQuantMetrics:
     def test_revenue_growth_calculated(self):
         filing = {
             "latest_10k": {
-                "revenue_trend": self._trend([1_000_000_000, 1_200_000_000]),
+                "period_end": "2021-12-31",
+                "revenue_trend": [
+                    {**row, "end": f"{row['year']}-12-31"}
+                    for row in self._trend([1_000_000_000, 1_200_000_000])
+                ],
             }
         }
         result = calculate_quant_metrics(filing)

@@ -123,13 +123,41 @@ class TestCalculateFinancialRatios:
 
 
 class TestCalculateQuantMetrics:
+    def test_growth_requires_current_metric_period_and_keeps_older_history(self):
+        filing = {
+            "latest_10k": {
+                "period_end": "2025-12-31",
+                "headline_stale": False,
+                "revenue_trend": [
+                    {"year": 2024, "end": "2024-12-31", "value": 100},
+                    {"year": 2025, "end": "2025-12-31", "value": 120},
+                ],
+                "net_income_trend": [
+                    {"year": 2023, "end": "2023-12-31", "value": 10},
+                    {"year": 2024, "end": "2024-12-31", "value": 20},
+                ],
+            }
+        }
+        result = calculate_quant_metrics(filing)
+        assert result["revenue_growth_yoy"] == pytest.approx(0.2)
+        assert result["net_income_growth_yoy"] is None
+        assert len(result["net_income_trend_data"]) == 2
+        filing["latest_10k"]["period_end"] = "2026-12-31"
+        assert calculate_quant_metrics(filing)["revenue_growth_yoy"] is None
+        del filing["latest_10k"]["period_end"]
+        assert calculate_quant_metrics(filing)["revenue_growth_yoy"] is None
+
     def _filing_with_trends(self, rev_trend, ni_trend=None, ocf_trend=None, rnd_trend=None):
+        def dated(rows):
+            return [{**row, "end": f"{row['year']}-12-31"} for row in (rows or [])]
+
         return {
             "latest_10k": {
-                "revenue_trend": rev_trend,
-                "net_income_trend": ni_trend or [],
-                "ocf_trend": ocf_trend or [],
-                "rnd_trend": rnd_trend or [],
+                "period_end": f"{rev_trend[-1]['year']}-12-31" if rev_trend else None,
+                "revenue_trend": dated(rev_trend),
+                "net_income_trend": dated(ni_trend),
+                "ocf_trend": dated(ocf_trend),
+                "rnd_trend": dated(rnd_trend),
             }
         }
 
@@ -251,9 +279,10 @@ class TestAssessFundamentalHealth:
             {
                 "current_assets": 400,
                 "current_liabilities": 200,
+                "period_end": "2025-12-31",
                 "revenue_trend": [
-                    {"year": 2024, "value": 800_000_000},
-                    {"year": 2025, "value": 1_000_000_000},
+                    {"year": 2024, "end": "2024-12-31", "value": 800_000_000},
+                    {"year": 2025, "end": "2025-12-31", "value": 1_000_000_000},
                 ],
             }
         )
