@@ -2,13 +2,14 @@
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 import yaml
+
+from tests.helpers.deployment_cli import copy_candidate_tools
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -187,19 +188,7 @@ def test_candidate_interfaces_are_checked_before_mutating_steps(
     )
     step = next(step for step in steps if step["name"] == "Validate candidate build capabilities")
     program = step["run"].split("<<'PYBUILD'\n", 1)[1].rsplit("PYBUILD", 1)[0]
-    for relative in (
-        "scripts/ci/verify-dev-candidate.sh",
-        "scripts/ci/cloudrun-retention.sh",
-        "scripts/ci/verify-cloudrun-revision-provenance.py",
-        "scripts/ops/verify-env-secrets-parity.py",
-        "deploy/backend.cloudbuild.yaml",
-    ):
-        destination = tmp_path / relative
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(ROOT / relative, destination)
-    retention_helper = ROOT / "scripts/ci/cloudrun-retention.py"
-    if retention_helper.exists():
-        shutil.copy2(retention_helper, tmp_path / "scripts/ci/cloudrun-retention.py")
+    copy_candidate_tools(ROOT, tmp_path)
     if legacy_interface == "missing-probe":
         (tmp_path / "scripts/ci/verify-dev-candidate.sh").unlink()
     elif legacy_interface == "unprotected-retention":

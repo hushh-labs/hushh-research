@@ -7,7 +7,6 @@ import argparse
 import json
 import os
 import re
-import signal
 import subprocess
 import sys
 import time
@@ -15,6 +14,8 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from process_group import command_group
 
 REVISION_RE = re.compile(r"^[a-z][a-z0-9-]*-[a-z0-9]+$")
 TAG_RE = re.compile(r"^[a-z][a-z0-9-]*$")
@@ -46,28 +47,17 @@ def remaining_seconds(limit: float = 180) -> float:
 def run_command(args, *, timeout=180, check=True, text=True):
     """Reap the entire owned command group on timeout; never print payloads."""
     timeout = remaining_seconds(timeout)
-    process = subprocess.Popen(
-        args,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=text,
-        start_new_session=True,
-    )
-    try:
+    with command_group(
+        args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=text,
+    ) as (process, stop):
         try:
             stdout, stderr = process.communicate(timeout=timeout)
         except (subprocess.TimeoutExpired, BudgetExpired) as exc:
-            try:
-                os.killpg(process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
+            stop()
             try:
                 process.communicate(timeout=0.5)
             except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+                stop(force=True)
                 process.communicate(timeout=0.5)
             raise BudgetExpired(
                 "Cleanup command exceeded its execution budget"
@@ -76,12 +66,6 @@ def run_command(args, *, timeout=180, check=True, text=True):
         if check:
             result.check_returncode()
         return result
-    finally:
-        # A command can exit while retaining descendants; they belong to this call.
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
 
 
 def atomic_state(path: Path, state: dict) -> None:
