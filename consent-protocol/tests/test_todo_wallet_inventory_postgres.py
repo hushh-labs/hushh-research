@@ -12,6 +12,7 @@ from test_wallet_card_access_postgres import (  # noqa: F401
     projection_db,
 )
 
+import hushh_mcp.services.wallet_card_request_service as request_module
 from hushh_mcp.services.wallet_card_access_service import WalletCardAccessError
 
 
@@ -50,7 +51,7 @@ def test_pending_task_inventory_is_owner_scoped_paged_metadata_only(incoming_req
     ],
 )
 def test_pending_task_inventory_preserves_visibility_and_never_mutates_requests(
-    incoming_requests, change, visible
+    incoming_requests, monkeypatch, change, visible
 ):
     db, _, requests = incoming_requests
     target = str(
@@ -58,17 +59,33 @@ def test_pending_task_inventory_preserves_visibility_and_never_mutates_requests(
             "SELECT public_person_ref FROM actor_profiles WHERE user_id='alice'", {}
         ).data[0]["public_person_ref"]
     )
+    if change == "expiry":
+        query = request_module.one
+
+        def historical_creation(conn, sql, values=None):
+            # Same owning-suite clock seam: insert a valid past request without
+            # mutating immutable timestamps or disabling the database guard.
+            return query(
+                conn,
+                sql.replace(
+                    "SELECT clock_timestamp() AS t",
+                    "SELECT clock_timestamp()-interval '8 days' AS t",
+                ),
+                values,
+            )
+
+        monkeypatch.setattr(request_module, "one", historical_creation)
     request = requests.create("bob", target, str(uuid.uuid4()))
     updates = {
-        "expiry": "UPDATE wallet_card_requests SET expires_at=clock_timestamp()-interval '1 second' WHERE id=CAST(:id AS uuid)",
         "recipient_delete": "UPDATE messages SET deleted_for_recipient_at=clock_timestamp() WHERE id=(SELECT message_id FROM wallet_card_requests WHERE id=CAST(:id AS uuid))",
         "everyone_delete": "UPDATE messages SET deleted_for_everyone_at=clock_timestamp() WHERE id=(SELECT message_id FROM wallet_card_requests WHERE id=CAST(:id AS uuid))",
         "sender_delete": "UPDATE messages SET deleted_for_sender_at=clock_timestamp() WHERE id=(SELECT message_id FROM wallet_card_requests WHERE id=CAST(:id AS uuid))",
         "disconnect": "UPDATE connections SET status='revoked' WHERE user_a_id='alice' AND user_b_id='bob'",
         "block": "INSERT INTO direct_message_blocks(blocker_user_id,blocked_user_id) VALUES('alice','bob')",
     }
-    with db.engine.begin() as conn:
-        conn.execute(text(updates[change]), {"id": request["id"]})
+    if change != "expiry":
+        with db.engine.begin() as conn:
+            conn.execute(text(updates[change]), {"id": request["id"]})
     assert bool(requests.list_pending("alice")["items"]) is visible
     assert (
         db.execute_raw(
