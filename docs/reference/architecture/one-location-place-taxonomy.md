@@ -21,8 +21,10 @@ flowchart LR
 
 ## Discovery and radius
 
-`consent-protocol/hushh_mcp/services/google_maps_service.py` owns requests;
-`place_taxonomy.py` owns classification. Every requestable venue type in the
+`consent-protocol/hushh_mcp/services/google_maps_service.py` owns requests and caching;
+`nearby_place_discovery.py` owns bounded discovery through fetch/normalize ports;
+`place_geometry.py` owns spherical geometry; `place_taxonomy.py` owns classification.
+Every requestable venue type in the
 chip table is requested explicitly, including `food_court`. An unfiltered search
 also discovers venues with unknown or generic types.
 
@@ -76,6 +78,10 @@ types, the provider record remains a limitation; this code does not invent a
 classification from the business name.
 
 ## Cache and clients
+
+`hushh-webapp/lib/one-location/nearby-places.ts` owns the picker category table,
+radius filtering and response metadata. Existing service/type entrypoints remain
+compatible facades; the check-in sheet retains capture and presence ownership.
 
 Check-in cache keys include the exact latitude, longitude and category. Reusing
 already filtered results across a roughly 100 m grid cell previously omitted

@@ -611,47 +611,7 @@ export type OneLocationActivityResponse = {
   events: OneLocationActivityEvent[];
 };
 
-export type OneLocationNearbyPlaceCategory =
-  | "all"
-  | "food_drink"
-  | "cafes"
-  | "health"
-  | "shopping_services"
-  | "hotels_stays"
-  | "other_stays"
-  | "education"
-  | "outdoors_landmarks"
-  | "transit"
-  | "worship"
-  | "civic"
-  // The catch-all. A real venue that belongs to none of the above, plus every
-  // venue Google names but does not describe -- so a row is never reachable
-  // from "All" alone.
-  | "other";
-
-export type OneLocationNearbyPlaceSuggestion = {
-  placeId: string;
-  /** Compatibility label used by autocomplete and older provider responses. */
-  text: string;
-  name?: string | null;
-  address?: string | null;
-  primaryType?: string | null;
-  category?: string | null;
-  /** Present for strict nearby results; generic autocomplete does not return it. */
-  distanceMeters?: number | null;
-  /**
-   * The venue's public point. Present on nearby results so the map can pin the
-   * place the owner is choosing separately from where they are standing.
-   * Autocomplete does not return it; the sheet resolves it on selection.
-   */
-  latitude?: number | null;
-  longitude?: number | null;
-  /**
-   * Category chips this place belongs to. Lets the drawer filter the merged
-   * nearby sweep locally instead of re-querying per chip and re-truncating.
-   */
-  categories?: OneLocationNearbyPlaceCategory[] | null;
-};
+export type { OneLocationNearbyPlaceCategory, OneLocationNearbyPlaceSuggestion } from "./nearby-places";
 
 export type OneLocationNearbyRelationship =
   "none" | "pending_outgoing" | "pending_incoming" | "connected";

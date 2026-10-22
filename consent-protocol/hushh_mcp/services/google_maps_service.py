@@ -6,7 +6,6 @@ calls our own /api/one/location/maps/* endpoints, which call this service.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import math
@@ -21,6 +20,15 @@ from redis import asyncio as redis_asyncio
 
 from hushh_mcp.config import GOOGLE_MAPS_API_KEY
 from hushh_mcp.services import place_taxonomy as _taxonomy
+from hushh_mcp.services.nearby_place_discovery import (
+    DiscoveryLimits,
+    Query,
+    _place_types,
+    discover_nearby_places,
+)
+from hushh_mcp.services.place_geometry import (
+    distance_meters as _distance_meters,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -371,22 +379,6 @@ _DIRECTORY_DETAIL_FIELD_MASK = (
 _CATEGORY_BY_PLACE_TYPE = _taxonomy.CHIP_BY_PLACE_TYPE
 
 
-def _place_types(place: dict[str, Any]) -> list[str]:
-    """Every type Google reported, primary first, de-duplicated."""
-
-    ordered: list[str] = []
-    seen: set[str] = set()
-    for raw in (place.get("primaryType"), *(place.get("types") or [])):
-        if not isinstance(raw, str):
-            continue
-        value = raw.strip()[:80]
-        if not value or value in seen:
-            continue
-        seen.add(value)
-        ordered.append(value)
-    return ordered
-
-
 def _is_non_check_in_type(place_type: str) -> bool:
     return place_type in _NON_CHECK_IN_PRIMARY_TYPES or place_type.startswith(
         _NON_CHECK_IN_PRIMARY_TYPE_PREFIXES
@@ -491,51 +483,6 @@ def _postal_code_from_components(components: Any) -> str:
         if normalized:
             return normalized
     return ""
-
-
-def _distance_meters(
-    *,
-    origin_lat: float,
-    origin_lng: float,
-    destination_lat: float,
-    destination_lng: float,
-) -> float:
-    radius = 6_371_000.0
-    lat1 = math.radians(origin_lat)
-    lat2 = math.radians(destination_lat)
-    delta_lat = math.radians(destination_lat - origin_lat)
-    delta_lng = math.radians(destination_lng - origin_lng)
-    value = (
-        math.sin(delta_lat / 2.0) ** 2
-        + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lng / 2.0) ** 2
-    )
-    clamped = max(0.0, min(1.0, value))
-    return radius * (2.0 * math.atan2(math.sqrt(clamped), math.sqrt(max(0.0, 1.0 - clamped))))
-
-
-def _offset_coordinates(
-    lat: float, lng: float, meters: float, bearing: float
-) -> tuple[float, float]:
-    """Destination on the same spherical model as the radius check."""
-    angular = meters / 6_371_000.0
-    latitude, longitude, heading = map(math.radians, (lat, lng, bearing))
-    # A tangent basis avoids the destination-longitude singularity at ±90°.
-    position = (
-        math.cos(latitude) * math.cos(longitude),
-        math.cos(latitude) * math.sin(longitude),
-        math.sin(latitude),
-    )
-    north = (
-        -math.sin(latitude) * math.cos(longitude),
-        -math.sin(latitude) * math.sin(longitude),
-        math.cos(latitude),
-    )
-    east = (-math.sin(longitude), math.cos(longitude), 0.0)
-    x, y, z = (
-        p * math.cos(angular) + (n * math.cos(heading) + e * math.sin(heading)) * math.sin(angular)
-        for p, n, e in zip(position, north, east, strict=True)
-    )
-    return math.degrees(math.atan2(z, math.hypot(x, y))), math.degrees(math.atan2(y, x))
 
 
 def _valid_coordinates(*, lat: float, lng: float) -> bool:
@@ -949,18 +896,11 @@ class GoogleMapsService:
         lng: float,
         category: NearbyPlaceCategory = "all",
     ) -> list[dict[str, Any]]:
-        """Discover check-in venues within 500 m, without application row caps.
-
-        Sweep explicit types and refine saturated areas. Google still bounds each
-        response, so finite queries cannot guarantee a complete real-world index.
-        Preserve successful results on failure; never cache a failed sweep.
-        """
-
+        """Discover within 500 m; preserve partial results without caching them."""
         cache_key_parts = (category, float(lat), float(lng))
         cached = await _places_cache_get(_nearby_places_cache, "nearby", cache_key_parts)
         if cached is not None:
             return cached
-
         key = _require_key()
         if category == "all":
             type_groups = [None, *_NEARBY_SWEEP_TYPES.values()]
@@ -968,153 +908,44 @@ class GoogleMapsService:
             type_groups = [_NEARBY_SWEEP_TYPES[category]]
         else:
             raise GoogleMapsError("Unknown place category.", status_code=400)
-        chunks = [
-            chunk
-            for group in type_groups
-            for chunk in (
-                [None] if group is None else [group[i : i + 50] for i in range(0, len(group), 50)]
-            )
-        ]
-        semaphore = asyncio.Semaphore(_NEARBY_DISCOVERY_CONCURRENCY)
-        deadline = asyncio.get_running_loop().time() + _NEARBY_DISCOVERY_TIMEOUT_SECONDS
-        failures = 0
-
         async with _async_client() as client:
 
-            async def fetch(query):
+            async def fetch(query: Query) -> list[dict[str, Any]]:
                 query_lat, query_lng, radius, types = query
-                async with semaphore:
-                    return await self._search_nearby_once(
-                        client,
-                        key=key,
-                        lat=query_lat,
-                        lng=query_lng,
-                        included_types=types,
-                        radius_meters=radius,
-                    )
+                return await self._search_nearby_once(
+                    client,
+                    key=key,
+                    lat=query_lat,
+                    lng=query_lng,
+                    included_types=types,
+                    radius_meters=radius,
+                )
 
-            async def run(queries):
-                nonlocal failures
-                tasks = [asyncio.create_task(fetch(query)) for query in queries]
-                try:
-                    done, pending = await asyncio.wait(
-                        tasks, timeout=max(0.0, deadline - asyncio.get_running_loop().time())
-                    )
-                    failures += len(pending)
-                    # Keep successful responses even when another query exhausts
-                    # the deadline. No pending request may outlive this client.
-                    return [
-                        (query, task.result())
-                        for query, task in zip(queries, tasks, strict=True)
-                        if task in done and not task.cancelled() and task.exception() is None
-                    ]
-                finally:
-                    for task in tasks:
-                        if task.done() and not task.cancelled() and task.exception() is not None:
-                            failures += 1
-                        if not task.done():
-                            task.cancel()
-                    await asyncio.gather(*tasks, return_exceptions=True)
-
-            initial = await run(
-                [(lat, lng, _NEARBY_CHECK_IN_RADIUS_METERS, types) for types in chunks]
+            discovery = await discover_nearby_places(
+                lat=lat,
+                lng=lng,
+                category=category,
+                type_groups=type_groups,
+                fetch=fetch,
+                normalize=lambda place: self._normalize_nearby_place(place, lat=lat, lng=lng),
+                limits=DiscoveryLimits(
+                    radius=_NEARBY_CHECK_IN_RADIUS_METERS,
+                    result_limit=_NEARBY_CHECK_IN_RESULT_LIMIT,
+                    max_queries=_NEARBY_DISCOVERY_MAX_QUERIES,
+                    max_depth=_NEARBY_DISCOVERY_MAX_DEPTH,
+                    concurrency=_NEARBY_DISCOVERY_CONCURRENCY,
+                    timeout_seconds=_NEARBY_DISCOVERY_TIMEOUT_SECONDS,
+                ),
             )
-            refined = []
-            frontier = initial
-            remaining = max(0, _NEARBY_DISCOVERY_MAX_QUERIES - len(chunks))
-            coverage_limited = False
-            for _depth in range(_NEARBY_DISCOVERY_MAX_DEPTH):
-                queries = []
-                for (query_lat, query_lng, radius, types), batch in frontier:
-                    if len(batch) < _NEARBY_CHECK_IN_RESULT_LIMIT:
-                        continue
-                    # Four overlapping circles cover their parent's circle.
-                    # Refine again when a dense child still saturates. Only
-                    # query children that intersect the original allowed area.
-                    child_radius = radius / math.sqrt(2) + 0.1
-                    for bearing in (45, 135, 225, 315):
-                        child_lat, child_lng = _offset_coordinates(
-                            query_lat, query_lng, radius / math.sqrt(2), bearing
-                        )
-                        separation = _distance_meters(
-                            origin_lat=lat,
-                            origin_lng=lng,
-                            destination_lat=child_lat,
-                            destination_lng=child_lng,
-                        )
-                        if separation <= _NEARBY_CHECK_IN_RADIUS_METERS + child_radius:
-                            queries.append((child_lat, child_lng, child_radius, types))
-                if not queries:
-                    frontier = []
-                    break
-                if len(queries) > remaining:
-                    coverage_limited = True
-                queries = queries[:remaining]
-                if not queries or asyncio.get_running_loop().time() >= deadline:
-                    coverage_limited = True
-                    break
-                frontier = await run(queries)
-                refined.extend(frontier)
-                remaining -= len(queries)
-            coverage_limited |= any(
-                len(batch) >= _NEARBY_CHECK_IN_RESULT_LIMIT for _query, batch in frontier
-            )
-
-        if not initial:
+        if not discovery.received_response:
             raise GoogleMapsError("Nearby places lookup failed.", status_code=502)
-        sources: dict[str, dict[str, Any]] = {}
-        for _query, batch in [*initial, *refined]:
-            for place in batch:
-                place_id = str(place.get("id") or "").strip()
-                existing = sources.get(place_id)
-                if existing is None:
-                    sources[place_id] = dict(place)
-                else:
-                    # Classify the combined provider evidence once. Unioning
-                    # already-classified chips would let vague lodging defeat
-                    # a precise restaurant type from a second response.
-                    types = list(dict.fromkeys([*_place_types(existing), *_place_types(place)]))
-                    if (
-                        self._normalize_nearby_place(existing, lat=lat, lng=lng) is None
-                        and self._normalize_nearby_place(place, lat=lat, lng=lng) is not None
-                    ):
-                        existing.update(place)
-                    for field, value in place.items():
-                        if not existing.get(field) and value is not None:
-                            existing[field] = value
-                    primary = place.get("primaryType")
-                    if (
-                        primary
-                        and primary not in _taxonomy.VAGUE_TYPES
-                        and (
-                            not existing.get("primaryType")
-                            or existing.get("primaryType") in _taxonomy.VAGUE_TYPES
-                        )
-                    ):
-                        existing["primaryType"] = primary
-                        existing["primaryTypeDisplayName"] = place.get("primaryTypeDisplayName")
-                    existing["types"] = types
-        merged = []
-        for place in sources.values():
-            normalized = self._normalize_nearby_place(place, lat=lat, lng=lng)
-            if normalized is not None and (
-                category == "all" or category in normalized["categories"]
-            ):
-                merged.append(normalized)
-        results = sorted(
-            merged,
-            key=lambda item: (
-                item["distanceMeters"],
-                str(item["name"]).casefold(),
-                item["placeId"],
-            ),
-        )
-        incomplete = bool(failures) or coverage_limited
-        if incomplete:
-            logger.warning("maps.nearby_places.partial failures=%s", failures)
+        if discovery.incomplete:
+            logger.warning("maps.nearby_places.partial failures=%s", discovery.failures)
         else:
-            await _places_cache_set(_nearby_places_cache, "nearby", cache_key_parts, results)
-        return NearbyPlaceSuggestions(results, incomplete=incomplete)
+            await _places_cache_set(
+                _nearby_places_cache, "nearby", cache_key_parts, discovery.places
+            )
+        return NearbyPlaceSuggestions(discovery.places, incomplete=discovery.incomplete)
 
     async def search_directory_category(
         self,
