@@ -153,5 +153,6 @@ fixture after geometry changes and retain only the requested artifact outputs.
 
 The canonical `.agents/skills/pdf-artifact-generation/SKILL.md` file is the only portable behavior contract. A Codex bridge may preserve
 governed routing metadata, and a Claude bridge may preserve discovery frontmatter, but
-neither may restate this procedure. The historical `morphy-pdf` Claude skill is a
-compatibility alias only and must never regain a private renderer or stylesheet.
+neither may restate this procedure. Native discovery resolves to this source.
+The historical `morphy-pdf` alias is retired; do not recreate a private renderer
+or stylesheet.

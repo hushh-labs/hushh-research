@@ -43,8 +43,6 @@ def main() -> int:
     failures: list[str] = []
     try:
         canonical = read(CANONICAL_SKILL)
-        claude = read(CLAUDE_BRIDGE)
-        legacy = read(LEGACY_ALIAS)
         codex = read(CODEX_BRIDGE)
         formatter = read(FORMATTER)
         exporter = read(EXPORTER)
@@ -58,14 +56,10 @@ def main() -> int:
         return 1
 
     require("name: pdf-artifact-generation" in frontmatter(canonical), "canonical skill name is not pdf-artifact-generation", failures)
-    require(frontmatter(canonical) == frontmatter(claude), "Claude bridge frontmatter does not match the canonical skill", failures)
-    require(len(claude.encode("utf-8")) <= 1400, "Claude bridge is too large to remain a discovery-only bridge", failures)
-    require(".agents/skills/pdf-artifact-generation/SKILL.md" in claude, "Claude bridge does not point to the canonical skill", failures)
+    require(CLAUDE_BRIDGE.resolve() == CANONICAL_SKILL.resolve(), "native PDF discovery must resolve to the canonical skill", failures)
     require(len(codex.encode("utf-8")) <= 1100, "Codex bridge is too large to remain a routing-only bridge", failures)
     require(".agents/skills/pdf-artifact-generation/SKILL.md" in codex, "Codex bridge does not point to the canonical skill", failures)
-    require(len(legacy.encode("utf-8")) <= 1000, "legacy morphy-pdf alias contains behavior instead of a pointer", failures)
-    require(".agents/skills/pdf-artifact-generation/SKILL.md" in legacy, "legacy morphy-pdf alias does not point to the canonical skill", failures)
-    require(not any(term in legacy for term in ("assets/morphy.css", "scripts/render.py", "Manrope")), "legacy morphy-pdf alias revives a private renderer contract", failures)
+    require(not LEGACY_ALIAS.parent.exists() and not LEGACY_ALIAS.parent.is_symlink(), "retired PDF alias must not recreate a second procedure", failures)
 
     legacy_root = LEGACY_ALIAS.parent
     require(not (legacy_root / "assets/morphy.css").exists(), "legacy stylesheet remains active beside the alias", failures)

@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 406,
+  "expected_migration_version": 408,
   "migration_version_policy": "exact",
   "required_functions": [
     "activate_reserved_wallet_cards",
@@ -3855,5 +3855,5 @@
       "request_id"
     ]
   },
-  "expected_schema_head": 406
+  "expected_schema_head": 408
 }

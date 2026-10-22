@@ -46,7 +46,6 @@ import { nativeDrawersPlatformEligible } from "@/lib/capacitor/native-drawers";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
 
-import { PrivateTextApprovalControl } from "@/components/agent/private-text-approval-control";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   TodoListPkmService,
@@ -103,7 +102,7 @@ function OneFeedPreview({
   const openFullFeed = (_item: FeedItem) => onNavigate(ROUTES.ONE_FEED);
 
   return (
-    <div className={styles.feed}>
+    <div className={styles.feed} data-profile-type-scale="feed">
       <div className={styles.sectionHeading}>
         <h3 data-app-pane-section-label>Latest activity</h3>
         <button type="button" onClick={() => onNavigate(ROUTES.ONE_FEED)}>
@@ -392,7 +391,7 @@ function WebOneAgentProfile({
         <SheetClose asChild>
           <button type="button" aria-label="Close One profile"
             className="app-side-pane-close absolute right-5 z-10 inline-flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-            <X className="size-4" aria-hidden />
+            <X className="size-[22px]" aria-hidden />
           </button>
         </SheetClose>
         <SheetDescription className="sr-only">One profile and activity.</SheetDescription>
@@ -449,7 +448,6 @@ function OneProfileContent({ open, onOpenChange, modelControl, presenceState = "
           {sheet ? <SheetTitle className={styles.title}>{profileName}</SheetTitle> : <h2 className={styles.title}>{profileName}</h2>}
         </div>
         {modelControl ? <div className={styles.modelControl}>{modelControl}</div> : null}
-        {open && user ? <PrivateTextApprovalControl key={user.uid} user={user} /> : null}
         <Tabs value={tab} onValueChange={changeTab} className={styles.tabs}>
           <TabsList
             className={styles.tabList}

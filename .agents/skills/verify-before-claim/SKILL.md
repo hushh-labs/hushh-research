@@ -19,6 +19,9 @@ Everything below is a specific way that rule gets broken.
 
 ---
 
+Release decisions inherit `.agents/skills/repo-operations/references/admin-release-sop.md`;
+this skill does not create a separate merge or deployment authority.
+
 ## 0. What we actually learn from Jeff Dean and Andrej Karpathy
 
 Not decoration — these are the working habits. Both, from opposite ends of the

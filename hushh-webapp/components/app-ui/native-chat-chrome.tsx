@@ -772,7 +772,7 @@ export function NativeHistoryOpener({ owner, context, eligible, open, pendingAtt
       onClick={(event) => { appHaptic("light"); onActivate(event.detail > 0, event.currentTarget); }}
       aria-label={`${label}${pendingAttention > 0 && !open
         ? `, ${pendingAttention} Drive ${pendingAttention === 1 ? "review needs" : "reviews need"} you` : ""}`}
-      title={label} aria-expanded={open} className="relative z-[540] size-11">
+      title={label} aria-expanded={open} className="relative z-[540] size-11 text-foreground">
       <AnimatedMenuCrossIcon isOpen={open} />
       {pendingAttention > 0 && !open && showAttentionDot
         ? <span aria-hidden="true" className="pointer-events-none absolute right-0 top-0 size-2 rounded-full bg-[color:var(--app-warning)]" /> : null}
@@ -787,7 +787,7 @@ export function NativeHistoryClose({ onClose }: {
 }) {
   return <span className="relative flex size-11 shrink-0 items-center justify-center">
     <ShellActionSurface variant="icon" aria-label="Close chat history" title="Close chat history"
-      onClick={() => { appHaptic("light"); onClose(); }} className="size-11">
+      onClick={() => { appHaptic("light"); onClose(); }} className="size-11 text-foreground">
       <AnimatedMenuCrossIcon isOpen />
     </ShellActionSurface>
   </span>;

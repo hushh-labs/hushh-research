@@ -342,7 +342,9 @@
     "403_public_profile_bridge.sql",
     "404_one_placement_reader_foundation.sql",
     "405_one_legacy_shared_continuity.sql",
-    "406_stripe_payout_source_binding.sql"
+    "406_stripe_payout_source_binding.sql",
+    "407_plg_memory_revision_index.sql",
+    "408_validate_plg_memory_revision_index.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -726,6 +728,8 @@
     "368_drive_existing_access_nocharge.sql": "rollback/368_drive_existing_access_nocharge.rollback.sql",
     "369_calendar_additional_accounts.sql": "rollback/369_calendar_additional_accounts.rollback.sql",
     "370_one_marketing_preferences.sql": "rollback/370_one_marketing_preferences.rollback.sql",
-    "399_public_profile_release_foundation.sql": "rollback/399_public_profile_release_foundation.rollback.sql"
+    "399_public_profile_release_foundation.sql": "rollback/399_public_profile_release_foundation.rollback.sql",
+    "407_plg_memory_revision_index.sql": "rollback/407_plg_memory_revision_index.rollback.sql",
+    "408_validate_plg_memory_revision_index.sql": "rollback/408_validate_plg_memory_revision_index.rollback.sql"
   }
 }

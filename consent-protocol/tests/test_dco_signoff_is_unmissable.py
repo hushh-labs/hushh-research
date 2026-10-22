@@ -301,12 +301,12 @@ def test_the_repo_documents_how_to_activate_the_hooks() -> None:
     a checked-in file — so beyond the automatic activation above, the contract a human
     or an agent reads on arrival still has to say it.
     """
-    entrypoint = (_REPO / "CLAUDE.md").read_text()
-    adapter_path = ".agents/adapters/claude/instructions.md"
-    assert adapter_path in entrypoint
-    contract = (_REPO / adapter_path).read_text()
+    entrypoint = (_REPO / "AGENTS.md").read_text()
+    contract_path = ".agents/instructions.md"
+    assert contract_path in entrypoint
+    contract = (_REPO / contract_path).read_text()
     assert "core.hooksPath" in contract and ".githooks" in contract, (
-        "the Claude operating contract must tell a new clone to activate .githooks, which is "
+        "the shared operating contract must tell a new clone to activate .githooks, which is "
         "precisely how 78 commits shipped without a signoff"
     )
 
