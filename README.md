@@ -141,15 +141,15 @@ All repository operations flow through the canonical `./bin/hushh` CLI:
 ```mermaid
 timeline
   title Hussh Platform Evolution
-  section Phase 1: Trust Core
+  section Phase 1 — Trust Core
     Client-side Vault (BYOK) : PCHP Capability Tokens : Zero-Knowledge Backend
     FastAPI & Python 3.13 : Google ADK & A2A : MCP Developer Surface
-  section Phase 2: Private Agents
+  section Phase 2 — Private Agents
     One Voice Conversational Surface : Kai Financial Intelligence : One Location & Wallet Pass
     Consent Center & Granular Scopes : RIA & Investor Workflows
-  section Phase 3: Enterprise Relays
+  section Phase 3 — Enterprise Relays
     MuleSoft Omni Gateway & Salesforce : DocuSign & Agreement Execution : PKM Slice Marketplace
-  section Phase 4: On-Device & Hardware
+  section Phase 4 — On-Device & Hardware
     BYOA & Local MLX Inference : Local Agent Adapters : Ambient Wearable Contracts (Meta Glasses)
 ```
 
