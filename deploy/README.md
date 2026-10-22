@@ -39,6 +39,46 @@ one merge. Force `frontend`, `backend`, or `all` only after proving the complete
 target-to-deployed-service delta and recording why automatic resolution is not
 appropriate.
 
+Documentation-only guidance changes normally need validation and merge, not an
+application deployment. Use this path when a UAT deployment is requested,
+including regular UI releases.
+`scope=all` is an explicit full rollout, not a more thorough verification mode.
+It selects backend image preparation, migrations, backend deployment/provider
+readiness, and, unless explicitly preserving a paused worker, Drive worker
+rollout and pending-text recovery. A resolved `frontend` scope skips those
+backend stages. Required health, provenance and independently selected PKM or
+reviewer checks still apply; scope does not authorize bypassing a failed gate.
+
+The [shared scope resolver](../scripts/ci/resolve-deploy-scope.py) combines the
+changes from both deployed service baselines. Its decision is conservative:
+shared or unclassified paths, protected account-lifecycle changes, missing
+baselines, and a delta with no service paths can resolve to `all`. Documentation
+changes alone therefore do not guarantee a skipped deployment. An automatic
+`all` result is not itself a reason to force a narrower scope.
+
+For an override, record the exact target SHA, both deployed service SHAs, the
+complete accumulated deltas, unchanged-service compatibility, and the reason
+`auto` is insufficient. An authorized configuration-only redeploy can also
+require an explicit scope. Do not choose `all` routinely for reassurance or
+force `frontend` merely because the latest PR changes only the UI; a service
+may be several merges behind.
+
+After dispatch:
+
+1. Identify the run for this dispatch and exact target, then watch it with
+   `gh run watch <run-id> --exit-status`. Do not dispatch again just to monitor.
+2. Inspect **Resolve deployment scope** and the run summary for requested scope,
+   resolved scope and reason; confirm untouched deploy lanes were skipped.
+3. Read the exact run's verification-plan and release artifacts. Confirm touched
+   services' SHA, immutable image, revision, traffic and required checks before
+   reporting success. Record stage timings; a frontend image build runs in
+   parallel, so distinguish its duration from time the release waits for it.
+
+For slow releases, separate runner/capacity wait, image build, Cloud Run rollout,
+provider probes, and worker/recovery time. Attribute cache misses or provider
+errors only from the exact build or execution evidence; elapsed time alone does
+not establish their cause. Preserve other maintainers' active releases.
+
 With a blank `sha`, UAT selects the newest main commit with its own successful
 post-merge gate. If main already matches the newest UAT deployment and its
 latest status is successful, the workflow finishes successfully with a `NO_OP`

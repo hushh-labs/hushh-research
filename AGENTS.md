@@ -288,6 +288,11 @@ For browser tests that depend on an unlocked vault, decrypted information, or a 
 
 ## Project-Wide Branch Discipline Gate (HARD RULE)
 
+For regular UAT releases, follow [Normal UAT dispatch](deploy/README.md#normal-uat-dispatch).
+Use `scope=auto`; record requested/resolved scope and skipped lanes. A forced
+scope needs both deployed service baselines, complete accumulated deltas and a
+recorded reason. Do not default to `all` for routine UI or documentation work.
+
 This is a hard, non-negotiable rule for every Codex/agent task in this repo. It exists because agents have repeatedly drifted: auto-creating branches, leaving the developer parked on a stray branch, and leaving temp branches uncleaned. Do not repeat this.
 
 1. Record the developer's active branch at the start of any branch, CI, PR, merge, deploy, or validation work, and treat it as the branch you MUST return to.

@@ -181,20 +181,23 @@ hour counter. Never clear the encrypted row manually to make a retry work.
 
 ## Frontend-only deploy during a provider outage
 
-A backend deploy runs a live-model readiness probe; while the model project
-answers 403 that probe fails and the workflow rolls back both halves. Ship
-pane and client changes alone:
+Use the [normal UAT dispatch](../../../deploy/README.md#normal-uat-dispatch)
+for pane and client changes. Automatic scope compares both deployed service
+baselines and selects `frontend` when the complete delta permits it. Backend
+provider admission accepts either complete Azure or Vertex capability bundle;
+one provider's failure alone does not establish that deployment is blocked.
 
 ```bash
-gh workflow run deploy-uat.yml -f scope=frontend -f sha=<green main sha>
+gh workflow run deploy-uat.yml --ref main -f scope=auto -f sha=<landed-main-sha>
 gh run list --workflow deploy-uat.yml --limit 3 --json databaseId,status,conclusion,headSha,url
 python3 .codex/skills/uat-scoped-deploy/scripts/cloud_run_service_evidence.py --project hushh-pda-uat --service hushh-webapp --format text
 ```
 
-Use `scope=frontend` only when the delta since the deployed backend SHA is
-frontend-only (see `.codex/skills/uat-scoped-deploy/`); queue the backend
-half for after the model project is restored. Never deploy backend changes
-to work around the probe.
+If `auto` selects a backend rollout, inspect its accumulated delta before
+considering an override. Force `frontend` only with the complete delta and
+compatibility evidence required by the normal dispatch guide. A provider
+outage does not authorize omitting pending backend changes or bypassing
+readiness checks.
 
 ## Alert to create
 

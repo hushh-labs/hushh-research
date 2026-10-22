@@ -729,6 +729,14 @@ Tests follow the same economy: add a test only for a real regression, a trust bo
 6. Manual UAT or production redeploys must use a SHA that is reachable from `origin/main` and already green in post-merge smoke.
 7. Feature or hotfix branches never deploy directly; they merge through `main`.
 
+For regular UAT releases, follow [Normal UAT dispatch](../../../deploy/README.md#normal-uat-dispatch):
+use `scope=auto` against both deployed service baselines, then inspect the
+requested/resolved scope and skipped lanes. Explicit `all` repeats the backend
+build, migration, provider and worker stages even for a frontend-only delta;
+it is not an extra verification level. Overrides need complete delta and
+compatibility evidence. The shared resolver can conservatively select `all`;
+independently selected preservation/reviewer checks remain required.
+
 Deploy to UAT is expected to behave as a closed-loop release lane:
 
 1. start from an explicitly chosen green `main` SHA
