@@ -312,6 +312,7 @@ jobs:
               "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml"
             printf '%s\n' \
               scripts/deploy/backend-deploy.sh \
+              scripts/deploy/backend-capacity-settings.sh \
               scripts/deploy/verify-managed-vertex-runtime.sh \
               scripts/deploy/commerce-preview-bindings.sh \
               scripts/deploy/backend-model-settings.sh \
@@ -354,7 +355,7 @@ jobs:
               cp "${RUNNER_TEMP}/release-tools/$tool" "$tool"
             done < "${RUNNER_TEMP}/release-tools/vertex-exception-tools.txt"
             printf '\n!deploy/email-auth/bind_secrets.sh\n' >> .gcloudignore
-            printf '\n!deploy/plg/bind_secrets.sh\n' >> .gcloudignore
+            printf '\n!deploy/plg/bind_secrets.sh\n!scripts/deploy/backend-capacity-settings.sh\n' >> .gcloudignore
           fi
 
       - name: Validate Google Cloud workload identity configuration

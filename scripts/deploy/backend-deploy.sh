@@ -39,31 +39,8 @@ if [[ -n "${_reviewer_extra}" ]]; then
   echo "Invalid reviewer settings." >&2; exit 1
 fi
 
-# The Cloud Run capacity knobs arrive packed in one env entry (Cloud Build caps a
-# step at 100 env entries; see deploy/backend.cloudbuild.yaml). Unpack them into
-# the _CLOUD_RUN_* names the rest of this script reads, and refuse a missing key
-# rather than defaulting it: a silently defaulted --max would resize a lane.
-if [[ -n "${_CLOUD_RUN_CAPACITY:-}" ]]; then
-  IFS=',' read -r -a _capacity_pairs <<<"${_CLOUD_RUN_CAPACITY}"
-  for _pair in "${_capacity_pairs[@]}"; do
-    _key="${_pair%%=*}"; _value="${_pair#*=}"
-    case "${_key}" in
-      max) _CLOUD_RUN_MAX_INSTANCES="${_value}" ;;
-      min) _CLOUD_RUN_MIN_INSTANCES="${_value}" ;;
-      no_traffic) _CLOUD_RUN_NO_TRAFFIC="${_value}" ;;
-      cpu) _CLOUD_RUN_CPU="${_value}" ;;
-      concurrency) _CLOUD_RUN_CONCURRENCY="${_value}" ;;
-      scaling_target) _CLOUD_RUN_SCALING_CONCURRENCY_TARGET="${_value}" ;;
-      *) echo "_CLOUD_RUN_CAPACITY carries an unknown key: ${_key}" >&2; exit 1 ;;
-    esac
-  done
-  for _required in _CLOUD_RUN_MAX_INSTANCES _CLOUD_RUN_MIN_INSTANCES _CLOUD_RUN_NO_TRAFFIC _CLOUD_RUN_CPU _CLOUD_RUN_CONCURRENCY; do
-    if [[ -z "${!_required:-}" ]]; then
-      echo "_CLOUD_RUN_CAPACITY is missing ${_required}." >&2; exit 1
-    fi
-  done
-  export _CLOUD_RUN_MAX_INSTANCES _CLOUD_RUN_MIN_INSTANCES _CLOUD_RUN_NO_TRAFFIC _CLOUD_RUN_CPU _CLOUD_RUN_CONCURRENCY
-fi
+# The Cloud Run capacity knobs are decoded by the bounded capacity helper.
+source scripts/deploy/backend-capacity-settings.sh
 if [[ -n "${_DB_POOL_SETTINGS:-}" ]]; then
   IFS=',' read -r -a _pool_pairs <<<"${_DB_POOL_SETTINGS}"
   for _pair in "${_pool_pairs[@]}"; do
@@ -1023,10 +1000,7 @@ cmd=(
   "--set-secrets=${secrets}"
 )
 
-# Keep ordinary API/Voice ingress headroom while UAT requests earlier scale-out.
-if [[ -n "${_CLOUD_RUN_SCALING_CONCURRENCY_TARGET:-}" ]]; then
-  cmd+=("--scaling-concurrency-target=${_CLOUD_RUN_SCALING_CONCURRENCY_TARGET}")
-fi
+append_backend_scaling_flags
 
 # Preview IAM admission belongs to the workflow after authenticated candidate
 # health and application traffic promotion. Leave existing service IAM unchanged.
