@@ -48,6 +48,17 @@ from hushh_mcp.services.one_location_public_invite_url import (
     public_invite_bearer_token,
     public_invite_url,
 )
+from hushh_mcp.services.one_location_recommendation_signals import (
+    recommendation_signal,
+    safe_recommendation_text,
+    signal_time_value,
+)
+from hushh_mcp.services.one_location_share_lifecycle import (
+    _access_ask_summary,
+    _duration_metadata_value,
+    _is_until_stopped_share,
+    _share_duration_change_direction,
+)
 from hushh_mcp.services.people_search_sql import (
     directory_contact_match_params,
     directory_search_rank,
@@ -842,31 +853,9 @@ def _classify_share_kind(reason: str | None) -> str:
     return "check_in"
 
 
-def requires_recipient_phone_verification(
-    *,
-    share_kind: str | None,
-    reason: str | None,
-) -> bool:
-    """Keep the verified-phone gate on the emergency SMS lane only.
-
-    Ordinary private shares are authorized by an active One relationship and
-    encrypted to the recipient's active Location key.  Requiring an unrelated
-    phone claim after the recipient picker has already proved both facts makes
-    a connected, cryptographically ready Google-only account impossible to
-    share with.  SOS is different: its recipient list is explicitly the SMS
-    contact list, so that lane keeps the verified-phone requirement.
-
-    Classify legacy callers from ``reason`` exactly as grant creation does, so
-    an older ``sos_panic`` request cannot bypass the SMS protection merely by
-    omitting ``shareKind``.
-    """
-
-    resolved_kind = share_kind or _classify_share_kind(reason)
-    return _is_sos_lane(resolved_kind)
-
-
-def _is_until_stopped_share(duration_mode: str | None) -> bool:
-    return duration_mode == _UNTIL_STOPPED_DURATION_MODE
+def is_sos_share(*, share_kind: str | None, reason: str | None) -> bool:
+    """Classify current and legacy emergency requests through the grant owner."""
+    return _is_sos_lane(share_kind or _classify_share_kind(reason))
 
 
 def _resolve_share_duration(
@@ -901,10 +890,6 @@ def _resolve_share_duration(
             status_code=422,
         ) from exc
     return duration, now + timedelta(hours=duration), TIMED_LOCATION_SHARE_DURATION_MODE
-
-
-def _duration_metadata_value(duration_hours: float | None) -> float | None:
-    return float(duration_hours) if duration_hours is not None else None
 
 
 # What an approval falls back to when neither the owner nor the requester named
@@ -958,65 +943,6 @@ def _remaining_label(expires_at: Any, *, now: datetime | None = None) -> str:
     # format_duration_label lives in the still-quarantined operons.location
     # module, so its real `-> str` return erases to Any without this cast.
     return cast(str, format_duration_label(remaining / 3600.0))
-
-
-def _access_ask_summary(
-    *,
-    requested_duration_hours: float | None,
-    requested_duration_mode: str | None,
-    is_extension: bool,
-    remaining_label: str = "",
-) -> str:
-    """The one sentence that says WHAT was asked for, used everywhere.
-
-    The owner's push notification, the feed line, and the Consent Center row all
-    read from this, so the amount the owner is asked to approve is never worded
-    one way in the popup and another way in the feed. The extension wording
-    ("3 hours MORE") is deliberately different from the fresh-share wording
-    ("for 3 hours") -- they are different questions, and an owner skimming a
-    lock screen has to be able to tell them apart without opening anything.
-    """
-    amount = (
-        "as long as they need"
-        if requested_duration_mode == UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE
-        else format_duration_label(requested_duration_hours)
-    )
-    if is_extension:
-        if not amount:
-            return "is asking for more time on your live location."
-        tail = f" They have {remaining_label} left." if remaining_label else ""
-        return f"is asking for {amount} more of your live location.{tail}"
-    if not amount:
-        return "is asking to view your location."
-    return f"is asking to view your location for {amount}."
-
-
-def _share_duration_change_direction(
-    *,
-    previous_expires_at: Any,
-    new_expires_at: datetime | None,
-    new_mode: str,
-) -> str:
-    """Which way the owner moved a running share's end time.
-
-    One event type carries both directions so the ledger keeps a single row
-    shape, which means the direction has to be recorded rather than implied by
-    the name.
-
-    A share that ran until stopped and now ends at a fixed time has no previous
-    expiry to compare against, and it has been *shortened*: an open-ended share
-    was just given an end.
-    """
-    if _is_until_stopped_share(new_mode):
-        return "until_stopped"
-    if new_expires_at is None:
-        return "until_stopped"
-    if previous_expires_at is None:
-        return "shortened"
-    previous = previous_expires_at
-    if previous.tzinfo is None:
-        previous = previous.replace(tzinfo=timezone.utc)
-    return "extended" if new_expires_at > previous else "shortened"
 
 
 def _grant_expires_at_is_past(row: dict[str, Any]) -> bool:
@@ -1223,17 +1149,23 @@ class OneLocationAgentService:
         return min(max_workers, worker_limit)
 
     def _run_batched_read_queries(
-        self, tasks: list[tuple[str, str, dict[str, Any]]], *, require_complete: bool = False
+        self,
+        tasks: list[tuple[str, str, dict[str, Any]]],
+        *,
+        require_complete: bool = False,
+        required_sections: frozenset[str] = frozenset(),
     ) -> dict[str, list[dict[str, Any]]]:
         """One instrumented statement for authored, independent read projections.
 
         Retain each section's ordering, caps and bound owner predicate. A failed
         optional section falls back to the existing independently degraded reads;
-        complete inventory keeps its strict repeatable-read path. No cache or
-        additional persistence authority is introduced.
+        required sections still raise on fallback failure, and complete inventory
+        keeps its strict repeatable-read path. No new persistence is introduced.
         """
         if require_complete or not tasks:
-            return self._run_read_queries_parallel(tasks, require_complete=require_complete)
+            return self._run_read_queries_parallel(
+                tasks, require_complete=require_complete, required_sections=required_sections
+            )
         projections = []
         values: dict[str, Any] = {}
         for index, (_, query, params) in enumerate(tasks):
@@ -1275,7 +1207,7 @@ class OneLocationAgentService:
             return result
         except Exception as exc:  # additive schema rollout: preserve healthy sections
             logger.warning("one_location.read_batch_fallback error_type=%s", type(exc).__name__)
-            return self._run_read_queries_parallel(tasks)
+            return self._run_read_queries_parallel(tasks, required_sections=required_sections)
 
     def _run_read_queries_parallel(
         self,
@@ -1283,6 +1215,7 @@ class OneLocationAgentService:
         *,
         max_workers: int = 8,
         require_complete: bool = False,
+        required_sections: frozenset[str] = frozenset(),
     ) -> dict[str, list[dict[str, Any]]]:
         """Run several independent, read-only SQL queries concurrently.
 
@@ -1299,7 +1232,7 @@ class OneLocationAgentService:
         `get_db().execute_raw`, so concurrent calls are safe -- there is no
         shared connection/cursor state across tasks.
 
-        A failing task degrades to `[]` and is logged rather than raised --
+        An optional failing task degrades to `[]` and is logged rather than raised --
         the same resilience a sequential per-section try/except gave before
         this existed. One bad section must never fail the rest of the page.
         Each worker runs inside a copy of the
@@ -1342,7 +1275,11 @@ class OneLocationAgentService:
                 key = future_to_key[future]
                 try:
                     results[key] = future.result()
-                except Exception as exc:  # noqa: BLE001 - degrade, never fail the page
+                except Exception as exc:  # noqa: BLE001 - only optional sections degrade
+                    if key in required_sections:
+                        # An unavailable private-key backup must never look
+                        # absent: bootstrap could replace the account key.
+                        raise
                     logger.warning(
                         "one_location.parallel_query_failed section=%s error=%s",
                         key,
@@ -2146,37 +2083,11 @@ class OneLocationAgentService:
 
     @staticmethod
     def _recommendation_signal() -> dict[str, Any]:
-        return {
-            "score": 0,
-            "reasons": {},
-            "needs_action": False,
-            "trusted": False,
-            "professional": False,
-            "relationship_type": None,
-            "profile_headline": None,
-            "verification_badge": None,
-            "last_interaction_at": None,
-        }
+        return recommendation_signal()
 
     @staticmethod
     def _signal_time_value(value: Any) -> float:
-        if value is None:
-            return 0.0
-        if isinstance(value, datetime):
-            parsed = value
-        else:
-            raw = str(value).strip()
-            if not raw:
-                return 0.0
-            if raw.endswith("Z"):
-                raw = f"{raw[:-1]}+00:00"
-            try:
-                parsed = datetime.fromisoformat(raw)
-            except ValueError:
-                return 0.0
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc).timestamp()
+        return signal_time_value(value)
 
     @classmethod
     def _remember_signal_time(cls, signal: dict[str, Any], *values: Any) -> None:
@@ -2190,12 +2101,7 @@ class OneLocationAgentService:
 
     @staticmethod
     def _safe_recommendation_text(value: Any, *, max_length: int = 96) -> str | None:
-        text = " ".join(str(value or "").split())
-        if not text:
-            return None
-        if len(text) <= max_length:
-            return text
-        return f"{text[: max_length - 1].rstrip()}..."
+        return safe_recommendation_text(value, max_length=max_length)
 
     @classmethod
     def _add_recommendation_reason(
@@ -4819,8 +4725,8 @@ class OneLocationAgentService:
         voice/chat person resolution independent of email and phone matches.
 
         A named, active profile with a current enabled auth account is eligible
-        when EITHER it holds a ``vault_keys`` row whose ``vault_status`` is
-        ``'active'`` (the person finished signing up in THIS environment) OR the
+        when EITHER its active ``vault_keys`` row has ``environment_enrolled_at``
+        (an unlock in this environment; copied vaults do not count), OR the
         viewer already has a relationship with it: an active ``connections``
         edge, a ``'pending'`` ``connection_requests`` row, or an active
         ``trusted_connections`` edge, each in either direction. So the vault
@@ -5046,7 +4952,7 @@ class OneLocationAgentService:
                     SELECT 1
                     FROM vault_keys vault
                     WHERE vault.user_id = profile.user_id
-                      AND vault.vault_status = 'active'
+                      AND vault.vault_status = 'active' AND vault.environment_enrolled_at IS NOT NULL
                   )
                   OR EXISTS (
                     SELECT 1
@@ -5714,7 +5620,9 @@ class OneLocationAgentService:
                 "Choose a different connection as an SMS contact.",
                 status_code=422,
             )
-        self._recipient_key_row(recipient_user_id=contact_user_id, require_phone_verified=True)
+        # Save My Soul is delivered to an account in One, not to a phone.
+        # The Circle writer still validates the selected active relationship.
+        self._recipient_key_row(recipient_user_id=contact_user_id, require_phone_verified=False)
         result = self._sms_circle_service().set_sms_contact(
             owner_user_id=owner_user_id,
             contact_user_id=contact_user_id,
@@ -6314,7 +6222,7 @@ class OneLocationAgentService:
         reason: str | None = None,
         share_kind: str | None = None,
         source_circle_id: str | None = None,
-        require_recipient_phone_verified: bool = True,
+        require_recipient_phone_verified: bool = False,
         enforce_connection: bool = False,
         require_owned_source_circle: bool = False,
         source: str | None = None,
@@ -6582,7 +6490,7 @@ class OneLocationAgentService:
         reason: str | None = None,
         share_kind: str | None = None,
         source_circle_id: str | None = None,
-        require_recipient_phone_verified: bool = True,
+        require_recipient_phone_verified: bool = False,
         enforce_connection: bool = False,
     ) -> dict[str, Any]:
         """Atomically replace a grant and persist its first ciphertext envelope.
@@ -9196,8 +9104,12 @@ class OneLocationAgentService:
         )
         return invite
 
-    def list_state(self, *, user_id: str, require_complete: bool = False) -> dict[str, Any]:
-        return self._list_state(user_id=user_id, require_complete=require_complete)
+    def list_state(
+        self, *, user_id: str, read_only: bool = False, require_complete: bool = False
+    ) -> dict[str, Any]:
+        return self._list_state(
+            user_id=user_id, read_only=read_only, require_complete=require_complete
+        )
 
     def list_consent_state(self, *, user_id: str) -> dict[str, Any]:
         """Count projection with the full state's caps, owner predicates and expiry.
@@ -9208,7 +9120,12 @@ class OneLocationAgentService:
         return self._list_state(user_id=user_id, consent_only=True)
 
     def _list_state(
-        self, *, user_id: str, require_complete: bool = False, consent_only: bool = False
+        self,
+        *,
+        user_id: str,
+        read_only: bool = False,
+        require_complete: bool = False,
+        consent_only: bool = False,
     ) -> dict[str, Any]:
         # Resilience: one failing auxiliary section (e.g. schema drift on a
         # rarely-used table) must NOT 500 the whole endpoint. A 500 here cascades
@@ -9219,12 +9136,12 @@ class OneLocationAgentService:
         # `_safe_many` call gave it before, while running the 10 independent
         # reads concurrently instead of one cross-continent round trip at a
         # time -- this loop used to be most of why this endpoint was slow.
-        # GET state is read-only by default. Expiry settlement and its push
-        # fan-out belong to the bounded retention maintenance path, not an app
-        # foreground/resume read. Explicit false remains a temporary rollback
-        # valve for environments that have not installed the scheduler yet.
+        # Explicit pod data-door reads, consent counts and complete inventory
+        # must remain read-only even when the hub rollback valve is false.
+        # Ordinary GET state is read-only by default; retention owns settlement.
         read_only_state = (
-            consent_only
+            read_only
+            or consent_only
             or require_complete
             or str(os.getenv("ONE_LOCATION_READ_ONLY_STATE_ENABLED") or "true").strip().lower()
             in {"1", "true", "yes", "on"}
@@ -9569,6 +9486,7 @@ class OneLocationAgentService:
         _sections = self._run_batched_read_queries(
             state_queries,
             **({"require_complete": True} if require_complete else {}),
+            required_sections=frozenset() if consent_only else frozenset({"my_recipient_key"}),
         )
         owner_grants = _sections.get("owner_grants", [])
         received_grants = _sections.get("received_grants", [])

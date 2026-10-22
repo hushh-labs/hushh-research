@@ -12,17 +12,19 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 
+from hushh_mcp.services import marketing_preferences as marketing
 from hushh_mcp.services import plg_outcomes as outcomes
 from hushh_mcp.services import product_activity as activity
 from hushh_mcp.services import product_value_receipts as values
 from hushh_mcp.services.plg_audience import ATTEMPTS_SQL, summarize_attempts
+from tests.services.plg_postgres_queries import assert_query_regressions
 
 pytestmark = pytest.mark.db
 ROOT = Path(__file__).resolve().parents[2]
@@ -76,6 +78,11 @@ def test_observation_lifecycle_on_disposable_postgres(monkeypatch):
             conn.connection.cursor().execute(correlation)
             conn.connection.cursor().execute(value_migration)
             conn.connection.cursor().execute(value_migration)
+            permission_migration = (
+                ROOT / "db/migrations/370_one_marketing_preferences.sql"
+            ).read_text()
+            conn.connection.cursor().execute(permission_migration)
+            conn.connection.cursor().execute(permission_migration)
             conn.exec_driver_sql("INSERT INTO actor_profiles VALUES ('owner'),('other')")
             conn.exec_driver_sql("INSERT INTO vault_keys VALUES ('owner'),('other')")
 
@@ -87,12 +94,17 @@ def test_observation_lifecycle_on_disposable_postgres(monkeypatch):
         monkeypatch.setattr(activity, "get_db_connection", connection)
         monkeypatch.setattr(activity, "enabled_for", lambda uid: uid in {"owner", "other"})
         monkeypatch.setattr(values, "get_db_connection", connection)
+        asyncio.run(
+            _assert_email_permission_lifecycle(
+                url.set(database=database), browser_role, monkeypatch
+            )
+        )
         generation = activity.admission("owner")["generation"]
         _assert_domain_value_receipts(engine, browser_role, generation)
         asyncio.run(_assert_canonical_reply_association(url.set(database=database), monkeypatch))
         _assert_crm_outcome_query(engine)
         _assert_remaining_source_queries(engine)
-        asyncio.run(_assert_batched_outcomes(url.set(database=database)))
+        assert_query_regressions(url.set(database=database))
         action = "observation:one_memory_action:detail_edited"
         assert activity.observe(
             "owner", generation, action, "returned", "client_reported", "operation"
@@ -351,6 +363,192 @@ def test_observation_lifecycle_on_disposable_postgres(monkeypatch):
         admin.dispose()
 
 
+async def _assert_email_permission_lifecycle(url, browser_role, monkeypatch):
+    import asyncpg
+
+    from hushh_mcp.services.account_deletion_lifecycle_service import account_deletion_user_hash
+
+    pool = await asyncpg.create_pool(
+        url.set(drivername="postgresql").render_as_string(hide_password=False),
+        min_size=1,
+        max_size=4,
+    )
+
+    async def get_pool():
+        return pool
+
+    monkeypatch.setattr(marketing, "get_pool", get_pool)
+    owner = "permission-owner"
+    digest = account_deletion_user_hash(owner)
+    identity = {
+        "email": "permission@example.invalid",
+        "email_hash": marketing._email_hash("permission@example.invalid"),
+        "name": "Permission fixture",
+        "created_at": datetime.now(timezone.utc),
+    }
+
+    async def recipient(uid):
+        assert uid == owner
+        return identity
+
+    monkeypatch.setattr(marketing, "verified_recipient", recipient)
+
+    async def choose(revision, *, enabled=True, frequency="weekly"):
+        return await marketing.choose_preference(
+            owner,
+            enabled=enabled,
+            frequency=frequency,
+            expected_revision=revision,
+            disclosure_version=marketing.DISCLOSURE_VERSION,
+            surface="account",
+        )
+
+    try:
+        async with pool.acquire() as conn:
+            # The output LIMIT must also bound database work across lifetime
+            # acknowledged/erased history. Exercise the production SQL plans.
+            await conn.execute("""INSERT INTO one_marketing_changes(user_hash,revision,erased,pending,updated_at)
+              SELECT 'sha256:'||encode(digest('permission-plan-'||g::text,'sha256'),'hex'),
+                1,g<9991,g=10000,NOW()-INTERVAL '2 hours' FROM generate_series(1,10000) g""")
+            await conn.execute("ANALYZE one_marketing_changes")
+            pending_plan = await conn.fetchval("EXPLAIN (FORMAT JSON) " + marketing.PENDING_SQL)
+            reconciliation_plan = await conn.fetchval(
+                "EXPLAIN (FORMAT JSON) " + marketing.RECONCILE_SQL, 5
+            )
+            assert "one_marketing_pending" in pending_plan
+            assert "one_marketing_reconcile" in reconciliation_plan
+            await conn.execute("DELETE FROM one_marketing_changes")
+            # A provisional phone orphan can become a protected established
+            # account. Cancelling that intent must not leave erased history
+            # that suppresses the owner's later explicit choice. The full
+            # account erasure case below must still suppress and block writes.
+            await conn.execute(
+                """INSERT INTO account_deletion_tombstones(user_id_hash,cleanup_intent_kind)
+                VALUES($1,'phone_orphan')""",
+                digest,
+            )
+            await conn.execute(
+                """DELETE FROM account_deletion_tombstones
+                WHERE user_id_hash=$1 AND cleanup_intent_kind='phone_orphan'""",
+                digest,
+            )
+            await conn.execute("INSERT INTO actor_profiles VALUES($1)", owner)
+        # Merely loading a default never creates permission or an enrollment event.
+        assert (await marketing.preference(owner))["revision"] == 0
+        async with pool.acquire() as conn:
+            assert await conn.fetchval("SELECT COUNT(*) FROM one_marketing_preferences") == 0
+            assert await conn.fetchval("SELECT COUNT(*) FROM one_marketing_changes") == 0
+        simultaneous = await asyncio.gather(
+            choose(0), choose(0, frequency="daily"), return_exceptions=True
+        )
+        assert sum(isinstance(r, marketing.PreferenceConflict) for r in simultaneous) == 1
+        selected = next(r for r in simultaneous if isinstance(r, dict))
+        assert selected["revision"] == 1
+        generation = UUID(selected["generation"])
+        batch = (await marketing.pending_changes())["changes"]
+        assert len(batch) == 1 and batch[0]["eligible"] and batch[0]["enabled"]
+        assert batch[0]["accountId"] == owner and batch[0]["cohort"] == "new"
+        assert await marketing.current_permission(owner, generation, identity["email_hash"], 1) == {
+            "allowed": True,
+            "erased": False,
+        }
+        await marketing.acknowledge([(digest, 1)])
+        changed = await choose(1, frequency="updates")
+        assert changed["generation"] == str(generation) and changed["revision"] == 2
+        await marketing.acknowledge([(digest, 1)])
+        async with pool.acquire() as conn:
+            assert await conn.fetchval(
+                "SELECT pending FROM one_marketing_changes WHERE user_hash=$1", digest
+            )
+        # A frequency edit cannot escape a pending unsubscribe or authorize a stale daily send.
+        assert not (
+            await marketing.current_permission(owner, generation, identity["email_hash"], 1)
+        )["allowed"]
+        assert (await marketing.revoke_generation(digest, generation))["revoked"]
+        assert not (await marketing.preference(owner))["enabled"]
+        opted_back_in = await choose(3)
+        assert opted_back_in["generation"] != str(generation)
+        assert not (await marketing.revoke_generation(digest, generation))["revoked"]
+        assert (await marketing.preference(owner))["enabled"]
+
+        # Recipient availability is independent of the canonical choice revision.
+        async def unverified(_):
+            raise marketing.VerifiedEmailRequired()
+
+        monkeypatch.setattr(marketing, "verified_recipient", unverified)
+        unavailable = (await marketing.pending_changes())["changes"][0]
+        assert (
+            unavailable["enabled"]
+            and not unavailable["eligible"]
+            and "accountId" not in unavailable
+        )
+        await marketing.acknowledge([(digest, unavailable["revision"])])
+        monkeypatch.setattr(marketing, "verified_recipient", recipient)
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE one_marketing_changes SET updated_at=NOW()-INTERVAL '2 hours'"
+            )
+        recovered = (await marketing.pending_changes())["changes"][0]
+        assert recovered["revision"] == unavailable["revision"] and recovered["eligible"]
+        async with pool.acquire() as conn:
+            rollback = (
+                ROOT / "db/migrations/rollback/370_one_marketing_preferences.rollback.sql"
+            ).read_text()
+            with pytest.raises(
+                asyncpg.PostgresError, match="rollback_refused_nonempty_marketing_state"
+            ):
+                await conn.execute(rollback)
+            await conn.execute("ROLLBACK")
+            assert not await conn.fetchval(
+                "SELECT has_table_privilege($1,'one_marketing_preferences','SELECT')", browser_role
+            )
+            async with conn.transaction():
+                await conn.execute(
+                    f'GRANT SELECT ON one_marketing_preferences,one_marketing_changes TO "{browser_role}"'
+                )
+                await conn.execute(f'SET LOCAL ROLE "{browser_role}"')
+                assert await conn.fetchval("SELECT COUNT(*) FROM one_marketing_preferences") == 0
+                assert await conn.fetchval("SELECT COUNT(*) FROM one_marketing_changes") == 0
+        # A lookup already in flight must not export identity after a committed opt-out or erasure.
+        for erase in (False, True):
+            started, resume = asyncio.Event(), asyncio.Event()
+
+            async def paused(uid, started=started, resume=resume):
+                started.set()
+                await resume.wait()
+                return await recipient(uid)
+
+            monkeypatch.setattr(marketing, "verified_recipient", paused)
+            pull = asyncio.create_task(marketing.pending_changes())
+            await asyncio.wait_for(started.wait(), 5)
+            if erase:
+                async with pool.acquire() as conn:
+                    await conn.execute("DELETE FROM actor_profiles WHERE user_id=$1", owner)
+            else:
+                await choose(4, enabled=False)
+            resume.set()
+            raced = (await pull)["changes"]
+            assert all("accountId" not in r and "email" not in r and "name" not in r for r in raced)
+            monkeypatch.setattr(marketing, "verified_recipient", recipient)
+            if not erase:
+                await choose(5)
+        erased = (await marketing.pending_changes())["changes"][0]
+        assert erased["erased"] and not erased["enabled"]
+        async with pool.acquire() as conn:
+            assert await conn.fetchval("SELECT COUNT(*) FROM one_marketing_preferences") == 0
+        with pytest.raises(PermissionError):
+            await choose(erased["revision"])
+        # Replay an empty rollback only in this disposable database; real nonempty state remains protected.
+        async with pool.acquire() as conn:
+            await conn.execute("DELETE FROM one_marketing_changes")
+            await conn.execute(rollback)
+            await conn.execute(
+                (ROOT / "db/migrations/370_one_marketing_preferences.sql").read_text()
+            )
+    finally:
+        await pool.close()
+
+
 def _assert_domain_value_receipts(engine, browser_role, generation):
     assert values._calendar_receipt("owner", "proposal", "provider-confirmed", generation)
     assert not values._calendar_receipt("owner", "proposal", "provider-confirmed", generation)
@@ -532,64 +730,6 @@ def _assert_crm_outcome_query(engine):
             {"uid": "owner", "since": now - timedelta(days=7), "until": now + timedelta(seconds=1)},
         ).all()
         assert [r.action_id for r in rows] == ["new"]
-
-
-async def _assert_batched_outcomes(url):
-    import asyncpg
-
-    conn = await asyncpg.connect(
-        url.set(drivername="postgresql").render_as_string(hide_password=False)
-    )
-    now = datetime.now(timezone.utc) + timedelta(seconds=1)
-    since = now - timedelta(days=7)
-    owners = ["owner", "other", *[f"empty-page-owner-{n}" for n in range(23)]]
-    try:
-        expected = {
-            uid: await outcomes.value_summary(conn, uid, "agent_one", since, now)
-            for uid in owners[:2]
-        }
-        queries = []
-
-        class PageConnection:
-            async def fetch(self, query, *args, **kwargs):
-                assert args[0] == owners
-                queries.append(query)
-                return await conn.fetch(query, *args, **kwargs)
-
-        actual = await outcomes.value_summaries(PageConnection(), owners, "agent_one", since, now)
-        assert len(queries) == 11
-        assert actual["owner"] == expected["owner"] and expected["owner"]["count"] > 0
-        assert actual["other"] == expected["other"]
-        assert all(actual[uid]["count"] == 0 for uid in owners[2:])
-        # The SQL limit belongs to each owner, never to the flattened page.
-        owners = ["dense-owner' OR 1=1 --", *[f"dense-page-owner-{n}" for n in range(24)]]
-        await conn.executemany(
-            "INSERT INTO actor_profiles(user_id) VALUES($1)", [(uid,) for uid in owners]
-        )
-        await conn.executemany(
-            "INSERT INTO vault_keys(user_id) VALUES($1)", [(uid,) for uid in owners]
-        )
-        await conn.execute(
-            """WITH effects AS (
-              SELECT uid,uid||':'||n AS id,n FROM unnest($1::text[]) owners(uid)
-              CROSS JOIN generate_series(1,1002) numbers(n)
-            ) INSERT INTO gmail_owner_send_actions
-              (action_id,user_id,envelope_hmac,idempotency_hmac,recipient_count,state,expires_at,sent_at,gmail_message_id)
-              SELECT id,uid,repeat('a',64),md5(id)||md5(id),1,'sent',
-                $2::timestamptz+INTERVAL '1 day',$2::timestamptz-n*INTERVAL '1 second','provider-'||id
-              FROM effects""",
-            owners,
-            now,
-        )
-        queries.clear()
-        dense = await outcomes.value_summaries(PageConnection(), owners, "agent_email", since, now)
-        assert len(queries) == 1
-        assert all(row["count"] == 1000 and row["limited"] for row in dense.values())
-        assert all(
-            row["lastAt"] == (now - timedelta(seconds=1)).isoformat() for row in dense.values()
-        )
-    finally:
-        await conn.close()
 
 
 def _assert_remaining_source_queries(engine):

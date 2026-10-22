@@ -2049,7 +2049,7 @@ export function ConnectedSystemsPanel({
         <AlertDialogTrigger asChild>
           <Button
             type="button"
-            variant="destructive"
+            variant="none"
             effect="fade"
             size="icon-sm"
             disabled={busy !== null || !(deleteId || currentRecordId)}

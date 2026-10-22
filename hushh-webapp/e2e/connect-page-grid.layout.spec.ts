@@ -8,9 +8,9 @@ import {
   productFontStyle,
   stripAppFontFaces,
 } from "./fixtures/product-font";
+import { assertNeutralFocusedCircleType } from "./helpers/circle-type-focus";
 
 /** Production Connect page against synthetic identity/network boundaries. */
-
 const WIDTHS = [320, 375, 393, 430, 640, 768, 1440] as const;
 
 const STUBBED = [
@@ -151,6 +151,9 @@ async function settle(page: Page, _width: number) {
   // parallel workers before the timed network even starts.
   await expect(group.locator("[data-voice-label]")).toHaveCount(6, { timeout: 30_000 });
   await expect(page.getByTestId("connect-directory-group").getByText("Avery Stone")).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Connections", exact: true })).toHaveAttribute("aria-selected", "true");
+  // Circle discovery belongs to Circles, never the Connections panel.
+  await expect(page.getByRole("button", { name: /Your Trusted Circle/ })).toBeHidden();
   // Circles now lives in an inactive pager pane, including desktop; it must
   // not expose off-screen controls while the Connections pane is selected.
   await expect(page.locator('[data-connect-surface="circles"]').getByRole("button", { name: /Circle ideas/, includeHidden: true })).toHaveCount(1);
@@ -435,7 +438,74 @@ for (const width of [320, 393, 1440]) {
   });
 }
 
+for (const width of [393, 1440]) {
+  for (const dark of [false, true]) {
+    test(`Connect search borders stay neutral at rest, hover and focus at ${width}px ${dark ? "dark" : "light"}`, async ({ page }) => {
+      await open(page, width, dark);
+      await settle(page, width);
+      const color = dark ? "rgb(245, 245, 247)" : "rgb(29, 29, 31)";
+      const check = async (field: ReturnType<Page["getByRole"]>) => {
+        await field.scrollIntoViewIfNeeded();
+        await expect(field).toHaveValue("");
+        await expect(field).toHaveCSS("border-top-width", "1px");
+        await expect(field).toHaveCSS("border-top-color", color);
+        await field.hover();
+        await expect(field).toHaveCSS("border-top-color", color);
+        await field.focus();
+        await expect(field).toHaveCSS("border-top-color", color);
+        await expect(field).toHaveCSS("border-top-width", "1px");
+        await expect(field).toHaveCSS("outline-style", "none");
+        await expect(field).toHaveCSS("outline-width", "0px");
+        await expect(field).toHaveCSS("box-shadow", "none");
+        await field.fill("Avery");
+        await expect(field).toHaveCSS("border-top-color", color);
+        await expect(field).toHaveCSS("outline-width", "0px");
+        await field.fill("");
+        await field.blur();
+        await expect(field).toHaveCSS("border-top-color", color);
+      };
+      await check(page.getByRole("textbox", { name: "Search people", exact: true }));
+      await page.getByRole("tab", { name: /My connections/ }).click();
+      await check(page.getByRole("searchbox", { name: "Search my connections by name, email or phone" }));
+      await page.evaluate(() => { document.documentElement.dataset.realCircles = "1"; });
+      await page.getByRole("tab", { name: "Circles", exact: true }).click();
+      await check(page.getByRole("searchbox", { name: "Search your and joined circles" }));
+    });
+  }
+}
+
 // ---- Profile type roles (profile-ui skill) ------------------------------------
+for (const width of [320, 393, 1440]) {
+  test(`Circle type hierarchy preserves owned and joined circles at ${width}px`, async ({ page }) => {
+    await open(page, width, false, undefined, () => {
+      document.documentElement.dataset.realCircles = "1";
+      document.documentElement.dataset.customCircles = "1";
+    });
+    await settle(page, width);
+    await page.getByRole("tab", { name: "Circles", exact: true }).click();
+    const group = page.getByRole("region", { name: "Finance circles", exact: true });
+    await expect(group.getByText("Investments", { exact: true })).toBeVisible();
+    await expect(group.getByRole("heading", { level: 3 })).toHaveCSS("font-size", "13px");
+    const owned = page.getByTestId("connect-circle-group-owned");
+    const joined = page.getByTestId("connect-circle-group-joined");
+    await expect(owned.getByRole("region", { name: "Family circles", exact: true })).toContainText("Weekend family");
+    await expect(owned.getByRole("region", { name: "Friends circles", exact: true })).toContainText("Old classmates");
+    await expect(owned.getByText("Project team", { exact: true })).toBeVisible();
+    await expect(owned.getByRole("heading", { name: /^Other/ })).toHaveCount(0);
+    await expect(joined).toContainText("Shared budget");
+    expect(await group.evaluate(node => node.closest('[data-testid="connect-circle-group-owned"]') !== null)).toBe(true);
+    expect(await owned.evaluate(node => Boolean(node.compareDocumentPosition(document.querySelector('[data-testid="connect-circle-group-joined"]')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
+    await expect(group.getByRole("button", { name: "Options for Investments" })).toHaveCount(0);
+    await group.getByRole("button", { name: "Open Investments", exact: true }).scrollIntoViewIfNeeded();
+    await page.screenshot({ path: test.info().outputPath(`circle-types-${width}.png`), animations: "disabled" });
+    await group.getByRole("button", { name: "Delete Finance type" }).click();
+    await expect(page.getByRole("alertdialog")).toContainText("Your circles and their members will stay");
+    await page.getByRole("button", { name: "Delete type", exact: true }).click();
+    await expect(group).toBeHidden();
+    await expect(page.getByTestId("connect-circle-group-owned").getByText("Investments", { exact: true })).toBeVisible();
+  });
+}
+
 // Values are the Profile pane's, read from the running native app on 2026-10-18.
 const read = (page: Page, selector: string, index = 0) =>
   page.locator(selector).nth(index).evaluate((node) => {
@@ -549,4 +619,126 @@ for (const width of [160, 196]) {
     expect(fits.every(Boolean)).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   });
+}
+
+for (const width of [393, 1440]) {
+  for (const dark of [false, true]) {
+    test(`Connection tab count is compact and round at ${width}px ${dark ? "dark" : "light"}`, async ({ page }) => {
+      await open(page, width, dark);
+      await settle(page, width);
+      const tabs = page.getByRole("tablist", { name: "Connection views" });
+      const mine = tabs.getByRole("tab", { name: /My connections/ });
+      const count = mine.locator("span").filter({ hasText: /^\d+$/ }).last();
+      // Check the inactive state too: the old undefined fill token was
+      // transparent, and an active-only check could never catch that defect.
+      await expect(mine).toHaveAttribute("aria-selected", "false");
+      const expected = dark ? "rgba(255, 255, 255, 0.06)" : "rgba(120, 120, 128, 0.16)";
+      await expect(count).toHaveCSS("background-color", expected);
+      const inactiveValue = await count.textContent();
+      const centers = await mine.evaluate(node => {
+        const content = node.firstElementChild!;
+        const label = content.children[0].getBoundingClientRect();
+        const badge = content.children[1].getBoundingClientRect();
+        return Math.abs(label.y + label.height / 2 - badge.y - badge.height / 2);
+      });
+      expect(centers).toBeLessThanOrEqual(0.5);
+      await mine.click();
+      await expect(count).toHaveText(inactiveValue!);
+      await expect(count).not.toHaveCSS("background-color", expected);
+      await expect(count).toBeVisible();
+      await expect(count).toHaveCSS("border-radius", "999px");
+      await expect(count).toHaveCSS("font-size", "10px");
+      await expect(count).toHaveCSS("height", "17px");
+      await expect(tabs).toHaveCSS("border-bottom-width", "0px");
+      await page.screenshot({ path: test.info().outputPath(`connections-${width}-${dark ? "dark" : "light"}.png`), animations: "disabled" });
+    });
+  }
+}
+
+for (const width of [393, 1440]) {
+  for (const presentation of ["page", "modal"]) {
+    test(`Create Circle reuses Connect typography in ${presentation} at ${width}px`, async ({ page }) => {
+      const prepare = presentation === "modal" ? () => {
+        document.documentElement.dataset.realCircles = "1";
+        document.documentElement.dataset.customCircles = "1";
+        document.documentElement.dataset.initialQuery = "?tab=circles&action=create-circle";
+        document.documentElement.dataset.createModal = "1";
+      } : () => {
+        document.documentElement.dataset.realCircles = "1";
+        document.documentElement.dataset.customCircles = "1";
+        document.documentElement.dataset.initialQuery = "?tab=circles&action=create-circle";
+      };
+      await open(page, width, presentation === "modal", undefined, prepare);
+      if (presentation === "modal") await expect(page.getByRole("dialog", { name: "Create a Circle" })).toBeVisible();
+      const form = page.getByTestId("one-location-create-circle-flow");
+      const name = form.getByRole("textbox", { name: "Circle name" });
+      await expect(name).toBeVisible();
+      await expect(name).toHaveCSS("font-size", "14px");
+      await expect(name).toHaveCSS("line-height", "22px");
+      await expect(form.getByText("Circle name", { exact: true })).toHaveCSS("font-size", "15px");
+      await expect(form.getByText("Circle name", { exact: true })).toHaveCSS("font-weight", "550");
+      await expect(form.getByRole("radio", { name: "Finance", exact: true })).toBeVisible();
+      await form.getByRole("radio", { name: "Other", exact: true }).click();
+      const type = form.getByRole("textbox", { name: "Type name (optional)" });
+      await assertNeutralFocusedCircleType(type);
+      await expect(form.getByText("Type name (optional)", { exact: true })).toHaveCSS("font-size", "15px");
+      const error = form.getByText("Enter a Circle name.", { exact: true });
+      await expect(error).toHaveCSS("font-size", "12px");
+      await expect(error).toHaveCSS("line-height", "18px");
+      await expect(error).toHaveCSS("color", presentation === "modal" ? "rgb(255, 69, 58)" : "rgb(255, 59, 48)");
+      await expect(form.getByText("Reuse this type for other circles. You can keep up to 3 custom types.")).toHaveCSS("font-size", "12px");
+      await page.screenshot({ path: test.info().outputPath(`create-circle-${presentation}-${width}.png`), animations: "disabled" });
+    });
+  }
+  test(`Connection icons halve their visible gap at ${width}px without shrinking targets`, async ({ page }) => {
+    await open(page, width, false);
+    await settle(page, width);
+    await page.getByRole("tab", { name: /My connections/ }).click();
+    const row = page.getByTestId("connect-person-row").filter({ has: page.getByRole("button", { name: "Message Jordan Lee", exact: true }) });
+    const spacing = await row.evaluate(node => {
+      const message = node.querySelector('button[aria-label="Message Jordan Lee"]')!;
+      const options = node.querySelector('button[aria-label="Options for Jordan Lee"]')!;
+      const first = message.querySelector("svg")!;
+      const second = options.querySelector("svg")!;
+      const gap = () => second.getBoundingClientRect().left - first.getBoundingClientRect().right;
+      const tightened = gap();
+      first.classList.remove("translate-x-1.5");
+      second.classList.remove("-translate-x-1.5");
+      const previous = gap();
+      first.classList.add("translate-x-1.5");
+      second.classList.add("-translate-x-1.5");
+      const a = message.getBoundingClientRect(), b = options.getBoundingClientRect();
+      return { tightened, previous, targets: [a.width, a.height, b.width, b.height], overlap: a.right > b.left };
+    });
+    expect(spacing.tightened / spacing.previous).toBeCloseTo(0.5, 1);
+    expect(spacing.targets).toEqual([44, 44, 44, 44]);
+    expect(spacing.overlap).toBe(false);
+  });
+  for (const joined of [false, true]) {
+    test(`Join with code stays transparent with joined=${joined} at ${width}px`, async ({ page }) => {
+      const prepare = joined ? () => {
+        document.documentElement.dataset.realCircles = "1";
+        document.documentElement.dataset.customCircles = "1";
+        document.documentElement.dataset.initialQuery = "?tab=circles";
+      } : () => {
+        document.documentElement.dataset.realCircles = "1";
+        document.documentElement.dataset.initialQuery = "?tab=circles";
+      };
+      await open(page, width, false, undefined, prepare);
+      if (joined) await expect(page.getByTestId("connect-circle-group-joined")).toBeVisible();
+      else await expect(page.getByText("Make a circle", { exact: true })).toBeVisible();
+      const join = page.getByTestId("connect-circle-join");
+      await join.scrollIntoViewIfNeeded();
+      await expect(join).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      await join.hover();
+      await expect(join).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      await expect(join.locator("[data-ripple-mode]")).toHaveCount(0);
+      const gap = await join.evaluate(node => {
+        const icon = node.querySelector("svg")!.getBoundingClientRect();
+        const text = node.querySelector("span > span")!.getBoundingClientRect();
+        return text.left - icon.right;
+      });
+      expect(gap).toBeCloseTo(6, 1);
+    });
+  }
 }

@@ -143,6 +143,59 @@ describe("document feed stream manager", () => {
     expect(lastState(deps)).toBe("polling");
   });
 
+  it("retires an owner that changes while token acquisition is pending", async () => {
+    let current = true;
+    let resolveToken!: (token: string) => void;
+    const getToken = vi.fn(() => new Promise<string>(resolve => { resolveToken = resolve; }));
+    const { manager, transport, deps } = setup({ isCurrent: () => current, getToken });
+    manager.start();
+    await tick();
+    current = false;
+    resolveToken("retired-owner-token");
+    await tick();
+    expect(transport.open).not.toHaveBeenCalled();
+    expect(manager.phase()).toBe("idle");
+    expect(deps.dispatchFeed).not.toHaveBeenCalled();
+    expect(deps.dispatchPayout).not.toHaveBeenCalled();
+    manager.online();
+    manager.focus();
+    await tick(DOCUMENT_FEED_POLLING_RETRY_MS);
+    expect(getToken).toHaveBeenCalledTimes(1);
+    expect(transport.open).not.toHaveBeenCalled();
+    manager.stop();
+  });
+
+  it("cancels late headers when the validated owner changes", async () => {
+    let current = true;
+    let resolveHeaders!: (result: DocumentFeedOpenResult) => void;
+    let signal!: AbortSignal;
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(encoder.encode(HELLO + RESET)); },
+      cancel,
+    });
+    const { manager, transport, deps } = setup({ isCurrent: () => current });
+    transport.open.mockImplementationOnce(request => {
+      signal = request.signal;
+      return new Promise<DocumentFeedOpenResult>(resolve => { resolveHeaders = resolve; });
+    });
+    manager.start();
+    await tick();
+    current = false;
+    resolveHeaders({ status: 200, body, retryAfterMs: null });
+    await tick();
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(signal.aborted).toBe(true);
+    expect(manager.phase()).toBe("idle");
+    expect(deps.dispatchFeed).not.toHaveBeenCalled();
+    expect(deps.dispatchPayout).not.toHaveBeenCalled();
+    manager.online();
+    manager.focus();
+    await tick(DOCUMENT_FEED_POLLING_RETRY_MS);
+    expect(transport.open).toHaveBeenCalledTimes(1);
+    manager.stop();
+  });
+
   it("rereads the Feed on a burst's first frame and once after it settles, widening mixed requests", async () => {
     const { manager, transport, deps } = setup();
     manager.start();
@@ -175,6 +228,20 @@ describe("document feed stream manager", () => {
       [{ general: true, consent: true, requestId: REQUEST }],
     ]);
     expect(deps.dispatchPayout).toHaveBeenCalledTimes(0);
+    deps.dispatchFeed.mockClear();
+    stream.push('event: feed_changed\ndata: {}\n\n' + 'event: feed_changed\ndata: {"reason":"history_mutated","content":"discard"}\n\n');
+    await tick(10_000);
+    expect(deps.dispatchFeed.mock.calls).toEqual([
+      [{ general: true, consent: false }],
+      [{ general: true, consent: false, historyMutated: true }],
+    ]);
+    deps.dispatchFeed.mockClear();
+    stream.push('event: feed_changed\ndata: {"reason":"history_mutated"}\n\n');
+    await tick(10_000);
+    expect(deps.dispatchFeed.mock.calls).toEqual([
+      [{ general: true, consent: false, historyMutated: true }],
+      [{ general: true, consent: false, historyMutated: true }],
+    ]);
     manager.stop();
   });
 

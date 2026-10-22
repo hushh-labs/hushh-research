@@ -1,5 +1,6 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import type { NativeControlAppearance } from "./native-control-appearance";
+import { PROFILE_PREPARATION_SCENES, type ProfilePreparationDescription } from "./native-profile-preparation";
 import type { NativeProfileNameScenePort } from "./native-profile-name-scene";
 import type { NativePasswordScenePort } from "./native-profile-password-scene";
 import type { NativeProfilePricingScenePort } from "./native-profile-pricing-scene";
@@ -10,7 +11,7 @@ import type { NativeWorldModelScenePort } from "./native-profile-world-model-sce
 import type { NativeRuntimeScenePort } from "./native-profile-runtime-scene";
 import type { NativeConnectorScenePort } from "./native-profile-connector-scene";
 import type { NativeMemoryScenePort } from "./native-profile-memory-scene";
-import type { NativeWorkspacePort, NativeWorkspaceChoice, NativeWorkspaceEdit, NativeWorkspaceFinalEdit } from "./native-workspace";
+import { sameNativeWorkspace, type NativeWorkspacePort, type NativeWorkspaceIdentity, type NativeWorkspaceChoice, type NativeWorkspaceEdit, type NativeWorkspaceFinalEdit } from "./native-workspace";
 import { nativeLegalActionIds, validNativeLegalDocument, type NativeLegalDocument } from "./native-profile-legal";
 
 /** Private presentation, never public chrome metadata. Values and callbacks are
@@ -25,6 +26,7 @@ export type NativeDrawerRow = {
   iconHex?: string;
   chevron?: boolean;
   trailing?: string;
+  progress?: { value: number; total: number };
   /** Authored finite choices. IDs bind to existing React writers, never values or URLs. */
   options?: readonly NativeDrawerOption[];
   toggle?: boolean;
@@ -46,8 +48,8 @@ export type NativePayoutPageId = "payouts" | "payout-activity" | "payout-stripe"
 export type NativeMemoryPageId = "memory" | "memory-domain" | "memory-section" | "memory-entity" | "memory-sharing" | "memory-connection" | "memory-confirm" | "memory-live" | "memory-record" | "memory-shared" | "memory-shared-person" | "memory-received" | "memory-received-files" | "memory-secrets" | "memory-secret" | "memory-secret-remove" | "memory-identity";
 export type NativeWorldModelPageId = "world-model" | "world-model-fact" | "world-model-remove" | "world-model-research" | "world-model-sources" | "world-model-invitations" | "world-model-review" | "world-model-review-fact";
 export type NativeConnectorPageId = "connectors" | "connector-detail" | "connector-confirm" | "connector-custom" | "connector-custom-detail" | "connector-custom-confirm" |
-  "connector-preparation" | "connector-files" | "connector-selection" | "connector-packets" | "connector-packet" | "connector-trust" | "connector-trust-rule" | "connector-trust-confirm";
-export type NativeProfilePage = { id: NativeConnectorPageId | NativeWorldModelPageId | NativeMemoryPageId | NativePayoutPageId | "request-pricing" | "account" | "account-reset" | "account-delete" | "preferences" | "gemini" | "finance-preferences" | "finance-anchor" | "voice" | "security" | "session" | "devices" | "device-unlink" | "vault" | "vault-method" | "vault-remove" | "legal" | "privacy" | "terms";
+  "connector-preparation" | "connector-files" | "connector-group-files" | "connector-selection" | "connector-packets" | "connector-packet" | "connector-trust" | "connector-trust-rule" | "connector-trust-confirm";
+export type NativeProfilePage = { id: NativeConnectorPageId | NativeWorldModelPageId | NativeMemoryPageId | NativePayoutPageId | "referrals" | "request-pricing" | "account" | "account-reset" | "account-delete" | "preferences" | "gemini" | "finance-preferences" | "finance-anchor" | "voice" | "security" | "session" | "devices" | "device-unlink" | "vault" | "vault-method" | "vault-remove" | "legal" | "privacy" | "terms";
   title: string; sections: readonly NativeDrawerSection[]; legalDocument?: NativeLegalDocument;
   /** Private feature filter (legacy wire name), submitted to its owning model. */
   memorySearch?: { id: string; query: string } };
@@ -76,6 +78,7 @@ export type NativeDrawerProjection = NativeDrawerIdentity & NativeControlAppeara
   profileDestinationId?: string;
   /** A bounded support sheet anchored to the retained root, not an empty page. */
   profileSupportDestinationId?: string;
+  profilePreparation?: ProfilePreparationDescription;
 };
 export type NativeDrawerReceipt = NativeDrawerIdentity & {
   updateSequence: number;
@@ -98,6 +101,8 @@ export type NativeDrawerReadmission = NativeDrawerIdentity & {
   updateSequence: number; privacyGeneration: number; interactionGeneration: number;
 };
 export interface HushhNativeDrawersPlugin extends Partial<NativeWorkspacePort> {
+  /** Private, one-shot pasteboard delivery after the authored Copy choice. */
+  copyProfileReferralLink?(options: NativeDrawerChoice & { link: string }): Promise<{ copied: boolean }>;
   applyProfileMemoryScene?: NativeMemoryScenePort["applyProfileMemoryScene"];
   confirmProfileMemoryAction?: NativeMemoryScenePort["confirmProfileMemoryAction"];
   settleProfileMemoryAction?: NativeMemoryScenePort["settleProfileMemoryAction"];
@@ -110,8 +115,8 @@ export interface HushhNativeDrawersPlugin extends Partial<NativeWorkspacePort> {
   confirmProfileRuntimeAction?: NativeRuntimeScenePort["confirmProfileRuntimeAction"];
   settleProfileRuntimeAction?: NativeRuntimeScenePort["settleProfileRuntimeAction"];
   retireProfileRuntimeScene?: NativeRuntimeScenePort["retireProfileRuntimeScene"];
-  getCapabilities(): Promise<NativeDrawerIsolation & { closeSettlements?: boolean;
-    contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; compatibleBackRefreshes?: boolean; profileSettingsPages?: boolean; profileVoiceSettings?: boolean; profileTrustedDevices?: boolean; profileAccountActions?: boolean; profileLegalReader?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean; profilePhoneScene?: boolean; profilePortrait?: boolean; profilePricingScene?: boolean; profilePayoutPages?: boolean; profileMemoryPages?: boolean; profileSharedMemoryPages?: boolean; profileSecretMemoryPages?: boolean; profileMemoryScene?: boolean; profileWorldModelPages?: boolean; profileFinancePreferences?: boolean; profileVaultMethods?: boolean; profilePasswordScene?: boolean; profileRuntimeScene?: boolean; profileConnectorScene?: boolean; profileConnectorPages?: boolean; routeWorkspaces?: readonly "referrals"[] }>;
+  getCapabilities(): Promise<NativeDrawerIsolation & { profileReferralPages?: boolean; profilePreparation?: boolean; closeSettlements?: boolean;
+    contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; compatibleBackRefreshes?: boolean; profileSettingsPages?: boolean; profileVoiceSettings?: boolean; profileTrustedDevices?: boolean; profileAccountActions?: boolean; profileLegalReader?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean; profilePhoneScene?: boolean; profilePortrait?: boolean; profilePricingScene?: boolean; profilePayoutPages?: boolean; profileMemoryPages?: boolean; profileSharedMemoryPages?: boolean; profileSecretMemoryPages?: boolean; profileMemoryScene?: boolean; profileWorldModelPages?: boolean; profileWorldModelPublicProfiles?: boolean; profileFinancePreferences?: boolean; profileVaultMethods?: boolean; profilePasswordScene?: boolean; profileRuntimeScene?: boolean; profileConnectorScene?: boolean; profileConnectorPages?: boolean; routeWorkspaces?: readonly "referrals"[] }>;
   applyProfileWorldModelScene?: NativeWorldModelScenePort["applyProfileWorldModelScene"];
   confirmProfileWorldModelAction?: NativeWorldModelScenePort["confirmProfileWorldModelAction"];
   settleProfileWorldModelAction?: NativeWorldModelScenePort["settleProfileWorldModelAction"];
@@ -155,7 +160,10 @@ export interface HushhNativeDrawersPlugin extends Partial<NativeWorkspacePort> {
   settleChoice?(options: NativeDrawerIdentity & { sequence: number; privacyGeneration: number; success: boolean }): Promise<{ valid: boolean }>;
   retire(options: NativeDrawerIdentity): Promise<NativeDrawerReceipt>;
 }
-export const nativeDrawers = registerPlugin<HushhNativeDrawersPlugin>("HushhNativeDrawers");
+let nativeDrawersPlugin: HushhNativeDrawersPlugin | undefined;
+export function nativeDrawers(): HushhNativeDrawersPlugin {
+  return nativeDrawersPlugin ??= registerPlugin<HushhNativeDrawersPlugin>("HushhNativeDrawers");
+}
 
 /** Admission needs the whole scene handshake, including confirmed withdrawal.
  * A flag alone cannot safely transfer an editor to a partially capable wrapper.
@@ -197,6 +205,45 @@ export async function nativeDrawerAcknowledged<T>(operation: Promise<T>): Promis
       timer = setTimeout(() => reject(new Error("NATIVE_DRAWER_UNCERTAIN_ACK")), 5_000);
     })]);
   } finally { clearTimeout(timer); }
+}
+
+// Join actual route-body withdrawal, not its React unmount. An incoming
+// persistent drawer can publish in that same commit; native correctly refuses
+// it while the outgoing workspace still owns a menu or presentation.
+type WorkspaceRetirement = { identity: NativeWorkspaceIdentity; settlement: Promise<boolean>;
+  source?: Pick<NativeWorkspacePort, "getWorkspaceState"> };
+const workspaceRetirements = new Map<string, WorkspaceRetirement>();
+export function trackNativeWorkspaceRetirement(identity: NativeWorkspaceIdentity, operation: Promise<boolean>, source?: Pick<NativeWorkspacePort, "getWorkspaceState">): void {
+  const metadata = { documentId: identity.documentId, ownerEpoch: identity.ownerEpoch,
+    ownerGeneration: identity.ownerGeneration, revision: identity.revision, workspace: identity.workspace };
+  const key = JSON.stringify(metadata); // Public lease metadata only, never a body or editor.
+  const item = { identity: metadata, settlement: operation.then(absent => absent === true, () => false), source };
+  workspaceRetirements.set(key, item);
+  void item.settlement.then(absent => {
+    if (absent && workspaceRetirements.get(key) === item) workspaceRetirements.delete(key);
+  });
+}
+export function nativeWorkspaceRetirementBarrier(): Promise<boolean> | undefined {
+  if (!workspaceRetirements.size) return;
+  return (async () => {
+    while (workspaceRetirements.size) {
+      const outcomes = await Promise.all([...workspaceRetirements].map(async ([key, item]) => {
+        let absent = await item.settlement;
+        if (!absent && item.source) {
+          // One targeted readback per incoming handoff. Unknown is not absence;
+          // keep the identity-scoped fence without replaying withdrawal.
+          try {
+            const state = await nativeDrawerAcknowledged(item.source.getWorkspaceState(item.identity));
+            absent = "phase" in state && sameNativeWorkspace(state, item.identity) && state.phase === "retired" && state.settled === true;
+          } catch { absent = false; }
+        }
+        if (absent && workspaceRetirements.get(key) === item) workspaceRetirements.delete(key);
+        return absent;
+      }));
+      if (outcomes.some(absent => !absent)) return false;
+    }
+    return true;
+  })();
 }
 
 // Uncertain withdrawal transfers only a public metadata observer to document
@@ -285,7 +332,7 @@ export function validNativeConnectorPath(pages: readonly NativeProfilePage[]): b
   if (pages[0]?.id !== "connectors" || pages.length > 5) return false;
   const children: Partial<Record<NativeConnectorPageId, readonly NativeConnectorPageId[]>> = {
     connectors: ["connector-detail", "connector-confirm", "connector-custom", "connector-custom-detail", "connector-custom-confirm"],
-    "connector-detail": ["connector-confirm", "connector-preparation", "connector-files", "connector-selection", "connector-packets", "connector-trust"],
+    "connector-detail": ["connector-confirm", "connector-preparation", "connector-files", "connector-group-files", "connector-selection", "connector-packets", "connector-trust"],
     "connector-files": ["connector-confirm", "connector-selection"], "connector-packets": ["connector-packet"], "connector-trust": ["connector-trust-rule"], "connector-trust-rule": ["connector-trust-confirm"],
     "connector-custom-detail": ["connector-custom-confirm"],
   };
@@ -306,7 +353,7 @@ export function validNativeWorldModelPath(pages: readonly NativeProfilePage[]): 
  * arbitrary view tree, provider payload or action transport in this contract. */
 export function validNativeDrawerProjection(value: NativeDrawerProjection): boolean {
   if (!value || !closedShape(value, ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "appearance", "accentHex", "foregroundHex",
-      "updateSequence", "privacyGeneration", "title", "sections", "open", "enabled", "backEnabled", "navigationLocked", "searchable", "loading", "surfaceOpen", "profileStack", "profileDestinationId", "profileSupportDestinationId"]) ||
+      "updateSequence", "privacyGeneration", "title", "sections", "open", "enabled", "backEnabled", "navigationLocked", "searchable", "loading", "surfaceOpen", "profileStack", "profileDestinationId", "profileSupportDestinationId", "profilePreparation"]) ||
       !validIdentifier(value.documentId) || !validIdentifier(value.ownerEpoch) ||
       !validSequence(value.ownerGeneration) || !validSequence(value.revision) || !validSequence(value.updateSequence) ||
       !["history", "profile", "agent-profile"].includes(value.family) ||
@@ -318,6 +365,10 @@ export function validNativeDrawerProjection(value: NativeDrawerProjection): bool
       !["light", "dark"].includes(value.appearance) ||
       ![value.accentHex, value.foregroundHex].every(color => /^#(?:[\da-f]{3}|[\da-f]{6}|[\da-f]{8})$/i.test(color)) ||
       !validText(value.title, 256) || !Array.isArray(value.sections) || value.sections.length > 32) return false;
+  if (value.profilePreparation !== undefined && (value.family !== "profile" || !value.open ||
+      !closedShape(value.profilePreparation, ["visitId", "formScene"]) || !validIdentifier(value.profilePreparation.visitId) ||
+      value.profilePreparation.formScene !== null && (!PROFILE_PREPARATION_SCENES.includes(value.profilePreparation.formScene) ||
+        !value.profileDestinationId && !value.profileSupportDestinationId))) return false;
   const ids = new Set<string>();
   let rows = 0;
   if (value.profileStack !== undefined && (value.family !== "profile" || !Array.isArray(value.profileStack) ||
@@ -331,7 +382,7 @@ export function validNativeDrawerProjection(value: NativeDrawerProjection): bool
       value.profileStack.some((page, index) => !page || !closedShape(page, ["id", "title", "sections", "legalDocument", "memorySearch"]) ||
         page.memorySearch !== undefined && (!["memory", "connectors"].includes(page.id) || !page.memorySearch || typeof page.memorySearch !== "object" || Array.isArray(page.memorySearch) || !closedShape(page.memorySearch, ["id", "query"]) ||
           !validIdentifier(page.memorySearch.id) || typeof page.memorySearch.query !== "string" || page.memorySearch.query.length > 256) ||
-        !(index === 0 ? ["connectors", "world-model", "memory", "payouts", "request-pricing", "account", "preferences", "gemini", "finance-preferences", "voice", "security", "devices", "vault", "legal", "privacy", "terms"].includes(page.id) :
+        !(index === 0 ? ["referrals", "connectors", "world-model", "memory", "payouts", "request-pricing", "account", "preferences", "gemini", "finance-preferences", "voice", "security", "devices", "vault", "legal", "privacy", "terms"].includes(page.id) :
           validNativeFinancePath(value.profileStack!) ||
           value.profileStack?.[0]?.id === "memory" && validNativeMemoryPath(value.profileStack) ||
           value.profileStack?.[0]?.id === "world-model" && validNativeWorldModelPath(value.profileStack) ||
@@ -357,7 +408,7 @@ export function validNativeDrawerProjection(value: NativeDrawerProjection): bool
         !Array.isArray(section.rows)) return false;
     ids.add(section.id);
     for (const row of section.rows) {
-      if (++rows > 500 || !row || !closedShape(row, ["id", "label", "detail", "symbol", "iconHex", "chevron", "trailing", "options", "toggle", "enabled", "destructive", "selected", "pending", "renameActionId", "deleteActionId", "readOnly", "artworkId", "portrait", "portraitData"]) ||
+      if (++rows > 500 || !row || !closedShape(row, ["id", "label", "detail", "symbol", "iconHex", "chevron", "trailing", "progress", "options", "toggle", "enabled", "destructive", "selected", "pending", "renameActionId", "deleteActionId", "readOnly", "artworkId", "portrait", "portraitData"]) ||
           !validIdentifier(row.id) || ids.has(row.id) ||
           !validText(row.label, 4096) || (row.detail !== undefined && !validText(row.detail, 4096)) ||
           (row.symbol !== undefined && !validIdentifier(row.symbol)) || typeof row.enabled !== "boolean" ||
@@ -365,7 +416,10 @@ export function validNativeDrawerProjection(value: NativeDrawerProjection): bool
           row.toggle === true && row.options?.length !== 2 ||
           (row.artworkId !== undefined && !validIdentifier(row.artworkId)) ||
           (row.iconHex !== undefined && !/^#[\da-f]{6}$/i.test(row.iconHex)) ||
-          (row.trailing !== undefined && !validText(row.trailing, 32))) return false;
+          (row.trailing !== undefined && !validText(row.trailing, 32)) ||
+          (row.progress !== undefined && (!row.progress || typeof row.progress !== "object" || !closedShape(row.progress, ["value", "total"]) ||
+            !Number.isFinite(row.progress.value) || !Number.isFinite(row.progress.total) ||
+            row.progress.value < 0 || row.progress.total <= 0 || row.progress.value > row.progress.total))) return false;
       if (row.portrait !== undefined && (row.portrait !== true || value.family !== "profile" ||
           !(section.id === "identity-section" && row.id === "identity" || section.id === "account-portrait" && row.id === "account-photo")) ||
           row.portrait === true && (row.readOnly || row.options || row.toggle || row.renameActionId || row.deleteActionId) ||

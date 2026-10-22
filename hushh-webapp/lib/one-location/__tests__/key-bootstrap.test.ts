@@ -59,6 +59,17 @@ describe("canonical Location key bootstrap", () => {
     expect(ports.recover).toHaveBeenCalledWith(expect.objectContaining({ strictRecovery: true }));
   });
 
+  it("never interprets an omitted own-key projection as permission to replace a key", async () => {
+    ports.state.mockResolvedValueOnce({});
+    await expect(bootstrap(session)).rejects.toThrow("could not be checked");
+    expect(ports.recover).not.toHaveBeenCalled();
+    expect(ports.register).not.toHaveBeenCalled();
+    ports.state.mockResolvedValueOnce({ myRecipientKey: null });
+    await bootstrap(session);
+    expect(ports.recover).toHaveBeenCalledWith(expect.objectContaining({ remoteBackup: null, strictRecovery: true }));
+    expect(ports.register).toHaveBeenCalledTimes(1);
+  });
+
   it.each(["state", "recover"] as const)("fences a lock during %s and allows the new session to recover", async (stage) => {
     let finish!: (value: unknown) => void;
     ports[stage].mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));

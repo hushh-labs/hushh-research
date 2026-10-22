@@ -1,4 +1,4 @@
-name: Capacity Maintenance
+name: "Maintain Cloud Capacity"
 # A scoped tick names its environment in the run title. The checkpoint guard
 # (assert_checkpoint_publication in scripts/ci/uat-retention-maintenance.py)
 # reads that title to skip, without fetching jobs, passes that could not have
@@ -33,6 +33,11 @@ on:
         type: string
       apply:
         description: Apply eligible cleanup without waiting for drainage
+        required: true
+        default: false
+        type: boolean
+      production_capacity_bridge:
+        description: Create/reconcile the fixed zero-traffic healthy-source production capacity bridge
         required: true
         default: false
         type: boolean
@@ -76,9 +81,14 @@ jobs:
           RELEASE_ENV: ${{ inputs.environment }}
           RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
           CLOCK_EVENT_TYPE: ${{ github.event.action }}
+          CAPACITY_BRIDGE: ${{ inputs.production_capacity_bridge }}
+          APPLY: ${{ inputs.apply }}
         run: |
           set -euo pipefail
           test "$GITHUB_REF_NAME" = main || exit 1
+          if [[ "$CAPACITY_BRIDGE" = true ]]; then
+            [[ "$GITHUB_EVENT_NAME" = workflow_dispatch && "$RELEASE_ENV" = production && "$APPLY" = true ]] || exit 1
+          fi
           case "$GITHUB_EVENT_NAME" in
             schedule) ;;
             repository_dispatch)
@@ -115,10 +125,13 @@ jobs:
         if: github.event_name == 'schedule' || github.event.action == 'capacity-maintenance-tick' || github.event.action == 'capacity-maintenance-tick-production' || inputs.environment == 'production'
         env:
           RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
+          CAPACITY_BRIDGE: ${{ inputs.production_capacity_bridge }}
         run: |
+          flags=()
+          if [[ "$CAPACITY_BRIDGE" = true ]]; then flags=(--force-inspection); fi
           python3 scripts/ci/uat-retention-maintenance.py --environment production \
             --verify-source-only --release-run-id "$RELEASE_RUN_ID" \
-            --state-dir "$RUNNER_TEMP/production-retention-source"
+            --state-dir "$RUNNER_TEMP/production-retention-source" "${flags[@]}"
 
   uat-maintenance:
     name: UAT bounded revision cleanup
@@ -238,10 +251,13 @@ jobs:
         id: locked-source
         env:
           RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
+          CAPACITY_BRIDGE: ${{ inputs.production_capacity_bridge }}
         run: |
+          flags=()
+          if [[ "$CAPACITY_BRIDGE" = true ]]; then flags=(--force-inspection); fi
           python3 scripts/ci/uat-retention-maintenance.py --environment production \
             --verify-source-only --release-run-id "$RELEASE_RUN_ID" \
-            --state-dir "$RUNNER_TEMP/production-retention-state"
+            --state-dir "$RUNNER_TEMP/production-retention-state" "${flags[@]}"
       - name: Authenticate to production
         if: steps.locked-source.outputs.cleanup_ready == 'true'
         uses: google-github-actions/auth@v2
@@ -260,10 +276,12 @@ jobs:
         env:
           RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
           APPLY: ${{ github.event_name == 'schedule' || github.event_name == 'repository_dispatch' || inputs.apply }}
+          CAPACITY_BRIDGE: ${{ inputs.production_capacity_bridge }}
         run: |
           set -euo pipefail
           flags=()
           if [ "$APPLY" = true ]; then flags=(--apply); fi
+          if [[ "$CAPACITY_BRIDGE" = true ]]; then flags+=(--force-inspection --production-capacity-bridge); fi
           python3 scripts/ci/uat-retention-maintenance.py --environment production \
             --release-run-id "$RELEASE_RUN_ID" \
             --state-dir "$RUNNER_TEMP/production-retention-state" "${flags[@]}"

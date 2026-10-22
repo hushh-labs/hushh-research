@@ -4,6 +4,15 @@ Status: Location command repair in progress. The physical-device acceptance jour
 
 ## Visual Map
 
+**Private-cloud policy — 18 October 2026:** GCP BYOC uses admitted pod routes for
+recorded transcription and command assessment, subject to its actual model authority.
+Azure voice is disabled in the microphone selector, pod capability and transcription
+route, even when a Gemini key or Google project setting is present. Typed commands
+retain their existing model checks. Private conversational Live cannot use the shared
+Developer API key; a compatible native Vertex model and live acceptance are separate
+requirements. [Current evidence](../quality/adk-orchestration-docs-audit.md) distinguishes
+local verification from installed-image behavior.
+
 ```mermaid
 flowchart TD
   entries[Agent Bar / Chat microphone / Siri free text] --> capture[One microphone owner: hold, speak, release]
@@ -92,13 +101,25 @@ Rollback requires stopping command traffic, restoring the prior application revi
 
 `command-agent-bar.tsx`, `command-capture.ts`, `location-command-runtime.ts`, `command_proposals.py`, `command_brain.py` and the existing service/handler registries own the implementation. The generated gateway retains stable `kai` compatibility identifiers. Legacy text backend bindings are authored on action contracts and generated into compatibility projections.
 
-Obsolete Live clients on `/api/one/adk/*` receive an explicit retirement response; no Live model is constructed there. The maintained Live surface is `/api/one/voice/*` (`api/routes/one/voice.py`), which constructs its model only through `runtime_providers/factory.py` on Vertex ADC and only while `ONE_VOICE_LIVE_ENABLED` is on. The old local phrase router, ONNX/ASR model-pack downloads, FluidAudio packages and model-pack publication workflow are removed. Historical database records are preserved. Voice-persona controls no longer appear in settings.
+Obsolete Live clients on `/api/one/adk/*` receive an explicit retirement response; no Live model is constructed there. The maintained Live surface is `/api/one/voice/*` (`api/routes/one/voice.py`), which constructs its model through the selected managed adapter only while `ONE_VOICE_LIVE_ENABLED` is on. UAT can use keyless Azure Realtime; non-UAT retains Vertex ADC. Azure resamples admitted 16 kHz client PCM to 24 kHz and returns the existing 24 kHz output contract. `audio_playback` negotiation adds item-bound `audio.playback` acknowledgements from the player clock; cancellation truncates only to acknowledged playback. `/api/one/voice/readiness` with or without `?playback=1` probes that same selected adapter. Older clients remain on it; without playback acknowledgements, an in-flight interruption truncates output at zero and may discard already-heard context. Completed generated turns remain in conversation history for ordinary follow-ups, without treating completion as proof of playback. Buffered input frames retain the public 512 KiB limit through bounded resampling chunks. Azure does not replay a transcript or reuse a Vertex resumption handle. The old local phrase router, ONNX/ASR model-pack downloads, FluidAudio packages and model-pack publication workflow are removed. Historical database records are preserved. Voice-persona controls no longer appear in settings.
+
+For clients that acknowledge playback, Azure retains a completed assistant item
+when its player-clock acknowledgement covers the generated audio at the wire's
+integer-millisecond precision. Generation completion and playback are separate:
+an acknowledged prefix of a still-generating answer, or a completed answer with
+an unplayed tail, remains subject to interruption truncation. A new utterance
+still advances interruption authority and cancels superseded tool calls.
 
 ## Verification and release boundary
 
 Run `npm run verify:one-voice`, `npm run typecheck`, native plugin/privacy checks, the Location regression suite, focused backend command tests and real PostgreSQL command transaction tests. PostgreSQL tests require `ONE_COMMAND_TEST_DATABASE_URL` pointing to an isolated test database; never use a shared account database. Regenerate both the action gateway and product-agent registry after authored changes.
 
 When integrating a branch with a different generated workflow history, run `node scripts/voice/generate-capability-graph.mjs --workflow-predecessor-ref <merged-ancestor-sha>` from `hushh-webapp`, then `node scripts/voice/generate-one-location-workflow-card-catalog.mjs`. The generator accepts only committed ancestors and proves unchanged or additive workflow semantics before preserving their compatible revisions. Authority changes and conflicting rejection or migration policies fail closed. This retains unfinished setup from either merge parent without hand-editing generated compatibility lists.
+If the merged history must survive ordinary `--check` runs, record the exact ancestor
+in the existing capability graph evolution contract's `workflow_predecessor_refs`.
+The generator validates ancestry and workflow compatibility on every build.
+
+New vault-owner DELETE endpoints may extend the unbound implementation inventory without invalidating an unchanged workflow. Discovery grants no execution binding, and endpoint inventory stays outside the model's selectable catalog. Compatibility still requires identical existing endpoints, executable plans, cursors, and authority; a bound endpoint or a changed workflow requires its own reviewed contract.
 
 September 13 repair evidence includes mounted bar/provider/workflow tests, native slash/query settlement tests, focused semantic/read-port tests, actual PostgreSQL share/check-in/request/membership writers under concurrency and failure injection, and real encrypted v5→v4→v3→v2 PKM preservation/rollback tests. The existing coordinator's default-place test preserves Home, Work and unrelated records and refuses invalid records without a write. Mounted Connect tests cover scope review, account changes, cancel/reopen and reverse-direction request races. Native static/plugin and Siri contracts pass. Earlier baseline web/native builds and historical route audits are not acceptance evidence for this uncommitted repair. Provider generation receives the typed schema shape; full size and authority validation remains local. Exact digital silence returns an empty transcript without a model call.
 
@@ -113,3 +134,18 @@ Nearby stores its encrypted rating visit and exact internal pointer in the prese
 Fresh web production compilation, typechecking and page generation passed. After integrating the current baseline, 310 focused frontend tests, 700 backend tests and the expanded 152-test voice verification passed. Physical English/Hindi/Hinglish speech, OS permission prompts, interruption/tail capture and termination recovery still need proof on web, physical iPhone and Android. The native bundle/build checks must be repeated if subsequent integration changes affect them. No optional-device skip can satisfy this release. Founder Wiki verification/update remains outstanding because its credential was unavailable.
 
 Created-circle result references are projected only from correlated completed-step receipts and a fresh owner-scoped circle read. Stable non-authorizing handles avoid duplicate candidates across result reads. Cancel retries retain the same command identity until terminal acknowledgement or owner-scoped expiry. Choice and semantic reassessment changes install only after encrypted checkpoint acknowledgement; a rejected or lost response requires explicit canonical refresh before further execution. Renewed partial operations retain their original consumed-history fence before semantic reassessment.
+
+### Pod transport qualification — 2026-09-26
+
+The integrated pod branch uses admitted `/api/one/pod/commands/transcriptions`
+and `/api/one/pod/commands/assess` for bounded private commands. Checkpoints and
+exact effect approval remain hub-owned. Microphone selection now combines fresh
+owner hosting with provider readiness: BYOC uses recorded pod commands; confirmed
+Shared accounts can use ready hub Live sessions. Pending, unknown and unsupported
+placement enables neither microphone. Provider-health caching cannot replace a
+fresh hosting observation. Maintained `/api/one/voice/*` rechecks Shared placement
+at ticket issuance and socket admission; a hosting change refuses the attempt
+without automatic replay on another transport. These guards cover new sessions
+and reconnects, not continuous eviction of an already active Shared session.
+Separate live evidence is still required for private-pod voice acceptance.
+The obsolete `/api/one/adk/*` Live endpoints return retirement responses.

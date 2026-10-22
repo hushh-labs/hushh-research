@@ -86,6 +86,15 @@ describe.sequential("native passkey domain association routes", () => {
 
     expect(aasaResponse.status).toBe(200);
     expect(await aasaResponse.json()).toMatchObject({
+      applinks: {
+        details: [{
+          appIDs: ["ABCDEFGHIJ.com.hushh.app"],
+          components: expect.arrayContaining([
+            expect.objectContaining({ "/": "/one/profile/google/oauth/return" }),
+            expect.objectContaining({ "/": "/one/profile/account", "?": { commerceReturn: "1", commerceAttemptId: "????????????????*" } }),
+          ]),
+        }],
+      },
       webcredentials: { apps: ["ABCDEFGHIJ.com.hushh.app"] },
     });
     expect(assetLinksResponse.status).toBe(200);

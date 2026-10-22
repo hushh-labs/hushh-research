@@ -51,12 +51,9 @@ import Link from "next/link";
  *   | JHUMMA KUMARI      [...] |                   | (X) Remove from ... |
  *   +==========================+                   +---------------------+
  *   |           ====           |
- *   |  (AK)  Ankit Kumar Singh |
+ *   |  (AK)  Ankit Kumar  (>) |
  *   |        Connected         |
- *   |  +--------------------+  |
- *   |  | (>) Share location |  |
  *   |  | (X) Remove from .. |  |
- *   |  +--------------------+  |
  *   |  |       Cancel       |  |
  *   +--------------------------+
  */
@@ -140,8 +137,8 @@ export const MEMBER_ACTIONS_MENU_SURFACE_CLASSNAME =
 export const MEMBER_ACTIONS_MENU_ITEM_CLASSNAME =
   CIRCLE_MEMBER_MENU_ITEM_CLASSNAME;
 
-/** The action list fills the sheet's padded width; Cancel and the removal
- *  confirmation retain their existing 244px measure. */
+/** Optional profile/message actions fill the sheet's padded width; Cancel and
+ *  the removal confirmation retain their existing 244px measure. */
 export const MEMBER_ACTIONS_SHEET_ITEM_CLASSNAME =
   "flex min-h-[52px] w-full items-center gap-3 px-4 py-3 text-left text-[17px] font-normal leading-[22px] transition-colors hover:bg-[color:var(--app-neutral-fill)] focus-visible:bg-[color:var(--app-neutral-fill)] active:bg-[color:var(--app-neutral-fill)] disabled:opacity-60";
 
@@ -291,7 +288,7 @@ export function CircleMemberActionsMenu({
           variant="ghost"
           disabled={busy}
           aria-label={menuLabel}
-          aria-haspopup="menu"
+          aria-haspopup="dialog"
           aria-expanded={sheetOpen}
           className={CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME}
           onClick={() => {
@@ -351,11 +348,11 @@ export function CircleMemberActionsMenu({
                 </div>
               </div>
             ) : (
-              <div className="pt-6">
+              <div className="pt-2">
                 {/* Whose actions these are, said outright. The anchored menu
                     left this to proximity, and proximity is the one thing a
                     roster of near-identical rows cannot carry. */}
-                <div className="flex items-center gap-4 pb-6">
+                <div className="flex items-center gap-3 pb-2">
                   <ConnectionPersonAvatar
                     label={displayName}
                     photoUrl={photoUrl}
@@ -370,9 +367,25 @@ export function CircleMemberActionsMenu({
                       {secondaryLine ?? "Circle member"}
                     </DrawerDescription>
                   </div>
+                  {canShare ? (
+                    <Button
+                      type="button"
+                      size="icon-touch"
+                      variant="ghost"
+                      disabled={busy}
+                      aria-label={`Share location with ${displayName}`}
+                      className="shrink-0 focus-visible:ring-[3px] focus-visible:ring-[color:var(--app-focus-ring)]"
+                      onClick={() => {
+                        closeSheet();
+                        onShare();
+                      }}
+                    >
+                      <ProfilePaneShareIcon className="size-5" aria-hidden="true" />
+                    </Button>
+                  ) : null}
                 </div>
 
-                {profileHref || messageHref || canShare ? (
+                {profileHref || messageHref ? (
                   <div
                     role="menu"
                     aria-label={menuLabel}
@@ -393,7 +406,7 @@ export function CircleMemberActionsMenu({
                       View profile
                     </Link>
                   ) : null}
-                  {profileHref && (messageHref || canShare) ? (
+                  {profileHref && messageHref ? (
                     <div aria-hidden="true" className="ml-[52px] h-px bg-[color:var(--app-separator)]" />
                   ) : null}
                   {messageHref ? (
@@ -411,33 +424,12 @@ export function CircleMemberActionsMenu({
                       Message
                     </DirectMessageLink>
                   ) : null}
-                  {messageHref && canShare ? (
-                    <div aria-hidden="true" className="ml-[52px] h-px bg-[color:var(--app-separator)]" />
-                  ) : null}
-                  {canShare ? (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      disabled={busy}
-                      className={MEMBER_ACTIONS_SHEET_ITEM_CLASSNAME}
-                      onClick={() => {
-                        closeSheet();
-                        onShare();
-                      }}
-                    >
-                      <ProfilePaneShareIcon
-                        className="h-5 w-5 shrink-0"
-                        aria-hidden="true"
-                      />
-                      Share location
-                    </button>
-                  ) : null}
                   </div>
                 ) : null}
 
                 <div
                   className={cn(
-                    "mt-2 flex flex-col gap-1",
+                    "mt-1 flex flex-col gap-0",
                     MEMBER_ACTIONS_SHEET_CTA_CLASSNAME,
                   )}
                 >
@@ -458,7 +450,10 @@ export function CircleMemberActionsMenu({
                     type="button"
                     variant="ghost"
                     size="prominent"
-                    className="w-full justify-center text-center"
+                    className={cn(
+                      "h-[52px] min-h-[52px] w-full justify-center bg-[#F2F2F7] text-center text-[17px] font-medium text-[color:var(--app-accent-deep)] shadow-none [--type-button-label-weight:500] hover:bg-[#E5E5EA]",
+                      LOCATION_ACTION_SHAPE,
+                    )}
                     onClick={closeSheet}
                   >
                     Cancel

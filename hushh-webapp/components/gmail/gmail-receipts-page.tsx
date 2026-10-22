@@ -1,5 +1,9 @@
 "use client";
 
+import { ownerContentIsPrivate } from '@/lib/services/private-agent-specialist-chat';
+import { connectGoogleConnector, connectRefusalMessage } from '@/lib/one/google-native-connect';
+import { requestGoogleConnectorPhoneHandoff } from '@/lib/one/google-connector-intent';
+import { useGoogleConnectorTransitionReview } from '@/components/connections/google-connector-transition-review';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { usePathname } from "next/navigation";
@@ -43,9 +47,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
-import { Button } from "@/lib/morphy-ux/button";
+import { MailActionButton as Button } from "./mail-action-button";
+import mailStyles from "./mail-workspace.module.css";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { roleSolid } from "@/lib/morphy-ux/tokens/semantic-roles";
+import { withDeadline } from "@/lib/utils/with-deadline";
 import { useAuth } from "@/hooks/use-auth";
 import { subscribeDurableOwnerReset } from "@/lib/services/secure-durable-resource-service";
 import { useHeldValue } from "@/hooks/use-held-value";
@@ -224,6 +230,7 @@ export default function GmailReceiptsPage({
   const pathname = usePathname();
   const { user, loading } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
+  const { confirmTransition, transitionDialog } = useGoogleConnectorTransitionReview(user?.uid, snapshotVaultSessionEpoch());
   const [receipts, setReceipts] = useState<ReceiptListItem[]>([]);
   const [savedReceiptSnapshot, setSavedReceiptSnapshot] = useState<{ scope: string | null; value: ReceiptSnapshot } | null>(null);
   const savedReceiptSnapshotRef = useRef(savedReceiptSnapshot);
@@ -362,6 +369,7 @@ export default function GmailReceiptsPage({
 
   const runReceiptScan = useCallback(
     async (nextPage: number): Promise<boolean | null> => {
+      const operationDeadline = Date.now() + 300_000;
       if (!user?.uid || !vaultOwnerToken || !isVaultUnlocked || receiptReadsClosedRef.current) return null;
       const startPage = Math.max(
         1,
@@ -386,6 +394,7 @@ export default function GmailReceiptsPage({
           currentAccess.ownerToken === loadOwnerToken &&
           receiptLoadSequenceRef.current === loadSequence &&
           !receiptReadsClosedRef.current &&
+          !controller.signal.aborted &&
           isVaultSessionEpochCurrent(loadVaultEpoch)
         );
       };
@@ -429,10 +438,10 @@ export default function GmailReceiptsPage({
         };
         try {
           if (!vaultKey || !loadAccountKey) throw new DurableResourceError("key_unavailable", "authority", "Unlock your vault to save receipts.");
-          durableVersion = await receiptStoreVersion(loadOwnerId, loadAccountKey);
+          durableVersion = await withDeadline(receiptStoreVersion(loadOwnerId, loadAccountKey), operationDeadline);
         } catch (error) { persistenceFailure(error, "version"); }
         const scanOwnerGeneration = durableVersion?.generation ?? -1;
-        const idToken = await user.getIdToken();
+        const idToken = await withDeadline(user.getIdToken(), operationDeadline);
         if (!isCurrentLoad()) return null;
         while (requestedPage <= RECEIPT_SCAN_MAX_PAGES) {
           if (controller.signal.aborted || !isCurrentLoad()) return null;
@@ -443,7 +452,7 @@ export default function GmailReceiptsPage({
           });
           let response;
           try {
-            response = await GmailReceiptsService.scanReceipts({
+            response = await withDeadline(GmailReceiptsService.scanReceipts({
               idToken,
               vaultOwnerToken: loadOwnerToken,
               userId: loadOwnerId,
@@ -451,7 +460,7 @@ export default function GmailReceiptsPage({
               cursor: receiptScanCursorsRef.current.get(requestedPage),
               perPage: 6,
               signal: controller.signal,
-            });
+            }), operationDeadline);
             activeScanRetries = 0;
           } catch (error) {
             if (
@@ -466,7 +475,7 @@ export default function GmailReceiptsPage({
                 maxPages: RECEIPT_SCAN_MAX_PAGES,
                 waitingForActiveScan: true,
               });
-              await waitForReceiptScanRetry(controller.signal);
+              await withDeadline(waitForReceiptScanRetry(controller.signal), operationDeadline);
               continue;
             }
             // A transient page failure (a concurrent connection-row update, or
@@ -480,7 +489,7 @@ export default function GmailReceiptsPage({
               isCurrentLoad()
             ) {
               pageRetries += 1;
-              await waitForReceiptScanRetry(controller.signal);
+              await withDeadline(waitForReceiptScanRetry(controller.signal), operationDeadline);
               continue;
             }
             throw error;
@@ -524,10 +533,10 @@ export default function GmailReceiptsPage({
           // An empty scan must also keep currently visible live rows on failure.
           const deferReplacement = Boolean(savedReceiptSnapshotRef.current) || (!nextItems.length && receiptsRef.current.length > 0);
           if (displayItems.length || !deferReplacement) {
-            const aliases = Object.fromEntries(await Promise.all(displayItems.map(async item => {
+            const aliases = Object.fromEntries(await withDeadline(Promise.all(displayItems.map(async item => {
               const key = item.source_id || item.receipt_key || String(item.id);
               return [await receiptAccountBinding(`event:${key}`), key] as const;
-            })));
+            })), operationDeadline));
             if (!isCurrentLoad()) return null;
             setReceiptSourceAliases(previous => ({ ...previous, ...aliases }));
             receiptsRef.current = displayItems;
@@ -560,19 +569,19 @@ export default function GmailReceiptsPage({
           // A failed/incomplete provider pass never replaces the prior verified snapshot.
           if (durableVersion && vaultKey && loadAccountKey && !shouldContinueScan) {
             try {
-              const snapshot = await captureReceiptSnapshot(nextItems, loadAccountKey, {
+              const snapshot = await withDeadline(captureReceiptSnapshot(nextItems, loadAccountKey, {
                 partial: shouldContinueScan || response.coverage.reached_limit,
                 truncated: response.coverage.reached_limit, source_count: nextItems.length,
                 window_from: null, window_to: null, source: "gmail_live",
-              });
+              }), operationDeadline);
               const liveRows = buildRecentReceiptRows(nextItems, loadAccountKey);
               const aliases: Record<string, string> = {};
               for (const row of snapshot.rows) {
                 const live = liveRows.find(item => item.id === row.display_id);
                 row.events.forEach((event, index) => { const key = live?.eventTimeline[index]?.sourceReceiptKey; if (key) aliases[event.ref] = key; });
               }
-              durableVersion = await writeReceiptSnapshot({ userId: loadOwnerId, vaultKey,
-                vaultOwnerToken: loadOwnerToken, isCurrent: isCurrentLoad }, snapshot, durableVersion);
+              durableVersion = await withDeadline(writeReceiptSnapshot({ userId: loadOwnerId, vaultKey,
+                vaultOwnerToken: loadOwnerToken, isCurrent: isCurrentLoad }, snapshot, durableVersion), operationDeadline);
               if (isCurrentLoad()) setReceiptSourceAliases(aliases);
             } catch (error) {
               durableVersion = null;
@@ -646,6 +655,7 @@ export default function GmailReceiptsPage({
           setLoadingReceipts(false);
           setReceiptScanProgress(null);
         }
+        controller.abort();
       }
     },
     [isVaultUnlocked, user, vaultOwnerToken, vaultKey],
@@ -1211,20 +1221,46 @@ export default function GmailReceiptsPage({
 
   const preserveGmailModify = gmail.status?.modify_permission_granted === true;
   const handleConnectGmail = useCallback((purpose: "read" | "send" = "send"): Promise<boolean> => {
+    const operationDeadline = Date.now() + GMAIL_OAUTH_POPUP_TIMEOUT_MS;
     if (!user?.uid || gmailActionBusy !== null) return Promise.resolve(false);
+    const operationOwner = user.uid;
+    const privateConnect = async (): Promise<boolean | null> => {
+      const privateAgent = await ownerContentIsPrivate();
+      if (gmailOwnerIdRef.current !== operationOwner) return false;
+      if (!privateAgent) return null;
+      if (!vaultKey || !vaultOwnerToken || !isVaultUnlocked) { toast.error('Unlock your vault to connect Google.'); return false; }
+      const outcome = await connectGoogleConnector('gmail', {
+        vaultOwnerCapability: vaultOwnerToken,
+        confirmLegacyTransition: confirmTransition,
+        isCurrent: () => gmailOwnerIdRef.current === operationOwner,
+      });
+      if (gmailOwnerIdRef.current !== operationOwner) return false;
+      if (!outcome.ok) {
+        if (outcome.code === 'PHONE_HANDOFF_REQUIRED') requestGoogleConnectorPhoneHandoff('gmail');
+        else toast.error(connectRefusalMessage(outcome.code, 'Gmail'));
+        return false;
+      }
+      const current = await refreshGmailStatus({ force: true });
+      if (gmailOwnerIdRef.current !== operationOwner) return false;
+      if (current?.connected) toast.success('Gmail connected to your private agent.');
+      return current?.connected === true;
+    };
+
 
     if (Capacitor.isNativePlatform()) {
       setGmailActionBusy("connect");
       return (async () => {
         try {
+          const privateOutcome = await privateConnect();
+          if (privateOutcome !== null) return privateOutcome;
           // The normal Gmail workspace has no setup state to persist. Do not
           // leave its trusted popup on a placeholder while an unrelated
           // onboarding read waits on the database.
           const journey =
             journeyVariant === "onboarding"
-              ? await PreVaultUserStateService.bootstrapState(user.uid, {
+              ? await withDeadline(PreVaultUserStateService.bootstrapState(user.uid, {
                   force: true,
-                }).catch(() => null)
+                }).catch(() => null), operationDeadline)
               : null;
           const fromSetup = Boolean(
             journeyVariant === "onboarding" &&
@@ -1232,12 +1268,12 @@ export default function GmailReceiptsPage({
             !PreVaultUserStateService.isSetupResolved(journey) &&
             journey.onboardingActiveCapability === "gmail",
           );
-          const idToken = await user.getIdToken();
-          const nativeStart = await GmailReceiptsService.startNativeConnect({
+          const idToken = await withDeadline(user.getIdToken(), operationDeadline);
+          const nativeStart = await withDeadline(GmailReceiptsService.startNativeConnect({
             idToken,
             userId: user.uid,
             purpose,
-          });
+          }), operationDeadline);
           if (!nativeStart.configured || !nativeStart.server_client_id) {
             throw new Error(
               "Mail OAuth is not configured for this environment.",
@@ -1246,11 +1282,11 @@ export default function GmailReceiptsPage({
 
           let serverAuthCode: string;
           try {
-            ({ serverAuthCode } = await HushhAuth.connectGmail({
+            ({ serverAuthCode } = await withDeadline(HushhAuth.connectGmail({
               serverClientId: nativeStart.server_client_id,
               purpose: nativeStart.purpose,
               preserveModify: preserveGmailModify,
-            }));
+            }), operationDeadline));
           } catch (error) {
             GmailReceiptsService.recordConsentFailure(error, user.uid);
             throw error;
@@ -1263,22 +1299,22 @@ export default function GmailReceiptsPage({
             throw error;
           }
 
-          await GmailReceiptsService.completeNativeConnect({
+          await withDeadline(GmailReceiptsService.completeNativeConnect({
             idToken,
             userId: user.uid,
             serverAuthCode,
             purpose,
-          });
-          await refreshGmailStatus({ force: true });
+          }), operationDeadline);
+          await withDeadline(refreshGmailStatus({ force: true }), operationDeadline);
 
           if (fromSetup && journey) {
-            await PreVaultUserStateService.syncOnboardingJourney({
+            await withDeadline(PreVaultUserStateService.syncOnboardingJourney({
               userId: user.uid,
               phase: "capability_setup",
               activeCapability: "gmail",
               callbackState: "succeeded",
               expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
-            }).catch(() => undefined);
+            }).catch(() => undefined), operationDeadline);
           }
 
           toast.success("Mail connected. You can read and send after reviewing each email.");
@@ -1316,11 +1352,18 @@ export default function GmailReceiptsPage({
 
     return (async () => {
       try {
+        if (await ownerContentIsPrivate()) {
+          popup?.close();
+          gmailPopupRef.current = null; setGmailPopupAttempt(null);
+          clearGmailOAuthPopupAttempt();
+          try { return (await privateConnect()) ?? false; } finally { setGmailActionBusy(null); }
+        }
+        if (gmailOwnerIdRef.current !== operationOwner) { popup?.close(); setGmailActionBusy(null); return false; }
         const journey =
           journeyVariant === "onboarding"
-            ? await PreVaultUserStateService.bootstrapState(user.uid, {
+            ? await withDeadline(PreVaultUserStateService.bootstrapState(user.uid, {
                 force: true,
-              }).catch(() => null)
+              }).catch(() => null), operationDeadline)
             : null;
         const fromSetup = Boolean(
           journeyVariant === "onboarding" &&
@@ -1328,19 +1371,19 @@ export default function GmailReceiptsPage({
           !PreVaultUserStateService.isSetupResolved(journey) &&
           journey.onboardingActiveCapability === "gmail",
         );
-        const idToken = await user.getIdToken();
+        const idToken = await withDeadline(user.getIdToken(), operationDeadline);
         const isGoogleProvider =
           user.providerData?.some(
             (provider) => provider.providerId === "google.com",
           ) ?? false;
 
-        const payload = await GmailReceiptsService.startConnect({
+        const payload = await withDeadline(GmailReceiptsService.startConnect({
           idToken,
           userId: user.uid,
           loginHint: isGoogleProvider ? user.email : null,
           includeGrantedScopes: purpose === "send" || isGoogleProvider,
           purpose,
-        });
+        }), operationDeadline);
 
         if (!payload.configured || !payload.authorize_url) {
           throw new Error(
@@ -1350,14 +1393,14 @@ export default function GmailReceiptsPage({
 
         if (fromSetup) {
           const intent = createOnboardingConnectorIntent("gmail");
-          await PreVaultUserStateService.syncOnboardingJourney({
+          await withDeadline(PreVaultUserStateService.syncOnboardingJourney({
             userId: user.uid,
             phase: "external_connector",
             activeCapability: "gmail",
             callbackState: "pending",
             callbackAttemptId: intent.correlationId,
             expectedJourneyUpdatedAt: journey?.onboardingJourneyUpdatedAt,
-          });
+          }), operationDeadline);
           // Write the browser correlation marker only after the durable journey
           // accepted the pending transition. A failed write must not cause an
           // unrelated callback to be mistaken for onboarding later.
@@ -1402,7 +1445,7 @@ export default function GmailReceiptsPage({
         return false;
       }
     })();
-  }, [gmailActionBusy, journeyVariant, preserveGmailModify, refreshGmailStatus, user]);
+  }, [confirmTransition, gmailActionBusy, journeyVariant, preserveGmailModify, refreshGmailStatus, user, vaultKey, vaultOwnerToken, isVaultUnlocked]);
 
   const handleEnableGmailSend = useCallback(() => {
     void handleConnectGmail("send");
@@ -1451,6 +1494,7 @@ export default function GmailReceiptsPage({
   });
 
   const handleDisconnectGmail = useCallback(async () => {
+    const operationDeadline = Date.now() + 120_000;
     if (!user?.uid) return;
     // Revoke local read admission before starting disconnect, not after an
     // old read has had a chance to repopulate the cleared collection.
@@ -1467,11 +1511,11 @@ export default function GmailReceiptsPage({
 
     try {
       setGmailActionBusy("disconnect");
-      const savedReceiptsRemain = Boolean(receiptAccountKey && (await receiptStoreVersion(user.uid, receiptAccountKey).catch(() => null))?.revision);
+      const savedReceiptsRemain = Boolean(receiptAccountKey && (await withDeadline(receiptStoreVersion(user.uid, receiptAccountKey).catch(() => null), operationDeadline))?.revision);
       await morphyToast
         .promise(
           (async () => {
-            const next = await gmail.disconnectGmail();
+            const next = await withDeadline(gmail.disconnectGmail(), operationDeadline);
             if (!next || next.connected) {
               throw new Error("Mail could not be disconnected.");
             }
@@ -1491,6 +1535,7 @@ export default function GmailReceiptsPage({
         .unwrap();
       if (!isCurrentOwner()) return;
       receiptLoadSequenceRef.current += 1;
+      clearCachedGmailReceipts(user.uid);
       receiptsRef.current = [];
       setReceipts([]);
       setPage(1);
@@ -2187,9 +2232,9 @@ export default function GmailReceiptsPage({
   return (
     <AppPageShell
       as="div"
-      width={journeyVariant === "workspace" ? "agent" : "reading"}
+      width="reading"
       headerContentSpacing="compact"
-      className="pb-[calc(var(--app-bottom-fixed-ui,96px)+1.5rem)]"
+      className={`${mailStyles.typography} ${journeyVariant === "workspace" ? mailStyles.workspace : ""} pb-[calc(var(--app-bottom-fixed-ui,96px)+1.5rem)]`}
       nativeTest={{
         routeId:
           journeyVariant === "workspace"
@@ -2213,17 +2258,19 @@ export default function GmailReceiptsPage({
         errorMessage: receiptListError,
       }}
     >
+      {transitionDialog}
       <AppPageHeaderRegion
         className={
-          journeyVariant === "workspace" ? "mx-auto max-w-[820px]" : undefined
+          undefined
         }
       >
         <PageHeader
           title="Mail"
+          titleVisuallyHidden={journeyVariant === "workspace"}
           titleRole={journeyVariant === "workspace" ? "agent" : "page"}
           description={pageTitle}
           actions={
-            isConnected && journeyVariant === "onboarding" ? (
+            isConnected && (journeyVariant === "onboarding" || workspace === "receipts") ? (
               <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
                 <Button
                   onClick={() => void handleSyncNow()}
@@ -2265,9 +2312,7 @@ export default function GmailReceiptsPage({
 
       <AppPageContentRegion
         className={
-          journeyVariant === "workspace"
-            ? "mx-auto max-w-[820px]"
-            : undefined
+          undefined
         }
       >
         <SurfaceStack compact>
@@ -2360,6 +2405,7 @@ export default function GmailReceiptsPage({
                         >
                           <GmailInformationRequestsSection
                             active={workspace === "kyc"}
+                            accountKey={receiptAccountKey ?? undefined}
                             userId={user?.uid || null}
                             vaultKey={vaultKey}
                             vaultOwnerToken={vaultOwnerToken}
@@ -2410,7 +2456,7 @@ export default function GmailReceiptsPage({
         open={showDisconnectConfirm}
         onOpenChange={setShowDisconnectConfirm}
       >
-        <AlertDialogContent className="w-[calc(100%-1rem)] sm:max-w-md">
+        <AlertDialogContent className={`${mailStyles.typography} ${mailStyles.portal} w-[calc(100%-1rem)] sm:max-w-md`}>
           <AlertDialogHeader>
             <AlertDialogTitle>Disconnect Mail?</AlertDialogTitle>
             <AlertDialogDescription>

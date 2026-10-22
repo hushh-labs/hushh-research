@@ -58,8 +58,8 @@ def _is_pkm_upgrade(path: str) -> bool:
                 "hushh-webapp/__tests__/services/pkm-historical-rehearsal",
                 "hushh-webapp/__tests__/services/financial-v7-reader-compatibility",
                 "consent-protocol/tests/test_pkm_upgrade_",
-                ".codex/skills/pkm-upgrade-rehearsal/",
-                ".codex/workflows/pkm-upgrade-rehearsal/",
+                ".agents/skills/pkm-upgrade-rehearsal/",
+                ".agents/workflows/pkm-upgrade-rehearsal/",
             )
         )
         or (path.startswith("consent-protocol/db/migrations/") and "pkm" in path.lower())
@@ -68,7 +68,7 @@ def _is_pkm_upgrade(path: str) -> bool:
 
 def _is_reviewer_byok(path: str) -> bool:
     return (
-        path.startswith(".codex/skills/reviewer-app-testing/")
+        path.startswith(".agents/skills/reviewer-app-testing/")
         or path.startswith(
             (
                 "hushh-webapp/components/app-ui/native-test-",

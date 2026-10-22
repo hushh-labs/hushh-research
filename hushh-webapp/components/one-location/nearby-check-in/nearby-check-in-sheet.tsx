@@ -64,10 +64,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Sheet,
-  SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { TaskSheetContent, TaskSurfaceBody } from "@/lib/morphy-ux/ui/task-surfaces";
+import sheetStyles from "./nearby-check-in-sheet.module.css";
 import { Switch } from "@/components/ui/switch";
 import {
   useLocalOnboardingActionHandler,
@@ -89,7 +91,13 @@ import {
   findDuplicateSavedLocation,
   loadSavedLocations,
 } from "@/lib/one-location/saved-locations";
+import { splitCheckInPlaceLabel } from "@/lib/one-location/check-in-place-label";
 import { OneLocationService } from "@/lib/one-location/service";
+import {
+  PLACE_CATEGORIES,
+  normalizeAutomaticPlaces,
+  placesInCategory,
+} from "@/lib/one-location/nearby-places";
 import {
   prepareNearbyCommand,
   performNearbyCheckIn,
@@ -132,44 +140,6 @@ const DURATIONS = [
 function isCheckInDuration(value: number): value is 30 | 60 | 120 {
   return value === 30 || value === 60 || value === 120;
 }
-
-/**
- * Chip labels only. The `value` on each row is the backend category and is
- * untouched — a chip narrows the already-loaded sweep locally, so nothing here
- * reaches a server.
- *
- * The two multi-word labels were the only ones that could not fit a chip: at
- * 320px "Food & drink" and "Shops & services" pushed every remaining chip off
- * the scroller, so the row read as three choices instead of eight. One word
- * each keeps all eight reachable by a short swipe.
- */
-const PLACE_CATEGORIES: Array<{
-  value: OneLocationNearbyPlaceCategory;
-  label: string;
-}> = [
-  { value: "all", label: "All" },
-  { value: "food_drink", label: "Food" },
-  { value: "health", label: "Health" },
-  { value: "shopping_services", label: "Shops" },
-  { value: "hotels_stays", label: "Hotels" },
-  { value: "education", label: "Education" },
-  // "Leisure", not "Outdoors": this chip owns cinemas, nightclubs, museums,
-  // stadiums and event venues as well as parks, and half of those are indoors.
-  { value: "outdoors_landmarks", label: "Leisure" },
-  { value: "transit", label: "Transit" },
-  // Reachable for the first time. A temple, a mosque, a police station and a
-  // government office matched no category at all, so they showed under "All"
-  // and disappeared the moment any chip was tapped -- in a pilgrimage city, a
-  // bigger hole than the one that was reported.
-  { value: "worship", label: "Worship" },
-  { value: "civic", label: "Civic" },
-  // Last, and never empty by construction. Anything the taxonomy cannot place
-  // lands here rather than nowhere, which is what makes "no place is skipped" a
-  // property of the list rather than a hope.
-  { value: "other", label: "More" },
-];
-
-const NEARBY_RADIUS_METERS = 500;
 
 /**
  * Past this distance from the anchored place, "you're checked in here" stops
@@ -315,56 +285,6 @@ export function shortRatingPlaceName(
   const firstSegment = trimmed.split(",")[0]?.trim() || trimmed;
   if (firstSegment.length <= 48) return firstSegment;
   return `${firstSegment.slice(0, 47).trimEnd()}…`;
-}
-
-function normalizeAutomaticPlaces(
-  suggestions: OneLocationNearbyPlaceSuggestion[],
-): OneLocationNearbyPlaceSuggestion[] {
-  const seen = new Set<string>();
-  return suggestions
-    .filter((place) => {
-      if (!place.placeId || seen.has(place.placeId)) return false;
-      if (
-        typeof place.distanceMeters !== "number" ||
-        !Number.isFinite(place.distanceMeters) ||
-        place.distanceMeters < 0 ||
-        place.distanceMeters > NEARBY_RADIUS_METERS
-      ) {
-        return false;
-      }
-      seen.add(place.placeId);
-      return true;
-    })
-    .sort((left, right) => {
-      const distance =
-        Number(left.distanceMeters) - Number(right.distanceMeters);
-      if (distance !== 0) return distance;
-      return (left.name || left.text).localeCompare(right.name || right.text);
-    });
-}
-
-/**
- * Narrow the merged sweep to one chip locally.
- *
- * The backend returns every category in one pass, so filtering here keeps the
- * full set intact. Re-querying per chip used to re-apply the provider's
- * 20-result cap, which is how a second hotel behind the first could vanish when
- * the owner tapped "Hotels".
- */
-function placesInCategory(
-  places: OneLocationNearbyPlaceSuggestion[],
-  category: OneLocationNearbyPlaceCategory,
-): OneLocationNearbyPlaceSuggestion[] {
-  if (category === "all") return places;
-  return places.filter((place) =>
-    // A row with no categories at all belongs to "More". The backend classifies
-    // exhaustively and never sends an empty list, but a response cached before
-    // that shipped still can -- and a row that answers no chip is a row the
-    // person can see under "All" and then never find again.
-    (place.categories?.length ? place.categories : ["other"]).includes(
-      category,
-    ),
-  );
 }
 
 function placePoint(
@@ -672,6 +592,9 @@ function NearbyPersonRow({
 /** A checked-out venue offered to Saved Places. */
 type SavePlaceCandidate = {
   label: string;
+  address: string | null;
+  checkedInAt: string;
+  placeId: string | null;
   latitude: number;
   longitude: number;
 };
@@ -689,6 +612,7 @@ type SavePlaceCandidate = {
  */
 function savePlaceCandidate(
   presence: OneLocationNearbyPresenceState["presence"],
+  suggestions: OneLocationNearbyPlaceSuggestion[],
 ): SavePlaceCandidate | null {
   if (!presence) return null;
   const label = presence.placeLabel?.trim();
@@ -702,7 +626,16 @@ function savePlaceCandidate(
   ) {
     return null;
   }
-  return { label, latitude: placeLat, longitude: placeLng };
+  const legacy = splitCheckInPlaceLabel(label);
+  const place = suggestions.find((candidate) => candidate.placeId === presence.placeId);
+  return {
+    label: place?.name?.trim() || legacy.name,
+    address: place?.address?.trim() || legacy.address,
+    checkedInAt: presence.checkedInAt,
+    placeId: presence.placeId || null,
+    latitude: placeLat,
+    longitude: placeLng,
+  };
 }
 
 export function NearbyCheckInSheet({
@@ -800,6 +733,7 @@ export function NearbyCheckInSheet({
    */
   const [savePlaceCandidateState, setSavePlaceCandidateState] =
     useState<SavePlaceCandidate | null>(null);
+  const savePlaceGenerationRef = useRef(0);
   const [savingPlace, setSavingPlace] = useState(false);
   // The note is component state rather than part of `completedCheckIn` so a
   // keystroke does not rebuild that object 280 times.
@@ -824,6 +758,7 @@ export function NearbyCheckInSheet({
     null,
   );
   const [placesError, setPlacesError] = useState<string | null>(null);
+  const [discoveryIncomplete, setDiscoveryIncomplete] = useState(false);
   const typedSearchActive = search.trim().length >= 2;
 
   /**
@@ -1014,7 +949,8 @@ export function NearbyCheckInSheet({
         const boundedSuggestions = normalizeAutomaticPlaces(suggestions);
         automaticPlacesRef.current = boundedSuggestions;
         setAutomaticPlaces(boundedSuggestions);
-        if (boundedSuggestions.length === 0) {
+        setDiscoveryIncomplete(suggestions.discoveryIncomplete === true);
+        if (boundedSuggestions.length === 0 && !suggestions.discoveryIncomplete) {
           setPlacesError(
             "No places found. Search another place or update your location.",
           );
@@ -1028,6 +964,7 @@ export function NearbyCheckInSheet({
           return;
         }
         setAutomaticPlaces([]);
+        setDiscoveryIncomplete(false);
         setPlacesError(OneLocationService.placesSearchErrorMessage(error));
       }
       return undefined;
@@ -1243,6 +1180,7 @@ export function NearbyCheckInSheet({
         if (await adoptLastKnownPoint(generation, expectedOwnerEpoch)) return;
         setPoint(null);
         setAutomaticPlaces([]);
+        setDiscoveryIncomplete(false);
         setSearchResults([]);
         setSelectedPlaceId("");
         setLocationError(
@@ -1295,6 +1233,7 @@ export function NearbyCheckInSheet({
     setPoint(null);
     setPointOrigin("fresh");
     setAutomaticPlaces([]);
+    setDiscoveryIncomplete(false);
     setSearchResults([]);
     setResolvedPlacePoints({});
     setSelectedPlaceId("");
@@ -1312,6 +1251,7 @@ export function NearbyCheckInSheet({
     setBusy(null);
     setCompletedCheckIn(null);
     setSavePlaceCandidateState(null);
+    setSavingPlace(false);
     setLocationError(null);
     setLocationRecovery(null);
     setPresenceLoadError(null);
@@ -1327,6 +1267,12 @@ export function NearbyCheckInSheet({
   }, [ownerId, publishState, vaultOwnerToken]);
 
   useEffect(() => {
+    savePlaceGenerationRef.current += 1;
+    setSavingPlace(false);
+    setSavePlaceCandidateState(null);
+  }, [ownerId, vaultKey, vaultOwnerToken]);
+
+  useEffect(() => {
     onStartupReadyChange?.(!open);
     if (!ownerId || !vaultOwnerToken) return;
     const expectedOwnerEpoch = ownerEpochRef.current;
@@ -1336,6 +1282,7 @@ export function NearbyCheckInSheet({
     setPoint(null);
     setPointOrigin("fresh");
     setAutomaticPlaces([]);
+    setDiscoveryIncomplete(false);
     setSearchResults([]);
     setResolvedPlacePoints({});
     setSelectedPlaceId("");
@@ -1809,6 +1756,7 @@ export function NearbyCheckInSheet({
       // tells the owner how far they have drifted from the place they anchored
       // to. It is not republished as a search area -- presence suppresses that.
       setAutomaticPlaces([]);
+      setDiscoveryIncomplete(false);
       setSearchResults([]);
       setSelectedPlaceId("");
       setSearch("");
@@ -1834,6 +1782,7 @@ export function NearbyCheckInSheet({
         );
       } else if (details.retryPlaces) {
         setAutomaticPlaces([]);
+        setDiscoveryIncomplete(false);
         setSearchResults([]);
         setSelectedPlaceId("");
         if (confirmationPoint && hasCheckInAccuracy(confirmationPoint)) {
@@ -2007,6 +1956,7 @@ export function NearbyCheckInSheet({
         setAddTimeOpen(false);
         setAddTimeBusy(null);
         setAutomaticPlaces([]);
+        setDiscoveryIncomplete(false);
         setSearchResults([]);
         setSelectedPlaceId("");
         setSearch("");
@@ -2074,12 +2024,14 @@ export function NearbyCheckInSheet({
   const offerSavePlace = useCallback(
     async (candidate: SavePlaceCandidate | null) => {
       if (!candidate || !ownerId || !vaultKey || !vaultOwnerToken) return;
+      const generation = savePlaceGenerationRef.current;
       try {
         const existing = await loadSavedLocations({
           userId: ownerId,
           vaultKey,
           vaultOwnerToken,
         });
+        if (savePlaceGenerationRef.current !== generation) return;
         if (findDuplicateSavedLocation(existing, candidate)) return;
         setSavePlaceCandidateState(candidate);
       } catch {
@@ -2102,8 +2054,27 @@ export function NearbyCheckInSheet({
       return;
     }
     const candidate = savePlaceCandidateState;
+    const expectedOwnerEpoch = ownerEpochRef.current;
+    const generation = savePlaceGenerationRef.current;
+    const current = () => ownerEpochRef.current === expectedOwnerEpoch &&
+      savePlaceGenerationRef.current === generation;
     setSavingPlace(true);
     try {
+      let address = candidate.address;
+      if (!address) {
+        // Name-only responses still save a usable address before the next view.
+        try {
+          const place = await OneLocationService.reverseGeocode({
+            vaultOwnerToken,
+            lat: candidate.latitude,
+            lng: candidate.longitude,
+          });
+          address = place.formattedAddress?.trim() || null;
+        } catch {
+          // Preserve the save when the provider is unavailable; Settings retries.
+        }
+      }
+      if (!current()) return;
       await addSavedLocation({
         context: { userId: ownerId, vaultKey, vaultOwnerToken },
         input: {
@@ -2114,16 +2085,23 @@ export function NearbyCheckInSheet({
           category: "other",
           savedFrom: "check_in",
           label: candidate.label,
+          placeName: candidate.label,
+          placeId: candidate.placeId,
+          address,
+          addressBase: address,
+          checkedInAt: candidate.checkedInAt,
           latitude: candidate.latitude,
           longitude: candidate.longitude,
         },
       });
+      if (!current()) return;
       toast.success("Saved.");
       setCompletedCheckIn((current) =>
         current ? { ...current, saved: true, saveError: null } : current,
       );
       setSavePlaceCandidateState(null);
     } catch (error) {
+      if (!current()) return;
       if (error instanceof DuplicateSavedLocationError) {
         // Saved from somewhere else between the offer and the tap. The intent
         // is satisfied either way, so retire the banner without an error.
@@ -2140,7 +2118,7 @@ export function NearbyCheckInSheet({
       );
       toast.error("Couldn't save this place.");
     } finally {
-      setSavingPlace(false);
+      if (current()) setSavingPlace(false);
     }
   };
 
@@ -2307,7 +2285,11 @@ export function NearbyCheckInSheet({
       };
     const ownerToken = vaultOwnerToken;
     // Snapshot the anchor before checkout clears the presence record.
-    const savedPlaceOffer = savePlaceCandidate(state.presence);
+    const savedPlaceOffer = savePlaceCandidate(state.presence, [
+      ...automaticPlacesRef.current,
+      ...searchResults,
+    ]);
+    const savePlaceGeneration = savePlaceGenerationRef.current;
     const expectedOwnerEpoch = ownerEpochRef.current;
     const generation = ++presenceMutationGenerationRef.current;
     presenceReadGenerationRef.current += 1;
@@ -2380,7 +2362,9 @@ export function NearbyCheckInSheet({
       setAddTimeOpen(false);
       setAddTimeBusy(null);
       toast.success("Check-in ended.");
-      void offerSavePlace(savedPlaceOffer);
+      if (savePlaceGenerationRef.current === savePlaceGeneration) {
+        void offerSavePlace(savedPlaceOffer);
+      }
       return {
         status: "succeeded",
         summary: "Your Nearby check-in has ended.",
@@ -2532,7 +2516,7 @@ export function NearbyCheckInSheet({
   return (
     <>
       <Sheet modal={false} open={open && presentationReady} onOpenChange={onOpenChange}>
-        <SheetContent
+        <TaskSheetContent
           side="bottom"
           // Handle-only, not the whole body.
           //
@@ -2571,7 +2555,7 @@ export function NearbyCheckInSheet({
               "--check-in-rail-width": `${CHECK_IN_PANEL_DESKTOP_WIDTH_REM}rem`,
             } as CSSProperties
           }
-          className="max-h-[calc(100dvh-env(safe-area-inset-top)-8.5rem-var(--kb-height,0px))] gap-0 overflow-hidden px-0 pb-[max(1rem,env(safe-area-inset-bottom))] md:inset-y-0 md:left-auto md:right-0 md:h-full md:max-h-none md:w-[var(--check-in-rail-width)] md:rounded-none md:rounded-l-[var(--app-card-radius-feature)] md:border-l md:border-t-0 md:data-[state=closed]:slide-out-to-right md:data-[state=open]:slide-in-from-right"
+          className={cn(sheetStyles.rail, "max-h-[calc(100dvh-env(safe-area-inset-top)-8.5rem-var(--kb-height,0px))] md:inset-y-0 md:left-auto md:right-0 md:h-full md:max-h-none md:w-[var(--check-in-rail-width)] md:border-l md:border-t-0 md:data-[state=closed]:slide-out-to-right md:data-[state=open]:slide-in-from-right")}
           data-testid="one-location-nearby-check-in-sheet"
           data-one-location-nearby-check-in-sheet=""
         >
@@ -2581,22 +2565,22 @@ export function NearbyCheckInSheet({
             on the screen, beside the title. Admission to nearby check-in is
             already gated by a build flag and a server cohort, so nobody
             reaches this sheet who was not meant to. */}
-          <SheetHeader className="gap-0 border-b border-border/60 px-5 py-4 text-left">
-            <div className="flex min-h-9 flex-col justify-center gap-1 pr-10">
+          <SheetHeader className="border-b border-border/60">
+            <div className="flex min-h-9 flex-col justify-center gap-1">
               <SheetTitle asChild>
                 <h1 className={CHECK_IN_DRAWER_TITLE_CLASSNAME}>
                   Check in nearby
                 </h1>
               </SheetTitle>
               {!state.presence && viewState !== "completed" ? (
-                <p className="ui-text-page-subtitle">
-                  Let people at the same place know you&apos;re there.
-                </p>
+                <SheetDescription className="sr-only">
+                  Let people checked in nearby know you&apos;re here.
+                </SheetDescription>
               ) : null}
             </div>
           </SheetHeader>
 
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+          <TaskSurfaceBody className={sheetStyles.body}>
             {rendererAccess}
             <p className="sr-only" aria-live="polite" aria-atomic="true">
               {state.presence
@@ -2652,7 +2636,7 @@ export function NearbyCheckInSheet({
                       <Check className="h-4 w-4" />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <h2 className={CHECK_IN_SECTION_TITLE_CLASSNAME}>
+                      <h2 className={CHECK_IN_SUBSECTION_TITLE_CLASSNAME}>
                         Check-in ended
                       </h2>
                       {completedCheckIn?.placeLabel ? (
@@ -2890,11 +2874,11 @@ export function NearbyCheckInSheet({
                       <Check className="h-4 w-4" />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <h2 className={CHECK_IN_SECTION_TITLE_CLASSNAME}>
+                      <h2 className={CHECK_IN_SUBSECTION_TITLE_CLASSNAME}>
                         Checked in
                       </h2>
                       <p
-                        className="mt-0.5 truncate text-sm font-medium"
+                        className="mt-0.5 break-words text-sm font-medium leading-5"
                         title={state.presence.placeLabel || undefined}
                       >
                         {state.presence.placeLabel || "Your place"}
@@ -2950,7 +2934,7 @@ export function NearbyCheckInSheet({
                   primary={
                     <Button
                       type="button"
-                      size="prominent"
+                      size="standard"
                       variant={CHECK_OUT_BUTTON_VARIANT}
                       disabled={busy !== null}
                       onClick={() => void checkout()}
@@ -3034,10 +3018,14 @@ export function NearbyCheckInSheet({
                     to say what the list is. */}
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h2 className={CHECK_IN_SECTION_TITLE_CLASSNAME}>
+                      <h2 className={cn(CHECK_IN_SECTION_TITLE_CLASSNAME, "sr-only")}>
                         Nearby places
                       </h2>
                     </div>
+                    {/* Keep provider credit visible when the mobile sheet covers map credits. */}
+                    {places.length ? (
+                      <span translate="no" className="ml-auto whitespace-nowrap text-xs font-normal text-[#5e5e5e] dark:text-white">Google Maps</span>
+                    ) : null}
                     {capturing ? (
                       <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                     ) : null}
@@ -3321,20 +3309,22 @@ export function NearbyCheckInSheet({
                           </Button>
                         </div>
                       ) : null}
-                      {/* Attribution only. The count that used to lead this line
-                        is already on the "See all N" control and in the list
-                        itself, and "N places · Google Maps" read as one fact
-                        when it was two. The provider name stays because the
-                        Places terms require it wherever their data is shown. */}
-                      {places.length ? (
-                        <p className="mt-2 text-xs text-muted-foreground">
-                          <span
-                            translate="no"
-                            className="whitespace-nowrap font-normal"
+                      {!typedSearchActive && discoveryIncomplete ? (
+                        <div className="mt-2 space-y-2" role="status">
+                          <p className="text-sm text-muted-foreground">
+                            Some nearby places may be missing. Retry or search by name.
+                          </p>
+                          <Button
+                            type="button"
+                            size="compact"
+                            variant="secondary"
+                            data-voice-control-id="one-location-check-in-retry-places"
+                            disabled={capturing}
+                            onClick={() => void captureAndLoadPlaces(category)}
                           >
-                            Google Maps
-                          </span>
-                        </p>
+                            Retry nearby places
+                          </Button>
+                        </div>
                       ) : null}
                       {placesError ? (
                         <p className="mt-2 text-sm text-muted-foreground">
@@ -3372,7 +3362,7 @@ export function NearbyCheckInSheet({
                           setDurationMinutes(parsed);
                         }
                       }}
-                      className="h-11 w-full appearance-none rounded-[var(--app-input-radius)] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] px-3 pr-10 text-sm text-foreground shadow-none outline-none transition-[border-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                      className="h-11 w-full appearance-none rounded-[var(--app-input-radius)] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] px-3 pr-10 text-sm text-foreground shadow-none outline-none transition-[border-color,box-shadow] focus-visible:border-[color:var(--accent-preview-blue)] focus-visible:ring-0"
                     >
                       {DURATIONS.map((duration) => (
                         <option
@@ -3391,7 +3381,7 @@ export function NearbyCheckInSheet({
                 </section>
 
                 <section>
-                  <h2 className={CHECK_IN_SECTION_TITLE_CLASSNAME}>
+                  <h2 className={cn(CHECK_IN_SECTION_TITLE_CLASSNAME, "sr-only")}>
                     Visibility
                   </h2>
                   <div className="mt-3 rounded-2xl border border-border/60">
@@ -3413,7 +3403,7 @@ export function NearbyCheckInSheet({
                           Show my name here
                         </span>
                         <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
-                          Only people checked in at this place can see it.
+                          Only people checked in nearby can see it.
                         </span>
                       </span>
                     </label>
@@ -3429,7 +3419,7 @@ export function NearbyCheckInSheet({
                           Allow connection requests
                         </span>
                         <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
-                          People here can ask to connect.
+                          From people checked in nearby.
                         </span>
                       </span>
                       <Switch
@@ -3465,8 +3455,8 @@ export function NearbyCheckInSheet({
                 </Button>
               </div>
             )}
-          </div>
-        </SheetContent>
+          </TaskSurfaceBody>
+        </TaskSheetContent>
       </Sheet>
       <Sheet
         open={addTimeOpen}
@@ -3474,17 +3464,18 @@ export function NearbyCheckInSheet({
           if (busy === null) setAddTimeOpen(nextOpen);
         }}
       >
-        <SheetContent
+        <TaskSheetContent
           side="bottom"
-          className="mx-auto w-full gap-0 rounded-t-[var(--app-card-radius-feature)] px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:max-w-md md:left-auto md:right-6 md:max-w-sm md:rounded-[var(--app-card-radius-feature)]"
+          size="sm"
+          className="mx-auto w-full sm:max-w-md md:left-auto md:right-6 md:max-w-sm md:rounded-[var(--app-card-radius-feature)]"
           aria-describedby={undefined}
         >
-          <SheetHeader className="px-0 pb-3 text-left">
-            <SheetTitle className={CHECK_IN_SECTION_TITLE_CLASSNAME}>
+          <SheetHeader>
+            <SheetTitle className={CHECK_IN_DRAWER_TITLE_CLASSNAME}>
               Add time
             </SheetTitle>
           </SheetHeader>
-          <div className="grid grid-cols-2 gap-2">
+          <div className={sheetStyles.extension}>
             {([30, 60] as const).map((increment) => (
               <Button
                 key={increment}
@@ -3501,7 +3492,7 @@ export function NearbyCheckInSheet({
               </Button>
             ))}
           </div>
-        </SheetContent>
+        </TaskSheetContent>
       </Sheet>
     </>
   );

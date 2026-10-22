@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
   appTasks: [] as Array<Record<string, unknown>>,
   dismissTask: vi.fn(),
   pendingCount: 0,
+  update: {} as Record<string, unknown>,
   userId: "user-1",
   realConsentResources: false,
   vaultToken: "vault-token" as string | null,
@@ -223,13 +224,18 @@ vi.mock("@/lib/consent/consent-display", () => ({
   }) => counterpartLabel || "Someone",
 }));
 
-vi.mock("@/lib/navigation/routes", () => ({
+vi.mock("@/lib/navigation/routes", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/navigation/routes")>()),
   buildKaiMarketRoute: () => "/one/kai",
   ROUTES: {
     ONE_FEED: "/one/feed",
     PROFILE_PAYOUTS: "/one/profile/payouts",
     PROFILE_REQUEST_PRICING: "/one/profile/request-pricing",
   },
+}));
+
+vi.mock("@/lib/feed/use-agent-deployment-follow", () => ({
+  useAgentDeploymentFollow: () => ({ update: mocks.update }),
 }));
 
 import {
@@ -241,6 +247,7 @@ import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { ConsentCenterService } from "@/lib/services/consent-center-service";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { noteConsentMutated } from "@/lib/cache/consent-read-after-write";
 
 /** The Consent Center's projection of an incoming connection request. */
 const consentConnectionEntry = {
@@ -273,11 +280,20 @@ beforeEach(() => {
   mocks.pendingCount = 0;
   mocks.userId = "user-1";
   mocks.realConsentResources = false;
+  mocks.update = {};
   mocks.vaultToken = "vault-token";
   mocks.account.mockResolvedValue({ account: null });
 });
 
 describe("useFeedActionables — connection request de-duplication", () => {
+  it.each(["scheduled", "updating", "blocked"])("keeps %s updates visible without offering another install", (presentationState) => {
+    mocks.update = { available: true, offerable: false, releaseId: "rel_existing", presentationState };
+    const { result } = renderHook(() => useFeedActionables());
+    const card = result.current.actionables.find((item) => item.id === "personal-agent-update:rel_existing");
+    expect(card).toBeDefined();
+    expect(card?.actions).toEqual([]);
+  });
+
   it("keeps warm consent rows visible during invalidation and replaces them on fresh resolution", async () => {
     mocks.realConsentResources = true;
     const cache = CacheService.getInstance();
@@ -1638,6 +1654,53 @@ describe("Checkout callbacks stay with their original feed scope", () => {
         paymentCurrency: "usd", checkoutExpiresAt: new Date(Date.now() + 30 * 60_000).toISOString() } };
   }
 
+  it("reconciles no-charge completion past a forced consent read already in flight", async () => {
+    mocks.realConsentResources = true;
+    const cache = CacheService.getInstance();
+    const entry = checkoutEntry("drive");
+    const summaryKey = CACHE_KEYS.CONSENT_CENTER_SUMMARY("user-1", "one:consents");
+    const sentKey = CACHE_KEYS.CONSENT_CENTER_LIST("user-1", "one:consents:sent", "pending", "", 1, 100);
+    const progressKeys = ["pending", "active"].map(surface => CACHE_KEYS.CONSENT_CENTER_LIST("user-1", "one:consents", surface as "pending" | "active", "", 1, 100));
+    cache.set(summaryKey, { counts: { pending: 0 } });
+    cache.set(sentKey, { items: [entry], has_more: false });
+    for (const key of progressKeys) cache.set(key, { items: [], has_more: false });
+    vi.mocked(ConsentCenterService.getSummary).mockResolvedValue({ counts: { pending: 0 } } as Awaited<ReturnType<typeof ConsentCenterService.getSummary>>);
+    let finishOld!: (value: Awaited<ReturnType<typeof ConsentCenterService.listEntries>>) => void;
+    let sentReads = 0;
+    vi.mocked(ConsentCenterService.listEntries).mockImplementation(async ({ requestView }) => {
+      if (requestView === "sent" && ++sentReads === 1) return new Promise(resolve => { finishOld = resolve; });
+      return { items: [], has_more: false } as Awaited<ReturnType<typeof ConsentCenterService.listEntries>>;
+    });
+    mocks.consentMutated.mockImplementation((owner: string) => {
+      noteConsentMutated(owner);
+      cache.invalidateMany([summaryKey, sentKey, ...progressKeys]);
+    });
+    mocks.driveCheckout.mockResolvedValueOnce({ requestId: entry.request_id, existingAccess: true });
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", { configurable: true, value: { ...window.location, assign } });
+    const mounted = renderHook(() => useFeedActionables());
+    try {
+      const action = mounted.result.current.actionables.flatMap(row => row.actions).find(item => item.key === "pay")!;
+      act(() => { window.dispatchEvent(new CustomEvent(CONSENT_STATE_CHANGED_EVENT, { detail: { source: "sse" } })); });
+      await waitFor(() => expect(sentReads).toBe(1));
+      let pending!: Promise<void> | void;
+      act(() => { pending = action.run(); });
+      await waitFor(() => expect(mocks.consentMutated).toHaveBeenCalledWith("user-1"));
+      await act(async () => {
+        finishOld({ items: [entry], has_more: false } as Awaited<ReturnType<typeof ConsentCenterService.listEntries>>);
+        await pending;
+      });
+      await waitFor(() => expect(mounted.result.current.actionables.some(row => row.id.startsWith("drive-payment:"))).toBe(false));
+      expect(sentReads).toBeGreaterThanOrEqual(2);
+      expect(assign).not.toHaveBeenCalled();
+      const finalReadOrder = vi.mocked(ConsentCenterService.listEntries).mock.invocationCallOrder.at(-1)!;
+      expect(mocks.consentMutated.mock.invocationCallOrder[0]).toBeLessThan(finalReadOrder);
+    } finally {
+      mounted.unmount();
+      mocks.consentMutated.mockReset();
+    }
+  });
+
   it("opens approved packet review instead of bypassing disclosure with Feed Pay", async () => {
     const entry = checkoutEntry("drive");
     mocks.pendingCount = 1;
@@ -1655,15 +1718,15 @@ describe("Checkout callbacks stay with their original feed scope", () => {
     mounted.unmount();
   });
 
-  it.each(["drive", "answer"] as const)("fences %s checkout across account/session/request/unmount boundaries", async lane => {
+  it.each([["drive", "url"], ["drive", "nocharge"], ["answer", "url"]] as const)("fences %s %s checkout across account/session/request/unmount boundaries", async (lane, outcome) => {
     for (const boundary of ["account", "session", "request", "unmount"]) {
       mocks.userId = "user-1";
       mocks.pendingCount = 1;
       mocks.consentItems = [checkoutEntry(lane)];
       mocks.idToken.mockResolvedValue("id-token");
-      let finish!: (url: string) => void;
+      let finish!: (value: string | { requestId: string; existingAccess: true }) => void;
       const checkout = lane === "drive" ? mocks.driveCheckout : mocks.answerCheckout;
-      checkout.mockReset().mockReturnValueOnce(new Promise<string>(resolve => { finish = resolve; }));
+      checkout.mockReset().mockReturnValueOnce(new Promise<string | { requestId: string; existingAccess: true }>(resolve => { finish = resolve; }));
       const assign = vi.fn();
       Object.defineProperty(window, "location", { configurable: true, value: { ...window.location, assign } });
       const mounted = renderHook(() => useFeedActionables());
@@ -1681,10 +1744,14 @@ describe("Checkout callbacks stay with their original feed scope", () => {
       } else mounted.unmount();
       mocks.refresh.mockClear();
       mocks.toastError.mockClear();
-      await act(async () => { finish("https://checkout.stripe.com/c/pay/old"); await pending; });
+      mocks.consentMutated.mockClear();
+      await act(async () => { finish(outcome === "nocharge"
+        ? { requestId: "44444444-4444-4444-8444-444444444444", existingAccess: true }
+        : "https://checkout.stripe.com/c/pay/old"); await pending; });
       expect(assign).not.toHaveBeenCalled();
       expect(mocks.toastError).not.toHaveBeenCalled();
       expect(mocks.refresh).not.toHaveBeenCalled();
+      expect(mocks.consentMutated).not.toHaveBeenCalled();
       mounted.unmount();
     }
   });

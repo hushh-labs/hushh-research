@@ -12,6 +12,7 @@ import { create } from "zustand";
 
 import {
   pickedPreferredName,
+  reduceChatOnboarding,
   type ChatOnboardingState,
 } from "@/lib/agent/chat-onboarding/chat-onboarding-machine";
 import type { OneChatOnboardingState } from "@/lib/services/pre-vault-user-state-service";
@@ -85,4 +86,14 @@ export function useChatOnboardingPickedName(userId: string | null): string | nul
   return useChatOnboardingSession((session) =>
     userId && session.userId === userId ? pickedPreferredName(session.machine) : null,
   );
+}
+
+/** One semantic choice, shared with setup so its later Save cannot undo it. */
+export function reconcileChatOnboardingNameChoice(userId: string, name: string): boolean {
+  const session = useChatOnboardingSession.getState();
+  if (session.userId !== userId || !session.machine) return true;
+  if (session.machine.step === "saving" || session.machine.step === "saving_name") return false;
+  const next = reduceChatOnboarding(session.machine, { type: "preferred_name_chosen", name });
+  if (next.state !== session.machine) session.patch({ machine: next.state });
+  return true;
 }

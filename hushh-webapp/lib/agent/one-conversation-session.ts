@@ -74,7 +74,6 @@ type OneConversationSessionState = {
   ensureComposerDraft: (ownerId: string) => void;
   updateComposerDraft: (ownerId: string, context: string, update: (draft: OneComposerDraft) => OneComposerDraft) => void;
   clearComposerDraft: () => void;
-  pendingProfileResearch: OneEntryWelcomeMarker | null;
   appendMirrorEvent: (event: Omit<OneConversationMirrorEvent, "id" | "createdAtMs"> & {
     id?: string;
     createdAtMs?: number;
@@ -128,7 +127,6 @@ export const useOneConversationSession = create<OneConversationSessionState>((se
     set({ composerDraft: { ...update(draft), ownerId, context } });
   },
   clearComposerDraft: () => set({ composerDraft: null }),
-  pendingProfileResearch: null,
   appendMirrorEvent: (event) => {
     const text = event.text.trim();
     if (!text) return;
@@ -175,8 +173,7 @@ export const useOneConversationSession = create<OneConversationSessionState>((se
       pendingHandoff: null,
       pendingEntryWelcome: null,
       composerDraft: null,
-      pendingProfileResearch: null,
-    });
+        });
   },
 }));
 

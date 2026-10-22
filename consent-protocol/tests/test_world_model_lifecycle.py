@@ -14,6 +14,81 @@ from hushh_mcp.services import world_model_notifications as mod
 from hushh_mcp.services import world_model_source_review as sources
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("boundary", ["read", "dispatch"])
+@pytest.mark.parametrize("moves_private", [False, True])
+async def test_source_reviews_revalidate_placement_after_checkpoint_work(
+    monkeypatch, boundary, moves_private
+):
+    import time
+    from unittest.mock import Mock
+
+    from fastapi import HTTPException
+
+    from hushh_mcp.runtime_providers import factory
+    from hushh_mcp.services import owner_placement_guard as placement
+
+    mode = {"value": "shared"}
+    monkeypatch.setattr(placement, "pod_mode", lambda: False)
+    monkeypatch.setattr(
+        placement, "get_owner_hosting_mode", AsyncMock(side_effect=lambda _: mode["value"])
+    )
+    monkeypatch.setattr(sources, "one_profile_research_enabled", lambda: True)
+    monkeypatch.setattr(
+        invitations, "verified_owner", AsyncMock(return_value={"full_name": "Alex"})
+    )
+    checkpoint = {
+        "job_id": str(uuid4()),
+        "status": "offered",
+        "allowed_use": "reviewable_fact",
+        "finished_at": time.time(),
+        "result": {"report": "synthetic"},
+    }
+
+    async def get(_):
+        if moves_private and boundary == "read":
+            mode["value"] = "byoc"
+        return checkpoint if boundary == "read" else None
+
+    async def write(*_):
+        if moves_private:
+            mode["value"] = "byoc"
+        return {"job_id": str(uuid4())}
+
+    monkeypatch.setattr(sources, "STORE", SimpleNamespace(get=AsyncMock(side_effect=get)))
+    monkeypatch.setattr(
+        sources, "scoped_store", lambda _: SimpleNamespace(write=AsyncMock(side_effect=write))
+    )
+    provider = Mock(side_effect=RuntimeError("synthetic dispatch reached"))
+    monkeypatch.setattr(factory, "build_managed_runtime_client", provider)
+    if boundary == "read":
+        if moves_private:
+            with pytest.raises(HTTPException) as failure:
+                await sources.read("owner", "token")
+            assert failure.value.detail["code"] == "AGENT_PRIVATE_RUNTIME_REQUIRED"
+        else:
+            assert await sources.read("owner", "token") == checkpoint
+    else:
+        operation = sources.prepare(
+            "owner",
+            "token",
+            sources.SourceReviewInput(
+                name="Alex",
+                urls=["https://example.test/profile"],
+                purpose="owner",
+                permitted_public_sources=True,
+            ),
+        )
+        if moves_private:
+            with pytest.raises(HTTPException) as failure:
+                await operation
+            assert failure.value.detail["code"] == "AGENT_PRIVATE_RUNTIME_REQUIRED"
+        else:
+            with pytest.raises(RuntimeError, match="synthetic dispatch reached"):
+                await operation
+    assert provider.call_count == int(boundary == "dispatch" and not moves_private)
+
+
 @asynccontextmanager
 async def value_scope(value):
     yield value
@@ -224,3 +299,81 @@ async def test_completion_only_announces_actual_findings(match, sections, outcom
         if "INSERT INTO pwm_completion_events" in call.args[0]
     )
     assert delivery[4:] == (outcome, "suppressed" if outcome == "attention" else "pending")
+
+
+@pytest.mark.parametrize("status", [200, 302, 404])
+async def test_public_source_review_receipt_requires_exact_successful_fetch_and_current_owner(
+    status,
+):
+    import hashlib
+
+    import httpx
+
+    from hushh_mcp.one_adk.public_source_fetch import MAX_SOURCE_BYTES, retrieve_public_sources
+
+    raw = b"<p>Synthetic public article.</p><script>ignored</script>"
+    authority = AsyncMock()
+    observed = []
+
+    def factory(**kwargs):
+        observed.append(kwargs)
+        return httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    status,
+                    content=raw,
+                    headers={"content-type": "text/html", "location": "https://127.0.0.1/"},
+                )
+            ),
+            follow_redirects=False,
+        )
+
+    if status == 200:
+        result = await retrieve_public_sources(
+            ["https://public.example.test/article"],
+            require_current=authority,
+            client_factory=factory,
+        )
+        assert [(r.ref, r.url) for r in result] == [("s1", "https://public.example.test/article")]
+        assert result[0].sha256 == hashlib.sha256(raw).hexdigest()
+        assert result[0].parts[-1].text == "Synthetic public article."
+        assert authority.await_count == 2
+    else:
+        with pytest.raises(ValueError, match="not retrieved"):
+            await retrieve_public_sources(
+                ["https://public.example.test/article"],
+                require_current=authority,
+                client_factory=factory,
+            )
+    assert observed[0]["max_response_bytes"] == MAX_SOURCE_BYTES
+    authority.side_effect = PermissionError("owner revoked")
+    with pytest.raises(PermissionError):
+        await retrieve_public_sources(
+            ["https://public.example.test/article"],
+            require_current=authority,
+            client_factory=factory,
+        )
+
+
+async def test_public_source_review_preserves_successful_receipts_when_another_page_fails():
+    import httpx
+
+    from hushh_mcp.one_adk.public_source_fetch import retrieve_public_sources
+
+    def factory(**kwargs):
+        return httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    404 if request.url.path == "/missing" else 200,
+                    content=b"A synthetic public source.",
+                    headers={"content-type": "text/plain"},
+                )
+            )
+        )
+
+    result = await retrieve_public_sources(
+        ["https://public.example.test/missing", "https://public.example.test/article"],
+        require_current=AsyncMock(),
+        client_factory=factory,
+    )
+    assert [(row.ref, row.url) for row in result] == [("s1", "https://public.example.test/article")]

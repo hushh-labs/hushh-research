@@ -2683,7 +2683,10 @@ class DriveOwnerSearchService:
 
         async def current():
             await self.store.require_current(job)
-            if current_binding["provider"] == "azure_openai":
+            if (
+                current_binding["provider"] == "azure_openai"
+                or current_binding.get("authorization_basis") == "uat_policy"
+            ):
                 from hushh_mcp.services.private_text_processing_approval_service import (
                     require_private_azure_text_approval,
                 )

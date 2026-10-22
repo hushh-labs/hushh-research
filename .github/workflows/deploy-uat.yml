@@ -290,6 +290,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/release-tools"
+          cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-cloud-run-deploy-revision.py \
             "${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py"
           cp scripts/ci/runtime-capacity-budget.py \
@@ -302,13 +303,28 @@ jobs:
             "${RUNNER_TEMP}/release-tools/verify_passkey_domain_associations.py"
           cp scripts/ops/verify_uat_release.py \
             "${RUNNER_TEMP}/release-tools/verify_uat_release.py"
+          cp scripts/ci/capture_managed_provider_receipt.py \
+            "${RUNNER_TEMP}/release-tools/capture_managed_provider_receipt.py"
           if [[ "${{ inputs.skip_managed_vertex_probe_once }}" == "true" ]]; then
+            cp scripts/ci/managed_provider_readiness.py \
+              "${RUNNER_TEMP}/release-tools/managed_provider_readiness.py"
             cp deploy/backend.cloudbuild.yaml \
               "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml"
-            cp deploy/email-auth/bind_secrets.sh \
-              "${RUNNER_TEMP}/release-tools/email-auth-bind-secrets.sh"
-            cp deploy/plg/bind_secrets.sh \
-              "${RUNNER_TEMP}/release-tools/plg-bind-secrets.sh"
+            printf '%s\n' \
+              scripts/deploy/backend-deploy.sh \
+              scripts/deploy/backend-capacity-settings.sh \
+              scripts/deploy/verify-managed-vertex-runtime.sh \
+              scripts/deploy/commerce-preview-bindings.sh \
+              scripts/deploy/backend-model-settings.sh \
+              scripts/deploy/backend-drive-secret-settings.sh \
+              scripts/deploy/scope-commerce-secrets.sh \
+              deploy/email-auth/bind_secrets.sh \
+              deploy/plg/bind_secrets.sh \
+              deploy/sso/bind_workos.sh > "${RUNNER_TEMP}/release-tools/vertex-exception-tools.txt"
+            while IFS= read -r tool; do
+              mkdir -p "${RUNNER_TEMP}/release-tools/$(dirname "$tool")"
+              cp "$tool" "${RUNNER_TEMP}/release-tools/$tool"
+            done < "${RUNNER_TEMP}/release-tools/vertex-exception-tools.txt"
           fi
 
       - name: Checkout deployment SHA
@@ -319,6 +335,8 @@ jobs:
           # Keep the current opt-in contract when verifying an older approved build.
           cp "${RUNNER_TEMP}/release-tools/verify_uat_release.py" \
             scripts/ops/verify_uat_release.py
+          cp "${RUNNER_TEMP}/release-tools/capture_managed_provider_receipt.py" \
+            scripts/ci/capture_managed_provider_receipt.py
           cp "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py" \
             scripts/ci/runtime-capacity-budget.py
           cp "${RUNNER_TEMP}/release-tools/account-deletion-fence-decision.py" \
@@ -328,16 +346,16 @@ jobs:
           cp "${RUNNER_TEMP}/release-tools/verify_passkey_domain_associations.py" \
             scripts/ops/verify_passkey_domain_associations.py
           if [[ "${{ inputs.skip_managed_vertex_probe_once }}" == "true" ]]; then
+            cp "${RUNNER_TEMP}/release-tools/managed_provider_readiness.py" \
+              scripts/ci/managed_provider_readiness.py
             cp "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml" \
               deploy/backend.cloudbuild.yaml
-            mkdir -p deploy/email-auth
-            cp "${RUNNER_TEMP}/release-tools/email-auth-bind-secrets.sh" \
-              deploy/email-auth/bind_secrets.sh
+            while IFS= read -r tool; do
+              mkdir -p "$(dirname "$tool")"
+              cp "${RUNNER_TEMP}/release-tools/$tool" "$tool"
+            done < "${RUNNER_TEMP}/release-tools/vertex-exception-tools.txt"
             printf '\n!deploy/email-auth/bind_secrets.sh\n' >> .gcloudignore
-            mkdir -p deploy/plg
-            cp "${RUNNER_TEMP}/release-tools/plg-bind-secrets.sh" \
-              deploy/plg/bind_secrets.sh
-            printf '\n!deploy/plg/bind_secrets.sh\n' >> .gcloudignore
+            printf '\n!deploy/plg/bind_secrets.sh\n!scripts/deploy/backend-capacity-settings.sh\n' >> .gcloudignore
           fi
 
       - name: Validate Google Cloud workload identity configuration
@@ -447,6 +465,15 @@ jobs:
             --github-output "$GITHUB_OUTPUT" \
             --json
 
+      - name: Require exact-SHA dev acceptance
+        id: predecessor-acceptance
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" require \
+            --environment dev --sha "${{ steps.resolve-sha.outputs.sha }}" \
+            --scope "${{ steps.scope.outputs.scope }}" --output /tmp/uat-predecessor-acceptance.json
+
       - name: Enforce UAT database connection budget before deployment
         shell: bash
         env:
@@ -465,6 +492,9 @@ jobs:
               candidate_services+=(--candidate-service consent-protocol-drive-v1-worker)
             else
               candidate_services+=(--candidate-service consent-protocol-drive-worker)
+              if [ "${{ vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED || 'false' }}" = true ]; then
+                candidate_services+=(--candidate-service consent-protocol-drive-v1-worker)
+              fi
             fi
             timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat \
               "${candidate_services[@]}"
@@ -756,7 +786,7 @@ jobs:
           fi
           drive_group_args=()
           if grep -q -- '--drive-four-group-index' scripts/ops/sync_backend_runtime_secrets.py; then
-            drive_group_args=(--drive-four-group-index "false")
+            drive_group_args=(--drive-four-group-index "${{ vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED || 'false' }}")
           fi
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py \
             --project "${{ env.GCP_PROJECT_ID }}" \
@@ -1252,7 +1282,7 @@ jobs:
           set -euo pipefail
           started_at="$(date +%s)"
           source deploy/drive/uat_stripe_bindings.sh
-          SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.UAT_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID##_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET##_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI##_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_TECH_LAUNCH_PEPPER_SECRET=HUSSH_TECH_LAUNCH_PEPPER##_RATE_LIMIT_STORAGE_URI_SECRET=RATE_LIMIT_STORAGE_URI##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_REVIEWER_COUNTERPART_UID_SECRET=REVIEWER_COUNTERPART_UID##_REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET=REVIEWER_COUNTERPART_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=projects/hushh-pda/topics/one-email-kyc-uat##_ONE_EMAIL_WEBHOOK_AUDIENCE=https://consent-protocol-f2gsa4kfsq-uc.a.run.app/api/one/email/webhook##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_ONE_WALLET_CARD_ENABLED=true##_ONE_VOICE_LIVE_ENABLED=true##_ONE_VOICE_CALENDAR_NARRATION_ENABLED=true##_WALLET_PASS_PROVIDER=service##_WALLET_API_KEY_SECRET=WALLET_API_KEY##_APP_REVIEW_MODE=true##_CONSENT_WEB_FALLBACK_ENABLED=false##_CONSENT_SSE_ENABLED=false##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4##_DB_SQLALCHEMY_POOL_SIZE=3##_DB_SQLALCHEMY_MAX_OVERFLOW=0##_CLOUD_RUN_MIN_INSTANCES=2##_CLOUD_RUN_MAX_INSTANCES=5##_CLOUD_RUN_CPU=2##_CLOUD_RUN_CONCURRENCY=20##_CLOUD_RUN_NO_TRAFFIC=true##_IMAGE_TAG=uat-${{ steps.resolve-sha.outputs.sha }}##_DEPLOY_ENV=uat##_DEPLOY_SOURCE=deploy-uat##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}"
+          SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.UAT_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID##_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET##_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI##_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_TECH_LAUNCH_PEPPER_SECRET=HUSSH_TECH_LAUNCH_PEPPER##_RATE_LIMIT_STORAGE_URI_SECRET=RATE_LIMIT_STORAGE_URI##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_REVIEWER_COUNTERPART_UID_SECRET=REVIEWER_COUNTERPART_UID##_REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET=REVIEWER_COUNTERPART_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=projects/hushh-pda/topics/one-email-kyc-uat##_ONE_EMAIL_WEBHOOK_AUDIENCE=https://consent-protocol-f2gsa4kfsq-uc.a.run.app/api/one/email/webhook##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_ONE_WALLET_CARD_ENABLED=true##_ONE_VOICE_LIVE_ENABLED=true##_ONE_VOICE_CALENDAR_NARRATION_ENABLED=true##_WALLET_PASS_PROVIDER=service##_WALLET_API_KEY_SECRET=WALLET_API_KEY##_APP_REVIEW_MODE=true##_CONSENT_WEB_FALLBACK_ENABLED=false##_CONSENT_SSE_ENABLED=false##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4##_DB_SQLALCHEMY_POOL_SIZE=3##_DB_SQLALCHEMY_MAX_OVERFLOW=0##_CLOUD_RUN_MIN_INSTANCES=2##_CLOUD_RUN_MAX_INSTANCES=5##_CLOUD_RUN_CPU=2##_CLOUD_RUN_CONCURRENCY=20##_CLOUD_RUN_SCALING_CONCURRENCY_TARGET=0.20##_CLOUD_RUN_NO_TRAFFIC=true##_IMAGE_TAG=uat-${{ steps.resolve-sha.outputs.sha }}##_DEPLOY_ENV=uat##_DEPLOY_SOURCE=deploy-uat##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_DIRECT_MESSAGE_ENCRYPTION_KEY_V1_SECRET=DIRECT_MESSAGE_ENCRYPTION_KEY_V1"
@@ -1321,14 +1351,37 @@ jobs:
           # RIA claim-by-phone: identity resolver + the UAT demo passcode
           # allowlist (fixed code, no SMS to real firm lines). UAT-only.
           SUBSTITUTIONS="${SUBSTITUTIONS}##_RIA_IDENTITY_BASE_URL_SECRET=RIA_IDENTITY_BASE_URL##_RIA_IDENTITY_API_KEY_SECRET=RIA_IDENTITY_API_KEY##_RIA_CLAIM_TEST_NUMBERS_SECRET=RIA_CLAIM_TEST_NUMBERS##_RIA_CLAIM_TEST_CODE_SECRET=RIA_CLAIM_TEST_CODE##_RIA_CLAIM_TEST_EMAILS_SECRET=RIA_CLAIM_TEST_EMAILS##_INTELLIGENCE_API_BASE_URL_SECRET=INTELLIGENCE_API_BASE_URL##_INTELLIGENCE_API_KEY_SECRET=INTELLIGENCE_API_KEY##_SUPPORT_EMAIL_TEST_TO_SECRET=SUPPORT_EMAIL_TEST_TO##_SUPPORT_EMAIL_MODE_SECRET=SUPPORT_EMAIL_MODE##_SUPPORT_EMAIL_DELEGATED_USER_SECRET=SUPPORT_EMAIL_DELEGATED_USER##_SUPPORT_EMAIL_FROM_SECRET=SUPPORT_EMAIL_FROM##_GOOGLE_SERVICE_ACCOUNT_EMAIL_SECRET=GOOGLE_SERVICE_ACCOUNT_EMAIL##_GOOGLE_PRIVATE_KEY_SECRET=GOOGLE_PRIVATE_KEY"
-          gcloud builds submit \
+          build_id="$(gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/backend.cloudbuild.yaml \
-            "--substitutions=^##^${SUBSTITUTIONS}"
+            --suppress-logs --format='value(id)' \
+            "--substitutions=^##^${SUBSTITUTIONS}")"
+          if [[ ! "${build_id}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+            echo "Backend deployment did not return an exact Cloud Build id." >&2
+            exit 1
+          fi
+          echo "build_id=${build_id}" >> "$GITHUB_OUTPUT"
           finished_at="$(date +%s)"
           echo "started_at_epoch=${started_at}" >> "$GITHUB_OUTPUT"
           echo "finished_at_epoch=${finished_at}" >> "$GITHUB_OUTPUT"
           echo "duration_seconds=$((finished_at - started_at))" >> "$GITHUB_OUTPUT"
+
+      - name: Capture managed provider readiness receipt
+        if: always() && steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        env:
+          READINESS_BUILD_ID: ${{ steps.deploy-backend.outputs.build_id }}
+          READINESS_SOURCE_SHA: ${{ steps.resolve-sha.outputs.sha }}
+          READINESS_IMAGE: ${{ steps.build-backend-image.outputs.image_reference }}
+          READINESS_RUNTIME_ACCOUNT: ${{ env.RUNTIME_SERVICE_ACCOUNT }}
+          READINESS_PROJECT: ${{ env.GCP_PROJECT_ID }}
+          READINESS_REGION: ${{ env.GCP_REGION }}
+          READINESS_GITHUB_RUN: ${{ github.run_id }}
+          READINESS_ENVIRONMENT: uat
+          READINESS_LEGACY_EXCEPTION: ${{ inputs.skip_managed_vertex_probe_once || false }}
+        run: |
+          python3 scripts/ci/capture_managed_provider_receipt.py \
+            --output /tmp/uat-managed-provider-readiness.json
 
       # The structure evaluator exercises the backend candidate image. Keep it
       # before the frontend build so an advisory model-quality warning is
@@ -2095,24 +2148,7 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_ENV"
 
-          if [ "${{ steps.verification-plan.outputs.run_reviewer_byok }}" = "true" ]; then
-            reviewer_uid="$(gcloud secrets versions access latest \
-              --secret=REVIEWER_UID \
-              --project="${{ env.GCP_PROJECT_ID }}")"
-            reviewer_passphrase="$(gcloud secrets versions access latest \
-              --secret=REVIEWER_VAULT_PASSPHRASE \
-              --project="${{ env.GCP_PROJECT_ID }}")"
-            echo "::add-mask::$reviewer_uid"
-            echo "::add-mask::$reviewer_passphrase"
-            {
-              echo "REVIEWER_UID<<EOF"
-              printf '%s\n' "$reviewer_uid"
-              echo "EOF"
-              echo "REVIEWER_VAULT_PASSPHRASE<<EOF"
-              printf '%s\n' "$reviewer_passphrase"
-              echo "EOF"
-            } >> "$GITHUB_ENV"
-          fi
+
 
       - name: Semantic UAT verification
         id: verify-uat-1
@@ -2153,6 +2189,7 @@ jobs:
         env:
           REVIEWER_APP_ORIGIN: ${{ env.APP_FRONTEND_ORIGIN }}
           REVIEWER_APP_ROUTES: /,/one/kai?tab=portfolio,/one/pkm
+          REVIEWER_SECRET_PROJECT: ${{ env.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
           passes=1
@@ -2160,7 +2197,7 @@ jobs:
           {
             for ((pass = 1; pass <= passes; pass++)); do
               printf 'Reviewer BYOK acceptance pass %s/%s\n' "$pass" "$passes"
-              node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs
+              node .agents/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs
               echo "passes_completed=$pass" >> "$GITHUB_OUTPUT"
             done
           } 2>&1 | tee /tmp/uat-reviewer-byok.log
@@ -2179,7 +2216,7 @@ jobs:
           PWM_OWNER_CONFIRMED_PROFILE: ${{ inputs.pwm_owner_confirmed_profile }}
           PWM_EVIDENCE_PUBLIC_KEY: ${{ inputs.pwm_evidence_public_key }}
           PWM_PROOF_OUTPUT: ${{ github.workspace }}/tmp/pwm-acceptance.sealed.json
-        run: node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-pwm.mjs
+        run: node .agents/skills/reviewer-app-testing/scripts/verify-reviewer-pwm.mjs
 
       - name: Upload sealed PWM acceptance evidence
         if: always() && inputs.run_pwm_acceptance
@@ -3001,12 +3038,26 @@ jobs:
             --baseline /tmp/uat-paused-drive-baseline.json \
             --github-output "$GITHUB_OUTPUT"
 
+      - name: Pause Data packets scheduler when UAT activation is off
+        id: pause-drive-groups
+        if: always() && !cancelled() && inputs.preserve_paused_drive_worker != true && vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED != 'true' && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true' && steps.deploy-drive-worker.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          snapshot=/tmp/uat-drive-v1-before-groups.json
+          python3 deploy/drive/v1_scheduler_state.py capture-if-present --stage groups --snapshot "${snapshot}"
+          if ! python3 deploy/drive/v1_scheduler_state.py quarantine --stage groups; then
+            python3 deploy/drive/v1_scheduler_state.py restore --stage groups --snapshot "${snapshot}"
+            exit 1
+          fi
+
       - name: Deploy isolated V1 Drive worker while legacy jobs stay paused
         id: deploy-drive-v1-worker
-        if: always() && !cancelled() && inputs.preserve_paused_drive_worker == true && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true' && steps.verify-paused-drive-maintenance.outcome == 'success' && steps.activate-account-deletion.outcome == 'success' && steps.activate-personal-gmail-monitor.outcome == 'success' && steps.activate-pwm-notifications.outcome == 'success'
+        if: always() && !cancelled() && (inputs.preserve_paused_drive_worker == true || vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED == 'true') && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true' && (inputs.preserve_paused_drive_worker != true || steps.verify-paused-drive-maintenance.outcome == 'success') && (inputs.preserve_paused_drive_worker == true || steps.deploy-drive-worker.outcome == 'success') && steps.activate-account-deletion.outcome == 'success' && steps.activate-personal-gmail-monitor.outcome == 'success' && steps.activate-pwm-notifications.outcome == 'success'
         shell: bash
         env:
           DRIVE_WORK_DRAIN_ENABLED: ${{ vars.DRIVE_V1_WORK_DRAIN_UAT_ENABLED || 'true' }}
+          DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED: ${{ vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED || 'false' }}
           IMAGE_REFERENCE: ${{ steps.build-backend-image.outputs.image_reference }}
           DEPLOY_SHA: ${{ steps.resolve-sha.outputs.sha }}
           RUNTIME_SERVICE_ACCOUNT: ${{ env.RUNTIME_SERVICE_ACCOUNT }}
@@ -3079,7 +3130,7 @@ jobs:
 
       - name: Restore backend after Drive worker failure
         id: rollback-backend-after-drive-worker
-        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && ((inputs.preserve_paused_drive_worker == true && (steps.verify-paused-drive-maintenance.outcome != 'success' || steps.deploy-drive-v1-worker.outcome != 'success' || steps.verify-paused-drive-after-v1.outcome != 'success')) || (inputs.preserve_paused_drive_worker != true && steps.deploy-drive-worker.outcome != 'success')) && steps.scope.outputs.deploy_backend == 'true' && steps.rollback-targets.outputs.backend_revision != ''
+        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && ((inputs.preserve_paused_drive_worker == true && (steps.verify-paused-drive-maintenance.outcome != 'success' || steps.deploy-drive-v1-worker.outcome != 'success' || steps.verify-paused-drive-after-v1.outcome != 'success')) || (inputs.preserve_paused_drive_worker != true && (steps.deploy-drive-worker.outcome != 'success' || (vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED != 'true' && steps.pause-drive-groups.outcome != 'success'))) || (vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED == 'true' && steps.deploy-drive-v1-worker.outcome != 'success')) && steps.scope.outputs.deploy_backend == 'true' && steps.rollback-targets.outputs.backend_revision != ''
         shell: bash
         env:
           PREDEPLOY_DB_GATE_OUTCOME: ${{ steps.predeploy-db-gate.outcome }}
@@ -3090,7 +3141,7 @@ jobs:
 
       - name: Verify isolated V1 lane rollback after failed rollout
         id: verify-drive-v1-worker-rollback
-        if: always() && inputs.preserve_paused_drive_worker == true && steps.deploy-drive-v1-worker.outcome == 'failure' && steps.scope.outputs.deploy_backend == 'true'
+        if: always() && (inputs.preserve_paused_drive_worker == true || vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED == 'true') && steps.deploy-drive-v1-worker.outcome == 'failure' && steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -3103,7 +3154,7 @@ jobs:
 
       - name: Restore frontend after Drive worker failure
         id: rollback-frontend-after-drive-worker
-        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && ((inputs.preserve_paused_drive_worker == true && (steps.verify-paused-drive-maintenance.outcome != 'success' || steps.deploy-drive-v1-worker.outcome != 'success' || steps.verify-paused-drive-after-v1.outcome != 'success')) || (inputs.preserve_paused_drive_worker != true && steps.deploy-drive-worker.outcome != 'success')) && steps.scope.outputs.deploy_backend == 'true' && steps.scope.outputs.deploy_frontend == 'true' && steps.rollback-targets.outputs.frontend_revision != ''
+        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && ((inputs.preserve_paused_drive_worker == true && (steps.verify-paused-drive-maintenance.outcome != 'success' || steps.deploy-drive-v1-worker.outcome != 'success' || steps.verify-paused-drive-after-v1.outcome != 'success')) || (inputs.preserve_paused_drive_worker != true && (steps.deploy-drive-worker.outcome != 'success' || (vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED != 'true' && steps.pause-drive-groups.outcome != 'success'))) || (vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED == 'true' && steps.deploy-drive-v1-worker.outcome != 'success')) && steps.scope.outputs.deploy_backend == 'true' && steps.scope.outputs.deploy_frontend == 'true' && steps.rollback-targets.outputs.frontend_revision != ''
         shell: bash
         env:
           PREDEPLOY_DB_GATE_OUTCOME: ${{ steps.predeploy-db-gate.outcome }}
@@ -3225,6 +3276,17 @@ jobs:
           elif [ "${{ steps.deploy-drive-worker.outcome }}" = "success" ]; then
             DRIVE_WORKER_GATE_SUCCESS=true
           fi
+          if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
+             && [ "${{ vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED || 'false' }}" = "true" ] \
+             && [ "${{ steps.deploy-drive-v1-worker.outcome }}" != "success" ]; then
+            DRIVE_WORKER_GATE_SUCCESS=false
+          fi
+          if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
+             && [ "${{ inputs.preserve_paused_drive_worker }}" != "true" ] \
+             && [ "${{ vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED || 'false' }}" != "true" ] \
+             && [ "${{ steps.pause-drive-groups.outcome }}" != "success" ]; then
+            DRIVE_WORKER_GATE_SUCCESS=false
+          fi
 
           if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
              && [ "$DRIVE_WORKER_GATE_SUCCESS" != true ]; then
@@ -3249,7 +3311,7 @@ jobs:
           if [ "${{ inputs.preserve_paused_drive_worker }}" = "true" ] \
              && [ "${{ steps.scope.outputs.deploy_backend }}" != "true" ]; then
             STATUS="blocked"
-          elif [ "${{ steps.classify-uat-release.outputs.release_failed }}" != "true" ]; then
+          elif [ "${{ steps.classify-uat-release.outputs.release_failed }}" = "false" ]; then
             if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
                && { [ "${{ steps.activate-account-deletion.outcome }}" != "success" ] \
                  || [ "${{ steps.activate-personal-gmail-monitor.outcome }}" != "success" ] \
@@ -3327,6 +3389,7 @@ jobs:
                   "lanes": json.loads(os.environ.get("VERIFICATION_PLAN_LANES") or "{}"),
                   "pkm_evaluator_runs": "${{ steps.verification-plan.outputs.pkm_evaluator_runs }}",
                   "pkm_upgrade_gate_required": "${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}",
+                  "pkm_preservation_outcome": "${{ steps.verify-pkm-preservation.outcome }}",
                   "reviewer_byok_required": "${{ steps.verification-plan.outputs.run_reviewer_byok }}",
                   "parity_attempt_1": "${{ steps.verify-parity-1.outcome }}",
                   "parity_attempt_2": "${{ steps.verify-parity-2.outcome }}",
@@ -3377,8 +3440,28 @@ jobs:
                   "frontend_image_wait": "${{ steps.build-frontend-image.outputs.wait_seconds || '0' }}",
               },
           }
+          predecessor = Path("/tmp/uat-predecessor-acceptance.json")
+          payload["predecessor_acceptance"] = (
+              json.loads(predecessor.read_text(encoding="utf-8")) if predecessor.exists() else None
+          )
           Path("/tmp/uat-release-status.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
           PY
+
+      - name: Produce exact-SHA UAT acceptance
+        if: always()
+        run: |
+          python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" create \
+            --environment uat --status /tmp/uat-release-status.json \
+            --predecessor /tmp/uat-predecessor-acceptance.json \
+            --output /tmp/uat-acceptance/acceptance.json
+
+      - name: Upload immutable UAT acceptance
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-acceptance-uat-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/uat-acceptance/acceptance.json
+          if-no-files-found: ignore
 
       - name: Cancel an unused parallel frontend image build
         # Hygiene only: a release that stopped before the frontend deploy leaves
@@ -3408,6 +3491,7 @@ jobs:
           name: uat-release-${{ github.run_id }}
           if-no-files-found: ignore
           path: |
+            /tmp/uat-predecessor-acceptance.json
             /tmp/uat-runtime-secret-sync.json
             /tmp/uat-frontend-runtime-secret-sync.json
             /tmp/uat-runtime-parity-attempt-1.json
@@ -3423,6 +3507,7 @@ jobs:
             /tmp/uat-frontend-image-manifest.json
             /tmp/uat-backend-candidate.json
             /tmp/uat-backend-candidate-readiness.json
+            /tmp/uat-managed-provider-readiness.json
             /tmp/uat-backend-candidate-health.json
             /tmp/uat-backend-promoted-service.json
             /tmp/uat-account-deletion-fence-install.log
@@ -3489,7 +3574,12 @@ jobs:
             # Degradation is reported next to the status, not buried in the JSON.
             # A release that deployed correctly while a provider was down must be
             # readable as exactly that -- neither a clean success nor a failure.
-            degraded_capabilities="$(python3 -c "import json; from pathlib import Path; print(','.join(json.loads(Path('/tmp/uat-release-status.json').read_text(encoding='utf-8')).get('dependency_health', {}).get('degraded_capabilities') or []))" 2>/dev/null || true)"
+            # Read from the CLASSIFICATION file, which is the only one that has
+            # ever carried `dependency_health`. This read pointed at the status
+            # file, whose payload has no such key, so `.get(...)` always returned
+            # {} and the branch below always printed "healthy" -- a banner that
+            # said the same thing whether or not a capability was down.
+            degraded_capabilities="$(python3 -c "import json; from pathlib import Path; print(','.join(json.loads(Path('/tmp/uat-release-classification.json').read_text(encoding='utf-8')).get('dependency_health', {}).get('degraded_capabilities') or []))" 2>/dev/null || true)"
             if [[ -n "${degraded_capabilities}" ]]; then
               echo "- **Dependency health: DEGRADED**"
               echo "- Degraded capabilities: \`${degraded_capabilities}\`"

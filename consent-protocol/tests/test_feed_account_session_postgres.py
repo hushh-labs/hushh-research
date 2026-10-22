@@ -63,14 +63,15 @@ def feed_db():
                   metadata JSONB NOT NULL DEFAULT '{}'::jsonb, source_row_id TEXT,
                   read_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
                 CREATE TABLE messages(id UUID PRIMARY KEY, conversation_id UUID,
-                  sender_user_id TEXT);
+                  sender_user_id TEXT, deleted_for_recipient_at TIMESTAMPTZ,
+                  deleted_for_everyone_at TIMESTAMPTZ);
                 CREATE TABLE conversations(id UUID PRIMARY KEY, participant_a_user_id TEXT,
                   participant_b_user_id TEXT);
                 CREATE TABLE drive_share_requests(request_id UUID PRIMARY KEY, user_id TEXT,
                   recipient_user_id TEXT, status TEXT, expires_at TIMESTAMPTZ,
                   access_stop_requested_at TIMESTAMPTZ, payment_required BOOLEAN,
                   settlement_method TEXT, preparation_error_code TEXT,
-                  quoted_amount_cents BIGINT);
+                  quoted_amount_cents BIGINT, existing_access_waived_at TIMESTAMPTZ);
                 CREATE TABLE drive_request_payment_orders(request_id UUID PRIMARY KEY,
                   stripe_mode TEXT, status TEXT, stripe_checkout_session_id TEXT,
                   stripe_checkout_expires_at TIMESTAMPTZ, amount_cents BIGINT,
@@ -292,11 +293,14 @@ def test_removed_items_stay_gone_per_account_and_leave_with_the_account(feed_db)
 
     # A new account with the same email starts with an empty Feed.
     fresh = session(feed_db)
-    assert fresh.list_feed(OWNER_SIGNED_UP_AGAIN) == {
+    fresh_page = fresh.list_feed(OWNER_SIGNED_UP_AGAIN)
+    revision = fresh_page.pop("history_revision")
+    assert fresh_page == {
         "items": [],
         "next_cursor": None,
         "unread_count": 0,
     }
+    assert isinstance(revision, str) and len(revision) == 32
     assert fresh.list_feed(OWNER)["items"] == []
 
 

@@ -1,10 +1,49 @@
 import XCTest
 import SwiftUI
-import WebKit
 import Capacitor
+import WebKit
 @testable import App
 
 final class NativeSupportTests: XCTestCase {
+    func testSandboxConnectorReturnNeedsDebugIdentityAndExactBuildPin() {
+        let pin = "https://scope-commerce-preview-123.us-central1.run.app"
+        let callback = pin + "/one/profile/connectors/oauth/return?code=synthetic&state=synthetic"
+        let policy = ScopeCommerceSandboxOAuthPolicy.self
+        XCTAssertTrue(policy.admits(URL(string: callback)!, pin: pin, bundleID: policy.bundleID, isDebug: true))
+        XCTAssertFalse(policy.admits(URL(string: callback)!, pin: pin, bundleID: policy.bundleID, isDebug: false))
+        XCTAssertFalse(policy.admits(URL(string: callback)!, pin: pin, bundleID: "com.hushh.app", isDebug: true))
+        for badPin: String? in [nil, "https://one.hushh.ai", "https://other.run.app", pin + "/", pin + ":443"] {
+            XCTAssertFalse(policy.admits(URL(string: callback)!, pin: badPin, bundleID: policy.bundleID, isDebug: true))
+        }
+        for badReturn in ["https://other.run.app/one/profile/connectors/oauth/return", pin + "/one/profile/account", pin + "/one/profile/connectors/oauth/return#token", pin + "/%6fne/profile/connectors/oauth/return"] {
+            XCTAssertFalse(policy.admits(URL(string: badReturn)!, pin: pin, bundleID: policy.bundleID, isDebug: true))
+        }
+    }
+
+    func testReviewerCredentialsRequireExplicitTestModeAndEnvironment() {
+        let environment = [
+            "HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE": "synthetic-passphrase",
+            "HUSHH_UI_TEST_REVIEWER_UID": "synthetic-reviewer",
+        ]
+        let ordinary = NativeTestConfiguration(arguments: ["App"], environment: environment)
+        XCTAssertNil(ordinary.vaultPassphrase)
+        XCTAssertNil(ordinary.expectedUserId)
+
+        let legacy = NativeTestConfiguration(arguments: [
+            "App", "-UITestMode",
+            "-UITestVaultPassphrase", "legacy-secret",
+            "-UITestExpectedUserId", "legacy-reviewer",
+        ], environment: [:])
+        XCTAssertNil(legacy.vaultPassphrase)
+        XCTAssertNil(legacy.expectedUserId)
+
+        let audit = NativeTestConfiguration(
+            arguments: ["App", "-UITestMode"], environment: environment
+        )
+        XCTAssertEqual(audit.vaultPassphrase, "synthetic-passphrase")
+        XCTAssertEqual(audit.expectedUserId, "synthetic-reviewer")
+    }
+
     @MainActor
     func testRouteBodyRetainsItsOwnerAndEditorWhileRejectingRetiredOrRepeatedActions() throws {
         func projection(sequence: Int = 1, ack: Int = 0, name: String = "Synthetic Circle") throws -> NativeWorkspaceProjection {
@@ -303,11 +342,11 @@ final class NativeSupportTests: XCTestCase {
     }
 
     private func publicNameScene(update: Int = 1, ack: Int = 0, draft: String = "Public Example",
-                                 appearance: String = "light") -> NativeProfileNameProjection {
+                                 appearance: String = "light", scene: String = "account-name", destination: String? = nil) -> NativeProfileNameProjection {
         NativeProfileNameProjection(documentId: "public-name-document", ownerEpoch: "public-name-owner", ownerGeneration: 1,
-            revision: 1, family: "profile", scene: "account-name", updateSequence: update, privacyGeneration: 0,
+            revision: 1, family: "profile", scene: scene, updateSequence: update, privacyGeneration: 0,
             draftRevision: update, acknowledgedEditRevision: ack, draft: draft, canSave: true, busy: false,
-            error: "Public validation sample", appearance: appearance, accentHex: "#007aff", foregroundHex: "#808080")
+            error: "Public validation sample", appearance: appearance, accentHex: "#007aff", foregroundHex: "#808080", destinationId: destination)
     }
     @MainActor
     func testNativeVaultPasswordWaitsForTheFinalPairAndScrubsBeforeRetirement() {
@@ -351,6 +390,9 @@ final class NativeSupportTests: XCTestCase {
                 draftRevision: update, acknowledgedEditRevision: ack, draft: NativeWorldModelDraft(text: ack == 0 ? "Public example" : "Public corrected example"),
                 canSave: true, busy: false, error: "Public validation example", appearance: update == 1 ? "light" : "dark", accentHex: "#007AFF", foregroundHex: "#111111")
         }
+        let profile = NativeWorldModelDraft(urls: "https://public.example/profile", permitted: true)
+        XCTAssertTrue(profile.valid("world-model-public-profiles"))
+        XCTAssertFalse(NativeWorldModelDraft(text: "Wrong payload").valid("world-model-public-profiles"))
         let model = NativeWorldModelFormModel(state(1, 0)), editor = UITextView()
         model.register(editor); model.edit = { _, _, _ in true }; model.choose = { _ in true }
         editor.text = "Public corrected example"; model.capture(editor, field: "text")
@@ -478,6 +520,12 @@ final class NativeSupportTests: XCTestCase {
 
     @MainActor
     func testOrdinaryNameSceneRequiresAnAcknowledgedEditAndOneConfirmedSave() throws {
+        let handle = publicNameScene(draft: "public-handle", scene: "referral-handle", destination: "public-referral-visit")
+        XCTAssertTrue(handle.valid)
+        XCTAssertFalse(publicNameScene(scene: "referral-handle").valid)
+        XCTAssertFalse(publicNameScene(draft: String(repeating: "x", count: 33), scene: "referral-handle", destination: "public-referral-visit").valid)
+        let handleModel = NativeProfileNameModel(handle)
+        XCTAssertFalse(handleModel.update(publicNameScene(update: 2, destination: "public-referral-visit")), "A handle scene cannot become an Account writer")
         let model = NativeProfileNameModel(publicNameScene())
         let field = UITextField()
         model.editor = field
@@ -563,7 +611,7 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(Set(NativeProfileArtwork.ids).count, NativeProfileArtwork.ids.count)
         let originalArtwork: Set<String> = ["gemini", "connector-gmail", "connector-google-drive",
             "connector-calendar", "connector-hubspot", "connector-instagram", "connector-linkedin"]
-        let accentedArtwork: Set<String> = ["account", "payouts", "request-pricing", "my-data", "world-model",
+        let accentedArtwork: Set<String> = ["hosting", "software-updates", "account", "payouts", "request-pricing", "my-data", "world-model",
             "preferences", "security", "devices", "connectors", "invite", "support", "privacy", "terms", "sign-out",
             "account-name", "account-mail", "account-phone", "account-wallet", "account-reset", "vault-methods", "vault-password", "appearance", "accent", "voice",
             "payout-receipt", "payout-warning", "payout-progress", "payout-review"]
@@ -580,6 +628,8 @@ final class NativeSupportTests: XCTestCase {
         }
         XCTAssertEqual(NativeProfileArtwork.resolve("style-name")?.colorHex, "#2563EB",
             "Unrelated capability artwork keeps its authored treatment")
+        XCTAssertEqual(NativeProfileArtwork.resolve("vault-password")?.accentColorHex?.lowercased(), "#007aff")
+        XCTAssertNil(NativeProfileArtwork.resolve("account")?.accentColorHex, "Ordinary accent details follow the selected app accent")
         XCTAssertNotNil(NativeProfileArtwork.resolve("gemini"))
         XCTAssertNil(NativeProfileArtwork.resolve("privacy")?.colorHex, "Semantic foreground stays theme-aware")
         XCTAssertNil(NativeProfileArtwork.resolve("../../private"))
@@ -776,6 +826,23 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(try projected(["trailing": String(repeating: "x", count: 33)]).valid)
     }
 
+    func testConfirmedReferralCopyIsOneShotAndCannotBorrowAnotherRowOrPrivacyGeneration() throws {
+        let row = NativeDrawerRow(id: "referral-copy", label: "Copy", detail: nil, symbol: nil, enabled: true,
+            destructive: nil, selected: nil, pending: nil)
+        let state = privateDrawerState(sampleRow: row)
+        var lease = NativeDrawerLease()
+        XCTAssertTrue(lease.apply(state))
+        let sequence = try XCTUnwrap(lease.emit(action: "row", row: row.id, state: state))
+        XCTAssertFalse(lease.consumeConfirmedRowEffect(identity: state.identity, update: 1, privacy: 0, sequence: sequence, interaction: 1, row: row.id))
+        XCTAssertTrue(lease.confirm(identity: state.identity, update: 1, privacy: 0, sequence: sequence, interaction: 1, action: "row", row: row.id, allowed: true))
+        XCTAssertFalse(lease.consumeConfirmedRowEffect(identity: state.identity, update: 1, privacy: 1, sequence: sequence, interaction: 1, row: row.id))
+        XCTAssertFalse(lease.consumeConfirmedRowEffect(identity: state.identity, update: 1, privacy: 0, sequence: sequence, interaction: 1, row: "another-row"))
+        XCTAssertTrue(lease.consumeConfirmedRowEffect(identity: state.identity, update: 1, privacy: 0, sequence: sequence, interaction: 1, row: row.id))
+        XCTAssertFalse(lease.consumeConfirmedRowEffect(identity: state.identity, update: 1, privacy: 0, sequence: sequence, interaction: 1, row: row.id))
+        XCTAssertTrue(lease.settle(identity: state.identity, privacy: 0, sequence: sequence, success: true))
+    }
+
+    @MainActor
     func testPrivateNativeDrawerRejectsStaleOwnersAndConsumesOnlyEmittedChoices() {
         var lease = NativeDrawerLease()
         let state = privateDrawerState()
@@ -817,10 +884,37 @@ final class NativeSupportTests: XCTestCase {
         var moving = NativeDrawerLease()
         XCTAssertTrue(moving.apply(state))
         let emitted = try! XCTUnwrap(moving.emit(action: "row", row: "row-handle", state: state))
+        var crossedPrivacy = moving
         moving.invalidateInteractions()
         XCTAssertFalse(moving.confirm(identity: state.identity, update: 1, privacy: 0, sequence: emitted,
             interaction: 1, action: "row", row: "row-handle", allowed: true),
             "A closing drag invalidates a pending row action even before React updates")
+        XCTAssertFalse(moving.settle(identity: state.identity, privacy: 0, sequence: emitted, success: true),
+            "Cancelling presentation never confirms or authorizes the operation")
+        XCTAssertFalse(moving.settle(identity: state.identity, privacy: 1, sequence: emitted, success: false))
+        let wrongOwner = NativeDrawerIdentity(documentId: state.documentId, ownerEpoch: "another-owner",
+            ownerGeneration: state.ownerGeneration, revision: state.revision, family: state.family)
+        XCTAssertFalse(moving.settle(identity: wrongOwner, privacy: 0, sequence: emitted, success: false))
+        var nextPrivacy = moving
+        let newPrivacy = privateDrawerState(update: 2, privacy: 1)
+        XCTAssertTrue(nextPrivacy.apply(newPrivacy))
+        XCTAssertFalse(nextPrivacy.settle(identity: state.identity, privacy: 1, sequence: emitted, success: false),
+            "A cancellation from an older privacy generation is not current bookkeeping")
+        XCTAssertTrue(crossedPrivacy.apply(newPrivacy))
+        crossedPrivacy.invalidateInteractions()
+        XCTAssertFalse(crossedPrivacy.settle(identity: state.identity, privacy: 1, sequence: emitted, success: false),
+            "Invalidation cannot relabel an old emitted choice with a new privacy generation")
+        XCTAssertTrue(moving.settle(identity: state.identity, privacy: 0, sequence: emitted, success: false),
+            "An exact cancelled intent must acknowledge absence without quarantining the whole pane")
+        XCTAssertFalse(moving.settle(identity: state.identity, privacy: 0, sequence: emitted, success: false),
+            "Cancellation acknowledgement is consumed once")
+        let nextSequence = try! XCTUnwrap(moving.emit(action: "row", row: "row-handle", state: state))
+        let currentModel = NativeDrawerModel(state)
+        currentModel.pendingSequence = nextSequence
+        currentModel.choicePending = true
+        currentModel.settle(sequence: emitted, success: false)
+        XCTAssertEqual(currentModel.pendingSequence, nextSequence)
+        XCTAssertTrue(currentModel.choicePending, "An old cancellation cannot clear a newer choice")
         var cancelledPreparation = NativeDrawerLease()
         XCTAssertTrue(cancelledPreparation.retire(state.identity))
         XCTAssertFalse(cancelledPreparation.apply(state), "A lost apply cannot resurrect a cancelled private body")
@@ -2598,12 +2692,14 @@ final class NativeSupportTests: XCTestCase {
     #endif
 
     @MainActor
-    func testNativeChromeKeepsKeyboardFenceUntilCurrentDismissalCompletes() {
+    func testNativeChromeKeepsKeyboardFenceUntilCurrentDismissalCompletes() async {
         let plugin = HushhNativeChromePlugin()
         plugin.load()
         let ready = expectation(description: "Native lifecycle observers registered")
         DispatchQueue.main.async { ready.fulfill() }
-        wait(for: [ready], timeout: 1)
+        // load() registers on the main queue. Yield the actor so registration
+        // can complete before asserting the synchronous keyboard fence.
+        await fulfillment(of: [ready], timeout: 1)
         #if DEBUG
         let invalidations = plugin.presentationInvalidations
         #endif
@@ -2696,6 +2792,7 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertNil(HushhNativeControlAppearance(appearance: "system", accentHex: "#123456", foregroundHex: "#445566"))
         XCTAssertNil(HushhNativeControlAppearance(appearance: "light", accentHex: nil, foregroundHex: "#445566"))
     }
+
     func testNativeChromeLeaseRejectsStaleOwnerDocumentAndDuplicateChoices() {
         var state = HushhNativeChromeState()
         let first = HushhNativeChromeState.Identity(document: "a", ownerEpoch: "owner-a", revision: 1)
@@ -2886,6 +2983,78 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(state.acceptsTap("chat", appIsActive: false, shielded: false, keyboardVisible: false))
         XCTAssertFalse(state.acceptsTap("chat", appIsActive: true, shielded: true, keyboardVisible: false))
         XCTAssertFalse(state.acceptsTap("chat", appIsActive: true, shielded: false, keyboardVisible: true))
+    }
+    @MainActor
+    func testNativeNavigationConsumesTheShellColumnWithPaddingAndOneSafeArea() throws {
+        for width: CGFloat in [320, 393, 430, 862] {
+            let host = UIView(frame: CGRect(x: 0, y: 0, width: width, height: 844))
+            let web = UIView(frame: host.bounds)
+            host.addSubview(web)
+            let bar = UITabBar()
+            host.addSubview(bar)
+            let columnWidth = min(width - 32, 768)
+            let left = (width - columnWidth) / 2
+            let column = try XCTUnwrap(HushhNativeNavigationColumn(projection: [
+                "x": Double(left), "width": Double(columnWidth), "contentHeight": 64.0, "viewportWidth": Double(width),
+            ]))
+            for bottom: CGFloat in [0, 21, 34] {
+                bar.frame = try XCTUnwrap(column.frame(in: host, webView: web, bottomInset: bottom))
+                bar.layoutIfNeeded()
+                XCTAssertEqual(bar.frame.minX, left, accuracy: 0.5)
+                XCTAssertEqual(bar.frame.width, columnWidth, accuracy: 0.5)
+                XCTAssertEqual(bar.frame.height - bottom, 64, accuracy: 0.5)
+                XCTAssertGreaterThanOrEqual(bar.frame.height - bottom - 49, 15)
+                XCTAssertEqual(bar.frame.maxY, host.bounds.maxY, accuracy: 0.5)
+            }
+            // Native layout/foreground/tap boundaries revalidate the same
+            // projection while a resize is ahead of the WebView's next update.
+            host.bounds.size.width = 200
+            XCTAssertNil(column.frame(in: host, webView: web, bottomInset: 34))
+        }
+        for malformed: JSObject in [
+            ["x": -1, "width": 361, "contentHeight": 64, "viewportWidth": 393],
+            ["x": 16, "width": 393, "contentHeight": 64, "viewportWidth": 393],
+            ["x": 16, "width": 361, "contentHeight": 200, "viewportWidth": 393],
+            ["x": 16, "width": Double.nan, "contentHeight": 64, "viewportWidth": 393],
+        ] { XCTAssertNil(HushhNativeNavigationColumn(projection: malformed)) }
+    }
+
+    @MainActor
+    func testNativePublicPreferencePresentationKeepsTheValueInItsControl() throws {
+        guard #available(iOS 17.0, *) else {
+            XCTAssertTrue(HushhNativePreferencePresentation.families.isEmpty); return
+        }
+        XCTAssertEqual(HushhNativePreferencePresentation.families(for: .phone), ["appearance", "accent"])
+        XCTAssertFalse(HushhNativePreferencePresentation.families.contains("agent-surface"))
+        let theme = try XCTUnwrap(HushhNativeControlAppearance(appearance: "light", accentHex: "#007aff", foregroundHex: "#222222"))
+        let focus = ChromeFocusRequest()
+        for kind in ["appearance", "accent"] {
+            XCTAssertTrue(HushhNativePreferencePresentation.admitsWidth(172, kind: kind))
+            XCTAssertFalse(HushhNativePreferencePresentation.admitsWidth(120, kind: kind))
+            XCTAssertFalse(HushhNativePreferencePresentation.admitsWidth(321, kind: kind))
+            let control = try XCTUnwrap(HushhNativePreferencePresentation.control(kind: kind, value: kind == "accent" ? "gold" : "system", width: 172, theme: theme, focus: focus, select: { _ in }, open: {}, layout: { _ in }))
+            let controller = UIHostingController(rootView: control)
+            controller.loadViewIfNeeded()
+            controller.view.frame = CGRect(x: 0, y: 0, width: 172, height: 44)
+            controller.view.layoutIfNeeded()
+            XCTAssertEqual(controller.sizeThatFits(in: CGSize(width: 172, height: 44)), CGSize(width: 172, height: 44))
+        }
+    }
+    @MainActor
+    func testNativePublicPreferenceHostAdmissionSupportsPhoneAndPadOnly() {
+        guard #available(iOS 17.0, *) else {
+            XCTAssertTrue(HushhNativePreferencePresentation.families.isEmpty); return
+        }
+        let phoneFamilies = ["appearance", "accent"]
+        XCTAssertEqual(HushhNativePreferencePresentation.families(for: .phone), phoneFamilies)
+        XCTAssertEqual(HushhNativePreferencePresentation.families(for: .pad), phoneFamilies)
+        for idiom in [UIUserInterfaceIdiom.unspecified, .tv, .carPlay, .mac] {
+            XCTAssertTrue(HushhNativePreferencePresentation.families(for: idiom).isEmpty)
+        }
+        XCTAssertFalse(phoneFamilies.contains("back"))
+        XCTAssertFalse(phoneFamilies.contains("agent-surface"))
+        let expected = [UIUserInterfaceIdiom.phone, .pad].contains(UIDevice.current.userInterfaceIdiom) ? phoneFamilies : []
+        XCTAssertEqual(HushhNativePreferencePresentation.families, expected)
     }
     func testGoogleReauthenticationAcceptsEachStageExactlyOnce() {
         let fence = GoogleIdentityReauthenticationFence(expectedUserID: "a", now: 100)
@@ -3353,8 +3522,15 @@ final class NativeSupportTests: XCTestCase {
     }
 
     @MainActor
-    func testPrivacyReleasePublishesTheCurrentStateToAllConsumers() {
-        let shield = HushhSessionPrivacyShield.shared
+    func testPrivacyReleasePublishesTheCurrentStateToAllConsumers() async throws {
+        let shield = HushhSessionPrivacyShield()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
+        let parent = UIViewController()
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = parent
+        window.makeKeyAndVisible()
+        shield.attach(to: parent.view)
         let document = "public-privacy-release-\(UUID().uuidString)"
         shield.observeDocument(document)
         let previous = shield.onStateChanged
@@ -3370,26 +3546,195 @@ final class NativeSupportTests: XCTestCase {
         defer {
             shield.onStateChanged = previous
             NotificationCenter.default.removeObserver(observer)
+            window.isHidden = true
+            window.rootViewController = nil
+            if let host = previousWindow?.rootViewController?.view { shield.attach(to: host) }
+            previousWindow?.makeKeyAndVisible()
+        }
+        func release(_ generation: Int, documentId: String? = nil, active: Bool = true,
+                     sessionRevision: Int? = nil, compositionRevision: Int? = nil, preparationId: String? = nil) async -> Bool {
+            let done = expectation(description: "Bounded release callback")
+            var result = false
+            shield.completeSessionValidation(generation: generation, documentId: documentId ?? document,
+                appIsActive: active, sessionRevision: sessionRevision, compositionRevision: compositionRevision,
+                preparationId: preparationId) {
+                result = $0; done.fulfill()
+            }
+            await fulfillment(of: [done], timeout: 2)
+            return result
         }
         shield.protectForAppInactive()
         shield.markAppActive()
         let generation = shield.snapshot().generation
         let retirement = shield.beginPresentationRetirement()
-        XCTAssertFalse(shield.completeSessionValidation(generation: generation, documentId: document, appIsActive: true))
+        let blockedByRetirement = await release(generation)
+        XCTAssertFalse(blockedByRetirement)
         shield.completePresentationRetirement(retirement)
-        XCTAssertFalse(shield.completeSessionValidation(generation: generation - 1, documentId: document, appIsActive: true))
-        XCTAssertFalse(shield.completeSessionValidation(generation: generation, documentId: document, appIsActive: false))
-        XCTAssertFalse(shield.completeSessionValidation(generation: generation, documentId: "unobserved-document", appIsActive: true))
+        let stale = await release(generation - 1)
+        let inactive = await release(generation, active: false)
+        let unobserved = await release(generation, documentId: "unobserved-document")
+        XCTAssertFalse(stale)
+        XCTAssertFalse(inactive)
+        XCTAssertFalse(unobserved)
         XCTAssertTrue(releasedStates.isEmpty)
         XCTAssertEqual(nativeReleases, 0)
-        XCTAssertTrue(shield.completeSessionValidation(generation: generation, documentId: document, appIsActive: true))
+        let finished = expectation(description: "Actual privacy cover disappearance")
+        var released: Bool?
+        shield.completeSessionValidation(generation: generation, documentId: document, appIsActive: true) {
+            released = $0; finished.fulfill()
+        }
+        XCTAssertTrue(shield.snapshot().shielded, "Animation admission is not disappearance")
+        XCTAssertNil(released)
+        XCTAssertEqual(nativeReleases, 0, "Actions must stay disabled throughout the fade")
+        let cover = try XCTUnwrap(window.subviews.first { $0.accessibilityIdentifier == HushhSessionPrivacyShield.accessibilityIdentifier })
+        XCTAssertEqual(cover.alpha, 1, "Only the visual child fades; the full-window touch blocker stays opaque to hit testing")
+        for point in [CGPoint(x: 5, y: 5), CGPoint(x: window.bounds.midX, y: window.bounds.midY),
+                      CGPoint(x: window.bounds.maxX - 5, y: window.bounds.maxY - 5)] {
+            let hit = window.hitTest(point, with: nil)
+            XCTAssertTrue(hit === cover || hit?.isDescendant(of: cover) == true,
+                "The visual fade must never expose underlying touch targets")
+        }
+        await fulfillment(of: [finished], timeout: 2)
+        XCTAssertEqual(released, true)
+        XCTAssertFalse(window.subviews.contains { $0.accessibilityIdentifier == HushhSessionPrivacyShield.accessibilityIdentifier })
         XCTAssertEqual(releasedStates.count, 1, "A Promise receipt alone does not release subscribed presentation consumers")
         XCTAssertEqual(nativeReleases, 1)
         XCTAssertEqual(releasedStates.first?.generation, generation)
         XCTAssertEqual(releasedStates.first?.appIsActive, true)
-        XCTAssertFalse(shield.completeSessionValidation(generation: generation, documentId: document, appIsActive: true))
+        let duplicate = await release(generation)
+        XCTAssertFalse(duplicate)
         XCTAssertEqual(releasedStates.count, 1, "Repeated acknowledgements must not publish another release")
         XCTAssertEqual(nativeReleases, 1)
+
+        // Negative control: a fresh inactive cycle must cancel a release that
+        // was admitted earlier, including its delayed animation completion.
+        shield.protectForAppInactive(); shield.markAppActive()
+        let interrupted = expectation(description: "Interrupted release is refused")
+        var interruptedResult: Bool?
+        shield.completeSessionValidation(generation: shield.snapshot().generation, documentId: document, appIsActive: true) {
+            interruptedResult = $0; interrupted.fulfill()
+        }
+        shield.protectForAppInactive()
+        await fulfillment(of: [interrupted], timeout: 2)
+        XCTAssertEqual(interruptedResult, false)
+        XCTAssertTrue(shield.snapshot().shielded)
+        XCTAssertEqual(nativeReleases, 1)
+        shield.markAppActive()
+        let recovered = await release(shield.snapshot().generation)
+        XCTAssertTrue(recovered)
+        XCTAssertEqual(nativeReleases, 2)
+
+        shield.protectForAppInactive(); shield.markAppActive()
+        let cancelledByPopup = expectation(description: "Popup retirement cancels release once")
+        var cancelledByPopupResult: Bool?
+        shield.completeSessionValidation(generation: shield.snapshot().generation, documentId: document, appIsActive: true) {
+            cancelledByPopupResult = $0; cancelledByPopup.fulfill()
+        }
+        let popup = shield.beginPresentationRetirement()
+        await fulfillment(of: [cancelledByPopup], timeout: 2)
+        XCTAssertEqual(cancelledByPopupResult, false)
+        XCTAssertTrue(shield.snapshot().shielded)
+        let recoveryVisible = expectation(description: "Interrupted release preserves the native escape path")
+        DispatchQueue.main.asyncAfter(deadline: .now() + HushhSessionPrivacyShield.recoveryDelay + 0.1) {
+            let recovery = window.subviews.flatMap(\.subviews).flatMap(\.subviews)
+                .first { $0.accessibilityIdentifier == "session-privacy-recovery" }
+            XCTAssertEqual(recovery?.isHidden, false)
+            recoveryVisible.fulfill()
+        }
+        await fulfillment(of: [recoveryVisible], timeout: HushhSessionPrivacyShield.recoveryDelay + 2)
+        shield.completePresentationRetirement(popup)
+        let afterPopup = await release(shield.snapshot().generation)
+        XCTAssertTrue(afterPopup)
+        XCTAssertEqual(nativeReleases, 3)
+        // Parent completion alone is not proof of its required editor. The
+        // readiness closure here is the transaction port; Drawers supplies
+        // actual controller/window/layout and form-completion checks.
+        shield.protectForAppInactive(); shield.markAppActive()
+        let preparedGeneration = shield.snapshot().generation
+        shield.requireProfilePreparation()
+        let generationOnly = await release(preparedGeneration)
+        XCTAssertFalse(generationOnly, "A generation-only receipt cannot bypass a required Profile composition")
+        XCTAssertTrue(shield.authorizePreparation(document: document, generation: preparedGeneration,
+            sessionRevision: 1, profile: true, compositionRevision: 1, visitId: "public-account-visit", formScene: "account-name"))
+        let target = NativeProfilePreparationTarget(documentId: document, ownerEpoch: "public-owner", ownerGeneration: 1,
+            revision: 1, updateSequence: 1, privacyGeneration: preparedGeneration, visitId: "public-account-visit",
+            destinationId: "public-account", supportDestinationId: nil, formScene: "account-name")
+        var completeComposition = false
+        let preparationId = try XCTUnwrap(shield.beginProfilePreparation(target) { completeComposition })
+        let missingFormTarget = NativeProfilePreparationTarget(documentId: document, ownerEpoch: "public-owner", ownerGeneration: 1,
+            revision: 1, updateSequence: 1, privacyGeneration: preparedGeneration, visitId: "public-account-visit",
+            destinationId: "public-account", supportDestinationId: nil, formScene: nil)
+        XCTAssertNil(shield.beginProfilePreparation(missingFormTarget) { true })
+        XCTAssertEqual(shield.snapshot().profilePreparationId, preparationId, "A rejected target must leave the current ticket untouched")
+        XCTAssertFalse(shield.authorizePreparation(document: document, generation: preparedGeneration,
+            sessionRevision: 0, profile: false, compositionRevision: 2, visitId: nil, formScene: nil))
+        XCTAssertFalse(shield.authorizePreparation(document: document, generation: preparedGeneration,
+            sessionRevision: 1, profile: false, compositionRevision: 1, visitId: nil, formScene: nil))
+        XCTAssertTrue(shield.snapshot().shielded, "Preparation grants layout, never interaction")
+        XCTAssertFalse(shield.acceptsPreparedForm(target.identity, scene: "phone", destination: "public-account", privacy: preparedGeneration))
+        let missingEditor = await release(preparedGeneration, sessionRevision: 1, compositionRevision: 1, preparationId: preparationId)
+        XCTAssertFalse(missingEditor)
+        completeComposition = true
+        let staleComposition = await release(preparedGeneration, sessionRevision: 1, compositionRevision: 0, preparationId: preparationId)
+        XCTAssertFalse(staleComposition)
+        let interruptedPreparation = expectation(description: "A changed composition cancels its fade")
+        shield.completeSessionValidation(generation: preparedGeneration, documentId: document, appIsActive: true,
+            sessionRevision: 1, compositionRevision: 1, preparationId: preparationId) { released in
+            XCTAssertFalse(released); interruptedPreparation.fulfill()
+        }
+        XCTAssertTrue(shield.authorizePreparation(document: document, generation: preparedGeneration,
+            sessionRevision: 1, profile: false, compositionRevision: 2, visitId: nil, formScene: nil))
+        await fulfillment(of: [interruptedPreparation], timeout: 2)
+        XCTAssertTrue(shield.snapshot().shielded)
+        let staleTicket = await release(preparedGeneration, sessionRevision: 1, compositionRevision: 2, preparationId: preparationId)
+        XCTAssertFalse(staleTicket)
+        let safeGate = await release(preparedGeneration, sessionRevision: 1, compositionRevision: 2)
+        XCTAssertTrue(safeGate, "The committed safe gate supersedes private preparation without operation replay")
+
+        // A rich exception is one complete React pane. Neither its acquired
+        // paint plane nor a stale body receipt can release window privacy.
+        shield.protectForAppInactive(); shield.markAppActive()
+        let paneGeneration = shield.snapshot().generation
+        let previousConcealment = shield.profilePresentationsConcealed
+        var menuGone = false
+        var paneLaidOut = false
+        shield.profilePresentationsConcealed = { menuGone }
+        defer { shield.profilePresentationsConcealed = previousConcealment }
+        XCTAssertTrue(shield.authorizePreparation(document: document, generation: paneGeneration,
+            sessionRevision: 1, profile: true, compositionRevision: 3, visitId: "public-rich-visit", formScene: nil, body: "pane"))
+        let pane = NativeContentPaneIdentity(document: document, ownerEpoch: "public-pane-owner", generation: 1,
+            privacyGeneration: paneGeneration)
+        XCTAssertFalse(shield.canPrepareProfilePane(pane, visit: "public-stale-visit"))
+        XCTAssertTrue(shield.beginProfilePanePreparation(pane, visit: "public-rich-visit", viewport: window.bounds.size) { paneLaidOut })
+        let paneTicket = try XCTUnwrap(shield.snapshot().profilePreparationId)
+        XCTAssertFalse(shield.confirmProfilePanePreparation(pane, visit: "public-rich-visit", id: paneTicket))
+        paneLaidOut = true
+        XCTAssertFalse(shield.confirmProfilePanePreparation(pane, visit: "public-rich-visit", id: paneTicket))
+        menuGone = true
+        let unpainted = await release(paneGeneration, sessionRevision: 1, compositionRevision: 3, preparationId: paneTicket)
+        XCTAssertFalse(unpainted)
+        XCTAssertFalse(shield.confirmProfilePanePreparation(pane, visit: "public-rich-visit", id: "public-stale-ticket"))
+        XCTAssertTrue(shield.confirmProfilePanePreparation(pane, visit: "public-rich-visit", id: paneTicket))
+        XCTAssertTrue(shield.snapshot().shielded)
+        let withdrawn = expectation(description: "Pane withdrawal cancels its fade immediately")
+        shield.completeSessionValidation(generation: paneGeneration, documentId: document, appIsActive: true,
+            sessionRevision: 1, compositionRevision: 3, preparationId: paneTicket) {
+            XCTAssertFalse($0); withdrawn.fulfill()
+        }
+        shield.retireProfilePanePreparation(pane)
+        await fulfillment(of: [withdrawn], timeout: 2)
+        XCTAssertTrue(shield.snapshot().shielded)
+        XCTAssertTrue(shield.beginProfilePanePreparation(pane, visit: "public-rich-visit", viewport: window.bounds.size) { true })
+        let beforeRotation = try XCTUnwrap(shield.snapshot().profilePreparationId)
+        XCTAssertTrue(shield.confirmProfilePanePreparation(pane, visit: "public-rich-visit", id: beforeRotation))
+        let rotated = CGSize(width: window.bounds.height, height: window.bounds.width)
+        XCTAssertTrue(shield.beginProfilePanePreparation(pane, visit: "public-rich-visit", viewport: rotated) { true })
+        let afterRotation = try XCTUnwrap(shield.snapshot().profilePreparationId)
+        XCTAssertNotEqual(beforeRotation, afterRotation)
+        XCTAssertFalse(shield.confirmProfilePanePreparation(pane, visit: "public-rich-visit", id: beforeRotation))
+        XCTAssertTrue(shield.confirmProfilePanePreparation(pane, visit: "public-rich-visit", id: afterRotation))
+        let painted = await release(paneGeneration, sessionRevision: 1, compositionRevision: 3, preparationId: afterRotation)
+        XCTAssertTrue(painted)
     }
 
     func testPrivacyCannotUncoverBeforeEveryOwnedPresenterRetires() {

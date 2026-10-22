@@ -375,6 +375,32 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
         self.assertEqual(next_release["phase"], "pre-deploy")
         self.assertEqual(next_release["projected_connections"], 372)
         self.assertFalse(next_release["admitted"])
+        bridge = budget.evaluate(profile, "production", inventory, maintenance_profile="serving_backend_clone_v1")
+        self.assertEqual(bridge["projected_connections"], 300)
+        self.assertTrue(bridge["admitted"])
+        self.assertEqual(next(row["connections"] for row in bridge["services"] if row["name"] == "consent-protocol:new-candidate"), 8)
+        self.assertEqual(next(row["connections"] for row in bridge["services"] if row["name"] == "consent-protocol-drive-worker:new-candidate"), 6)
+        recovering = copy.deepcopy(inventory)
+        failed = copy.deepcopy(revisions[0])
+        failed["metadata"]["name"] = "consent-protocol-failed-bridge"
+        failed["metadata"]["annotations"]["autoscaling.knative.dev/maxScale"] = "1"
+        failed["spec"]["containers"][0]["env"][0]["value"] = "2"
+        failed["spec"]["containers"][0]["env"][1]["value"] = "2"
+        recovering["services"]["consent-protocol"]["revisions"].append(failed)
+        recovery = budget.evaluate(profile, "production", recovering, maintenance_profile="serving_backend_clone_v2")
+        self.assertEqual(recovery["projected_connections"], 300)
+        self.assertTrue(recovery["admitted"])
+        self.assertEqual(next(row["connections"] for row in recovery["services"] if row["name"] == "consent-protocol:new-candidate"), 6)
+        self.assertFalse(any(row["name"] == "consent-protocol-drive-worker:new-candidate" for row in recovery["services"]))
+        self.assertEqual(budget.evaluate(profile, "production", recovering)["projected_connections"], 380)
+        with self.assertRaises(budget.BudgetError):
+            budget.evaluate(profile, "production", recovering, maintenance_profile="serving_backend_clone_v2", candidate_services=frozenset())
+        with self.assertRaises(budget.BudgetError):
+            budget.evaluate(profile, "production", inventory, maintenance_profile="serving_backend_clone_v1", candidate_services=frozenset({"consent-protocol"}))
+        altered = copy.deepcopy(profile)
+        altered["environments"]["production"]["maintenance_candidates"]["serving_backend_clone_v1"]["candidate"]["max_instances"] = 2
+        with self.assertRaises(budget.BudgetError):
+            budget.evaluate(altered, "production", inventory, maintenance_profile="serving_backend_clone_v1")
         current = budget.evaluate(
             profile, "production", inventory, phase="post-release"
         )

@@ -1,49 +1,12 @@
-"""One statement of what each nearby-place category MEANS.
+"""Provider-type taxonomy shared by check-in discovery and category filters.
 
-Reported, with a screenshot, from Prayagraj: tapping the check-in drawer's
-"Hotels" chip listed a lounge, a construction firm and two lodges. The question
-that came with it is the one this module exists to answer -- "sabhi
-categorization ke liye strict rules / definition hain hamare paas?" -- together
-with a hard requirement that no place may be silently skipped.
+Every requestable venue type has one chip; unknown types remain reachable in
+More. Precise types beat umbrella types. Hotel eligibility requires an explicit
+commercial accommodation type: generic lodging and apartment listings are Stays.
+Cafe types have their own chip. Names are never used to guess a classification.
 
-WHAT WAS ACTUALLY WRONG
-
-Not what it looked like. The drawer's row subtitle is Google's own
-``primaryTypeDisplayName``, so a row reading "Lodging" proves Google itself
-reports ``lodging`` as that place's primary type. Two of the five rows were
-therefore correct and only worded badly -- in India a "Residency" and a "lodge"
-ARE places you pay to sleep in. What was genuinely wrong was three things:
-
-1. A place carrying BOTH a precise type and a vague one was filed under both.
-   A lounge that Google also tags ``lodging`` appeared under Hotels, because
-   every matching type voted equally. See `place_categories`.
-2. The table was 52 hand-picked types out of Table A's ~500. Anything outside
-   it -- a temple, a mosque, a police station, a cinema, a stadium -- matched no
-   category at all and vanished the moment any chip was tapped. In a pilgrimage
-   city that is a bigger hole than the lounge.
-3. "Hotels" contained campsites and mobile-home parks, which are not a room for
-   the night.
-
-THE RULES, IN ONE PLACE
-
-* Every Table A type Google can return belongs to EXACTLY ONE chip. The
-  partition is checked at import time (`_build_chip_index` raises on a type
-  claimed twice) and asserted exhaustively by the tests.
-* A place is classified by WHAT IT IS, never by which request surfaced it.
-* A precise type always beats a vague one. `_VAGUE_TYPES` are the umbrella
-  buckets Google hangs whole families off; they decide a place's category only
-  when nothing precise is known about it.
-* A place that matches nothing is `other`, which is a real, visible chip. This
-  function cannot return an empty list, which is what makes "nothing is
-  skipped" a property rather than a hope.
-
-Pure: no I/O, no clock, no provider call. `google_maps_service` owns the
-requests; this module owns the meaning.
-
-Table A and Table B were transcribed verbatim from
+Google Table A/B types were transcribed on 2026-08-31 from:
 https://developers.google.com/maps/documentation/places/web-service/place-types
-on 2026-08-31. Regenerate from that page when Google adds types; the
-exhaustiveness test fails loudly rather than letting a new type go missing.
 """
 
 from __future__ import annotations
@@ -617,17 +580,15 @@ TABLE_A_TYPES: frozenset[str] = frozenset(
 # The chips
 # ---------------------------------------------------------------------------
 
-#: Somewhere you can pay to sleep for the night.
-#:
-#: The Lodging family minus the four that are not a room: a campsite, a camping
-#: cabin and an RV park are leisure, and a mobile-home park is somewhere people
-#: live. `lodging` itself stays -- it is Google's word for a small guest house or
-#: lodge, which genuinely is a place to stay, and dropping it would hide most of
-#: India's budget accommodation.
+#: Explicit commercial accommodation. Generic lodging is not proof of a hotel:
+#: Google also uses it for the apartment rentals in the reported regression.
+_CHIP_STAYS = ("lodging", "cottage", "farmstay", "private_guest_room")
+_CHIP_CAFES = ("cafe", "coffee_shop", "coffee_stand", "tea_house", "cat_cafe", "dog_cafe")
 _CHIP_HOTELS = tuple(
     place_type
     for place_type in FAMILY_LODGING
-    if place_type not in {"campground", "camping_cabin", "rv_park", "mobile_home_park"}
+    if place_type
+    not in {*_CHIP_STAYS, "campground", "camping_cabin", "rv_park", "mobile_home_park"}
 )
 
 #: Google's Automotive family splits across two chips by what you are there to
@@ -674,7 +635,8 @@ _CHIP_OTHER = (
 #: Insertion order is the order chips render, and `place_categories` returns in
 #: this order, so a place in two chips reads the same way everywhere.
 CHIP_TYPES: dict[str, tuple[str, ...]] = {
-    "food_drink": FAMILY_FOOD_DRINK,
+    "food_drink": tuple(t for t in FAMILY_FOOD_DRINK if t not in _CHIP_CAFES),
+    "cafes": _CHIP_CAFES,
     "health": FAMILY_HEALTH,
     "shopping_services": (
         *FAMILY_SHOPPING,
@@ -683,12 +645,13 @@ CHIP_TYPES: dict[str, tuple[str, ...]] = {
         *_AUTOMOTIVE_RETAIL,
     ),
     "hotels_stays": _CHIP_HOTELS,
+    "other_stays": (*_CHIP_STAYS, *FAMILY_HOUSING),
     "education": FAMILY_EDUCATION,
     "outdoors_landmarks": _CHIP_LEISURE,
     "transit": (*FAMILY_TRANSPORT, *_AUTOMOTIVE_TRANSPORT),
     "worship": FAMILY_WORSHIP,
     "civic": FAMILY_GOVERNMENT,
-    "other": _CHIP_OTHER,
+    "other": tuple(t for t in _CHIP_OTHER if t not in FAMILY_HOUSING),
 }
 
 #: The chip a place lands in when nothing else claims it. A real chip, not a
@@ -764,8 +727,7 @@ def place_categories(place_types: list[str] | tuple[str, ...]) -> list[str]:
 
     Precise beats vague: a venue reported as both `lounge_bar` and `lodging` is
     food and drink, not a hotel. Only when a place has nothing precise does an
-    umbrella type decide it, which is how a small guest house Google knows only
-    as `lodging` still reaches the Hotels chip.
+    umbrella type decide it. Generic `lodging` reaches Stays, never Hotels.
 
     A place nothing claims is `other`, so every row the drawer shows is
     reachable from some chip.

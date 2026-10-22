@@ -7,7 +7,7 @@ Cloud Run deployment runbook.
 ## Release authority
 
 Use the canonical
-[Admin merge and release SOP](../.codex/skills/repo-operations/references/admin-release-sop.md)
+[Admin merge and release SOP](../.agents/skills/repo-operations/references/admin-release-sop.md)
 for merge queue, explicit Admin PR landing, exact-SHA UAT/production dispatch,
 monitoring, evidence, rollback, and branch restoration.
 
@@ -49,6 +49,18 @@ Selection runs before entering the UAT environment, so this no-op
 creates no deployment record, builds, traffic changes, or release tag updates.
 Unknown deployment state and unavailable or failed gates still block selection.
 An explicit SHA continues through the existing exact-SHA deployment validator.
+
+UAT keeps the backend's maximum concurrency at 20 and sets
+`_CLOUD_RUN_SCALING_CONCURRENCY_TARGET=0.20`. The default 60% target seeks about
+12 concurrent requests per instance, while one Feed worker admits only six
+streams. A 20% target requests earlier scaling at about four average concurrent
+requests, preserving shared ingress headroom for Profile, auth and Voice.
+The six-stream worker cap, three-stream owner cap, five-instance limit and DB
+pool budgets remain enforced. This utilization target cannot eliminate burst
+or maximum-capacity refusals; genuine saturation still returns 503 with its
+retry delay. The optional Cloud Build substitution defaults empty for other
+lanes, preserving their existing scaling target. See the
+[Cloud Run scaling controls contract](https://docs.cloud.google.com/run/docs/configuring/scaling-controls).
 
 For the One chat external Vertex cutover, including its pre-vault intro head,
 the reviewed deploy-uat-one-chat.yml workflow updates the existing consent-protocol service
@@ -119,6 +131,11 @@ healthy UAT release's frontend after verifying both against live revision
 provenance. A UAT run that passed every release gate and failed solely while
 retiring old tags may use its healthy artifact after job and live revision
 provenance checks. Other failed deployments and no-op runs grant no cleanup authority.
+Retried UAT releases can retain duplicate artifact names. Cleanup resolves these
+only through the current run attempt and its unique successful upload step, then
+verifies the immutable artifact ID and archive digest. Unproven or ambiguous
+attempts remain blocked; existing release health and live provenance checks still apply.
+
 Maintenance runs hourly or by explicit governed manual request; no deployment
 event starts it. GitHub delivered only 3-6 of the 24 daily runs of its former
 minute-17 cron on 2026-10-12..14, so **Capacity Maintenance Clock** is now its only
@@ -196,6 +213,77 @@ deployment. Actual over-budget capacity remains blocking in both phases.
 Manual Cloud Run changes outside governed releases require an explicit maintenance
 dispatch; the settled-receipt optimization does not claim to detect those changes.
 
+### Fixed production capacity bridge
+
+When the serving, latest-created and rollback-protected backend revisions consume
+the next release's admission budget, a governed operator may dispatch the existing
+maintenance workflow with `environment=production`, the verified healthy serving
+`healthy_release_run_id`, `apply=true` and `production_capacity_bridge=true`.
+Scheduled passes and UAT cannot create this bridge. Both source checks force a
+fresh inspection, and mutation still holds the production deployment lock.
+
+The fixed `serving_backend_clone_v2` profile creates one zero-traffic revision
+from the reviewed healthy image digest, preserving its runtime identity, bindings
+and service controls. It uses one instance, one explicit Gunicorn worker,
+asyncpg maximum four and SQLAlchemy pool two without overflow: six connections.
+The frozen image hardcodes two workers in its shell CMD, so `WEB_CONCURRENCY=1`
+alone is insufficient. The explicit direct launcher preserves `server:app`,
+Gunicorn configuration, Uvicorn worker class, 120-second timeout, eight-second
+graceful timeout and port 8080. An unreviewed image or source launcher is rejected.
+
+V1's two-slot async pool could not boot this frozen application: consent and
+referral listeners each retain one slot, leaving none for mandatory market-cache
+startup. V2 preserves the known healthy async ceiling and leaves two slots beyond
+those listeners. The failed v1 remains counted at eight; it is not called healthy.
+For three retained 80-connection backends, creation admission is
+`240 + failed-v1 8 + v2 6 + readiness 16 + reserve 30 = 300`.
+Only this fixed maintenance operation omits a hypothetical worker candidate,
+because it creates no worker revision. Every existing worker, revision and job
+still counts. Ordinary application release admission remains unchanged.
+
+The operation supports the verified source's `latest` secret selectors only.
+It pins enabled numeric versions after verifying that every version since source
+creation has the same value. Changed, disabled, missing or ambiguous history
+blocks creation. Payload comparisons happen only in memory; receipts contain
+numeric resource names and evidence flags, never payloads or payload digests.
+Source/service drift before mutation or configuration drift afterwards also blocks
+completion. The clone may execute the existing runtime's background work; zero
+traffic is not a promise of zero database writes.
+
+Before the provider request, `completed.json.capacity_bridge` records durable
+intent. A timeout never authorizes another create: a later pass observes only
+that exact deterministic revision. Explicit manual v2 recovery may supersede
+the unresolved v1 only after observing its exact deterministic revision and
+verifying its frozen image, pins, configuration, eight-connection bound, unchanged
+service controls and zero positive traffic. Enabled numeric pins are rechecked.
+The predecessor must remain latest-created, but may be unready while Cloud Run
+keeps the serving revision latest-ready. This observation does not establish
+health; the successor still requires provider readiness and HTTP verification.
+The complete original intent is retained as predecessor evidence, explicitly
+observed unhealthy. Durable successor intent records both identities before
+provider submission; an absent or mismatched predecessor cannot authorize creation.
+Until successor readiness, frozen configuration,
+unchanged positive traffic, HTTP health and connection admission are proven,
+the receipt blocks conflicting deployment. The temporary health tag is removed
+by ordinary retention. A verified rerun accepts its removal without recreating
+the revision. The former latest revision and failed v1 are deleted only through
+the existing 3,660-second drain and ordinary protection checks. Serving `00268`
+and recovery `00265` remain protected. After those deletions,
+`160 + v2 6 + backend candidate 80 + worker candidate 6 + readiness 16 + reserve 30 = 298`
+admits the ordinary backend release. A verified successor resolves creation
+uncertainty through the explicit link; it never relabels v1 healthy.
+
+If creation fails or its provider outcome is uncertain, preserve the checkpoint
+and all protected revisions. Reconcile via maintenance before another deployment;
+do not delete the bridge or a recovery anchor, shorten drainage, rewrite serving
+traffic, increase the connection limit, or retry creation blindly. A failed latest
+revision can require operator investigation before live readiness is provable.
+A failed v2 has no room for another automatic recovery candidate. Preserve its
+intent and stop creation attempts rather than broadening the profile or budget.
+This is maintenance evidence, not a healthy application release or permission
+to promote the clone. An ordinary release and its existing rollback contract
+remain responsible for application rollout.
+
 ## What lives here
 
 | Path | Purpose |
@@ -247,26 +335,43 @@ Every hosted deployment must prove:
 
 The UAT expensive-lane selector is
 `scripts/ci/resolve-uat-verification-plan.py`. It alone decides when PKM upgrade
-rehearsal or reviewer BYOK proof is required. Paid candidate evaluation and
-Gemini/Vertex generation probes require UAT's explicit
-`run_live_model_checks=true` dispatch input; changed paths and unknown comparison
-bases never opt in. Backend Cloud Build generation probes also default off for
-production/direct builds (`_VERIFY_MANAGED_VERTEX_RUNTIME=false`). An omitted
-model check is recorded as skipped, not passed. When explicitly selected, the
-structure-agent evaluator is warning-only and does not authorize rollback by
-itself; preservation, provenance, schema, runtime and semantic authority remain
-blocking. Product journeys may still exercise their own model/readiness calls.
+rehearsal or reviewer BYOK proof is required. Paid candidate PKM evaluation and RIA live-model checks retain the explicit
+`run_live_model_checks=true` dispatch input. UAT backend releases always run
+synthetic Azure and Vertex provider checks from the exact candidate image and
+runtime identity, in parallel. A provider passes only when its full application
+capability bundle passes: structured and streamed text, image and PDF inputs,
+public search citations, exact public source retrieval, Location transcription
+and semantics, isolated narration, Live audio with function results and input
+transcription, and compatible embeddings. The required aggregate accepts either
+complete provider (or both), preferring Azure; neither passing blocks promotion.
+The API and both Drive workers must bind the same selected provider. UAT remains
+held until Azure has a verified replacement for every declared capability.
 
-Each selected managed Vertex probe requires a usable provider response. A
-transport timeout or retryable provider status permits one recovery attempt
-against the same model, project and identity, paced by the existing 30-second
-start interval. Permission, schema and billing failures are not retried.
-All targets run before optional recovery. A 330-second sequence budget includes
-the command rehearsal and leaves startup/receipt headroom inside the unchanged
-420-second job limit. A recovery that cannot fit is recorded as not dispatched,
-retaining the original failure. Attempt verdicts and durations remain in the
-redacted diagnostic receipt; exhaustion still fails readiness. Per-call deadlines
-and the release admission rules are unchanged.
+Azure's canonical PWM schema and six-case attribution evaluation remain
+independent safety checks. An explicit identity, attribution or schema violation
+blocks release even when the alternate provider succeeds. The terminal receipt
+carries a closed trust-failure flag so log-ingestion order cannot erase a failure.
+The execution-bound aggregate is uploaded as `uat-managed-provider-readiness.json`.
+Search citations identify received provider sources; they do not imply fresh
+page retrieval. Exact public-page review uses the existing public-network fence.
+
+The selected UAT Azure adapters use workload federation rather than stored keys.
+Live input is resampled from the existing 16 kHz client contract to 24 kHz Azure
+PCM; output remains 24 kHz. Playback acknowledgements come from the player clock
+and fence interrupted context. Older Voice clients use the same selected
+processor. Without playback acknowledgements, an in-flight interruption truncates output
+at zero and may discard already-heard context. Completed generated turns remain
+in conversation history for ordinary follow-ups; completion is not proof of playback.
+No transcript is replayed to another provider. BYOK and non-UAT processor selection retain
+their existing contracts. Local E5 Drive/action embeddings are unchanged. The
+768-dimensional Location prototype separates cache generations by model and
+processor; this migration does not activate it or backfill a production index.
+
+The older SHA-bound one-time exception remains separately guarded. Its legacy
+text-only receipts do not satisfy this release's complete-capability gate.
+Provenance, IAM, authorization, schemas, preservation and candidate health remain
+mandatory. A diagnostic source-overlay job is useful during development, but
+only the immutable candidate image qualifies a release.
 
 ## Read-only operator diagnostics
 
@@ -274,7 +379,7 @@ Read-only inspection is allowed when it does not mutate runtime state. Prefer
 workflow artifacts, then use repository helpers such as:
 
 ```bash
-python3 .codex/skills/uat-scoped-deploy/scripts/cloud_run_service_evidence.py \
+python3 .agents/skills/uat-scoped-deploy/scripts/cloud_run_service_evidence.py \
   --project hushh-pda-uat \
   --service hushh-webapp \
   --service consent-protocol \

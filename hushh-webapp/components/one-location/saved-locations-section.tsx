@@ -10,6 +10,7 @@ import {
   Pencil,
   RefreshCw,
   ShieldCheck,
+  Star,
   Trash2,
 } from "@/components/icons";
 import { toast } from "sonner";
@@ -25,6 +26,7 @@ import {
   duplicateSavedLocationMessage,
   DuplicateSavedLocationError,
   findDuplicateSavedLocation,
+  favoriteSavedLocation,
   loadSavedLocations,
   removeSavedLocation,
   sortSavedLocationsForDisplay,
@@ -52,6 +54,7 @@ import { useOneLocationControlState } from "@/lib/one-location/use-location-cont
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { takeReservedOfferPrefill } from "@/lib/pkm/reserved-offer";
+import { splitCheckInPlaceLabel } from "@/lib/one-location/check-in-place-label";
 
 function CategoryIcon({ category }: { category: SavedLocationCategory }) {
   const config: {
@@ -62,7 +65,7 @@ function CategoryIcon({ category }: { category: SavedLocationCategory }) {
     ? { Icon: Home, bg: "bg-[color:var(--app-accent)]", fg: "text-white" }
     : category === "work"
       ? { Icon: Briefcase, bg: "bg-[color:var(--app-warning)]", fg: "text-white" }
-      : { Icon: MapPin, bg: "bg-transparent", fg: "text-[#0071E3]" };
+      : { Icon: MapPin, bg: "bg-transparent", fg: "text-[color:var(--app-accent-deep)]" };
   return (
     <span
       className={cn(
@@ -100,6 +103,11 @@ export function SavedLocationsSection() {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [favoritingId, setFavoritingId] = useState<string | null>(null);
+  const [resolvedAddresses, setResolvedAddresses] = useState<
+    Record<string, string | null>
+  >({});
+  const addressLookupsRef = useRef(new Set<string>());
   // One row open at a time: this is a short list a person scans, not a set of
   // panels they compare, and several open rows push the rest off the screen.
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -142,6 +150,8 @@ export function SavedLocationsSection() {
   // satisfy the react-hooks/refs rule.
   useEffect(() => {
     vaultSessionRef.current = { userId, vaultKey, vaultOwnerToken };
+    addressLookupsRef.current.clear();
+    setResolvedAddresses({});
   }, [userId, vaultKey, vaultOwnerToken]);
 
   useEffect(() => {
@@ -228,6 +238,47 @@ export function SavedLocationsSection() {
     if (hasVaultAccess) void reload();
   }, [hasVaultAccess, pkmChangeRevision, reload]);
 
+  // Legacy checkout saves omitted addresses. Resolve them on load, rather than
+  // requiring a row click. These read-only results stay in the vault session.
+  useEffect(() => {
+    if (!hasVaultAccess || !userId || !vaultOwnerToken || loadedUserId !== userId) return;
+    const session = { userId, vaultKey, vaultOwnerToken };
+    const pending = locations.filter((location) => {
+      if (location.address || (location.savedFrom !== "check_in" && !location.placeName)) return false;
+      const key = `${location.id}:${location.latitude}:${location.longitude}`;
+      if (addressLookupsRef.current.has(key)) return false;
+      addressLookupsRef.current.add(key);
+      return true;
+    });
+    // Bound provider traffic even when an owner has many older check-ins.
+    const resolve = async () => {
+      for (let location = pending.shift(); location; location = pending.shift()) {
+        if (!isCurrentVaultSession(session)) return;
+        try {
+          const place = await OneLocationService.reverseGeocode({
+            vaultOwnerToken,
+            lat: location.latitude,
+            lng: location.longitude,
+          });
+          const address = place.formattedAddress?.trim();
+          if (!address) addressLookupsRef.current.delete(`${location.id}:${location.latitude}:${location.longitude}`);
+          if (isCurrentVaultSession(session)) {
+            const id = location.id;
+            setResolvedAddresses((current) => ({ ...current, [id]: address || null }));
+          }
+        } catch {
+          // The saved label's address remains visible if provider recovery fails.
+          addressLookupsRef.current.delete(`${location.id}:${location.latitude}:${location.longitude}`);
+          if (isCurrentVaultSession(session)) {
+            const id = location.id;
+            setResolvedAddresses((current) => ({ ...current, [id]: null }));
+          }
+        }
+      }
+    };
+    void Promise.all([resolve(), resolve(), resolve()]);
+  }, [hasVaultAccess, isCurrentVaultSession, loadedUserId, locations, userId, vaultKey, vaultOwnerToken]);
+
   useEffect(() => {
     if (!hasVaultAccess) return;
     const reconcile = () => {
@@ -279,6 +330,7 @@ export function SavedLocationsSection() {
     setSaveLocationSaving(false);
     setCapturing(false);
     setRemovingId(null);
+    setFavoritingId(null);
     setRepairingId(null);
     setLoading(false);
   }, [hasVaultAccess]);
@@ -579,6 +631,23 @@ export function SavedLocationsSection() {
     [isCurrentVaultSession, removingId, userId, vaultKey, vaultOwnerToken],
   );
 
+  const handleFavorite = async (location: SavedLocation) => {
+    if (!hasVaultAccess || !userId || !vaultKey || !vaultOwnerToken || favoritingId) return;
+    setFavoritingId(location.id);
+    const session = { userId, vaultKey, vaultOwnerToken };
+    try {
+      const next = await favoriteSavedLocation({ context: session, id: location.id });
+      if (!isCurrentVaultSession(session)) return;
+      setLocations(sortSavedLocationsForDisplay(next));
+      setExpandedId(null);
+      toast.success("Added to favorites.");
+    } catch {
+      if (isCurrentVaultSession(session)) toast.error("Couldn't add to favorites. Try again.");
+    } finally {
+      if (isCurrentVaultSession(session)) setFavoritingId(null);
+    }
+  };
+
   const handleRepairAddress = useCallback(
     async (location: SavedLocation) => {
       if (!userId || !vaultKey || !vaultOwnerToken || repairingId) return;
@@ -777,6 +846,19 @@ export function SavedLocationsSection() {
               ) : (
                 group.locations.map((location, index) => {
                   const expanded = expandedId === location.id;
+                  const checkedIn = location.savedFrom === "check_in";
+                  const venue = checkedIn || location.placeName
+                    ? splitCheckInPlaceLabel(location.label)
+                    : null;
+                  const name = location.category === "other"
+                    ? location.placeName || venue?.name || location.label
+                    : location.label;
+                  const address = location.address || resolvedAddresses[location.id] || venue?.address;
+                  const findingAddress = !address && (checkedIn || location.placeName) && resolvedAddresses[location.id] === undefined;
+                  const dateValue = location.checkedInAt || location.savedAt;
+                  const visitDate = checkedIn && Number.isFinite(Date.parse(dateValue))
+                    ? new Date(dateValue)
+                    : null;
                   return (
                     <div
                       key={location.id}
@@ -797,12 +879,23 @@ export function SavedLocationsSection() {
                         <CategoryIcon category={location.category} />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-[17px] font-normal leading-[22px] text-foreground">
-                            {location.label}
+                            {name}
                           </p>
-                          <p className="mt-0.5 truncate text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
-                            {location.address || "Address unavailable"}
+                          <p className={cn("mt-0.5 text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]", checkedIn ? "break-words" : "truncate")}>
+                            {address || (findingAddress ? "Finding address…" : "Address unavailable")}
                           </p>
                         </div>
+                        {visitDate ? (
+                          <time
+                            dateTime={dateValue}
+                            title={`${location.checkedInAt ? "Checked in" : "Saved"} on ${visitDate.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}`}
+                            className="shrink-0 self-start pt-0.5 text-right text-[12px] leading-[18px] tabular-nums text-[color:var(--app-secondary-label)]"
+                          >
+                            {!location.checkedInAt ? <span className="block">Saved</span> : null}
+                            {visitDate.toLocaleDateString(undefined, { day: "numeric", month: "short" })}
+                            <span className="block">{visitDate.getFullYear()}</span>
+                          </time>
+                        ) : null}
                         <ChevronRight
                           className="h-4 w-4 shrink-0 text-[color:var(--app-tertiary-label)] transition-transform duration-150"
                           strokeWidth={1.9}
@@ -811,8 +904,8 @@ export function SavedLocationsSection() {
                       </button>
 
                       {expanded ? (
-                        <div className="flex items-center gap-2 px-4 pb-3 pl-[60px]">
-                          {!location.address ? (
+                        <div className="flex flex-wrap items-center gap-2 px-4 pb-3 pl-[60px]">
+                          {!location.address && (resolvedAddresses[location.id] === null || (!address && !findingAddress)) ? (
                             <button
                               type="button"
                               onClick={() => void handleRepairAddress(location)}
@@ -830,7 +923,17 @@ export function SavedLocationsSection() {
                               Find address
                             </button>
                           ) : null}
-                          <button
+                          {checkedIn ? (
+                            <button
+                              type="button"
+                              onClick={() => void handleFavorite(location)}
+                              disabled={favoritingId !== null || removingId !== null}
+                              className="press-scale inline-flex min-h-11 items-center gap-1.5 rounded-full bg-foreground/[0.05] px-3 text-[13px] font-semibold text-foreground disabled:opacity-45"
+                            >
+                              {favoritingId === location.id ? <Loader2 className="h-[15px] w-[15px] animate-spin" aria-hidden /> : <Star className="h-[15px] w-[15px]" aria-hidden />}
+                              Add to favorites
+                            </button>
+                          ) : <button
                             type="button"
                             onClick={() => handleEditSavedLocation(location)}
                             disabled={
@@ -847,11 +950,11 @@ export function SavedLocationsSection() {
                               aria-hidden
                             />
                             Edit
-                          </button>
+                          </button>}
                           <button
                             type="button"
                             onClick={() => void handleRemove(location.id)}
-                            disabled={removingId !== null}
+                            disabled={removingId !== null || favoritingId !== null}
                             className="press-scale inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/10 disabled:opacity-45"
                           >
                             {removingId === location.id ? (
@@ -909,7 +1012,7 @@ export function SavedLocationsSection() {
 
         initialCustomLabel={
           editingLocation?.category === "other"
-            ? editingLocation.label
+            ? editingLocation.placeName || editingLocation.label
             : !editingLocation && offerPrefill?.category === "other"
               ? offerPrefill.label
               : null

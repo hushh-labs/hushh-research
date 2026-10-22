@@ -191,6 +191,9 @@ export function requireCompletedRelease(result, runId) {
 }
 
 export function buildDispatchInputs(opts, sha) {
+  if ((opts.submit || opts.releaseAfterApproval) && opts.backend !== "production") {
+    throw new Error("Public App Store submission requires a production backend; legacy UAT customer transition must be verified before publication.");
+  }
   const inputs = { sha, backend_target: opts.backend, dry_run: String(opts.dryRun), submit_for_review: String(opts.submit), release_after_approval: String(opts.releaseAfterApproval) };
   if (opts.marketingVersion) inputs.marketing_version = parseMarketingVersion(opts.marketingVersion);
   if (opts.whatsNew) inputs.whats_new = opts.whatsNew;

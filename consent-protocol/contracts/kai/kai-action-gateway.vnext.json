@@ -8,15 +8,18 @@
     "hushh-webapp/app/one/connect/page.voice-action-contract.json",
     "hushh-webapp/app/one/connected-systems/[systemId]/page.voice-action-contract.json",
     "hushh-webapp/app/one/email/page.voice-action-contract.json",
+    "hushh-webapp/app/one/files/page.voice-action-contract.json",
     "hushh-webapp/app/one/gmail/page.voice-action-contract.json",
     "hushh-webapp/app/one/kai/analysis/page.voice-action-contract.json",
     "hushh-webapp/app/one/location/page.voice-action-contract.json",
     "hushh-webapp/app/one/messages/page.voice-action-contract.json",
     "hushh-webapp/app/one/page.voice-action-contract.json",
+    "hushh-webapp/app/one/pkm/page.voice-action-contract.json",
     "hushh-webapp/app/one/profile/page.voice-action-contract.json",
     "hushh-webapp/app/one/profile/world-model/page.voice-action-contract.json",
     "hushh-webapp/app/one/puppy/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/calendar/page.voice-action-contract.json",
+    "hushh-webapp/app/one/setup/cloud/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/connected-systems/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/connections/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/email/page.voice-action-contract.json",
@@ -39,6 +42,7 @@
     "hushh-webapp/app/ria/requests/page.voice-action-contract.json",
     "hushh-webapp/app/ria/settings/page.voice-action-contract.json",
     "hushh-webapp/app/ria/workspace/page.voice-action-contract.json",
+    "hushh-webapp/components/account/marketing-preference-panel.voice-action-contract.json",
     "hushh-webapp/components/agent/specialist-turns.voice-action-contract.json",
     "hushh-webapp/components/agent/wallet-widgets.voice-action-contract.json",
     "hushh-webapp/components/consent/consent-center-page.voice-action-contract.json",
@@ -235,6 +239,36 @@
     },
     {
       "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_files",
+      "surface_title": "Files",
+      "docs_references": [
+        "docs/reference/operations/private-files-library.md"
+      ],
+      "contract_file": "hushh-webapp/app/one/files/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "routes": [
+            "/one/files"
+          ],
+          "screens": [
+            "one_files"
+          ],
+          "hidden_navigable": false,
+          "navigation_prerequisites": [
+            "signed-in owner; library access requires an unlocked vault; private-pod access additionally requires an admitted Files-capable owner pod"
+          ]
+        }
+      },
+      "search": {},
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
       "surface_id": "gmail",
       "surface_title": "Gmail",
       "docs_references": [
@@ -260,7 +294,7 @@
     {
       "schema_version": "kai.local_action_contract.v1",
       "surface_id": "kai_analysis",
-      "surface_title": "Kai Analysis Workspace",
+      "surface_title": "Stocks and Analysis Workspace",
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md"
       ],
@@ -426,6 +460,33 @@
     },
     {
       "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "pkm",
+      "surface_title": "Memory",
+      "docs_references": [],
+      "contract_file": "hushh-webapp/app/one/pkm/page.voice-action-contract.json",
+      "defaults": {
+        "speaker_persona": "one",
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        },
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked"
+        ]
+      },
+      "search": {},
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
       "surface_id": "profile_account",
       "surface_title": "Profile Workspace",
       "docs_references": [
@@ -506,6 +567,32 @@
         "docs/reference/one/one-voice-runtime-architecture.md"
       ],
       "contract_file": "hushh-webapp/app/one/setup/calendar/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        },
+        "speaker_persona": "one",
+        "guard_ids": [
+          "auth_signed_in"
+        ]
+      },
+      "search": {},
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_setup_cloud",
+      "surface_title": "Your cloud setup",
+      "docs_references": [],
+      "contract_file": "hushh-webapp/app/one/setup/cloud/page.voice-action-contract.json",
       "defaults": {
         "reachability": {
           "active_personas": [
@@ -1089,6 +1176,29 @@
             "ria"
           ]
         }
+      },
+      "search": {},
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_email_updates",
+      "surface_title": "Optional One email updates",
+      "docs_references": [],
+      "contract_file": "hushh-webapp/components/account/marketing-preference-panel.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        },
+        "speaker_persona": "one"
       },
       "search": {},
       "orchestration": {
@@ -4064,6 +4174,109 @@
       }
     },
     {
+      "action_id": "route.one_files",
+      "surface_id": "one_files",
+      "label": "Open Files",
+      "aliases": [
+        "open my files",
+        "go to files",
+        "show my file library"
+      ],
+      "search_keywords": [
+        "files",
+        "folders",
+        "private file library"
+      ],
+      "meaning": "Navigates to the owner's private Files workspace. Setup and consent are verified by the workspace; navigation does not authorize library operations.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/files"
+        ],
+        "screens": [
+          "one_files"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "signed-in owner; library access requires an unlocked vault; private-pod access additionally requires an admitted Files-capable owner pod"
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/files"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/operations/private-files-library.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/files"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.one_files",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "navigate",
+            "label": "Open the Files workspace",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/files",
+              "screen": "one_files"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "profile.gmail.visit_merchant",
       "surface_id": "gmail",
       "label": "Visit merchant",
@@ -4716,7 +4929,10 @@
       "label": "Open Analysis Surface",
       "aliases": [
         "open analysis",
-        "go to analysis"
+        "go to analysis",
+        "open stocks",
+        "go to stocks",
+        "company facts"
       ],
       "search_keywords": [
         "analysis",
@@ -4957,7 +5173,9 @@
           "requires_symbol": true
         }
       },
-      "control_ids": [],
+      "control_ids": [
+        "analysis_stock_details_preview"
+      ],
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -6965,7 +7183,7 @@
         "text",
         "sos"
       ],
-      "meaning": "Opens the Save My Soul contacts screen, where you choose who is alerted when you raise an SOS. SMS is short for Save My Soul; no text message is sent -- contacts get a push notification, an email fallback, and a live location share.",
+      "meaning": "Opens Save My Soul contacts to choose SOS recipients. SMS means Save My Soul: push, email fallback and live location, without carrier texts.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -8949,7 +9167,7 @@
         "emergency",
         "end"
       ],
-      "meaning": "Ends the Save My Soul alert that is currently running and revokes the live SOS location shares it created. It does not tell anyone you are safe and does not change ordinary location sharing. In One Voice it shows a tap-confirmation card naming the shares it will end; shares that cannot be verified as ended are reported as still possibly live.",
+      "meaning": "Stops the active Save My Soul alert and revokes its SOS shares. Does not announce safety or change ordinary sharing. One Voice requires a tap-confirmation card naming the shares; unverified endings remain possibly live.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -9216,7 +9434,7 @@
         "contact",
         "add"
       ],
-      "meaning": "Adds one person to the list who are alerted and receive your live location if you trigger an SOS. Only people who have finished Location setup can be added.",
+      "meaning": "Adds an eligible connected person with a receiving key to your SOS contacts for alerts and live location. Phone and Location onboarding are optional.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -11180,7 +11398,8 @@
         "target": "location.nearby_check_in"
       },
       "control_ids": [
-        "one-location-check-in-nearby-places"
+        "one-location-check-in-nearby-places",
+        "one-location-check-in-retry-places"
       ],
       "state_exposure": [
         "nearby place candidates"
@@ -11599,7 +11818,7 @@
         "help",
         "send"
       ],
-      "meaning": "Sends a Save My Soul alert to the emergency contacts: one 8-hour precise-location share per contact who can receive it. From a typed command this opens the authored review screen and cannot report an alert as sent. In One Voice it shows a tap-confirmation card naming exactly who will be alerted; the tap arms the shares, the device publishes the encrypted position, and the server verifies delivery before anything is reported as sent. It does not call emergency services.",
+      "meaning": "Creates an 8-hour precise-location SOS share per ready emergency contact. Typed commands only open review and cannot report sent. One Voice requires a tap-confirmation card naming the exact audience, device publication of encrypted location and server delivery verification before reporting sent. Does not call emergency services.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -13787,7 +14006,9 @@
         "open my personal data",
         "go to personal data",
         "show personal data",
-        "open saved knowledge"
+        "open saved knowledge",
+        "open saved and add",
+        "open memory sharing and prices"
       ],
       "search_keywords": [
         "personal data",
@@ -13827,7 +14048,8 @@
         "target": "/one/pkm"
       },
       "control_ids": [
-        "top_agent_section_pkm"
+        "top_agent_section_pkm",
+        "profile_memory_workspace"
       ],
       "state_exposure": [],
       "docs_references": [
@@ -13975,6 +14197,459 @@
               "route": "/one/feed",
               "screen": "one_feed"
             }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "one.scheduled_tasks.open",
+      "surface_id": "one_agents",
+      "label": "Scheduled tasks",
+      "aliases": [
+        "show scheduled tasks",
+        "show my agent tasks"
+      ],
+      "search_keywords": [
+        "scheduled tasks",
+        "jobs",
+        "goals"
+      ],
+      "meaning": "Open owner scheduled tasks. Opening the panel grants no execution authority.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one"
+        ],
+        "screens": [
+          "one_agents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "signed-in owner; task reads and controls require an admitted owner pod"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "control",
+        "target": "one_scheduled_tasks"
+      },
+      "control_ids": [
+        "one_scheduled_tasks"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-voice-runtime-architecture.md",
+        "docs/reference/operations/private-files-library.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.one.scheduled_tasks.open",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "one.scheduled_tasks.open",
+            "label": "Scheduled tasks",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "pkm.review_sharing_price",
+      "surface_id": "pkm",
+      "label": "Review sharing price",
+      "aliases": [
+        "review a sharing price",
+        "set a price for my information",
+        "list my information bundle",
+        "review bundle sharing and price"
+      ],
+      "search_keywords": [
+        "memory",
+        "sharing",
+        "price",
+        "section",
+        "bundle",
+        "list",
+        "monetize"
+      ],
+      "meaning": "Opens owner review of listing and prices for a saved information bundle or one exact sharing section. Set domain to review a whole saved area, including its available sections; section or scope_choice selects an exact tariff. A whole-bundle price is offered only when current owner discovery returns that exact eligible bundle. Proposed USD cents and base term only prefill review. Nothing is listed, saved, shared, purchased or paid until the person uses the visible controls. Never broaden a leaf or substitute sections for an unavailable whole-bundle price. Paid prices require eligible Stripe payouts; free sharing remains available without Stripe.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "pkm.review_sharing_price"
+      },
+      "control_ids": [
+        "pkm-review-sharing-price",
+        "pkm-review-sharing-bundle"
+      ],
+      "state_exposure": [
+        "whether sharing price review is open"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.pkm.review_sharing_price",
+        "required_inputs": [
+          {
+            "name": "section",
+            "prompt": "Which saved information bundle or section?",
+            "required": false,
+            "slot": "section",
+            "resolver": "spoken_free_text"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "section": "spoken_free_text",
+          "scope_choice": "opaque_id_optional",
+          "proposed_price_cents": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "proposed_base_hours": {
+            "type": "integer",
+            "enum": [
+              24,
+              72,
+              168,
+              720
+            ]
+          },
+          "domain": "spoken_free_text"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Open sharing price review",
+            "failure_behavior": "stop",
+            "action_id": "pkm.review_sharing_price",
+            "settlement_target": {
+              "route": "/one/pkm",
+              "screen": "pkm"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "pkm.close_sharing_price_review",
+      "surface_id": "pkm",
+      "label": "Close sharing price review",
+      "aliases": [
+        "cancel sharing price review",
+        "close price review"
+      ],
+      "search_keywords": [
+        "cancel",
+        "sharing",
+        "price",
+        "review"
+      ],
+      "meaning": "Closes the current price confirmation first, or closes its editor when no confirmation is open. Never saves, changes a tariff or confirms a purchase. Waits while a price operation is pending.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "An existing sharing price review is open."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "pkm.close_sharing_price_review"
+      },
+      "control_ids": [
+        "pkm-close-sharing-price-review"
+      ],
+      "state_exposure": [
+        "whether sharing price review is open"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.pkm.close_sharing_price_review",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "pkm.close_sharing_price_review",
+            "label": "Close sharing price review",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "pkm.close_sharing_bundle_review",
+      "surface_id": "pkm",
+      "label": "Close bundle sharing review",
+      "aliases": [
+        "close bundle review"
+      ],
+      "search_keywords": [
+        "bundle",
+        "sharing",
+        "close"
+      ],
+      "meaning": "Closes the current bundle listing and price overview without changing information, sharing or prices. Waits while a listing change is pending.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "An existing sharing price review is open."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "pkm.close_sharing_bundle_review"
+      },
+      "control_ids": [
+        "pkm-close-sharing-bundle-review"
+      ],
+      "state_exposure": [
+        "whether bundle sharing review is open"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.pkm.close_sharing_bundle_review",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "pkm.close_sharing_bundle_review",
+            "label": "Close bundle sharing review",
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -14644,7 +15319,14 @@
       "aliases": [
         "link my bank",
         "set up payouts",
-        "document earnings"
+        "document earnings",
+        "payments",
+        "add funds",
+        "purchase balance",
+        "information-access earnings",
+        "wallet",
+        "open payouts",
+        "payments and earnings"
       ],
       "search_keywords": [
         "link my bank",
@@ -15818,7 +16500,7 @@
       "search_keywords": [
         "delete account"
       ],
-      "meaning": "Deletes investor/ria persona or full account depending on selected target.",
+      "meaning": "Starts owner-confirmed account deletion. A private cloud requires exact resource and retention review, fresh owner cloud authorization, and verified cleanup before final deletion.",
       "speaker_persona": "nav",
       "delegate_agent_id": null,
       "reachability": {
@@ -15853,7 +16535,11 @@
         "path": "local_handler",
         "target": "profile.delete_account"
       },
-      "control_ids": [],
+      "control_ids": [
+        "cloud-cleanup-refresh",
+        "cloud-cleanup-continue",
+        "cloud-cleanup-approve"
+      ],
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -17830,6 +18516,107 @@
       }
     },
     {
+      "action_id": "profile.world_model.public_profiles",
+      "surface_id": "profile_world_model",
+      "label": "Research your public profiles",
+      "aliases": [],
+      "search_keywords": [
+        "personal world model"
+      ],
+      "meaning": "Explicitly choose public profile links for Azure and Bing research. Links are owner assertions, not identity verification; review findings before saving.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/world-model"
+        ],
+        "screens": [
+          "profile_world_model"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed in with a verified contact and unlocked vault."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Explicit owner controls retain contact disclosure, exact review and invitation consent.",
+        "intended_handler": "PersonalWorldModelPage"
+      },
+      "control_ids": [
+        "pwm_public_sources_open",
+        "pwm_public_profiles_research"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/personal-world-model.md",
+        "components/profile/world-model-options.tsx",
+        "components/profile/world-model-sources.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/world-model"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.world_model.public_profiles",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.world_model.public_profiles",
+            "label": "Research your public profiles",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "route.puppy_agents",
       "surface_id": "puppy_one",
       "label": "Back to Agents",
@@ -18267,6 +19054,122 @@
       }
     },
     {
+      "action_id": "setup.finish_cloud",
+      "surface_id": "one_setup_cloud",
+      "label": "Finish agent setup",
+      "aliases": [
+        "finish cloud setup",
+        "finish my cloud",
+        "use this project",
+        "continue with my cloud",
+        "finish agent setup"
+      ],
+      "search_keywords": [
+        "finish",
+        "cloud",
+        "project",
+        "subscription",
+        "byoc",
+        "AI"
+      ],
+      "meaning": "Keeps the verified hosting and saved AI choice, then returns to the One setup hub.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup/cloud"
+        ],
+        "screens": [
+          "one_setup_cloud"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Hosting is verified and the current owner has saved a verified AI choice; no hosting or AI save is pending."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.finish_cloud"
+      },
+      "control_ids": [
+        "one-setup-cloud-terminal"
+      ],
+      "state_exposure": [
+        "Verified hosting choice and saved AI access"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.finish_cloud",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.finish_cloud",
+            "label": "Finish agent setup",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "setup.finish_connected_systems",
       "surface_id": "one_setup_connected_systems",
       "label": "Finish CRM setup",
@@ -18502,7 +19405,7 @@
         "gemini",
         "runtime"
       ],
-      "meaning": "Keeps the person's selected Gemini runtime and returns to the One setup hub.",
+      "meaning": "Keeps the person's selected AI connection and returns to the One setup hub.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -18514,7 +19417,7 @@
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
-          "A Gemini runtime has been explicitly selected and saved."
+          "A supported AI connection has been explicitly selected and saved."
         ],
         "active_personas": [
           "investor",
@@ -18540,7 +19443,7 @@
         "one-setup-connections-terminal"
       ],
       "state_exposure": [
-        "Gemini runtime selection state"
+        "AI connection selection state"
       ],
       "docs_references": [
         "docs/reference/one/one-voice-runtime-architecture.md"
@@ -25680,6 +26583,423 @@
       }
     },
     {
+      "action_id": "route.profile_email_updates",
+      "surface_id": "one_email_updates",
+      "label": "Email preferences",
+      "aliases": [
+        "email preferences",
+        "email updates",
+        "unsubscribe from emails"
+      ],
+      "search_keywords": [
+        "email",
+        "updates",
+        "marketing",
+        "unsubscribe"
+      ],
+      "meaning": "Opens Your account to review optional One email updates. Opening the form changes no email permission.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/account"
+        ],
+        "screens": [
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/account"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/account"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_email_updates",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_email_updates",
+            "label": "Email preferences",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/profile/account",
+              "screen": "profile_account"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.email_updates.choose",
+      "surface_id": "one_email_updates",
+      "label": "Choose optional email updates",
+      "aliases": [],
+      "search_keywords": [
+        "email preferences",
+        "product updates"
+      ],
+      "meaning": "The person chooses an optional email preference and frequency on screen. Changing the draft does not subscribe or save it.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup",
+          "/one/profile/account"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The signed-in owner has loaded their saved preference."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The owner chooses optional email permission directly on screen.",
+        "intended_handler": "MarketingPreferencePanel"
+      },
+      "control_ids": [
+        "one_email_updates_enabled",
+        "one_email_updates_frequency"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.email_updates.choose",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.email_updates.choose",
+            "label": "Choose optional email updates",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.email_updates.save",
+      "surface_id": "one_email_updates",
+      "label": "Save email preference",
+      "aliases": [],
+      "search_keywords": [
+        "email preferences",
+        "subscribe",
+        "unsubscribe"
+      ],
+      "meaning": "The person explicitly saves the email preference and frequency reviewed on screen. One may explain or open the form but cannot choose or submit marketing permission.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup",
+          "/one/profile/account"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The signed-in owner has reviewed the optional email disclosure and chosen their preference."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The owner must explicitly save email permission using the visible form.",
+        "intended_handler": "MarketingPreferencePanel"
+      },
+      "control_ids": [
+        "one_email_updates_save"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.email_updates.save",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.email_updates.save",
+            "label": "Save email preference",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.email_updates.retry",
+      "surface_id": "one_email_updates",
+      "label": "Retry email preference",
+      "aliases": [],
+      "search_keywords": [
+        "email preferences",
+        "retry"
+      ],
+      "meaning": "The person retries reading their saved optional email preference. This changes no subscription.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup",
+          "/one/profile/account"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The saved email preference could not be loaded."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible form owns retry and loading state.",
+        "intended_handler": "MarketingPreferencePanel"
+      },
+      "control_ids": [
+        "one_email_updates_retry"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.email_updates.retry",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.email_updates.retry",
+            "label": "Retry email preference",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "email.chat.turn",
       "surface_id": "one_specialist_turns",
       "label": "Ask Email",
@@ -28826,25 +30146,437 @@
       }
     },
     {
-      "action_id": "setup.open_connections",
-      "surface_id": "one_setup_hub",
-      "label": "Choose your AI",
+      "action_id": "market.sectors.show_day",
+      "surface_id": "kai_market",
+      "label": "Show 1 day sector performance",
       "aliases": [
-        "choose my ai",
-        "set up AI access",
-        "ai access",
-        "choose gemini",
-        "configure one",
-        "use my gemini key"
+        "show sector performance for 1 day",
+        "show daily sectors"
       ],
       "search_keywords": [
-        "AI access",
-        "gemini",
-        "runtime",
-        "key",
-        "setup"
+        "sector performance",
+        "sector rotation",
+        "1 day"
       ],
-      "meaning": "Opens the AI access choice so the person can use Hussh's Gemini or add their own Gemini key.",
+      "meaning": "Selects daily sector ETF price returns on the active Market screen, with observed period dates and an explicit unavailable state.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/kai?tab=market"
+        ],
+        "screens": [
+          "kai_market"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "control",
+        "target": "kai_market_sector_period"
+      },
+      "control_ids": [
+        "kai_market_sector_period"
+      ],
+      "state_exposure": [
+        "selected sector performance period"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kai?tab=market"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.market.sectors.show_day",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "market.sectors.show_day",
+            "label": "Show 1 day sector performance",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "market.sectors.show_week",
+      "surface_id": "kai_market",
+      "label": "Show 1 week sector performance",
+      "aliases": [
+        "show sector performance for 1 week",
+        "show weekly sectors"
+      ],
+      "search_keywords": [
+        "sector performance",
+        "sector rotation",
+        "1 week"
+      ],
+      "meaning": "Selects five-trading-session sector ETF price returns on the active Market screen, with observed period dates and an explicit unavailable state.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/kai?tab=market"
+        ],
+        "screens": [
+          "kai_market"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "control",
+        "target": "kai_market_sector_period"
+      },
+      "control_ids": [
+        "kai_market_sector_period"
+      ],
+      "state_exposure": [
+        "selected sector performance period"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kai?tab=market"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.market.sectors.show_week",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "market.sectors.show_week",
+            "label": "Show 1 week sector performance",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "market.sectors.show_all",
+      "surface_id": "kai_market",
+      "label": "Show all sectors",
+      "aliases": [
+        "all sectors",
+        "expand sector rotation"
+      ],
+      "search_keywords": [
+        "all sectors",
+        "sector rotation"
+      ],
+      "meaning": "Expands sector rotation to every available sector for the selected return period.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/kai?tab=market"
+        ],
+        "screens": [
+          "kai_market"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "control",
+        "target": "kai_market_sector_scope"
+      },
+      "control_ids": [
+        "kai_market_sector_scope"
+      ],
+      "state_exposure": [
+        "selected sector list size"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/architecture/route-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kai?tab=market"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.market.sectors.show_all",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "market.sectors.show_all",
+            "label": "Show all sectors",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "market.sectors.show_highlights",
+      "surface_id": "kai_market",
+      "label": "Show sector highlights",
+      "aliases": [
+        "sector highlights",
+        "shorten sector rotation"
+      ],
+      "search_keywords": [
+        "sector highlights",
+        "sector rotation"
+      ],
+      "meaning": "Shows the three highest and three lowest available sector returns for the selected period, or every sector when six or fewer are available.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/kai?tab=market"
+        ],
+        "screens": [
+          "kai_market"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "control",
+        "target": "kai_market_sector_scope"
+      },
+      "control_ids": [
+        "kai_market_sector_scope"
+      ],
+      "state_exposure": [
+        "selected sector list size"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/architecture/route-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kai?tab=market"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.market.sectors.show_highlights",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "market.sectors.show_highlights",
+            "label": "Show sector highlights",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.open_cloud",
+      "surface_id": "one_setup_hub",
+      "label": "Set up your private agent",
+      "aliases": [
+        "set up my cloud",
+        "connect my cloud",
+        "open cloud setup",
+        "use my own google cloud"
+      ],
+      "search_keywords": [
+        "cloud",
+        "project",
+        "google cloud",
+        "byoc",
+        "own compute"
+      ],
+      "meaning": "Opens one wizard to choose hosting, prove the cloud setup when required, and then select verified AI access.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -28875,11 +30607,125 @@
       "execution_target": {
         "status": "wired",
         "path": "route",
-        "target": "/one/setup/connections"
+        "target": "/one/setup/cloud"
       },
       "control_ids": [
-        "one_setup_tile_connections"
+        "one_setup_tile_cloud"
       ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup/cloud"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.open_cloud",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.open_cloud",
+            "label": "Set up your private agent",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup/cloud",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.open_connections",
+      "surface_id": "one_setup_hub",
+      "label": "Choose your AI",
+      "aliases": [
+        "choose my ai",
+        "set up AI access",
+        "ai access",
+        "choose gemini",
+        "configure one",
+        "use my gemini key"
+      ],
+      "search_keywords": [
+        "AI access",
+        "gemini",
+        "runtime",
+        "key",
+        "setup"
+      ],
+      "meaning": "Opens the supported AI connection choice for the selected hosting, preserving the verified cloud default and explicit owner-key choices.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Navigate to the standalone AI access setup page for the compatibility entry; the normal setup journey configures AI within /one/setup/cloud."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/connections"
+      },
+      "control_ids": [],
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",

@@ -76,6 +76,7 @@ Shared voice/action contracts and page-local filters remain active.
 - `/agent`
 - `/people/[personRef]`
 - `/one/profile`
+- `/one/profile/discovery`
 - `/one/profile/regulatory`
 - `/one/profile/account`
 - `/one/profile/account/phone`
@@ -127,7 +128,8 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/setup/calendar`
 - `/one/setup/[capability]`
 - `/one/calendar`
-- `/one/todos` — encrypted owner items plus Calendar, owner-confirmed Gmail follow-ups, and explicit pending-work projections from the existing Feed publishers (including KYC review requests). Source workspaces remain authoritative; historical imports, running work, and safety alerts are not copied. Completion or dismissal stays private and never executes a source action.
+- `/one/files` — encrypted BYOC Files; direct admitted pod transport, initially web-only
+- `/one/todos` — encrypted owner items plus Calendar, owner-confirmed Gmail follow-ups, and explicit pending-work projections from the existing Feed publishers (including KYC review requests). Calendar remains the event source of truth; Gmail message identifiers never enter the To-do record. Source workspaces remain authoritative; historical imports, running work, and safety alerts are not copied. Completion or dismissal stays private and never executes a source action.
 - `/one/wallet` (Wallet, formerly Cards; naming map in `docs/reference/one/wallet.md`)
 - `/one/wallet-card` (Wallet Profile management; also composed inside Profile/NWS card details in Wallet, with automatic owner-session provisioning)
 - `/one/pkm/recent`
@@ -152,7 +154,8 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/ria/picks`
 - `/ria/requests`
 - `/ria/settings`
-- `/one/kai?tab=market`
+- `/one/kai?tab=market` — market overview, news, sectors, and movers. Sector rotation starts with the three highest and three lowest returns for the selected period; All sectors restores the full available list. Tap, Search, and voice use the same period and list-size controls.
+- `/one/kai?tab=analysis` — displayed as **Stocks**, with company browsing and the existing analysis workflow; the query value remains `analysis` for compatibility
 - `/one/kai/news`
 - `/one/kai/import`
 - `/one/kai/plaid/oauth/return`

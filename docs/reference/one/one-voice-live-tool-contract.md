@@ -12,7 +12,7 @@ The platform map is [../architecture/architecture.md](../architecture/architectu
 flowchart TD
   mic[Microphone / typed text] --> ws[WS /api/one/voice/live]
   ws --> live[Gemini Live on Vertex ADC]
-  live -->|function call| exec[ToolExecutor: unknown tool, bad args, unconfirmed person -> typed rejection]
+  live -->|function call| exec["ToolExecutor: unknown tool, bad args, unconfirmed person -> typed rejection"]
   exec -->|read or direct| svc[Canonical services]
   exec -->|confirm_voice / confirm_tap| pending[one_voice_pending_actions]
   pending -->|spoken yes after card shown, or tap receipt| svc

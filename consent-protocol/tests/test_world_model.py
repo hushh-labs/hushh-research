@@ -299,8 +299,24 @@ async def test_model_budget_exhaustion_never_dispatches(monkeypatch):
     assert result["research_exhausted"] is True
 
 
+@pytest.fixture
+def shared_pwm_owner(monkeypatch):
+    from hushh_mcp.services import world_model_service as service
+
+    monkeypatch.setenv("HUSSH_POD_MODE", "0")
+    monkeypatch.setattr(
+        "hushh_mcp.services.owner_placement_guard.get_owner_hosting_mode",
+        AsyncMock(return_value="shared"),
+    )
+    monkeypatch.setattr(
+        service, "validate_first_party_owner_token", AsyncMock(return_value=object())
+    )
+
+
 @pytest.mark.asyncio
-async def test_azure_pwm_dispatch_keeps_owner_authority_and_keyless_tokens(monkeypatch):
+async def test_azure_pwm_dispatch_keeps_owner_authority_and_keyless_tokens(
+    monkeypatch, shared_pwm_owner
+):
     from hushh_mcp.one_adk import azure_workload_identity, world_model_azure
     from hushh_mcp.services import world_model_service as service
 
@@ -362,7 +378,7 @@ async def test_azure_pwm_dispatch_keeps_owner_authority_and_keyless_tokens(monke
 
 
 @pytest.mark.asyncio
-async def test_azure_pwm_is_restricted_to_federated_uat_runtime(monkeypatch):
+async def test_azure_pwm_is_restricted_to_federated_uat_runtime(monkeypatch, shared_pwm_owner):
     from hushh_mcp.services import world_model_service as service
 
     owner_identity = AsyncMock()
@@ -379,7 +395,7 @@ async def test_azure_pwm_is_restricted_to_federated_uat_runtime(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_azure_pwm_requires_new_owner_opt_in(monkeypatch):
+async def test_azure_pwm_requires_new_owner_opt_in(monkeypatch, shared_pwm_owner):
     from hushh_mcp.services import world_model_service as service
 
     monkeypatch.setattr(service, "POLICY", {"provider": "azure_openai_web_search"})
@@ -483,7 +499,6 @@ def test_integration_endpoint_only_accepts_current_owner_identifiers(monkeypatch
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from api.middlewares.chat_key import require_vault_owner_chat_key
     from api.routes.one import world_model as routes
     from hushh_mcp.services import world_model_service
 
@@ -502,7 +517,7 @@ def test_integration_endpoint_only_accepts_current_owner_identifiers(monkeypatch
     )
     app = FastAPI()
     app.include_router(routes.router)
-    app.dependency_overrides[require_vault_owner_chat_key] = lambda: {
+    app.dependency_overrides[routes.hub_content_chat_owner] = lambda: {
         "user_id": "owner",
         "token": "fixture",
     }
@@ -531,10 +546,17 @@ def owner_client(monkeypatch, jobs):
     monkeypatch.setattr(routes, "world_model_jobs", jobs)
     app = FastAPI()
     app.include_router(routes.router)
+    app.dependency_overrides[routes.hub_content_chat_owner] = lambda: {
+        "user_id": "owner",
+        "token": "fixture",
+    }
     app.dependency_overrides[require_vault_owner_chat_key] = lambda: {
         "user_id": "owner",
         "token": "fixture",
     }
+    app.dependency_overrides[routes.hub_content_chat_owner] = app.dependency_overrides[
+        require_vault_owner_chat_key
+    ]
     return TestClient(app), routes
 
 
@@ -631,6 +653,56 @@ def test_owner_decisions_body_is_optional_bounded_and_forwarded(monkeypatch):
         for path in ("ensure", "jobs"):
             assert client.post(f"/api/one/world-model/{path}", json=invalid).status_code == 422
     assert ensure.await_count == 2 and start.await_count == 2
+
+
+def test_public_profiles_require_explicit_permission_and_jobs_refresh(monkeypatch):
+    from hushh_mcp.services.world_model_service import PublicProfilesChanged
+
+    start = AsyncMock(return_value={"status": "pending", "pkm_written": False})
+    client, _ = owner_client(monkeypatch, SimpleNamespace(start=start))
+    profiles = {"urls": ["https://github.com/example"], "permitted_public_sources": True}
+    response = client.post(
+        "/api/one/world-model/jobs", json={"refresh": True, "public_profiles": profiles}
+    )
+    assert response.status_code == 202
+    start.assert_awaited_once_with(
+        "owner", "fixture", inputs={"public_profiles": profiles}, refresh_completed=True
+    )
+    assert (
+        client.post("/api/one/world-model/ensure", json={"public_profiles": profiles}).status_code
+        == 422
+    )
+    for bad in [False, "true", 1, None]:
+        assert (
+            client.post(
+                "/api/one/world-model/jobs",
+                json={
+                    "refresh": True,
+                    "public_profiles": {**profiles, "permitted_public_sources": bad},
+                },
+            ).status_code
+            == 422
+        )
+    for url in [
+        "http://example.test/me",
+        "https://127.0.0.1/me",
+        "https://user:secret@example.test/me",
+        "https://example.test/me?token=secret",
+        "https://example.internal/me",
+    ]:
+        assert (
+            client.post(
+                "/api/one/world-model/jobs",
+                json={"refresh": True, "public_profiles": {**profiles, "urls": [url]}},
+            ).status_code
+            == 422
+        )
+    assert start.await_count == 1
+    start.side_effect = PublicProfilesChanged("private diagnostic")
+    conflict = client.post(
+        "/api/one/world-model/jobs", json={"refresh": True, "public_profiles": profiles}
+    )
+    assert conflict.status_code == 409 and "private diagnostic" not in conflict.text
 
 
 @pytest.mark.parametrize(
@@ -801,6 +873,14 @@ async def test_status_attaches_progress_only_while_research_is_live(monkeypatch)
         service, "validate_first_party_owner_token", AsyncMock(return_value=object())
     )
     monkeypatch.setattr(jobs, "one_profile_research_enabled", lambda: True)
+    monkeypatch.setattr(
+        service, "validate_first_party_owner_token", AsyncMock(return_value=object())
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.owner_placement_guard.get_owner_hosting_mode",
+        AsyncMock(return_value="shared"),
+    )
+    monkeypatch.setenv("HUSSH_POD_MODE", "0")
     clock = lambda: 1_700_000_100.0  # noqa: E731 - fixed clock
     live = service.WorldModelJobs(
         store=ProgressStore(checkpoint()),
@@ -834,6 +914,54 @@ async def test_status_attaches_progress_only_while_research_is_live(monkeypatch)
         clock=clock,
     )
     assert await done.status("owner", "fixture") == offered["result"]
+
+
+@pytest.mark.parametrize("retirement", ["consent", "binding", "owner"])
+async def test_live_progress_cannot_release_retired_checkpoint_evidence(monkeypatch, retirement):
+    from hushh_mcp.services import profile_research_jobs as jobs
+    from hushh_mcp.services import world_model_service as service
+
+    admitted = True
+
+    async def token(*_args):
+        return object() if admitted else None
+
+    monkeypatch.setenv("HUSSH_POD_MODE", "0")
+    monkeypatch.setattr(jobs, "validate_first_party_owner_token", token)
+    monkeypatch.setattr(jobs, "one_profile_research_enabled", lambda: True)
+    monkeypatch.setattr(service, "validate_first_party_owner_token", token)
+    monkeypatch.setattr(
+        "hushh_mcp.services.owner_placement_guard.get_owner_hosting_mode",
+        AsyncMock(return_value="shared"),
+    )
+    refused = {"status": "consent_required", "pkm_written": False}
+    final_check = (refused, "") if retirement == "consent" else (None, "changed-identity")
+    store = ProgressStore(checkpoint())
+    reads = 0
+    read = store.get
+
+    async def checkpoint_read(owner):
+        nonlocal admitted, reads
+        state = await read(owner)
+        reads += 1
+        if reads == 2 and retirement == "owner":
+            admitted = False
+        return state
+
+    store.get = checkpoint_read
+    live = service.WorldModelJobs(
+        store=store,
+        offer=AsyncMock(),
+        clock=lambda: 1_700_000_100.0,
+        check=AsyncMock(side_effect=[(None, "owner-bound-identity"), final_check]),
+    )
+    if retirement == "owner":
+        with pytest.raises(PermissionError, match="Owner session ended"):
+            await live.status("owner", "fixture")
+    else:
+        result = await live.status("owner", "fixture")
+        assert "progress" not in result
+        assert result == (refused if retirement == "consent" else jobs.pending(restart=True))
 
 
 @pytest.mark.asyncio
@@ -895,6 +1023,13 @@ def test_progress_stream_route_is_owner_only_and_private(monkeypatch):
     from api.middlewares.chat_key import require_vault_owner_chat_key
     from api.routes.one import world_model_stream as routes
 
+    monkeypatch.setenv("HUSSH_POD_MODE", "0")
+    placement = AsyncMock(return_value="shared")
+    monkeypatch.setattr(
+        "hushh_mcp.services.owner_placement_guard.get_owner_hosting_mode", placement
+    )
+    monkeypatch.setattr(routes, "open_streams", {})
+
     terminal = {"status": "paused", "pkm_written": False, "restart_required": True}
     jobs = SimpleNamespace(status=AsyncMock(return_value=terminal))
     monkeypatch.setattr(routes, "world_model_jobs", jobs)
@@ -915,6 +1050,12 @@ def test_progress_stream_route_is_owner_only_and_private(monkeypatch):
     jobs.status.assert_awaited_once_with("owner", "fixture")
     jobs.status.side_effect = PermissionError()
     assert TestClient(app).get("/api/one/world-model/jobs/stream").status_code == 403
+    for mode, expected in [("byoc", 409), ("hussh_pods", 409), ("unknown", 503)]:
+        placement.return_value = mode
+        jobs.status.reset_mock(side_effect=True)
+        assert TestClient(app).get("/api/one/world-model/jobs/stream").status_code == expected
+        jobs.status.assert_not_awaited()
+        assert routes.open_streams == {}
 
 
 def test_progress_stream_caps_open_streams_per_owner(monkeypatch):
@@ -923,6 +1064,12 @@ def test_progress_stream_caps_open_streams_per_owner(monkeypatch):
 
     from api.middlewares.chat_key import require_vault_owner_chat_key
     from api.routes.one import world_model_stream as routes
+
+    monkeypatch.setenv("HUSSH_POD_MODE", "0")
+    monkeypatch.setattr(
+        "hushh_mcp.services.owner_placement_guard.get_owner_hosting_mode",
+        AsyncMock(return_value="shared"),
+    )
 
     monkeypatch.setattr(routes, "open_streams", {})
     terminal = {"status": "paused", "pkm_written": False, "restart_required": True}

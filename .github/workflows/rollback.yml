@@ -1,4 +1,4 @@
-name: "Rollback"
+name: "Rollback Deployment"
 
 # Standalone, manually-dispatchable rollback: repoints UAT/production Cloud
 # Run traffic to a known-good revision without going through a git revert

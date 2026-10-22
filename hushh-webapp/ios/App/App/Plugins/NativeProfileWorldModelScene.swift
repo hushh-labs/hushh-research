@@ -14,7 +14,7 @@ struct NativeWorldModelDraft: Codable, Equatable {
         switch scene {
         case "world-model-fact-edit":
             return text != nil && text!.utf16.count <= 600 && urls == nil && permitted == nil && name == nil && email == nil && phone == nil
-        case "world-model-sources":
+        case "world-model-sources", "world-model-public-profiles":
             return urls != nil && urls!.utf16.count <= 6144 && permitted != nil && text == nil && name == nil && email == nil && phone == nil
         case "world-model-invitation":
             return name != nil && name!.utf16.count <= 160 && email != nil && email!.utf16.count <= 320 && phone != nil && phone!.utf16.count <= 16 && text == nil && urls == nil && permitted == nil
@@ -24,7 +24,7 @@ struct NativeWorldModelDraft: Codable, Equatable {
     static func keys(_ scene: String) -> Set<String> {
         switch scene {
         case "world-model-fact-edit": return ["text"]
-        case "world-model-sources": return ["urls", "permitted"]
+        case "world-model-sources", "world-model-public-profiles": return ["urls", "permitted"]
         case "world-model-invitation": return ["name", "email", "phone"]
         default: return []
         }
@@ -175,8 +175,9 @@ private struct NativeWorldModelField: UIViewRepresentable {
 @available(iOS 26.0, *)
 private struct NativeWorldModelFormContent: View {
     @ObservedObject var model: NativeWorldModelFormModel
-    var title: String { model.projection.scene == "world-model-fact-edit" ? "Corrected wording" : model.projection.scene == "world-model-sources" ? "Add a public source" : "Invite someone" }
-    var button: String { model.projection.scene == "world-model-fact-edit" ? "Save" : model.projection.scene == "world-model-sources" ? "Read pages" : "Create" }
+    var profileResearch: Bool { model.projection.scene == "world-model-public-profiles" }
+    var title: String { profileResearch ? "Research your profiles" : model.projection.scene == "world-model-fact-edit" ? "Corrected wording" : model.projection.scene == "world-model-sources" ? "Add a public source" : "Invite someone" }
+    var button: String { profileResearch ? "Research profiles" : model.projection.scene == "world-model-fact-edit" ? "Save" : model.projection.scene == "world-model-sources" ? "Read pages" : "Create" }
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -189,11 +190,11 @@ private struct NativeWorldModelFormContent: View {
             Form {
                 if model.projection.scene == "world-model-fact-edit" {
                     Section("Corrected wording") { NativeWorldModelField(model: model, field: "text", label: "Corrected wording", maximum: 600, multiline: true).frame(minHeight: 140) }
-                } else if model.projection.scene == "world-model-sources" {
+                } else if model.projection.scene == "world-model-sources" || profileResearch {
                     Section {
                         NativeWorldModelField(model: model, field: "urls", label: "Page links, one per line", maximum: 6144, multiline: true).frame(minHeight: 140)
                         Toggle("These are public pages I chose myself, not search results.", isOn: Binding(get: { model.draft.permitted == true }, set: { selected in var draft = model.draft; draft.permitted = selected; model.change(draft) })).disabled(!model.canEdit)
-                    } header: { Text("Page links, one per line") } footer: { Text("Add up to three public pages. You review every detail before it’s saved.") }
+                    } header: { Text("Page links, one per line") } footer: { Text(profileResearch ? "Use these profiles as starting links for GPT-5 mini research. Azure and Bing receive the public links. You review findings before saving." : "Add up to three public pages. You review every detail before it’s saved.") }
                 } else {
                     Section("Their name") { NativeWorldModelField(model: model, field: "name", label: "Their name", maximum: 160).frame(minHeight: 44) }
                     Section("Their email") { NativeWorldModelField(model: model, field: "email", label: "Their email", maximum: 320).frame(minHeight: 44) }
@@ -225,6 +226,8 @@ final class NativeProfileWorldModelScene: NSObject, NativeProfileOwnedForm {
     }()
     var coverage: (() -> Void)? { didSet { sheet.coverage = coverage } }
     var coversPresentation: Bool { sheet.coversPresentation }
+    var presentationSettled: Bool { sheet.presentationSettled }
+    func refreshPrivacy() { sheet.refresh() }
     init(_ projection: NativeWorldModelProjection) { model = NativeWorldModelFormModel(projection) }
     func present(from parent: UIViewController, completion: @escaping (Bool) -> Void) -> Bool { sheet.present(from: parent, completion: completion) }
     func update(_ projection: NativeWorldModelProjection) -> Bool { guard model.update(projection) else { return false }; sheet.refresh(); return true }

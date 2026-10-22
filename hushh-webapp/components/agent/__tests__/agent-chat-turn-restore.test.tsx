@@ -83,6 +83,27 @@ const connectAnswer: AgentChatMessage = {
 };
 
 describe("restoring a turn from history", () => {
+  it("shows a completed answer when the background tab cannot run animation frames", () => {
+    const frames = vi.spyOn(window, "requestAnimationFrame").mockReturnValue(1);
+    try {
+      const message = {
+        id: "background-answer",
+        role: "assistant" as const,
+        text: "",
+        timestamp: "",
+        status: "streaming" as const,
+      };
+      const { rerender, unmount } = render(<AgentBubble message={message} />);
+      rerender(<AgentBubble message={{ ...message, text: "A complete private answer." }} />);
+      expect(screen.queryByText("A complete private answer.")).not.toBeInTheDocument();
+      rerender(<AgentBubble message={{ ...message, text: "A complete private answer.", status: "done" }} />);
+      expect(screen.getByText("A complete private answer.")).toBeInTheDocument();
+      unmount();
+    } finally {
+      frames.mockRestore();
+    }
+  });
+
   it("keeps the current-action icon and label together during rapid tool changes", () => {
     vi.useFakeTimers();
     try {

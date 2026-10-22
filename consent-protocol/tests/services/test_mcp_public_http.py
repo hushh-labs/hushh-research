@@ -228,3 +228,71 @@ async def test_dns_timeout_and_unix_socket_fail_closed(monkeypatch, tmp_path):
     with pytest.raises(UnsafeMcpEndpoint):
         await backend.connect_unix_socket(str(tmp_path / "mcp.sock"))
     backend._backend.connect_tcp.assert_not_called()
+
+
+@pytest.mark.parametrize("addresses", [["10.0.0.1"], ["8.8.8.8", "127.0.0.1"], ["8.8.8.8"]])
+async def test_owner_key_enforces_public_dns_at_real_sdk_socket(monkeypatch, addresses):
+    import asyncio
+    import json
+    import socket
+    from unittest.mock import AsyncMock
+
+    import httpcore
+    from openai import APIConnectionError
+
+    from hushh_mcp.runtime_providers import owner_azure_key
+    from hushh_mcp.runtime_providers.translate import NeutralMessage, NeutralRequest
+    from tests.test_azure_openai_responses_transport import HOST, TOPOLOGY, _message, _response
+
+    resolver = AsyncMock(
+        return_value=[
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (ip, 443))
+            for ip in addresses
+        ]
+    )
+    monkeypatch.setattr(asyncio.get_running_loop(), "getaddrinfo", resolver)
+    tcp_hosts, tls_names, sent = [], [], []
+    response = json.dumps(_response(_message("synthetic answer"))).encode()
+
+    class Stream(httpcore.AsyncMockStream):
+        async def start_tls(self, ssl_context, server_hostname=None, timeout=None):
+            tls_names.append(server_hostname)
+            return self
+
+        async def write(self, buffer, timeout=None):
+            sent.append(buffer)
+            await super().write(buffer, timeout=timeout)
+
+    async def connect(self, host, port, **kwargs):
+        tcp_hosts.append(host)
+        return Stream(
+            [
+                b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                + str(len(response)).encode()
+                + b"\r\n\r\n"
+                + response
+            ]
+        )
+
+    monkeypatch.setattr(httpcore.AnyIOBackend, "connect_tcp", connect)
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:8888")
+    credential = owner_azure_key.credential_bundle(
+        endpoint=TOPOLOGY.endpoint, deployment=TOPOLOGY.deployment, api_key="synthetic-key"
+    )
+    transport = owner_azure_key.build_transport(credential)
+    request = NeutralRequest(messages=[NeutralMessage(role="user", text="hello")])
+    try:
+        if addresses == ["8.8.8.8"]:
+            await transport._generate(request, model=TOPOLOGY.deployment)
+            assert tcp_hosts == ["8.8.8.8"]
+            assert tls_names == [HOST]
+            wire = b"".join(sent)
+            assert b"POST /openai/v1/responses HTTP/1.1" in wire
+            assert b"Bearer synthetic-key" in wire
+        else:
+            with pytest.raises(APIConnectionError):
+                await transport._generate(request, model=TOPOLOGY.deployment)
+            assert tcp_hosts == []
+            assert tls_names == []
+    finally:
+        await transport._client.close()

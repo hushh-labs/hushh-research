@@ -1,8 +1,8 @@
-name: "Editor Performance Nightly"
+name: "Measure Editor Performance"
 
 # PR Validation runs the macOS editor latency lane (web-editor-performance-check
 # in ci.yml) only when its `editor` path filter matches: the files the lane's
-# focused editor and History fixtures import, the files they read, and the configs and
+# editor and History specs and fixtures import, the files they read, and the configs and
 # lockfile that build them. It used to run on every frontend change, holding
 # one of the org's five macOS slots each time, while its inputs changed in 78 of
 # the 378 merged PRs that touched the frontend from 2026-10-01 to 2026-10-15.
@@ -65,7 +65,7 @@ jobs:
           npm ci
           npx playwright install chromium webkit
 
-      - name: Verify editor latency and drawer motion on macOS
+      - name: Verify editor and History motion latency on macOS
         working-directory: hushh-webapp
         run: npm run test:layout-editor-performance
 
@@ -98,8 +98,7 @@ jobs:
           {
             printf 'The nightly macOS editor latency run ended `%s` on main at %s.\n\n' "$RESULT" "${TESTED_SHA:-an unrecorded commit}"
             printf 'Run: %s\n\n' "$RUN_URL"
-            printf '%s\n' 'It runs `npm run test:layout-editor-performance` in hushh-webapp: typing into a 100 KB paste must stay within 17 ms (one 60 Hz frame) of a same-run native textarea at p95, and under 120 ms per keystroke, at 320, 393 and 1440 px in Chromium and WebKit.'
-            printf '%s\n' 'The same required lane verifies History first visibility under 100 ms, intermediate opening/closing frames and interrupted-drag geometry in both engines. Linux retains the other Connections layout and behavior contracts.'
+            printf '%s\n' 'It runs `npm run test:layout-editor-performance` in hushh-webapp: typing into a 100 KB paste must stay within 17 ms (one 60 Hz frame) of a same-run native textarea at p95, and under 120 ms per keystroke, at 320, 393 and 1440 px in Chromium and WebKit. The same serial lane verifies History motion onset below 100 ms, entry/exit windows of 360/260 ms and interrupted-pull cancellation.'
             printf '%s\n' 'PR Validation runs this lane only when its `editor` path filter matches, so the change that broke it may not have run it. Reproduce on a Mac: `cd hushh-webapp && npm ci && npx playwright install chromium webkit && npm run test:layout-editor-performance`.'
             printf '\n%s\n' 'Every failing night adds a comment here. Close this issue once a nightly run passes.'
           } > "$body"

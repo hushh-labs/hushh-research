@@ -35,7 +35,10 @@ describe("proxyConsentStream forwards the upstream error discriminator", () => {
     );
     expect(fetchMock).toHaveBeenCalledWith(
       "https://backend.example.test/api/consent/events/user-1?capabilities=1",
-      expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer test-token" }) }),
+      expect.objectContaining({ headers: expect.objectContaining({
+        Authorization: "Bearer test-token",
+        "X-Hussh-Stream-Via": "next-proxy",
+      }) }),
     );
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ enabled: false });
@@ -64,10 +67,12 @@ describe("proxyConsentStream forwards the upstream error discriminator", () => {
   });
 
   it("preserves detail.error_code from a disabled-lane 410 instead of discarding it", async () => {
+    let upstreamSignal!: AbortSignal;
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(
+      vi.fn().mockImplementation(async (_url: string, options: RequestInit) => {
+        upstreamSignal = options.signal!;
+        const upstream = new Response(
           JSON.stringify({
             detail: {
               error_code: "CONSENT_SSE_DISABLED",
@@ -75,14 +80,21 @@ describe("proxyConsentStream forwards the upstream error discriminator", () => {
             },
           }),
           { status: 410 },
-        ),
-      ),
+        );
+        const read = upstream.text.bind(upstream);
+        vi.spyOn(upstream, "text").mockImplementation(() => {
+          if (upstreamSignal.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"));
+          return read();
+        });
+        return upstream;
+      }),
     );
 
     const response = await proxyConsentStream(request(), "user-1", "events");
     expect(response.status).toBe(410);
     const body = await response.json();
     expect(body.detail?.error_code).toBe("CONSENT_SSE_DISABLED");
+    expect(upstreamSignal.aborted).toBe(true);
   });
 
   it("preserves a different 410 code so an expired stream isn't mistaken for a permanent refusal", async () => {
@@ -134,6 +146,34 @@ describe("proxyConsentStream forwards the upstream error discriminator", () => {
     expect(response.status).toBe(503);
     const body = await response.json();
     expect(body.detail).toBeUndefined();
+  });
+
+  it("preserves the Feed admission code and retry delay without exposing upstream details", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
+      detail: { code: "FEED_STREAM_BUSY", message: "private-worker-diagnostic" },
+    }, { status: 503, headers: { "Retry-After": "60" } })));
+
+    const response = await proxyConsentStream(new Request(
+      "https://app.example.test/api/consent/document-feed/user-1?v=2",
+      { headers: { authorization: "Bearer test-token" } },
+    ), "user-1", "document-feed");
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("60");
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(await response.json()).toEqual({
+      error: "Could not connect to consent events stream",
+      detail: { error_code: "FEED_STREAM_BUSY" },
+    });
+  });
+
+  it("does not reflect arbitrary upstream detail.code values", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
+      detail: { code: "private-diagnostic", message: "private-message" },
+    }, { status: 503 })));
+
+    const response = await proxyConsentStream(request(), "user-1", "events");
+    expect(await response.json()).toEqual({ error: "Could not connect to consent events stream" });
   });
 
   it("degrades without throwing when the upstream error body is not JSON", async () => {

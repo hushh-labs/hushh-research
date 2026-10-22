@@ -5,7 +5,8 @@
  * The workflow resolves an exact green main SHA, builds against the UAT backend
  * (which must already be serving that exact SHA), signs the AAB with the existing
  * upload key, and uploads to the selected Google Play track. Production remains
- * the default; internal testing is explicitly selected. There are no scheduled releases.
+ * blocked until a production runtime and customer-data transition are verified.
+ * Internal testing is the default. There are no scheduled releases.
  *
  * Usage:
  *   node scripts/release/dispatch-android-playstore.mjs
@@ -39,9 +40,9 @@ function run(cmd, args, { capture = false, input } = {}) {
   return result;
 }
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const options = {
-    track: "production",
+    track: "internal",
     sha: null,
     dryRun: false,
     notes: "",
@@ -138,8 +139,15 @@ export function requireCompletedRelease(result, runId) {
   }
 }
 
+export function validateReleaseTarget(options) {
+  if (options.track === "production" && !options.dryRun) {
+    throw new Error("Public Android upload is blocked: this workflow targets UAT. Verify production routing and legacy customer data transition first.");
+  }
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  validateReleaseTarget(options);
   ensureGitHubCli();
   const sha = resolveSha(options.sha);
   if (!/^[0-9a-f]{40}$/.test(sha)) fail("Release SHA must be a full 40-character commit SHA.");

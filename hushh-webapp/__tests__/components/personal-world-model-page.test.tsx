@@ -85,7 +85,10 @@ vi.mock("@/components/profile/world-model-claim-invitation", () => ({
     mock.claimable ? <button onClick={onClaimed}>Claim invitation</button> : null,
 }));
 vi.mock("@/components/profile/world-model-sources", () => ({
-  WorldModelSources: () => <p>Claimed preview</p>,
+  WorldModelSources: ({ onResearchPublicProfiles }: { onResearchPublicProfiles?: (urls: readonly string[]) => void }) => <>
+    <p>Claimed preview</p>
+    {onResearchPublicProfiles ? <button onClick={() => onResearchPublicProfiles(["https://github.com/example-owner"])}>Research these profiles</button> : null}
+  </>,
 }));
 vi.mock("@/lib/services/world-model-decision-service", async (importActual) => ({
   ...(await importActual<typeof import("@/lib/services/world-model-decision-service")>()),
@@ -464,7 +467,7 @@ describe("Personal World Model page", () => {
     const { unmount } = render(<PersonalWorldModelPage embedded />);
     expect(await screen.findByText("Preparing your model")).toBeInTheDocument();
     expect(screen.getByText("Research and email")).toBeInTheDocument();
-    expect(screen.queryByText("Add a public source")).not.toBeInTheDocument();
+    expect(screen.getByText("Add a public source")).toBeInTheDocument();
     expect(screen.queryByText("Invite someone")).not.toBeInTheDocument();
     unmount();
 
@@ -473,6 +476,28 @@ describe("Personal World Model page", () => {
     render(<PersonalWorldModelPage embedded />);
     expect(await screen.findByText("Invite someone")).toBeInTheDocument();
     expect(screen.getByText("Up to date")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["bare server restart", { ...pending, restart_required: true }, true],
+    ["live pending", pending, false],
+    ["checkpoint restart", { ...pending, restart_required: true, progress: progressOf() }, false],
+    ["empty checked facts", { ...pending, restart_required: true, validated_facts: [] }, false],
+    ["paused work", { status: "paused", pkm_written: false, restart_required: true }, false],
+  ])("offers explicit public-profile recovery only for %s", async (_label, result, available) => {
+    research(result);
+    const submit = vi.fn();
+    mock.research.researchPublicProfiles = submit;
+    mock.research.preferences = { enabled: true, email_enabled: false, consent_version: "pwm-azure-bing-v1", research_provider: "azure_openai_web_search" };
+    render(<PersonalWorldModelPage embedded />);
+    fireEvent.click(await screen.findByText("Add a public source"));
+    const sources = await screen.findByRole("dialog", { name: "Add a public source" });
+    expect(submit).not.toHaveBeenCalled();
+    expect(mock.research.refresh).not.toHaveBeenCalled();
+    if (available) {
+      fireEvent.click(within(sources).getByRole("button", { name: "Research these profiles" }));
+      expect(submit).toHaveBeenCalledExactlyOnceWith(["https://github.com/example-owner"]);
+    } else expect(within(sources).queryByRole("button", { name: "Research these profiles" })).toBeNull();
   });
 
   it("keeps the research switches reachable when preparing failed", async () => {
@@ -517,7 +542,7 @@ describe("Personal World Model page", () => {
     );
   });
 
-  it("shows an Azure grounded answer with its original UTF-16 citation and link", async () => {
+  it.each(["Hushh original title", ""])("shows an Azure grounded answer with its original UTF-16 citation and title %j", async (title) => {
     const draft = offered([{ statement: "Works at Hushh", kind: "career" }]);
     draft.research = {
       ...draft.research,
@@ -532,7 +557,7 @@ describe("Personal World Model page", () => {
       citations: [{
         start_index: answer.indexOf(citationText),
         end_index: answer.indexOf(citationText) + citationText.length,
-        title: "Hushh original title",
+        title,
         url: "https://hushh.ai/team?source=bing",
       }],
       search_suggestions: [],
@@ -545,7 +570,7 @@ describe("Personal World Model page", () => {
     expect(within(result).getByRole("link", { name: citationText })).toHaveAttribute(
       "href", "https://hushh.ai/team?source=bing",
     );
-    expect(within(result).getByRole("link", { name: "Hushh original title" })).toHaveAttribute(
+    expect(within(result).getByRole("link", { name: title || "Public page" })).toHaveAttribute(
       "href", "https://hushh.ai/team?source=bing",
     );
     expect(screen.getByText("Bing web research")).toBeInTheDocument();

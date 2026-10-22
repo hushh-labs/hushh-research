@@ -26,6 +26,7 @@ import logging
 import time
 from datetime import UTC, date, datetime
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import text
 
@@ -228,8 +229,14 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
         question: str,
         period_start: str | None = None,
         period_end: str | None = None,
+        client_request_id: str | None = None,
     ) -> dict[str, Any]:
         text_question = canonical_question(question)
+        if client_request_id is not None:
+            try:
+                client_request_id = str(UUID(client_request_id))
+            except (TypeError, ValueError):
+                raise AnswerRequestError("invalid_request_key") from None
         if not MIN_QUESTION_CHARS <= len(text_question) <= MAX_QUESTION_CHARS:
             raise AnswerRequestError("invalid_question")
         period_start = _optional_period_date(period_start)
@@ -247,12 +254,14 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 connection.execute(
                     text(
                         """INSERT INTO pkm_answer_requests
-                       (owner_user_id, requester_user_id, question, period_start, period_end)
-                       VALUES (:owner, :requester, :question, :start, :end)
+                       (request_id, owner_user_id, requester_user_id, question, period_start, period_end)
+                       VALUES (COALESCE(CAST(:retry_id AS UUID), gen_random_uuid()), :owner, :requester, :question, :start, :end)
+                       ON CONFLICT (request_id) DO NOTHING
                        RETURNING request_id"""
                     ),
                     {
                         "owner": owner_user_id,
+                        "retry_id": client_request_id,
                         "requester": requester_user_id,
                         "question": text_question,
                         "start": period_start,
@@ -262,6 +271,31 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 .mappings()
                 .first()
             )
+            if row is None:
+                previous = (
+                    connection.execute(
+                        text("""SELECT request_id, owner_user_id, requester_user_id,
+                    question, period_start, period_end FROM pkm_answer_requests WHERE request_id = CAST(:id AS UUID)"""),
+                        {"id": client_request_id},
+                    )
+                    .mappings()
+                    .first()
+                )
+                if previous is None or (
+                    previous["owner_user_id"] != owner_user_id
+                    or previous["requester_user_id"] != requester_user_id
+                    or previous["question"] != text_question
+                    or (
+                        str(previous["period_start"])
+                        if previous["period_start"] is not None
+                        else None
+                    )
+                    != period_start
+                    or (str(previous["period_end"]) if previous["period_end"] is not None else None)
+                    != period_end
+                ):
+                    raise AnswerRequestError("retry_conflict")
+                return str(previous["request_id"])
             request_id = str(row["request_id"])
             self._feed(
                 connection,

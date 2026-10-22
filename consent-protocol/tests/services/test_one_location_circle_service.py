@@ -23,6 +23,105 @@ from hushh_mcp.services.push_notifications import (
 )
 
 
+def test_custom_circle_type_normalization_and_bounds() -> None:
+    clean = circle_service_module._clean_custom_type_label
+    assert clean("  Ｆｉｎａｎｃｅ  team  ", "other") == "Finance team"
+    assert clean("  ", "family") is None
+    for label, kind in [
+        ("Finance", "family"),
+        ("family", "other"),
+        ("Friends", "other"),
+        ("x" * 33, "other"),
+    ]:
+        with pytest.raises(OneLocationCircleError):
+            clean(label, kind)
+
+
+def test_fourth_custom_type_is_refused_before_creating_a_circle() -> None:
+    conn = _CapacityConnection({"user_id": "owner"}, {"type_count": 3, "already_exists": False})
+    service = OneLocationCircleService(db=_TransactionDb(conn))
+    with pytest.raises(OneLocationCircleError) as error:
+        service.create_circle_in_transaction(
+            conn,
+            owner_user_id="owner",
+            name="Investments",
+            kind="other",
+            custom_type_label="Finance",
+        )
+    assert error.value.code == "LOCATION_CIRCLE_TYPE_LIMIT"
+    assert "FOR NO KEY UPDATE" in conn.sql[0]
+    assert not any("INSERT INTO one_location_circles" in sql for sql in conn.sql)
+
+
+def test_existing_custom_type_can_be_reused_at_the_limit() -> None:
+    conn = _CapacityConnection(
+        {"user_id": "owner"}, {"type_count": 3, "already_exists": True}, {"id": "circle"}, None
+    )
+    service = OneLocationCircleService(db=_TransactionDb(conn))
+    assert (
+        service.create_circle_in_transaction(
+            conn,
+            owner_user_id="owner",
+            name="Investments",
+            kind="other",
+            custom_type_label="Finance",
+        )
+        == "circle"
+    )
+    insert = next(
+        params
+        for sql, params in zip(conn.sql, conn.params, strict=True)
+        if "INSERT INTO one_location_circles" in sql
+    )
+    assert circle_service_module.json.loads(insert["metadata"]) == {"customTypeLabel": "Finance"}
+
+
+def test_custom_type_deletion_keeps_circles_and_is_owner_scoped() -> None:
+    conn = _CapacityConnection(
+        {"user_id": "owner"}, [{"id": "one"}, {"id": "two"}], [{"id": "one"}, {"id": "two"}]
+    )
+    service = OneLocationCircleService(db=_TransactionDb(conn))
+    assert service.delete_custom_type(owner_user_id="owner", label=" Finance ") == {
+        "updatedCircleCount": 2
+    }
+    assert "FOR NO KEY UPDATE" in conn.sql[0]
+    assert "FOR UPDATE NOWAIT" in conn.sql[1]
+    assert "metadata, '{}'::jsonb) - 'customTypeLabel'" in conn.sql[2]
+    assert "owner_user_id = :owner" in conn.sql[2]
+    assert conn.params[2] == {"owner": "owner", "label": "Finance"}
+    assert not any(
+        "DELETE FROM" in sql or "UPDATE one_location_circle_memberships" in sql for sql in conn.sql
+    )
+
+
+def test_custom_type_row_lock_contention_is_retryable() -> None:
+    class BusyConnection:
+        def execute(self, *_args):
+            error = RuntimeError("busy")
+            error.orig = SimpleNamespace(sqlstate="55P03")
+            raise error
+
+    with pytest.raises(OneLocationCircleError) as error:
+        OneLocationCircleService._lock_custom_type_rows(BusyConnection(), "owner", label="Finance")
+    assert error.value.status_code == 409
+    assert error.value.code == "LOCATION_CIRCLE_BUSY"
+
+
+def test_custom_type_projection_is_owner_only() -> None:
+    row = {
+        "id": "circle",
+        "name": "Investments",
+        "kind": "other",
+        "custom_type_label": "Finance",
+        "owner_user_id": "owner",
+        "viewer_user_id": "owner",
+    }
+    assert OneLocationCircleService._circle_summary(row)["customTypeLabel"] == "Finance"
+    assert "customTypeLabel" not in OneLocationCircleService._circle_summary(
+        {**row, "viewer_user_id": "member"}
+    )
+
+
 def test_circle_name_accepts_one_character_and_still_bounds_the_column() -> None:
     clean = circle_service_module._clean_name
 

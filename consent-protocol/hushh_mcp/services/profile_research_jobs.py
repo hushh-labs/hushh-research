@@ -36,6 +36,7 @@ from hushh_mcp.services.chat_key import get_chat_key_provider, retain_request_ch
 from hushh_mcp.services.magic_intelligence_admission import magic_intelligence_owner_admitted
 from hushh_mcp.services.magic_intelligence_completion import magic_intelligence_saved
 from hushh_mcp.services.one_owner_admission import lookup_fresh_owner_identity, owner_setup_resolved
+from hushh_mcp.services.owner_placement_guard import admit_hub_content
 from hushh_mcp.services.profile_research_service import (
     offer_profile_research,
     resolve_profile_research_identity,
@@ -134,6 +135,7 @@ provider_breaker = ProviderBreaker()
 
 async def admission(user_id: str, consent_token: str) -> tuple[dict[str, Any] | None, str]:
     """Fresh, fail-closed authority for both dispatch and cached draft release."""
+    await admit_hub_content(user_id, "profile_research")
     if await validate_first_party_owner_token(user_id, consent_token) is None:
         raise PermissionError("Owner session ended")
     if not one_profile_research_enabled():
@@ -161,6 +163,7 @@ async def admission(user_id: str, consent_token: str) -> tuple[dict[str, Any] | 
         raise PermissionError("Owner session ended")
     if not one_profile_research_enabled():
         return {"status": "disabled", "pkm_written": False}, ""
+    await admit_hub_content(user_id, "profile_research")
     return None, binding
 
 
@@ -351,14 +354,19 @@ class ProfileResearchJobs:
             return {"status": "disabled", "pkm_written": False}
         context = await self.job_context(user_id, consent_token)
         state = self.prepare_start_state(await self.store.get(user_id))
+        carried, same_inputs = self.prepare_inputs(state, inputs, refresh_completed)
         same_context = all((state or {}).get(key) == value for key, value in context.items())
         fresh_discovery = bool(
             refresh_completed
             and state
             and same_context
-            and (state["status"] in {"offered", "low_confidence"} or self.exhausted(state))
+            and (
+                not same_inputs
+                or state["status"] in {"offered", "low_confidence"}
+                or self.exhausted(state)
+            )
         )
-        if state and same_context and self.reusable(state) and not fresh_discovery:
+        if state and same_context and same_inputs and self.reusable(state) and not fresh_discovery:
             if state["status"] == "pending":
                 self.decision("start", "reused_pending", None, state)
                 return pending()
@@ -401,6 +409,7 @@ class ProfileResearchJobs:
             and not fresh_discovery
             and state
             and same_context
+            and same_inputs
             and state.get("status") == "unavailable"
             and state.get("result", {}).get("reason") == "provider_throttled"
             and self.clock() - state.get("discovery_started_at", state["started_at"]) < TTL_SECONDS
@@ -469,6 +478,7 @@ class ProfileResearchJobs:
             self.progressive
             and not fresh_discovery
             and same_context
+            and same_inputs
             and state
             and (
                 self.clock() - state.get("discovery_started_at", state["started_at"]) < TTL_SECONDS
@@ -478,9 +488,8 @@ class ProfileResearchJobs:
             next_state["work"] = state.get("work", {})
             next_state["job_id"] = state["job_id"]
             resumed = state["status"] in {"pending", "paused"} or throttle_resume
-        # Caller-supplied model inputs stay sealed with the job and carry across
-        # resumes; they never change the reuse context above.
-        carried = (state or {}).get("inputs") if inputs is None else inputs
+        # Feature-specific public inputs may bind discovery; private decisions
+        # remain sealed, nonbinding model context.
         if carried:
             next_state["inputs"] = carried
         # Reserve before the awaited CAS, including contenders for other owners.
@@ -540,6 +549,9 @@ class ProfileResearchJobs:
 
     async def job_context(self, user_id, consent_token):
         return {}
+
+    def prepare_inputs(self, state, inputs, refresh_completed):
+        return ((state or {}).get("inputs") if inputs is None else inputs), True
 
     def prepare_start_state(self, state: dict[str, Any] | None) -> dict[str, Any] | None:
         """Allow a feature to translate an older checkpoint before budget validation.

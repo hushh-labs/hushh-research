@@ -16,6 +16,7 @@ This folder is the canonical home for signed-in shell primitives, page chrome, a
 - `shell-action-surface.tsx`: canonical interaction surface for top-shell buttons and pills.
 - `top-shell-dropdown.ts`: shared dropdown chrome contract for shield/overlay surfaces.
 - `command-fields.tsx`: shared command/search field chrome for route-local filters and pickers.
+- `illustrated-request-dialog.tsx`: Profile request artwork, typography and responsive form regions over the existing `TaskDialogContent` owner. Feature controllers retain validation, request state, dismissal guards and acknowledged follow-up actions.
 - `route-error-boundary.tsx`: top-level error boundary for route failures with graceful fallback UI.
 
 ## Rules

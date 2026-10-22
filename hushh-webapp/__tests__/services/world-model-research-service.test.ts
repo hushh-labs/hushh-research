@@ -95,6 +95,17 @@ it("accepts only matching display-only research provenance", () => {
     grounded_answers: [{ answer, sources: [], citations: [citation], search_suggestions: [] }],
   };
   expect(pwmResultSchema.safeParse(citedAzure).success).toBe(true);
+  const untitledAnswer = {
+    answer,
+    sources: [],
+    citations: [{ ...citation, title: "" }],
+    search_suggestions: [],
+  };
+  const untitledResult = pwmResultSchema.parse({
+    ...citedAzure,
+    grounded_answers: [untitledAnswer],
+  });
+  expect(untitledResult.status === "offered" && untitledResult.grounded_answers[0]).toEqual(untitledAnswer);
   expect(pwmResultSchema.safeParse({
     ...citedAzure,
     grounded_answers: [{ answer, sources: [], search_suggestions: [] }],
@@ -153,6 +164,7 @@ it("accepts a deep PWM draft with scored evidence but rejects padded duplicates"
 const session = {
   vaultKey: "synthetic-key",
   vaultOwnerToken: "synthetic-token",
+  isCurrent: () => true,
 };
 const progress = (searches: number): PwmProgress => ({
   stage: "coverage",
@@ -278,6 +290,18 @@ describe("PWM service authority and request recovery", () => {
     expect(api.mock.calls[0][0]).toBe("/api/one/world-model/jobs");
     expect(api.mock.calls[0][1].method).toBe("POST");
     expect(JSON.parse(api.mock.calls[0][1].body)).toEqual({ refresh: true });
+  });
+  it("sends explicitly selected public profiles only to a jobs refresh", async () => {
+    api.mockResolvedValue({ status: "saved", pkm_written: false });
+    const publicProfileUrls = ["https://github.com/public-example"];
+    for (const refresh of [true, false]) await WorldModelResearchService.observe({
+      ...session, signal: new AbortController().signal, refresh, publicProfileUrls, onResult: vi.fn(),
+    });
+    expect(JSON.parse(api.mock.calls[0][1].body)).toEqual({ refresh: true, public_profiles: {
+      urls: publicProfileUrls, permitted_public_sources: true,
+    } });
+    expect(api.mock.calls[1][0]).toBe("/api/one/world-model/ensure");
+    expect(api.mock.calls[1][1].body).toBeUndefined();
   });
   it("sends owner decisions only when starting research", async () => {
     const ownerDecisions = { confirmed: ["Saved."], rejected: ["Declined."] };

@@ -14,6 +14,7 @@
 
 import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 import { ApiService } from "@/lib/services/api-service";
+import { AnswerPayoutService } from "./answer-payout-service";
 
 const REQUEST_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -215,66 +216,9 @@ export class AnswerRequestService {
     };
   }
 
-  static async payoutAccount(
-    firebaseIdToken: string,
-  ): Promise<{
-    stripeMode: "test" | "live";
-    account: { ready: boolean; canManageBank: boolean } | null;
-  }> {
-    const response = await ApiService.apiFetch(
-      "/api/one/answer-requests/payout-account",
-      {
-        cache: "no-store",
-        headers: { Authorization: `Bearer ${firebaseIdToken}` },
-      },
-    );
-    if (!response.ok) throw new Error("Could not verify answer payout setup.");
-    const value = await readJson(response);
-    if (value.stripeMode !== "test" && value.stripeMode !== "live")
-      throw new Error("Invalid payout mode");
-    const account = value.account;
-    if (
-      account !== null &&
-      (!account ||
-        typeof account !== "object" ||
-        !("ready" in account) ||
-        typeof account.ready !== "boolean")
-    )
-      throw new Error("Invalid payout response");
-    return value as {
-      stripeMode: "test" | "live";
-      account: { ready: boolean; canManageBank: boolean } | null;
-    };
-  }
-
-  static async payoutLink(
-    firebaseIdToken: string,
-    action: "onboarding" | "dashboard",
-  ): Promise<string> {
-    const response = await ApiService.apiFetch(
-      `/api/one/answer-requests/payout-account/${action}`,
-      {
-        method: "POST",
-        cache: "no-store",
-        headers: { Authorization: `Bearer ${firebaseIdToken}` },
-      },
-    );
-    if (!response.ok)
-      throw new Error(
-        "Could not open answer payout setup. Please retry or contact support.",
-      );
-    const value = await readJson(response);
-    const url = new URL(String(value.url || ""));
-    if (
-      url.protocol !== "https:" ||
-      !["connect.stripe.com", "stripe.com"].includes(url.hostname) ||
-      url.username ||
-      url.password ||
-      url.port
-    )
-      throw new Error("Invalid payout link");
-    return url.href;
-  }
+  static payoutAccount = AnswerPayoutService.account;
+  static payoutLink = AnswerPayoutService.link;
+  static payoutOnboarding = AnswerPayoutService.onboarding;
 
   /** Questions this owner has been asked and has not yet answered or refused. */
   static async inbox(firebaseIdToken: string): Promise<PendingAnswerRequest[]> {
@@ -493,16 +437,18 @@ export class AnswerRequestService {
     dispatchConsentStateChanged({ requestId: `answer_request:${requestId}` });
   }
 
-  /** Submit a question. Returns the new request id; resolution happens server-side. */
+  /** Submit a question. An unchanged retry can reuse the existing request id. */
   static async create(
     firebaseIdToken: string,
     personRef: string,
     terms: AnswerRequestTerms,
+    options?: { clientRequestId: string; isEffectCurrent?: () => boolean },
   ): Promise<{ requestId: string }> {
     if (!firebaseIdToken) throw new Error("Sign in to send this request");
     if (!validAnswerRequest(terms))
       throw new Error("Check the request details");
     const response = await ApiService.apiFetch("/api/one/answer-requests", {
+      isEffectCurrent: options?.isEffectCurrent,
       method: "POST",
       cache: "no-store",
       headers: {
@@ -510,6 +456,7 @@ export class AnswerRequestService {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        ...(options ? { clientRequestId: options.clientRequestId } : {}),
         personRef,
         question: terms.question.trim(),
         periodStart: terms.periodStart,

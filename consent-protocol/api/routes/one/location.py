@@ -46,10 +46,11 @@ from hushh_mcp.services.one_location_agent_service import (
     OneLocationAgentError,
     OneLocationAgentService,
     database_error_detail,
+    is_sos_share,
     location_error_detail,
-    requires_recipient_phone_verification,
 )
 from hushh_mcp.services.one_location_circle_service import (
+    CIRCLE_MAX_CUSTOM_TYPES,
     OneLocationCircleError,
     OneLocationCircleService,
 )
@@ -66,6 +67,11 @@ from hushh_mcp.services.one_location_place_rating_service import (
     PlaceRatingError,
 )
 from hushh_mcp.services.one_location_sms_readiness import refresh_sms_recipient_identities
+from hushh_mcp.services.scheduler_identity import (
+    SchedulerIdentityError,
+    legacy_shared_token_allowed,
+    verified_scheduler_identity,
+)
 
 router = APIRouter(prefix="/api/one", tags=["One Location Agent"])
 # Invitation presentation is not a protected Location workflow capability.
@@ -338,6 +344,7 @@ class ClaimCircleInviteRequest(_CamelModel):
 class CreateNamedCircleRequest(_CamelModel):
     name: str = Field(min_length=1, max_length=80)
     kind: str = Field(default="other", pattern="^(family|friends|other)$")
+    custom_type_label: str | None = Field(default=None, alias="customTypeLabel", max_length=80)
 
 
 class BootstrapNamedCircleRequest(_CamelModel):
@@ -359,6 +366,11 @@ class UpdateNamedCircleRequest(_CamelModel):
     command_binding: dict[str, Any] | None = Field(default=None, alias="commandBinding")
     name: str | None = Field(default=None, min_length=1, max_length=80)
     kind: str | None = Field(default=None, pattern="^(family|friends|other)$")
+    custom_type_label: str | None = Field(default=None, alias="customTypeLabel", max_length=80)
+
+
+class DeleteCircleTypeRequest(_CamelModel):
+    custom_type_label: str = Field(alias="customTypeLabel", min_length=1, max_length=80)
 
 
 def _circle_command_kwargs(
@@ -666,9 +678,49 @@ def _set_private_no_store(response: Response) -> None:
     response.headers["Pragma"] = "no-cache"
 
 
+def _verified_scheduler_identity(request: Request, config_prefix: str):
+    """Verify a scheduler OIDC token, or return None when none was presented.
+
+    A presented-but-invalid token raises rather than returning None, so it cannot
+    fall through to the weaker shared-header path below.
+    """
+    try:
+        return verified_scheduler_identity(request, config_prefix)
+    except SchedulerIdentityError as error:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "code": "ONE_LOCATION_RETENTION_UNAUTHORIZED",
+                "message": "One Location retention purge is not authorized.",
+                "reason": error.reason,
+            },
+        ) from error
+
+
 def _require_retention_auth(request: Request) -> None:
+    """OIDC first; the shared header only while the legacy path is still open.
+
+    Order matters. Checking OIDC first means that once both Cloud Scheduler jobs are
+    reconfigured, turning the legacy path off is a config change and not a code
+    change -- and until then a job that presents a valid OIDC token is never asked
+    for a header it no longer carries.
+    """
     if not _retention_auth_enabled():
         return
+
+    identity = _verified_scheduler_identity(request, "ONE_LOCATION_RETENTION")
+    if identity is not None:
+        return
+
+    if not legacy_shared_token_allowed():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "code": "ONE_LOCATION_RETENTION_UNAUTHORIZED",
+                "message": "One Location retention purge is not authorized.",
+            },
+        )
+
     expected = str(os.getenv("ONE_LOCATION_RETENTION_TOKEN") or "").strip()
     if not expected:
         raise HTTPException(
@@ -704,9 +756,7 @@ async def _sms_grant_identity_ready(
     token_data: dict = Depends(require_vault_owner_token),
 ) -> dict:
     try:
-        if requires_recipient_phone_verification(
-            share_kind=payload.share_kind, reason=payload.reason
-        ):
+        if is_sos_share(share_kind=payload.share_kind, reason=payload.reason):
             await refresh_sms_recipient_identities(
                 _service(),
                 owner_user_id=_user_id(token_data),
@@ -1051,7 +1101,28 @@ def list_named_location_circles(
     token_data: dict = Depends(require_vault_owner_token),
 ):
     try:
-        return {"circles": _circle_service().list_circles(user_id=_user_id(token_data))}
+        return {
+            "circles": _circle_service().list_circles(user_id=_user_id(token_data)),
+            "customTypePolicy": {"version": 1, "maxTypes": CIRCLE_MAX_CUSTOM_TYPES},
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.delete("/location/circle-types")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
+def delete_named_location_circle_type(
+    request: Request,
+    response: Response,
+    payload: DeleteCircleTypeRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    del request
+    _set_private_no_store(response)
+    try:
+        return _circle_service().delete_custom_type(
+            owner_user_id=_user_id(token_data), label=payload.custom_type_label
+        )
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -1070,6 +1141,11 @@ def create_named_location_circle(
                 owner_user_id=_user_id(token_data),
                 name=payload.name,
                 kind=payload.kind,
+                **(
+                    {"custom_type_label": payload.custom_type_label}
+                    if payload.custom_type_label is not None
+                    else {}
+                ),
             )
         }
     except Exception as exc:
@@ -1203,6 +1279,11 @@ def update_named_location_circle(
             circle_id=circle_id,
             name=payload.name,
             kind=payload.kind,
+            **(
+                {"custom_type_label": payload.custom_type_label}
+                if payload.custom_type_label is not None
+                else {}
+            ),
             **command,
         )
         return result if command else {"circle": result}
@@ -1873,7 +1954,10 @@ async def maps_nearby_places(
             lng=payload.lng,
             category=payload.category,
         )
-        return {"suggestions": suggestions}
+        return {
+            "suggestions": suggestions,
+            "discoveryIncomplete": getattr(suggestions, "discovery_incomplete", False),
+        }
     except GoogleMapsError as exc:
         raise HTTPException(
             status_code=exc.status_code,
@@ -2197,10 +2281,7 @@ def create_location_grant(
                 source_circle_id=(
                     str(payload.source_circle_id) if payload.source_circle_id is not None else None
                 ),
-                require_recipient_phone_verified=requires_recipient_phone_verification(
-                    share_kind=payload.share_kind,
-                    reason=payload.reason,
-                ),
+                require_recipient_phone_verified=False,
                 enforce_connection=True,
             )
         }
@@ -2238,10 +2319,7 @@ def create_location_grant_with_envelope(
             source_circle_id=(
                 str(payload.source_circle_id) if payload.source_circle_id is not None else None
             ),
-            require_recipient_phone_verified=requires_recipient_phone_verification(
-                share_kind=payload.share_kind,
-                reason=payload.reason,
-            ),
+            require_recipient_phone_verified=False,
             enforce_connection=True,
         )
     except Exception as exc:

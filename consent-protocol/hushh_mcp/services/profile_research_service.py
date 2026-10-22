@@ -20,6 +20,7 @@ from hushh_mcp.services.one_owner_admission import (
     lookup_fresh_owner_identity,
     owner_setup_resolved,
 )
+from hushh_mcp.services.owner_placement_guard import hub_content_check
 
 logger = logging.getLogger(__name__)
 
@@ -55,10 +56,11 @@ async def offer_profile_research(
     attempts_used=(),
     on_attempts_start=None,
 ) -> dict[str, Any]:
-    async def require_access() -> None:
+    async def check_owner() -> None:
         if await owner_check(user_id, consent_token) is None:
             raise PermissionError("Owner session ended")
 
+    require_access = hub_content_check(user_id, check_owner)
     await require_access()
     if not one_profile_research_enabled() or not magic_intelligence_rollout_enabled():
         return {"status": "disabled", "pkm_written": False}

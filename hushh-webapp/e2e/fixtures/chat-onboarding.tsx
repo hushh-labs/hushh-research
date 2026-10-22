@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { OneAccessOverview } from "../../components/agent/one-access-overview";
 import { createRoot } from "react-dom/client";
 
 import { CHAT_USER_BUBBLE_CLASSNAME } from "../../components/agent/chat-message-styles";
@@ -12,6 +13,8 @@ import {
 } from "../../components/agent/chat-onboarding/chat-onboarding-transcript";
 import { useChatOnboarding, type ChatOnboardingController } from "../../lib/agent/chat-onboarding/use-chat-onboarding";
 import { useOneDisplayName } from "../../lib/agent/use-one-display-name";
+import { beginChatPreferredNameTurn } from "../../lib/agent/chat-preferred-name-turn";
+import { saveChatPreferredName } from "../../lib/agent/owner-style-settings-writer";
 import { ApiService } from "@/lib/services/api-service";
 import type { ChatOnboardingTurn } from "../../lib/agent/chat-onboarding/chat-onboarding-machine";
 import {
@@ -118,6 +121,7 @@ function Harness() {
 }
 
 function NameJourney() {
+  const ordinary = window.location.search.includes("ordinary-name");
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState("");
@@ -125,30 +129,45 @@ function NameJourney() {
   const name = useOneDisplayName();
   const controller = useChatOnboarding({
     userId: "synthetic-owner", displayName: "Owner", vaultKey: "ab".repeat(32),
-    vaultOwnerToken: "synthetic-owner-token", isVaultUnlocked: true, startSignal: true,
+    vaultOwnerToken: "synthetic-owner-token", isVaultUnlocked: true, startSignal: !ordinary,
     messages: [], conversationId: "synthetic-chat", visiblePrompts: [],
     onFocusComposer: () => input.current?.focus(),
   });
   async function submit() {
     if (!text.trim() || sending || controller.busy) return;
-    const turn = controller.beginNameTurn?.(() => true);
+    const turn = ordinary ? null : controller.beginNameTurn?.(() => true);
+    const nameTurn = ordinary ? beginChatPreferredNameTurn({
+      isCurrent: () => true,
+      save: (chosen, beforeEffect, mayPublish) => saveChatPreferredName({
+        userId: "synthetic-owner", vaultKey: "ab".repeat(32),
+        vaultOwnerToken: "synthetic-owner-token", name: chosen, beforeEffect, mayPublish,
+      }),
+    }) : null;
     setSending(true);
     setMessage("");
     try {
       const response = await ApiService.apiFetch("/__fixture/one", { method: "POST", body: JSON.stringify({ text, ...turn?.screenState }) });
       if (!response.ok) throw new Error("Synthetic turn failure");
-      turn?.stage(await response.json(), "name-call");
+      const result = await response.json();
+      turn?.stage(result, "name-call");
+      nameTurn?.stage(result, "name-call");
       turn?.finish(true);
+      const saved = await nameTurn?.finish(true);
+      if (saved === true) setMessage("Preferred name saved.");
+      else if (saved === false) setMessage("Couldn't save your name. Please try again.");
       setText("");
     } catch {
       turn?.finish(false);
+      void nameTurn?.finish(false);
       setMessage("I couldn't read that reply. Please try again.");
     } finally { setSending(false); }
   }
-  return <main className="mx-auto flex max-w-4xl flex-col gap-6 p-4 text-foreground">
+  return <main className="mx-auto flex h-dvh max-w-4xl flex-col gap-6 overflow-y-auto p-4 text-foreground">
     <div aria-label="Chat profile name" className="text-center">{name}</div>
     <ChatOnboardingTurns controller={controller} slot={{ kind: "top" }}
-      renderBubble={message => <p>{message.text}</p>} onConnect={() => undefined} />
+      renderBubble={message => <p>{message.text}</p>} onConnect={() => undefined}
+      completion={<AgentSuggestionList suggestions={["What's on my calendar this week?", "Which emails need a reply?", "What do you remember about me?"]}
+        layout="starter-grid" label="Start a conversation" onSelect={setText} />} />
     <form onSubmit={event => { event.preventDefault(); void submit(); }} className="flex gap-2">
       <input ref={input} aria-label="Your reply" placeholder={controller.composerPlaceholder ?? "Message One"}
         value={text} onChange={event => setText(event.target.value)} disabled={sending || controller.busy}
@@ -159,6 +178,16 @@ function NameJourney() {
   </main>;
 }
 
+function AccessJourney() {
+  return <main className="mx-auto h-dvh max-w-md overflow-y-auto p-4 text-foreground">
+    <h2 className="mb-4 text-lg font-semibold">One access</h2>
+    <OneAccessOverview onNavigate={() => undefined}>
+      <p>No apps connected.</p>
+    </OneAccessOverview>
+  </main>;
+}
+
 createRoot(document.getElementById("root")!).render(
-  window.location.search.includes("name-journey") ? <NameJourney /> : <Harness />,
+  window.location.search.includes("access") ? <AccessJourney />
+    : /name-journey|ordinary-name/.test(window.location.search) ? <NameJourney /> : <Harness />,
 );

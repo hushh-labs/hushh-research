@@ -192,7 +192,10 @@ describe("PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob", () =
     expect(transport.nativeStore).not.toHaveBeenCalled();
   });
 
-  it.each([false, true])("preserves a confirmed receipt without republishing after session change (native=%s)", async (native) => {
+  it.each([
+    { native: false, writer: "prepared" }, { native: true, writer: "prepared" },
+    { native: false, writer: "merged" }, { native: true, writer: "merged" },
+  ])("preserves a confirmed receipt without republishing after session change ($writer, native=$native)", async ({ native, writer }) => {
     transport.native = native;
     let current = true;
     vi.spyOn(PersonalKnowledgeModelService, "getDomainManifest").mockResolvedValue(null);
@@ -207,7 +210,8 @@ describe("PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob", () =
       current = false;
       return new Response(JSON.stringify({ success: true, data_version: 2 }));
     });
-    const result = await PersonalKnowledgeModelService.storePreparedDomainWithPreparedBlob({
+    const store = writer === "merged" ? PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob : PersonalKnowledgeModelService.storePreparedDomainWithPreparedBlob;
+    const result = await store.call(PersonalKnowledgeModelService, {
       userId: "owner-fixture", vaultKey: "vault-key-fixture", vaultOwnerToken: "owner-token-fixture",
       domain: "food", domainData: { preference: "tea" }, baseFullBlob: {}, summary: {},
       beforeEffect: async () => { if (!current) throw new DOMException("Canceled", "AbortError"); },

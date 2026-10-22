@@ -9,8 +9,10 @@ from fastapi.testclient import TestClient
 
 from api.middleware import require_vault_owner_token
 from api.routes import drive_groups as routes
-from api.routes import drive_sharing
+from api.routes import drive_sharing_owner
+from hushh_mcp.services import owner_placement_guard
 from hushh_mcp.services.drive_groups.contract import FLAG
+from hushh_mcp.services.drive_groups.folders import load_folders
 from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
@@ -45,7 +47,10 @@ def setup(monkeypatch):
     store.folders.return_value = []
     monkeypatch.setattr(routes, "_store", lambda: store)
     current = AsyncMock(return_value={"user_id": "owner"})
-    monkeypatch.setattr(drive_sharing, "require_vault_owner_token", current)
+    monkeypatch.setattr(drive_sharing_owner, "require_vault_owner_token", current)
+    monkeypatch.setattr(
+        owner_placement_guard, "get_owner_hosting_mode", AsyncMock(return_value="shared")
+    )
     return TestClient(app), app, store, current
 
 
@@ -91,7 +96,11 @@ def test_api_uses_only_authenticated_owner_and_existing_store_projection(setup):
     client, app, store, current = setup
     unlock(app)
     response = client.get(BASE)
-    assert response.json() == {"status": {"state": "off", "indexedFiles": 0}, "folders": []}
+    assert response.json() == {
+        "status": {"state": "off", "indexedFiles": 0},
+        "folders": [],
+        "groups": [{"shelf": shelf, "name": name} for shelf, name in load_folders().names.items()],
+    }
     assert response.headers["Cache-Control"] == "private, no-store"
     store.status.assert_awaited_once_with(user_id="owner")
     store.folders.assert_awaited_once_with(user_id="owner")
@@ -152,6 +161,21 @@ def test_revocation_after_read_prevents_delivery(setup):
     current.side_effect = [{"user_id": "owner"}, HTTPException(403, "Revoked")]
     response = client.get(BASE)
     assert response.status_code == 403 and "do-not-deliver" not in response.text
+    assert response.headers["Cache-Control"] == "private, no-store"
+
+
+def test_placement_change_after_read_prevents_private_file_delivery(setup, monkeypatch):
+    client, app, store, _ = setup
+    unlock(app)
+    store.files.return_value = {"items": [{"title": "do-not-deliver"}]}
+    # Initial dependency + pre-operation check admit shared, final check refuses.
+    monkeypatch.setattr(
+        owner_placement_guard,
+        "get_owner_hosting_mode",
+        AsyncMock(side_effect=["shared", "shared", "byoc"]),
+    )
+    response = client.get(BASE + "/kept/files")
+    assert response.status_code == 409 and "do-not-deliver" not in response.text
     assert response.headers["Cache-Control"] == "private, no-store"
 
 

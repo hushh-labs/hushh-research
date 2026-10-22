@@ -84,7 +84,7 @@ A lab pattern graduates into production only after it has:
 
 ## Repo-Owned Skill Entry Points
 
-Project skills live under `.codex/skills/`:
+Project skills live under `.agents/skills/`:
 
 1. `frontend`
 2. `frontend-design-system`

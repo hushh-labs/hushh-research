@@ -6,11 +6,17 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 from google.adk.models.base_llm import BaseLlm
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
 from pydantic import PrivateAttr, ValidationError
+from slowapi.errors import RateLimitExceeded
 
+from api.middlewares.chat_key import require_vault_owner_chat_key
+from api.middlewares.rate_limit import limiter, rate_limit_exceeded_handler
+from api.routes.one import profile_research as routes
 from hushh_mcp.hushh_adk.turn import SpecialistAdkTurnError
 from hushh_mcp.one_adk.profile_research import (
     ProfileReport,
@@ -21,6 +27,7 @@ from hushh_mcp.one_adk.profile_research import (
 from hushh_mcp.services import profile_research_service as service
 
 SOURCE = "https://example.test/team/alex"
+pytestmark = pytest.mark.usefixtures("shared_hub_owner")
 OWNER_TOKEN = "fixture-owner-token"  # A fixture label, never a credential.
 REPORT = {
     "match_status": "matched",
@@ -1021,9 +1028,12 @@ async def test_canonical_onboarding_name_fallback_keeps_contact_verification(
         "kill_inflight",
         "phone_changed",
         "name_changed",
+        "hosting_changed",
     ],
 )
-async def test_no_draft_crosses_an_ineligible_or_changed_owner_boundary(monkeypatch, condition):
+async def test_no_draft_crosses_an_ineligible_or_changed_owner_boundary(
+    monkeypatch, condition, shared_hub_owner
+):
     monkeypatch.setenv(
         "ONE_PROFILE_RESEARCH_ENABLED", "false" if condition == "disabled" else "true"
     )
@@ -1059,6 +1069,9 @@ async def test_no_draft_crosses_an_ineligible_or_changed_owner_boundary(monkeypa
             live = False
         if condition == "kill_inflight":
             monkeypatch.setenv("ONE_PROFILE_RESEARCH_ENABLED", "false")
+        if condition == "hosting_changed":
+            shared_hub_owner.return_value = "byoc"
+            await kwargs["require_access"]()
         if condition in {"phone_changed", "name_changed"}:
             changed = True
         if condition == "phone_changed":
@@ -1079,6 +1092,12 @@ async def test_no_draft_crosses_an_ineligible_or_changed_owner_boundary(monkeypa
     if condition in {"wrong_owner", "revoked"}:
         with pytest.raises(PermissionError):
             await invoke
+    elif condition == "hosting_changed":
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as error:
+            await invoke
+        assert error.value.status_code == 409
     else:
         result = await invoke
         assert result == {
@@ -1295,21 +1314,22 @@ def test_report_rejects_duplicate_sections_no_match_findings_and_unsafe_sources(
             ProfileReport.model_validate(report)
 
 
-def test_route_ignores_client_identity_and_denies_before_research(monkeypatch):
-    from fastapi import FastAPI, HTTPException
-    from fastapi.testclient import TestClient
-
-    from api.middlewares.chat_key import require_vault_owner_chat_key
-    from api.middlewares.rate_limit import limiter
-    from api.routes.one import profile_research as routes
+@pytest.fixture
+def route_app(monkeypatch):
 
     app = FastAPI()
     app.include_router(routes.router)
-    monkeypatch.setattr(limiter, "enabled", False)
     app.dependency_overrides[require_vault_owner_chat_key] = lambda: {
         "user_id": "owner",
         "token": "fixture-token",
     }
+    monkeypatch.setattr(limiter, "enabled", False)
+    return app
+
+
+def test_route_ignores_client_identity_and_denies_before_research(monkeypatch, route_app):
+
+    app = route_app
     seen = []
 
     async def research(**kwargs):
@@ -1339,21 +1359,9 @@ def test_route_ignores_client_identity_and_denies_before_research(monkeypatch):
     assert response.headers["cache-control"] == "private, no-store"
 
 
-def test_route_hides_provider_errors_and_owner_revocation(monkeypatch):
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
+def test_route_hides_provider_errors_and_owner_revocation(monkeypatch, route_app):
 
-    from api.middlewares.chat_key import require_vault_owner_chat_key
-    from api.middlewares.rate_limit import limiter
-    from api.routes.one import profile_research as routes
-
-    app = FastAPI()
-    app.include_router(routes.router)
-    monkeypatch.setattr(limiter, "enabled", False)
-    app.dependency_overrides[require_vault_owner_chat_key] = lambda: {
-        "user_id": "owner",
-        "token": "fixture-token",
-    }
+    app = route_app
 
     async def fails(**kwargs):
         raise RuntimeError("private-provider-details")
@@ -1374,23 +1382,11 @@ def test_route_hides_provider_errors_and_owner_revocation(monkeypatch):
     assert response.status_code == 403 and "private-owner" not in response.text
 
 
-def test_rate_limit_is_private_and_does_not_start_a_fourth_research(monkeypatch):
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
-    from slowapi.errors import RateLimitExceeded
+def test_rate_limit_is_private_and_does_not_start_a_fourth_research(monkeypatch, route_app):
 
-    from api.middlewares.chat_key import require_vault_owner_chat_key
-    from api.middlewares.rate_limit import limiter, rate_limit_exceeded_handler
-    from api.routes.one import profile_research as routes
-
-    app = FastAPI()
-    app.include_router(routes.router)
+    app = route_app
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
-    app.dependency_overrides[require_vault_owner_chat_key] = lambda: {
-        "user_id": "owner",
-        "token": "fixture-token",
-    }
     calls = []
 
     async def research(**kwargs):

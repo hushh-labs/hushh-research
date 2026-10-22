@@ -85,8 +85,10 @@ def _snapshot(rows, owner="payer-owner"):
     return result, engine.connection
 
 
-def test_owner_scoped_bounded_consistent_read_and_allowlisted_output():
-    row = _payment_row()
+@pytest.mark.parametrize("offset_minutes", [0, -420, 330])
+def test_owner_scoped_bounded_consistent_read_and_allowlisted_output(offset_minutes):
+    observed = NOW.astimezone(timezone(timedelta(minutes=offset_minutes)))
+    row = _payment_row(paid_at=observed, created_at=observed, updated_at=observed)
     snapshot, connection = _snapshot([row])
     assert connection.params == {"owner": "payer-owner", "maximum": 5001}
     assert "REPEATABLE READ, READ ONLY" in connection.statements[0]
@@ -96,6 +98,7 @@ def test_owner_scoped_bounded_consistent_read_and_allowlisted_output():
     item = snapshot["items"][0]
     assert item["requestId"] == str(row["request_id"])
     assert item["amountCents"] == 50
+    assert {item[key] for key in ("paidAt", "createdAt", "updatedAt")} == {NOW.isoformat()}
     assert item["counterpartRef"].startswith("sub_")
     assert "payee-private-uid" not in json.dumps(snapshot)
     assert "cs_live_PRIVATE" not in json.dumps(snapshot)

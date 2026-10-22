@@ -1,5 +1,11 @@
 "use client";
 
+import { useVault } from '@/lib/vault/vault-context';
+import { snapshotVaultSessionEpoch } from '@/lib/vault/session-epoch';
+import { useGoogleConnectorTransitionReview } from '@/components/connections/google-connector-transition-review';
+import { ownerContentIsPrivate } from '@/lib/services/private-agent-specialist-chat';
+import { connectGoogleConnector, connectRefusalMessage } from '@/lib/one/google-native-connect';
+import { requestGoogleConnectorPhoneHandoff } from '@/lib/one/google-connector-intent';
 import type { CalendarInvitationHandoff, CalendarAttendanceHandoff } from "@/lib/calendar/calendar-invitation-handoff";
 import type { CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 
@@ -135,6 +141,8 @@ export function CalendarAgentPage({
   connectionPending = false,
 }: CalendarAgentPageProps) {
   const { user, loading } = useAuth();
+  const { vaultKey, vaultOwnerToken } = useVault();
+  const { confirmTransition, transitionDialog } = useGoogleConnectorTransitionReview(user?.uid, snapshotVaultSessionEpoch());
   const renderedOwnerId = user?.uid ?? null;
   const latestUserRef = useRef(user);
   useEffect(() => {
@@ -173,6 +181,7 @@ export function CalendarAgentPage({
   const busyRef = useRef(false);
   const setBusy = (value: boolean) => { busyRef.current = value; setBusyState(value); };
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false);
+  const [disconnectAccountId, setDisconnectAccountId] = useState("default");
   const disconnectTriggerRef = useRef<HTMLButtonElement | null>(null);
   // Google's opener policy can sever the popup's WindowProxy, so
   // `popup.closed` is not evidence of anything. The shared handler settles on
@@ -246,26 +255,57 @@ export function CalendarAgentPage({
     }
   }, []);
 
-  const connected =
-    status?.connected === true && status.status !== "needs_reauth";
+  const connected = Boolean(
+    (status?.connected === true && status.status !== "needs_reauth") ||
+    status?.accounts?.some(account => account.connected),
+  );
 
   useEffect(() => {
     onConnectionStateChange?.(connected);
   }, [connected, onConnectionStateChange]);
 
   /** The callback verified the connection before settling; keep it authoritative. */
-  const applyVerifiedSuccess = (accessLevel: "read" | "manage") => {
+  const applyVerifiedSuccess = (accessLevel: "read" | "manage", additional = false, targetAccountId?: string) => {
+    const priorAccountIds = new Set(status?.accounts?.map(account => account.account_id) || []);
+    const operationOwnerId = activeOwnerIdRef.current;
     setStatus((current) => ({
       configured: current?.configured ?? true,
-      connected: true,
+      connected: additional ? current?.connected ?? false : true,
       google_email: current?.google_email,
-      status: "connected",
-      access_level: accessLevel ?? current?.access_level ?? null,
+      status: additional ? current?.status ?? "disconnected" : "connected",
+      access_level: additional ? current?.access_level ?? null : accessLevel,
       scope_csv: current?.scope_csv ?? "",
       // The web callback succeeded only after the requested list scope was
       // verified. An immediate status read can still return the old grant.
-      calendar_list_access: true,
+      calendar_list_access: additional ? current?.calendar_list_access ?? false : true,
+      accounts: current?.accounts,
+      account_limit: current?.account_limit,
     }));
+    const settlementRequest = statusRequestRef.current;
+    // The callback is authoritative, but status can briefly lag. Only a status
+    // read showing this exact newly connected account may replace it.
+    const lifetime = popupLifetimeRef.current;
+    const reconcile = async (remaining: number) => {
+      const currentUser = latestUserRef.current;
+      const isCurrent = () => !lifetime?.signal.aborted && identityRef.current === identity &&
+        activeOwnerIdRef.current === operationOwnerId && statusRequestRef.current === settlementRequest &&
+        currentUser?.uid === operationOwnerId;
+      if (!currentUser || !isCurrent()) return;
+      try {
+        const idToken = await currentUser.getIdToken();
+        if (!isCurrent()) return;
+        const next = await GoogleCalendarService.status(idToken, currentUser.uid);
+        if (!isCurrent()) return;
+        const verified = additional
+          ? next.accounts?.some(account => account.connected &&
+            (targetAccountId ? account.account_id === targetAccountId : !priorAccountIds.has(account.account_id)))
+          : next.connected && next.accounts?.some(account => account.account_id === "default" && account.connected);
+        if (verified) { setStatus(next); return; }
+      } catch { /* Retain the verified callback and retry a bounded status read. */ }
+      if (remaining > 0 && isCurrent()) window.setTimeout(() => { void reconcile(remaining - 1); }, 1500);
+    };
+    if (additional) void reconcile(2);
+    else window.setTimeout(() => { void reconcile(2); }, 1500);
     morphyToast.success("Google Calendar connected.");
   };
 
@@ -304,7 +344,7 @@ export function CalendarAgentPage({
     }
   };
 
-  const connect = async (accessLevel: "read" | "manage" = "read", includeCalendarList = false) => {
+  const connect = async (accessLevel: "read" | "manage" = "read", includeCalendarList = false, additional = false, accountId?: string) => {
     if (!user || busyRef.current) return;
     if (status?.connected && status.access_level === "manage") accessLevel = "manage";
     includeCalendarList = includeCalendarList || status?.calendar_list_access === true;
@@ -322,6 +362,26 @@ export function CalendarAgentPage({
     const popup = attempt ? openGoogleOAuthPopup(attempt) : null;
     setBusy(true);
     try {
+      const privateAgent = await ownerContentIsPrivate();
+      if (activeOwnerIdRef.current !== operationOwnerId) { popup?.close(); return; }
+      if (privateAgent) {
+        popup?.close();
+        if (!vaultKey || !vaultOwnerToken) { toast.error('Unlock your vault to connect Google.'); return; }
+        const outcome = await connectGoogleConnector('calendar', {
+          vaultOwnerCapability: vaultOwnerToken,
+          confirmLegacyTransition: confirmTransition,
+          isCurrent: () => activeOwnerIdRef.current === operationOwnerId,
+        });
+        if (activeOwnerIdRef.current !== operationOwnerId) return;
+        if (!outcome.ok) {
+          if (outcome.code === 'PHONE_HANDOFF_REQUIRED') requestGoogleConnectorPhoneHandoff('calendar');
+          else toast.error(connectRefusalMessage(outcome.code, 'Calendar'));
+          return;
+        }
+        const current = await GoogleCalendarService.status(await user.getIdToken(), operationOwnerId);
+        if (activeOwnerIdRef.current === operationOwnerId) setStatus(current);
+        return;
+      }
       if (journeyVariant === "onboarding") {
         markCalendarSetupOAuthReturn();
       } else {
@@ -337,6 +397,8 @@ export function CalendarAgentPage({
           idToken,
           accessLevel,
           ...(includeCalendarList ? { includeCalendarList: true } : {}),
+          ...(additional ? { additional: true } : {}),
+          ...(accountId ? { accountId } : {}),
         });
         if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
         const nativeResult = await HushhAuth.connectCalendar({
@@ -353,10 +415,15 @@ export function CalendarAgentPage({
           state: start.state,
         });
         if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
+        const verifiedAccount = additional
+          ? completed.accounts?.find(account => accountId
+            ? account.account_id === accountId
+            : !status?.accounts?.some(previous => previous.account_id === account.account_id))
+          : completed;
         if (
-          !completed.connected || completed.status === "needs_reauth" ||
-          (accessLevel === "manage" && completed.access_level !== "manage") ||
-          (includeCalendarList && completed.calendar_list_access !== true)
+          !verifiedAccount?.connected || verifiedAccount.status === "needs_reauth" ||
+          (accessLevel === "manage" && verifiedAccount.access_level !== "manage") ||
+          (includeCalendarList && verifiedAccount.calendar_list_access !== true)
         ) {
           throw new Error(
             accessLevel === "manage"
@@ -375,6 +442,9 @@ export function CalendarAgentPage({
         idToken,
         userId: operationOwnerId,
         accessLevel: accessLevel,
+        ...(additional ? { additional: true } : {}),
+        ...(accountId ? { accountId } : {}),
+        ...(accountId ? { loginHint: status?.accounts?.find(account => account.account_id === accountId)?.google_email || undefined } : {}),
       });
       if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) {
         popup?.close();
@@ -437,7 +507,7 @@ export function CalendarAgentPage({
       if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
       const settled = settlement;
       if (finished === "settled" && settled) {
-        if (settled.outcome === "succeeded") applyVerifiedSuccess(accessLevel);
+        if (settled.outcome === "succeeded") applyVerifiedSuccess(accessLevel, additional, accountId);
         else if (settled.outcome === "failed")
           morphyToast.error(settled.message || "Google Calendar could not be connected.");
       } else {
@@ -463,10 +533,12 @@ export function CalendarAgentPage({
         error instanceof Error ? error.message : "Unable to connect Calendar.",
       );
       setBusy(false);
+    } finally {
+      if (identityRef.current === identity && activeOwnerIdRef.current === operationOwnerId) setBusy(false);
     }
   };
 
-  const disconnect = async () => {
+  const disconnect = async (accountId = "default") => {
     if (!user || busyRef.current) return;
     const operationOwnerId = user.uid;
     statusRequestRef.current += 1;
@@ -477,7 +549,9 @@ export function CalendarAgentPage({
         if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) {
           throw new Error("Calendar account changed.");
         }
-        return GoogleCalendarService.disconnect(idToken, operationOwnerId);
+        return accountId === "default"
+          ? GoogleCalendarService.disconnect(idToken, operationOwnerId)
+          : GoogleCalendarService.disconnect(idToken, operationOwnerId, accountId);
       });
     void morphyToast.promise(operation, {
       loading: "Disconnecting Google Calendar…",
@@ -572,7 +646,7 @@ export function CalendarAgentPage({
           <AlertDialogHeader className="text-center">
             <AlertDialogTitle>Disconnect Google Calendar?</AlertDialogTitle>
             <AlertDialogDescription>
-              This disconnects Calendar only. Your Mail connection will be preserved.
+              This disconnects the selected Calendar account. Your Mail connection and other Calendar accounts stay available.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-row justify-center gap-2">
@@ -582,7 +656,7 @@ export function CalendarAgentPage({
               disabled={busy}
               onClick={(event) => {
                 event.preventDefault();
-                void disconnect().catch(() => undefined);
+                void disconnect(disconnectAccountId).catch(() => undefined);
               }}
             >
               {busy ? (
@@ -616,14 +690,18 @@ export function CalendarAgentPage({
     }
   };
 
-  if (connected && journeyVariant === "workspace" && user && status) {
+  if ((connected || Boolean(status?.accounts?.length)) && journeyVariant === "workspace" && user && status) {
     return <>
       <CalendarConnectedWorkspace userId={user.uid} status={status} busy={busy}
         onConnect={(access, includeCalendarList) => { void connect(access, includeCalendarList); }}
+        onAddAccount={() => { void connect("manage", true, true); }}
+        onReconnectAccount={(accountId) => { void connect("manage", true, true, accountId); }}
+        onDisconnectAccount={(accountId) => { setDisconnectAccountId(accountId); setDisconnectConfirmOpen(true); }}
         onChat={(prompt, slot, invitation, attendance) => openChat(slot || invitation || attendance ? undefined : prompt?.trim() || "Summarize my calendar events and help me plan meetings", slot, invitation, attendance)}
         onDisconnect={() => { const trigger = document.activeElement; disconnectTriggerRef.current = trigger instanceof HTMLButtonElement ? trigger : null; setDisconnectConfirmOpen(true); }}
         onMailConnect={connectMail} connectionNotice={popupWaitingNotice} getIdToken={() => user.getIdToken()} connectionRevision={statusRequestRef.current} />
       {disconnectDialog}
+      {transitionDialog}
     </>;
   }
 
@@ -647,6 +725,7 @@ export function CalendarAgentPage({
       }}
     >
       <AppPageContentRegion className={CALENDAR_SETUP_REGION_CLASSNAME}>
+        {transitionDialog}
         {checkingConnection && !connected ? (
           <div role="status" aria-live="polite" className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" aria-hidden />

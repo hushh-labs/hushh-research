@@ -140,7 +140,9 @@ def test_export_output_schema_discriminates_hosted_and_local_delivery() -> None:
 
 
 @pytest.mark.asyncio
-async def test_resources_advertise_core_lifecycle_and_campaign_compatibility() -> None:
+async def test_resources_advertise_core_lifecycle_and_campaign_compatibility(monkeypatch) -> None:
+    monkeypatch.setattr(resources, "get_current_schema_profile", lambda: "flat")
+    monkeypatch.setattr(resources, "get_current_developer_principal", lambda: None)
     connector = json.loads(await resources.read_resource("hushh://info/connector"))
     lifecycle = json.loads(await resources.read_resource("hushh://info/consent-lifecycle"))
     assert tuple(connector["tools"]) == EXPECTED_TOOLS

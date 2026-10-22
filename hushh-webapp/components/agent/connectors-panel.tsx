@@ -1,4 +1,5 @@
 "use client";
+import { ConnectorRow } from "./connector-list-row";
 
 import {
   useCallback,
@@ -87,8 +88,13 @@ import {
 } from "@/lib/agent/drive-oauth-chat-recovery";
 import { TrustedDocumentRulesView, useTrustedDocumentRules, type TrustedDocumentRulesModel } from "@/components/consent/trusted-document-rules";
 import { DriveCollectionView, useDriveCollectionModel, type DriveCollectionModel } from "@/components/agent/drive-collection-panel";
+import { DriveDataPacketsView, useDriveDataPackets, type DriveDataPacketsModel } from "@/components/agent/drive-data-packets";
 import { DrivePacketCatalogView, useDrivePacketCatalogModel, useOwnerPacketPageModel, type DrivePacketCatalogModel, type OwnerPacketPageModel } from "@/components/consent/drive-packet-catalog";
 import { CustomConnectorsSettings, type CustomConnectorSettingsModel } from "@/components/agent/custom-connectors-settings";
+import { PrivateOwnerConnectorsPanel } from "@/components/connections/private-owner-connectors-panel";
+import { connectorAccessPurpose } from "@/lib/agent/connector-access-copy";
+import { CatalogConnectorDetails } from "@/components/agent/catalog-connector-details";
+import { ownerContentIsPrivate } from "@/lib/services/private-agent-specialist-chat";
 
 type Props = {
   open: boolean;
@@ -103,6 +109,7 @@ type Props = {
    * Back, so the panel draws no header of its own.
    */
   surface?: "drawer" | "profile";
+  showAccessDetails?: boolean;
   initialConnector?: "google_drive" | "gmail" | null;
   /**
    * The open connector, when the host keeps it in its own address (Profile
@@ -168,7 +175,7 @@ export type ConnectorDetailPresentation =
       selection: { files: readonly { name: string }[]; background: boolean; canPrepare: boolean; busy: boolean; changeBackground: (next: boolean) => void;
         confirm: ConnectorDetailAction; cancel: ConnectorDetailAction } | null;
       files: readonly { key: string; name: string; status: string; background: boolean; changeBackground?: (next: boolean) => void; sync?: ConnectorDetailAction; remove: ConnectorDetailAction }[];
-      collection: DriveCollectionModel | null; packets: DrivePacketCatalogModel; packet: OwnerPacketPageModel; trust: TrustedDocumentRulesModel }
+      collection: DriveCollectionModel | null; groups: DriveDataPacketsModel | null; packets: DrivePacketCatalogModel; packet: OwnerPacketPageModel; trust: TrustedDocumentRulesModel }
   | { kind: "gmail"; account: string; status: string; message: string; connected: boolean;
       sendAllowed: boolean; draftsAllowed: boolean; connect?: ConnectorDetailAction; disconnect?: ConnectorDetailAction;
       retry?: ConnectorDetailAction; enableDrafts?: ConnectorDetailAction; cancelSignIn?: ConnectorDetailAction }
@@ -276,66 +283,11 @@ function ConnectorGlyph({ id }: { id: string }) {
   );
 }
 
-function ConnectorRow({ entry }: { entry: ConnectorListEntry }) {
-  const detailId = useId();
-  const status = connectorRowStatus(entry);
-  return (
-    <li
-      data-connector-row={entry.id}
-      aria-busy={entry.pending ? true : undefined}
-      className="flex min-h-14 min-w-0 items-center gap-3 border-b border-foreground/10 px-4 last:border-b-0"
-    >
-      <ConnectorGlyph id={entry.id} />
-      {entry.onOpen ? (
-        <button
-          type="button"
-          aria-label={entry.name}
-          aria-describedby={status || entry.accountDetail || entry.detail ? detailId : undefined}
-          onClick={entry.onOpen}
-          className="flex min-h-14 min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-        >
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-normal">{entry.name}</span>
-            {status ? (
-              <span id={detailId} role="status" className="block truncate text-xs text-muted-foreground">{status}</span>
-            ) : entry.accountDetail ? (
-              <span id={detailId} className="block truncate text-xs text-muted-foreground">{entry.accountDetail}</span>
-            ) : entry.detail ? <span id={detailId} className="sr-only">{entry.detail}</span> : null}
-          </span>
-          {!entry.action ? <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : null}
-        </button>
-      ) : (
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-normal">{entry.name}</span>
-          {status ? (
-            <span role="status" className="block truncate text-xs text-muted-foreground">{status}</span>
-          ) : entry.accountDetail ? (
-            <span className="block truncate text-xs text-muted-foreground">{entry.accountDetail}</span>
-          ) : entry.detail ? <span className="sr-only">{entry.detail}</span> : null}
-        </span>
-      )}
-      {entry.action ? (
-        <button
-          type="button"
-          className="min-h-11 shrink-0 px-1 text-sm font-semibold text-primary disabled:cursor-not-allowed disabled:opacity-50 focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-          aria-label={entry.action.label}
-          disabled={entry.action.disabled || Boolean(entry.pending)}
-          onClick={entry.action.onClick}
-        >
-          <ConnectorActionLabel entry={entry} />
-        </button>
-      ) : entry.trailingText ? (
-        <span className="shrink-0 text-xs text-muted-foreground">{entry.trailingText}</span>
-      ) : null}
-    </li>
-  );
-}
-
 /**
  * The same row every Profile section draws: title, one supporting line, and
  * either a chevron into the connector or its connect/disconnect action.
  */
-function ProfileConnectorRow({ entry }: { entry: ConnectorListEntry }) {
+function ProfileConnectorRow({ entry, showAccessDetails = false }: { entry: ConnectorListEntry; showAccessDetails?: boolean }) {
   const status = connectorRowStatus(entry);
   const description =
     status ??
@@ -352,8 +304,8 @@ function ProfileConnectorRow({ entry }: { entry: ConnectorListEntry }) {
     <SettingsRow
       leading={<ProfileConnectorGlyph id={entry.id} />}
       title={entry.name}
-      description={description}
-      textOverflow="truncate"
+      description={showAccessDetails ? <><span>{description}</span><span className="block pt-1">{connectorAccessPurpose(entry.id)}</span></> : description}
+      textOverflow={showAccessDetails ? undefined : "truncate"}
       onClick={entry.onOpen}
       chevron={Boolean(entry.onOpen) && !entry.action && !entry.trailingText}
       trailingInteractive={Boolean(entry.action)}
@@ -421,6 +373,22 @@ export function ConnectorsPanel(props: Props) {
   const { vaultOwnerToken, vaultKey, getVaultKey, getVaultOwnerToken } = useVault();
   const customAccessIsCurrent = useCallback(() => Boolean(vaultKey && typeof getVaultKey === "function" && typeof getVaultOwnerToken === "function" &&
     getVaultKey() === vaultKey && getVaultOwnerToken()), [getVaultKey, getVaultOwnerToken, vaultKey]);
+  const [resolvedPlacement, setPlacement] = useState<{ owner: string; mode: 'shared' | 'private' | 'unavailable' } | null>(null);
+  const placement = resolvedPlacement?.owner === user?.uid ? resolvedPlacement?.mode : null;
+  useEffect(() => {
+    let active = true;
+    if (!props.open || !user?.uid) return;
+    void ownerContentIsPrivate().then((privateAgent) => {
+      if (active) setPlacement({ owner: user.uid, mode: privateAgent ? 'private' : 'shared' });
+    }, () => { if (active) setPlacement({ owner: user.uid, mode: 'unavailable' }); });
+    return () => { active = false; };
+  }, [props.open, user?.uid]);
+  if (placement !== 'shared') {
+    if (!props.open) return null;
+    if (placement === null) return <p role="status" className="p-4 text-sm">Checking where your agent runs…</p>;
+    if (placement === 'unavailable') return <p role="status" className="p-4 text-sm">Your agent's hosting could not be verified. Try again.</p>;
+    return <PrivateOwnerConnectorsPanel key={`${user?.uid}:${Boolean(vaultOwnerToken)}`} {...props} />;
+  }
   const ownerKey = `${user?.uid ?? "signed-out"}:${Boolean(vaultOwnerToken)}`;
   if (props.render && props.surface === "profile") {
     return <CustomConnectorsSettings key={ownerKey}
@@ -443,6 +411,7 @@ function OwnerConnectorsPanel({
   onBack,
   onClose = onBack,
   surface = "drawer",
+  showAccessDetails = false,
   initialConnector = null,
   activeConnector: hostActiveConnector,
   onActiveConnectorChange,
@@ -831,7 +800,7 @@ function OwnerConnectorsPanel({
     // A question asked about one connector never follows the person to
     // another: Profile's Back and a native return both move the open
     // connector without passing through the dialog's own Cancel.
-    setConfirm(null);
+    if (confirm !== `curated:${activeConnector}`) setConfirm(null);
     // Picker review owns focus when a native return restores a pending choice.
     if (activeConnector === "google_drive" && pendingSelection.current) return;
     const frame = requestAnimationFrame(() => {
@@ -854,7 +823,7 @@ function OwnerConnectorsPanel({
       else searchRef.current?.focus();
     });
     return () => cancelAnimationFrame(frame);
-  }, [activeConnector, open, surface]);
+  }, [activeConnector, confirm, open, surface]);
   const drive = overview?.connectors.find(
     (item) => item.connectorId === "google_drive",
   );
@@ -864,6 +833,9 @@ function OwnerConnectorsPanel({
   const collectionActive = drivePageActive && overview?.driveAgentPackagesEnabled === true &&
     overview.features.drive_document_indexing === true && drive?.profile === "live" && drive.status === "connected";
   const driveCollection = useDriveCollectionModel(liveBackground, collectionActive);
+  const groupsActive = drivePageActive && overview?.features.drive_four_group_index === true &&
+    drive?.profile === "live" && drive.status === "connected";
+  const driveGroups = useDriveDataPackets(groupsActive, `${drive?.accountLabel ?? ""}:${drive?.connectedAt ?? ""}`, liveBackground);
   const drivePackets = useDrivePacketCatalogModel({ enabled: collectionActive && !!driveCollection.status,
     refreshKey: driveCollection.revision, preparationPaused: driveCollection.paused || !driveCollection.status?.enabled });
   const ownerPacket = useOwnerPacketPageModel({ packet: drivePageActive && drivePackets.opened ? drivePackets.live ?? (drivePackets.cursor ? drivePackets.opened : null) : null,
@@ -1579,15 +1551,11 @@ function OwnerConnectorsPanel({
             throw error;
           }
           if (signal.aborted) {
-            GmailReceiptsService.recordConsentFailure({
-              code: "USER_CANCELLED",
-            }, user.uid);
+            GmailReceiptsService.recordConsentFailure({ code: "USER_CANCELLED" }, user.uid);
             return;
           }
           if (!result.serverAuthCode?.trim()) {
-            const error = new Error(
-              "Google did not return a Mail authorization code.",
-            );
+            const error = new Error("Google did not return a Mail authorization code.");
             GmailReceiptsService.recordConsentFailure(error, user.uid);
             throw error;
           }
@@ -1721,7 +1689,11 @@ function OwnerConnectorsPanel({
       setCalendarBusy(false);
       if (outcome === "connected") calendar.refresh();
       setCalendarMessage(
-        outcome === "connected"
+        outcome === "window_blocked"
+          ? OAUTH_WINDOW_BLOCKED_COPY
+          : outcome === "phone_handoff"
+            ? "Finish connecting Calendar on your phone, then check its connection here."
+            : outcome === "connected"
           ? "Calendar connected."
           : outcome === "failed"
             ? "Could not finish Calendar connection. Try again."
@@ -2272,7 +2244,7 @@ function OwnerConnectorsPanel({
                 ? "Unavailable"
                 : undefined),
           connected: curated ? item.status === "connected" : storedGrant,
-          onOpen: storedGrant || canStartCurated ? () => showConnector(item.connectorId) : undefined,
+          onOpen: storedGrant || canStartCurated || item.stripeReadiness ? () => showConnector(item.connectorId) : undefined,
           pending: disconnecting[item.connectorId] ? "disconnect" : undefined,
           failure: disconnectFailures[item.connectorId],
           action: !curated
@@ -2438,7 +2410,8 @@ function OwnerConnectorsPanel({
       ...(item.backgroundProcessing && overview?.features.drive_document_indexing ? { sync: detailAction("Sync now", driveBusy, () => syncDriveFile(item)) } : {}),
       remove: detailAction("Remove", driveBusy, () => setConfirm(item.documentId), true),
     })),
-    collection: collectionActive ? driveCollection : null, packets: drivePackets, packet: ownerPacket, trust: documentTrust,
+    collection: collectionActive ? driveCollection : null, groups: groupsActive ? driveGroups : null,
+    packets: drivePackets, packet: ownerPacket, trust: documentTrust,
   };
   const mailDetail: Extract<ConnectorDetailPresentation, { kind: "gmail" }> = {
     kind: "gmail", account: gmail.status?.google_email || "Gmail",
@@ -2526,14 +2499,15 @@ function OwnerConnectorsPanel({
         {activeConnector ? (
           <ShellActionSurface
             ref={detailBackRef}
-            className="size-11"
+            className="size-11 text-foreground"
             onClick={() => {
+              if (groupsActive && driveGroups.selected) { driveGroups.close(); return; }
               setConfirm(null);
               setActiveConnector(null);
             }}
-            aria-label="Back to connectors"
+            aria-label={groupsActive && driveGroups.selected ? "Back to data packets" : "Back to connectors"}
           >
-            <ArrowLeftIcon className="h-5 w-5" aria-hidden="true" />
+            <ArrowLeftIcon className="size-[22px]" aria-hidden="true" />
           </ShellActionSurface>
         ) : null}
         {activeConnector ? <ConnectorGlyph id={activeConnector} /> : null}
@@ -2543,14 +2517,14 @@ function OwnerConnectorsPanel({
             : "Connectors"}
         </h2>
         <ShellActionSurface
-          className="size-11"
+          className="size-11 text-foreground"
           onClick={() => {
             setConfirm(null);
             onClose();
           }}
           aria-label="Close connectors"
         >
-          <XIcon className="size-4" aria-hidden="true" />
+          <XIcon className="size-[22px]" aria-hidden="true" />
         </ShellActionSurface>
       </header>}
       <div
@@ -2570,7 +2544,7 @@ function OwnerConnectorsPanel({
             {listSections.map(([heading, items]) =>
               items.length === 0 ? null : (
                 <SettingsGroup key={heading} title={heading} testId={`profile-connectors-${heading.toLowerCase()}`}>
-                  {items.map((entry) => <ProfileConnectorRow key={entry.id} entry={entry} />)}
+                  {items.map((entry) => <ProfileConnectorRow key={entry.id} entry={entry} showAccessDetails={showAccessDetails} />)}
                 </SettingsGroup>
               ),
             )}
@@ -2602,7 +2576,7 @@ function OwnerConnectorsPanel({
                 <section key={heading} aria-label={heading} className="space-y-2">
                   <h3 className="text-sm font-semibold text-muted-foreground">{heading}</h3>
                   <ul className="overflow-hidden rounded-2xl bg-foreground/10">
-                    {items.length ? items.map((entry) => <ConnectorRow key={entry.id} entry={entry} />) : (
+                    {items.length ? items.map((entry) => <ConnectorRow key={entry.id} entry={entry} leading={<ConnectorGlyph id={entry.id} />} status={connectorRowStatus(entry)} actionLabel={<ConnectorActionLabel entry={entry} />} accessPurpose={showAccessDetails ? connectorAccessPurpose(entry.id) : undefined} />) : (
                       <li className="px-4 py-4 text-sm text-muted-foreground">
                         {heading === "Connected" ? "No connected connectors" : "No available connectors"}
                       </li>
@@ -2839,6 +2813,7 @@ function OwnerConnectorsPanel({
                 </details>
               )}
               {vaultOwnerToken ? <TrustedDocumentRulesView model={documentTrust} /> : null}
+              {groupsActive ? <DriveDataPacketsView model={driveGroups} /> : null}
               {hasDriveGrant && drive?.status === "connected" && (
                 <Button className={`${touch} self-start px-0 text-destructive`} variant="ghost" disabled={driveBusy}
                   onClick={() => setConfirm("drive")}>Disconnect Drive</Button>
@@ -3085,55 +3060,17 @@ function OwnerConnectorsPanel({
               </section>
             )}
             {selectedCatalog && !["google_drive", "gmail", "calendar", "plaid", ...(inProfile ? ["instagram", "linkedin"] : [])].includes(activeConnector ?? "") && (
-              <section className="space-y-3 rounded-xl border border-border p-3" aria-label={`${selectedCatalog.displayName} details`}>
-                <h3 className="font-semibold">{selectedCatalog.displayName}</h3>
-                <p className="text-sm text-muted-foreground">{selectedCatalog.description}</p>
-                {selectedCatalog.accountLabel ? <p className="break-all text-sm">{selectedCatalog.accountLabel}</p> : null}
-                <p role="status" className="text-sm">
-                  {selectedCatalog.curatedOAuth === true &&
-                  !canStartSelectedCurated &&
-                  !["not_connected", "revoked"].includes(selectedCatalog.status)
-                    ? "Unavailable"
-                    : selectedCatalog.curatedOAuth === true &&
-                        selectedCatalog.status === "verifying"
-                      ? "Sign-in needed"
-                    : (labels[selectedCatalog.status] ?? "Status unavailable")}
-                </p>
-                {selectedCatalog.curatedOAuth === true ? (
-                  <>
-                    <div className="flex flex-wrap gap-2">
-                      {canStartSelectedCurated &&
-                      ["not_connected", "revoked", "needs_reauth", "verifying"].includes(selectedCatalog.status) ? (
-                        <Button
-                          className={touch}
-                          disabled={curatedBusy || loading}
-                          onClick={() => connectCurated(selectedCatalog.connectorId, selectedCatalog.displayName)}
-                        >
-                          {["needs_reauth", "verifying"].includes(selectedCatalog.status) ? "Reconnect" : "Connect"}
-                        </Button>
-                      ) : null}
-                      {curatedPopupPending && curatedPopupFor === selectedCatalog.connectorId ? (
-                        <Button className={touch} variant="outline" onClick={() => curatedPopupCancel.current?.abort()}>
-                          Cancel sign-in
-                        </Button>
-                      ) : null}
-                      {!["not_connected", "revoked"].includes(selectedCatalog.status) ? (
-                        <Button
-                          className={touch}
-                          variant="outline"
-                          disabled={curatedBusy}
-                          onClick={() => setConfirm(`curated:${selectedCatalog.connectorId}`)}
-                        >
-                          Disconnect
-                        </Button>
-                      ) : null}
-                    </div>
-                    <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
-                      {curatedBusy ? "Working…" : curatedMessage}
-                    </p>
-                  </>
-                ) : null}
-              </section>
+              <CatalogConnectorDetails connector={selectedCatalog}
+                canStartCurated={canStartSelectedCurated} loading={loading}
+                busy={curatedBusy} message={curatedMessage}
+                popupPending={curatedPopupPending && curatedPopupFor === selectedCatalog.connectorId}
+                onCancelSignIn={() => curatedPopupCancel.current?.abort()}
+                onConnect={() => void connectCurated(selectedCatalog.connectorId, selectedCatalog.displayName)}
+                onDisconnect={() => setConfirm(`curated:${selectedCatalog.connectorId}`)}
+                statusLabel={labels[selectedCatalog.status] ?? "Status unavailable"}
+                access={user?.uid && vaultKey && vaultOwnerToken ? { userId: user.uid, vaultKey, vaultOwnerToken } : null}
+                onPrepareRecovery={onPrepareRecovery}
+              />
             )}
           </div>
         )}

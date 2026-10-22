@@ -100,6 +100,19 @@ def _initialize_gemini_client(force: bool = False) -> None:
     _gemini_use_vertex = _resolve_vertex_mode()
     binding = None
     try:
+        from hushh_mcp.runtime_providers.managed_azure import ManagedAzureBinding
+
+        azure = ManagedAzureBinding.from_environment()
+        if azure is not None:
+            from hushh_mcp.runtime_providers import build_managed_runtime_client
+
+            _gemini_client = build_managed_runtime_client("gemini")
+            _gemini_use_vertex = False
+            _gemini_project = ""
+            _gemini_project_source = "managed_azure_policy"
+            _gemini_location = "azure-global"
+            logger.info("[Kai LLM] Managed Azure text client initialized")
+            return
         binding = ManagedGeminiRuntimeBinding.from_environment()
         _gemini_project = binding.project
         _gemini_project_source = "managed_runtime_binding"

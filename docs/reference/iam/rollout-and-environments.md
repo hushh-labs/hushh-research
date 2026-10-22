@@ -14,6 +14,7 @@ Define environment policy for IAM changes without risking production behavior.
 | Environment | Purpose | IAM Change Policy |
 | --- | --- | --- |
 | local | Developer iteration and contract validation | Local-only tests; no production resources |
+| dev | Admin-authorized shared Dev rehearsals | CI-green scoped deployment; no live payments or production identity changes |
 | uat | Integration validation for actor flows and verification gates | Auto-deploy from the latest green `main` SHA |
 | production | Live user traffic | No IAM contract change without explicit promotion gate |
 
@@ -21,24 +22,33 @@ Define environment policy for IAM changes without risking production behavior.
 
 `private_drive_text_uat` in `consent-protocol/config/managed-ai-runtime.json`
 owns the versioned administrator policy for `one_text_chat_and_drive_requests`.
-All existing and new UAT accounts use Azure primary for managed One text chat
-and semantic Drive document-request planning and relevance assessment. Historical
+All existing and new UAT accounts use the candidate-verified provider for managed
+One text chat and semantic Drive document-request planning and relevance assessment.
+Azure is preferred when both providers pass; Vertex is selected when only it passes.
+Neither passing blocks release. The API and both worker revisions share that binding. Historical
 personal pilot receipts and model preferences do not select that processor.
 Their original acceptance/revocation timestamps remain unchanged; no receipt is
-created or marked accepted by this rollout. Production, BYOK, voice, native
-Google Search and separately opted-in public research keep their own contracts.
+created or marked accepted by this rollout. The separate `managed_runtime_uat`
+administrator policy extends selected-UAT processing to text/media, Search, exact
+public-source retrieval, Location transcription/semantics, narration, Live Voice
+and compatible embeddings. It grants no owner-information or action authority.
+Every declared capability must have an Azure replacement before this release
+can proceed; candidate admission accepts either complete provider bundle.
+Production and BYOK retain their existing processor contracts.
 
 `runtime_providers/managed_text.py` owns policy resolution, central Azure binding,
 per-call fallback and safe provider telemetry. It reuses the existing UAT PWM
-Azure endpoint/deployment and workload identity. Each model call tries Azure
-first; one Gemini call is allowed only for an unobserved timeout, connection
+Azure endpoint/deployment and workload identity. Each model call tries the selected
+provider first; one alternate call is allowed only for an unobserved timeout, connection
 failure, quota response or transient 500/502/503/504. Configuration, authentication,
 permission/consent errors, schema failure and cancellation do not allow fallback.
 Any emitted model frame prevents replay. No Runner, tool, payment or grant is
 retried by provider failover. Chat allocates 10s + 8s before first output within its existing event
 budget; an observed stream has a bounded 60s completion window and remains
 subject to the caller deadline. Drive allocates 30s + 20s within its owning request deadlines. Existing
-bounded model correction budgets still apply. Policy generation and current
+bounded model correction budgets still apply. Vertex selection adds a distinct policy
+generation and binding fingerprint; the unchanged Azure selection preserves its
+existing bindings. Policy generation and current
 invocation authority are checked again immediately before Azure send, after
 workload-token acquisition, and before fallback. This is processor authority,
 never file/request/payment authority.
@@ -94,3 +104,65 @@ an operational release; do not relabel receipts or silently rewrite bindings.
 2. New actor routes must be isolated and protected by auth + consent + scope policy.
 3. Consent audit semantics must remain append-only and traceable.
 4. If IAM schema is not ready, investor flows stay operational via compatibility mode.
+
+## Temporary Dev Reviewer Phone Transport
+
+The existing authenticated `/api/account/phone/uat-test/start` and `/confirm`
+endpoints admit a dedicated recorded transport on shared Dev only. Its separate
+`HUSHH_DEV_REVIEWER_PHONE_TEST_CONFIG_JSON` Secret Manager binding is optional
+and default-off. The strict configuration contains an enable boolean, designated
+primary UID, exact US E.164 phone, six-digit code, independent challenge secret,
+approved Sandbox account and a Unix expiry no more than 24 hours ahead.
+
+Runtime and deploy lane must both be `dev`, deployment source must be
+`deploy-dev`, review mode must be enabled, and the frontend origin must be
+`https://dev.one.hushh.ai`. A production runtime profile always rejects this
+transport. The account is pinned to the approved test Sandbox and the primary
+must match the first owner in the independently validated commerce Sandbox
+policy. The unrelated global reviewer fixture is never reassigned.
+
+Challenges bind authenticated owner, exact phone, configuration revision, nonce
+and a ten-minute expiry. Confirmation rechecks all admission and proof fields
+before the existing canonical phone-claim authority persists the
+`dev_reviewer_test_phone_claim` source. No Firebase project-wide test-number
+registration or production/UAT secret fallback is introduced. Expired or missing
+configuration closes admission; cleanup removes this dedicated secret binding
+after the synthetic rehearsal and retains existing identity/audit history.
+
+## Firebase authority containment
+
+The backend Firebase Admin app validates the configured credential project against
+the initialized app, including reused apps and ADC initialization. Production
+(`ENVIRONMENT=production` or `APP_RUNTIME_PROFILE=prod`) remains pinned to
+`hushh-pda`; this change does not recreate accounts or change UIDs, providers,
+vault records or encryption keys.
+
+While legacy UAT clients still authenticate against that shared production
+authority, non-production backends retain token verification for compatibility.
+Account deletion, disable/revoke, and enterprise SSO identity, claim and token
+mutations now refuse shared-PROD writes. Refused cleanup remains pending
+for retry instead of disabling a production identity. Web Admin initialization
+also requires an explicit client project and matching credentials.
+
+These guards do not complete the Auth migration. Existing native clients retain
+embedded backend/Auth settings, and client SDK identity changes still reach the
+shared realm. Before changing UAT authority, inventory customer-bearing legacy
+builds and data, prove cross-realm token rejection, and reconcile recovery paths.
+Inventory the remaining profile, account-claim and email-auth callers before
+declaring the shared directory fully isolated; these guards cover the named
+lifecycle/SSO paths, not every identity operation.
+Legacy account-cleanup intents contain only a UID: park or resolve them under
+their original authority before switching credentials, so a reused UID cannot
+target a different registry.
+
+Public iOS submission requires the production backend target. Production iOS
+Firebase and native plist inputs come from production Secret Manager rather than
+UAT; Apple signing custody remains unchanged. The UAT-only Android workflow
+rejects live production-track uploads. Native config sync validates project and
+sender against the same platform environment overlay used by Capacitor; distinct
+web/native app IDs remain valid. None of these checks redirects installed apps.
+
+Environment-separated metrics require verified registry membership as well as
+backend and stream provenance. Moving UAT does not classify historical shared
+accounts or exclude staff testing production. The dashboard companion change
+withholds ambiguous account totals until each registry is independently verified.

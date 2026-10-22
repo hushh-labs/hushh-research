@@ -36,6 +36,7 @@ export type WorldModelResearchState = {
   /** Restarts the reader; pass the switches a preference write just confirmed. */
   reload: (confirmed?: PwmPreferences) => void;
   refresh: () => void;
+  researchPublicProfiles: (publicProfileUrls: readonly string[]) => void;
 };
 
 /** The owner, vault key and token a published value belongs to. */
@@ -57,7 +58,7 @@ export type WorldModelResearchSnapshot = WorldModelResearchAuthority & {
   retryAt: number | null;
 };
 
-type Actions = Pick<WorldModelResearchState, "reload" | "refresh">;
+type Actions = Pick<WorldModelResearchState, "reload" | "refresh" | "researchPublicProfiles">;
 
 const sameAuthority = (
   a: WorldModelResearchAuthority | null,
@@ -73,6 +74,7 @@ const listeners = new Set<() => void>();
 // Stable for the store's life, so readers never re-render for new functions.
 const reload = (confirmed?: PwmPreferences) => actions?.reload(confirmed);
 const refresh = () => actions?.refresh();
+const researchPublicProfiles = (urls: readonly string[]) => actions?.researchPublicProfiles(urls);
 
 const UNMOUNTED: WorldModelResearchState = Object.freeze({
   mounted: false,
@@ -87,6 +89,7 @@ const UNMOUNTED: WorldModelResearchState = Object.freeze({
   retryAt: null,
   reload,
   refresh,
+  researchPublicProfiles,
 });
 
 let published: WorldModelResearchState = UNMOUNTED;
@@ -108,6 +111,7 @@ function publish() {
         retryAt: valid ? snapshot!.retryAt : null,
         reload,
         refresh,
+        researchPublicProfiles,
       }
     : UNMOUNTED;
   if (

@@ -371,14 +371,4 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain('const voiceActive = voiceState !== "idle"');
   });
 
-  it("keeps automatic Markdown memory capture silent", () => {
-    const workspace = read("components/agent/agent-chat-workspace.tsx");
-
-    expect(workspace).toContain('event.actionId === "pkm.add"');
-    expect(workspace).toContain('event.raw?.toolName === "add_to_pkm"');
-    expect(workspace).not.toContain("<AgentMemoryCaptureStatus");
-    expect(workspace).not.toContain('return "Saving to Memory"');
-    expect(workspace).not.toContain("confirmMemoryNeedsOwner");
-    expect(workspace).not.toContain("saved in Memory");
-  });
 });

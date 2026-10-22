@@ -3,7 +3,7 @@
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
-import { isInternalManifestPath } from "@/lib/pkm/internal-path-keys";
+import { blockedManifestPaths, externalizableManifestLeaves } from "@/lib/consent/manifest-exposure";
 
 /** Stable scope slices live beside the Profile document in its existing encrypted projection. */
 export interface MemoryScopeSourceRevision {
@@ -19,6 +19,8 @@ export interface MemoryScopeSourceRevision {
 }
 
 export interface MemoryScopeSlice {
+  /** Older slices predate leaf-level admission and must be rebuilt. */
+  admissionVersion?: 2;
   scope: string;
   payload: Record<string, unknown>;
   contentRevision: number | null;
@@ -66,24 +68,11 @@ export async function readMemoryScopeSourceRevisions(params: MemoryProjectionSes
     if (!isVaultSessionEpochCurrent(epoch)) throw new Error("Vault session changed");
     if (!snapshot) return [domain, { domain, contentRevision: null, manifestRevision: null, manifestFingerprint: null, absent: true }] as const;
     if (snapshot.userId !== params.userId || snapshot.domain !== domain) throw new Error("Memory source owner changed");
+    if (!snapshot.manifest || !Array.isArray(snapshot.manifest.paths) || !Array.isArray(snapshot.manifest.externalizable_paths)) throw new Error("Memory source manifest unavailable");
     const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(snapshot.manifest)));
     if (!isVaultSessionEpochCurrent(epoch)) throw new Error("Vault session changed");
-    const leafPaths = new Set(snapshot.manifest?.paths.filter(path => path.path_type === "leaf" && path.exposure_eligibility !== false).map(path => path.json_path) ?? []);
-    const readablePaths = (snapshot.manifest?.externalizable_paths ?? []).filter(path => leafPaths.has(path) && !isInternalManifestPath(path) &&
-      !(snapshot.manifest?.scope_registry ?? []).some(entry => {
-        const projection = entry.summary_projection ?? {};
-        const roots = typeof projection.top_level_scope_path === "string" ? [projection.top_level_scope_path] : entry.segment_ids;
-        return roots.some(root => path === root || path.startsWith(`${root}.`)) &&
-          (entry.exposure_enabled === false || entry.visibility_posture === "private" || projection.consumer_visible === false || projection.internal_only === true);
-      })).sort();
-    const blockedPaths = [...new Set([
-      ...(snapshot.manifest?.paths ?? []).filter(path => path.exposure_eligibility === false || isInternalManifestPath(path.json_path)).map(path => path.json_path),
-      ...(snapshot.manifest?.scope_registry ?? []).flatMap(entry => {
-        const projection = entry.summary_projection ?? {};
-        if (entry.exposure_enabled !== false && entry.visibility_posture !== "private" && projection.consumer_visible !== false && projection.internal_only !== true) return [];
-        return typeof projection.top_level_scope_path === "string" ? [projection.top_level_scope_path] : entry.segment_ids;
-      }),
-    ])].sort();
+    const readablePaths = externalizableManifestLeaves(snapshot.manifest).sort();
+    const blockedPaths = blockedManifestPaths(snapshot.manifest, readablePaths);
     return [domain, { domain, contentRevision: snapshot.contentRevision, manifestRevision: snapshot.manifestRevision,
       manifestFingerprint: Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, "0")).join(""), absent: false,
       hasCanonicalDob: domain === "identity" && readablePaths.includes("identity_profile.date_of_birth"), readablePaths, blockedPaths }] as const;

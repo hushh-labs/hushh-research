@@ -261,11 +261,13 @@ describe("consent SSE stops retrying a permanent refusal", () => {
     expect(mocks.apiFetchStream).toHaveBeenCalledOnce();
   });
 
-  it("still retries a status that can genuinely recover, then stops", async () => {
+  it.each([null, "60"])("bounds recoverable retries and honors Retry-After %s", async (retryAfter) => {
     // 503 is transient. The fix must not turn every failure into a give-up --
     // but it must not retry forever either.
     mocks.apiFetchStream.mockResolvedValue(
-      streamResponse(503, "service unavailable"),
+      { ...streamResponse(503, "service unavailable"), headers: new Headers(
+        retryAfter ? { "Retry-After": retryAfter } : {},
+      ) },
     );
 
     render(
@@ -279,11 +281,18 @@ describe("consent SSE stops retrying a permanent refusal", () => {
     });
     expect(mocks.apiFetchStream).toHaveBeenCalledTimes(1);
 
+    if (retryAfter) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(59_000); });
+      expect(mocks.apiFetchStream).toHaveBeenCalledTimes(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+      expect(mocks.apiFetchStream).toHaveBeenCalledTimes(2);
+    }
+
     await act(async () => {
       await vi.advanceTimersByTimeAsync(300_000);
     });
 
-    // 3s, 6s, 12s, 24s, 48s -> six attempts in total, then silence.
+    // Six attempts maximum, with ordinary backoff or the provider's busy delay.
     expect(mocks.apiFetchStream).toHaveBeenCalledTimes(6);
   });
   it("bounds repeated successful responses that immediately close", async () => {

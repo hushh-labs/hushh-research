@@ -23,7 +23,8 @@ from hushh_mcp.one_adk.world_model_contracts import validated_facts_from_work
 from hushh_mcp.runtime_settings import get_app_runtime_settings, one_profile_research_enabled
 from hushh_mcp.services.chat_key import get_chat_key_provider
 from hushh_mcp.services.one_owner_admission import lookup_fresh_owner_identity, owner_setup_resolved
-from hushh_mcp.services.profile_research_jobs import TTL_SECONDS, ProfileResearchJobs
+from hushh_mcp.services.owner_placement_guard import hub_content_check
+from hushh_mcp.services.profile_research_jobs import TTL_SECONDS, ProfileResearchJobs, pending
 from hushh_mcp.services.profile_research_service import resolve_profile_research_identity
 from hushh_mcp.services.world_model_preferences import (
     azure_bing_consented,
@@ -38,6 +39,14 @@ from hushh_mcp.services.world_model_progress import derive_progress
 NAMESPACE = "one.personal_world_model.v1"
 # A finished model is prepared again once its latest run is this old.
 PWM_REPREPARE_AFTER_SECONDS = 7 * 86400
+
+
+def content_access(user_id, consent_token):
+    async def check_owner():
+        if await validate_first_party_owner_token(user_id, consent_token) is None:
+            raise PermissionError("Owner session ended")
+
+    return hub_content_check(user_id, check_owner)
 
 
 async def owner_identity(user_id, consent_token, *, conn=None):
@@ -75,6 +84,8 @@ async def owner_identity(user_id, consent_token, *, conn=None):
 
 
 async def admission(user_id, consent_token):
+    require_access = content_access(user_id, consent_token)
+    await require_access()
     if (
         POLICY["provider"] == "azure_openai_web_search"
         and get_app_runtime_settings().environment != "uat"
@@ -82,14 +93,18 @@ async def admission(user_id, consent_token):
         # Only the UAT Cloud Run service identity is federated into Azure.
         return {"status": "disabled", "pkm_written": False}, ""
     identity = await owner_identity(user_id, consent_token)
+    await require_access()
     if not one_profile_research_enabled():
         return {"status": "disabled", "pkm_written": False}, ""
     consent = await preferences(user_id)
+    await require_access()
     if not consent or not consent["enabled"]:
         return {"status": "consent_required", "pkm_written": False}, ""
     if POLICY["provider"] == "azure_openai_web_search" and not azure_bing_consented(consent):
         return {"status": "consent_required", "pkm_written": False}, ""
-    if not await asyncio.wait_for(owner_setup_resolved(user_id), 5):
+    setup_ready = await asyncio.wait_for(owner_setup_resolved(user_id), 5)
+    await require_access()
+    if not setup_ready:
         return {"status": "not_ready", "pkm_written": False}, ""
     if identity is None:
         return {"status": "insufficient_identity", "pkm_written": False}, ""
@@ -100,8 +115,7 @@ async def admission(user_id, consent_token):
         ).encode(),
         hashlib.sha256,
     ).hexdigest()
-    if await validate_first_party_owner_token(user_id, consent_token) is None:
-        raise PermissionError("Owner session ended")
+    await require_access()
     return None, binding
 
 
@@ -121,7 +135,7 @@ async def offer(
     identity = await owner_identity(user_id, consent_token)
     authorized_generation = str((await preferences(user_id))["generation"])
 
-    async def require_access():
+    async def check_owner():
         if await validate_first_party_owner_token(user_id, consent_token) is None:
             raise PermissionError("Owner session ended")
         if not one_profile_research_enabled():
@@ -138,6 +152,8 @@ async def offer(
         ):
             raise PermissionError("Research authority changed")
 
+    require_access = hub_content_check(user_id, check_owner)
+    await require_access()
     runner = run_world_model
     provider_args = {}
     if POLICY["provider"] == "azure_openai_web_search":
@@ -164,14 +180,87 @@ async def offer(
         work=work,
         on_progress=on_progress,
         owner_decisions=(inputs or {}).get("owner_decisions"),
+        owner_public_profiles=(inputs or {}).get("public_profiles"),
         **provider_args,
     )
+    await require_access()
     refused, current = await admission(user_id, consent_token)
     if refused:
         return refused
     if original != current:
         raise PermissionError("Owner identity changed")
     return result
+
+
+def _prepare_discovery_start_state(state, *, scope, stored_attempts, clock):
+    """Translate a provider checkpoint without resetting paid hourly starts."""
+    from hushh_mcp.one_adk.world_model_azure import AZURE_WORK_VERSION
+
+    prior_scope = state.get("budget_scope")
+    if prior_scope == scope:
+        return state
+    work = state.get("work")
+    if isinstance(work, dict) and "azure_work_version" in work:
+        if (
+            type(work["azure_work_version"]) is not int
+            or work["azure_work_version"] != AZURE_WORK_VERSION
+        ):
+            raise RuntimeError("Unsupported discovery work version")
+    if prior_scope is not None:
+        # A same-provider layout change needs its own migration, even if
+        # every old slot index happens to fit the new range.
+        known_limits = {
+            "vertex_google_search:v1:32:128": 160,
+            "azure_openai_web_search:v1:8:16": 24,
+        }
+        prior_limit = known_limits.get(prior_scope) if isinstance(prior_scope, str) else None
+        if prior_limit is None:
+            raise RuntimeError("Unsupported discovery budget scope")
+        prior_provider = prior_scope.split(":", 1)[0]
+        if prior_provider == POLICY["provider"]:
+            raise RuntimeError("Unsupported discovery budget scope")
+        prior = state.get("attempted_combinations", [])
+        if (
+            not isinstance(prior, list)
+            or any(type(index) is not int or not 1 <= index <= prior_limit for index in prior)
+            or len(set(prior)) != len(prior)
+        ):
+            raise RuntimeError("Invalid discovery attempt budget")
+        incompatible = True
+    elif POLICY["provider"] == "vertex_google_search":
+        incompatible = isinstance(work, dict) and "azure_work_version" in work
+    elif isinstance(work, dict) and "azure_work_version" in work:
+        # Azure checkpoints written before the scope marker shipped.
+        return {**state, "budget_scope": scope}
+    else:
+        prior = state.get("attempted_combinations", [])
+        valid_vertex_slots = (
+            isinstance(prior, list)
+            and all(type(index) is int and 1 <= index <= 160 for index in prior)
+            and len(set(prior)) == len(prior)
+        )
+        incompatible = valid_vertex_slots and (
+            work or any(index > stored_attempts for index in prior)
+        )
+
+    if incompatible:
+        # A provider switch gets a fresh provider ledger and private work.
+        # Hourly starts survive so switching cannot evade start limits.
+        return {
+            **{key: value for key, value in state.items() if key not in {"work", "inputs"}},
+            "budget_scope": prior_scope or "legacy-provider-checkpoint",
+            "identity_binding": "",
+            "resume_binding": "",
+            "attempted_combinations": [],
+            "discovery_started_at": clock(),
+        }
+    # No incompatible evidence exists. Carry ambiguous paid slots rather
+    # than granting a second Azure budget after an early provider failure.
+    return {**state, "budget_scope": scope}
+
+
+class PublicProfilesChanged(ValueError):
+    """A different public seed requires an explicit, non-overlapping discovery."""
 
 
 class WorldModelJobs(ProfileResearchJobs):
@@ -201,70 +290,9 @@ class WorldModelJobs(ProfileResearchJobs):
     def prepare_start_state(self, state):
         if state is None:
             return state
-        from hushh_mcp.one_adk.world_model_azure import AZURE_WORK_VERSION
-
-        scope = self.budget_scope()
-        prior_scope = state.get("budget_scope")
-        if prior_scope == scope:
-            return state
-        work = state.get("work")
-        if isinstance(work, dict) and "azure_work_version" in work:
-            if (
-                type(work["azure_work_version"]) is not int
-                or work["azure_work_version"] != AZURE_WORK_VERSION
-            ):
-                raise RuntimeError("Unsupported discovery work version")
-        if prior_scope is not None:
-            # A same-provider layout change needs its own migration, even if
-            # every old slot index happens to fit the new range.
-            known_limits = {
-                "vertex_google_search:v1:32:128": 160,
-                "azure_openai_web_search:v1:8:16": 24,
-            }
-            prior_limit = known_limits.get(prior_scope) if isinstance(prior_scope, str) else None
-            if prior_limit is None:
-                raise RuntimeError("Unsupported discovery budget scope")
-            prior_provider = prior_scope.split(":", 1)[0]
-            if prior_provider == POLICY["provider"]:
-                raise RuntimeError("Unsupported discovery budget scope")
-            prior = state.get("attempted_combinations", [])
-            if (
-                not isinstance(prior, list)
-                or any(type(index) is not int or not 1 <= index <= prior_limit for index in prior)
-                or len(set(prior)) != len(prior)
-            ):
-                raise RuntimeError("Invalid discovery attempt budget")
-            incompatible = True
-        elif POLICY["provider"] == "vertex_google_search":
-            incompatible = isinstance(work, dict) and "azure_work_version" in work
-        elif isinstance(work, dict) and "azure_work_version" in work:
-            # Azure checkpoints written before the scope marker shipped.
-            return {**state, "budget_scope": scope}
-        else:
-            prior = state.get("attempted_combinations", [])
-            valid_vertex_slots = (
-                isinstance(prior, list)
-                and all(type(index) is int and 1 <= index <= 160 for index in prior)
-                and len(set(prior)) == len(prior)
-            )
-            incompatible = valid_vertex_slots and (
-                work or any(index > self.stored_attempts for index in prior)
-            )
-
-        if incompatible:
-            # A provider switch gets a fresh provider ledger and private work.
-            # Hourly starts survive so switching cannot evade start limits.
-            return {
-                **{key: value for key, value in state.items() if key not in {"work", "inputs"}},
-                "budget_scope": prior_scope or "legacy-provider-checkpoint",
-                "identity_binding": "",
-                "resume_binding": "",
-                "attempted_combinations": [],
-                "discovery_started_at": self.clock(),
-            }
-        # No incompatible evidence exists. Carry ambiguous paid slots rather
-        # than granting a second Azure budget after an early provider failure.
-        return {**state, "budget_scope": scope}
+        return _prepare_discovery_start_state(
+            state, scope=self.budget_scope(), stored_attempts=self.stored_attempts, clock=self.clock
+        )
 
     def activity_at(self, user_id, state):
         revision = state.get("revision")
@@ -276,36 +304,44 @@ class WorldModelJobs(ProfileResearchJobs):
         return seen[1]
 
     async def status(self, user_id, consent_token):
+        require_access = content_access(user_id, consent_token)
+        await require_access()
         result = await super().status(user_id, consent_token)
+        await require_access()
         if result["status"] not in {"pending", "paused", "unavailable"}:
             self.activity.pop(user_id, None)
             return result
+        if result.get("restart_required"):
+            return result
         state = await self.store.get(user_id)
+        await require_access()
         if state is None or state.get("status") != result["status"]:
             return result
         if not state.get("identity_binding"):
-            # The detached worker has not finished admission yet. No private
-            # checkpoint exists to expose; keep the original pending signal.
             return result
-        # Base status only checks the owner token while a job is pending. The
-        # sealed checkpoint also needs current consent and the exact identity
-        # binding before releasing titles, citations or provisional statements.
+        # Sealed progress requires current consent and the same owner binding.
         refused, binding = await self.check(user_id, consent_token)
+        await require_access()
         if refused:
             return refused
         if state.get("identity_binding") != binding:
-            return {"status": "pending", "pkm_written": False, "restart_required": True}
+            return pending(restart=True)
         current = await self.store.get(user_id)
-        if await validate_first_party_owner_token(user_id, consent_token) is None:
-            raise PermissionError("Owner session ended")
+        await require_access()
         if current is None or any(
             current.get(key) != state.get(key) for key in ("revision", "fence")
         ):
-            return {"status": "pending", "pkm_written": False, "restart_required": True}
+            return pending(restart=True)
         progress = derive_progress(
             state, now=self.clock(), revision_at=self.activity_at(user_id, state)
         )
         facts = validated_facts_from_work(state.get("work"))
+        refused, current_binding = await self.check(user_id, consent_token)
+        await require_access()
+        if refused:
+            return refused
+        if current_binding != binding:
+            return pending(restart=True)
         if POLICY["provider"] == "azure_openai_web_search":
             from hushh_mcp.one_adk.world_model_azure import checkpoint_usage
 
@@ -313,6 +349,17 @@ class WorldModelJobs(ProfileResearchJobs):
             if usage is not None:
                 result = {**result, "_provider_usage": usage}
         return {**result, "progress": progress, "validated_facts": facts}
+
+    async def start(
+        self, user_id, consent_token, *, inputs: dict | None = None, refresh_completed: bool = False
+    ):
+        require_access = content_access(user_id, consent_token)
+        await require_access()
+        result = await super().start(
+            user_id, consent_token, inputs=inputs, refresh_completed=refresh_completed
+        )
+        await require_access()
+        return result
 
     def committed(self):
         from hushh_mcp.services.world_model_notifications import world_model_notification_worker
@@ -335,24 +382,53 @@ class WorldModelJobs(ProfileResearchJobs):
             "budget_scope": self.budget_scope(),
         }
 
-    async def ensure(self, user_id, consent_token, *, owner_decisions=None):
-        # Azure/Bing needs a fresh owner opt-in; existing Vertex preferences
-        # and default enrollment never grant it.
-        enrolled = False
-        if (
-            POLICY["provider"] != "azure_openai_web_search"
-            and one_profile_research_enabled()
-            and await preferences(user_id) is None
-            and await asyncio.wait_for(owner_setup_resolved(user_id), 5)
+    def prepare_inputs(self, state, inputs, refresh_completed):
+        from hushh_mcp.one_adk.public_sources import OwnerPublicProfiles
+
+        prior = (state or {}).get("inputs") or {}
+        carried = dict(prior if inputs is None else inputs)
+        for field in ("public_profiles", "owner_decisions"):
+            if field not in carried and field in prior:
+                carried[field] = prior[field]
+        profiles = carried.get("public_profiles")
+        if profiles is not None:
+            if POLICY["provider"] != "azure_openai_web_search":
+                raise PublicProfilesChanged("Public profile discovery requires Azure consent")
+            profiles = OwnerPublicProfiles.model_validate(profiles).model_dump()
+            carried["public_profiles"] = profiles
+        same = sorted((prior.get("public_profiles") or {}).get("urls", [])) == sorted(
+            (profiles or {}).get("urls", [])
+        )
+        if not same and (
+            not refresh_completed
+            or (state and state["status"] == "pending" and self.reusable(state))
         ):
-            await enroll_default(user_id, consent_token)
-            enrolled = True
+            raise PublicProfilesChanged("Public profiles changed")
+        return carried or None, same
+
+    async def ensure(self, user_id, consent_token, *, owner_decisions=None):
+        enrolled = False
+        require_access = content_access(user_id, consent_token)
+        await require_access()
+        # Preserve existing opt-outs; placement admission precedes enrollment.
+        if POLICY["provider"] != "azure_openai_web_search" and one_profile_research_enabled():
+            consent = await preferences(user_id)
+            await require_access()
+            if consent is None:
+                resolved = await asyncio.wait_for(owner_setup_resolved(user_id), 5)
+                await require_access()
+                if resolved:
+                    await enroll_default(user_id, consent_token)
+                    enrolled = True
+                    await require_access()
         refused, binding = await admission(user_id, consent_token)
         if refused:
             self.decision("ensure", "refused", refused, None)
             return refused
         consent = await preferences(user_id)
+        await require_access()
         state = await self.store.get(user_id)
+        await require_access()
         current_binding = state is not None and state.get("identity_binding") == binding
         if (
             state is not None
@@ -369,13 +445,16 @@ class WorldModelJobs(ProfileResearchJobs):
             state is None
             and last_run is not None
             and self.clock() - last_run.timestamp() < PWM_REPREPARE_AFTER_SECONDS
-            and (active_draft is None or await draft_completed(user_id, active_draft))
         ):
-            # The latest run finished recently and its draft aged out. A run the
-            # retention purge removed before it finished is prepared again.
-            result = {"status": "saved", "pkm_written": False}
-            self.decision("ensure", "recently_prepared", result, None)
-            return result
+            completed = active_draft is None or await draft_completed(user_id, active_draft)
+            await require_access()
+            if completed:
+                # A recently finished draft aged out. Unfinished purged work
+                # resumes below instead of buying a new preparation interval.
+                result = {"status": "saved", "pkm_written": False}
+                self.decision("ensure", "recently_prepared", result, None)
+                return result
+        await require_access()
         if (
             state
             and state["status"] == "saved"
@@ -389,9 +468,10 @@ class WorldModelJobs(ProfileResearchJobs):
         return await self.start(user_id, consent_token, inputs=inputs)
 
     async def dismiss(self, user_id, consent_token, draft_id=None):
-        if await validate_first_party_owner_token(user_id, consent_token) is None:
-            raise PermissionError("Owner session ended")
+        require_access = content_access(user_id, consent_token)
+        await require_access()
         state = await self.store.get(user_id)
+        await require_access()
         if state is None:
             return
         if (draft_id is not None and state.get("job_id") != draft_id) or (
@@ -412,7 +492,10 @@ class WorldModelJobs(ProfileResearchJobs):
             finished_at=self.clock(),
             result={"status": "saved", "pkm_written": False},
         )
-        if await self.store.write(user_id, tombstone, state) is None:
+        await require_access()
+        written = await self.store.write(user_id, tombstone, state)
+        await require_access()
+        if written is None:
             raise RuntimeError("Draft changed; retry discard")
 
 

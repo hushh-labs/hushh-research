@@ -1,4 +1,5 @@
 import { registerPlugin } from "@capacitor/core";
+import { SANDBOX_IOS_APP_ID, SANDBOX_ANDROID_APP_ID, sandboxNativeFrontendOrigin } from "./scope-commerce-sandbox-links.mjs";
 
 /**
  * The plugin catches an app-owned OAuth return in the WebView and can open
@@ -18,7 +19,15 @@ export function isNativeCustomConnectorReturnUri(value: unknown): value is strin
   if (typeof value !== "string" || value.length > 2048) return false;
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && NATIVE_APP_LINK_HOSTS.has(url.hostname) &&
+    const sandboxOrigin = sandboxNativeFrontendOrigin({
+      sandboxOrigin: process.env.NEXT_PUBLIC_SCOPE_COMMERCE_SANDBOX_ORIGIN,
+      frontendOrigin: process.env.NEXT_PUBLIC_APP_URL,
+      iosAppId: process.env.NEXT_PUBLIC_IOS_BUNDLE_ID,
+      androidAppId: process.env.NEXT_PUBLIC_ANDROID_APP_ID,
+    });
+    const sandboxBuild = Boolean(process.env.NEXT_PUBLIC_SCOPE_COMMERCE_SANDBOX_ORIGIN) ||
+      process.env.NEXT_PUBLIC_IOS_BUNDLE_ID === SANDBOX_IOS_APP_ID || process.env.NEXT_PUBLIC_ANDROID_APP_ID === SANDBOX_ANDROID_APP_ID;
+    return url.protocol === "https:" && (sandboxBuild ? sandboxOrigin !== null && url.origin === sandboxOrigin : NATIVE_APP_LINK_HOSTS.has(url.hostname)) &&
       url.port === "" && url.username === "" && url.password === "" &&
       url.pathname === "/one/profile/connectors/oauth/return" &&
       url.search === "" && url.hash === "";

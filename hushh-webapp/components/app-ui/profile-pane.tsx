@@ -6,6 +6,7 @@ import { appHaptic } from "@/lib/capacitor/app-haptics";
 import { useNativePanelPresentation } from "@/lib/capacitor/native-panel-presentation";
 import { NativeChatChrome } from "@/components/app-ui/native-chat-chrome";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import headerStyles from "./profile-pane-header-controls.module.css";
 import { presentationMotionDuration, renderedDrawerOffset } from "@/components/app-ui/drawer-motion";
 import { nativeShellOverlayBlocked, useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
 import { useNativeFullWindowOverlayReady } from "@/lib/capacitor/native-presentation-regions";
@@ -13,10 +14,7 @@ import { customNativePresentationEnabled } from "@/lib/capacitor/native-presenta
 import { nativeDrawersPlatformEligible } from "@/lib/capacitor/native-drawers";
 import { VoiceSurfaceActivityBoundary } from "@/lib/kai/actions/voice-surface-activity";
 
-import {
-  ArrowLeftIcon as ArrowLeft,
-  XIcon as X,
-} from "@/components/icons";
+import { ArrowLeftIcon as ArrowLeft, XIcon as X } from "@/components/icons";
 import { usePathname, useSearchParams } from "next/navigation";
 
 import { ProfilePage } from "@/components/profile/profile-workspace-page";
@@ -298,32 +296,36 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
   }, [panePresentationKey, open, isVaultUnlocked]);
   const canGoBack = canGoBackProfilePane(location);
   const panelTitle = location.panel
-      ? location.panel === "my-data"
-        ? "Memory"
-        : location.panel === "world-model"
-          ? "Personal World Model"
-        : location.panel === "payouts"
-          ? "Payouts"
-          : location.panel === "request-pricing"
-            ? "Request pricing"
-        : location.panel === "connected-systems"
-          ? "Connected Systems"
-          : location.panel === "connectors"
-            ? "Connectors"
-          : location.panel === "gmail"
-            ? "Mail receipts"
-            : location.panel === "account"
-              ? "Your account"
-              : location.panel === "preferences"
-                ? "Preferences"
-                : location.panel === "security"
-                  ? "Security & privacy"
-                  : location.panel === "referrals"
-                    ? "Invite friends"
-                    : location.panel === "legal"
-                      ? "Legal"
-                      : "Help & feedback"
-      : "Profile";
+    ? location.panel === "my-data"
+      ? "Memory"
+      : location.panel === "world-model"
+        ? "Personal World Model"
+      : location.panel === "payouts"
+        ? "Payouts"
+        : location.panel === "request-pricing"
+          ? "Request pricing"
+      : location.panel === "connected-systems"
+        ? "Connected Systems"
+        : location.panel === "connectors"
+          ? "Connectors"
+        : location.panel === "gmail"
+          ? "Mail receipts"
+          : location.panel === "account"
+            ? "Your account"
+            : location.panel === "hosting"
+              ? "Hosting"
+              : location.panel === "software-updates"
+                ? "Software updates"
+                : location.panel === "preferences"
+                  ? "Appearance & preferences"
+                  : location.panel === "security"
+                    ? "Security & privacy"
+                    : location.panel === "referrals"
+                      ? "Invite friends"
+                      : location.panel === "legal"
+                        ? "Legal"
+                        : "Help & feedback"
+    : "Profile";
   // A detail is named for what it is ("Trusted devices"), matching its entry
   // in the Profile stack; it used to read "Profile detail" for all of them.
   // Details without a fixed name (a domain, a connection) keep the panel's.
@@ -402,9 +404,11 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
                     appHaptic("light");
                     backProfilePane(pathname, searchParams);
                   }}
-                  className="size-11"
+                  className={headerStyles.action}
+                  contentClassName={headerStyles.glyph}
+                  rippleClassName={headerStyles.ripple}
                 >
-                  <ArrowLeft className="h-5 w-5" />
+                  <ArrowLeft className="size-[22px]" />
                 </ShellActionSurface>
               </NativeChatChrome>
             ) : null}
@@ -432,16 +436,18 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
           context={panePresentationKey} eligible={false}
           onActivate={() => onOpenChange(false)}
           style={{ right: "max(1rem, env(safe-area-inset-right, 0px))" }}
-          className="profile-pane-close absolute top-[calc(1rem+env(safe-area-inset-top))] z-10 flex size-11 items-center justify-center">
+          className={`profile-pane-close ${headerStyles.closeSlot} absolute top-[calc(1rem+env(safe-area-inset-top))] z-10 flex size-11 items-center justify-center`}>
         <SheetClose asChild>
           <ShellActionSurface
             ref={closeRef}
             type="button"
             aria-label="Close Profile"
             onClick={() => appHaptic("light")}
-            className="size-11"
+            className={headerStyles.action}
+            contentClassName={headerStyles.glyph}
+            rippleClassName={headerStyles.ripple}
           >
-            <X className="h-4 w-4" />
+            <X className="size-[22px]" />
           </ShellActionSurface>
         </SheetClose>
         </NativeChatChrome>

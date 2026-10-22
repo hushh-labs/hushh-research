@@ -6,11 +6,11 @@ Canonical owner: [One Index](./README.md).
 
 ```mermaid
 flowchart LR
-  Setup[Verified setup and vault unlock] --> Ensure[Automatic ensure and resume]
+  Setup[Verified setup, vault and research policy] --> Ensure[Automatic ensure and resume]
   Ensure --> Research[Resumable native research]
   Research --> Draft[View-only Google research]
-  Research --> Feed[Feed and one email]
-  Profile --> Page[Personal World Model page]
+  Research --> Feed[Feed and optional email]
+  Profile[Profile] --> Page[Personal World Model page]
   Draft --> Page
   Page --> Decide[Yes / No / Edit / Remove]
   Decide --> Memory[Encrypted Soul.md memory]
@@ -24,6 +24,8 @@ flowchart LR
   Invite --> Claim[Recipient verification and claim]
   Claim --> Page
 ```
+
+Hub content execution is available only in Shared. Private owners require a qualified pod capability; their work never falls back to the hub.
 
 ## User experience
 
@@ -155,6 +157,15 @@ report is checkpointed first; a paused review resumes there without buying
 research or compilation again. A completed review is bound to that report's
 digest. Missing or repeated IDs fail closed.
 
+A schema-invalid fact selection or resulting report may receive one charged,
+tool-free model correction using the same immutable proposed facts, identity,
+owner decisions and schema. The original validators run again; an invalid
+correction fails, and the host never returns the unreviewed proposal instead.
+The existing model-slot, remaining-time and access checks apply to both calls.
+Saved review checkpoints are validated without repair or new provider calls.
+Validation diagnostics contain only fixed stage/attempt labels and error types;
+they exclude field paths, messages, input and exception context.
+
 Review may retain zero findings without changing the assessed identity. An empty
 matched or uncertain report means no new personal statements remain to review;
 it does not imply no identity candidate exists. A no-match report still cannot
@@ -178,7 +189,7 @@ Provisional extraction also uses medium reasoning, retaining its 2,048-token and
 and every call retains the existing 90-second outer cap. The SDK deadline matches
 that cap; planner and provisional limits remain shorter. Optional sections contain
 positive personal findings, with no placeholder facts or minimum count. Empty
-uncertain reports still fail the unchanged public contract.
+uncertain reports remain valid when no new positive findings survive review.
 
 The provider report schema excludes coverage: the existing host ledger authors
 all twenty rows before unchanged full report validation. The final schema limits
@@ -321,6 +332,21 @@ Integration request:
 ```
 
 Name and at least one verified contact are required. Phone uses E.164. Every supplied field must match the freshly resolved owner's account. The UI normally calls `/ensure` or `/jobs` without sending identifiers. Arbitrary submitted identities are rejected.
+
+**Pages you choose** also has an explicit Azure research action when Azure/Bing
+research is already enabled and a fresh run is allowed. The owner confirms up to
+three public profile links and their public-source permission. These links enter
+normal charged web retrieval as starting leads, not received evidence or verified
+identity. They never grant access to private accounts. A changed URL set starts a
+new work generation, retains hourly starts, and cannot replace a live pending
+lease. Omission carries existing profiles and prior decisions across resumes.
+A bare server-requested restart keeps the explicit profile action available;
+the server still checks the live lease and CAS fence before admitting it. A
+pending or paused checkpoint does not expose that recovery action.
+Web and Android use the shared form; the corresponding iOS owned form requires
+its additive `profileWorldModelPublicProfiles` capability. Older binaries retain
+their existing source-review action. The separate Gemini page-review action and
+the owner’s encrypted Memory save remain unchanged.
 
 `/ensure` and `POST /jobs` accept an optional body carrying the owner's earlier decisions, so research does not propose them again:
 

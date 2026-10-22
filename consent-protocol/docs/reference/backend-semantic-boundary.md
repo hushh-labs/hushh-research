@@ -571,7 +571,15 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
 - Validator: `validate_owner_style` refuses unknown keys, wrong types and oversize
   values (400 on the chat route, `invalid` from the tool); it never clips or
   substitutes a value. Sanitizing removes control and format characters only.
-- Authority: none. The tool writes nothing; the owner commits in Settings. The
+- Authority: the tool writes nothing. An explicit owner-chosen preferred name
+  returns `preferred_name_update_ready` only for admitted typed chat. The live
+  device commits only that name after successful turn completion through
+  `one_chat_preferred_name`; current-owner, vault-session, conversation and turn
+  checks run before effects. Cancellation, conflicting results and stale turns
+  do not dispatch a write. An already-dispatched write may still commit; a
+  replaced session suppresses cache publication and acknowledgement. A newer
+  name also replaces the pending onboarding name draft so final setup Save
+  cannot restore the older choice. Other style values require Settings Save. The
   prompt section is rendered from server templates, owner text is a quoted
   literal, and no tool gate reads the style state
   (`tests/test_one_owner_style.py` asserts unchanged authorization decisions).
@@ -596,7 +604,8 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
   `identity.communication_preferences`. It commits after successful turn completion,
   with current-owner, vault-session, question and turn checks before storage.
   Skip, ambiguity, unrelated replies, cancellation and stale results write nothing.
-  Ordinary chat preferences still require Settings confirmation.
+  Ordinary chat uses the separate preferred-name device contract above; other
+  writing preferences still require Settings confirmation.
 - Evidence: backend tool tests in `tests/test_one_owner_style.py` and frontend
   onboarding, stream and browser regression tests. Live semantic behavior remains
   unmeasured until evaluated with the deployed model; mocked decisions prove

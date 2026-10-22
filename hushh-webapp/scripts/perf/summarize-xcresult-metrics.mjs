@@ -34,8 +34,6 @@ const median = (values) => {
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 };
-const round = (n) => (Math.abs(n) >= 100 ? Math.round(n) : Math.round(n * 100) / 100);
-
 const rows = [];
 for (const test of tests) {
   for (const run of test.testRuns ?? []) {
@@ -47,8 +45,9 @@ for (const test of tests) {
         device: run.device?.deviceName ?? "",
         metric: metric.displayName,
         unit: metric.unitOfMeasurement,
-        iterations: values.map(round),
-        median: round(median(values)),
+        // Sub-centisecond hitch values must not disappear as report zeros.
+        iterations: [...values],
+        median: median(values),
       });
     }
   }

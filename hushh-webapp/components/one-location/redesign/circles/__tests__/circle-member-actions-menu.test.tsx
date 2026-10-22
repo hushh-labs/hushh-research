@@ -105,7 +105,9 @@ describe.each(["phone", "desktop"] as const)("a share-only Circle row on %s", (v
     expect(onShare).not.toHaveBeenCalled();
     if (viewport === "phone") fireEvent.click(trigger);
     else fireEvent.keyDown(trigger, { key: "Enter" });
-    const share = await screen.findByRole("menuitem", { name: "Share location" });
+    const share = await screen.findByRole(viewport === "phone" ? "button" : "menuitem", {
+      name: viewport === "phone" ? `Share location with ${MEMBER_NAME}` : "Share location",
+    });
     expect(share.querySelector("svg.profile-pane-icon")).toBeTruthy();
     expect(share.querySelector(".profile-pane-icon-accent")).toBeTruthy();
     expect(screen.queryByText("Remove from Circle")).toBeNull();
@@ -145,7 +147,8 @@ describe("CircleMemberActionsMenu on a phone", () => {
       verified: true,
     });
 
-    fireEvent.click(screen.getByRole("button", { name: triggerName }));
+    const trigger = screen.getByRole("button", { name: triggerName });
+    fireEvent.click(trigger);
 
     const sheet = await screen.findByTestId(MEMBER_ACTIONS_SHEET_TESTID);
 
@@ -166,9 +169,7 @@ describe("CircleMemberActionsMenu on a phone", () => {
     ).toBeTruthy();
     expect(within(sheet).getByLabelText("Verified advisor")).toBeInTheDocument();
 
-    expect(
-      within(sheet).getByRole("menuitem", { name: /Share location/i }),
-    ).toBeInTheDocument();
+    expect(within(sheet).getByRole("button", { name: `Share location with ${MEMBER_NAME}` })).toHaveClass("size-11");
     expect(
       within(sheet).getByRole("button", { name: /Remove from Circle/i }),
     ).toBeInTheDocument();
@@ -181,14 +182,13 @@ describe("CircleMemberActionsMenu on a phone", () => {
       "text-[color:var(--app-destructive)]",
     );
 
-    const actionMenu = within(sheet).getByRole("menu", { name: triggerName });
-    expect(actionMenu).toHaveClass("w-full");
-    expect(actionMenu).not.toHaveClass("max-w-[244px]");
+    expect(within(sheet).queryByRole("menu", { name: triggerName })).toBeNull();
+    expect(trigger).toHaveAttribute("aria-haspopup", "dialog");
     expect(MEMBER_ACTIONS_SHEET_CTA_CLASSNAME).toContain("max-w-[244px]");
     expect(MEMBER_ACTIONS_SHEET_ITEM_CLASSNAME).toContain("min-h-[52px]");
     const cancel = within(sheet).getByRole("button", { name: "Cancel" });
     expect(cancel).toHaveClass(
-      "h-[50px]",
+      "h-[52px]",
       "w-full",
       "justify-center",
     );
@@ -201,7 +201,7 @@ describe("CircleMemberActionsMenu on a phone", () => {
 
     fireEvent.click(screen.getByRole("button", { name: triggerName }));
     fireEvent.click(
-      await screen.findByRole("menuitem", { name: /Share location/i }),
+      await screen.findByRole("button", { name: `Share location with ${MEMBER_NAME}` }),
     );
 
     expect(onShare).toHaveBeenCalledTimes(1);
@@ -280,7 +280,7 @@ describe("CircleMemberActionsMenu on a phone", () => {
       screen.queryByRole("menu", { name: triggerName }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("menuitem", { name: /Share location/i }),
+      screen.queryByRole("button", { name: `Share location with ${MEMBER_NAME}` }),
     ).toBeNull();
   });
 

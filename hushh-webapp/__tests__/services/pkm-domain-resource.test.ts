@@ -42,6 +42,19 @@ describe("PkmDomainResourceService", () => {
     CacheService.getInstance().clear();
   });
 
+  it.each(["memory", "device"])("contains a failed background refresh for a warm %s snapshot", async tier => {
+    const snapshot = { key: { userId: "warm-owner", domain: "one_memory", segmentIds: [], contentRevision: 1 }, data: { markdown: "kept" }, manifestRevision: null, updatedAt: null, audit: { cacheTier: "device", source: "secure_cache", refreshedAt: "now" } };
+    peekCachedDomainBlobMock.mockReturnValue(null);
+    secureReadMock.mockResolvedValue(tier === "device" ? snapshot : null);
+    const peek = vi.spyOn(CacheService.getInstance(), "peek").mockReturnValue(tier === "memory" ? { data: snapshot, isFresh: false } : null);
+    loadDomainDataWithBlobMock.mockRejectedValueOnce(new Error("Synthetic background failure"));
+    try {
+      await expect(PkmDomainResourceService.getStaleFirst({ userId: "warm-owner", domain: "one_memory", vaultKey: "vault-key", vaultOwnerToken: "vault-owner" })).resolves.toMatchObject({ data: { markdown: "kept" } });
+      expect(loadDomainDataWithBlobMock).toHaveBeenCalledOnce();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    } finally { peek.mockRestore(); }
+  });
+
   it("forwards an explicit refresh past the identity cache after a Settings save", async () => {
     const read = vi.spyOn(PkmDomainResourceService, "getStaleFirst").mockResolvedValue(null);
     try {

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
+import { proveMessagesInboxBack, proveMessagesBackLayers } from "./fixtures/messages-navigation-proof";
 
 // Production components/styles with synthetic auth/navigation/service ports.
 // Device keyboards, signed-in routes and push delivery have separate proofs.
@@ -36,6 +37,7 @@ test.beforeAll(async () => {
       } }], resolve: { alias: [
         { find: "@/hooks/use-auth", replacement: path.join(root, "e2e/fixtures/direct-chat-auth.ts") },
         { find: "@/lib/services/direct-messages-service", replacement: path.join(root, "e2e/fixtures/direct-chat-boundary.ts") },
+        { find: "@/lib/services/person-profile-service", replacement: path.join(root, "e2e/fixtures/direct-chat-connections.ts") },
         { find: "@/lib/services/connections-service", replacement: path.join(root, "e2e/fixtures/direct-chat-connections.ts") },
         { find: "@/components/vault/vault-unlock-dialog", replacement: path.join(root, "e2e/fixtures/wallet-workspace-boundaries.tsx") },
         ...["@/lib/one-location/service", "@/lib/vault/vault-context"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/direct-chat-circles.ts") })),
@@ -199,13 +201,16 @@ for (const width of [768, 820, 1024]) {
   test(`message search controls fit the split conversation at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1024 });
     const errors = await mount(page);
-    await page.getByRole("button", { name: "Contact info", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Conversation options", exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: "Search messages", exact: true }).click();
     const input = page.getByRole("searchbox", { name: "Search messages" });
     await expect(input).toBeVisible();
-    await input.fill("friendly");
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await expect(input).toBeFocused();
+    await page.keyboard.type("friendly");
+    await expect(input).toHaveValue("friendly");
     const thread = (await page.locator('[data-direct-message-page] > main').boundingBox())!;
-    for (const control of [input, page.getByRole("button", { name: "Close message search" }), page.getByRole("button", { name: "Contact info", exact: true })]) {
+    for (const control of [input, page.getByRole("button", { name: "Close message search" })]) {
       const box = (await control.boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(thread.x);
       expect(box.x + box.width).toBeLessThanOrEqual(thread.x + thread.width);
@@ -294,7 +299,6 @@ test("chat theme follows the device, persists a choice, and keeps the shared nav
   await page.getByRole("button", { name: "Switch to dark mode" }).click();
   await expectSharedDockFrame(page);
 });
-
 for (const [inset, width, height] of [[0, 393, 844], [59, 393, 844], [72, 393, 844], [0, 844, 390]] as const) {
   test(`iOS Messages clears the status bar at ${inset}px in ${width}x${height} without covering the dock`, async ({ page }) => {
     await page.setViewportSize({ width, height });
@@ -311,7 +315,8 @@ for (const [inset, width, height] of [[0, 393, 844], [59, 393, 844], [72, 393, 8
     const title = page.getByRole("heading", { name: "Arjun Mehta with a very long display name", exact: true });
     await expect(title).toBeVisible();
     expect((await title.boundingBox())!.y).toBeGreaterThanOrEqual(minimumTop);
-    const dock = page.locator("[data-agent-bar-shell]");
+    const dock = page.locator("[data-bottom-shell-agent-slot] > [data-agent-bar-shell]");
+    await expect(dock).toHaveCount(1);
     const assertTranscriptClear = async () => {
       const bounds = (await canvas.boundingBox())!;
       expect(bounds.y).toBe(minimumTop);
@@ -334,22 +339,12 @@ for (const [inset, width, height] of [[0, 393, 844], [59, 393, 844], [72, 393, 8
   });
 }
 
-test("system Back closes message search before returning from a People thread", async ({ page }) => {
-  await page.setViewportSize({ width: 393, height: 844 });
-  await mount(page);
-  const chat = page.locator("[data-direct-message-page]");
-  await page.getByRole("button", { name: "Contact info", exact: true }).click();
-  await page.getByRole("button", { name: "Search messages", exact: true }).click();
-  await expect(page.getByRole("searchbox", { name: "Search messages" })).toBeVisible();
-  const systemBack = () => page.evaluate(() => (window as any).directChatUnwindBack());
-
-  expect(await systemBack()).toBe(true);
-  await expect(page.getByRole("searchbox", { name: "Search messages" })).toHaveCount(0);
-  await expect(chat).toHaveAttribute("data-chat-open", "true");
-  expect(await systemBack()).toBe(true);
-  await expect(chat).toHaveAttribute("data-chat-open", "false");
-  expect(await systemBack()).toBe(false);
-});
+for (const width of [320, 1440]) {
+  test(`Messages inbox Back returns to One at ${width}px`, ({ page }) => proveMessagesInboxBack(page, mount, width));
+}
+for (const width of [393, 1440]) {
+  test(`Back closes message search before returning from a People thread at ${width}px`, ({ page }) => proveMessagesBackLayers(page, mount, width));
+}
 
 test.describe("touch emoji sending", () => {
   test.use({ hasTouch: true, isMobile: true });
@@ -426,6 +421,7 @@ test("system Back closes the New chat picker before leaving the inbox", async ({
   await page.setViewportSize({ width: 393, height: 844 });
   await mount(page, false, false, true);
   for (const action of ["New chat", "Compose message"]) {
+    await page.setViewportSize({ width: action === "New chat" ? 393 : 1440, height: 844 });
     await page.getByRole("button", { name: action, exact: true }).first().click();
     await expect(page.getByRole("dialog", { name: "New chat" })).toBeVisible();
     expect(await page.evaluate(() => (window as any).directChatUnwindBack())).toBe(true);
@@ -516,7 +512,7 @@ for (const [width, height] of [[320, 568], [393, 844], [430, 932], [767, 852], [
       expect(Math.abs(inboxHeaderBox.y + inboxHeaderBox.height - layout.threadHeader.y - layout.threadHeader.height)).toBeLessThanOrEqual(1);
       const heading = (await inboxHeader.getByRole("heading", { name: "Messages" }).boundingBox())!;
       const actions = (await inboxHeader.locator('[class*="inboxHeaderActions"]').boundingBox())!;
-      if (width! < 1100) expect(heading.y + heading.height + 4).toBeLessThanOrEqual(actions.y);
+      if (width! < 1280) expect(heading.y + heading.height + 4).toBeLessThanOrEqual(actions.y);
       else expect(heading.x + heading.width + 4).toBeLessThanOrEqual(actions.x);
       expect(layout.aside!.y + layout.aside!.height).toBeLessThanOrEqual((await page.locator('[data-bottom-shell-motion-stack]').boundingBox())!.y + 1);
       const overflow = await page.locator('[data-app-scroll-root]').evaluate(node => node.scrollHeight - node.clientHeight);
@@ -557,7 +553,7 @@ for (const [width, height] of [[320, 568], [393, 844], [430, 932], [767, 852], [
     await expect.poll(async () => (await send.boundingBox())!.y + (await send.boundingBox())!.height).toBeLessThanOrEqual(height! - inset + 1);
     await expect.poll(() => page.evaluate(() => {
       const transcript = document.querySelector('[data-testid="direct-message-list"]')!;
-      const dock = document.querySelector('[data-agent-bar-shell]')!;
+      const dock = document.querySelector('[data-bottom-shell-agent-slot] > [data-agent-bar-shell]')!;
       return transcript.getBoundingClientRect().bottom - dock.getBoundingClientRect().top;
     })).toBeLessThanOrEqual(1);
     const geometry = await editor.boundingBox(); const target = await send.boundingBox();
@@ -637,8 +633,18 @@ for (const scrollAway of [false, true]) test(`a delayed inline photo preserves $
     await expect(page.getByRole("button", { name: "Go to latest messages" })).toBeVisible();
   }
   const before = await list.evaluate(node => node.scrollTop);
+  await list.evaluate(node => {
+    const beforePhotoLoad = (event: Event) => {
+      if (!(event.target instanceof HTMLImageElement) || event.target.alt !== "Photo") return;
+      // Some browsers deliver an anchoring scroll after layout, before React's
+      // image-load callback. Preserve that ordering deterministically.
+      node.dispatchEvent(new Event("scroll"));
+      node.removeEventListener("load", beforePhotoLoad, true);
+    };
+    node.addEventListener("load", beforePhotoLoad, true);
+  });
   await fixture(page, "fixture.releasePhotos()");
-  const image = page.getByRole("img", { name: "Photo.png" });
+  const image = page.getByRole("img", { name: "Photo", exact: true });
   await expect.poll(() => image.evaluate(node => (node as HTMLImageElement).naturalWidth)).toBe(400);
   if (scrollAway) await expect.poll(() => list.evaluate(node => node.scrollTop)).toBe(before);
   else await expect.poll(() => list.evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThanOrEqual(1);
@@ -676,8 +682,8 @@ test("hover actions do not shift messages or the centered composer", async ({ pa
   await expect(bubble.getByRole("button", { name: "Message options" })).toBeVisible();
   const other = page.locator('[data-message-role="user"]').first();
   await other.hover();
-  await expect(page.locator('article[data-actions-visible="true"]')).toHaveCount(1);
-  await expect(other).toHaveAttribute("data-actions-visible", "true");
+  await expect(page.locator('article[data-actions-visible="true"]')).toHaveCount(touchActions ? 0 : 1);
+  if (!touchActions) await expect(other).toHaveAttribute("data-actions-visible", "true");
   await bubble.hover();
   const after = await bubble.boundingBox();
   expect(Math.abs(after!.height - before!.height)).toBeLessThanOrEqual(1);
@@ -689,6 +695,9 @@ test("hover actions do not shift messages or the centered composer", async ({ pa
     const emoji = row.getByRole("button", { name: "React to message" });
     const iconBox = (await emoji.boundingBox())!;
     const menuBox = (await row.getByRole("button", { name: "Message options" }).boundingBox())!;
+    await expect(row.getByRole("button", { name: "Message options" })).toHaveCSS("background-image", /12px,.*12\.5px/);
+    expect(menuBox.width).toBeGreaterThanOrEqual(44);
+    expect(menuBox.height).toBeGreaterThanOrEqual(44);
     expect(Math.abs(iconBox.y - menuBox.y)).toBeLessThanOrEqual(1);
     const bubbleBox = (await row.locator('[data-chat-bubble]').boundingBox())!;
     if (touchActions) {
@@ -715,7 +724,7 @@ test("hover actions do not shift messages or the centered composer", async ({ pa
   await expect(bubble.getByRole("button", { name: "Message options" }).locator("..")).toHaveCSS("opacity", "1");
   await page.getByRole("heading", { name: "Maya Rao", exact: true }).hover();
   await expect(bubble).toHaveAttribute("data-actions-visible", "true");
-  await page.getByRole("button", { name: "Contact info", exact: true }).focus();
+  await page.locator("main > header").getByRole("link", { name: "View Maya Rao's profile", exact: true }).focus();
   await expect(page.locator('article[data-actions-visible="true"]')).toHaveCount(0);
   const title = page.getByRole("heading", { name: "Messages", exact: true });
   const contact = page.getByRole("heading", { name: "Maya Rao", exact: true });
@@ -734,7 +743,7 @@ test("hover actions do not shift messages or the centered composer", async ({ pa
 
 test.describe("compact message layout", () => {
   test.use({ timezoneId: "UTC", locale: "en-US" });
-  for (const width of [320, 393, 768, 1440]) test(`compact message controls preserve inline timestamps at ${width}px`, async ({ page }) => {
+  for (const width of [320, 393, 768, 1440]) test(`compact message timestamps sit at the lower right at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 });
     await page.emulateMedia({ reducedMotion: "reduce" });
     await mount(page, width === 393);
@@ -754,9 +763,14 @@ test.describe("compact message layout", () => {
       const geometry = await bubble.evaluate(element => {
         const text = element.querySelector(":scope > p")!.getBoundingClientRect();
         const time = element.querySelector("time")!.getBoundingClientRect();
-        return { textBottom: text.bottom, timeTop: time.top, timeSize: parseFloat(getComputedStyle(element.querySelector("time")!).fontSize), textWidth: text.width, metaWidth: element.querySelector('[class*="messageBubbleMeta"]')!.getBoundingClientRect().width, bubbleWidth: element.getBoundingClientRect().width };
+        const bubble = element.getBoundingClientRect();
+        const meta = element.querySelector('[class*="messageBubbleMeta"]')!.getBoundingClientRect();
+        return { textBottom: text.bottom, timeTop: time.top, timeBottom: time.bottom, bubbleBottom: bubble.bottom, rightInset: bubble.right - meta.right, expectedInset: Math.min(14, parseFloat(getComputedStyle(element).paddingRight)), timeSize: parseFloat(getComputedStyle(element.querySelector("time")!).fontSize) };
       });
       expect(geometry.timeTop, JSON.stringify(geometry)).toBeLessThan(geometry.textBottom);
+      expect(geometry.timeBottom, JSON.stringify(geometry)).toBeGreaterThanOrEqual(geometry.textBottom);
+      expect(geometry.timeBottom).toBeLessThanOrEqual(geometry.bubbleBottom);
+      expect(Math.abs(geometry.rightInset - geometry.expectedInset), JSON.stringify(geometry)).toBeLessThanOrEqual(1);
       expect(geometry.timeSize).toBeLessThanOrEqual(11);
       for (const label of ["React to message", "Message options"]) {
         const button = row.getByRole("button", { name: label });
@@ -766,7 +780,7 @@ test.describe("compact message layout", () => {
         expect(rect.x).toBeGreaterThanOrEqual(0);
         expect(rect.x + rect.width).toBeLessThanOrEqual(width);
         if (!(await touchMessageActions(page))) await button.hover();
-        await expect(button).toHaveCSS("background-image", /14px.*15px/);
+        await expect(button).toHaveCSS("background-image", label === "Message options" ? /12px.*12\.5px/ : /14px.*15px/);
         await page.keyboard.press("Tab");
         await button.focus();
         await expect(button).toHaveCSS("outline-style", "solid");
@@ -791,6 +805,98 @@ test("hidden encrypted selections survive browser history and refresh", async ({
   await expect(page.getByRole("textbox", { name: /Message Arjun/ })).toBeVisible();
   expect(page.url()).toBe("http://localhost/one/messages");
 });
+for (const width of [320, 1440]) {
+  test(`whole chat deletion uses the ${width < 768 ? "phone hold" : "web menu"} and confirmation at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mount(page, false, false, true);
+    const chat = page.getByRole("group", { name: "Maya Rao chat" });
+    const row = chat.getByRole("button").first();
+    const options = chat.getByRole("button", { name: "Chat options" });
+    await chat.hover();
+    const box = (await options.boundingBox())!;
+    expect(box.width).toBeGreaterThanOrEqual(44);
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    expect(await chat.locator("button button").count()).toBe(0);
+    if (width < 768) {
+      // A moving touch is a scroll, while a stationary hold opens chat actions.
+      await row.dispatchEvent("pointerdown", { pointerType: "touch", isPrimary: true, pointerId: 1, button: 0, clientX: 30, clientY: 50 });
+      await row.dispatchEvent("pointermove", { pointerType: "touch", clientX: 55, clientY: 50 });
+      await page.waitForTimeout(1050);
+      await expect(page.getByRole("menu")).toHaveCount(0);
+      await row.dispatchEvent("pointerdown", { pointerType: "touch", isPrimary: true, pointerId: 1, button: 0, clientX: 30, clientY: 50 });
+      await expect(page.getByRole("menuitem", { name: "Delete chat" })).toBeVisible();
+      await row.dispatchEvent("pointerup", { pointerType: "touch", button: 0 });
+      await row.dispatchEvent("click", { detail: 1 });
+      await expect(page.getByRole("searchbox", { name: "Search conversations" })).toBeVisible();
+    } else {
+      await options.click();
+    }
+    await page.getByRole("menuitem", { name: "Delete chat" }).click();
+    const dialog = page.getByRole("alertdialog");
+    await expect(dialog).toHaveAccessibleDescription("Deletes this chat for you only.");
+    const descriptionBox = (await dialog.locator('[data-slot="alert-dialog-description"]').boundingBox())!;
+    expect(descriptionBox.width).toBeLessThanOrEqual(1);
+    expect(descriptionBox.height).toBeLessThanOrEqual(1);
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(chat).toBeVisible();
+    if (width < 768) {
+      // Native context menus can precede the hold timer and synthesize a click.
+      await row.dispatchEvent("pointerdown", { pointerType: "touch", isPrimary: true, pointerId: 2, button: 0, clientX: 30, clientY: 50 });
+      await row.dispatchEvent("contextmenu");
+      await row.dispatchEvent("pointerup", { pointerType: "touch", button: 0 });
+      await row.dispatchEvent("click", { detail: 1 });
+      await expect(page.getByRole("searchbox", { name: "Search conversations" })).toBeVisible();
+    } else {
+      await options.click();
+    }
+    await page.getByRole("menuitem", { name: "Delete chat" }).click();
+    await page.getByRole("button", { name: "Delete chat", exact: true }).click();
+    await expect(chat).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Arjun Mehta/ })).toBeVisible();
+    await fixture(page, "fixture.incoming('maya')");
+    await expect(chat).toBeVisible();
+    await row.click();
+    await expect(transcript(page).locator("[data-chat-message]")).toHaveCount(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+}
+
+for (const width of [320, 1440]) {
+  test(`name and photos open the profile and Back restores the conversation at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mount(page);
+    const name = "View Maya Rao's profile";
+    const identity = page.locator("main > header").getByRole("link", { name, exact: true });
+    const messageLink = transcript(page).getByRole("link", { name }).last();
+    await expect(identity).toContainText("Maya Rao");
+    await identity.focus();
+    await expect(identity).toBeFocused();
+    await expect(identity).toHaveCSS("outline-style", "solid");
+    expect(Math.abs((await identity.locator(":scope > span").first().boundingBox())!.x - (await identity.boundingBox())!.x)).toBeLessThanOrEqual(1);
+    for (const link of [identity, messageLink]) {
+      await expect(link).toHaveAttribute("href", "/people/person-maya?from=%2Fone%2Fmessages");
+      const box = (await link.boundingBox())!;
+      expect(box.width).toBeGreaterThanOrEqual(44);
+      expect(box.height).toBeGreaterThanOrEqual(44);
+    }
+    // Avatar gestures never activate the message's long-press menu.
+    await messageLink.dispatchEvent("pointerdown", { pointerType: "touch", isPrimary: true, pointerId: 1, button: 0 });
+    await page.waitForTimeout(650);
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await messageLink.dispatchEvent("pointerup", { pointerType: "touch", button: 0 });
+    await page.route("http://localhost/people/**", route => route.fulfill({ contentType: "text/html", body: "<main>Profile route reached</main>" }));
+    for (const target of [identity.getByRole("heading", { name: "Maya Rao", exact: true }), identity.locator("img"), messageLink]) {
+      await target.click();
+      await expect(page).toHaveURL("http://localhost/people/person-maya?from=%2Fone%2Fmessages");
+      await expect(page.getByText("Profile route reached")).toBeVisible();
+      await page.goBack();
+      await expect(page).toHaveURL("http://localhost/one/messages");
+      if (await page.locator("[data-direct-message-page]").count() === 0) await page.addScriptTag({ content: script });
+      await expect(page.getByRole("textbox", { name: "Message Maya Rao", exact: true })).toBeVisible();
+    }
+  });
+}
+
 test("returning to Messages restores the last People thread until Back closes it", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await mount(page);
@@ -842,11 +948,11 @@ test("incoming messages covered by a modal or moving composer keep their unread 
   await expect.poll(() => page.evaluate(() => (window as any).directChatFixture.reads.length)).toBeGreaterThan(before);
   const afterModal = await page.evaluate(() => (window as any).directChatFixture.reads.length);
   // A moving native dock can occlude an otherwise intersecting bottom marker.
-  await page.locator('[data-agent-bar-shell]').evaluate((node) => { (node as HTMLElement).style.transform = 'translateY(-120px)'; });
+  await page.locator('[data-bottom-shell-agent-slot] > [data-agent-bar-shell]').evaluate((node) => { (node as HTMLElement).style.transform = 'translateY(-120px)'; });
   await fixture(page, "fixture.incoming()");
   await expect(page.locator('[data-chat-message]').filter({ hasText: "New message 82" })).toHaveCount(1);
   expect(await page.evaluate(() => (window as any).directChatFixture.reads.length)).toBe(afterModal);
-  await page.locator('[data-agent-bar-shell]').evaluate((node) => { (node as HTMLElement).style.removeProperty('transform'); });
+  await page.locator('[data-bottom-shell-agent-slot] > [data-agent-bar-shell]').evaluate((node) => { (node as HTMLElement).style.removeProperty('transform'); });
   // Touch focus restoration can preserve an earlier transcript position.
   // A read requires returning to the actual latest message in that case.
   const latest = page.getByRole('button', { name: 'Go to latest messages' });
@@ -886,8 +992,8 @@ for (const width of [320, 393, 1440]) {
     test(`message menu is action-only and full reactions fit at ${width}px ${dark ? "dark" : "light"}`, async ({ page }) => {
       await page.setViewportSize({ width, height: width === 320 ? 568 : 900 });
       const errors = await mount(page, dark);
-      await fixture(page, "fixture.remoteChange('maya-79', 'Choose any reaction')");
-      const message = page.locator('[data-chat-message="maya-79"]');
+      await fixture(page, "fixture.remoteChange('maya-78', 'Choose any reaction')");
+      const message = page.locator('[data-chat-message="maya-78"]');
       await expect(message).toContainText("Choose any reaction");
       await holdMessage(page, message);
       const menu = page.getByRole("menu");
@@ -898,11 +1004,19 @@ for (const width of [320, 393, 1440]) {
       await page.keyboard.press("Escape");
       const draft = page.locator("[data-direct-message-composer-input]");
       await draft.fill("Keep this draft");
+      const avatarOffset = async () => {
+        const avatar = (await message.getByRole("link", { name: "View Maya Rao's profile" }).boundingBox())!;
+        const bubble = (await message.locator("[data-chat-bubble]").boundingBox())!;
+        return avatar.y + avatar.height - bubble.y - bubble.height;
+      };
+      const originalAvatarOffset = await avatarOffset();
       const useMenu = await page.evaluate(() => matchMedia("(max-width: 767px), (hover: none)").matches);
       for (const emoji of ["🐱", "👩🏽‍💻", "🇮🇳"]) {
         if (useMenu) {
           await holdMessage(page, message);
-          await page.getByRole("menuitem", { name: "React", exact: true }).click();
+          await expect(page.getByRole("menuitem", { name: "React", exact: true })).toHaveCount(0);
+          await page.keyboard.press("Escape");
+          await message.getByRole("button", { name: "React to message", exact: true }).click();
         } else {
           await message.hover();
           await message.getByRole("button", { name: "React to message", exact: true }).click();
@@ -917,17 +1031,22 @@ for (const width of [320, 393, 1440]) {
         expect(box.y + box.height).toBeLessThanOrEqual(width === 320 ? 568 : 900);
         await picker.getByPlaceholder("Search emoji").fill(emoji);
         if (emoji === "🐱") {
-          await fixture(page, "fixture.remoteChange('maya-79', 'Choose any reaction')");
+          await fixture(page, "fixture.remoteChange('maya-78', 'Choose any reaction')");
           await expect(picker).toBeVisible();
         }
         await picker.getByRole("button", { name: `Use ${emoji}`, exact: true }).click();
         await expect(picker).toHaveCount(0);
         await expect(message.getByRole("button", { name: `${emoji} reaction, 1`, exact: true })).toBeVisible();
         await expect(draft).toHaveValue("Keep this draft");
+        expect(Math.abs(await avatarOffset() - originalAvatarOffset)).toBeLessThan(1);
+        await message.getByRole("button", { name: `${emoji} reaction, 1`, exact: true }).click();
+        await expect(message.getByRole("button", { name: `${emoji} reaction, 1`, exact: true })).toHaveCount(0);
+        expect(Math.abs(await avatarOffset() - originalAvatarOffset)).toBeLessThan(1);
       }
       expect(await page.evaluate(() => (window as any).directChatFixture.sends.length)).toBe(0);
       await holdMessage(page, message);
-      await page.getByRole("menuitem", { name: "React", exact: true }).click();
+      await page.keyboard.press("Escape");
+      await message.getByRole("button", { name: "React to message", exact: true }).click();
       await expect(page.getByRole("dialog", { name: "Emoji picker", exact: true })).toBeVisible();
       await page.screenshot({ path: test.info().outputPath(`full-reactions-${width}-${dark ? "dark" : "light"}.png`), animations: "disabled" });
       await fixture(page, "fixture.changeOwner()");
@@ -967,7 +1086,8 @@ test("preserves replies, edits and delete actions with a short phone keyboard", 
   await holdMessage(page, edited);
   await fixture(page, "fixture.holdReaction()");
   await expect(page.getByRole("group", { name: "Quick reactions" })).toHaveCount(0);
-  await page.getByRole("menuitem", { name: "React", exact: true }).click();
+  await page.keyboard.press("Escape");
+  await edited.getByRole("button", { name: "React to message", exact: true }).click();
   await page.getByPlaceholder("Search emoji").fill("heart");
   await page.getByRole("button", { name: "Use ❤️", exact: true }).click();
   await expect(edited.getByRole("button", { name: "❤️ reaction, 1", exact: true })).toBeVisible();
@@ -978,6 +1098,25 @@ test("preserves replies, edits and delete actions with a short phone keyboard", 
   await page.getByRole("button", { name: "Yes, delete", exact: true }).click();
   const deleted = page.getByText("This message was deleted.", { exact: true });
   await expect(deleted).toHaveCount(1);
+  const deletedBubble = deleted.locator("xpath=..");
+  const deletedMeta = deletedBubble.locator('[class*="messageBubbleMeta"]');
+  const deletedGeometry = await deletedBubble.evaluate(element => {
+    const text = element.querySelector(":scope > p")!;
+    const meta = element.querySelector('[class*="messageBubbleMeta"]')!;
+    const time = element.querySelector("time")!;
+    return {
+      textTop: text.getBoundingClientRect().top,
+      textBottom: text.getBoundingClientRect().bottom,
+      timeTop: time.getBoundingClientRect().top,
+      timeBottom: time.getBoundingClientRect().bottom,
+      rightInset: element.getBoundingClientRect().right - meta.getBoundingClientRect().right,
+      expectedInset: parseFloat(getComputedStyle(element).paddingRight) + parseFloat(getComputedStyle(meta).marginRight),
+    };
+  });
+  expect(deletedGeometry.timeTop, JSON.stringify(deletedGeometry)).toBeLessThan(deletedGeometry.textBottom);
+  expect(deletedGeometry.timeBottom, JSON.stringify(deletedGeometry)).toBeGreaterThanOrEqual(deletedGeometry.textBottom);
+  expect(Math.abs(deletedGeometry.rightInset - deletedGeometry.expectedInset), JSON.stringify(deletedGeometry)).toBeLessThanOrEqual(1);
+  await expect(deletedMeta).toHaveCSS("justify-content", "flex-end");
   // Muted ink on the darker pressed fill fell below the text contrast floor.
   await deleted.hover();
   await page.mouse.down();
@@ -1014,9 +1153,73 @@ test("refresh reconciles remote edits and deletions throughout loaded history", 
 });
 
 
+for (const width of [390, 1440]) test(`visited conversations stay readable during revalidation at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 900 });
+  const errors = await mount(page);
+  await page.getByRole("button", { name: "Back to messages" }).click();
+  await page.getByRole("button", { name: /Arjun Mehta/ }).click();
+  await expect(page.getByRole("textbox", { name: /Message Arjun Mehta/ })).toBeEnabled();
+  await page.getByRole("button", { name: "Back to messages" }).click();
+  await fixture(page, "fixture.holdHistory()");
+  await page.getByRole("button", { name: /Maya Rao/ }).click();
+  await expect(page.locator('[data-chat-message="maya-79"]')).toBeVisible();
+  await expect(page.getByText("Loading messages…", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Connecting…", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "Message Maya Rao" })).toBeDisabled();
+  await page.screenshot({ path: test.info().outputPath(`messages-warm-${width}.png`), animations: "disabled" });
+  await fixture(page, "fixture.releaseHistory()");
+  await expect(page.getByRole("textbox", { name: "Message Maya Rao" })).toBeEnabled();
+  expect(errors).toEqual([]);
+});
+
 test("cold route resolution completes an already pending inbox request", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 }); await mount(page, false, true);
   await expect(page.getByRole("button", { name: /Arjun Mehta/ })).toHaveCount(0);
   await fixture(page, "fixture.releaseInbox()");
   await expect(page.getByRole("button", { name: /Arjun Mehta/ })).toBeVisible();
 });
+
+for (const width of [320, 393, 1440]) {
+  test(`selected and sent photos stay image-only at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const errors = await mount(page);
+    const photo = fs.readFileSync(path.join(process.cwd(), "public/one-location/onboarding/orbit-office.webp"));
+    await page.locator('input[accept="image/jpeg,image/png,image/webp"]').setInputFiles({ name: "private-photo.webp", mimeType: "image/webp", buffer: photo });
+    const preview = page.getByRole("img", { name: "Photo ready to send", exact: true });
+    await expect(preview).toBeVisible();
+    await expect(page.getByText("private-photo.webp", { exact: true })).toHaveCount(0);
+    const box = (await preview.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(width);
+    const inputBox = (await page.locator("[data-direct-message-composer-input]").boundingBox())!;
+    const sendBox = (await page.getByRole("button", { name: "Send message", exact: true }).boundingBox())!;
+    expect(inputBox.width).toBeGreaterThanOrEqual(80);
+    // A long recipient placeholder may use two lines on a narrow phone.
+    expect(inputBox.height).toBeLessThanOrEqual(80);
+    expect(inputBox.y).toBeGreaterThanOrEqual(box.y + box.height);
+    expect(Math.abs(inputBox.y + inputBox.height / 2 - sendBox.y - sendBox.height / 2)).toBeLessThan(2);
+    await page.screenshot({ path: test.info().outputPath(`selected-photo-${width}.png`), animations: "disabled" });
+    await page.getByRole("button", { name: "Send message", exact: true }).click();
+    await expect(preview).toHaveCount(0);
+    const sent = page.locator('[data-message-role="user"]').filter({ has: page.getByRole("button", { name: "Open photo", exact: true }) });
+    await expect(sent.getByRole("img", { name: "Photo", exact: true })).toBeVisible();
+    await expect(sent).not.toContainText("private-photo.webp");
+    await expect(sent).not.toContainText("MB");
+    await sent.hover();
+    const bubble = sent.locator("[data-chat-bubble]");
+    await expect(bubble).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(bubble).toHaveCSS("padding", "0px");
+    await expect(bubble).toHaveCSS("border-top-width", "0px");
+    const bubbleBox = (await bubble.boundingBox())!;
+    const imageBox = (await sent.getByRole("img", { name: "Photo", exact: true }).boundingBox())!;
+    expect(Math.abs(imageBox.x - bubbleBox.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(imageBox.y - bubbleBox.y)).toBeLessThanOrEqual(1);
+    expect(Math.abs(imageBox.width - bubbleBox.width)).toBeLessThanOrEqual(1);
+    await page.screenshot({ path: test.info().outputPath(`sent-photo-${width}.png`), animations: "disabled" });
+    await sent.getByRole("button", { name: "Open photo", exact: true }).click();
+    await expect(page.getByRole("img", { name: "Shared photo", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("img", { name: "Shared photo", exact: true })).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+}

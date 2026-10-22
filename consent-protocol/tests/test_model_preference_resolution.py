@@ -29,6 +29,7 @@ def test_catalog_comes_from_the_registry_not_the_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("HUSSH_GEMINI_TEXT_MODEL", raising=False)
+    monkeypatch.setattr(constants, "GEMINI_MODEL", "gemini-3.8-flash")
     choices = model_catalog.selectable_text_models()
     assert [choice.model_id for choice in choices] == [
         "gemini-3.8-flash",
@@ -169,9 +170,16 @@ def _approved_row():
 
 
 @pytest.mark.asyncio
-async def test_uat_drive_default_has_policy_authority_not_fake_owner_acceptance(monkeypatch):
+@pytest.mark.parametrize(
+    "provider,expected", [("azure_openai", "azure_openai"), ("vertex", "gemini")]
+)
+async def test_uat_drive_default_has_policy_authority_not_fake_owner_acceptance(
+    monkeypatch, provider, expected
+):
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.delenv("HUSHH_UAT_MANAGED_AI_PROVIDER", raising=False)
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", provider)
     monkeypatch.setenv("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER", "azure_openai")
 
     async def missing(_owner):
@@ -179,11 +187,19 @@ async def test_uat_drive_default_has_policy_authority_not_fake_owner_acceptance(
 
     monkeypatch.setattr(approval, "_read", missing)
     for owner in ("existing-account", "new-account"):
-        status = await approval.get_private_text_approval(user_id=owner, include_policy=True)
+        status = await approval.get_private_text_approval(
+            user_id=owner, include_policy=True, include_processing_provider=True
+        )
         assert status["enabled"] is False
         assert status["accepted_at"] is None and status["generation"] is None
         assert status["processing_policy"]["enabled"] is True
         assert status["processing_policy"]["basis"] == "uat_policy"
+        assert status["processing_policy"]["provider"] == expected
+        assert status["provider"] == "azure_openai"  # Historical pilot contract stays unchanged.
+        legacy = await approval.get_private_text_approval(user_id=owner, include_policy=True)
+        assert legacy["processing_policy"] == {
+            key: value for key, value in status["processing_policy"].items() if key != "provider"
+        }
         grant = await approval.require_private_azure_text_approval(
             owner, scope=approval.DRIVE_DOCUMENT_REQUESTS_SCOPE
         )
@@ -395,6 +411,29 @@ def test_private_approval_route_uses_authenticated_owner_and_rejects_body_owner(
         assert client.put(path, json=invalid).status_code == 422
     assert len(calls) == 1
 
+    async def read(**kwargs):
+        calls.append(kwargs)
+        return {"enabled": False}
+
+    monkeypatch.setattr(approval, "get_private_text_approval", read)
+    app.dependency_overrides[require_firebase_auth_read_only] = lambda: "authenticated-owner"
+    assert client.get(path + "?include_policy=true").status_code == 200
+    assert calls[-1] == {"user_id": "authenticated-owner", "include_policy": True}
+    projection = "?include_policy=true&include_processing_provider=true"
+    assert client.get(path + projection).status_code == 200
+    assert calls[-1] == {
+        "user_id": "authenticated-owner",
+        "include_policy": True,
+        "include_processing_provider": True,
+    }
+    assert (
+        client.put(
+            path + projection, json={"enabled": False, "expected_generation": None}
+        ).status_code
+        == 200
+    )
+    assert calls[-1] == {**calls[0], "include_policy": True, "include_processing_provider": True}
+
     async def stale_write(**_kwargs):
         raise approval.PrivateTextApprovalError(
             "Read the changed approval.",
@@ -546,11 +585,15 @@ async def test_private_approval_postgres_replay_revoke_and_generation_fence(monk
 
 
 @pytest.mark.asyncio
-async def test_uat_effective_model_is_managed_for_saved_and_missing_choices(monkeypatch):
+@pytest.mark.parametrize("provider,label", [("azure_openai", "Azure"), ("vertex", "Vertex")])
+async def test_uat_effective_model_is_managed_for_saved_and_missing_choices(
+    monkeypatch, provider, label
+):
     from hushh_mcp.runtime_providers.managed_text import managed_text_binding
 
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", provider)
     for selected in (None, "gemini-3.7-flash"):
 
         async def stored(_owner, choice=selected):
@@ -562,6 +605,7 @@ async def test_uat_effective_model_is_managed_for_saved_and_missing_choices(monk
         assert payload["source"] == "administrator_policy"
         assert payload["selected_model"] == selected
         assert len(payload["choices"]) == 1
+        assert payload["choices"][0]["label"] == f"{label} · managed in UAT"
         with pytest.raises(prefs.ModelPreferenceError) as denied:
             await prefs.set_preference(user_id="arbitrary-owner", model_id=selected)
         assert denied.value.code == "MODEL_MANAGED_BY_POLICY"

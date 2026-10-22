@@ -501,29 +501,6 @@ def test_presence_errors_keep_stable_code_and_message(client, monkeypatch):
     assert response.json()["detail"]["code"] == ("NEARBY_PRESENCE_PHONE_VERIFICATION_REQUIRED")
 
 
-def test_nearby_place_picker_is_bounded_and_authenticated(client, monkeypatch):
-    async def nearby_places(self, *, lat, lng, category):
-        assert (lat, lng) == (12.9716, 77.5946)
-        assert category == "health"
-        return [
-            {
-                "placeId": "place-a",
-                "text": "Spot A",
-                "distanceMeters": 42,
-            }
-        ]
-
-    monkeypatch.setattr(gms.GoogleMapsService, "nearby_places", nearby_places)
-    response = client.post(
-        "/api/one/location/maps/nearby-places",
-        json={"lat": 12.9716, "lng": 77.5946, "category": "health"},
-    )
-
-    assert response.status_code == 200
-    assert response.headers["cache-control"] == "private, no-store"
-    assert response.json()["suggestions"][0]["placeId"] == "place-a"
-
-
 def test_nearby_place_picker_rejects_unknown_category(client):
     response = client.post(
         "/api/one/location/maps/nearby-places",

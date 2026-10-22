@@ -2,6 +2,12 @@ import { Capacitor } from "@capacitor/core";
 
 import { HushhLocation } from "@/lib/capacitor";
 import {
+  normalizeNearbyPlaceResponse,
+  type NearbyPlacesResponse,
+  type OneLocationNearbyPlacesRequest,
+  type OneLocationNearbyPlacesResult,
+} from "./nearby-places";
+import {
   LocationBus,
   type LocationSnapshot,
 } from "@/lib/one-location/location-bus";
@@ -10,6 +16,7 @@ import { resolveRuntimeFrontendUrl } from "@/lib/runtime/settings";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { ApiError, apiErrorCode, apiJson } from "@/lib/services/api-client";
 import { oneChatKeyHeaders } from "@/lib/vault/one-chat-key";
+import { ownerContentIsPrivate, privateAgentSpecialistTurn } from "@/lib/services/private-agent-specialist-chat";
 import { trackNearbyCheckOutCompleted } from "@/lib/observability/location-events";
 import type { CircleManagementBinding, CircleManagementReceipt } from "./command-circle-management";
 import type {
@@ -38,7 +45,6 @@ import type {
   OneLocationEncryptedPrivateKey,
   OneLocationNearbyAttendee,
   OneLocationNearbyCheckInPreference,
-  OneLocationNearbyPlaceCategory,
   OneLocationNearbyPlaceSuggestion,
   OneLocationNearbyPresenceState,
   OneLocationPlaceRating,
@@ -692,11 +698,25 @@ export class OneLocationService {
   static async listCircles(
     vaultOwnerToken: string,
   ): Promise<OneLocationCircleSummary[]> {
-    const response = await apiJson<{ circles: OneLocationCircleSummary[] }>(
+    return (await this.listCircleWorkspace(vaultOwnerToken)).circles;
+  }
+
+  static async listCircleWorkspace(vaultOwnerToken: string): Promise<{
+    circles: OneLocationCircleSummary[];
+    customTypePolicy?: { version: number; maxTypes: number };
+  }> {
+    const response = await apiJson<{ circles: OneLocationCircleSummary[]; customTypePolicy?: { version: number; maxTypes: number } }>(
       "/api/one/location/circles",
       { headers: authHeaders(vaultOwnerToken) },
     );
-    return response.circles ?? [];
+    return { ...response, circles: response.circles ?? [] };
+  }
+
+  static async deleteCircleType(params: { vaultOwnerToken: string; customTypeLabel: string }): Promise<{ updatedCircleCount: number }> {
+    return apiJson("/api/one/location/circle-types", {
+      method: "DELETE", headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({ customTypeLabel: params.customTypeLabel }),
+    });
   }
 
   static async getCircle(params: {
@@ -786,13 +806,14 @@ export class OneLocationService {
     vaultOwnerToken: string;
     name: string;
     kind: OneLocationCircleKind;
+    customTypeLabel?: string;
   }): Promise<OneLocationCircleDetail> {
     const response = await apiJson<{ circle: OneLocationCircleDetailApiResponse }>(
       "/api/one/location/circles",
       {
         method: "POST",
         headers: jsonAuthHeaders(params.vaultOwnerToken),
-        body: JSON.stringify({ name: params.name, kind: params.kind }),
+        body: JSON.stringify({ name: params.name, kind: params.kind, ...(params.customTypeLabel ? { customTypeLabel: params.customTypeLabel } : {}) }),
       },
     );
     return normalizeCircleDetail(response.circle);
@@ -858,6 +879,7 @@ export class OneLocationService {
     circleId: string;
     name?: string;
     kind?: OneLocationCircleKind;
+    customTypeLabel?: string;
   }): Promise<OneLocationCircleDetail> {
     const response = await apiJson<{ circle: OneLocationCircleDetailApiResponse }>(
       `/api/one/location/circles/${encodeURIComponent(params.circleId)}`,
@@ -867,6 +889,7 @@ export class OneLocationService {
         body: JSON.stringify({
           ...(params.name ? { name: params.name } : {}),
           ...(params.kind ? { kind: params.kind } : {}),
+          ...(params.customTypeLabel ? { customTypeLabel: params.customTypeLabel } : {}),
         }),
       },
     );
@@ -1305,12 +1328,11 @@ export class OneLocationService {
     actionResult?: ActionResult;
     selectionResult?: SelectionResult;
   }): Promise<LocationChatResponse> {
+    // A private agent answers its own owner; the question never reaches the hub.
+    if (await ownerContentIsPrivate()) return privateAgentSpecialistTurn({ focus: "location", ...params });
     return apiJson<LocationChatResponse>("/api/one/location/chat", {
       method: "POST",
-      headers: {
-        ...jsonAuthHeaders(params.vaultOwnerToken),
-        ...(await oneChatKeyHeaders(params.vaultKey)),
-      },
+      headers: { ...jsonAuthHeaders(params.vaultOwnerToken), ...(await oneChatKeyHeaders(params.vaultKey)) },
       body: JSON.stringify({
         message: params.message ?? null,
         conversationId: params.conversationId ?? null,
@@ -1856,15 +1878,8 @@ export class OneLocationService {
     return response.suggestions ?? [];
   }
 
-  static async nearbyPlaces(params: {
-    vaultOwnerToken: string;
-    lat: number;
-    lng: number;
-    category?: OneLocationNearbyPlaceCategory;
-  }): Promise<OneLocationNearbyPlaceSuggestion[]> {
-    const response = await apiJson<{
-      suggestions: OneLocationNearbyPlaceSuggestion[];
-    }>("/api/one/location/maps/nearby-places", {
+  static async nearbyPlaces(params: OneLocationNearbyPlacesRequest): Promise<OneLocationNearbyPlacesResult> {
+    const response = await apiJson<NearbyPlacesResponse>("/api/one/location/maps/nearby-places", {
       method: "POST",
       headers: jsonAuthHeaders(params.vaultOwnerToken),
       body: JSON.stringify({
@@ -1873,7 +1888,7 @@ export class OneLocationService {
         category: params.category ?? "all",
       }),
     });
-    return response.suggestions ?? [];
+    return normalizeNearbyPlaceResponse(response);
   }
 
   static async getNearbyPresence(params: {

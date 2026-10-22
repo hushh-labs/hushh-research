@@ -1,4 +1,4 @@
-name: Capacity Maintenance Clock
+name: "Schedule Capacity Maintenance"
 
 # Makes Capacity Maintenance's hourly policy real without adding a run there
 # every hour. GitHub delivered only 3-6 of the 24 daily runs of its hourly

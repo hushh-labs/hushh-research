@@ -40,6 +40,9 @@ from tests.services.test_drive_sharing_store import (
     sharing,
 )
 
+# Callers are explicitly Shared; real content and Trusted guards stay active.
+pytestmark = pytest.mark.usefixtures("shared_hub_owner")
+
 
 async def _request(sharing, *, owner_initiated=False):
     today = datetime.now(UTC).date()
@@ -150,8 +153,7 @@ def _auto_job(bulk, *, request_id):
 
 async def _frozen_auto_batch(sharing, bulk, *, payment_status=None):
     request_id = (await _request(sharing))["requestId"]
-    # Real search startup moves a trusted request from queued to active;
-    # the synthetic search rows below must preserve that scheduler gate.
+    # Preserve the real per-owner search scheduler gate in the synthetic fixture.
     context = await sharing.request_bulk_context(user_id="owner", request_id=request_id, start=True)
     assert context["searchStarted"] is True
     job_id = _auto_job(bulk, request_id=request_id)
@@ -171,8 +173,7 @@ async def _frozen_auto_batch(sharing, bulk, *, payment_status=None):
         excluded=[],
         selected_positions=[1],
     )
-    # The frozen review survives search completion. Release the per-owner
-    # active-search slot before constructing another independent request.
+    # Frozen reviews survive search; release the slot for independent requests.
     with sharing.db.engine.begin() as connection:
         connection.execute(
             text("""UPDATE drive_owner_search_jobs SET status='completed',
@@ -236,7 +237,9 @@ async def test_paid_trusted_batch_bypasses_older_unpaid_reviews(request_bulk, sh
 
 
 @pytest.mark.asyncio
-async def test_unpaid_and_expired_auto_batches_wait_without_order_starvation(request_bulk, sharing):
+async def test_unpaid_and_expired_auto_batches_recover_without_order_starvation(
+    request_bulk, sharing, monkeypatch
+):
     _membership(sharing, "active")
     awaiting, _ = await _frozen_auto_batch(sharing, request_bulk, payment_status="awaiting_payment")
     expired, _ = await _frozen_auto_batch(sharing, request_bulk, payment_status="expired")
@@ -244,13 +247,21 @@ async def test_unpaid_and_expired_auto_batches_wait_without_order_starvation(req
 
     due = await sharing.due_trusted_batches(limit=3)
 
-    assert [item["request_id"] for item in due] == [without_order]
-    assert {awaiting, expired}.isdisjoint(item["request_id"] for item in due)
+    # Finished unpaid requests must now be eligible for fresh existing-access
+    # recovery, while paid requests still get the scheduler's first priority.
+    assert {item["request_id"] for item in due} == {without_order, awaiting, expired}
+    from hushh_mcp.services.drive_package_access_preflight import DrivePackageAccessPreflight
+
+    monkeypatch.setattr(
+        DrivePackageAccessPreflight,
+        "inspect",
+        AsyncMock(return_value=SimpleNamespace(status="none")),
+    )
     assert (
         await DriveTrustedAutoService(
             sharing=sharing, bulk=request_bulk, wake=AsyncMock()
-        ).continue_batches(max_jobs=1)
-        == 1
+        ).continue_batches(max_jobs=3)
+        == 3
     )
     with sharing.db.engine.connect() as connection:
         assert (
@@ -620,8 +631,7 @@ async def test_removed_trust_stops_search_and_grant_authority(request_bulk, shar
 async def test_auto_rechecks_need_the_owner_allow_or_current_trust(
     request_bulk, sharing, authority, revocation
 ):
-    # The fixture's Trusted circle holds only another member, so an allowed
-    # request passes each automatic recheck without Trusted membership.
+    # A connected Allowed peer can pass rechecks without Trusted membership.
     if authority == "trusted":
         _membership(sharing, "active")
     created = await _request(sharing)

@@ -43,7 +43,7 @@ _PRODUCTION_SCHEDULER_PROJECT_ID = "hushh-pda"
 _PRODUCTION_SCHEDULER_SERVICE_ACCOUNT = "drive-work-drain-sched@hushh-pda.iam.gserviceaccount.com"
 _PRODUCTION_SCHEDULER_AUDIENCES = frozenset({"https://api.hushh.ai"})
 _DRAIN_DEADLINE_SECONDS = 205
-_DRAIN_STAGES = frozenset({"documents", "suggestions", "sharing"})
+_DRAIN_STAGES = frozenset({"documents", "suggestions", "sharing", "groups"})
 _V1_DRAIN_STAGE = "v1"
 _MAX_DRAIN_BODY_BYTES = 64
 
@@ -198,7 +198,7 @@ async def drain_drive_work(
         # to documents, so rollback to its exact prior target remains safe.
         stage = "documents" if payload == {} else payload["stage"]
         allowed_stages = (
-            frozenset({_V1_DRAIN_STAGE})
+            frozenset({_V1_DRAIN_STAGE, "groups"})
             if str(os.getenv("DRIVE_WORKER_V1_ONLY") or "").strip().lower() == "true"
             else _DRAIN_STAGES
         )

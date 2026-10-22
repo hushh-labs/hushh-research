@@ -1,7 +1,7 @@
 # Release iOS to the App Store (public, one command)
 
 Release authority, exact-SHA proof, branch restoration, and terminal monitoring follow the
-[canonical Admin release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md).
+[canonical Admin release SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md).
 This guide adds App Store-specific build, submission, and verification detail only.
 
 ## Visual Context
@@ -11,14 +11,43 @@ Canonical visual owner: [Mobile Guide](../mobile.md).
 ## What this is
 
 One command prepares a Hussh One iOS release from an exact green `main` SHA,
-wires it to the selected **UAT (default) or production backend** and the shared Firebase authority
-(`hushh-pda`; shared config is stored in `hushh-pda-uat` Secret Manager), signs it with the
+wires it to the selected **UAT (default) or production backend** and that target's Firebase
+configuration, signs it with the
 **production APNs entitlement** via Apple-managed signing, uploads it to **App Store Connect**, sets the version's
 **"What's New"** text, attaches the build, and (opt-in, one click) **submits it for public Apple
 review**. By default it stops *before* the final, irreversible "Submit for App Store Review".
 Submission is not publication. Manual release remains the default; an explicitly authorized
 `--submit --ack-blockers --release-after-approval` also selects Apple's `AFTER_APPROVAL`
 release type. Report Apple review and public availability as separate states.
+
+The authorized [automatic release cadence](../../reference/operations/ci.md#automatic-native-release-cadence)
+uses the same pipeline after every fourth distinct healthy UAT deployment
+(TestFlight qualifies every second). It pins
+one green `main` commit, overlaps the production deployment with archive work,
+joins the exact healthy production run before upload, submits for Apple review
+and selects publication after approval. While an existing version awaits review,
+Ubuntu admission defers the latest candidate without allocating a Mac; the hourly
+observer revisits it. Privacy/export attestations and configured production App
+Review sign-in information remain required. New automatic releases yield to
+queued/running UAT and only one release bundle runs at a time; production
+deploy/archive remain a parallel pair. Pending releases stay outside runners and
+retry when UAT finishes, even after a failed UAT run. Existing releases are never
+cancelled. This reduces shared-pool contention but cannot reserve GitHub-hosted
+runner slots. Manual invocation defaults are unchanged.
+
+Automatic packaging accepts Apple's historical numeric versions such as `1.0`
+for ordering. Source and selected packaging versions remain strict `x.y.z`.
+The complete iOS prerelease-version inventory supplies a minimum packaging
+version too, so automatic releases do not fall behind a manual TestFlight upload.
+Ambiguous latest records, or reuse that would equate a legacy editable version
+with a different canonical version string, stop in Ubuntu preflight for inspection.
+
+GitHub-native monitoring runs inside the existing cadence observer and reports to
+the bot-owned `UAT release monitor` issue. It works while developer computers are
+off and adds no UAT dependency or separate monitoring job. The existing certified
+counter survives the 4/8 to 2/4 transition; already issued requests keep their
+original source and authority. See the CI reference for transition and alert
+semantics.
 
 > **Why is UAT the default?** It preserves the historical UAT-backed release path. For a
 > production-backed release, explicitly select `backend_target=production`, verify that backend's
@@ -31,15 +60,17 @@ The workflow input `backend_target` (dispatcher flag `--backend`) chooses the ba
 talks to. `uat` is the historical default. `production` builds a binary
 for `https://one.hushh.ai` and the production API:
 
-- The production workload identity (`environment: production`, from `main`) reads only the
-  routing values from `hushh-pda`: `BACKEND_URL`, `APP_FRONTEND_ORIGIN`,
-  `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID` (the production
-  analytics stream). It also reads `NEXT_PUBLIC_FIREBASE_PROJECT_ID` and
-  `NEXT_PUBLIC_FIREBASE_APP_ID`, only to compare them.
-- Everything else (ASC key, distribution certificate, `GoogleService-Info.plist`, Firebase web
-  identity, Maps keys) still comes from `hushh-pda-uat`, as before. That is valid because both
-  projects point at the one shared Firebase app, and the run **refuses** if the two projects'
-  Firebase project id or app id differ.
+- The production workload identity (`environment: production`, from `main`) reads
+  routing, every required web Firebase identity field, Maps configuration and
+  `IOS_GOOGLESERVICE_INFO_PLIST_B64` from `hushh-pda`. Production Auth remains
+  `hushh-pda` to preserve existing accounts and UIDs.
+- Apple signing and App Store Connect inputs retain their existing custody in
+  `hushh-pda-uat`. Production web/native Firebase configuration is never read from
+  UAT. The selected native plist must match that target's project, sender and
+  bundle; web/native app IDs may differ. PROD and UAT projects need not match.
+- Public submission (`submit_for_review=true`) or automatic public release
+  (`release_after_approval=true`) requires `backend_target=production`. UAT remains the
+  historical build default so a dispatcher cannot silently redirect customer data.
 - The run refuses if the production `BACKEND_URL` resolves to a UAT or loopback host, and the
   project is prepared with `ios:prepare:prod`. That ends in `verify-ios-bundled-backend.sh`, which
   requires every native plugin's `backendUrl` to equal the production backend.
@@ -201,15 +232,15 @@ export/upload, or version/build validation):
 4. **Toolchain.** Xcode 26.3; Node 22; `npm ci --prefix hushh-webapp` — this must precede any Swift
    Package step because `CapApp-SPM/Package.swift` resolves its dependencies from the hoisted
    `node_modules` three directory levels up.
-5. **Authenticate to Google Cloud.** `GCP_SA_KEY_UAT` reads shared signing/Firebase material from
-   `hushh-pda-uat`; `backend_target=production` first reads routing values from `hushh-pda` through
-   production workload identity. The workflow then asserts the shared secret project is
-   `hushh-pda-uat`.
-6. **Materialize the selected web contract + native Firebase config.** The UAT path uses UAT
-   routing and `APP_RUNTIME_PROFILE=uat`; the production path substitutes the production backend,
-   app origin, storage bucket, measurement stream, and `APP_RUNTIME_PROFILE=prod`. Both use the
-   shared native Firebase config and refuse a production/UAT Firebase identity mismatch. Each
-   archive preparation path verifies the bundled backend matches its selected target.
+5. **Authenticate to Google Cloud.** Production WIF first materializes production
+   routing, Firebase, Maps and native plist inputs. `GCP_SA_KEY_UAT` subsequently
+   supplies Apple signing inputs from `hushh-pda-uat`; UAT builds also read their
+   own frontend/native inputs there.
+6. **Materialize the selected web contract + native Firebase config.** Each
+   target uses its own settings and project/sender checks. The production path
+   pins the existing `hushh-pda` Auth authority. Archive preparation verifies the
+   bundled backend and runs config validation under the same native env overlay
+   used by Capacitor. No PROD/UAT identity equality is required.
 7. **Decode the App Store Connect API key** (`.p8` + Key ID + Issuer ID) from `hushh-pda-uat` Secret
    Manager into a `chmod 600` temp file; validates it is a real PEM; masks the identifiers.
 8. **Create + unlock a dedicated signing keychain** (Apple-managed cloud signing needs one).
@@ -255,8 +286,8 @@ export/upload, or version/build validation):
 
 > **You (the operator) add every secret yourself.** These instructions never ask anyone else to
 > paste a `.p8`, key, certificate, or token. All secrets live in **GCP Secret Manager, project
-> `hushh-pda-uat`** for signing and shared Firebase configuration. Production-backed builds
-> additionally read routing values from `hushh-pda` through production workload identity.
+> `hushh-pda-uat`** for Apple signing and UAT build inputs. Production-backed builds
+> read routing, web Firebase, native plist and Maps inputs from `hushh-pda` through production WIF.
 
 ### GCP Secret Manager (`hushh-pda-uat`)
 
@@ -268,7 +299,7 @@ export/upload, or version/build validation):
 | `IOS_GOOGLESERVICE_INFO_PLIST_B64` | Base64 of the **UAT** iOS `GoogleService-Info.plist`. |
 | `BACKEND_URL` | UAT backend origin (the `*uat*` / UAT Cloud Run host). |
 | `APP_FRONTEND_ORIGIN` | UAT app origin (`https://uat.one.hushh.ai`). |
-| `NEXT_PUBLIC_FIREBASE_API_KEY` … `NEXT_PUBLIC_FIREBASE_VAPID_KEY` | UAT-selected web config for the shared `hushh-pda` Firebase authority (see the workflow's `require` list). |
+| `NEXT_PUBLIC_FIREBASE_API_KEY` … `NEXT_PUBLIC_FIREBASE_VAPID_KEY` | UAT-selected web config for its configured Firebase authority (see the workflow's `require` list). |
 
 Create each once (use `versions add` instead of `create` if it already exists):
 

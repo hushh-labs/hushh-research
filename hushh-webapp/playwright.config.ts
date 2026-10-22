@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { parsePlaywrightShard } from "./scripts/testing/playwright-shard.cjs";
 
 const baseURL = process.env.BASE_URL || "http://localhost:3000";
 const basePort = new URL(baseURL).port || "3000";
@@ -20,19 +21,6 @@ function ciWorkers(): number {
     throw new Error(`PLAYWRIGHT_WORKERS must be a positive integer, got ${JSON.stringify(raw)}`);
   }
   return Number(raw);
-}
-
-/** Partition every existing browser command using Playwright's native shard. */
-function ciShard(): { current: number; total: number } | undefined {
-  const raw = process.env.PLAYWRIGHT_SHARD;
-  if (raw === undefined || raw === "") return undefined;
-  const match = /^([1-9][0-9]*)\/([1-9][0-9]*)$/.exec(raw);
-  const current = Number(match?.[1]);
-  const total = Number(match?.[2]);
-  if (!match || !Number.isSafeInteger(current) || !Number.isSafeInteger(total) || current > total) {
-    throw new Error(`PLAYWRIGHT_SHARD must be current/total with 1 <= current <= total, got ${JSON.stringify(raw)}`);
-  }
-  return { current, total };
 }
 
 /**
@@ -64,7 +52,7 @@ export default defineConfig({
   // applies to the macOS editor-performance lane, which uses this config.
   retries: process.env.CI ? 1 : 0,
   workers: process.env.CI ? ciWorkers() : undefined,
-  shard: ciShard(),
+  shard: parsePlaywrightShard(process.env.PLAYWRIGHT_SHARD),
   reporter: process.env.CI ? "github" : "html",
 
   use: {
@@ -143,9 +131,13 @@ export default defineConfig({
       // that matters is the WKWebView the app ships in. Its fixture builds its
       // own document.
       testMatch: [
+        // Puppy shares One composer geometry and touch machine controls.
+        /puppy-chat-controls\.layout\.spec\.ts/,
         /one-location-duration-dialog\.layout\.spec\.ts/,
         /agent-new-chat\.layout\.spec\.ts/,
         /todo-agent-feed\.spec\.ts/,
+        // Files menus hand focus to the move picker on touch and desktop.
+        /files-explorer\.layout\.spec\.ts/,
         /initial-contacts-welcome\.layout\.spec\.ts/,
         /circle-invite-picker\.layout\.spec\.ts/,
         /one-location-checkin-card\.layout\.spec\.ts/,
@@ -228,13 +220,14 @@ export default defineConfig({
         /receipt-pagination\.layout\.spec\.ts/,
         /receipt-storage\.layout\.spec\.ts/,
         /connections-drawer\.layout\.spec\.ts/,
-        /agent-history-motion\.layout\.spec\.ts/,
+        /history-motion\.layout\.spec\.ts/,
         /profile-legal-connectors\.layout\.spec\.ts/,
         // Native drawer admission samples this authored CSS before coverage;
         // prove its cascade in the same engine as the shipped WKWebView.
         /profile-pane-close\.layout\.spec\.ts/,
         /legal-pages\.spec\.ts/,
         /connect-living-circles\.layout\.spec\.ts/,
+        /check-in-task\.layout\.spec\.ts/,
         // boot-surface: the one cold-start surface continues the iOS splash
         // inside the WKWebView, so its centring, zero-shift chain and splash
         // ink parity are measured in the engine the app ships in; own document.

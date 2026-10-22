@@ -9,7 +9,7 @@ from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from sqlalchemy import text
@@ -33,17 +33,104 @@ from tests.services.test_drive_ingestion import (
     lifecycle,
 )
 
-MIGRATION = Path(__file__).resolve().parents[2] / "db" / "migrations" / "368_drive_group_index.sql"
+MIGRATION = Path(__file__).resolve().parents[2] / "db" / "migrations" / "409_drive_group_index.sql"
 VERSION = "0123456789ab"
 MOMENT = datetime(2026, 5, 2, 9, 30, tzinfo=UTC)
 
 
 @pytest.fixture
 async def groups(collection, monkeypatch):
+    from hushh_mcp.services import owner_placement_guard
+
+    monkeypatch.setattr(
+        owner_placement_guard, "get_owner_hosting_mode", AsyncMock(return_value="shared")
+    )
     monkeypatch.setenv(FLAG, "true")
     with collection.db.engine.begin() as connection:
         connection.exec_driver_sql(MIGRATION.read_text(), execution_options={"no_parameters": True})
     return DriveGroupIndexStore(db=collection.db, cipher=collection.cipher)
+
+
+async def test_production_job_uses_raw_prefix_and_never_files_metadata_without_a_head(monkeypatch):
+    from hushh_mcp.services import drive_group_index_job as module
+
+    monkeypatch.setenv(FLAG, "true")
+    store = SimpleNamespace(
+        known=AsyncMock(return_value={}),
+        require_current=AsyncMock(),
+        sealer=SimpleNamespace(ref=lambda user, file: file),
+    )
+    transport = SimpleNamespace()
+    factory = Mock(return_value=transport)
+    monkeypatch.setattr(module, "GoogleDriveRestTransport", factory)
+    row = {
+        "id": "synthetic-file",
+        "title": "Statement.pdf",
+        "mimeType": "application/pdf",
+        "version": "1",
+        "modifiedTime": MOMENT.isoformat(),
+        "createdTime": MOMENT.isoformat(),
+    }
+    job = module.DriveGroupIndexJob(
+        store=store,
+        bundle=replace(tiny_bundle(), version=VERSION),
+        embedder=SimpleNamespace(embed=AsyncMock()),
+    )
+    job._listing = AsyncMock(return_value=([row], True, False))
+    head = AsyncMock(return_value=None)
+    monkeypatch.setattr(module.TransportHeadSource, "head", head)
+    entries, progress = await job._prepare(
+        {"user_id": "owner", "time_zone": "UTC"}, asyncio.get_running_loop().time() + 180
+    )
+    factory.assert_called_once_with(raw_prefix=True)
+    assert entries[0].placement.shelf == "kept" and entries[0].head is None
+    assert entries[0].placement.version != VERSION
+    job.embedder.embed.assert_not_awaited()
+    assert progress["more"] is False and progress["keep"] == {"synthetic-file"}
+
+
+async def test_deadline_defers_slow_content_but_commits_completed_metadata(monkeypatch):
+    from hushh_mcp.services import drive_group_index_job as module
+
+    monkeypatch.setenv(FLAG, "true")
+    monkeypatch.setattr(module, "EMBED_COMMIT_RESERVE", 0)
+    store = SimpleNamespace(
+        known=AsyncMock(return_value={}),
+        require_current=AsyncMock(),
+        sealer=SimpleNamespace(ref=lambda user, file: file),
+    )
+    row = {
+        "id": "slow-file",
+        "title": "Statement.pdf",
+        "mimeType": "application/pdf",
+        "version": "1",
+        "modifiedTime": MOMENT.isoformat(),
+        "createdTime": MOMENT.isoformat(),
+    }
+    job = module.DriveGroupIndexJob(
+        store=store,
+        transport=SimpleNamespace(),
+        bundle=tiny_bundle(),
+        embedder=SimpleNamespace(embed=AsyncMock()),
+    )
+    job._listing = AsyncMock(
+        return_value=([row, {**row, "id": "metadata-file", "mimeType": "image/png"}], True, False)
+    )
+    stopped = asyncio.Event()
+
+    async def slow(self, row):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            stopped.set()
+
+    monkeypatch.setattr(module.TransportHeadSource, "head", slow)
+    entries, progress = await job._prepare(
+        {"user_id": "owner", "time_zone": "UTC"}, asyncio.get_running_loop().time() + 0.05
+    )
+    assert [entry.file_id for entry in entries] == ["metadata-file"]
+    assert progress["more"] is True and stopped.is_set()
+    job.embedder.embed.assert_not_awaited()
 
 
 def entry(
@@ -510,7 +597,7 @@ async def test_behavioral_rollback_preserves_owner_entries_and_invalidates_infli
         connection.execute(text("UPDATE drive_group_index SET group_source='owner'"))
     stored = rows(groups)
     inflight = await groups.claim(user_id="owner")
-    rollback = MIGRATION.parent / "rollback" / "368_drive_group_index.rollback.sql"
+    rollback = MIGRATION.parent / "rollback" / "409_drive_group_index.rollback.sql"
     for _ in range(2):
         with groups.db.engine.begin() as connection:
             connection.exec_driver_sql(
@@ -594,7 +681,7 @@ async def test_worker_resumes_changed_batches_skips_unchanged_and_prunes_only_af
 ):
     from hushh_mcp.services import drive_group_index_job as module
 
-    monkeypatch.setattr(module, "EMBED_BATCH", 1)
+    monkeypatch.setattr(module, "CONTENT_BATCH", 1)
     await groups.set_processing(
         user_id="owner", enabled=True, disclosure=DISCLOSURE, time_zone="Asia/Kolkata"
     )

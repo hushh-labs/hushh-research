@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { RiaPicksList } from "@/components/kai/cards/renaissance-market-list";
+import { RiaPicksList, mergeMarketCompanyFacts } from "@/components/kai/cards/renaissance-market-list";
 import type { KaiHomeRenaissanceItem } from "@/lib/services/api-service";
 
 vi.mock("@/hooks/use-mobile", () => ({
@@ -23,6 +23,7 @@ const row: KaiHomeRenaissanceItem = {
   change_pct: 1.2,
   volume: 1_000_000,
   market_cap: 2_000,
+  company_facts: { symbol: "NVDA", market_cap: 2_000, pe_ratio: 28.5, pb_ratio: 9.2, debt_to_equity: 0.42, summary: "Nvidia designs graphics processors." },
   source_tags: ["renaissance"],
   degraded: false,
   alias_repaired: true,
@@ -30,8 +31,16 @@ const row: KaiHomeRenaissanceItem = {
 };
 
 describe("RiaPicksList detail", () => {
+  it("retains known facts through refresh failure and accepts newer successful facts", () => {
+    const current = { NVDA: row.company_facts! };
+    const cached = mergeMarketCompanyFacts(current, { NVDA: { symbol: "NVDA", unavailable: true } }, [row]);
+    expect(cached.NVDA).toMatchObject({ pe_ratio: 28.5, stale: true });
+    expect(mergeMarketCompanyFacts(cached, { NVDA: { symbol: "NVDA", pe_ratio: 30 } }, [row]).NVDA?.pe_ratio).toBe(30);
+  });
   it("leads with the company logo and keeps identity copy singular", async () => {
-    render(<RiaPicksList rows={[row]} />);
+    const analyze = vi.fn();
+    const selection = vi.fn();
+    const { rerender } = render(<RiaPicksList rows={[row]} onAnalyze={analyze} onSelectedSymbolChange={selection} />);
 
     fireEvent.click(screen.getByRole("button", { name: /Nvidia/i }));
 
@@ -44,6 +53,31 @@ describe("RiaPicksList detail", () => {
     expect(detail.queryByText(/Advisor list detail/i)).toBeNull();
     expect(detail.queryByText(/Symbol repaired/i)).toBeNull();
     expect(detail.queryByText("Investment thesis")).toBeNull();
-    expect(detail.getByRole("heading", { name: "Thesis" })).toBeTruthy();
+    expect(detail.getByRole("heading", { name: "Summary" })).toBeTruthy();
+    expect(detail.getByText("28.50×")).toBeTruthy();
+    expect(detail.getByText("9.20×")).toBeTruthy();
+    expect(detail.getByText("0.42×")).toBeTruthy();
+    expect(detail.getByText("P/E (TTM)")).toBeTruthy();
+    expect(detail.getByText("Nvidia designs graphics processors.")).toBeTruthy();
+    expect(selection).toHaveBeenLastCalledWith("NVDA");
+    expect(analyze).not.toHaveBeenCalled();
+    fireEvent.click(detail.getByRole("button", { name: "Analyze NVDA" }));
+    expect(analyze).toHaveBeenCalledExactlyOnceWith("NVDA");
+    expect(selection).toHaveBeenLastCalledWith(null);
+    rerender(<RiaPicksList rows={[row]} />);
+    fireEvent.click(screen.getByRole("button", { name: /Nvidia/i }));
+    const publicDetail = await screen.findByRole("dialog", { name: "Nvidia" });
+    expect(within(publicDetail).queryByRole("button", { name: "Analyze NVDA" })).toBeNull();
+  });
+
+  it("hides a source control that has no alternative and keeps empty-source recovery available", () => {
+    const { rerender } = render(<RiaPicksList rows={[]} />);
+    expect(screen.queryByText("List source")).toBeNull();
+    rerender(<RiaPicksList rows={[]} activeSourceId="ria:one" sources={[
+      { id: "default", label: "Curated stocks", kind: "default", state: "ready", is_default: true },
+      { id: "ria:one", label: "Advisor list", kind: "ria", state: "ready", is_default: false },
+    ]} />);
+    expect(screen.getByText("List source")).toBeTruthy();
+    expect(screen.getAllByRole("combobox").length).toBeGreaterThan(0);
   });
 });

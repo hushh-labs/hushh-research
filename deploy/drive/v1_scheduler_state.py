@@ -31,6 +31,18 @@ ORIGIN = re.compile(
     r"https://consent-protocol-drive-v1-worker-[a-z0-9-]+\.a\.run\.app\Z"
 )
 FULL_JOB = f"projects/{PROJECT}/locations/{REGION}/jobs/{JOB}"
+SCHEMA = "drive.v1.scheduler.v1"
+
+
+def select_stage(stage: str) -> None:
+    """Two reviewed jobs on the same private service; no caller-defined target."""
+    global JOB, BODY, FULL_JOB, SCHEMA
+    if stage not in {"v1", "groups"}:
+        raise V1SchedulerError("Unknown scheduler stage")
+    JOB = {"v1": "drive-work-v1-uat", "groups": "drive-work-groups-uat"}[stage]
+    BODY = json.dumps({"stage": stage}, separators=(",", ":")).encode()
+    FULL_JOB = f"projects/{PROJECT}/locations/{REGION}/jobs/{JOB}"
+    SCHEMA = f"drive.{stage}.scheduler.v1"
 
 
 class V1SchedulerError(ValueError):
@@ -202,6 +214,7 @@ def main() -> int:
         "mode",
         choices=(
             "capture",
+            "capture-if-present",
             "capture-paused",
             "apply",
             "verify",
@@ -211,9 +224,18 @@ def main() -> int:
         ),
     )
     parser.add_argument("--snapshot", type=Path)
+    parser.add_argument("--stage", choices=("v1", "groups"), default="v1")
     args = parser.parse_args()
+    select_stage(args.stage)
     if (
-        args.mode in {"capture", "capture-paused", "restore", "verify-paused"}
+        args.mode
+        in {
+            "capture",
+            "capture-if-present",
+            "capture-paused",
+            "restore",
+            "verify-paused",
+        }
         and args.snapshot is None
     ):
         parser.error("--snapshot is required")
@@ -221,24 +243,36 @@ def main() -> int:
         if args.mode == "quarantine":
             _quarantine()
             return 0
+        raw_current = _describe()
+        if args.mode == "capture-if-present" and raw_current is None:
+            args.snapshot.write_text(
+                json.dumps({"schema": SCHEMA, "job": None}), encoding="utf-8"
+            )
+            return 0
+        if args.mode == "restore" and raw_current is None:
+            snapshot = json.loads(args.snapshot.read_text(encoding="utf-8"))
+            if snapshot.get("schema") != SCHEMA:
+                raise V1SchedulerError("V1 scheduler snapshot is invalid")
+            if snapshot.get("job") is None:
+                return 0
         origin = _origin()
-        current = _state(_describe(), origin)
-        if args.mode in {"capture", "capture-paused"}:
+        # A partially applied target can be malformed. Restore validates the
+        # trusted fixed-lane snapshot first, then reconstructs only this job.
+        current = _state(raw_current, origin) if args.mode != "restore" else None
+        if args.mode in {"capture", "capture-if-present", "capture-paused"}:
             if args.mode == "capture-paused" and current != {
                 "origin": origin,
                 "state": "PAUSED",
             }:
                 raise V1SchedulerError("V1 paused release requires a paused baseline")
             args.snapshot.write_text(
-                json.dumps(
-                    {"schema": "drive.v1.scheduler.v1", "job": current}, sort_keys=True
-                ),
+                json.dumps({"schema": SCHEMA, "job": current}, sort_keys=True),
                 encoding="utf-8",
             )
         elif args.mode == "verify-paused":
             snapshot = json.loads(args.snapshot.read_text(encoding="utf-8"))
             if (
-                snapshot.get("schema") != "drive.v1.scheduler.v1"
+                snapshot.get("schema") != SCHEMA
                 or snapshot.get("job") != {"origin": origin, "state": "PAUSED"}
                 or current != snapshot["job"]
             ):
@@ -264,7 +298,7 @@ def main() -> int:
                 )
         else:
             snapshot = json.loads(args.snapshot.read_text(encoding="utf-8"))
-            if snapshot.get("schema") != "drive.v1.scheduler.v1":
+            if snapshot.get("schema") != SCHEMA:
                 raise V1SchedulerError("V1 scheduler snapshot is invalid")
             before = snapshot.get("job")
             if before is not None and before not in (
@@ -274,10 +308,14 @@ def main() -> int:
                 raise V1SchedulerError(
                     "V1 scheduler snapshot is outside the UAT boundary"
                 )
-            if current == before:
+            try:
+                restored = _state(raw_current, origin)
+            except V1SchedulerError:
+                restored = None
+            if restored == before and (raw_current is None or restored is not None):
                 return 0
             if before is None:
-                if current is not None:
+                if raw_current is not None:
                     _run(
                         "scheduler",
                         "jobs",

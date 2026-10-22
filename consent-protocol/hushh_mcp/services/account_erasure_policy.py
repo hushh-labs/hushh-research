@@ -10,8 +10,9 @@ pattern: ``user_id``, ``firebase_uid``, ``user_<x>_id``, ``*_user_id``,
   the code by ``tests/services/test_account_erasure_coverage.py``.
 * one of the declarations below, each with the reason it is not a plain delete.
 
-That test fails when a new identity-bearing table is added without a delete path
-or a declaration here, so a missed table cannot ship silently.
+The coverage test currently reports advisory findings unless enforcement is enabled.
+Its executing inventory companion separately verifies the known erasure paths;
+advisory coverage alone must not be described as a release gate.
 
 Retention here is a current-state record, not a legal determination. Changing
 any RETAINED or ANONYMIZED entry is a privacy/legal policy decision.
@@ -63,10 +64,6 @@ DELETED_WITH_OWNED_PARENT: Mapping[str, str] = MappingProxyType(
 # Parked-migration tables with no writer in this shared runtime.
 PARKED_OUTSIDE_SHARED_RUNTIME: Mapping[str, str] = MappingProxyType(
     {
-        "pod_migration_jobs": (
-            "Private-pod runtime only. A pod migration implies a provisioned personal "
-            "agent, which already blocks deletion with the deprovisioning 409."
-        ),
         "consent_audit_receipts": (
             "Private-pod runtime only; append-only receipt chain keyed by subject_id. "
             "Retained if present, like fabric_receipts."

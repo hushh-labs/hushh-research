@@ -44,11 +44,10 @@ import {
   searchTickerUniverse,
   type TickerUniverseRow,
 } from "@/lib/kai/ticker-universe-cache";
-// The gateway's own types -- needed only so the pure reachability helpers
-// below (kept here for `kai-command-palette-groups.test.ts`, which predates
-// Search owning its own catalog) still type-check. Search's own suggestions
-// no longer read from the gateway at all; see lib/search/search-suggestions-catalog.ts.
 import type { KaiActionDefinition } from "@/lib/kai/actions/kai-action-gateway";
+import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
+import type { VoiceCapabilityStateV1 } from "@/lib/kai/actions/capability-projection";
+import type { VoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { navigationActionForRoute } from "@/lib/kai/actions/navigation-journey";
 import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import type { KaiCommandBarIntent } from "@/lib/navigation/kai-command-bar-events";
@@ -75,26 +74,6 @@ export type KaiPortfolioTicker = {
   asset_type?: string;
 };
 
-/**
- * The one slice of the app-runtime snapshot Search still reads: where the
- * person is standing, for Finance's ticker gating. A plain structural shape
- * instead of the full action-runtime type, so this file carries no import
- * from it -- the mount point (`kai-command-bar-global.tsx`) keeps passing
- * its full snapshot and this still accepts it.
- */
-type SearchAppRuntimeState = {
-  route: {
-    pathname?: string;
-    screen?: string | null;
-    subview?: string | null;
-  };
-};
-
-/** The one field Search still reads off surface metadata. See voice-surface-metadata.ts's VoiceSurfaceDeadEnd for the real (wider) shape this is a structural subset of. */
-type SearchSurfaceMetadata = {
-  deadEnd?: { reason: string; remedyActionId: string } | null;
-} | null;
-
 interface KaiCommandPaletteProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -102,15 +81,9 @@ interface KaiCommandPaletteProps {
   onSubmitPrompt: (prompt: string) => void;
   intent?: KaiCommandBarIntent;
   initialQuery?: string;
-  appRuntimeState?: SearchAppRuntimeState;
-  surfaceMetadata?: SearchSurfaceMetadata;
-  /**
-   * Accepted only so the existing mount point's call signature keeps
-   * compiling unchanged. Capability-aware gating of suggestions moved out
-   * when Search's idle/typed rows became a static catalog instead of a live
-   * projection over gateway state.
-   */
-  capabilityState?: unknown;
+  appRuntimeState?: AppRuntimeState;
+  surfaceMetadata?: VoiceSurfaceMetadata | null;
+  capabilityState?: VoiceCapabilityStateV1;
   /** Scopes usage memory per account; a shared device must not blend habits. */
   userId?: string | null;
   portfolioTickers?: KaiPortfolioTicker[];
@@ -140,8 +113,7 @@ const TICKER_RESULT_LIMIT = 20;
  * Control ids currently present and enabled in the document.
  *
  * Kept for `kai-command-palette-groups.test.ts`, which predates Search's
- * static catalog and still exercises this as a DOM read. Search's own
- * suggestions no longer consult tappable controls.
+ * static catalog and still exercises this as a DOM read. The destination-only projection does not need mounted control identifiers.
  */
 export function readTappableControlIds(): ReadonlySet<string> {
   const ids = new Set<string>();
@@ -161,7 +133,7 @@ export function readTappableControlIds(): ReadonlySet<string> {
 /**
  * The action that opens the screen `action` lives on, if one exists.
  *
- * Kept for `kai-command-palette-groups.test.ts`; Search's own catalog only
+ * Kept for `kai-command-palette-groups.test.ts`; The destination projection only
  * lists destinations that are already runnable from anywhere, so it has no
  * remaining caller for this.
  */
@@ -220,7 +192,7 @@ export function actionTargetsCurrentSurface(
 /**
  * Whether a tap in search can actually run `action`.
  *
- * Kept for `kai-command-palette-groups.test.ts`; Search's own catalog is
+ * Kept for `kai-command-palette-groups.test.ts`; The destination projection is
  * pre-filtered to destinations a tap can always run, so it has no remaining
  * caller for this.
  */
@@ -507,6 +479,7 @@ export function KaiCommandPalette({
   intent,
   initialQuery,
   appRuntimeState,
+  capabilityState,
   surfaceMetadata,
   portfolioTickers = [],
 }: KaiCommandPaletteProps) {
@@ -672,48 +645,37 @@ export function KaiCommandPalette({
       .slice(0, TICKER_RESULT_LIMIT);
   }, [portfolioRows, remote, showMarket, tickerQuery, universe]);
 
-  /**
-   * Actions matching what was typed: a static substring/alias match over
-   * Search's own catalog, ranked by how well the wording matches. No network
-   * round trip and no personalization -- the same rows for the same query,
-   * every time.
-   */
+  const suggestionContext = useMemo(() => ({appRuntimeState, capabilityState, surfaceMetadata}),
+    [appRuntimeState, capabilityState, surfaceMetadata]);
   const actionMatches = useMemo<SearchCatalogEntry[]>(() => {
     if (!isFiltering || financeAnalysisIntent) return [];
-    return searchCatalog(trimmedQuery, 24);
-  }, [financeAnalysisIntent, isFiltering, trimmedQuery]);
+    return searchCatalog(trimmedQuery, 24, suggestionContext);
+  }, [financeAnalysisIntent, isFiltering, trimmedQuery, suggestionContext]);
 
   const exactActionMatch = useMemo<SearchCatalogEntry | null>(() => {
     if (!trimmedQuery) return null;
-    return findExactCatalogMatch(trimmedQuery) ?? null;
-  }, [trimmedQuery]);
+    return findExactCatalogMatch(trimmedQuery, suggestionContext) ?? null;
+  }, [trimmedQuery, suggestionContext]);
 
-  /**
-   * The idle row: Search's own curated list, the same for everyone, plus the
-   * current screen's dead-end remedy (if any) leading it. Replaces the old
-   * usage-history and screen-context heuristics, neither of which ever
-   * offered a capability on day one -- only after someone had already found
-   * it some other way.
-   */
+  // Curated order remains stable; current generated authority gates every row.
   const curatedSuggestions = useMemo(() => {
     if (isFiltering) return [];
     const suggestions: Array<{ entry: SearchCatalogEntry; note: string | null }> = [];
     const seen = new Set<string>();
     const deadEnd = surfaceMetadata?.deadEnd;
     const remedy = deadEnd?.remedyActionId
-      ? getCatalogEntry(deadEnd.remedyActionId)
-      : undefined;
+      ? getCatalogEntry(deadEnd.remedyActionId, suggestionContext) : undefined;
     if (remedy && deadEnd?.reason) {
-      suggestions.push({ entry: remedy, note: deadEnd.reason });
+      suggestions.push({entry: remedy, note: deadEnd.reason});
       seen.add(remedy.actionId);
     }
-    for (const entry of getIdleSuggestions()) {
+    for (const entry of getIdleSuggestions(suggestionContext)) {
       if (seen.has(entry.actionId)) continue;
       seen.add(entry.actionId);
-      suggestions.push({ entry, note: null });
+      suggestions.push({entry, note: null});
     }
     return suggestions;
-  }, [isFiltering, surfaceMetadata]);
+  }, [isFiltering, surfaceMetadata, suggestionContext]);
 
   function close() {
     onOpenChange(false);
@@ -757,11 +719,11 @@ export function KaiCommandPalette({
   ): PaletteRow => ({
     value: `action:${entry.actionId}`,
     label: mailDisplayLabel(entry.label),
-    detail: note,
+    detail: entry.disabled ? entry.reason : note,
     icon: note ? Lightbulb : (ICON_BY_HINT[entry.icon] ?? Activity),
     accent: Boolean(note),
-    disabled: false,
-    run: () => runAction(entry.actionId),
+    disabled: entry.disabled,
+    run: () => { if (!entry.disabled) runAction(entry.actionId); },
   });
 
   const sections: PaletteSection[] = [];

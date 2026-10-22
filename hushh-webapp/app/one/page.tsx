@@ -48,7 +48,6 @@ export default function OneHomePage() {
         dataState="loaded"
       />
       <OneDashboardPage
-        displayName={user.displayName || user.email}
         capabilityStatusById={byId}
         userId={user.uid}
         messagesUnreadCount={messagesUnreadCount}

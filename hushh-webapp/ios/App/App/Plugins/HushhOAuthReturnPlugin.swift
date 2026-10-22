@@ -4,6 +4,18 @@ import Foundation
 import UIKit
 import WebKit
 
+enum ScopeCommerceSandboxOAuthPolicy {
+    static let bundleID = "com.hushh.app.scopecommerce.sandbox"
+    static func admits(_ url: URL, pin: String?, bundleID: String?, isDebug: Bool) -> Bool {
+        guard isDebug, bundleID == Self.bundleID, let pin,
+              pin.range(of: "^https://(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+run\\.app$", options: .regularExpression) != nil,
+              let origin = URL(string: pin), url.scheme == "https", url.host == origin.host,
+              url.port == nil, url.user == nil, url.password == nil, url.fragment == nil,
+              URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath == "/one/profile/connectors/oauth/return" else { return false }
+        return true
+    }
+}
+
 /// The provider OAuth flows (Plaid, Google, Gmail) end with the page
 /// navigating the WebView's top frame to the app's https return route. That
 /// host is not the app's origin, so Capacitor's navigation policy hands the
@@ -27,6 +39,19 @@ public class HushhOAuthReturnPlugin: CAPPlugin, CAPBridgedPlugin {
     private static let returnPathSuffix = "/oauth/return"
     private static let customReturnPath = "/one/profile/connectors/oauth/return"
 
+    private func admitsReturn(_ url: URL) -> Bool {
+        if Bundle.main.bundleIdentifier == ScopeCommerceSandboxOAuthPolicy.bundleID {
+            #if DEBUG
+            return ScopeCommerceSandboxOAuthPolicy.admits(url,
+                pin: bridge?.config.getPluginConfig(jsName).getString("sandboxFrontendOrigin"),
+                bundleID: Bundle.main.bundleIdentifier, isDebug: true)
+            #else
+            return false
+            #endif
+        }
+        return url.host.map { Self.hosts.contains($0.lowercased()) } ?? false
+    }
+
     /// The server owns PKCE, the exact callback, and code exchange. Native
     /// opens only a user-tapped HTTPS authorization in the system browser;
     /// it never receives a provider token or claims that connection succeeded.
@@ -41,7 +66,7 @@ public class HushhOAuthReturnPlugin: CAPPlugin, CAPBridgedPlugin {
               authorizeURL.password == nil, authorizeURL.fragment == nil,
               let rawReturn = call.getString("redirectUri"), rawReturn.count <= 2_048,
               let returnURL = URL(string: rawReturn), returnURL.scheme == "https",
-              let returnHost = returnURL.host?.lowercased(), Self.hosts.contains(returnHost),
+              admitsReturn(returnURL),
               returnURL.path == Self.customReturnPath,
               returnURL.user == nil, returnURL.password == nil,
               returnURL.port == nil, returnURL.query == nil, returnURL.fragment == nil,
@@ -61,7 +86,7 @@ public class HushhOAuthReturnPlugin: CAPPlugin, CAPBridgedPlugin {
     public override func shouldOverrideLoad(_ navigationAction: WKNavigationAction) -> NSNumber? {
         guard let url = navigationAction.request.url,
               url.scheme?.lowercased() == "https",
-              let host = url.host?.lowercased(), Self.hosts.contains(host),
+              admitsReturn(url),
               url.path.hasSuffix(Self.returnPathSuffix) else {
             return nil
         }

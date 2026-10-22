@@ -246,6 +246,57 @@ def test_grouped_failure_identifies_leaf_without_recording_private_error_text():
     assert "token" not in json.dumps(details)
 
 
+@pytest.mark.parametrize("playback_acknowledgements", [False, True])
+async def test_older_client_auth_and_reconnect_keep_azure_without_replaying_a_vertex_handle(
+    monkeypatch,
+    playback_acknowledgements,
+):
+    conversations = MemoryConversationStore()
+    await conversations.open(
+        user_id=USER,
+        conversation_id=CONV,
+        model_id=CONFIG.model_id,
+        model_location=CONFIG.location,
+    )
+    conversations.rows[CONV].live_resumption_handle = "old-vertex-handle"
+    auth = {**AUTH, "client": {"features": ["audio_playback"] if playback_acknowledgements else []}}
+    transport = FakeTransport([auth, {"type": "end"}])
+    fake = FakeLive([])
+    azure = replace(CONFIG, provider="azure_openai", model_id="synthetic-realtime")
+    from api.routes.one import voice
+    from hushh_mcp.one_voice import azure_live
+
+    negotiated = []
+
+    @asynccontextmanager
+    async def connect(config, *, playback_acknowledgements=False):
+        candidate = azure_live.AzureLiveSession(
+            SimpleNamespace(),
+            SimpleNamespace(require_current=lambda: None),
+            {"tools": []},
+            playback_acknowledgements=playback_acknowledgements,
+        )
+        negotiated.append(candidate.playback_acknowledgements)
+        assert config.session_resumption.handle is None
+        assert "playback_acknowledgements" not in config.model_dump(exclude_none=True)
+        yield fake
+
+    monkeypatch.setattr(azure_live, "connect_azure_live", connect)
+    session = _session(transport, fake, config=azure, conversations=conversations)
+    session.live_factory = voice._live_factory(azure)
+    await _run(session)
+    assert negotiated == [playback_acknowledgements]
+    assert session.config is azure
+    ready = transport.frames("session.ready")[0]
+    assert ready["model"] == azure.model_id
+    assert ready["resumed"] is False
+    assert protocol.INPUT_MIME == "audio/pcm;rate=16000"
+    assert protocol.OUTPUT_MIME == "audio/pcm;rate=24000"
+    # Azure never receives the old provider's resumption handle. The relay's
+    # factory receives it as None; the provider config carries no client hint.
+    assert session.conversation.live_resumption_handle == "old-vertex-handle"
+
+
 async def test_first_frame_must_be_auth():
     transport = FakeTransport([{"type": "ping"}])
     await _run(_session(transport, FakeLive([])))
@@ -1473,7 +1524,7 @@ async def test_digest_narration_owns_its_turns_audio(monkeypatch):
 
     monkeypatch.setattr(config, "voice_mail_narration_enabled", lambda: True)
 
-    async def narrate(_digest, *, voice_name):
+    async def narrate(_digest, *, voice_name, provider):
         yield voice_narration.Narration(
             audio=b"spoken",
             mime_type="audio/L16;codec=pcm;rate=24000",
@@ -1839,6 +1890,70 @@ async def test_a_question_live_reports_after_its_interruption_is_answered():
         "state": "model_end",
         "turn_id": barge_in,
     }
+
+
+async def test_explicit_azure_stop_settles_the_relay_before_typed_followup():
+    from unittest.mock import AsyncMock
+
+    session, transport, fake = await _relay_on_live()
+    session.config = replace(CONFIG, provider="azure_openai")
+    fake.interrupt = AsyncMock()
+    await _say(session, "First synthetic question")
+    old_turn = session.turn.turn_id
+    await session._handle_client_frame(protocol.InterruptFrame(type="interrupt"))
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="Follow-up"))
+    assert fake.texts == ["Follow-up"]
+    assert not session._queued_texts
+    assert session.turn.turn_id != old_turn
+    assert [f for f in transport.frames("turn") if f["state"] == "interrupted"] == [
+        {"type": "turn", "state": "interrupted", "turn_id": old_turn}
+    ]
+
+
+async def test_late_provider_transcript_does_not_replace_current_input_authority():
+    session, transport, _ = await _relay_on_live()
+    for identity in ("earlier", "latest"):
+        await session._handle_live_event(LiveEvent(kind="activity_start", input_item_id=identity))
+        await session._handle_live_event(LiveEvent(kind="activity_end", input_item_id=identity))
+    await session._handle_live_event(
+        LiveEvent(
+            kind="input_transcript", input_item_id="latest", text="New question", finished=True
+        )
+    )
+    generation = session._mail_input_generation
+    latest_turn = session._latest_input_turn_id
+    await session._handle_live_event(
+        LiveEvent(
+            kind="input_transcript", input_item_id="earlier", text="Old question", finished=True
+        )
+    )
+    assert session._mail_input_generation == generation
+    assert session._latest_input_turn_id == latest_turn
+    assert (
+        transport.frames("transcript.input")[-1]["turn_id"]
+        == session._provider_input_turns["earlier"]
+    )
+
+
+@pytest.mark.parametrize(
+    "newer",
+    [
+        protocol.TextFrame(type="text", text="Cancel that request"),
+        protocol.InterruptFrame(type="interrupt"),
+    ],
+)
+async def test_old_spoken_approval_cannot_reopen_authority_after_newer_client_input(newer):
+    session, _, _ = await _relay_on_live()
+    await session._handle_live_event(LiveEvent(kind="activity_start", input_item_id="old_yes"))
+    await session._handle_live_event(LiveEvent(kind="activity_end", input_item_id="old_yes"))
+    await session._handle_client_frame(newer)
+    generation = session._mail_input_generation
+    current = session._latest_input_turn_id
+    await session._handle_live_event(
+        LiveEvent(kind="input_transcript", input_item_id="old_yes", text="Yes", finished=True)
+    )
+    assert session._mail_input_generation == generation
+    assert session._latest_input_turn_id == current
 
 
 async def test_a_question_waits_behind_the_reply_a_tool_result_still_owes():
@@ -3148,15 +3263,15 @@ async def test_cancel_frame_cancels_pending_and_tells_the_model():
     pending = MemoryPendingStore()
     session = _session(transport, fake, pending=pending)
     task = asyncio.create_task(session.run())
-    await asyncio.sleep(0.3)
-    card = transport.frames("pending_action")[0]
+    card = await transport.wait_for_frame("pending_action")
     transport.push({"type": "cancel_action"})
-    await asyncio.sleep(0.1)
+    # The client pump processes these in order. Session closure therefore
+    # proves the preceding cancellation, including its model event, settled.
+    transport.push({"type": "cancel_action", "scope": "session"})
+    await asyncio.wait_for(task, 3)
     assert pending.rows[card["pending_action_id"]].status == "cancelled"
     assert transport.frames("pending_action.resolved")[-1]["status"] == "cancelled"
     assert json.loads(fake.events_sent[-1].removeprefix("[ONE_EVENT] "))["kind"] == "cancelled"
-    transport.push({"type": "cancel_action", "scope": "session"})
-    await asyncio.wait_for(task, 3)
     assert transport.closed == (protocol.CLOSE_ENDED, "ended")
 
 
@@ -3203,11 +3318,10 @@ async def test_client_step_result_is_verified_server_side_before_the_model_hears
             return {"ownerGrants": [{"id": "g-1", "latestEnvelopeId": "env-1"}]}
 
     task = asyncio.create_task(session.run())
-    await asyncio.sleep(0.3)
+    card = await transport.wait_for_frame("pending_action")
     session.ctx.services["location"] = _LocationDouble()
-    card = transport.frames("pending_action")[0]
     transport.push({"type": "pending_action.shown", "pending_action_id": card["pending_action_id"]})
-    await asyncio.sleep(0.05)
+    await _until(lambda: pending.rows[card["pending_action_id"]].shown_at is not None)
     await session.executor.call(
         session.ctx, "confirm_pending_action", {"pending_action_id": card["pending_action_id"]}
     )
@@ -3236,15 +3350,13 @@ async def test_client_step_result_is_verified_server_side_before_the_model_hears
             "payload": {"published": ["g-1"]},
         }
     )
-    await asyncio.sleep(0.1)
+    await _finish(transport, task)
     event = json.loads(fake.events_sent[-1].removeprefix("[ONE_EVENT] "))
     assert event["kind"] == "client_step" and event["verification"] == {
         "status": "published",
         "published": ["g-1"],
         "unpublished": [],
     }
-    transport.push({"type": "end"})
-    await asyncio.wait_for(task, 3)
 
 
 async def test_go_away_asks_the_client_to_reconnect_and_saves_the_handle():
@@ -3845,7 +3957,7 @@ async def test_tap_on_a_firebase_plane_card_verifies_the_proof_before_confirming
             pending=pending,
         )
         task = asyncio.create_task(session.run())
-        await asyncio.sleep(0.2)
+        await transport.wait_for_frame("session.ready")
         session.ctx.entities.remember_person(
             ConfirmedPerson(user_id="u-priya", display_name="Priya", confirmed_at=now_iso())
         )
@@ -3862,19 +3974,19 @@ async def test_tap_on_a_firebase_plane_card_verifies_the_proof_before_confirming
             ("stale", "firebase_proof_invalid"),
             ("other", "firebase_proof_invalid"),
         ):
+            error_count = len(transport.frames("error"))
             transport.push(
                 {"type": "confirm_action", "pending_action_id": row_id, "firebase_id_token": token}
             )
-            await asyncio.sleep(0.15)
-            errors = transport.frames("error")
-            assert errors and errors[-1]["code"] == code, (token, errors)
+            error = await transport.wait_for_frame("error", count=error_count + 1)
+            assert error["code"] == code, (token, error)
             assert (await pending.get(user_id=USER, pending_action_id=row_id)).status == "pending"
         assert [p[1] for p in proofs] == [USER, USER, USER]
 
         transport.push(
             {"type": "confirm_action", "pending_action_id": row_id, "firebase_id_token": "fresh"}
         )
-        await asyncio.sleep(0.2)
+        await transport.wait_for_frame("pending_action.resolved")
         assert (await pending.get(user_id=USER, pending_action_id=row_id)).status == "executed"
         resolved = [
             f for f in transport.frames("pending_action.resolved") if f["status"] == "executed"

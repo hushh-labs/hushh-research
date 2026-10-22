@@ -180,11 +180,13 @@ def test_runtime_wires_exact_scheduler_identity_and_gates_production_activation(
         "DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE",
     )
 
+    deploy_script = (ROOT / "scripts" / "deploy" / "backend-deploy.sh").read_text(encoding="utf-8")
+    packed = next(
+        line for line in cloudbuild.splitlines() if '"_DRIVE_WORK_DRAIN_SETTINGS=' in line
+    )
     for name in names:
-        assert f'"_{name}=${{_{name}}}"' in cloudbuild
-        assert name in next(
-            line for line in cloudbuild.splitlines() if "for n in ONE_EMAIL_ADDRESS" in line
-        )
+        assert f"${{_{name}}}" in packed
+        assert f'append_optional_env "{name}" "${{_{name}}}"' in deploy_script
     assert '_DRIVE_WORK_DRAIN_ENABLED: "false"' in cloudbuild
     for name in names[1:]:
         assert f'_{name}: ""' in cloudbuild
@@ -556,7 +558,21 @@ with open(os.environ["MOCK_GCLOUD_CALLS"], "a", encoding="utf-8") as log:
     log.write(json.dumps(args) + "\\n")
 command = [arg for arg in args if arg != "--quiet"]
 state = os.environ["MOCK_WORKER_STATE"]
-if command[:3] == ["run", "services", "list"]:
+if command[:4] == ["run", "services", "describe", "consent-protocol"]:
+    print(json.dumps({"status": {"traffic": [{"revisionName": "consent-protocol-01234-api", "percent": 100}]}}))
+elif command[:4] == ["run", "revisions", "describe", "consent-protocol-01234-api"]:
+    print(json.dumps({
+        "metadata": {"name": "consent-protocol-01234-api"},
+        "spec": {"serviceAccountName": os.environ["RUNTIME_SERVICE_ACCOUNT"], "containers": [{
+            "image": os.environ["IMAGE_REFERENCE"],
+            "env": [{"name": key, "value": value} for key, value in {
+                "HUSHH_DEPLOY_SHA": os.environ["DEPLOY_SHA"],
+                "HUSHH_DEPLOY_RUN_ID": os.environ["RELEASE_RUN_ID"],
+                "HUSHH_DEPLOY_ENV": "uat", "HUSHH_UAT_MANAGED_TEXT_PROVIDER": "azure_openai", "HUSHH_UAT_MANAGED_AI_PROVIDER": "azure_openai",
+            }.items()],
+        }]}, "status": {"conditions": [{"type": "Ready", "status": "True"}]},
+    }))
+elif command[:3] == ["run", "services", "list"]:
     if state == "list_error":
         sys.exit(77)
     names = ["consent-protocol-drive-worker"] if state in ("existing", "ambiguous", "failed_first_create") else []

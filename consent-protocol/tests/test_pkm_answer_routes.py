@@ -13,6 +13,26 @@ async def _create_answer_request(*args, **kwargs):
     return await routes.create_answer_request(*args, **kwargs, background_tasks=BackgroundTasks())
 
 
+async def test_question_create_forwards_valid_retry_identity_and_refuses_invalid_keys(monkeypatch):
+    operation = str(uuid4())
+    service = Mock(create=AsyncMock(return_value={"requestId": operation}))
+    monkeypatch.setattr(routes, "_requests", lambda: service)
+    body = {
+        "ownerUserId": "owner",
+        "question": "What are your food preferences?",
+        "clientRequestId": operation,
+    }
+    assert await _create_answer_request(Response(), body, "requester") == {"requestId": operation}
+    assert service.create.call_args.kwargs["client_request_id"] == operation
+    for invalid in ("not-a-uuid", False, {}):
+        with pytest.raises(HTTPException) as error:
+            await _create_answer_request(
+                Response(), {**body, "clientRequestId": invalid}, "requester"
+            )
+        assert error.value.status_code == 422
+    assert service.create.await_count == 1
+
+
 @pytest.fixture(autouse=True)
 def env(monkeypatch):
     monkeypatch.setenv("PKM_ANSWER_PAYMENTS_ENABLED", "true")
@@ -265,7 +285,9 @@ async def test_incomplete_exact_approved_facts_never_reach_composer(monkeypatch,
     composer.assert_not_called()
 
 
-async def test_gemini_partial_answer_with_gaps_gets_no_chargeable_receipt(monkeypatch):
+async def test_gemini_partial_answer_with_gaps_gets_no_chargeable_receipt(
+    monkeypatch, shared_hub_owner
+):
     from hushh_mcp.services.answer_composer import AnswerComposer
 
     service = Mock(
@@ -320,7 +342,7 @@ async def test_gemini_partial_answer_with_gaps_gets_no_chargeable_receipt(monkey
     ],
 )
 async def test_narrower_approved_answer_requires_disclosure_and_no_unexpected_gaps(
-    monkeypatch, answer, gaps, payable
+    monkeypatch, shared_hub_owner, answer, gaps, payable
 ):
     from hushh_mcp.services.answer_composer import AnswerComposer
     from hushh_mcp.services.answer_composition_receipt import verify_composition_receipt
@@ -476,7 +498,7 @@ async def test_composer_refuses_unapproved_or_unbounded_freshness_before_model(
     ],
 )
 async def test_composer_carries_bounded_exact_scope_freshness_into_gemini_receipt(
-    monkeypatch, scope, value
+    monkeypatch, shared_hub_owner, scope, value
 ):
     from hushh_mcp.services.answer_composer import AnswerComposer
     from hushh_mcp.services.answer_composition_receipt import verify_composition_receipt
@@ -756,3 +778,29 @@ async def test_invalid_period_fails_before_catalog_or_storage(monkeypatch, start
             period_end=end,
         )
     catalog.assert_not_called()
+
+
+async def test_composer_refuses_hosting_change_before_provider_dispatch(
+    monkeypatch, shared_hub_owner
+):
+    async def answerable(**kwargs):
+        shared_hub_owner.return_value = "byoc"
+        return {"approvedScopes": ["attr.travel.trips"], "modelProcessingConsented": True}
+
+    monkeypatch.setattr(routes, "_requests", lambda: Mock(assert_answerable=answerable))
+    composer = Mock()
+    monkeypatch.setattr(routes, "AnswerComposer", composer)
+    with pytest.raises(HTTPException) as error:
+        await routes.compose_answer(
+            uuid4(),
+            Response(),
+            {
+                "projection": {
+                    "memory": "synthetic",
+                    "values": {"attr.travel.trips": {"trips": [{"city": "Tokyo"}]}},
+                }
+            },
+            "owner",
+        )
+    assert error.value.status_code == 409
+    composer.assert_not_called()

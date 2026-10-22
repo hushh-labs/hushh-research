@@ -48,6 +48,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from typing import NoReturn
 
 ASC_API_ROOT = "https://api.appstoreconnect.apple.com"
 ASC_AUDIENCE = "appstoreconnect-v1"
@@ -79,7 +80,7 @@ def log(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
 
 
-def die(message: str) -> "NoReturn":  # type: ignore[name-defined]
+def die(message: str) -> NoReturn:
     log(f"submit-appstore-version: {message}")
     raise SystemExit(1)
 
@@ -203,6 +204,32 @@ def find_app_store_version(
     url = f"{ASC_API_ROOT}/v1/apps/{app_id}/appStoreVersions?{query}"
     data = asc_get(url, token).get("data") or []
     return data[0] if data else None
+
+
+def prerelease_versions(token: str, app_id: str, platform: str) -> list[str]:
+    from ios_packaging_version import prerelease_versions as read_versions
+    return read_versions(token, app_id, platform, asc_get=asc_get, die=die, api_root=ASC_API_ROOT)
+
+
+def resolve_packaging_version(token: str, app_id: str, source_version: str, platform: str,
+                              *, testflight: bool = False, defer_if_review: bool = False) -> str:
+    from ios_packaging_version import resolve_packaging_version as select_version
+    return select_version(token, app_id, source_version, platform, testflight=testflight,
+                          defer_if_review=defer_if_review, asc_get=asc_get, die=die, log=log,
+                          prerelease_versions=prerelease_versions, api_root=ASC_API_ROOT,
+                          editable_states=EDITABLE_VERSION_STATES)
+
+
+
+def verify_reviewer_account(token: str, version_id: str) -> None:
+    """Read back required review information without logging credentials."""
+    payload = asc_get(f"{ASC_API_ROOT}/v1/appStoreVersions/{version_id}/appStoreReviewDetail", token)
+    attributes = (payload.get("data") or {}).get("attributes") or {}
+    required = ("contactFirstName", "contactLastName", "contactPhone", "contactEmail", "demoAccountName", "demoAccountPassword")
+    if attributes.get("demoAccountRequired") is not True or not all(
+        isinstance(attributes.get(field), str) and attributes[field].strip() for field in required
+    ):
+        die("production App Review sign-in/contact information is incomplete; submission blocked")
 
 
 def ensure_app_store_version(
@@ -608,6 +635,14 @@ def verify_release_state(
 # --------------------------------------------------------------------------- #
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--resolve-marketing-version", action="store_true",
+                        help="Read-only: select an editable packaging train, incrementing a released patch version.")
+    parser.add_argument("--testflight", action="store_true",
+                        help="For read-only train selection, allow beta uploads while public review is pending.")
+    parser.add_argument("--defer-if-review", action="store_true",
+                        help="Train selection exits 75 while a public version is awaiting review/release.")
+    parser.add_argument("--require-reviewer-account", action="store_true",
+                        help="Require configured App Review sign-in/contact information before submission.")
     parser.add_argument(
         "--p8-path", default=os.environ.get("APPSTORE_CONNECT_API_KEY_PATH")
     )
@@ -782,11 +817,15 @@ def main(argv: list[str]) -> int:
     marketing_version = args.marketing_version or pbx_marketing
     if not marketing_version:
         die("could not determine marketing version (pass --marketing-version)")
-    if not args.build_number:
+    if not args.build_number and not args.resolve_marketing_version:
         die("--build-number is required (CFBundleVersion of the uploaded build)")
 
     token = mint_jwt(args.p8_path, args.key_id, args.issuer_id)
     app_id = resolve_app_id(token, args.bundle_id)
+    if args.resolve_marketing_version:
+        print(resolve_packaging_version(token, app_id, marketing_version, args.platform,
+                                        testflight=args.testflight, defer_if_review=args.defer_if_review))
+        return 0
 
     version = ensure_app_store_version(
         token, app_id, marketing_version, args.platform, args.release_type
@@ -818,10 +857,15 @@ def main(argv: list[str]) -> int:
     evidence = verify_release_state(
         token, version_id, build["id"], args.release_type, args.whats_new, None
     )
-    evidence["submission_attempted"] = args.submit
+    evidence["submission_attempted"] = False
     if args.evidence_path:
         Path(args.evidence_path).write_text(json.dumps(evidence), encoding="utf-8")
     if args.submit:
+        if args.require_reviewer_account:
+            verify_reviewer_account(token, version_id)
+        evidence["submission_attempted"] = True
+        if args.evidence_path:
+            Path(args.evidence_path).write_text(json.dumps(evidence), encoding="utf-8")
         submission_id = submit_for_review(token, app_id, version_id, args.platform)
         evidence = verify_release_state(
             token,

@@ -20,6 +20,16 @@ RELEASE_RUN_ID="${RELEASE_RUN_ID:?release run id required}"
 SNAPSHOT_PATH="${SNAPSHOT_PATH:?persistent V1 scheduler snapshot path required}"
 PREVIOUS_REVISION_PATH="${PREVIOUS_REVISION_PATH:?persistent V1 revision path required}"
 DRIVE_WORK_DRAIN_ENABLED="${DRIVE_WORK_DRAIN_ENABLED:-true}"
+DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED="${DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED:-false}"
+if [[ "${DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED}" != true && "${DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED}" != false ]]; then
+  echo "Data packet activation must be true or false" >&2
+  exit 1
+fi
+if [[ "${DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED}" == true && "${DRIVE_WORK_DRAIN_ENABLED}" != true ]]; then
+  echo "Data packets require an enabled private worker; the V1 pause is preserved" >&2
+  exit 1
+fi
+groups_snapshot="${SNAPSHOT_PATH%.json}-groups.json"
 if [[ "${DRIVE_WORK_DRAIN_ENABLED}" != true && "${DRIVE_WORK_DRAIN_ENABLED}" != false ]]; then
   echo "V1 background processing must be true or false" >&2
   exit 1
@@ -40,6 +50,12 @@ if [[ ! "${IMAGE_REFERENCE}" =~ ^gcr\.io/hushh-pda-uat/consent-protocol@sha256:[
   echo "V1 worker release inputs are outside the reviewed UAT boundary" >&2
   exit 1
 fi
+
+# Use the serving API's exact release binding, including a Vertex-only selection.
+MANAGED_TEXT_PROVIDER="$(python3 scripts/ci/managed_provider_readiness.py worker-provider \
+  --sha="${DEPLOY_SHA}" --image="${IMAGE_REFERENCE}" \
+  --run-id="${RELEASE_RUN_ID}" --account="${RUNTIME_SERVICE_ACCOUNT}")"
+readonly MANAGED_TEXT_PROVIDER
 
 # The old worker may be paused, but the isolated V1 lane needs the same
 # connector credentials and the existing UAT Stripe separation.
@@ -83,6 +99,7 @@ rollback() {
   if [[ "${snapshot_captured}" == true ]]; then
     if ! bash deploy/drive/restore_v1_worker.sh "${SNAPSHOT_PATH}" "${previous_revision}" >&2; then
       python3 deploy/drive/v1_scheduler_state.py quarantine >&2 || true
+      python3 deploy/drive/v1_scheduler_state.py quarantine --stage groups >&2 || true
       echo "CRITICAL: V1 worker rollback is incomplete; the V1 job is quarantined" >&2
     fi
   fi
@@ -146,7 +163,7 @@ gcloud --quiet run deploy "${SERVICE}" \
   --args=server_drive_worker:app,-w,1,-k,uvicorn.workers.UvicornWorker,--timeout,220,--worker-tmp-dir,/tmp,-b,0.0.0.0:8080 \
   --depends-on=clamav \
   --startup-probe=httpGet.port=8080,httpGet.path=/ready,periodSeconds=10,timeoutSeconds=5,failureThreshold=24 \
-  --set-env-vars="^|^ENVIRONMENT=uat|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|STRIPE_MODE=${STRIPE_UAT_MODE}|STRIPE_CONNECT_MODE=${STRIPE_CONNECT_UAT_MODE}|DRIVE_WORKER_MODE=true|DRIVE_WORKER_V1_ONLY=true|DRIVE_WORK_DRAIN_ENABLED=${DRIVE_WORK_DRAIN_ENABLED}|DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER=${DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT}|DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED=${DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED:-false}|DRIVE_REQUEST_HASHCOINS_ENABLED=${DRIVE_REQUEST_HASHCOINS_UAT_ENABLED:-false}|DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED=${DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED}|DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=${PROJECT_ID}|DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=${SCHEDULER_ID}|DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=${SCHEDULER_AUDIENCE}|DB_POOL_MIN_SIZE=0|DB_POOL_MAX_SIZE=2|DB_SQLALCHEMY_POOL_SIZE=1|DB_SQLALCHEMY_MAX_OVERFLOW=0" \
+  --set-env-vars="^|^ENVIRONMENT=uat|HUSHH_UAT_MANAGED_TEXT_PROVIDER=${MANAGED_TEXT_PROVIDER}|HUSHH_UAT_MANAGED_AI_PROVIDER=${MANAGED_TEXT_PROVIDER}|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|STRIPE_MODE=${STRIPE_UAT_MODE}|STRIPE_CONNECT_MODE=${STRIPE_CONNECT_UAT_MODE}|DRIVE_WORKER_MODE=true|DRIVE_WORKER_V1_ONLY=true|DRIVE_WORK_DRAIN_ENABLED=${DRIVE_WORK_DRAIN_ENABLED}|DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER=${DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT}|DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED=${DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED:-false}|DRIVE_REQUEST_HASHCOINS_ENABLED=${DRIVE_REQUEST_HASHCOINS_UAT_ENABLED:-false}|DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED=${DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED}|DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=${PROJECT_ID}|DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=${SCHEDULER_ID}|DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=${SCHEDULER_AUDIENCE}|DB_POOL_MIN_SIZE=0|DB_POOL_MAX_SIZE=2|DB_SQLALCHEMY_POOL_SIZE=1|DB_SQLALCHEMY_MAX_OVERFLOW=0" \
   --set-secrets="BACKEND_RUNTIME_CONFIG_JSON=BACKEND_RUNTIME_CONFIG_JSON:latest,DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest,APP_SIGNING_KEY=APP_SIGNING_KEY:latest,VAULT_DATA_KEY=VAULT_DATA_KEY:latest,GOOGLE_DRIVE_OAUTH_CLIENT_ID=GOOGLE_DRIVE_OAUTH_CLIENT_ID:latest,GOOGLE_DRIVE_OAUTH_CLIENT_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_SECRET:latest,EXTERNAL_CONNECTOR_CREDENTIAL_KEY=EXTERNAL_CONNECTOR_CREDENTIAL_KEY:latest,DRIVE_DOCUMENT_KEY_V1=DRIVE_DOCUMENT_KEY_V1:latest,DRIVE_SHARING_KEY_V1=DRIVE_SHARING_KEY_V1:latest,FIREBASE_ADMIN_CREDENTIALS_JSON=FIREBASE_ADMIN_CREDENTIALS_JSON:latest${payment_secret_bindings}" \
   --container=clamav \
   --image="${CLAMAV_IMAGE}" --cpu=2 --memory=4Gi \
@@ -167,11 +184,16 @@ gcloud run revisions describe "${candidate_revision}" \
     EXPECTED_SCANNER_AMD64_DIGEST="${CLAMAV_AMD64_DIGEST}" \
     EXPECTED_DRAIN_ENABLED="${DRIVE_WORK_DRAIN_ENABLED}" \
     EXPECTED_SEMANTIC_MODEL_PROVIDER="${DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER_UAT}" \
+      EXPECTED_MANAGED_TEXT_PROVIDER="${MANAGED_TEXT_PROVIDER}" \
     python3 deploy/drive/verify_v1_worker_revision.py
 
 if [[ "${snapshot_captured}" != true ]]; then
   python3 deploy/drive/v1_scheduler_state.py capture --snapshot "${SNAPSHOT_PATH}"
   snapshot_captured=true
+fi
+python3 deploy/drive/v1_scheduler_state.py capture --stage groups --snapshot "${groups_snapshot}"
+if [[ "${DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED}" != true ]]; then
+  python3 deploy/drive/v1_scheduler_state.py quarantine --stage groups
 fi
 if [[ "${DRIVE_WORK_DRAIN_ENABLED}" == true ]]; then
   gcloud run services add-iam-policy-binding "${SERVICE}" \
@@ -188,18 +210,25 @@ if [[ "${DRIVE_WORK_DRAIN_ENABLED}" == false ]]; then
   exit 0
 fi
 python3 deploy/drive/v1_scheduler_state.py apply
+scheduled_jobs=("${JOB}")
+if [[ "${DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED}" == true ]]; then
+  python3 deploy/drive/v1_scheduler_state.py apply --stage groups
+  python3 deploy/drive/v1_scheduler_state.py verify --stage groups
+  scheduled_jobs+=(drive-work-groups-uat)
+fi
 
+for scheduled_job in "${scheduled_jobs[@]}"; do
 triggered_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-gcloud scheduler jobs run "${JOB}" --project="${PROJECT_ID}" --location="${REGION}" --quiet
+gcloud scheduler jobs run "${scheduled_job}" --project="${PROJECT_ID}" --location="${REGION}" --quiet
 worker_url="$(gcloud run services describe "${SERVICE}" \
   --project="${PROJECT_ID}" --region="${REGION}" --format='value(status.url)')"
 verified=false
 for _attempt in $(seq 1 55); do
   if gcloud logging read \
-    "resource.type=\"cloud_scheduler_job\" AND resource.labels.job_id=\"${JOB}\" AND timestamp>=\"${triggered_at}\"" \
+    "resource.type=\"cloud_scheduler_job\" AND resource.labels.job_id=\"${scheduled_job}\" AND timestamp>=\"${triggered_at}\"" \
     --project="${PROJECT_ID}" --freshness=10m --limit=20 --format=json \
     | EXPECTED_URL="${worker_url}/api/internal/drive-work/drain" \
-      EXPECTED_JOB="projects/${PROJECT_ID}/locations/${REGION}/jobs/${JOB}" \
+      EXPECTED_JOB="projects/${PROJECT_ID}/locations/${REGION}/jobs/${scheduled_job}" \
       python3 -c 'import json,os,sys; rows=json.load(sys.stdin); url=os.environ["EXPECTED_URL"]; job=os.environ["EXPECTED_JOB"]; sys.exit(0 if any((p:=row.get("jsonPayload") or {}).get("@type")=="type.googleapis.com/google.cloud.scheduler.logging.AttemptFinished" and p.get("jobName")==job and p.get("url")==url and "URL_CRAWLED. Original HTTP response code number = 200" in str(p.get("debugInfo") or "") for row in rows if isinstance(row,dict)) else 1)'; then
     verified=true
     break
@@ -210,6 +239,7 @@ if [[ "${verified}" != true ]]; then
   echo "V1 Scheduler did not produce a fresh 200 response" >&2
   exit 1
 fi
+done
 python3 deploy/drive/v1_scheduler_state.py verify
 trap - EXIT INT TERM
 echo "Verified isolated V1 worker ${candidate_revision}, SHA ${DEPLOY_SHA}; ${JOB} returned 200"

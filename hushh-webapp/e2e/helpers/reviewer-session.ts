@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 import path from "node:path";
 // Canonical harness is shared with the operational reviewer rehearsals.
-import { createReviewerSessionHarness } from "../../../.codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs";
+import { createReviewerSessionHarness } from "../../../.agents/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs";
 
 export async function createProtectedReviewerHarness(
   identity: ReviewerIdentity,

@@ -74,6 +74,8 @@ export interface DocumentRequestPriceSheetProps {
    * Omitted, the Drive wording is unchanged.
    */
   description?: string;
+  /** A non-file lane describes its delivery instead of granting Viewer access. */
+  deliveryDescription?: string;
   busy: boolean;
   error: string | null;
   onSubmit: (amountCents: number | null) => void;
@@ -156,6 +158,7 @@ function PriceSheet({
   requesterLabel,
   purpose,
   description,
+  deliveryDescription,
   recipientEmail,
   periodStart,
   periodEnd,
@@ -277,7 +280,10 @@ function PriceSheet({
               {periodText ? (
                 <RequestTerm label="Period" value={periodText} />
               ) : null}
-              <RequestTerm label="Access" value="Viewer, until removed" />
+              <RequestTerm
+                label={deliveryDescription ? "Delivery" : "Access"}
+                value={deliveryDescription ?? "Viewer, until removed"}
+              />
             </dl>
             {periodText && periodNote ? (
               <HelperText data-slot="price-sheet-period-note">{periodNote}</HelperText>

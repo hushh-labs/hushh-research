@@ -6,8 +6,6 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { readFileSync } from "node:fs";
-import path from "node:path";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -26,6 +24,7 @@ const service = vi.hoisted(() => ({
   openAppSettings: vi.fn(),
   openLocationSettings: vi.fn(),
   placeDetails: vi.fn(),
+  reverseGeocode: vi.fn(),
   placesAutocomplete: vi.fn(),
   placesSearchErrorMessage: vi.fn(() => "Place search failed."),
   requestNearbyConnection: vi.fn(),
@@ -342,6 +341,47 @@ describe("NearbyCheckInSheet", () => {
     );
   });
 
+  it("keeps food courts, cafes and hotels in their matching chips without losing apartment stays", async () => {
+    const venues = [
+      { placeId: "court", name: "Madura Food Court", categories: ["food_drink"] },
+      { placeId: "cafe", name: "Tea Post", categories: ["cafes"] },
+      { placeId: "hotel", name: "Nearby Hotel", categories: ["hotels_stays"] },
+      { placeId: "apartment", name: "Aarsh Home Two-Bedroom Apartment", categories: ["other_stays"] },
+    ].map((place) => ({ ...place, text: place.name, distanceMeters: 145 }));
+    service.nearbyPlaces.mockResolvedValue(venues);
+    render(<NearbyCheckInSheet open ownerId="user-1" vaultOwnerToken="owner-token" captureCurrentPosition={vi.fn().mockResolvedValue(point)} onOpenChange={vi.fn()} />);
+    await screen.findByRole("radio", { name: /Madura Food Court/ });
+    expect(screen.getAllByRole("radio")).toHaveLength(4);
+    fireEvent.click(screen.getByRole("radio", { name: /Aarsh Home/ }));
+    for (const [chip, venue] of [["Food", "Madura Food Court"], ["Café", "Tea Post"], ["Hotels", "Nearby Hotel"], ["Stays", "Aarsh Home Two-Bedroom Apartment"]]) {
+      fireEvent.click(screen.getByRole("button", { name: chip, exact: true }));
+      expect(screen.getAllByRole("radio")).toHaveLength(1);
+      expect(screen.getByRole("radio", { name: new RegExp(venue) })).toBeInTheDocument();
+    }
+    fireEvent.click(screen.getByRole("button", { name: "All", exact: true }));
+    expect(screen.getAllByRole("radio")).toHaveLength(4);
+    expect(screen.getByRole("radio", { name: /Aarsh Home/ })).toHaveAttribute("aria-checked", "false");
+    expect(service.nearbyPlaces).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps available venues visible and explains an incomplete discovery", async () => {
+    service.nearbyPlaces.mockResolvedValueOnce(Object.assign([
+      { placeId: "court", name: "Madura Food Court", text: "Madura Food Court", distanceMeters: 150, categories: ["food_drink"] },
+    ], { discoveryIncomplete: true })).mockResolvedValueOnce([
+      { placeId: "recovered", name: "Recovered Food Court", text: "Recovered Food Court", distanceMeters: 151, categories: ["food_drink"] },
+    ]);
+    render(<NearbyCheckInSheet open ownerId="user-1" vaultOwnerToken="owner-token" captureCurrentPosition={vi.fn().mockResolvedValue(point)} onOpenChange={vi.fn()} />);
+    expect(await screen.findByRole("radio", { name: /Madura Food Court/ })).toBeInTheDocument();
+    expect(screen.getByText(/Some nearby places may be missing/)).toBeInTheDocument();
+    expect(screen.queryByText(/No places found/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Food", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Retry nearby places" }));
+    expect(await screen.findByRole("radio", { name: /Recovered Food Court/ })).toBeInTheDocument();
+    expect(screen.queryByText(/Some nearby places may be missing/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Food", exact: true })).toHaveAttribute("aria-pressed", "true");
+    expect(service.nearbyPlaces).toHaveBeenCalledTimes(2);
+  });
+
   it("is a bottom sheet a phone can put away", async () => {
     render(
       <NearbyCheckInSheet
@@ -366,7 +406,7 @@ describe("NearbyCheckInSheet", () => {
     // The list still owns its own scrolling.
     const scroller = document
       .querySelector('[data-testid="one-location-nearby-check-in-sheet"]')
-      ?.querySelector(".overflow-y-auto");
+      ?.querySelector("[data-task-region=body]");
     expect(scroller).toBeTruthy();
   });
 
@@ -494,8 +534,11 @@ describe("NearbyCheckInSheet", () => {
     // primary action with no visible reason. It stays in the open.
     await screen.findByRole("checkbox", { name: /Show my name here/ });
     expect(
-      screen.getByText("Only people checked in at this place can see it."),
+      screen.getByText("Only people checked in nearby can see it."),
     ).toBeInTheDocument();
+    expect(screen.getByText("Let people checked in nearby know you're here.")).toHaveClass("sr-only");
+    expect(screen.getByRole("heading", { name: "Nearby places" })).toHaveClass("sr-only");
+    expect(screen.getByRole("heading", { name: "Visibility" })).toHaveClass("sr-only");
     expect(
       screen.queryByText("People see your name only."),
     ).not.toBeInTheDocument();
@@ -2508,8 +2551,9 @@ describe("NearbyCheckInSheet", () => {
     const renderAndCheckOut = async (
       vaultKey: string | null = "vault-key",
       onOpenChange = vi.fn(),
+      presence = anchoredPresence,
     ) => {
-      service.getNearbyPresence.mockResolvedValue(anchoredPresence);
+      service.getNearbyPresence.mockResolvedValue(presence);
       service.checkoutNearby.mockResolvedValue({
         presence: null,
         attendees: [],
@@ -2616,6 +2660,69 @@ describe("NearbyCheckInSheet", () => {
       expect(
         await screen.findByText("Saved for next time."),
       ).toBeInTheDocument();
+    });
+
+    it("saves the shop name, address and check-in date separately", async () => {
+      savedPlaces.loadSavedLocations.mockResolvedValue([]);
+      savedPlaces.addSavedLocation.mockResolvedValue([]);
+      await renderAndCheckOut("vault-key", vi.fn(), {
+        ...anchoredPresence,
+        presence: { ...anchoredPresence.presence, placeLabel: "Dezzerto, Shop 9, Tower 1, Pune" },
+      });
+      fireEvent.click(await screen.findByRole("button", { name: "Save for faster check-ins" }));
+      await waitFor(() => expect(savedPlaces.addSavedLocation).toHaveBeenCalledWith(expect.objectContaining({ input: expect.objectContaining({
+        label: "Dezzerto",
+        placeName: "Dezzerto",
+        address: "Shop 9, Tower 1, Pune",
+        checkedInAt: anchoredPresence.presence.checkedInAt,
+      }) })));
+    });
+
+    it("invalidates a pending save on a vault-key change and allows saving in the new session", async () => {
+      let resolveAddress!: (value: { formattedAddress: string }) => void;
+      service.reverseGeocode.mockResolvedValue({ formattedAddress: "Campus Drive" }).mockImplementationOnce(() => new Promise((resolve) => { resolveAddress = resolve; }));
+      service.getNearbyPresence.mockResolvedValue(anchoredPresence);
+      savedPlaces.loadSavedLocations.mockResolvedValue([]);
+      savedPlaces.addSavedLocation.mockResolvedValue([]);
+      const capture = vi.fn().mockResolvedValue(point);
+      const onOpenChange = vi.fn();
+      const sheet = (vaultKey: string | null, open = true) => <NearbyCheckInSheet open={open} ownerId="user-1" vaultOwnerToken="owner-token" vaultKey={vaultKey} captureCurrentPosition={capture} onOpenChange={onOpenChange} />;
+      const view = render(sheet("old-key"));
+      await screen.findByTestId("nearby-presence-active");
+      fireEvent.click(screen.getByRole("button", { name: "I'm leaving" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Save for faster check-ins" }));
+      await waitFor(() => expect(service.reverseGeocode).toHaveBeenCalled());
+      view.rerender(sheet(null));
+      view.rerender(sheet("new-key"));
+      expect(screen.getByTestId("nearby-presence-completed")).toBeInTheDocument();
+      await act(async () => resolveAddress({ formattedAddress: "Old-session address" }));
+      expect(savedPlaces.addSavedLocation).not.toHaveBeenCalled();
+      view.rerender(sheet("new-key", false));
+      view.rerender(sheet("new-key"));
+      await screen.findByTestId("nearby-presence-active");
+      fireEvent.click(screen.getByRole("button", { name: "I'm leaving" }));
+      const save = await screen.findByRole("button", { name: "Save for faster check-ins" });
+      expect(save).not.toBeDisabled();
+      fireEvent.click(save);
+      await waitFor(() => expect(savedPlaces.addSavedLocation).toHaveBeenCalledWith(expect.objectContaining({ context: expect.objectContaining({ vaultKey: "new-key" }) })));
+    });
+
+    it("does not read saved places with an old key when the vault locks during checkout", async () => {
+      let finishCheckout!: (value: { presence: null; attendees: []; checkedOut: true }) => void;
+      service.getNearbyPresence.mockResolvedValue(anchoredPresence);
+      service.checkoutNearby.mockImplementationOnce(() => new Promise((resolve) => { finishCheckout = resolve; }));
+      const capture = vi.fn().mockResolvedValue(point);
+      const onOpenChange = vi.fn();
+      const sheet = (vaultKey: string | null) => <NearbyCheckInSheet open ownerId="user-1" vaultOwnerToken="owner-token" vaultKey={vaultKey} captureCurrentPosition={capture} onOpenChange={onOpenChange} />;
+      const view = render(sheet("old-key"));
+      await screen.findByTestId("nearby-presence-active");
+      fireEvent.click(screen.getByRole("button", { name: "I'm leaving" }));
+      await waitFor(() => expect(service.checkoutNearby).toHaveBeenCalled());
+      view.rerender(sheet(null));
+      await act(async () => finishCheckout({ presence: null, attendees: [], checkedOut: true }));
+      await screen.findByTestId("nearby-presence-completed");
+      expect(savedPlaces.loadSavedLocations).not.toHaveBeenCalled();
+      expect(screen.queryByRole("button", { name: "Save for faster check-ins" })).toBeNull();
     });
 
     it("finishes without saving", async () => {
@@ -2833,81 +2940,5 @@ describe("NearbyCheckInSheet", () => {
 
       expect(screen.queryByRole("button", { name: /bookmark/i })).toBeNull();
     });
-  });
-});
-
-/**
- * The chip row, and the two ways it can quietly stop being true.
- *
- * Reported from Prayagraj: tapping "Hotels" listed a lounge, a construction firm
- * and two lodges. Most of that fix is server-side, but two client properties
- * decide whether it is visible at all.
- */
-describe("the nearby place chips", () => {
-  const sheetSource = readFileSync(
-    path.resolve(__dirname, "..", "nearby-check-in-sheet.tsx"),
-    "utf8",
-  );
-  const layoutSpecSource = readFileSync(
-    path.resolve(
-      __dirname,
-      "../../../..",
-      "e2e/one-location-check-in-panel.layout.spec.ts",
-    ),
-    "utf8",
-  );
-
-  /** The labels the component actually ships, read out of its own table. */
-  function shippedLabels(): string[] {
-    const table = sheetSource.slice(
-      sheetSource.indexOf("const PLACE_CATEGORIES"),
-      sheetSource.indexOf("const NEARBY_RADIUS_METERS"),
-    );
-    return [...table.matchAll(/label:\s*"([^"]+)"/g)].map((match) => match[1]);
-  }
-
-  it("offers a chip for every category the backend can return", () => {
-    // The backend classifies exhaustively over Google's Table A and can answer
-    // with any of these. A category with no chip is a set of places that shows
-    // under "All" and is unreachable the moment anything is tapped — which is
-    // how temples, mosques and police stations were invisible.
-    const table = sheetSource.slice(
-      sheetSource.indexOf("const PLACE_CATEGORIES"),
-      sheetSource.indexOf("const NEARBY_RADIUS_METERS"),
-    );
-    const values = [...table.matchAll(/value:\s*"([^"]+)"/g)].map((m) => m[1]);
-    expect(values).toEqual([
-      "all",
-      "food_drink",
-      "health",
-      "shopping_services",
-      "hotels_stays",
-      "education",
-      "outdoors_landmarks",
-      "transit",
-      "worship",
-      "civic",
-      "other",
-    ]);
-  });
-
-  it("keeps the layout spec's replica of the labels honest", () => {
-    // `one-location-check-in-panel.layout.spec.ts` cannot import a React module,
-    // so it hand-copies these labels to measure the row. A copy that falls
-    // behind does not fail — it passes, having measured a row the app no longer
-    // ships. This is the only thing that notices.
-    const replica = layoutSpecSource.slice(
-      layoutSpecSource.indexOf("const CATEGORY_LABELS"),
-      layoutSpecSource.indexOf("const LONGEST_PLACE"),
-    );
-    const replicated = [...replica.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-    expect(replicated).toEqual(shippedLabels());
-  });
-
-  it("never says 'Outdoors' about a cinema", () => {
-    // The chip owns entertainment, culture, sport and nature. Half of that is
-    // indoors, so the label says what the chip is for rather than where it is.
-    expect(shippedLabels()).toContain("Leisure");
-    expect(shippedLabels()).not.toContain("Outdoors");
   });
 });

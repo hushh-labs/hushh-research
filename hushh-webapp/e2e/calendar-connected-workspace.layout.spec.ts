@@ -3,12 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
+import { assertCalendarAccountLabel, assertCalendarBoardGeometry } from "./helpers/calendar-board-geometry";
 
 // Real component + actual typed Calendar transport; only authentication/router
 // and HTTP provider boundaries are synthetic. This is rendered UI evidence,
 // not proof that an external Google account was available in the test session.
 test.use({ timezoneId: "Asia/Kolkata" });
-
 let script: string;
 let css: string;
 let fixtureDirectory: string;
@@ -32,7 +32,8 @@ test.beforeAll(async () => {
     } }],
     resolve: { alias: [
       { find: "@/lib/vault/vault-context", replacement: boundary },
-      { find: "@/lib/services/api-service", replacement: boundary },
+      { find: /^(?:@\/lib\/services\/|\.\/)api-service$/, replacement: boundary },
+      { find: /^(?:@\/lib\/services\/|\.\/)auth-service$/, replacement: boundary },
       { find: "next/navigation", replacement: boundary },
       { find: "@", replacement: root },
     ] },
@@ -125,7 +126,7 @@ function fixtureEvents(day: string, variant: "standard" | "long" | "empty") {
   return variant === "long" ? events.map(event => event.calendar_id === "primary" && event.id === "shared-id"
     ? { ...event, title: privateLongTitle, location: privateLongLocation } : event) : events;
 }
-async function openFixture(page: Page, width: number, locked = false, variant: "standard" | "long" | "empty" = "standard", replay: false | "future" | "today" = false) {
+async function openFixture(page: Page, width: number, locked = false, variant: "standard" | "long" | "empty" = "standard", replay: false | "future" | "today" = false, boardMode = false) {
   // Settle the previous fixture before registering the next fixture's error
   // collector: navigating away intentionally cancels its pending reads.
   await page.goto("about:blank");
@@ -159,6 +160,43 @@ async function openFixture(page: Page, width: number, locked = false, variant: "
     const call = { path: routePath, body, authorization: request.headers().authorization } as typeof calls[number];
     calls.push(call);
     if (routePath.endsWith("/status/synthetic-calendar-owner")) return route.fulfill({ json: { connected: true, access_level: "manage", google_email: "qa-owner@example.com" } });
+    if (boardMode && routePath.endsWith("/board/day")) {
+      const day = String(body.date), zone = String(body.time_zone);
+      const event = (account_id: string, id: string, title: string, first: string, last: string) => ({
+        account_id, id, calendar_id: "primary", title, etag: `etag-${id}`,
+        start: { dateTime: new Date(instant(day, first, zone)).toISOString() },
+        end: { dateTime: new Date(instant(day, last, zone)).toISOString() },
+        organizer: { email: `organizer-${id}@example.test` }, can_decline: true,
+        attendees: [{ email: `qa-${account_id}@example.com`, response_status: "needsAction" }],
+      });
+      const first = event("default", "design", "QA Design Review", "10:00", "11:00");
+      const second = event("work", "client", "QA Client Call", "10:30", "11:30");
+      const third = event("projects", "focus", "QA Project Focus", "13:00", "14:00");
+      const opening = [{ start_at: new Date(instant(day, "15:00", zone)).toISOString(), end_at: new Date(instant(day, "16:00", zone)).toISOString() }];
+      return route.fulfill({ json: { date: day, time_zone: zone, duration_minutes: body.duration_minutes,
+        checked_at: new Date(qaNow).toISOString(), complete: true, conflicts_complete: true,
+        shared_free_windows: opening,
+        conflicts: [{ left: { account_id: "default", calendar_id: "primary", event_id: "design" }, right: { account_id: "work", calendar_id: "primary", event_id: "client" }, start_at: second.start.dateTime, end_at: first.end.dateTime }],
+        accounts: [
+          { account_id: "default", google_email: "qa-owner@example.com", connection_status: "connected", status: "complete", events: [first], free_windows: opening, unreadable_calendars: [] },
+          { account_id: "work", google_email: "qa-work@example.com", connection_status: "connected", status: "complete", events: [second], free_windows: opening, unreadable_calendars: [] },
+          { account_id: "projects", google_email: "qa-projects@example.com", connection_status: "connected", status: "complete", events: [third], free_windows: opening, unreadable_calendars: [] },
+        ],
+      } });
+    }
+    if (boardMode && routePath.endsWith("/conflicts/review")) {
+      const keep = body.keep as Record<string, string>;
+      const decline = (body.decline as Record<string, string>[])[0];
+      const title = (ref: Record<string, string>) => ref.event_id === "client" ? "QA Client Call" : "QA Design Review";
+      return route.fulfill({ json: { review_id: "synthetic-conflict-review", review_token: "synthetic-reviewed-plan-token".repeat(3), expires_at: "2030-01-01T00:00:00Z", previews: [
+        { kind: "keep", ref: keep, title: title(keep), account_email: keep.account_id === "work" ? "qa-work@example.com" : "qa-owner@example.com", action: "accept", start: { dateTime: "2026-10-14T05:00:00Z" }, end: { dateTime: "2026-10-14T06:00:00Z" } },
+        { kind: "decline", ref: decline, title: title(decline), account_email: decline.account_id === "work" ? "qa-work@example.com" : "qa-owner@example.com", action: "decline and send note", start: { dateTime: "2026-10-14T04:30:00Z" }, end: { dateTime: "2026-10-14T05:30:00Z" }, recipient: "organizer-design@example.test", sender_label: "QA Owner", subject: "Unable to attend", message: decline.message },
+      ] } });
+    }
+    if (boardMode && routePath.endsWith("/conflicts/confirm")) return route.fulfill({ json: { complete: true, results: [
+      { kind: "keep", ref: { account_id: "work", calendar_id: "primary", event_id: "client" }, calendar: "accepted", email: "not_sent" },
+      { kind: "decline", ref: { account_id: "default", calendar_id: "primary", event_id: "design" }, calendar: "declined", email: "sent" },
+    ] } });
     if (routePath.endsWith("/insights")) return route.fulfill({ json: {
       complete: true, meeting_count: 0, meeting_minutes: 0, overlaps: 0, back_to_back: 0,
       time_zone: body.time_zone, days: [], recurring: [], focus: [],
@@ -177,12 +215,14 @@ async function openFixture(page: Page, width: number, locked = false, variant: "
     if (routePath.endsWith("/attendance/review")) {
       const reviewId = `review-${attendanceReviews.size}`;
       attendanceReviews.set(reviewId, body);
-      return route.fulfill({ json: { review_id: reviewId, review_token: "synthetic-memory-only-review-token".repeat(2), title: "QA Product Sync",
+      const event = dayEvents("2026-10-14").find(item => item.id === body.event_id && item.calendar_id === body.calendar_id) || dayEvents("2026-10-14")[0];
+      return route.fulfill({ json: { review_id: reviewId, review_token: "synthetic-memory-only-review-token".repeat(2), title: event.title,
+        start: event.start, end: event.end,
         response_status: body.response_status || "declined", calendar_id: body.calendar_id, expires_at: "2030-01-01T00:00:00Z",
         conflicts: body.response_status === "accepted" ? [{ title: "QA Existing meeting", start: { dateTime: "2026-10-14T04:30:00Z" }, end: { dateTime: "2026-10-14T05:00:00Z" } }] : [],
         openings: body.offer_times ? [{ start_at: "2030-10-15T04:30:00Z", end_at: "2030-10-15T05:00:00Z" }] : [],
-        recipient: body.offer_times || body.send_message ? "qa-organizer-0@example.test" : null, subject: body.offer_times ? "Another time for QA Product Sync" : null,
-        message: body.offer_times ? `${body.message}\n\nhttps://one.example.test/calendar/reschedule#synthetic-capability` : null,
+        recipient: body.offer_times || body.send_message ? "qa-organizer-0@example.test" : null, subject: body.offer_times ? "Another time for QA Product Sync" : body.send_message ? "Unable to attend QA Product Sync" : null,
+        message: body.offer_times ? `${body.message}\n\nhttps://one.example.test/calendar/reschedule#synthetic-capability` : body.send_message ? body.message : null,
         rescheduling_link: body.offer_times ? "https://one.example.test/calendar/reschedule#synthetic-capability" : null,
       } });
     }
@@ -207,12 +247,13 @@ async function openFixture(page: Page, width: number, locked = false, variant: "
     }
     return route.fulfill({ status: 500, json: { detail: "Unexpected fixture request" } });
   });
-  await page.goto(`https://calendar-fixture.test/calendar-connected-fixture${replay ? "?providerReplay=1" : locked ? "?locked=1" : ""}`);
-  expect(page.url()).toBe(`https://calendar-fixture.test/calendar-connected-fixture${replay ? "?providerReplay=1" : locked ? "?locked=1" : ""}`);
+  const query = boardMode ? "?board=1" : replay ? "?providerReplay=1" : locked ? "?locked=1" : "";
+  await page.goto(`https://calendar-fixture.test/calendar-connected-fixture${query}`);
+  expect(page.url()).toBe(`https://calendar-fixture.test/calendar-connected-fixture${query}`);
   await expect(page).toHaveTitle("Connected Calendar QA");
   await awaitProductFont(page);
-  await expect(page.getByRole("heading", { name: "Calendar", exact: true })).toBeVisible();
-  if (!locked && variant !== "empty") await expect(page.getByRole("button", { name: /^QA Product Sync/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Calendar", exact: true }), `Calendar fixture render errors: ${errors.join("; ")}`).toBeVisible();
+  if (!locked && variant !== "empty") await expect(page.getByRole("button", { name: boardMode ? /^Open QA Design Review/ : /^QA Product Sync/ })).toBeVisible();
   return { errors, unexpectedRequests, calls, failMail: () => { mailFailure = true; }, failAvailability: (failed = true) => { failAvailability = failed; } };
 }
 async function assertActionsClearChrome(page: Page, width: number, suffix: string) {
@@ -223,6 +264,37 @@ async function assertActionsClearChrome(page: Page, width: number, suffix: strin
     expect(bounds.y + bounds.height).toBeLessThanOrEqual(fixed.y);
   }
   await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `calendar-actions${suffix === "today" ? "" : "-free"}-${width}.png`) });
+}
+for (const width of [390, 1440]) {
+  test(`three-account board and inline conflict review at ${width}px`, async ({ page }) => {
+    const { errors, unexpectedRequests, calls } = await openFixture(page, width, false, "standard", false, true);
+    await assertCalendarBoardGeometry(page, width);
+    for (const email of ["qa-owner@example.com", "qa-work@example.com", "qa-projects@example.com"]) {
+      const label = page.getByRole("group", { name: `Calendar account ${email}` }).getByText(email, { exact: true });
+      await expect(label).toBeVisible();
+      await assertCalendarAccountLabel(label, width);
+    }
+    for (const event of ["QA Design Review", "QA Client Call", "QA Project Focus"]) await expect(page.getByRole("button", { name: new RegExp(`^Open ${event}`) })).toBeVisible();
+    await expect(page.getByText("1 cross-account overlap")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Free across all accounts" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `calendar-three-account-board-${width}.png`) });
+    await page.getByRole("button", { name: /^Review 1 overlapping meeting for QA Design Review/ }).click();
+    await page.getByRole("button", { name: "Resolve these overlaps" }).click();
+    await page.getByRole("button", { name: "Keep this instead" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("checkbox").check();
+    await dialog.getByPlaceholder("Explain why you cannot attend").fill("I need to join the client call.");
+    await dialog.getByRole("button", { name: "Review Calendar and Mail" }).click();
+    await expect(dialog.getByText("To: organizer-design@example.test")).toBeVisible();
+    await dialog.getByRole("button", { name: "Confirm selected changes" }).click();
+    await expect(dialog.getByText("Calendar: declined · Mail: sent")).toBeVisible();
+    expect(page.url()).toContain("/calendar-connected-fixture?board=1");
+    expect(calls.some(call => call.path.endsWith("/conflicts/review"))).toBe(true);
+    expect(calls.some(call => call.path.endsWith("/conflicts/confirm"))).toBe(true);
+    expect(unexpectedRequests).toEqual([]);
+    expect(errors).toEqual([]);
+  });
 }
 for (const width of [320, 390, 1440]) {
   test(`connected Calendar geometry, timeline, windows and shared session recovery at ${width}px`, async ({ page }) => {
@@ -286,7 +358,7 @@ for (const width of [320, 390, 1440]) {
     await expect(page.getByRole("dialog")).toContainText("Synthetic event details for rendered QA.");
     for (let index = 0; index < 5; index++) { await page.keyboard.press("Tab"); expect(await page.getByRole("dialog").evaluate(element => element.contains(document.activeElement))).toBe(true); }
     await page.getByTestId("calendar-fixture-lock").dispatchEvent("click");
-    expect(await page.evaluate(() => document.body.textContent?.includes("Synthetic event details for rendered QA."))).toBe(false);
+    await expect.poll(() => page.evaluate(() => document.body.textContent?.includes("Synthetic event details for rendered QA."))).toBe(false);
     await expect(page.getByText("Calendar session unavailable.", { exact: false })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /unlock/i })).toHaveCount(0);
     await page.getByTestId("calendar-fixture-authorize").dispatchEvent("click");
@@ -376,7 +448,7 @@ for (const width of [320, 390, 1440]) {
     await expect(page.getByRole("dialog")).toContainText(privateLongTitle);
     await expect(page.getByRole("dialog")).toContainText(privateLongLocation);
     await page.getByTestId("calendar-fixture-lock").dispatchEvent("click");
-    expect(await page.evaluate(({ title, location }) => document.body.textContent?.includes(title) || document.body.textContent?.includes(location), { title: privateLongTitle, location: privateLongLocation })).toBe(false);
+    await expect.poll(() => page.evaluate(({ title, location }) => document.body.textContent?.includes(title) || document.body.textContent?.includes(location), { title: privateLongTitle, location: privateLongLocation })).toBe(false);
     expect(long.errors).toEqual([]);
     expect(long.unexpectedRequests).toEqual([]);
 
@@ -655,15 +727,21 @@ test("quiet loading preserves same-context previews and exposes real failures", 
 });
 
 
-test("decline reason sends once and hands the actual email outcome to One", async ({ page }) => {
+test("decline reason sends once and returns to the same Calendar page", async ({ page }) => {
   const { calls, errors, unexpectedRequests } = await openFixture(page, 390);
   await page.getByRole("tab", { name: "Invitations", exact: true }).click();
   await page.getByRole("button", { name: "Open invitation: QA Product Sync" }).click();
   await page.getByRole("button", { name: "Decline", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Decline & send email" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Review decline email" })).toBeDisabled();
   await page.getByLabel("Reason for declining").fill("I have another commitment.");
+  await page.getByRole("button", { name: "Review decline email" }).click();
+  await expect(page.getByText("To: qa-organizer-0@example.test")).toBeVisible();
+  await expect(page.getByText(/I have another commitment\./)).toBeVisible();
+  expect(calls.filter(call => call.path.endsWith("/attendance/confirm"))).toHaveLength(0);
   await page.getByRole("button", { name: "Decline & send email" }).click();
-  await expect(page.getByTestId("calendar-action")).toHaveText("calendar-email:sent");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByTestId("calendar-action")).toHaveText("");
+  expect(page.url()).toContain("/calendar-connected-fixture");
   expect(calls.filter(call => call.path.endsWith("/attendance/confirm"))).toHaveLength(1);
   expect(errors).toEqual([]); expect(unexpectedRequests).toEqual([]);
 });

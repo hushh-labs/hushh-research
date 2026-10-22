@@ -163,6 +163,7 @@ export class HushhConsentWeb extends WebPlugin {
     sourceContentRevision?: number;
     sourceManifestRevision?: number;
     durationHours?: number;
+    modelProcessingAllowed?: boolean;
     exportEnvelope?: import("@/lib/consent/export-envelope-v2").ConsentExportEnvelopeSubmissionV2;
     vaultOwnerToken?: string;
   }): Promise<{ success: boolean }> {
@@ -189,6 +190,7 @@ export class HushhConsentWeb extends WebPlugin {
         sourceContentRevision: options.sourceContentRevision,
         sourceManifestRevision: options.sourceManifestRevision,
         durationHours: options.durationHours,
+        modelProcessingAllowed: options.modelProcessingAllowed === true,
         exportEnvelope: options.exportEnvelope,
       }),
     });

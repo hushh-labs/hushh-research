@@ -1,18 +1,28 @@
 name: Deploy to Production
+run-name: ${{ inputs.cadence_origin && format('Cadence {0} deploy · {1}', inputs.cadence_ordinal, inputs.cadence_origin) || 'Deploy to Production' }}
 
 on:
   workflow_dispatch:
     inputs:
+      cadence_origin:
+        description: Internal exact-run release cadence authority (leave blank for manual deploys)
+        type: string
+        default: ""
+      cadence_ordinal:
+        description: Internal successful UAT deployment ordinal
+        type: string
+        default: ""
       sha:
         description: "Exact green main SHA to deploy"
         required: true
         type: string
       scope:
-        description: "Deploy backend only, frontend only, or both"
+        description: "Auto-detect changed services, or force backend/frontend/all"
         required: true
-        default: "all"
+        default: "auto"
         type: choice
         options:
+          - auto
           - all
           - backend
           - frontend
@@ -132,6 +142,8 @@ jobs:
 
       - name: Assert production dispatch actor policy
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           python3 scripts/ci/assert-governed-actor.py --surface production --actor "${GITHUB_ACTOR}"
@@ -149,6 +161,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/release-tools"
+          cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-cloud-run-deploy-revision.py \
             "${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py"
           # The deployment SHA may predate this verifier; always use main's.
@@ -158,6 +171,12 @@ jobs:
           # is older than this workflow's production voice enablement.
           cp deploy/backend.cloudbuild.yaml \
             "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml"
+          # The current YAML invokes extracted helpers even for an older image.
+          mkdir -p "${RUNNER_TEMP}/release-tools/backend-deploy"
+          for tool in backend-deploy.sh backend-capacity-settings.sh backend-model-settings.sh backend-drive-secret-settings.sh commerce-preview-bindings.sh \
+            verify-managed-vertex-runtime.sh scope-commerce-secrets.sh pod-release-env.sh preserve-pod-release.py; do
+            cp "scripts/deploy/${tool}" "${RUNNER_TEMP}/release-tools/backend-deploy/${tool}"
+          done
           # Source upload admission belongs to the same current tooling bundle.
           cp .gcloudignore "${RUNNER_TEMP}/release-tools/.gcloudignore"
           # Preserve the companion sourced by current Cloud Build tooling when
@@ -170,9 +189,13 @@ jobs:
             "${RUNNER_TEMP}/release-tools/plg/bind_secrets.sh"
           cp scripts/ci/assert_one_voice_live_probe.py \
             "${RUNNER_TEMP}/release-tools/assert_one_voice_live_probe.py"
+          # Current Cloud Build records and evaluates provider readiness through
+          # this companion, even when the approved application predates it.
+          cp scripts/ci/managed_provider_readiness.py \
+            "${RUNNER_TEMP}/release-tools/managed_provider_readiness.py"
           # Orchestration must remain current when rolling back to an older image.
           mkdir -p "${RUNNER_TEMP}/release-tools/drive"
-          for tool in resolve_prod_release_mode.py verify_prod_prerequisites.py setup_native_callback_log_exclusion.sh \
+          for tool in resolve_prod_release_mode.py verify_prod_prerequisites.py verify_hashcoin_config.sh setup_native_callback_log_exclusion.sh \
             deploy_worker_service_prod.sh setup_work_drain_scheduler_prod.sh \
             work_drain_scheduler_snapshot_prod.py restore_prod_after_release_failure.sh; do
             cp "deploy/drive/${tool}" "${RUNNER_TEMP}/release-tools/drive/${tool}"
@@ -181,6 +204,9 @@ jobs:
             "${RUNNER_TEMP}/release-tools/drive-domain-aliases.json"
           cp scripts/ops/sync_backend_runtime_secrets.py \
             "${RUNNER_TEMP}/release-tools/sync_backend_runtime_secrets.py"
+          for tool in runtime_config_retention.py scope_commerce_runtime_policy.py shared_files_runtime_policy.py passkey_domain_policy.py upsert_gcp_secret.py; do
+            cp "scripts/ops/$tool" "${RUNNER_TEMP}/release-tools/$tool"
+          done
           cp scripts/ops/verify-env-secrets-parity.py \
             "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py"
           cp scripts/ci/cloudrun-retention.py \
@@ -206,6 +232,8 @@ jobs:
           git checkout --detach "${{ github.event.inputs.sha }}"
           cp "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml" \
             deploy/backend.cloudbuild.yaml
+          mkdir -p scripts/deploy
+          cp "${RUNNER_TEMP}/release-tools/backend-deploy/"* scripts/deploy/
           cp "${RUNNER_TEMP}/release-tools/.gcloudignore" .gcloudignore
           mkdir -p deploy/email-auth
           cp "${RUNNER_TEMP}/release-tools/email-auth/bind_secrets.sh" \
@@ -215,10 +243,15 @@ jobs:
             deploy/plg/bind_secrets.sh
           cp "${RUNNER_TEMP}/release-tools/assert_one_voice_live_probe.py" \
             scripts/ci/assert_one_voice_live_probe.py
+          cp "${RUNNER_TEMP}/release-tools/managed_provider_readiness.py" \
+            scripts/ci/managed_provider_readiness.py
           mkdir -p deploy/drive
           cp "${RUNNER_TEMP}/release-tools/drive/"* deploy/drive/
           cp "${RUNNER_TEMP}/release-tools/sync_backend_runtime_secrets.py" \
             scripts/ops/sync_backend_runtime_secrets.py
+          for tool in runtime_config_retention.py scope_commerce_runtime_policy.py shared_files_runtime_policy.py passkey_domain_policy.py upsert_gcp_secret.py; do
+            cp "${RUNNER_TEMP}/release-tools/$tool" "scripts/ops/$tool"
+          done
           cp "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py" \
             scripts/ops/verify-env-secrets-parity.py
           cp "${RUNNER_TEMP}/release-tools/cloudrun-retention.py" \
@@ -338,6 +371,15 @@ jobs:
             --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
             --github-output "$GITHUB_OUTPUT" \
             --json
+
+      - name: Require exact-SHA UAT acceptance
+        id: predecessor-acceptance
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" require \
+            --environment uat --sha "${{ github.event.inputs.sha }}" \
+            --scope "${{ steps.scope.outputs.scope }}" --output /tmp/prod-predecessor-acceptance.json
 
       - name: Verify production personal Gmail monitor identity
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -2172,6 +2214,10 @@ jobs:
                   "drive_jobs": "${{ steps.rollback-paused-drive-worker.outcome }}",
               },
           }
+          predecessor = Path("/tmp/prod-predecessor-acceptance.json")
+          payload["predecessor_acceptance"] = (
+              json.loads(predecessor.read_text(encoding="utf-8")) if predecessor.exists() else None
+          )
           Path("/tmp/prod-release-status.json").write_text(
               json.dumps(payload, indent=2), encoding="utf-8"
           )
@@ -2205,6 +2251,7 @@ jobs:
           name: prod-release-${{ github.run_id }}
           if-no-files-found: error
           path: |
+            /tmp/prod-predecessor-acceptance.json
             /tmp/prod-runtime-secret-sync.json
             /tmp/prod-frontend-runtime-secret-sync.json
             /tmp/prod-runtime-parity.json

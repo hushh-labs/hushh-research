@@ -156,6 +156,20 @@ describe("PkmWriteCoordinator", () => {
     vi.clearAllMocks();
   });
 
+  it("carries the merged write's publication fence through an already-dispatched response", async () => {
+    stubNoUpgradeNeeded();
+    stubWriteContext();
+    let current = true;
+    const mayPublish = () => current;
+    pkmStoreMergedDomainWithPreparedBlobMock.mockImplementationOnce(async (request) => {
+      current = false;
+      expect(request.mayPublish()).toBe(false);
+      return { success: true };
+    });
+    await PkmWriteCoordinator.saveMergedDomain({ ...BASE_PARAMS, mayPublish, build: BUILD_CALLBACK });
+    expect(pkmStoreMergedDomainWithPreparedBlobMock).toHaveBeenCalledWith(expect.objectContaining({ mayPublish }));
+  });
+
   describe("background prepared writes", () => {
     const automatic = { authorizationMode: "product_default_auto_save_policy" as const,
       surface: "chat" as const, source: "agent_chat_auto_save", autoSavePolicyVersion: 1,
@@ -241,6 +255,31 @@ describe("PkmWriteCoordinator", () => {
           }),
         }),
       );
+    });
+
+    it("keeps a reviewed import mutation idempotent across retries", async () => {
+      stubNoUpgradeNeeded();
+      stubWriteContext();
+      pkmStorePreparedDomainMock.mockResolvedValue({
+        success: true,
+        conflict: false,
+        message: "Stored",
+        dataVersion: 2,
+        fullBlob: { food: { favorite: "sushi" } },
+      });
+      const operation = {
+        ...BASE_PARAMS,
+        idempotencyScope: "public-profile-claim-stable-operation",
+        build: () => ({ domainData: { favorite: "sushi" }, summary: { item_count: 1 } }),
+      };
+
+      await PkmWriteCoordinator.savePreparedDomain(operation);
+      await PkmWriteCoordinator.savePreparedDomain(operation);
+
+      const firstPlan = pkmStorePreparedDomainMock.mock.calls[0]?.[0]?.mutationPlan;
+      const retryPlan = pkmStorePreparedDomainMock.mock.calls[1]?.[0]?.mutationPlan;
+      expect(firstPlan?.plan_id).toBeTruthy();
+      expect(retryPlan?.plan_id).toBe(firstPlan?.plan_id);
     });
   });
 

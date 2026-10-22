@@ -77,6 +77,10 @@ The canonical product ontology is:
 
 See [agent-ontology.md](./agent-ontology.md) for the maintained role, tone, copy, and handoff contract.
 
+The [Personal Data Agent identity](./agent-ontology.md#personal-data-agent-founder-identity)
+states the duty behind that model: Hussh serves the person, with consent,
+discretion and care. One embodies it in the product.
+
 ## One Product Model
 
 One is the private agent the user owns. Its durable product model is four motions:

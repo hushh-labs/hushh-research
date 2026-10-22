@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from functools import cached_property
 from typing import Any, Iterator, Literal
 
+from google.auth.credentials import Credentials
 from google.genai.types import HttpOptions, HttpOptionsDict
 
 from .gemini_config import resolve_fleet_model_name
@@ -156,6 +157,7 @@ class ManagedGeminiRuntimeBinding:
         model: str | None = None,
         location: str | None = None,
         http_options: Any | None = None,
+        credentials: Credentials | None = None,
     ) -> Any:
         """Build the google-genai client; the one construction seam for the fleet.
 
@@ -165,7 +167,7 @@ class ManagedGeminiRuntimeBinding:
         """
         from google import genai
 
-        credentials = local_cli_credentials()
+        credentials = credentials or local_cli_credentials()
         client_factory = (
             functools.partial(genai.Client, credentials=credentials)
             if credentials
@@ -178,15 +180,8 @@ class ManagedGeminiRuntimeBinding:
                 raise ValueError("Managed Vertex location is invalid")
             if not self.project:
                 raise RuntimeError("Managed Vertex binding has no configured project")
-            client_kwargs: dict[str, Any] = {
-                "vertexai": True,
-                "project": self.project,
-                "location": clean_location,
-            }
-            if http_options is not None:
-                client_kwargs["http_options"] = http_options
-            return client_factory(**client_kwargs)
-        if self.auth_mode == DEVELOPER_API_KEY_AUTH_MODE:
+            locations: tuple[str, ...] = (clean_location,)
+        elif self.auth_mode == DEVELOPER_API_KEY_AUTH_MODE:
             key = (
                 _clean_env("GEMINI_API_KEY")
                 or _clean_env("GOOGLE_API_KEY")
@@ -195,10 +190,10 @@ class ManagedGeminiRuntimeBinding:
             if not key:
                 raise RuntimeError("Developer Gemini API key is not configured")
             return genai.Client(vertexai=False, api_key=key)
-
-        locations = self.locations_for_model(model) if model else self.locations
+        else:
+            locations = self.locations_for_model(model) if model else self.locations
         if len(locations) == 1:
-            client_kwargs = {
+            client_kwargs: dict[str, Any] = {
                 "vertexai": True,
                 "project": self.project,
                 "location": locations[0],
@@ -255,6 +250,7 @@ class ManagedGeminiRuntimeBinding:
         *,
         location: str | None = None,
         http_options: HttpOptions | HttpOptionsDict | None = None,
+        credentials: Credentials | None = None,
     ) -> Any:
         from google.adk.models import Gemini
 
@@ -286,6 +282,7 @@ class ManagedGeminiRuntimeBinding:
                 model=clean_model,
                 client_kwargs={"vertexai": False, "api_key": key, **transport_options},
             )
+        credentials = credentials or local_cli_credentials()
         return Gemini(
             model=clean_model,
             client_kwargs={
@@ -293,9 +290,7 @@ class ManagedGeminiRuntimeBinding:
                 "project": self.project,
                 "location": clean_location,
                 **transport_options,
-                **(
-                    {"credentials": credentials} if (credentials := local_cli_credentials()) else {}
-                ),
+                **({"credentials": credentials} if credentials is not None else {}),
             },
         )
 
@@ -450,6 +445,8 @@ def _build(
     gemini_byok_transport: GeminiByokTransport = "developer_api",
     vertex_project: str | None = None,
     vertex_location: str | None = None,
+    puppy_device_id: str | None = None,
+    puppy_catalog_version: str | None = None,
 ) -> Any:
     if provider == "gemini":
         return _gemini_client(
@@ -471,6 +468,21 @@ def _build(
         from .openai_transport import GROK_BASE_URL, OpenAITransport
 
         return OpenAITransport(api_key=api_key, base_url=GROK_BASE_URL, provider="grok")
+    if provider == "puppy":
+        from .puppy_local_transport import select_puppy_transport
+        from .puppy_transport import PuppyRelayUnavailable
+
+        # Puppy is available only through a linked, owner-local broker on the BYOC pod.
+        # A hub relay is not a fallback: it would move a private inference request out
+        # of the owner's deployment and could silently serve Shared or Hussh Pods.
+        local = select_puppy_transport(
+            device_id=puppy_device_id, catalog_version=puppy_catalog_version
+        )
+        if local is None:
+            raise PuppyRelayUnavailable(
+                "Puppy requires an active device relay on the owner's BYOC pod"
+            )
+        return local
     # normalize_provider already rejects unknown providers, so this is defensive.
     raise ValueError(f"Unsupported runtime provider: {provider!r}")
 
@@ -482,6 +494,8 @@ def build_runtime_client(
     gemini_byok_transport: GeminiByokTransport = "developer_api",
     vertex_project: str | None = None,
     vertex_location: str | None = None,
+    puppy_device_id: str | None = None,
+    puppy_catalog_version: str | None = None,
 ) -> Any:
     """BYOK client: the user supplies the key for the chosen provider."""
 
@@ -498,6 +512,8 @@ def build_runtime_client(
         gemini_byok_transport=gemini_byok_transport,
         vertex_project=vertex_project,
         vertex_location=vertex_location,
+        puppy_device_id=puppy_device_id,
+        puppy_catalog_version=puppy_catalog_version,
     )
 
 
@@ -510,6 +526,13 @@ def build_managed_runtime_client(runtime_provider: str, managed_credential: str 
     """
 
     provider = normalize_provider(runtime_provider)
+    if provider == "gemini":
+        from hushh_mcp.runtime_providers.managed_azure import ManagedAzureBinding
+
+        if ManagedAzureBinding.from_environment() is not None:
+            from hushh_mcp.runtime_providers.managed_azure_text import ManagedAzureTextClient
+
+            return ManagedAzureTextClient()
     key = (managed_credential or "").strip()
     if provider != "gemini" and not key:
         raise RuntimeError("Managed runtime API key is not configured")
@@ -555,6 +578,11 @@ def build_managed_gemini_adk_model(
     the initial request too. Omission preserves ADK's existing transport defaults.
     """
 
+    from hushh_mcp.runtime_providers.managed_azure_text import build_azure_text_model
+
+    azure = build_azure_text_model(model, http_options=http_options)
+    if azure is not None:
+        return azure
     return ManagedGeminiRuntimeBinding.from_environment().build_adk_model(
         model,
         location=vertex_location,
@@ -567,6 +595,11 @@ def build_managed_regional_gemini_adk_model(
 ) -> Any:
     """Build a tool-less single-turn ADK model with bounded regional failover."""
 
+    from hushh_mcp.runtime_providers.managed_azure_text import build_azure_text_model
+
+    azure = build_azure_text_model(model)
+    if azure is not None:
+        return azure
     return ManagedGeminiRuntimeBinding.from_environment(
         vertex_project=vertex_project
     ).build_regional_adk_model(model)

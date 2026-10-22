@@ -267,7 +267,7 @@ class FakeTransport:
     def __init__(self, frames: list[dict[str, Any] | str] | None = None) -> None:
         self.inbound: asyncio.Queue[str] = asyncio.Queue()
         self.sent: list[dict[str, Any]] = []
-        self._sent_changed = asyncio.Event()
+        self._sent_condition = asyncio.Condition()
         self.closed: tuple[int, str] | None = None
         for frame in frames or []:
             self.push(frame)
@@ -281,8 +281,9 @@ class FakeTransport:
         return await self.inbound.get()
 
     async def send(self, frame: dict[str, Any]) -> None:
-        self.sent.append(frame)
-        self._sent_changed.set()
+        async with self._sent_condition:
+            self.sent.append(frame)
+            self._sent_condition.notify_all()
 
     async def close(self, code: int, reason: str) -> None:
         self.closed = (code, reason)
@@ -292,16 +293,15 @@ class FakeTransport:
     def frames(self, kind: str) -> list[dict[str, Any]]:
         return [f for f in self.sent if f.get("type") == kind]
 
-    async def wait_for_frame(self, kind: str, *, timeout: float = 3) -> dict[str, Any]:
-        """Wait for actual delivery rather than assuming a scheduling delay."""
+    async def wait_for_frame(
+        self, kind: str, *, count: int = 1, timeout: float = 10
+    ) -> dict[str, Any]:
+        async def wait() -> dict[str, Any]:
+            async with self._sent_condition:
+                await self._sent_condition.wait_for(lambda: len(self.frames(kind)) >= count)
+                return self.frames(kind)[count - 1]
 
-        async def delivered() -> dict[str, Any]:
-            while not (frames := self.frames(kind)):
-                self._sent_changed.clear()
-                await self._sent_changed.wait()
-            return frames[-1]
-
-        return await asyncio.wait_for(delivered(), timeout)
+        return await asyncio.wait_for(wait(), timeout)
 
 
 class FakeLive:

@@ -249,6 +249,25 @@ def test_referral_v2_replay_accepts_only_an_intact_later_lineage(referral_replay
             cursor.execute(
                 "UPDATE one_referral_program_settings SET retired_at = NULL WHERE version = 4"
             )
+            for mutation, restoration, message in [
+                (
+                    "UPDATE one_referral_program_settings SET milestones = '[]'::jsonb WHERE version = 3",
+                    "UPDATE one_referral_program_settings SET milestones = %s::jsonb WHERE version = 3",
+                    "active USD catalogue",
+                ),
+                (
+                    "UPDATE one_referral_program_settings SET retired_at = retired_at + INTERVAL '1 second' WHERE version = 3",
+                    "UPDATE one_referral_program_settings SET retired_at = (SELECT activated_at FROM one_referral_program_settings WHERE version = 4) WHERE version = 3",
+                    "active USD catalogue",
+                ),
+            ]:
+                cursor.execute(mutation)
+                with pytest.raises(psycopg2.Error, match=message):
+                    cursor.execute(adapted_catalogue_sql)
+                cursor.execute("ROLLBACK")
+                cursor.execute(
+                    restoration, (json.dumps(with_v4[2][3]),) if "%s" in restoration else None
+                )
             # A lineage that ends without an active policy is still refused.
             cursor.execute(
                 "UPDATE one_referral_program_settings SET retired_at = NOW() WHERE version = 4"
@@ -625,6 +644,26 @@ async def test_checksum_drift_fails_before_sql_execution(tmp_path: Path):
             "361_system_push_outbox.sql",
             "41bb1bf983b3a79df83ddb2ae2106ff8132ee2f73d666183cd9b7b8bb5f94608",
         ),
+        (
+            329,
+            "329_drive_request_cent_prices.sql",
+            "ee91dfcc494deda10e84e0a06b506a93022c3416264c160ae6541db5786dda4a",
+        ),
+        (
+            212,
+            "212_location_command_runtime.sql",
+            "c10a587ce907e5913df4eeec25a4d71ef1aa8a709d8fccccf2eb223e23448d3d",
+        ),
+        (
+            231,
+            "231_document_review_authority.sql",
+            "55dfd1bdff4326fdaf8eea96a72cc32685b545a2e185489f4adcd5bb95f19337",
+        ),
+        (
+            248,
+            "248_adk_chat_action_authority.sql",
+            "8922c7430b8fc04d4430f6e127d93605f878d402ba67ca751dbb09da41f036a7",
+        ),
     ],
 )
 async def test_legacy_replay_repair_preserves_historical_ledger_checksums(
@@ -673,6 +712,10 @@ async def test_legacy_replay_repair_preserves_historical_ledger_checksums(
         "298_stripe_mode_isolation.sql",
         "304_connect_bank_payout_reconciliation.sql",
         "361_system_push_outbox.sql",
+        "329_drive_request_cent_prices.sql",
+        "212_location_command_runtime.sql",
+        "231_document_review_authority.sql",
+        "248_adk_chat_action_authority.sql",
     ],
 )
 async def test_legacy_replay_rejects_unknown_or_forged_source_before_execution(drift, filename):

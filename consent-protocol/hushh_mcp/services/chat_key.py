@@ -13,9 +13,10 @@ wipes it when that exchange and the background run it started have both ended.
 Nothing here persists or logs the key, and nothing falls back to the process-wide
 ``VAULT_DATA_KEY``: a missing key refuses the read or write.
 
-Key sourcing sits behind ``ChatKeyProvider``. A pod, which holds its owner's key
-itself, replaces the per-request provider with ``set_chat_key_provider`` at process
-start without touching any store.
+Key sourcing sits behind ``ChatKeyProvider``. Owner pods use the same per-request
+binding; encrypted recovery does not persist the owner's chat key or replace it
+with a service-held key. Explicit provider injection is reserved for qualified
+adapters and isolated fixtures.
 """
 
 from __future__ import annotations
@@ -33,6 +34,10 @@ from typing import Any, Protocol
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from hushh_mcp.services.chat_history_rollout import (
+    ChatHistoryUpdatingError,
+    require_chat_history_writes,
+)
 from hushh_mcp.types import EncryptedPayload
 
 CHAT_KEY_LABEL = "hussh-one-chat-v1"
@@ -65,7 +70,11 @@ class LegacyChatCiphertextError(LookupError):
     """The record was sealed with the platform key before the cutover: treat as absent."""
 
 
-CHAT_KEY_ERRORS: tuple[type[Exception], ...] = (ChatKeyUnavailableError, ChatKeyMismatchError)
+CHAT_KEY_ERRORS: tuple[type[Exception], ...] = (
+    ChatKeyUnavailableError,
+    ChatKeyMismatchError,
+    ChatHistoryUpdatingError,
+)
 
 _KEY_REQUIRED = "Unlock your vault to open chat history."
 _KEY_MISMATCH = "Chat history did not open with this vault."
@@ -143,6 +152,12 @@ class RequestChatKey:
     def bound(self) -> bool:
         with self._lock:
             return self._key is not None
+
+    @property
+    def remaining_seconds(self) -> float:
+        """Remaining original binding lifetime; retaining never renews it."""
+        with self._lock:
+            return max(0.0, self._deadline - time.monotonic()) if self._key else 0.0
 
     def refusal_state(self, owner_id: str | None) -> str:
         """Why this key can or cannot serve ``owner_id``. A category, never the key.
@@ -291,6 +306,7 @@ class ChatCipher:
         return (self._provider or get_chat_key_provider()).current_key(owner_id)
 
     def seal(self, plaintext: str, *, owner_id: str, aad: str) -> EncryptedPayload:
+        require_chat_history_writes()
         key = self._key(owner_id)
         iv = os.urandom(_IV_BYTES)
         sealed = AESGCM(key).encrypt(iv, str(plaintext).encode("utf-8"), aad.encode("utf-8"))

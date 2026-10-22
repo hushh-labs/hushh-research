@@ -1,4 +1,5 @@
 import { ApiService } from "@/lib/services/api-service";
+import { CacheService, CACHE_TTL } from "@/lib/services/cache-service";
 import type { KycScopedExportPackage } from "@/lib/services/one-kyc-client-zk-service";
 
 export type PublicPersonProfile = {
@@ -120,6 +121,8 @@ export type InformationRequestBundle = {
   items: Array<{
     requestId: string;
     scopeRef: string;
+    modelProcessingAllowed?: boolean;
+    accessReady?: boolean;
     label: string;
     sensitivity: string | null;
     status:
@@ -218,6 +221,17 @@ async function jsonOrThrow<T>(response: Response): Promise<T> {
 }
 
 export class PersonProfileService {
+  static peekPublic(personRef: string): PublicPersonProfile | null {
+    return CacheService.getInstance().peek<PublicPersonProfile>(`person_public_${personRef}`)?.data ?? null;
+  }
+
+  static async getRelationship(personRef: string, idToken: string): Promise<PersonRelationship> {
+    const response = await ApiService.apiFetch(`/api/one/people/${encodeURIComponent(personRef)}/relationship`, {
+      method: "GET", cache: "no-store", headers: { Authorization: `Bearer ${idToken}` },
+    });
+    const result = await jsonOrThrow<{ personRef: string; relationship: PersonRelationship }>(response);
+    return result.relationship;
+  }
   static async getRequestHistory(input: {
     personRef: string;
     idToken: string;
@@ -288,11 +302,13 @@ export class PersonProfileService {
   }
 
   static async getPublic(personRef: string): Promise<PublicPersonProfile> {
-    return jsonOrThrow<PublicPersonProfile>(
+    const profile = await jsonOrThrow<PublicPersonProfile>(
       await ApiService.apiFetch(`/api/public/people/${encodeURIComponent(personRef)}`, {
         cache: "no-store",
       }),
     );
+    CacheService.getInstance().set(`person_public_${personRef}`, profile, CACHE_TTL.MEDIUM);
+    return profile;
   }
 
   static async getViewer(

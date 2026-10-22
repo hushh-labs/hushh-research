@@ -8,6 +8,10 @@ import { parseLastMessagesSelection, readLastMessagesSelection, writeLastMessage
 const mocks = vi.hoisted(() => ({ listCircles: vi.fn(), startChat: vi.fn(), stopChat: vi.fn() }));
 
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "viewer" } }) }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+}));
 vi.mock("@/lib/vault/vault-context", async () => {
   const { createContext } = await import("react");
   return { VaultContext: createContext({ vaultOwnerToken: "vault-token", vaultKey: "vault-key" }) };
@@ -48,13 +52,7 @@ describe("CircleMessagesPane saved selection", () => {
     mocks.listCircles.mockResolvedValue([circle("room"), circle("family")]);
     const view = render(<CircleMessagesPane active initialCircleId="room" theme="light" />);
     expect(await screen.findByTestId("circle-chat")).toHaveTextContent("room");
-    // CircleChat starts its connection in a passive effect. findByTestId
-    // resolves on the commit that renders it, and a loaded runner can return
-    // before React runs that effect: shard 2/3 failed here with 0 calls in
-    // runs 38265939592, 38294003568, 38377135031 and 38540199373 (attempt 1),
-    // each on a PR that never touched Circles. Flush effects, then count.
-    await act(async () => {});
-    expect(mocks.startChat).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mocks.startChat).toHaveBeenCalledTimes(1));
 
     view.rerender(<CircleMessagesPane active initialCircleId="room" theme="dark" headerActions={<span>Updated header</span>} />);
     expect(mocks.stopChat).not.toHaveBeenCalled();
@@ -62,8 +60,10 @@ describe("CircleMessagesPane saved selection", () => {
 
     view.rerender(<CircleMessagesPane active initialCircleId="family" theme="dark" />);
     await waitFor(() => expect(screen.getByTestId("circle-chat")).toHaveTextContent("family"));
-    expect(mocks.stopChat).toHaveBeenCalledWith("room");
-    expect(mocks.startChat).toHaveBeenCalledTimes(2);
+    await waitFor(() => {
+      expect(mocks.stopChat).toHaveBeenCalledWith("room");
+      expect(mocks.startChat).toHaveBeenCalledTimes(2);
+    });
     expect(mocks.startChat).toHaveBeenLastCalledWith("family");
   });
 

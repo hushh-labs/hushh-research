@@ -26,6 +26,22 @@ def _named(steps: list[dict], name: str) -> dict:
     return next(step for step in steps if step.get("name") == name)
 
 
+@pytest.mark.parametrize(
+    ("workflow_name", "environment_name"),
+    [("ship-ios-testflight.yml", "uat"), ("release-ios-appstore.yml", "production")],
+)
+def test_native_jobs_read_environment_configuration_without_hosted_deployment_records(
+    workflow_name: str, environment_name: str
+) -> None:
+    jobs = _workflow(workflow_name)["jobs"]
+    environments = [job["environment"] for job in jobs.values() if "environment" in job]
+    assert len(environments) == 3
+    assert all(
+        environment == {"name": environment_name, "deployment": False}
+        for environment in environments
+    )
+
+
 def test_android_release_is_green_main_uat_backed_and_fail_closed() -> None:
     workflow = _workflow("ship-android-playstore-v1.yml")
     # PyYAML 1.1 treats the unquoted Actions `on` key as a boolean.
@@ -33,7 +49,7 @@ def test_android_release_is_green_main_uat_backed_and_fail_closed() -> None:
     inputs = workflow.get("on", workflow.get(True))["workflow_dispatch"]["inputs"]
     assert set(inputs) == {"track", "sha", "dry_run", "notes"}
     assert inputs["track"]["type"] == "choice"
-    assert inputs["track"]["default"] == "production"
+    assert inputs["track"]["default"] == "internal"
     assert set(inputs["track"]["options"]) == {"internal", "production"}
     assert workflow["permissions"]["checks"] == "read"
     assert workflow["env"]["GCP_PROJECT_ID"] == "hushh-pda-uat"
@@ -191,9 +207,16 @@ def test_android_release_refuses_unsupported_tracks_before_any_upload(tmp_path: 
         _steps(_workflow("ship-android-playstore-v1.yml"), "ship"),
         "Validate target track",
     )
-    for track in ("internal", "production"):
-        result = _run_step(step, cwd=tmp_path, env={"TARGET_TRACK": track})
+    assert step["env"]["DRY_RUN"] == "${{ inputs.dry_run }}"
+    for track, dry_run in (("internal", "false"), ("internal", "true"), ("production", "true")):
+        result = _run_step(step, cwd=tmp_path, env={"TARGET_TRACK": track, "DRY_RUN": dry_run})
         assert result.returncode == 0, result.stderr
+    for dry_run in ("false", "", "TRUE"):
+        result = _run_step(
+            step, cwd=tmp_path, env={"TARGET_TRACK": "production", "DRY_RUN": dry_run}
+        )
+        assert result.returncode != 0
+        assert "Public Android upload is blocked" in result.stderr
     for track in ("", "alpha", "beta", "production,internal", "internal; echo unsafe"):
         result = _run_step(step, cwd=tmp_path, env={"TARGET_TRACK": track})
         assert result.returncode != 0
@@ -353,7 +376,7 @@ def test_android_dispatcher_binds_selected_track_without_confirmation_bypass() -
         encoding="utf-8"
     )
     assert "--track" in dispatcher
-    assert 'track: "production"' in dispatcher
+    assert 'track: "internal"' in dispatcher
     assert '["internal", "production"]' in dispatcher
     assert "track: options.track" in dispatcher
     assert "--yes" not in dispatcher
@@ -413,11 +436,19 @@ def test_ios_dry_run_retains_ipa_without_requiring_upload_receipts() -> None:
     for name in (
         "Preserve uploaded build identity for recovery",
         "Upload recovery receipt before Apple processing",
+    ):
+        assert "inputs.dry_run != true" in _named(steps, name)["if"]
+    distribution = workflow["jobs"]["distribute"]
+    assert distribution["runs-on"] == "ubuntu-latest"
+    assert distribution["needs"] == ["preflight", "ship"]
+    assert "needs.ship.result == 'success'" in distribution["if"]
+    assert "inputs.dry_run != true" in distribution["if"]
+    for name in (
         "Wait for valid TestFlight processing",
         "Attach the same valid build to both TestFlight groups",
         "Upload redacted release evidence",
     ):
-        assert "inputs.dry_run != true" in _named(steps, name)["if"]
+        assert "inputs.dry_run != true" in _named(distribution["steps"], name)["if"]
 
 
 @pytest.mark.parametrize("requested,expected", [("", "1.4.0"), ("1.4.1", "1.4.1")])
@@ -542,6 +573,57 @@ def test_appstore_upload_receipt_keeps_source_with_effective_packaging_version(
     assert (
         '--marketing-version "${IOS_MARKETING_VERSION}"'
         in _named(
-            steps, "Prepare App Store version (set What's New, attach build; one-click submit)"
+            _steps(_workflow("release-ios-appstore.yml"), "prepare"),
+            "Prepare App Store version (set What's New, attach build; one-click submit)",
         )["run"]
     )
+
+
+def test_production_archive_overlaps_deploy_but_upload_joins_exact_healthy_release() -> None:
+    workflow = _workflow("release-ios-appstore.yml")
+    assert workflow["jobs"]["preflight"]["runs-on"] == "ubuntu-latest"
+    assert workflow["jobs"]["release"]["needs"] == "preflight"
+    assert workflow["jobs"]["release"]["if"] == "needs.preflight.outputs.ready == 'true'"
+    admission = _named(
+        _steps(workflow, "preflight"), "Admit automatic App Store version or defer without a Mac"
+    )
+    assert "--defer-if-review" in admission["run"]
+    assert '"$status" == 75' in admission["run"]
+    steps = _steps(workflow, "release")
+    names = [step.get("name") for step in steps]
+    archive = names.index("Archive with target-owned automatic signing")
+    join = names.index("Join the exact parallel production deployment")
+    provenance = names.index("Verify matching production backend revision")
+    upload = names.index("Export & upload to App Store Connect")
+    assert archive < join < provenance < upload
+    assert workflow["permissions"]["actions"] == "read"
+    join_step = _named(steps, "Join the exact parallel production deployment")
+    assert join_step["env"]["PRODUCTION_DEPLOY_RUN_ID"] == "${{ inputs.production_deploy_run_id }}"
+    assert (
+        'wait-production --run-id "$PRODUCTION_DEPLOY_RUN_ID" --sha "$RELEASE_SHA"'
+        in join_step["run"]
+    )
+    prepare = workflow["jobs"]["prepare"]
+    assert prepare["runs-on"] == "ubuntu-latest"
+    assert prepare["needs"] == "release"
+    assert "needs.release.result == 'success'" in prepare["if"]
+    assert "inputs.dry_run != true" in prepare["if"]
+    assert (
+        "materialize-ios-testflight-release-config.sh"
+        in _named(
+            prepare["steps"], "Require automatic public-release privacy and compliance attestations"
+        )["run"]
+    )
+    assert (
+        "--require-reviewer-account"
+        in _named(
+            prepare["steps"],
+            "Prepare App Store version (set What's New, attach build; one-click submit)",
+        )["run"]
+    )
+    testflight = _workflow("ship-ios-testflight.yml")
+    assert workflow["jobs"]["release"]["concurrency"] == testflight["jobs"]["ship"]["concurrency"]
+    assert workflow["jobs"]["release"]["concurrency"]["group"] == "ios-build-and-upload"
+    uat = _workflow("deploy-uat.yml")
+    assert "release" not in uat["jobs"] and "cadence" not in uat["jobs"]
+    assert uat["jobs"]["deploy"]["concurrency"]["group"] == "deploy-uat"

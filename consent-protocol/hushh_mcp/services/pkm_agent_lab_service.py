@@ -23,7 +23,7 @@ from hushh_mcp.consent.reserved_branches import (
 from hushh_mcp.consent.reserved_branches import (
     registry_version as reserved_registry_version,
 )
-from hushh_mcp.consent.secret_patterns import first_secret_kind
+from hushh_mcp.consent.secret_patterns import find_secret_spans, first_secret_kind
 from hushh_mcp.consent.segment_labels import humanize_path
 from hushh_mcp.constants import GEMINI_MODEL
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
@@ -33,6 +33,10 @@ from hushh_mcp.runtime_providers import (
     build_managed_runtime_client,
 )
 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+from hushh_mcp.runtime_providers.managed_azure_text import (
+    ManagedAzureTextClient,
+    adk_model_for_client,
+)
 from hushh_mcp.services.business_directory_profile import (
     business_merge_schema,
     business_structure_schema,
@@ -1146,12 +1150,10 @@ class PKMAgentLabService:
     def _contains_sensitive_secret(cls, message: str) -> str | None:
         """Name the kind of secret a passage carries, or None.
 
-        A card number, a CVV or PIN, a password or API key, a government id, or
-        a bank account never becomes a general plain-memory proposal, whatever
-        domain the model proposes. The constrained, owner-confirmed KYC profile
-        has a fixed restricted-field path for supported government identifiers.
-        General dynamic-memory extraction rejects this before any agent runs;
-        the restricted KYC exception remains fixed-schema and owner-confirmed.
+        Report raw identifiers and credentials independently of permission.
+        General Memory preparation validates explicit owner permission before
+        model invocation; the constrained KYC profile retains its fixed-schema
+        government-identifier exception. Credentials never qualify.
 
         Delegates to the shared pattern contract, which reports spans and kinds
         and never a value; a text that already carries the device's
@@ -1645,7 +1647,7 @@ class PKMAgentLabService:
         try:
             from google.genai import Client
 
-            return isinstance(self.client, Client)
+            return isinstance(self.client, (Client, ManagedAzureTextClient))
         except Exception:
             return False
 
@@ -1714,9 +1716,10 @@ class PKMAgentLabService:
                 try:
                     from google.adk.models import Gemini
 
-                    adk_model = Gemini(
-                        model=model_override or _manifest_model_name(manifest) or GEMINI_MODEL,
-                        client=self.client,
+                    adk_model = adk_model_for_client(
+                        self.client,
+                        model_override or _manifest_model_name(manifest) or GEMINI_MODEL,
+                        legacy_factory=Gemini,
                     )
                     agent = build_single_turn_agent(
                         manifest,
@@ -2890,27 +2893,16 @@ class PKMAgentLabService:
 
     @classmethod
     def _constrain_profile_review_entity(cls, value: Any) -> Any:
-        """Collapse each entity record to the owner-confirmed profile_fact shape.
+        """Remove extra entity fields without replacing the model's meaning.
 
-        The structure agent may attach extra fields (role, company, institution...)
-        beside summary. Magic Intelligence's client-side save gate
-        (assertExactProfileSelection in profile-research-review.ts) rejects any
-        key outside {summary, observations, kind, status, sources} and fails the
-        whole save. Pin the response to that exact contract here so a faithful
-        echo of the owner's selected statement always survives the round trip,
-        regardless of what the model added. Only the innermost entity value is
-        replaced; the enclosing scope/entities/entity_id keys are untouched so
-        downstream path resolution (businessMemoryEntity) is unaffected.
+        Preserve returned sources and metadata so the client's exact-selection
+        guard can reject mismatches. Enclosing entity paths remain unchanged.
         """
         if isinstance(value, dict):
             summary = value.get("summary")
             if isinstance(summary, str) and summary.strip():
-                return {
-                    "summary": summary,
-                    "observations": [summary],
-                    "kind": "profile_fact",
-                    "status": "active",
-                }
+                allowed = {"summary", "observations", "kind", "status", "sources"}
+                return {key: child for key, child in value.items() if key in allowed}
             return {
                 key: cls._constrain_profile_review_entity(child) for key, child in value.items()
             }
@@ -4046,8 +4038,9 @@ class PKMAgentLabService:
         fallback_target_domain: str,
         simulated_state: dict[str, Any] | None,
         memory_profile: str = "general",
+        allow_identifier_processing: bool = False,
     ) -> dict[str, Any]:
-        secret_kind = cls._contains_sensitive_secret(message)
+        secret_kind = first_secret_kind(message, allow_identifiers=allow_identifier_processing)
         if secret_kind:
             # Same terminal shape as the reserved-target rejection: never
             # redirected, never owner-confirmable, and the hint tells the
@@ -5035,13 +5028,15 @@ class PKMAgentLabService:
         """One constrained model pass for explicit KYC facts; no generic fan-out."""
         fields = self._kyc_identity_fields()
         started_at = time.perf_counter()
-        secret_kind = self._contains_sensitive_secret(message)
-        # Government identifiers are still forbidden from the general dynamic
-        # memory path. This constrained KYC profile is the one exception: it
-        # only accepts explicitly listed, restricted fields and always makes
-        # them owner-confirmed before encrypted persistence.
-        blocking_secret_kind = (
-            secret_kind if secret_kind and secret_kind != _RESTRICTED_KYC_IDENTIFIER_KIND else None
+        # Preserve the fixed-schema KYC exception independently of the general
+        # Memory opt-in. A government identifier cannot hide a later credential.
+        blocking_secret_kind = next(
+            (
+                span.kind
+                for span in find_secret_spans(message)
+                if span.kind != _RESTRICTED_KYC_IDENTIFIER_KIND
+            ),
+            None,
         )
         raw = (
             None
@@ -5445,6 +5440,7 @@ class PKMAgentLabService:
         execution_trace: list[dict[str, Any]] | None = None,
         contract_runner=None,
         memory_profile: str = "general",
+        allow_identifier_processing: bool = False,
     ) -> dict[str, Any]:
         run_contract = contract_runner or self._run_agent_contract
         normalized_domains = [
@@ -5594,6 +5590,7 @@ class PKMAgentLabService:
             fallback_target_domain=fallback_target_domain,
             simulated_state=simulated_state,
             memory_profile=memory_profile,
+            allow_identifier_processing=allow_identifier_processing,
         )
         business_contract_failed = memory_profile == "business_directory_v1" and (
             not valid_business_preview(message, structure_raw or {}, merge_decision)
@@ -5683,7 +5680,19 @@ class PKMAgentLabService:
         capture_execution_trace: bool = False,
         memory_profile: str = "general",
         continuation_scope: str | None = None,
+        allow_identifier_processing: bool = False,
     ) -> dict[str, Any]:
+        # Refuse before segmentation or any model invocation. Credentials never qualify.
+        candidates = (simulated_state or {}).get("memories", [])
+        if (
+            memory_profile != "kyc_identity_v1"
+            and first_secret_kind(message, allow_identifiers=allow_identifier_processing)
+        ) or any(
+            first_secret_kind(str(row.get("message") or ""))
+            for row in candidates
+            if isinstance(row, dict)
+        ):
+            raise ValueError("memory_identifier_processing_not_authorized")
         total_started_at = time.perf_counter()
         normalized_domains = [
             self._normalize_segment(domain) for domain in (current_domains or []) if domain
@@ -5735,6 +5744,7 @@ class PKMAgentLabService:
         runtime_fingerprint += json.dumps(
             [
                 continuation_scope,
+                allow_identifier_processing,
                 _PREVIEW_TOTAL_BUDGET_SECONDS,
                 _AGENT_CONTRACT_TIMEOUT_SECONDS,
                 _AGENT_CONTRACT_MAX_ATTEMPTS,
@@ -5759,10 +5769,19 @@ class PKMAgentLabService:
                 logger.info("pkm.agent_lab.preview_inflight_hit")
                 return deepcopy(await inflight_preview)
 
+        async def run_preparation_contract(**kwargs):
+            if allow_identifier_processing:
+                kwargs["prompt"] = (
+                    'Owner processing policy: {"allow_identifier_processing": true}. '
+                    "This permission applies only to the supplied note for Memory preparation; "
+                    "it grants no sharing or payment authority.\n" + kwargs["prompt"]
+                )
+            return await self._run_agent_contract(**kwargs)
+
         async def _build_preview() -> dict[str, Any]:
             errors: list[str] = []
             continuation = PreviewContinuation(
-                run=self._run_agent_contract,
+                run=run_preparation_contract,
                 resolve_model=resolve_model,
                 records={
                     key: value for key, value in (prefix or {}).items() if key != "__segments"
@@ -5867,7 +5886,7 @@ class PKMAgentLabService:
                     # Never share mutable agent-ID records across concurrent
                     # candidates. Exact prompt fingerprints still gate reuse.
                     segment_continuation = PreviewContinuation(
-                        run=self._run_agent_contract,
+                        run=run_preparation_contract,
                         resolve_model=resolve_model,
                         records=(prefix or {}).get("__segments", {}).get(source_key),
                     )
@@ -5891,6 +5910,7 @@ class PKMAgentLabService:
                     execution_trace=segment_trace if multiple else execution_trace,
                     contract_runner=segment_continuation.run,
                     memory_profile=memory_profile,
+                    allow_identifier_processing=allow_identifier_processing,
                 )
                 if multiple:
                     execution_trace.extend(

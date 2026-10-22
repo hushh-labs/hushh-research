@@ -13,6 +13,7 @@ import { useBackLayer } from "@/lib/navigation/back-layers";
 import { writeLastMessagesSelection } from "@/lib/direct-messages/last-selection";
 import { CircleChat } from "./circle-chat";
 import { AgentDockPortal } from "@/components/agent/agent-dock";
+import { MessagesBackButton } from "@/components/direct-messages/messages-back-button";
 import { ArrowLeft, MessageCircle, Pencil, Plus, RefreshCw, Search, UsersRound } from "@/components/icons";
 import styles from "./circle-messages-pane.module.css";
 import peopleStyles from "@/components/direct-messages/direct-messages-page.module.css";
@@ -121,7 +122,10 @@ export function CircleMessagesPane({ active = true, initialCircleId = null, onTh
     <AgentDockPortal enabled={active && (!selected || !session)} visible={false} suppressed>{null}</AgentDockPortal>
     <aside className={styles.list} data-thread-open={Boolean(selected) || undefined} aria-label="Circles">
       <header className={`${peopleStyles.inboxHeader} ${styles.listHeader}`}>
-        <h1>Messages</h1>
+        <div className={peopleStyles.inboxHeading}>
+          <MessagesBackButton owner={ownerId} active={active} />
+          <h1>Messages</h1>
+        </div>
         <div className={peopleStyles.inboxHeaderActions}>
           {headerActions}
           <Link href={CONNECT_CIRCLES_LIST_HREF} className={peopleStyles.refreshButton} aria-label="Edit circles">

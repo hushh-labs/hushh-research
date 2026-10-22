@@ -67,6 +67,39 @@
       }
     },
     {
+      "id": "agent_computer_use",
+      "parent": "agent_one",
+      "rollout": {
+        "kill_switch": "POD_COMPUTER_USE_ENABLED",
+        "rollback": "Disable browser admission, stop workers, and preserve encrypted opt-in state; never replay uncertain actions.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "task",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": true,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": "Gated private-pod dev pilot; no shared runtime, device browser, native plugin, or A2A surface.",
+        "voice": false,
+        "web": true
+      },
+      "wiring": {
+        "a2a_scope": null,
+        "in_process_dispatch": false,
+        "one_specialist_tool": null
+      }
+    },
+    {
       "id": "agent_connected_systems",
       "parent": "agent_one",
       "rollout": {
@@ -95,7 +128,7 @@
       },
       "wiring": {
         "a2a_scope": null,
-        "in_process_dispatch": false,
+        "in_process_dispatch": true,
         "one_specialist_tool": "ask_connected_systems_agent"
       }
     },
@@ -128,7 +161,7 @@
       },
       "wiring": {
         "a2a_scope": null,
-        "in_process_dispatch": false,
+        "in_process_dispatch": true,
         "one_specialist_tool": "ask_consent_agent"
       }
     },
@@ -198,6 +231,39 @@
         "a2a_scope": null,
         "in_process_dispatch": true,
         "one_specialist_tool": "ask_email_agent"
+      }
+    },
+    {
+      "id": "agent_files",
+      "parent": "agent_one",
+      "rollout": {
+        "kill_switch": "POD_FILES_ENABLED",
+        "rollback": "Disable Files entrypoints while preserving encrypted objects and owner recovery keys.",
+        "strategy": "internal"
+      },
+      "runtime": {
+        "adk_mode": "task",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": true,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": "Admitted private library or explicitly consented Shared foreground projection; no remote A2A, native plugin or MCP execution.",
+        "voice": false,
+        "web": true
+      },
+      "wiring": {
+        "a2a_scope": null,
+        "in_process_dispatch": false,
+        "one_specialist_tool": null
       }
     },
     {
@@ -702,6 +768,16 @@
       "primary_access_path": "AG-UI Agent One text chat, encrypted ADK session restore, encrypted legacy chat history restore, LLM context assembly, and owner-authenticated Magic discovery draft checkpoints (one.magic.discovery.v1/profile)."
     },
     {
+      "data_class": "reference",
+      "exact_tables": [
+        "agent_prompt_versions"
+      ],
+      "id": "agent_prompt_registry",
+      "lifecycle_status": "dev_only",
+      "owner": "backend-agents-operons",
+      "primary_access_path": "agent prompt-sync read path (GET /api/one/agent-prompt), flag-off"
+    },
+    {
       "data_class": "workflow_state",
       "exact_tables": [
         "chat_push_device_deliveries",
@@ -771,6 +847,16 @@
     {
       "data_class": "audit_regulated",
       "exact_tables": [
+        "consent_audit_receipts"
+      ],
+      "id": "consent_audit_receipts",
+      "lifecycle_status": "dev_only",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "tamper-evident hash-chained mirror of the primary consent_audit ledger (NIST 800-53 AU-9/AU-10); written fail-safe behind CONSENT_AUDIT_CHAIN_ENABLED, verified via ConsentAuditChainService.verify_chain"
+    },
+    {
+      "data_class": "audit_regulated",
+      "exact_tables": [
         "consent_audit",
         "consent_audit_receipts",
         "internal_access_events",
@@ -801,6 +887,14 @@
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
       "primary_access_path": "scoped export generation, connector key wrapping, and refresh jobs"
+    },
+    {
+      "data_class": "audit_regulated",
+      "exact_tables": [],
+      "id": "consumer_scope_commerce",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "hushh_mcp/services/scope_commerce owns PostgreSQL tariffs, immutable quotes, a shared funded-balance journal, reservations, pending earnings, original-source refunds and Connect settlement. api/routes/scope_commerce.py resolves existing authenticated request/owner authority; consent/paid_admission.py gates canonical exports independently of admission flags. Replaceable Stripe adapters persist provider operations before I/O and reconcile outside financial transactions."
     },
     {
       "data_class": "provider_cache",
@@ -1130,6 +1224,7 @@
       "data_class": "provider_cache",
       "exact_tables": [
         "google_provider_connections",
+        "google_calendar_additional_accounts",
         "google_service_grants",
         "google_oauth_attempts",
         "google_calendar_action_proposals",
@@ -1138,7 +1233,7 @@
       "id": "google_integrations_provider_state",
       "lifecycle_status": "current",
       "owner": "backend-runtime-governance",
-      "primary_access_path": "Google OAuth connection service and confirmation-bound Calendar live-read/action service and connected Schedule attendance review ledger"
+      "primary_access_path": "Google OAuth connection service, owner/account-scoped additional Calendar credentials, confirmation-bound Calendar live-read/action service, and connected Schedule attendance review ledger"
     },
     {
       "data_class": "audit_regulated",
@@ -1493,6 +1588,17 @@
       "primary_access_path": "OneLocationAccountSettingsService (owner-level sharing on/off, precision preference, reported OS permission; migration 221) and OneLocationSetupService (voice-first Location setup step machine; migration 223) behind GET/PATCH /api/one/location/account-settings and /setup-progress (vault-owner token) and the One Live Voice tools. Turning sharing off revokes active share grants and public links in the same transaction; Location write paths enforce the posture."
     },
     {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "one_marketing_preferences",
+        "one_marketing_changes"
+      ],
+      "id": "one_marketing_permission",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Firebase-owner-bound optional setup/account email preference. A separately signed production-only integration reads at most 25 coalesced pending revisions and acknowledges exact revisions. Generation-fenced revocation cannot subscribe; fresh permission/address checks precede sending. One settings write and its pending projection commit atomically."
+    },
+    {
       "data_class": "workflow_state",
       "exact_tables": [
         "one_information_request_bundles",
@@ -1524,6 +1630,18 @@
       "lifecycle_status": "current",
       "owner": "backend-runtime-governance",
       "primary_access_path": "Production pilot or explicitly expanded registered-contact observer, signed PLG v2 metadata projection, and separately keyed private paginated registered-account audience. Closed generated catalog identifiers only; client reports and SDK returns are distinct from domain outcome authority. Migration 366 adds phase-independent opaque operation correlation; historical rows remain uncorrelated. Migration 367 adds domain-authored Calendar/explicit-consent/direct-Location value receipts and a canonical information-request/Mail-send association; per-agent signed outcome adapters read retained domain evidence."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "one_profile_discovery_jobs",
+        "one_profile_discovery_events",
+        "one_profile_discovery_feed_outbox"
+      ],
+      "id": "one_profile_discovery_handoff",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Firebase owner-scoped discovery status/start and vault-owner encrypted-draft/terminal-claim routes; PostgreSQL leased background worker and transactional Feed outbox."
     },
     {
       "data_class": "workflow_state",
@@ -1591,6 +1709,27 @@
       "lifecycle_status": "parked_flag_off_with_live_environment_drift",
       "owner": "backend-runtime-governance",
       "primary_access_path": "Feature-flagged personal-agent reservation, BYOC setup, provider provisioning, lifecycle replay, and the parked provider-deprovision intent design"
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "personal_agent_registry",
+        "personal_agent_deletion_tombstones"
+      ],
+      "id": "personal_agent_registry",
+      "lifecycle_status": "dev_only",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Existing owner-scoped private-agent registry, provisioning, key attachment, upgrade and erasure services; dev-only migrations900-947 and PERSONAL_AGENT_ENABLED. Dev-only migration948 adds owner Azure coordinates (tenant, subscription, resource group; location in user_cloud_region), written only by the Connect Azure setup job's job-locked publication, and retires the anypoint placement. Dev-only migration949 retains, once per reserved erasure attempt and before any access is revoked, the pod's crypto-erase confirmation for a user_azure agent with its setup nonce (the agentCryptoErase checkpoint a cut-short revocation resumes from), then the owner-access erasure receipt (that confirmation, the role assignments revoked, the person's remaining resource ids, the vault purge date and the resource group to delete), both validated against the reserved snapshot; account deletion still refuses while those resources remain. Dev-only migration950 adds placement_epoch (0 for every existing row, bumped by one on every standby promotion); the hub verifier refuses a signed pod request whose X-Hushh-Pod-Epoch is missing or stale once the person has a standby or an epoch above 0"
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "personal_agent_standby_placements"
+      ],
+      "id": "personal_agent_standby_placement",
+      "lifecycle_status": "dev_only",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Dev-only migration950. hushh_mcp/services/personal_agent_standby_store.py (statements in personal_agent_standby_sql.py): add_standby for a provisioned, signing primary (latching identity_mode), read_standby for the hub signed-request verifier's key and epoch fence, claim_sync_lease / list_standbys_due / record_sync_result for the standby sync, swap_primary_and_standby for a switch (one statement, fenced on placement_epoch and the observed standby pod_key_id, promoting only a standby with a completed sync), remove_standby keeping coordinates only under the registry's backend_metadata.detachedPlacements. Design: docs/future/personal-agent/STANDBY-SYNC.md."
     },
     {
       "data_class": "personal_encrypted",
@@ -1739,6 +1878,16 @@
       "primary_access_path": "client-side PKM cutover, server-issued upgrade claims, idempotent commit receipts, and generic PKM upgrade orchestration"
     },
     {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "pod_request_nonces"
+      ],
+      "id": "pod_request_replay_guard",
+      "lifecycle_status": "dev_only",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Dev-only migration947. The hub's signed pod-request verifier (hushh_mcp/services/pod_request_verifier.py via pod_request_identity_store.py) consumes one (kid, nonce) per verified request with INSERT .. ON CONFLICT DO NOTHING; a conflicting insert is a replay and is refused. Reached only where pod_hub_identity_auth_enabled is on."
+    },
+    {
       "data_class": "personal_metadata",
       "exact_tables": [
         "pwm_documents"
@@ -1747,6 +1896,16 @@
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
       "primary_access_path": "the owner's own Personal World Model doc behind /api/pwm (cross-device preference sync)"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "one_profile_discovery_daily_usage"
+      ],
+      "id": "profile_discovery_daily_usage",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Atomic UTC-day acquisition and polling counters used by the background discovery worker's global budget guard."
     },
     {
       "data_class": "reference",
@@ -1758,6 +1917,19 @@
       "lifecycle_status": "current",
       "owner": "backend-api-contracts",
       "primary_access_path": "RIA marketplace qualified investor deck, public discovery cards, and official SEC filing evidence"
+    },
+    {
+      "data_class": "reference",
+      "exact_tables": [
+        "one_public_profile_entities",
+        "one_public_profile_identity_anchors",
+        "one_public_profile_sources",
+        "one_public_profile_findings"
+      ],
+      "id": "public_profile_evidence_pool",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "PublicProfileDiscoveryService exact canonical profile-URL reuse and the leased HusshOne acquisition worker; PostgreSQL GIN and semantic candidate retrieval are not connected to the current service."
     },
     {
       "data_class": "personal_encrypted",
@@ -1938,7 +2110,7 @@
       "id": "vault_key_material",
       "lifecycle_status": "current",
       "owner": "security-audit",
-      "primary_access_path": "vault setup, unlock-status, wrapper selection, account deletion, and owner-bound One review completion services"
+      "primary_access_path": "vault setup, unlock-status, wrapper selection, account deletion, owner-bound One review completion, and explicit initial-signup Contacts lifecycle services"
     },
     {
       "data_class": "personal_metadata",
@@ -1964,6 +2136,26 @@
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
       "primary_access_path": "Owner-confirmed canonical Wallet commits register saved payment cards automatically, including older cards refreshed by the owner's Share action. Owner grants bind individual active connections; authenticated recipients read only their current grant. The same policy orchestrates selected Profile fields through a separate source adapter; outgoing and received participant history is paginated independently of live card eligibility."
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "webauthn_credentials"
+      ],
+      "id": "webauthn_authenticators",
+      "lifecycle_status": "dev_only",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "server-side WebAuthn/FIDO2 registration and authentication ceremony (flag-off, WEBAUTHN_ENABLED; migration parked)"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "webauthn_challenges"
+      ],
+      "id": "webauthn_ceremony_state",
+      "lifecycle_status": "dev_only",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "transient WebAuthn challenge issue/consume during a registration or authentication ceremony (flag-off; migration parked)"
     }
   ],
   "database_retirements": [
@@ -2993,6 +3185,7 @@
           "calendar.read",
           "consent.chat.turn",
           "location.chat.turn",
+          "one.scheduled_tasks.open",
           "route.one_agents",
           "route.one_feed",
           "route.one_location",
@@ -3209,7 +3402,27 @@
     },
     {
       "alias": null,
-      "api_dependencies": [],
+      "api_dependencies": [
+        {
+          "backend_endpoint_family": "/api/scope-commerce/*",
+          "native_transport": "CapacitorHttp direct backend through ApiService.apiFetch; finance uses Firebase, export preparation uses vault-owner authority",
+          "nextjs_api_route": "/api/scope-commerce/{path*}",
+          "nextjs_proxy_file": "app/api/scope-commerce/[...path]/route.ts",
+          "service_file": "lib/services/scope-commerce-service.ts",
+          "service_methods": [
+            "readiness",
+            "scopeRequest",
+            "quote",
+            "purchase",
+            "cancelPurchase",
+            "revokePurchase",
+            "approveInactive",
+            "getPurchase",
+            "preparePurchase",
+            "stagePurchase"
+          ]
+        }
+      ],
       "cache": {
         "policy": "memory-only",
         "refresh_trigger": "FCM/SSE consent-change reconciliation plus stale-aware background refresh; explicit user refresh may force",
@@ -3330,6 +3543,46 @@
     },
     {
       "alias": null,
+      "api_dependencies": [
+        {
+          "backend_endpoint_family": "/api/one/pod/files/*",
+          "native_transport": "Not accepted on native; browser uses signed owner-pod admission and direct HTTPS via ApiService.ownerPodRequest",
+          "nextjs_api_route": null,
+          "nextjs_proxy_file": null,
+          "service_file": "lib/files/service.ts",
+          "service_methods": [
+            "list",
+            "upload",
+            "download",
+            "organize",
+            "settings"
+          ]
+        }
+      ],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/files/page.tsx",
+      "pathname": "/one/files",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.one_files"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.files"
+      }
+    },
+    {
+      "alias": null,
       "api_dependencies": [],
       "cache": {
         "policy": "memory-only",
@@ -3433,6 +3686,11 @@
           "analysis.open_detailed_tab",
           "analysis.open_summary_tab",
           "analysis.resume_active",
+          "analysis.start",
+          "market.sectors.show_all",
+          "market.sectors.show_day",
+          "market.sectors.show_highlights",
+          "market.sectors.show_week",
           "route.back",
           "route.kai_home"
         ],
@@ -4148,7 +4406,21 @@
     },
     {
       "alias": null,
-      "api_dependencies": [],
+      "api_dependencies": [
+        {
+          "backend_endpoint_family": "/api/one/marketplace/*",
+          "native_transport": "CapacitorHttp direct backend through ApiService.apiFetch; buyer connector custody reuses OneKycClientZkService and encrypted PKM",
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "service_file": "lib/one-marketplace/service.ts",
+          "service_methods": [
+            "listAvailable",
+            "requestListing",
+            "listRequests",
+            "getDelivery"
+          ]
+        }
+      ],
       "cache": {
         "policy": "memory-only",
         "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
@@ -4213,6 +4485,9 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "pkm.close_sharing_bundle_review",
+          "pkm.close_sharing_price_review",
+          "pkm.review_sharing_price",
           "route.one_pkm",
           "route.profile_pkm_agent_lab"
         ],
@@ -4400,7 +4675,26 @@
     },
     {
       "alias": null,
-      "api_dependencies": [],
+      "api_dependencies": [
+        {
+          "backend_endpoint_family": "/api/scope-commerce/*",
+          "native_transport": "CapacitorHttp direct backend through ApiService.apiFetch; finance uses Firebase, export preparation uses vault-owner authority",
+          "nextjs_api_route": "/api/scope-commerce/{path*}",
+          "nextjs_proxy_file": "app/api/scope-commerce/[...path]/route.ts",
+          "service_file": "lib/services/scope-commerce-service.ts",
+          "service_methods": [
+            "readiness",
+            "account",
+            "activity",
+            "checkout",
+            "onboarding",
+            "withdrawalPreview",
+            "withdraw",
+            "refundPreview",
+            "refund"
+          ]
+        }
+      ],
       "cache": {
         "policy": "memory-only",
         "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
@@ -4575,6 +4869,29 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile-discovery",
+      "page_file": "app/one/profile/discovery/page.tsx",
+      "pathname": "/one/profile/discovery",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.discovery"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
         "policy": "none",
         "refresh_trigger": "none",
         "resource_classes": [
@@ -4690,6 +5007,29 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/hosting/page.tsx",
+      "pathname": "/one/profile/hosting",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.hosting"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
         "policy": "none",
         "refresh_trigger": "none",
         "resource_classes": [
@@ -4711,7 +5051,20 @@
     },
     {
       "alias": null,
-      "api_dependencies": [],
+      "api_dependencies": [
+        {
+          "backend_endpoint_family": "/api/scope-commerce/*",
+          "native_transport": "CapacitorHttp direct backend through ApiService.apiFetch; finance uses Firebase, export preparation uses vault-owner authority",
+          "nextjs_api_route": "/api/scope-commerce/{path*}",
+          "nextjs_proxy_file": "app/api/scope-commerce/[...path]/route.ts",
+          "service_file": "lib/services/scope-commerce-service.ts",
+          "service_methods": [
+            "readiness",
+            "tariff",
+            "saveTariff"
+          ]
+        }
+      ],
       "cache": {
         "policy": "memory-only",
         "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
@@ -4736,7 +5089,20 @@
     },
     {
       "alias": null,
-      "api_dependencies": [],
+      "api_dependencies": [
+        {
+          "backend_endpoint_family": "/api/scope-commerce/*",
+          "native_transport": "CapacitorHttp direct backend through ApiService.apiFetch; finance uses Firebase, export preparation uses vault-owner authority",
+          "nextjs_api_route": "/api/scope-commerce/{path*}",
+          "nextjs_proxy_file": "app/api/scope-commerce/[...path]/route.ts",
+          "service_file": "lib/services/scope-commerce-service.ts",
+          "service_methods": [
+            "readiness",
+            "tariff",
+            "saveTariff"
+          ]
+        }
+      ],
       "cache": {
         "policy": "memory-only",
         "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
@@ -5227,6 +5593,29 @@
       "implementation_override": null,
       "lifecycle": "canonical",
       "native_surface_id": "native-route-profile",
+      "page_file": "app/one/profile/software-updates/page.tsx",
+      "pathname": "/one/profile/software-updates",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.software-updates"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-profile",
       "page_file": "app/one/profile/support/page.tsx",
       "pathname": "/one/profile/support",
       "route_mode": "standard",
@@ -5403,6 +5792,7 @@
         "action_ids": [
           "setup.hub_master_ack",
           "setup.open_calendar",
+          "setup.open_cloud",
           "setup.open_connected_systems",
           "setup.open_connections",
           "setup.open_email",
@@ -5476,6 +5866,56 @@
         ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.setup.calendar"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-setup-cloud",
+      "page_file": "app/one/setup/cloud/page.tsx",
+      "pathname": "/one/setup/cloud",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "setup.finish_cloud"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.setup.cloud"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/setup/cloud/azure/return/page.tsx",
+      "pathname": "/one/setup/cloud/azure/return",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "setup.finish_cloud"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.setup.cloud.azure.return"
       }
     },
     {
@@ -6555,29 +6995,29 @@
   ],
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
-    "a2a_scope_map": "079807ec880bc7800616610d4aa2d33f9e0d863b8c51a559cc4b8086f522d139",
-    "action_gateway": "b6f231c66a4338f4acb6433be0a1c45e85cd16fe544e6973803a9a31f5e4a84e",
-    "agent_registry": "e25643ad6e87284d55a07d33c53a4a0abcaec437d5214be8a9d1ed5b71654b00",
-    "cache_manifest": "7b44ca869116d3fe4b1a9dd589a06cd863e81465e5ae708513b7d0636862703e",
-    "data_plane": "6bd774b96a54b15a4917d3278bfb6844d1463fa70100275074a627319006c5f3",
-    "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
-    "one_specialist_tools": "89cfeabb190475072e5d3aebe5f0b8d1838ea0565560fc2e7ad133a231396e40",
-    "route_index": "eb37a8bb7a3a30b196366cc330aafb5810c39efb8a411f39970d63652fb49733",
-    "route_layout": "10ad22b4267fe5a07259b04e90bca5996f7e4798ce6460eaf26b498f7cf761e6",
-    "surface_map": "2844fb6284f8a1ea4679a16b880b03b5590b1c9bcbf4db26f5e7b68aec31669d",
+    "a2a_scope_map": "901ffa785f2f917bce0a5eee0aceebeaded2180baf7a3bf7915c9d03e72fb526",
+    "action_gateway": "1bbd4f07600b8e1f688975a033718eee5239f831863f1eebf682bd893413fdf2",
+    "agent_registry": "549eb761c7aa5c93d5d07d9b730e5449525dc824bf614b92534e186ec6a32746",
+    "cache_manifest": "84cfb01d7d2b77bf97b8afa205a852ba5a4415abb38f4d9a38469068c7602c30",
+    "data_plane": "74199219c99176e931eefb01244dec0e5a2a25d4a5a3d18ee85fa39ac34b2863",
+    "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
+    "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
+    "route_index": "096e13cb27356fd092a6cfaac1075fbdcc4e44ba9aca829ba4a3803bf3ee48ba",
+    "route_layout": "e5a8957da274d9ee85201271f94a319c16e0ae6596e064771c01a6467d997118",
+    "surface_map": "5c5b425eb88aeaadba209387527a9064388568aa79f7b35f365d58364e83db01",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 261,
-    "agents": 19,
+    "actions": 277,
+    "agents": 21,
     "aliases": 4,
     "decision_required": 2,
-    "in_process_specialists": 5,
+    "in_process_specialists": 7,
     "one_specialist_tools": 6,
-    "physical_routes": 154,
+    "physical_routes": 160,
     "semantic_routes": 17,
-    "table_families": 114
+    "table_families": 126
   }
 }

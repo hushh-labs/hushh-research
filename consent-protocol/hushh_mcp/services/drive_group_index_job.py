@@ -1,37 +1,51 @@
-"""Bounded four-group preparation; no Drive writes, PKM writes or drain registration.
+"""Bounded four-group preparation; no Drive writes or PKM writes.
 
-Each run lists through the existing live transport and processes at most 100
-changed files. A current lease is renewed during slow parse/embedding work.
+Each run lists through the existing live transport and processes a bounded batch.
+A current lease is renewed during slow parse/embedding work.
 Later runs skip committed source versions; only an exhaustive listing can prune.
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import re
 from collections import Counter
 from contextlib import asynccontextmanager, nullcontext
+from dataclasses import replace
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
+from hushh_mcp.services.drive_document_prefix import PREFIX_POLICY
 from hushh_mcp.services.drive_group_index_store import (
     LEASE_SECONDS,
+    MAX_BATCH,
     MAX_INDEXED_FILES,
     DriveGroupIndexStore,
     GroupEntry,
 )
 from hushh_mcp.services.drive_groups.adapters import IsolatedHeadEmbedder, TransportHeadSource
 from hushh_mcp.services.drive_groups.contract import four_group_index_enabled
-from hushh_mcp.services.drive_groups.indexer import EMBED_BATCH, evidence_from_row, index_files
+from hushh_mcp.services.drive_groups.indexer import evidence_from_row, index_files
 from hushh_mcp.services.drive_groups.models import load_bundle
 from hushh_mcp.services.drive_groups.period import deciding_day, title_day
 from hushh_mcp.services.drive_search_paging_config import OWNER_SEARCH_PAGE_SIZE_MAX
 from hushh_mcp.services.drive_telemetry import drive_logger
-from hushh_mcp.services.google_drive_adapter import FILE_ID, DriveReadError, valid_metadata_name
+from hushh_mcp.services.google_drive_adapter import (
+    FILE_ID,
+    LIVE_EXTRACTABLE_ORIGINAL_TYPES,
+    RAW_PREFIX_LIMIT,
+    DriveReadError,
+    valid_metadata_name,
+)
 from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransport
+from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
 logger = drive_logger(__name__)
 PAGE_SIZE = OWNER_SEARCH_PAGE_SIZE_MAX
+CONTENT_BATCH = 20
+# Leave the existing isolated embedding timeout (100s) and commit/cleanup room.
+EMBED_COMMIT_RESERVE = 115
 _QUERY = (
     "mimeType != 'application/vnd.google-apps.folder' and "
     "mimeType != 'application/vnd.google-apps.shortcut'"
@@ -182,16 +196,19 @@ class DriveGroupIndexJob:
     async def _listing(self, reads, user):
         return await self.list_files(reads, user)
 
-    async def _prepare(self, job):
-        transport = self.transport or GoogleDriveRestTransport()
+    async def _prepare(self, job, deadline):
+        transport = self.transport or GoogleDriveRestTransport(raw_prefix=True)
         async with getattr(transport, "owner_search_session", nullcontext)():
-            return await self._prepare_in_session(job, transport)
+            return await self._prepare_in_session(job, transport, deadline)
 
-    async def _prepare_in_session(self, job, transport):
+    async def _prepare_in_session(self, job, transport, deadline):
         reads = _JobReads(self.store, transport, job)
         rows, complete, limited = await self._listing(reads, job["user_id"])
         known = await self.store.known(job)
-        bundle = self.bundle or load_bundle()
+        original = self.bundle or load_bundle()
+        # Source-version equality alone cannot reuse old full-download evidence.
+        policy = f"{original.version}:{PREFIX_POLICY}:{RAW_PREFIX_LIMIT}:{original.head_chars}:require-head"
+        bundle = replace(original, version=hashlib.sha256(policy.encode()).hexdigest()[:12])
         refs = {self.store.sealer.ref(job["user_id"], row["id"]) for row in rows}
         capacity = max(0, MAX_INDEXED_FILES - len(set(known) & refs if complete else known))
         pending = []
@@ -211,13 +228,55 @@ class DriveGroupIndexJob:
                     continue
                 capacity -= 1
             pending.append(row)
-        batch = pending[:EMBED_BATCH]
+
+        def uploaded_content(row):
+            mime = row.get("mimeType", "")
+            return mime in LIVE_EXTRACTABLE_ORIGINAL_TYPES and not mime.startswith(
+                "application/vnd.google-apps."
+            )
+
+        # Cheap rows make progress even when a few difficult documents are slow.
+        batch = [row for row in pending if not uploaded_content(row)][:MAX_BATCH]
+        content = [row for row in pending if uploaded_content(row)][
+            : min(CONTENT_BATCH, MAX_BATCH - len(batch))
+        ]
+        captured = {}
+        source = TransportHeadSource(reads, job["user_id"])
+        gate = asyncio.Semaphore(2)
+
+        async def capture(row):
+            async with gate:
+                captured[row["id"]] = await source.head(row)
+
+        budget = max(
+            0, min(40, deadline - asyncio.get_running_loop().time() - EMBED_COMMIT_RESERVE)
+        )
+        if content and budget > 0:
+            tasks = [asyncio.create_task(capture(row)) for row in content]
+            try:
+                done, waiting = await asyncio.wait(
+                    tasks, timeout=budget, return_when=asyncio.FIRST_EXCEPTION
+                )
+                for task in done:
+                    task.result()
+            finally:
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+            batch.extend(row for row in content if row["id"] in captured)
+
+        class CapturedHeads:
+            async def head(self, row):
+                return captured.get(row["id"])
+
         await self.store.require_current(job)
         run = await index_files(
             batch,
-            heads=TransportHeadSource(reads, job["user_id"]),
+            heads=CapturedHeads(),
             embedder=_JobEmbedding(self.store, self.embedder or IsolatedHeadEmbedder(), job),
             bundle=bundle,
+            require_head=True,
         )
         await self.store.require_current(job)
         by_id = {row["id"]: row for row in batch}
@@ -250,18 +309,20 @@ class DriveGroupIndexJob:
             "more": len(pending) > len(batch),
         }
 
-    async def run_one(self, *, user_id: str, deadline_seconds: int = 900) -> dict:
+    async def run_one(self, *, user_id: str, deadline_seconds: int = 180) -> dict:
         if not four_group_index_enabled():
             return {"status": "disabled"}
         job, committed = None, False
         code = "group_index_unavailable"
         try:
+            deadline = asyncio.get_running_loop().time() + deadline_seconds
             async with asyncio.timeout(deadline_seconds):
+                await admit_hub_content(user_id, "drive_group_index")
                 job = await self.store.claim(user_id=user_id)
                 if not job:
                     return {"status": "idle"}
                 async with self._lease(job):
-                    entries, progress = await self._prepare(job)
+                    entries, progress = await self._prepare(job, deadline)
                 # The heartbeat is stopped before commit releases the lease.
                 result = await self.store.commit(job, entries, **progress)
                 committed = True
@@ -288,14 +349,16 @@ class DriveGroupIndexJob:
                     logger.warning("drive_group_index.release status=unavailable")
         return {"status": "unavailable"}
 
-    async def run(self, *, max_jobs: int = 1, deadline_seconds: int = 900) -> dict:
+    async def run(self, *, max_jobs: int = 1, deadline_seconds: int = 180) -> dict:
         if (
             type(max_jobs) is not int
             or not 1 <= max_jobs <= 4
             or type(deadline_seconds) is not int
-            or not 1 <= deadline_seconds <= 1800
+            or not 1 <= deadline_seconds <= 180
         ):
             raise ValueError("invalid group index bounds")
+        if not four_group_index_enabled():
+            return {"schema_version": "drive.group_index.v1", "outcomes": {"disabled": 1}}
         counts = Counter()
         try:
             async with asyncio.timeout(deadline_seconds):

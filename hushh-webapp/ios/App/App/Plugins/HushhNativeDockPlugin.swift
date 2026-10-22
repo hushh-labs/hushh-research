@@ -491,6 +491,14 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
                     self.admissionProbe?.accessibilityElementsHidden = notification.name == UIApplication.willResignActiveNotification ||
                         !probePrivacy.appIsActive || probePrivacy.shielded
                     #endif
+                    let privacy = HushhSessionPrivacyShield.shared.snapshot()
+                    if notification.name == HushhSessionPrivacyShield.presentationDidChange && !privacy.shielded {
+                        // Release is not a new revocation. A matching prepared
+                        // editor must survive it; JS still binds current actions
+                        // through the existing owner-fenced readmission path.
+                        self.notifyListeners("readmissionRequested", data: [:], retainUntilConsumed: false)
+                        return
+                    }
                     // Release is not admission. A fresh owner-fenced apply is
                     // required; a queued JS revocation must never flash text.
                     self.requestedVisible = false; self.model.visible = false; self.model.interactionEnabled = false

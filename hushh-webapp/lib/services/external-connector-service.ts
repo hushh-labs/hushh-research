@@ -1,9 +1,8 @@
+import { requireSharedGoogleExchange } from './private-google-connections';
 import { BACKEND_URL } from "@/lib/config";
 import { ApiService } from "@/lib/services/api-service";
-import {
-  projectCustomConnectorTurnConfigurations,
-  type CustomConnectorConfiguration,
-} from "@/lib/connections/custom-connector-schema";
+import { projectCustomConnectorTurnConfigurations, type CustomConnectorConfiguration } from "@/lib/connections/custom-connector-schema";
+import { connectorSettingsRequest } from "@/lib/services/private-connector-transport";
 import {
   parseMcpCallApproval, parseMcpCallPreview,
   type McpCallApproval, type McpCallPreview, type McpCallReviewReference,
@@ -11,96 +10,17 @@ import {
 import { ONE_CHAT_KEY_HEADER } from "@/lib/vault/one-chat-key";
 import { observeServerDate, serverNow } from "@/lib/agent/server-clock";
 
-export type ExternalConnectorAuthStyle = "api_key" | "oauth";
-
-export type ExternalConnectorStatus =
-  | "not_connected"
-  | "connected"
-  | "verifying"
-  | "needs_reauth"
-  | "revoked"
-  | "error";
-
-export type ExternalConnectorSummary = {
-  connectorId: string;
-  displayName: string;
-  description: string;
-  authStyle: ExternalConnectorAuthStyle;
-  status: ExternalConnectorStatus;
-  accountLabel?: string | null;
-  connectedAt?: string | null;
-  validationState?: string;
-  profile?: "selected" | "live" | null;
-  revocationOutcome?: string;
-  lastErrorCode?: string | null;
-  available?: boolean;
-  /** Server-derived: an operator-registered OAuth provider with a reviewed manifest. */
-  curatedOAuth?: boolean;
-  /** Server-declared built-in card; presentation only and never an OAuth grant. */
-  catalogCard?: boolean;
-  /** Why a server-declared catalog card cannot yet start a connection. */
-  catalogState?: "setup_pending" | "discovery_pending" | "unavailable" | null;
-};
-
-export type ConnectorFeatures = Partial<
-  Record<
-    | "connections_panel_v2"
-    | "google_drive_connection"
-    | "google_drive_live"
-    | "google_drive_picker"
-    | "drive_document_indexing"
-    | "drive_four_group_index"
-    | "drive_document_sharing"
-    | "gmail_chat_reads"
-    | "google_drive_chat_reads"
-    | "curated_mcp_connectors",
-    boolean
-  >
->;
-export type ConnectorOverview = {
-  connectors: ExternalConnectorSummary[];
-  features: ConnectorFeatures;
-  /** Server presentation of the current package admission switch. */
-  driveAgentPackagesEnabled?: boolean;
-};
-export type DriveDocument = {
-  documentId: string;
-  name: string;
-  mimeType: string;
-  status: string;
-  backgroundProcessing?: boolean;
-};
-
-export type NativeDriveOAuthOutcome = "ready" | "cancelled" | "failed";
-
-export type NativeDriveOAuthReturn = {
-  attemptId: string;
-  outcome: NativeDriveOAuthOutcome;
-};
-
-export type PendingNativeDriveAttempt = {
-  attemptId: string;
-  expiresAt: string;
-};
-
-/**
- * Metadata returned only after the native Picker browser flow has settled at
- * the server.  These are candidates, not selected One documents: the owner
- * must still explicitly confirm them through the owner-protected endpoint.
- */
-export type NativeDrivePickerCandidate = {
-  documentId: string;
-  name: string;
-  mimeType: string;
-};
-
-export type PendingNativeDrivePicker = {
-  attemptId: string;
-  expiresAt: string;
-  files: NativeDrivePickerCandidate[];
-};
-
-export type ConnectorEffectGuard = () => boolean;
+import type {
+  ConnectorEffectGuard, ConnectorFeatures, ConnectorOverview, DriveDocument, ExternalConnectorSummary,
+  PendingNativeDriveAttempt, PendingNativeDrivePicker,
+  StripeConnectorReadiness,
+} from "@/lib/services/external-connector-contracts";
+export type {
+  ExternalConnectorAuthStyle, ExternalConnectorStatus, StripeConnectorReadiness,
+  ExternalConnectorSummary, ConnectorFeatures, ConnectorOverview, DriveDocument,
+  NativeDriveOAuthOutcome, NativeDriveOAuthReturn, PendingNativeDriveAttempt,
+  NativeDrivePickerCandidate, PendingNativeDrivePicker, ConnectorEffectGuard,
+} from "@/lib/services/external-connector-contracts";
 
 /** A provider credential failed during catalog discovery; never expose its response. */
 export class McpCatalogAuthenticationError extends Error {
@@ -270,7 +190,7 @@ export class ExternalConnectorService {
   }): Promise<unknown> {
     const current = () => !input.signal.aborted && input.isEffectCurrent();
     if (!/^custom_[a-f0-9]{32}$/.test(input.connectorId) || !current()) throw new Error("Your connection changed.");
-    const response = await ApiService.apiFetch(`/api/connectors/${input.connectorId}/mcp/oauth/${input.operation}`, {
+    const response = await connectorSettingsRequest(input.connectorId, `mcp/oauth/${input.operation}`, {
       method: "POST", cache: "no-store", signal: input.signal, isEffectCurrent: current,
       headers: { ...authHeaders(input.vaultOwnerToken), "Content-Type": "application/json" },
       body: JSON.stringify(input.payload),
@@ -290,7 +210,7 @@ export class ExternalConnectorService {
     if (!current()) throw new Error("Your vault session changed.");
     const configuration = projectCustomConnectorTurnConfigurations([input.configuration])[0];
     if (!configuration) throw new Error("Enable this connector before refreshing.");
-    const response = await ApiService.apiFetch(`/api/connectors/${encodeURIComponent(configuration.connectorId)}/mcp/catalog`, {
+    const response = await connectorSettingsRequest(configuration.connectorId, "mcp/catalog", {
       method: "POST", cache: "no-store", signal: input.signal, isEffectCurrent: current,
       headers: { ...authHeaders(input.vaultOwnerToken), "Content-Type": "application/json" },
       body: JSON.stringify({ connectorConfiguration: configuration }),
@@ -302,7 +222,7 @@ export class ExternalConnectorService {
         ? payload.detail : null;
       const code = detail && typeof detail === "object" && "code" in detail
         ? detail.code : null;
-      if (code === "EXTERNAL_MCP_AUTH_FAILED" || code === "MCP_CREDENTIAL_EXPIRED")
+      if (code === "EXTERNAL_MCP_AUTH_FAILED" || code === "MCP_CREDENTIAL_EXPIRED" || code === "MCP_STRIPE_OAUTH_REQUIRED")
         throw new McpCatalogAuthenticationError();
       throw new Error("Could not refresh tools. Check the connection and try again.");
     }
@@ -327,6 +247,48 @@ export class ExternalConnectorService {
         // An older server omits `access`; treat every tool as one that may change.
         access: tool.access === "read" ? "read" : "write" };
     });
+  }
+
+  /** Explicit Settings read, using the same owner/private placement as OAuth. */
+  static async verifyStripeAccount(input: {
+    vaultOwnerToken: string; configuration: CustomConnectorConfiguration;
+    signal: AbortSignal; isEffectCurrent: ConnectorEffectGuard;
+  }): Promise<StripeConnectorReadiness> {
+    const current = () => !input.signal.aborted && input.isEffectCurrent();
+    const configuration = projectCustomConnectorTurnConfigurations([input.configuration])[0];
+    if (!configuration || !current()) throw new Error("Your connection changed.");
+    const response = await connectorSettingsRequest(configuration.connectorId, "mcp/verify", {
+      method: "POST", cache: "no-store", signal: input.signal, isEffectCurrent: current,
+      headers: { ...authHeaders(input.vaultOwnerToken), "Content-Type": "application/json" },
+      body: JSON.stringify({ connectorConfiguration: configuration }),
+    });
+    if (!response.ok || !current()) throw new Error("Stripe account could not be verified.");
+    const value = await response.json();
+    const readiness = value?.stripeReadiness;
+    const verified = readiness?.verificationState === "verified";
+    if (!current() || value?.connectorId !== configuration.connectorId ||
+      value?.configurationRevision !== configuration.revision || !readiness ||
+      typeof readiness.toolingConnected !== "boolean" || (verified && !readiness.toolingConnected) ||
+      readiness.accountVerified !== verified || readiness.environmentVerified !== verified ||
+      readiness.accountToolsAvailable !== verified ||
+      readiness.capability !== (verified ? "account_balance_readonly" : "documentation_only") ||
+      !["unverified", "verified", "unsupported", "mismatch", "expired"].includes(readiness.verificationState) ||
+      (verified && (readiness.configurationRevision !== configuration.revision ||
+        typeof readiness.catalogFingerprint !== "string" || !/^[a-f0-9]{64}$/.test(readiness.catalogFingerprint) ||
+        typeof readiness.verifiedAt !== "string" || !Number.isFinite(Date.parse(readiness.verifiedAt))))) {
+      throw new Error("Stripe connection changed. Check again.");
+    }
+    // No account records, balances or raw provider payload enters UI state here.
+    return {
+      toolingConnected: readiness.toolingConnected === true,
+      accountVerified: verified, environmentVerified: verified, accountToolsAvailable: verified,
+      capability: verified ? "account_balance_readonly" : "documentation_only",
+      nextStep: verified ? "ready" : "authenticated_account_contract_required",
+      managementPath: "/one/profile/connectors", verificationState: readiness.verificationState,
+      verifiedAt: verified ? readiness.verifiedAt : null,
+      configurationRevision: verified ? readiness.configurationRevision : null,
+      catalogFingerprint: verified ? readiness.catalogFingerprint : null,
+    };
   }
 
   /** Fetch exact arguments into the active review only; never cache or log them. */
@@ -379,26 +341,39 @@ export class ExternalConnectorService {
     if (configuration && (!configuration.enabled || configuration.connectorId !== input.reference.connectorId)) {
       throw new Error("This connector configuration changed. Open the review again.");
     }
-    const response = await ApiService.apiFetch(
-      `/api/connectors/${encodeURIComponent(input.reference.connectorId)}/mcp/${operation}`,
-      {
-        method: "POST", cache: "no-store", signal: input.signal,
-        isEffectCurrent: current,
-        headers: {
-          ...authHeaders(input.vaultOwnerToken),
-          [ONE_CHAT_KEY_HEADER]: input.chatKey,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          conversationId: input.conversationId,
-          toolName: input.reference.toolName,
-          pendingHandle: input.reference.pendingHandle,
-          arguments: args,
-          ...(configuration ? { connectorConfiguration: configuration } : {}),
-          ...(operation === "confirm" ? { directiveId: input.reference.directiveId, confirmed: true } : {}),
-        }),
+    const { usesOwnerPod } = await import("./pod-app-access");
+    const privatePod = await usesOwnerPod(() => ApiService.getPersonalAgentStatus());
+    if (!current()) throw new Error("Your vault session changed. Open the review again.");
+    const podReview = (input.reference as McpCallPreview).podReview;
+    if (operation === "confirm" && privatePod && (!podReview ||
+        podReview.conversationId !== input.conversationId)) {
+      throw new Error("Private connector review changed. Open the review again.");
+    }
+    if (!privatePod && podReview) throw new Error("Private agent assignment changed.");
+    const privateConfirmation = privatePod && operation === "confirm";
+    const init = {
+      method: "POST", cache: "no-store" as RequestCache, signal: input.signal,
+      isEffectCurrent: current,
+      headers: {
+        ...authHeaders(input.vaultOwnerToken),
+        ...(!privateConfirmation ? { [ONE_CHAT_KEY_HEADER]: input.chatKey } : {}),
+        "Content-Type": "application/json",
       },
-    );
+      body: JSON.stringify(privateConfirmation ? {
+        podReview, directiveId: input.reference.directiveId, confirmed: true,
+      } : {
+        conversationId: input.conversationId,
+        toolName: input.reference.toolName, pendingHandle: input.reference.pendingHandle,
+        directiveId: input.reference.directiveId,
+        arguments: args,
+        ...(configuration ? { connectorConfiguration: configuration } : {}),
+        ...(operation === "confirm" ? { directiveId: input.reference.directiveId, confirmed: true } : {}),
+      }),
+    };
+    const connector = encodeURIComponent(input.reference.connectorId);
+    const response = privatePod && operation === "review"
+      ? await ApiService.ownerPodRequest(`agent-chat/connectors/${connector}/mcp/review`, init)
+      : await ApiService.apiFetch(`/api/connectors/${connector}/mcp/${operation}`, init);
     // Learn the server's clock so the time left is the server's, not this device's.
     observeServerDate(response.headers.get("date"));
     // Never echo response bodies: they may contain private arguments or provider text.
@@ -422,10 +397,18 @@ export class ExternalConnectorService {
     return (await this.overview(vaultOwnerToken)).connectors;
   }
 
+  static async featureReadiness(vaultOwnerToken: string): Promise<Pick<ConnectorOverview, "features" | "driveAgentPackagesEnabled">> {
+    const response = await ApiService.apiFetch("/api/connectors/features", {
+      method: "GET", headers: authHeaders(vaultOwnerToken), cache: "no-store",
+    });
+    return readJsonOrThrow<Pick<ConnectorOverview, "features" | "driveAgentPackagesEnabled">>(response);
+  }
+
   static async overview(
     vaultOwnerToken: string,
     options: { sourceRead?: boolean } = {},
   ): Promise<ConnectorOverview> {
+    await requireSharedGoogleExchange();
     const response = await ApiService.apiFetch("/api/connectors", {
       method: "GET",
       headers: authHeaders(vaultOwnerToken),
@@ -451,6 +434,7 @@ export class ExternalConnectorService {
     apiKey: string;
     accountLabel?: string;
   }): Promise<{ status: string; connectorId: string }> {
+    await requireSharedGoogleExchange();
     const response = await ApiService.apiFetch(
       `/api/connectors/${encodeURIComponent(input.connectorId)}/connect/api-key`,
       {
@@ -482,6 +466,7 @@ export class ExternalConnectorService {
     attemptId?: string;
     connectorId?: string;
   }> {
+    await requireSharedGoogleExchange();
     return withOAuthStartDeadline(async (signal) => {
       const response = await ApiService.apiFetch(
         `/api/connectors/${encodeURIComponent(input.connectorId)}/connect/oauth/start`,
@@ -508,6 +493,7 @@ export class ExternalConnectorService {
     vaultOwnerToken: string;
     isEffectCurrent?: ConnectorEffectGuard;
   }): Promise<PendingNativeDriveAttempt | null> {
+    await requireSharedGoogleExchange();
     const response = await ApiService.apiFetch(
       "/api/connectors/oauth/native/pending",
       {
@@ -528,6 +514,7 @@ export class ExternalConnectorService {
     attemptId: string;
     isEffectCurrent?: ConnectorEffectGuard;
   }): Promise<{ status: string; connectorId: string }> {
+    await requireSharedGoogleExchange();
     return readJsonOrThrow(
       await ApiService.apiFetch("/api/connectors/oauth/native/finalize", {
         method: "POST",
@@ -550,6 +537,7 @@ export class ExternalConnectorService {
     expiresAt: string;
     attemptId: string;
   }> {
+    await requireSharedGoogleExchange();
     return readJsonOrThrow(
       await ApiService.apiFetch(
         "/api/connectors/google_drive/picker/native/start",
@@ -570,6 +558,7 @@ export class ExternalConnectorService {
     vaultOwnerToken: string;
     isEffectCurrent?: ConnectorEffectGuard;
   }): Promise<PendingNativeDrivePicker | null> {
+    await requireSharedGoogleExchange();
     const payload = await readJsonOrThrow<{
       pending?: PendingNativeDrivePicker | null;
     }>(
@@ -592,6 +581,7 @@ export class ExternalConnectorService {
     backgroundProcessing?: boolean;
     isEffectCurrent?: ConnectorEffectGuard;
   }): Promise<{ documents: DriveDocument[] }> {
+    await requireSharedGoogleExchange();
     return readJsonOrThrow(
       await ApiService.apiFetch(
         "/api/connectors/google_drive/picker/native/confirm",
@@ -618,6 +608,7 @@ export class ExternalConnectorService {
     attemptId: string;
     isEffectCurrent?: ConnectorEffectGuard;
   }): Promise<void> {
+    await requireSharedGoogleExchange();
     await readJsonOrThrow(
       await ApiService.apiFetch(
         "/api/connectors/google_drive/picker/native/cancel",
@@ -639,6 +630,7 @@ export class ExternalConnectorService {
     state: string;
     code: string;
   }): Promise<{ status: string; connectorId: string }> {
+    await requireSharedGoogleExchange();
     const response = await ApiService.apiFetch(
       "/api/connectors/oauth/complete",
       {
@@ -659,14 +651,14 @@ export class ExternalConnectorService {
     signal?: AbortSignal;
     isEffectCurrent: ConnectorEffectGuard;
   }): Promise<{ status: string; connectorId: string }> {
-    return readJsonOrThrow(
-      await ApiService.apiFetch("/api/connectors/google_drive/live/verify", {
-        method: "POST",
-        headers: authHeaders(input.vaultOwnerToken),
-        signal: input.signal,
-        isEffectCurrent: input.isEffectCurrent,
-      }),
-    );
+    await requireSharedGoogleExchange();
+    const response = await ApiService.apiFetch("/api/connectors/google_drive/live/verify", {
+      method: "POST",
+      headers: authHeaders(input.vaultOwnerToken),
+      signal: input.signal,
+      isEffectCurrent: input.isEffectCurrent,
+    });
+    return readJsonOrThrow(response);
   }
 
   static async disconnect(input: {
@@ -677,6 +669,7 @@ export class ExternalConnectorService {
     connectorId: string;
     revocationOutcome?: string;
   }> {
+    await requireSharedGoogleExchange();
     const response = await ApiService.apiFetch(
       `/api/connectors/${encodeURIComponent(input.connectorId)}/disconnect`,
       {
@@ -693,6 +686,7 @@ export class ExternalConnectorService {
     code: string;
     attemptId: string;
   }): Promise<{ status: string; connectorId: string }> {
+    await requireSharedGoogleExchange();
     return readJsonOrThrow(
       await ApiService.apiFetch("/api/connectors/oauth/complete/web", {
         method: "POST",
@@ -713,6 +707,7 @@ export class ExternalConnectorService {
     vaultOwnerToken: string,
     origin: string,
   ): Promise<DrivePickerSession> {
+    await requireSharedGoogleExchange();
     return readJsonOrThrow(
       await ApiService.apiFetch("/api/connectors/google_drive/picker/session", {
         method: "POST",
@@ -731,6 +726,7 @@ export class ExternalConnectorService {
     fileIds: string[],
     backgroundProcessing = false,
   ): Promise<DriveDocument[]> {
+    await requireSharedGoogleExchange();
     const result = await readJsonOrThrow<{ documents: DriveDocument[] }>(
       await ApiService.apiFetch(
         "/api/connectors/google_drive/documents/select",
@@ -755,6 +751,7 @@ export class ExternalConnectorService {
   }
 
   static async documents(vaultOwnerToken: string): Promise<DriveDocument[]> {
+    await requireSharedGoogleExchange();
     const result = await readJsonOrThrow<{ documents: DriveDocument[] }>(
       await ApiService.apiFetch("/api/connectors/google_drive/documents", {
         method: "GET",
@@ -765,6 +762,7 @@ export class ExternalConnectorService {
   }
 
   static async liveBackground(vaultOwnerToken: string): Promise<boolean> {
+    await requireSharedGoogleExchange();
     const result = await readJsonOrThrow<{ enabled: unknown }>(
       await ApiService.apiFetch("/api/connectors/google_drive/live/background", {
         method: "GET",
@@ -781,6 +779,7 @@ export class ExternalConnectorService {
     vaultOwnerToken: string,
     enabled: boolean,
   ): Promise<boolean> {
+    await requireSharedGoogleExchange();
     const result = await readJsonOrThrow<{ enabled: unknown }>(
       await ApiService.apiFetch("/api/connectors/google_drive/live/background", {
         method: "POST",
@@ -800,6 +799,7 @@ export class ExternalConnectorService {
     vaultOwnerToken: string,
     documentId: string,
   ): Promise<void> {
+    await requireSharedGoogleExchange();
     await readJsonOrThrow(
       await ApiService.apiFetch(
         `/api/connectors/google_drive/documents/${encodeURIComponent(documentId)}`,
@@ -820,6 +820,7 @@ export class ExternalConnectorService {
     documentId: string,
     enabled: boolean,
   ): Promise<void> {
+    await requireSharedGoogleExchange();
     await readJsonOrThrow(
       await ApiService.apiFetch(
         `/api/connectors/google_drive/documents/${encodeURIComponent(documentId)}/processing`,
@@ -843,6 +844,7 @@ export class ExternalConnectorService {
     vaultOwnerToken: string,
     documentId: string,
   ): Promise<void> {
+    await requireSharedGoogleExchange();
     await readJsonOrThrow(
       await ApiService.apiFetch(
         `/api/connectors/google_drive/documents/${encodeURIComponent(documentId)}/sync`,

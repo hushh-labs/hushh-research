@@ -122,7 +122,7 @@
 .inlineOptions { max-height: 175px; margin-top: 8px; overflow-y: auto; }
 .inlineOption { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 42px; padding: 10px 9px; border: 0; border-radius: 9px; background: transparent; color: #1d1d1f; font-family: var(--font-app-body); font-size: 14px; text-align: left; }
 :global(.dark) .inlineOption { color: #f5f5f7; }
-.inlineOption[aria-selected="true"] { color: #0071e3; background: #f2f7ff; }
+.inlineOption[aria-selected="true"] { color: var(--app-accent); background: #f2f7ff; }
 :global(.dark) .inlineOption[aria-selected="true"] { background: #1b2840; }
 .inlineOption:hover { background: #f5f5f7; }
 :global(.dark) .inlineOption:hover { background: #202127; }

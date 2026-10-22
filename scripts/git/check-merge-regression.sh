@@ -79,6 +79,7 @@ read_target_file() {
   fi
 }
 
+
 CHANGED_FILES="$(git diff --name-only --diff-filter=M "$BASE" "$UPSTREAM" | grep -Ev "$EXCLUDE_RE" || true)"
 
 # Optional narrowing to the files a specific diff range touches. Used by the
@@ -102,6 +103,7 @@ if [ -z "$CHANGED_FILES" ]; then
 fi
 
 TMP_REPORT="$(mktemp)"
+TMP_SCAN="$(mktemp -d)"
 # Dump whatever was collected if this script dies for any reason other than
 # its own two designed exits (0 clean, 1 flagged-in-block-mode). The report is
 # built into a temp file and only printed at the end, so an unexpected death
@@ -113,7 +115,8 @@ trap 'rc=$?
         cat "$TMP_REPORT" >&2 2>/dev/null || true
         echo "[merge-regression] Treat this run as INCONCLUSIVE, not clean." >&2
       fi
-      rm -f "$TMP_REPORT"' EXIT
+      rm -f "$TMP_REPORT"
+      rm -rf "$TMP_SCAN"' EXIT
 
 FLAGGED=0
 CHECKED=0
@@ -136,69 +139,27 @@ while IFS= read -r f; do
   fi
   base_content="$(git show "${BASE}:$f" 2>/dev/null || true)"
 
-  # Significant lines BASE -> UPSTREAM changed for this file: strip the
-  # leading '+'/'-', drop pure-comment/whitespace noise, require real length,
-  # and drop lines that recur more than once in their own source file — a
-  # repeated boilerplate signature (e.g. `async (id: string) => {` reused
-  # across many unrelated callbacks in a large file) cannot be told apart
-  # from a genuine resurrection/drop by exact-text matching alone.
-  # (Built with plain read loops, not `mapfile` — this must also run under
-  # macOS's stock bash 3.2, which has no mapfile/associative arrays.)
-  added_lines=()
-  while IFS= read -r line; do
-    [ "$(grep -cF -- "$line" <<<"$upstream_content")" -eq 1 ] && added_lines+=("$line")
-  done < <(
-    git diff "$BASE" "$UPSTREAM" -- "$f" \
-      | grep -E '^\+[^+]' \
-      | sed -E 's/^\+//' \
-      | sed -E 's/^[[:space:]]+//' \
-      | grep -Ev '^[[:space:]]*$' \
-      | grep -Ev '^(//|\*|#)' \
-      | awk -v n="$MIN_LEN" 'length($0) >= n'
-  )
-
-  # Significant lines UPSTREAM deleted relative to BASE. If these are still
-  # present in the resolved result, the resolution kept the side a fix was
-  # written to remove — the mirror image of a dropped addition, and the
-  # actual signature of the incident this script exists to catch (a fix that
-  # is mostly "stop doing X" shows up here, not in added_lines).
-  deleted_lines=()
-  while IFS= read -r line; do
-    [ "$(grep -cF -- "$line" <<<"$base_content")" -eq 1 ] && deleted_lines+=("$line")
-  done < <(
-    git diff "$BASE" "$UPSTREAM" -- "$f" \
-      | grep -E '^-[^-]' \
-      | sed -E 's/^-//' \
-      | sed -E 's/^[[:space:]]+//' \
-      | grep -Ev '^[[:space:]]*$' \
-      | grep -Ev '^(//|\*|#)' \
-      | awk -v n="$MIN_LEN" 'length($0) >= n'
-  )
-
-  [ "${#added_lines[@]}" -eq 0 ] && [ "${#deleted_lines[@]}" -eq 0 ] && continue
-
-  missing=0
+  # One literal scan per file, instead of thousands of grep processes.
+  # Thresholds, unique-line rules and both signal directions are unchanged.
+  printf '%s\n' "$base_content" > "$TMP_SCAN/base"
+  printf '%s\n' "$upstream_content" > "$TMP_SCAN/upstream"
+  printf '%s\n' "$target_content" > "$TMP_SCAN/target"
+  git diff "$BASE" "$UPSTREAM" -- "$f" > "$TMP_SCAN/diff"
+  python3 "$(dirname "$0")/merge_line_match.py" "$TMP_SCAN" "$MIN_LEN" > "$TMP_SCAN/signals" || exit 2
+  added_total=0
+  deleted_total=0
   missing_lines=()
-  # `${arr[@]+"${arr[@]}"}`, not `"${arr[@]}"` — bash 3.2 (macOS stock) treats
-  # expanding a zero-element array as an unbound variable under `set -u`.
-  for line in "${added_lines[@]+"${added_lines[@]}"}"; do
-    if [ -z "$target_content" ] || ! grep -qF -- "$line" <<<"$target_content"; then
-      missing=$((missing + 1))
-      missing_lines+=("$line")
-    fi
-  done
-
-  resurrected=0
   resurrected_lines=()
-  for line in "${deleted_lines[@]+"${deleted_lines[@]}"}"; do
-    if [ -n "$target_content" ] && grep -qF -- "$line" <<<"$target_content"; then
-      resurrected=$((resurrected + 1))
-      resurrected_lines+=("$line")
-    fi
-  done
-
-  added_total="${#added_lines[@]}"
-  deleted_total="${#deleted_lines[@]}"
+  while IFS=$'\t' read -r kind value; do
+    case "$kind" in
+      added) added_total="$value" ;;
+      deleted) deleted_total="$value" ;;
+      missing) missing_lines+=("$value") ;;
+      restored) resurrected_lines+=("$value") ;;
+    esac
+  done < "$TMP_SCAN/signals"
+  missing="${#missing_lines[@]}"
+  resurrected="${#resurrected_lines[@]}"
   added_pct=0
   [ "$added_total" -gt 0 ] && added_pct=$(( missing * 100 / added_total ))
   deleted_pct=0

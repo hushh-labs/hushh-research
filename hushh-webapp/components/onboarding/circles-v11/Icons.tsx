@@ -1,8 +1,9 @@
 import React from 'react';
 import type { IconProps } from './types';
+import { PeoplePairIcon } from '@/components/icons';
 export function Icon({name,size=20,strokeWidth=1.8,className='',title}:IconProps){
+  if(name==='users') return <PeoplePairIcon size={size} className={className} role={title?'img':undefined} aria-label={title} aria-hidden={title?undefined:true}/>;
   const path:Record<string,React.ReactNode>={
-    users:<><path d="M16 20v-1.8A4.2 4.2 0 0 0 11.8 14H5.2A4.2 4.2 0 0 0 1 18.2V20"/><circle cx="8.5" cy="7" r="3.8"/><path d="M22 20v-1.8a4.2 4.2 0 0 0-3.1-4.05M16.5 3.3a3.8 3.8 0 0 1 0 7.4"/></>,
     trusted:<><path d="M12 21s-7.5-4.8-9.4-9.2C.9 7.7 3.1 3.4 7.2 3.4c2.1 0 3.6 1.1 4.8 2.7 1.2-1.6 2.7-2.7 4.8-2.7 4.1 0 6.3 4.3 4.6 8.4C19.5 16.2 12 21 12 21Z"/></>,
     invite:<><path d="M16 20v-2.1a4.1 4.1 0 0 0-4.1-4.1H5.1A4.1 4.1 0 0 0 1 17.9V20"/><circle cx="8.5" cy="7" r="3.7"/><path d="M19 7v8M15 11h8"/></>,
     arrow:<><path d="M4 12h16m-6-6 6 6-6 6"/></>,back:<path d="m14.5 5-7 7 7 7"/>,

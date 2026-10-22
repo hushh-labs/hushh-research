@@ -16,6 +16,7 @@ from api.routes.one.profile_research import (
     PrivateProfileRoute,
 )
 from hushh_mcp.managed_ai_config import load_pwm_policy
+from hushh_mcp.one_adk.public_sources import OwnerPublicProfiles
 from hushh_mcp.one_adk.world_model import OwnerDecisions
 from hushh_mcp.one_adk.world_model_usage import public_result
 from hushh_mcp.services import world_model_invitations as invitations
@@ -25,7 +26,8 @@ from hushh_mcp.services.magic_intelligence_completion import (
     MagicReviewNotCommitted,
     complete_magic_intelligence,
 )
-from hushh_mcp.services.world_model_service import world_model_jobs
+from hushh_mcp.services.owner_placement_guard import hub_content_chat_owner
+from hushh_mcp.services.world_model_service import PublicProfilesChanged, world_model_jobs
 
 router = APIRouter(
     prefix="/api/one/world-model", tags=["Personal World Model"], route_class=PrivateProfileRoute
@@ -49,6 +51,7 @@ class RefreshPreparationInput(PreparationInput):
     """Explicit owner refresh; automatic ensure retains its reuse contract."""
 
     refresh: bool = Field(default=False, strict=True)
+    public_profiles: OwnerPublicProfiles | None = None
 
 
 def decisions(body: PreparationInput | None):
@@ -61,7 +64,7 @@ def research_response(result, status_code):
     return JSONResponse(payload, status_code=status_code, headers=headers)
 
 
-async def operation(token, start, owner_decisions=None, refresh=False):
+async def operation(token, start, owner_decisions=None, refresh=False, public_profiles=None):
     try:
         if start:
             kwargs = (
@@ -71,12 +74,20 @@ async def operation(token, start, owner_decisions=None, refresh=False):
             )
             if refresh:
                 kwargs["refresh_completed"] = True
+            if public_profiles is not None:
+                kwargs.setdefault("inputs", {})["public_profiles"] = public_profiles
             result = await world_model_jobs.start(*owner(token), **kwargs)
         else:
             result = await world_model_jobs.status(*owner(token))
         return research_response(result, status_code=202 if result["status"] == "pending" else 200)
     except PermissionError:
         raise HTTPException(403, "Unlock your vault to continue.") from None
+    except HTTPException:
+        raise
+    except PublicProfilesChanged:
+        raise HTTPException(
+            409, "Wait for current research, then explicitly research these profiles."
+        ) from None
     except Exception:
         raise HTTPException(
             503, "Research is temporarily unavailable.", headers={"Retry-After": "5"}
@@ -88,9 +99,17 @@ async def operation(token, start, owner_decisions=None, refresh=False):
 async def start(
     request: Request,
     body: RefreshPreparationInput | None = None,
-    token: dict = Depends(require_vault_owner_chat_key),
+    token: dict = Depends(hub_content_chat_owner),
 ):
-    return await operation(token, True, decisions(body), refresh=bool(body and body.refresh))
+    return await operation(
+        token,
+        True,
+        decisions(body),
+        refresh=bool(body and body.refresh),
+        public_profiles=body.public_profiles.model_dump()
+        if body and body.public_profiles
+        else None,
+    )
 
 
 @router.get("/jobs")
@@ -98,7 +117,7 @@ async def start(
 async def status(
     request: Request,
     draft_id: UUID | None = None,
-    token: dict = Depends(require_vault_owner_chat_key),
+    token: dict = Depends(hub_content_chat_owner),
 ):
     response = await operation(token, False)
     if draft_id:
@@ -151,7 +170,7 @@ async def set_preferences(
 async def ensure(
     request: Request,
     body: PreparationInput | None = None,
-    token: dict = Depends(require_vault_owner_chat_key),
+    token: dict = Depends(hub_content_chat_owner),
 ):
     try:
         result = await world_model_jobs.ensure(*owner(token), owner_decisions=decisions(body))
@@ -173,12 +192,14 @@ async def ensure(
 async def dismiss(
     request: Request,
     draft_id: UUID | None = None,
-    token: dict = Depends(require_vault_owner_chat_key),
+    token: dict = Depends(hub_content_chat_owner),
 ):
     try:
         await world_model_jobs.dismiss(*owner(token), str(draft_id) if draft_id else None)
     except PermissionError:
         raise HTTPException(403, "Unlock your vault to continue.") from None
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(409, "Draft changed. Try again.") from None
     return {"discarded": True}
@@ -194,7 +215,7 @@ class WorldModelCompletion(MagicReviewCompletion):
 async def complete(
     request: Request,
     body: WorldModelCompletion,
-    token: dict = Depends(require_vault_owner_chat_key),
+    token: dict = Depends(hub_content_chat_owner),
 ):
     user_id, consent_token = owner(token)
     try:
@@ -322,7 +343,7 @@ class ResearchIdentityInput(BaseModel):
 async def research(
     request: Request,
     body: ResearchIdentityInput,
-    token: dict = Depends(require_vault_owner_chat_key),
+    token: dict = Depends(hub_content_chat_owner),
 ):
     """Integration endpoint: supplied identifiers must belong to the current owner."""
     from hushh_mcp.services.world_model_service import owner_identity
@@ -351,7 +372,7 @@ async def research(
 async def prepare_sources(
     request: Request,
     body: source_reviews.SourceReviewInput,
-    token: dict = Depends(require_vault_owner_chat_key),
+    token: dict = Depends(hub_content_chat_owner),
 ):
     try:
         return await source_reviews.prepare(*owner(token), body)
@@ -361,6 +382,8 @@ async def prepare_sources(
         raise HTTPException(
             422, "Use permitted public source pages. No supported result could be prepared."
         ) from None
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(503, "Source review is temporarily unavailable.") from None
 
@@ -369,7 +392,7 @@ async def prepare_sources(
 async def read_sources(
     request: Request,
     purpose: Literal["owner", "invitation"] = "owner",
-    token: dict = Depends(require_vault_owner_chat_key),
+    token: dict = Depends(hub_content_chat_owner),
 ):
     try:
         state = await source_reviews.read(*owner(token))
@@ -386,7 +409,7 @@ async def read_sources(
 
 @router.delete("/source-reviews")
 async def discard_sources(
-    request: Request, draft_id: UUID, token: dict = Depends(require_vault_owner_chat_key)
+    request: Request, draft_id: UUID, token: dict = Depends(hub_content_chat_owner)
 ):
     try:
         await source_reviews.discard(*owner(token), str(draft_id))
@@ -401,7 +424,7 @@ async def discard_sources(
 async def complete_sources(
     request: Request,
     body: WorldModelCompletion,
-    token: dict = Depends(require_vault_owner_chat_key),
+    token: dict = Depends(hub_content_chat_owner),
 ):
     user_id, consent_token = owner(token)
     try:

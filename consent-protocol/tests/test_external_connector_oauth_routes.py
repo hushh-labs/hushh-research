@@ -25,6 +25,24 @@ from hushh_mcp.services.external_connector_registry_service import (
 )
 
 
+def test_feature_readiness_does_not_wait_for_connector_providers(route_client, monkeypatch):
+    client, app, _ = route_client
+    unavailable = Mock(side_effect=RuntimeError("provider unavailable"))
+    monkeypatch.setattr(routes, "get_external_connector_registry_service", unavailable)
+    monkeypatch.setattr(routes, "get_external_connector_credentials_service", unavailable)
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "true")
+    assert client.get("/api/connectors/features").status_code == 401
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner"}
+    response = client.get("/api/connectors/features")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json() == {
+        "features": routes.connector_features("owner"),
+        "driveAgentPackagesEnabled": True,
+    }
+    unavailable.assert_not_called()
+
+
 def test_collection_processing_needs_explicit_owner_permission(route_client, monkeypatch):
     from hushh_mcp.services import drive_collection_store
 
@@ -223,7 +241,7 @@ def test_private_oauth_rejects_invalid_operator_return(origin, monkeypatch):
 
 
 @pytest.fixture
-def route_client(monkeypatch):
+def route_client(shared_hub_owner, monkeypatch):
     drive = SimpleNamespace(
         connection_available=AsyncMock(return_value=True),
         complete=AsyncMock(return_value={"connectorId": "google_drive", "status": "verifying"}),
@@ -679,7 +697,11 @@ def test_native_picker_routes_keep_candidates_owner_bound_and_processing_opt_in(
     assert start_response.headers["cache-control"] == "no-store"
     native.start.assert_awaited_once_with(user_id="verified-owner", redirect_uri=redirect)
 
+    result_admission = AsyncMock()
+    monkeypatch.setattr(routes, "admit_hub_content", result_admission)
     pending_response = client.get("/api/connectors/google_drive/picker/native/pending")
+    result_admission.assert_awaited_once_with("verified-owner", "connector_result")
+    native.pending.assert_awaited_once_with(user_id="verified-owner")
     assert pending_response.status_code == 200
     assert pending_response.headers["cache-control"] == "no-store"
     assert pending_response.json()["pending"]["files"][0].keys() == {
@@ -1080,6 +1102,70 @@ def test_status_requires_vault_owner(route_client):
     # sufficient for status, start, disconnect or native owner finalization.
     protected = [route for route in app.routes if getattr(route, "path", "") == "/api/connectors"]
     assert protected[0].dependant.dependencies[0].call is require_vault_owner_token
+
+
+def test_private_review_confirmation_requires_browser_owner_and_never_accepts_arguments(
+    route_client, monkeypatch
+):
+    client, app, _ = route_client
+    review = dict(
+        kind="pod_mcp_review_v1",
+        ownerId="owner",
+        hushhId="pod",
+        podKeyId="key",
+        environment="dev",
+        epoch=1,
+        conversationId="thread",
+        connectorId="custom_test",
+        toolName="mcp_" + "a" * 40,
+        callId="call",
+        catalogRevision="rev1",
+        commitment="b" * 64,
+        serviceUid="uid",
+    )
+    body = dict(podReview=review, directiveId="dir_" + "c" * 32, confirmed=True)
+    path = "/api/connectors/custom_test/mcp/confirm"
+    broker = AsyncMock(return_value={"status": "confirmed"})
+    monkeypatch.setattr(routes, "mutate_review", broker)
+    # A machine bearer alone is not a vault-owner browser confirmation.
+    assert client.post(
+        path, json=body, headers={"Authorization": "Bearer pod-only"}
+    ).status_code in {401, 403}
+    broker.assert_not_awaited()
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner"}
+    assert (
+        client.post(path, json={**body, "arguments": {"private": "never-forward"}}).status_code
+        == 422
+    )
+    assert client.post(path, json={**body, "confirmed": False}).status_code == 400
+    assert (
+        client.post(path, json={**body, "podReview": {**review, "ownerId": "other"}}).status_code
+        == 403
+    )
+    broker.assert_not_awaited()
+    assert client.post(path, json=body).status_code == 200
+    broker.assert_awaited_once()
+
+
+@pytest.mark.parametrize("operation", ["issue", "consume"])
+def test_pod_mcp_machine_body_is_bounded_before_auth_and_errors_never_echo(operation, monkeypatch):
+    from api.routes.one import pod_mcp_approval
+
+    authenticate = AsyncMock()
+    mutate = AsyncMock()
+    monkeypatch.setattr(pod_mcp_approval, "verify_pod_request", authenticate)
+    monkeypatch.setattr(pod_mcp_approval, "mutate_review", mutate)
+    app = FastAPI()
+    app.include_router(pod_mcp_approval.router)
+    client = TestClient(app)
+    path = f"/api/one/pod/mcp-approval/{operation}"
+    # Streaming body without a declared Content-Length, then malformed small JSON.
+    response = client.post(path, content=iter([b"x" * 32_001, b"x" * 32_001]))
+    assert response.status_code == 413
+    response = client.post(path, json={"private": "synthetic-secret-never-echo"})
+    assert response.status_code == 422 and "synthetic-secret" not in response.text
+    authenticate.assert_not_called()
+    mutate.assert_not_called()
 
 
 # --- curated (operator-registered) OAuth connector, e.g. HubSpot ----------------

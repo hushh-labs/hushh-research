@@ -4,8 +4,10 @@
 
 The executable lifecycle route is `./bin/hushh codex route-task product-agent-development`.
 Runtime product agents live under `consent-protocol/hushh_mcp/agents`; repo-scoped
-engineering evidence agents live under `.codex/agents/` in this worktree. They
-are separate namespaces.
+engineering evidence agents are authored under root `.agents/subagents/`.
+Claude projections are generated under `.agents/adapters/claude/agents` and exposed
+through `.claude/agents`; `.codex/agents` links to the authored TOML fleet.
+Runtime agents and engineering lanes are separate namespaces.
 
 `agent.yaml` is the only authored product-agent source. The strict
 `AgentManifestV2` loader rejects unknown fields, and
@@ -19,6 +21,16 @@ PKM behavior, surface applicability, privacy allowlist, telemetry namespace,
 evaluation threshold, performance budget, kill switch, rollout, and rollback.
 Invocation authority never implies private-data access or mutation authority.
 
+
+## Visual Context
+
+Canonical visual owner: [consent-protocol](../README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
+Founder-language mapping:
+
+- `TrustLink / A2A delegation` means delegated authority must inherit the same consent boundary this doc enforces
+- `Capability Tokens` remain explicit here because agent entry points, tools, and operons validate concrete token scopes
+- `Separation of Duties` is implemented through the DNA model: agents orchestrate, tools expose callable surfaces, operons hold business logic, and services touch persistence
 
 ## One authored fleet, explicit runtime dependencies
 
@@ -37,9 +49,11 @@ In this shared-runtime branch, omitted individual ports retain shared defaults;
 these hooks alone do not establish private isolation. No ingress binding is added
 by the generic dependency seam.
 
-The process-local `adk_bridge.dispatch` registry currently registers exactly
+The default shared-runtime `adk_bridge.dispatch` registry registers
 `agent_documents`, `agent_location`, `agent_email`, `agent_nav`, and
-`agent_personal_information`. This is separate from `SPECIALIST_A2A_SCOPE_MAP`,
+`agent_personal_information`. An owner-bound pod may register Connections and
+Connected Systems for its own turn; those are not ambient shared-runtime
+handlers. This registry is separate from `SPECIALIST_A2A_SCOPE_MAP`,
 which validates five external A2A identifiers: One, Kai, Nav, KYC, and Personal
 Information. A scope-map entry does not register an in-process handler, and a
 local dispatch registration does not create an A2A endpoint. Nav
@@ -59,7 +73,24 @@ or establish deployment readiness. Preserve shared defaults when transferring
 portable changes from a private deployment branch; keep deployment adapters and
 pod admission policy with their owning topology.
 
+Scheduled One uses the same authored task head and roster through a claim-owned
+execution segment. Model clients, MCP resources and specialist dependencies have
+explicit invocation lifetimes; teardown joins before the update permit can close.
+Its sealed checkpoint and owner review routes are source-qualified locally. The
+active registry remains Files-only until the remaining tool adapters and cloud
+delivery are qualified; constructor wiring is not installed acceptance. Follow
+the [Scheduled tasks runbook](../../../docs/reference/operations/private-files-library.md#scheduled-tasks--local-source-not-deployed-acceptance).
+
 ## Architecture Review Questions
+
+### Gated Computer Use foundation
+
+`agent_computer_use` is a development-only, withheld manifest. The controlled
+public pilot has conditional One task, pod route and native ADK composition in
+source; it remains disabled on installed owner runtimes. Follow the
+[private browser runtime](./private-browser-runtime.md) for isolation, authority
+and provider-image gates. Registration or synthetic tests must not enable Browser
+on Shared or an unqualified pod.
 
 ### One Chat connector execution boundary
 
@@ -68,8 +99,12 @@ permission grant or proof that a tool is callable. One has two execution paths:
 
 - A remote, owner-registered HTTPS MCP server is discovered through the
   owner-bound `RegisteredMcpToolset`. The ADK toolset validates schemas,
-  connection revision, credentials and exact-call review. Adding a compatible
-  custom server does not require a provider-specific Python tool dispatcher.
+  connection revision, credentials and current owner authority. Ordinary calls
+  on the person's own connector run without exact-call review; an owner-blocked
+  tool whose contract changed still requires review. Curated connectors follow
+  their reviewed policy, and a review-required call uses the existing one-use
+  app ledger. Adding a compatible custom server does not require a
+  provider-specific Python tool dispatcher.
 - Google Drive, Gmail and Calendar can use their existing OAuth-backed API
   services. Their typed Chat reads and reviewed actions retain those services'
   scope and confirmation checks. An OAuth API capability is not a Google-hosted
@@ -89,8 +124,10 @@ The Founder Wiki at `https://mcp.hushh.ai/mcp` is a custom-connector contract
 example: its HTTPS endpoint and owner-supplied authorization fit the generic
 vault connector path without a Wiki-specific dispatcher. The coding agent's
 Wiki credential is not available to app owners. A live Chat read requires the
-owner to connect it in-app and approve the exact call; synthetic contract
-tests prove compatibility only, not live authorization.
+owner to connect it in-app and satisfy current admission and consent; ordinary
+owner-private calls do not require an exact-call review. A review-required
+connector fixture still needs a dev owner journey. Synthetic contract tests
+prove compatibility only, not live authorization.
 
 Apply these questions to each orchestration change at the pinned ADK revision:
 
@@ -121,16 +158,6 @@ These decisions follow Google's [ADK safety guidance](https://adk.dev/safety/),
 and [A2A integration guidance](https://adk.dev/a2a/). The checked-in code and
 pin-specific tests decide what this repository actually supports.
 
-## Visual Context
-
-Canonical visual owner: [consent-protocol](../README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
-
-Founder-language mapping:
-
-- `TrustLink / A2A delegation` means delegated authority must inherit the same consent boundary this doc enforces
-- `Capability Tokens` remain explicit here because agent entry points, tools, and operons validate concrete token scopes
-- `Separation of Duties` is implemented through the DNA model: agents orchestrate, tools expose callable surfaces, operons hold business logic, and services touch persistence
-
 ## Visual Map
 
 A contributor authors manifests and implementation code. The map below shows
@@ -156,7 +183,7 @@ flowchart LR
     runner --> root["One LlmAgent"]
     root -->|bounded in-process child| toolchild["ADK AgentTool<br/>e.g. Kai, Wallet"]
     root -->|calls bounded tool| dispatchTool["Typed dispatch tool"]
-    dispatchTool --> dispatch["adk_bridge.dispatch<br/>five registered handlers"]
+    dispatchTool --> dispatch["adk_bridge.dispatch<br/>five default shared handlers"]
     dispatch --> handler["Registered handler<br/>owner and invocation checks"]
   end
 

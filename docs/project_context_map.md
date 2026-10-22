@@ -20,7 +20,7 @@ flowchart TB
     web["hushh-webapp/"]
     backend["consent-protocol/"]
     docs["docs/"]
-    codex[".codex/"]
+    codex[".agents/"]
   end
 
   l7 --> l6 --> l5 --> l4 --> l3 --> l2 --> l1
@@ -76,7 +76,7 @@ These are invariants. If a change violates one, it is the wrong change.
 
 - repo command surface: `./bin/hushh`
 - runtime and deploy governance: `docs/reference/operations/`
-- contributor and automation surfaces: `.codex/`, `scripts/`, `deploy/`
+- contributor and automation surfaces: `.agents/`, `scripts/`, `deploy/`; native host entrypoints are compatibility links
 
 ### 2. Core Platform Services
 
@@ -113,7 +113,7 @@ These are invariants. If a change violates one, it is the wrong change.
 - `hushh-webapp/`: Next.js + React + Capacitor experience runtime
 - `consent-protocol/`: FastAPI backend, consent protocol, PKM, agents, export and developer surfaces
 - `docs/`: cross-cutting Hussh architecture, operations, vision, and guide references
-- `.codex/`: reusable skills, workflows, and routing contracts for recurring repo work
+- `.agents/`: canonical skills, subagents, workflows and routing contracts for recurring repo work
 
 Structural context is indexed rather than held in an agent prompt. Use
 `contracts/architecture/runtime-topology-index.v1.json` for the generated join

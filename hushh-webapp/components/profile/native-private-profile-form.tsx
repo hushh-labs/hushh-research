@@ -1,5 +1,7 @@
 "use client";
 
+import { nativeProfileSceneCanPrepare, nativeProfileActionsAllowed } from "@/lib/capacitor/native-profile-preparation";
+
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import type { PluginListenerHandle } from "@capacitor/core";
@@ -57,7 +59,7 @@ export function NativePrivateProfileForm<D extends object, S extends string>({ m
   }), []);
   const publish = useCallback(() => {
     const current = replica.current, v = live.current, m = v.model;
-    if (!current || !v.appearance || !m.current() || !v.privacy || v.privacy.shielded || !v.privacy.appIsActive) return;
+    if (!current || !v.appearance || !m.current() || !v.privacy || !nativeProfileSceneCanPrepare(v.privacy, current.identity.scene, current.identity.destinationId)) return;
     const edit = v.edit.identity === current.identity ? v.edit : { revision: 0, composing: false };
     const draft = { ...m.draft };
     const value = { ...current.identity, ...v.appearance, draft, draftRevision: m.inputRevision(), acknowledgedEditRevision: edit.revision, privacyGeneration: v.privacy.generation,
@@ -66,16 +68,16 @@ export function NativePrivateProfileForm<D extends object, S extends string>({ m
     if (fingerprint === current.fingerprint) { current.presentation.refreshActions(actions()); return; }
     if (current.presentation.publish({ ...value, updateSequence: ++current.sequence }, actions())) current.fingerprint = fingerprint;
   }, [actions]);
-  const epoch = snapshotVaultSessionEpoch(), generation = privacy?.generation, shielded = privacy?.shielded, active = privacy?.appIsActive;
+  const epoch = snapshotVaultSessionEpoch(), generation = privacy?.generation, presentationBlocked = !nativeProfileSceneCanPrepare(privacy, scene, destinationId), active = privacy?.appIsActive;
   const controller = model.current;
   useEffect(() => {
-    if (generation === undefined || shielded || !active) return;
+    if (generation === undefined || presentationBlocked || !active) return;
     const base = createNativeDrawerIdentity("profile"); if (!base) return;
     const identity: Identity = { ...base, family: "profile", scene, destinationId };
     let current = true;
     const isCurrent = () => current && live.current.model.current === controller && controller() && live.current.owner === owner && live.current.destinationId === destinationId &&
       snapshotVaultSessionEpoch() === epoch && nativeDrawerOwnerIsCurrent(identity) && live.current.privacy?.generation === generation &&
-      !live.current.privacy.shielded && live.current.privacy.appIsActive;
+      nativeProfileSceneCanPrepare(live.current.privacy, identity.scene, identity.destinationId);
     const { port, finalEdits } = adapter.connect(identity);
     const finalInput = { nativeRevision: 0, modelRevision: live.current.model.inputRevision(), discard: false };
     let acceptFinalInput = true, finalHandle: PluginListenerHandle | undefined;
@@ -104,7 +106,7 @@ export function NativePrivateProfileForm<D extends object, S extends string>({ m
       },
     }, adapter.fence(identity), adapter.valid, isCurrent, phase => {
       if (current) { setPhase(phase); if (phase === "fallback") live.current.onFallback(); }
-    }, true, state => ({ ...state, draft: { ...state.draft } }));
+    }, true, state => ({ ...state, draft: { ...state.draft } }), () => isCurrent() && nativeProfileActionsAllowed());
     const instance = { identity, presentation, sequence: 0, fingerprint: null as string | null, finalInput };
     replica.current = instance; setEdit({ identity, revision: 0, composing: false });
     const finalPending = finalEdits(event => {
@@ -129,7 +131,7 @@ export function NativePrivateProfileForm<D extends object, S extends string>({ m
       current = false; instance.fingerprint = null; if (replica.current === instance) replica.current = null;
       void presentation.retire().then(finishRetirement);
     };
-  }, [adapter, owner, controller, scene, destinationId, epoch, generation, shielded, active, publish]);
+  }, [adapter, owner, controller, scene, destinationId, epoch, generation, presentationBlocked, active, publish]);
   useLayoutEffect(() => { publish(); });
   useBackLayer(pathname, 100, () => {
     const current = replica.current;

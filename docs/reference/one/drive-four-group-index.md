@@ -1,6 +1,43 @@
 # Drive four-group index: design, evidence and implementation
 
-Status: slices 1 and 2, and slice 3's period helper, sealed store, worker and owner API are in source on `feat/drive-four-group-index`, dark behind `DRIVE_FOUR_GROUP_INDEX_ENABLED`. On 2026-10-21 the owner approved local release/schema, table-family, runtime/admission, deploy-config and CI registration; those registrations are implemented with the feature disabled in every hosted lane. The backend branch is published, and an authorized local Drive run produced a CSV. Hosted deployment and acceptance remain unverified. The worker is callable but is not registered in `DriveWorkDrain`. The PKM writer and page remain future work. Checked in the worktree based on `origin/main` at `5a894a2adf`.
+Status: source on `feat/drive-four-group-index` includes the classifier, period helper, sealed store, worker, owner API and Data packets presentation. The worker has an independent bounded `groups` drain stage. Migration 409 preserves main's existing migration 368 and is registered with the schema/data-plane contracts. The UAT workflow has an explicit `DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED` activation variable, default false; other hosted lanes stay off. The local CSV is a separate private artifact, not a populated product store. Hosted deployment and authenticated acceptance remain unverified. PKM writing remains future work.
+
+## Data packets connector delivery
+
+The existing Google Drive connector detail shows four server-named folders below
+Trusted documents. Each opens paginated indexed files across periods, with title,
+date and original Drive link. Empty groups remain visible; Not sorted yet exposes
+kept files separately. The retained feature model supplies both web and the native
+`connector-group-files` page. Opening the screen never starts processing: the
+owner must accept the disclosure with Background Drive access on. Names are
+uncached and fenced by owner, vault epoch, connection identity and visit lifetime.
+
+Production preparation now uses the same strict 204,800-byte raw-prefix adapter
+as the export. Without decoded text it abstains before any classifier. The
+freshness hash includes the model and evidence policy, so prior full-read results
+refresh. Each 180-second run prioritizes cheap metadata rows (at most 200 total)
+and attempts up to 20 supported uploaded documents. It bounds head reads to the
+remaining budget after reserving embedding and commit time, cancels unfinished
+reads, and commits completed entries; deferred files remain pending. The inventory
+is still repeated per batch. This is bounded background preparation, not a new
+two-minute full-Drive performance claim.
+
+The UAT groups scheduler reuses the fixed private V1 worker service, OIDC identity,
+image and audience. It has a separate job, body and rollback snapshot, and does
+not resume the three operator-paused legacy jobs. V1 and groups share that
+service's runtime capacity. A globally paused V1 service cannot activate groups.
+The release captures/restores both jobs and pauses groups when activation is off.
+Feature-off hides the UI/API and prevents claims; it does not erase saved entries.
+
+The API and asynchronous store boundaries additionally recheck current hosting
+placement. A private-runtime owner cannot obtain hub file names or have a hub job
+consume their content. The existing private-runtime connector owner is preserved.
+
+Integrating current main also retires the branch's old
+`workflow.setup.connections` graph revision `b883582b09e1be66` through the existing
+exact-revision evolution ledger. That snapshot described the former Gemini-only
+setup flow; current main owns hosting-specific supported AI connection choices.
+The current authored workflow is retained and incompatible old runs are rejected.
 
 The aim: sort a person's Google Drive files into four groups, keep the index in the person's memory (PKM), and show the four folders with their indexed files on the Google Drive page under Connectors. The groups are virtual: nothing is written to the person's Google Drive. The grouping uses no model that writes text; the declaration is in [Backend Semantic Boundary](../../../consent-protocol/docs/reference/backend-semantic-boundary.md#declared-drive-four-group-organizing-aid-owner-decision).
 
@@ -81,10 +118,10 @@ Needs the pinned E5 snapshot in the local Hugging Face cache (`local_files_only`
 
 Implemented under `consent-protocol/`:
 
-- `db/migrations/368_drive_group_index.sql` and `hushh_mcp/services/drive_group_index_store.py`: explicit opt-in with disclosure `drive-four-group-v1`, owner time zone, renewable leases, sealed entries, folder counts, file pages and erase. Connection changes delete the opt-in and entries. Disabling processing pauses it; erase withdraws the opt-in and invalidates in-flight work. The store rejects pruning from an incomplete or capped listing and preserves owner placements, discarding retained text/vector when the final shelf is placed.
-- `hushh_mcp/services/drive_group_index_job.py`: `DriveGroupIndexJob.run()` runs owners sequentially (one by default, at most four), with a 900-second default overall deadline (at most 1,800). Each owner run lists up to 10,000 files in creation-time order, processes at most 100 changed files through `index_files`, and commits one bounded batch. Listing requests the existing 1,000-row owner metadata pages; a response over its byte budget retries the same cursor at 100 and then 25. At most 400 successful pages are accepted, including empty pages. Later runs skip only matching Drive revisions, modified times and model versions. Migration 368 replay-safely adds the source revision column; earlier local entries without it refresh once. A full listing alone permits removal of absent entries; capped, truncated or incomplete listings retain them and report incomplete status. No partial listing cursor is persisted, so each batch starts its inventory again.
+- `db/migrations/409_drive_group_index.sql` and `hushh_mcp/services/drive_group_index_store.py`: explicit opt-in with disclosure `drive-four-group-v1`, owner time zone, renewable leases, sealed entries, folder counts, file pages and erase. Connection changes delete the opt-in and entries. Disabling processing pauses it; erase withdraws the opt-in and invalidates in-flight work. The store rejects pruning from an incomplete or capped listing and preserves owner placements, discarding retained text/vector when the final shelf is placed.
+- `hushh_mcp/services/drive_group_index_job.py`: current bounded prefix preparation is described in [Data packets connector delivery](#data-packets-connector-delivery). The existing stable creation-time inventory, source-revision skipping and exhaustive-list-only pruning remain authoritative. No partial listing cursor is persisted.
 - Internal `GoogleDriveRestTransport.read_group_index_tool`: the same live-grant fence, additionally bound to the job's connection generation before provider I/O. The worker rechecks processing authority around reads and embedding, renews its five-minute lease while working, and cancels on lease loss. Systemic parser errors propagate instead of becoming files with no text. Existing chat reads keep their response contract. No Drive mutation or PKM write runs here.
-- `api/routes/drive_groups.py`, registered in `server.py`: current Vault Owner only, private/no-store including authored errors, with a 404 before storage construction while the flag is off. The existing connector catch-all proxy forwards the API; no browser/native caller is added in this slice. See [API Contracts](../architecture/api-contracts.md#owner-drive-four-group-folders).
+- `api/routes/drive_groups.py`, registered in `server.py`: current Vault Owner only, private/no-store including authored errors, with a 404 before storage construction while the flag is off. The existing connector catch-all proxy forwards the API; web/native callers use the retained Data packets model described above. See [API Contracts](../architecture/api-contracts.md#owner-drive-four-group-folders).
 
 Focused acceptance uses a real disposable PostgreSQL 16, the production job/store/transport orchestration, and invented files with synthetic parser and embedding outputs. It covers incremental batches, unchanged-file skipping, complete-list deletion, incomplete-list retention, opt-in/background/lease/erase fences, sealed retention and owner API admission. This is local contract evidence, not Linux isolated-child, authenticated Drive or deployment acceptance.
 
@@ -122,9 +159,9 @@ Assumptions to confirm, each a single constant or rule:
 - When a title names several dates, the latest decides, because a statement belongs to the quarter it ends in.
 - Dates are read in the owner's time zone. A file created at 20:00 UTC on 31 March 2025 is 1 April 2025 in India, so FY 26 Q1, not FY 25 Q4.
 
-Neither existing mode of `period_decision` gives that rule, so the implemented helper builds on `parse_title_dates` and `resolve_title_dates`. With `period=None` the older function returns the latest title date but reads created and modified times in UTC. With a window it reads them in the window's zone but returns the first title date, so a title such as "15 Mar 2025 to 14 Apr 2025" gives 14 April or 15 March. Read through the real `period_decision`, a title month "Mar2026" gives FY 26 Q4, "14 Sep 2025" gives FY 26 Q2, and a modified time of 21 October 2026 alone gives FY 27 Q3. The quarter arithmetic on the boundary days 1 Apr 2025, 30 Jun 2025, 1 Jul 2025, 31 Dec 2025, 1 Jan 2026, 31 Mar 2026 and 1 Apr 2026 gives FY 26 Q1, Q1, Q2, Q3, Q4, Q4 and FY 27 Q1. The helper, folders, migration, store, worker and route are implemented and tested locally; migration 368 and its preservation rollback are registered in the local release manifest.
+Neither existing mode of `period_decision` gives that rule, so the implemented helper builds on `parse_title_dates` and `resolve_title_dates`. With `period=None` the older function returns the latest title date but reads created and modified times in UTC. With a window it reads them in the window's zone but returns the first title date, so a title such as "15 Mar 2025 to 14 Apr 2025" gives 14 April or 15 March. Read through the real `period_decision`, a title month "Mar2026" gives FY 26 Q4, "14 Sep 2025" gives FY 26 Q2, and a modified time of 21 October 2026 alone gives FY 27 Q3. The quarter arithmetic on the boundary days 1 Apr 2025, 30 Jun 2025, 1 Jul 2025, 31 Dec 2025, 1 Jan 2026, 31 Mar 2026 and 1 Apr 2026 gives FY 26 Q1, Q1, Q2, Q3, Q4, Q4 and FY 27 Q1. The helper, folders, migration, store, worker and route are implemented and tested locally; migration 409 and its preservation rollback are registered in the local release manifest.
 
-Order of remaining work: reviewed worker scheduling; the PKM writer and registry entry; the page with its flag off; a separately authorized UAT run with the owner's account; promotion only after the owner's private evaluation. Push, PR, deployment and feature activation each require separate authority.
+Remaining acceptance: terminal CI, governed UAT release and authenticated owner evaluation. PKM writing is a separate later slice. Current-task authority covers the feature-branch push and governed UAT delivery; production promotion remains outside this task.
 
 ## Local verification and release boundary
 
@@ -144,7 +181,7 @@ The local registration checks cover 250 distinct tests across runtime configurat
 
 The dev/UAT configuration steps support older selected SHAs: they pass the explicit false option only when that tree's compiler supports it. Four tests execute the authored guard against both legacy and current parsers. Production preserves its current compiler and passes false directly. Ruff and formatting checks pass using the owning backend configuration, and the docs, runtime-config, release, schema-projection, data-plane and topology checks pass. Full core/Linux CI and web typecheck remain unproven locally; web dependencies are absent in this worktree. No shared database, provider, Secret Manager, scheduler or deployed service was mutated.
 
-Impact: four new backend owner endpoints, one derived table family from migration 368, no new browser cache key, PKM write, UI/native caller or plugin. Existing connector proxy methods cover the backend contract. The new group flag is the rollback switch and defaults off. Read-only evidence review covered the worker/store/transport and API contracts; branch, patch, commit and release authority stayed with the parent session.
+Impact: four new backend owner endpoints, one derived table family from migration 409, no new browser cache key, PKM write, UI/native caller or plugin. Existing connector proxy methods cover the backend contract. The new group flag is the rollback switch and defaults off. Read-only evidence review covered the worker/store/transport and API contracts; branch, patch, commit and release authority stayed with the parent session.
 
 ## Local CSV export
 

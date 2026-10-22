@@ -13,6 +13,7 @@
 
 import { Capacitor } from "@capacitor/core";
 import { PHONE_CONFLICT_COPY } from "@/lib/auth/phone-conflict-copy";
+import { authenticateCustomToken } from "@/lib/auth/custom-token-auth";
 import { getApps, initializeApp } from "firebase/app";
 import {
   type ApplicationVerifier,
@@ -27,7 +28,6 @@ import {
   linkWithPopup,
   setPersistence,
   signInWithCredential,
-  signInWithCustomToken as firebaseSignInWithCustomToken,
   signInWithPopup,
   reauthenticateWithPopup,
   signOut as firebaseSignOut,
@@ -97,6 +97,36 @@ const EXPECTED_POPUP_CLOSE_CODES = new Set([
 /**
  * Platform-aware authentication service
  */
+/**
+ * Ceiling for one Firebase ID-token refresh. Generous against a slow network
+ * (a healthy refresh is a few hundred milliseconds), tight against a hung one.
+ */
+export const ID_TOKEN_TIMEOUT_MS = 8_000;
+
+export class IdTokenTimeoutError extends Error {
+  constructor() {
+    super("Firebase ID token refresh timed out");
+    this.name = "IdTokenTimeoutError";
+  }
+}
+
+/** Resolve with the token, or reject with `IdTokenTimeoutError` when it stalls. */
+export function withIdTokenTimeout<T>(work: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new IdTokenTimeoutError()), ID_TOKEN_TIMEOUT_MS);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 export class AuthService {
   private static isExpectedPopupClose(error: unknown): boolean {
     if (!error || typeof error !== "object" || !("code" in error)) {
@@ -782,35 +812,9 @@ export class AuthService {
    * Used for app-review mode where backend mints a short-lived token
    * for a pre-approved reviewer UID. No reviewer password is exposed to clients.
    */
-  static async signInWithCustomToken(customToken: string): Promise<AuthResult> {
-    if (Capacitor.isNativePlatform()) {
-      const nativeResult = await FirebaseAuthentication.signInWithCustomToken({
-        token: customToken,
-      });
-      if (!nativeResult.user) {
-        throw new Error("Native custom-token login returned no user");
-      }
-      const idTokenResult = await FirebaseAuthentication.getIdToken();
-      const idToken = idTokenResult.token || "";
-      if (!idToken) {
-        throw new Error("Native custom-token login returned no ID token");
-      }
-      return {
-        user: this.createUserFromNative(
-          nativeResult.user,
-          idToken,
-          "custom",
-        ),
-        idToken,
-      };
-    }
-
-    const result = await firebaseSignInWithCustomToken(auth, customToken);
-    const idToken = await result.user.getIdToken();
-    return {
-      user: result.user,
-      idToken,
-    };
+  static async signInWithCustomToken(customToken: string, options: { memoryOnly?: boolean } = {}): Promise<AuthResult> {
+    return authenticateCustomToken(customToken, options,
+      (user, idToken) => this.createUserFromNative(user, idToken, "custom"));
   }
 
   /**
@@ -2017,16 +2021,26 @@ export class AuthService {
     const firebaseUser = auth.currentUser;
     if (firebaseUser) {
       try {
-        return await firebaseUser.getIdToken(forceRefresh);
+        // BOUNDED. `getIdToken` returns the cached token instantly while it is
+        // valid; once it has expired -- a person coming back to an open tab after
+        // an hour away -- the SDK refreshes it over the network, and that call has
+        // no timeout of its own. Seen 2026-09-02 on localhost: the refresh stalled,
+        // every `apiFetch` in the tab waited on it BEFORE any request left the
+        // browser, and the cloud step read "Checking your cloud..." indefinitely
+        // with nothing in the proxy log and nothing on the backend. A stalled
+        // refresh must resolve to "no token" so the caller reaches its own error
+        // path (a 401, a retry, a bounded screen) instead of hanging forever.
+        return await withIdTokenTimeout(firebaseUser.getIdToken(forceRefresh));
       } catch (error) {
-        if (
-          forceRefresh &&
-          authSessionInvalidationCodeFromFirebaseError(error) !== null
-        ) {
+        if (forceRefresh && authSessionInvalidationCodeFromFirebaseError(error) !== null) {
           throw error;
         }
         if (forceRefresh) forcedRefreshError = error;
-        this.debugError("[AuthService] Failed to get Firebase ID token", error);
+        this.debugError(
+          error instanceof IdTokenTimeoutError
+            ? "[AuthService] Firebase ID token refresh timed out"
+            : "[AuthService] Failed to get Firebase ID token",
+        );
       }
     }
 

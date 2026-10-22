@@ -1,0 +1,77 @@
+{
+  "id": "codex-skill-authoring",
+  "role": "owner",
+  "owner_family": "codex-skill-authoring",
+  "primary_scope": "codex-skill-authoring-intake",
+  "description": "Use when creating, renaming, retrofitting, linting, or scaffolding repo-local Codex skills for hushh-research.",
+  "owned_paths": [
+    ".agents/skills"
+  ],
+  "non_owned_paths": [
+    "repo-context",
+    "docs-governance"
+  ],
+  "task_types": [
+    "skill-authoring",
+    "repo-orientation"
+  ],
+  "required_reads": [
+    ".agents/skills/codex-skill-authoring/references/skill-contract.md",
+    ".agents/skills/codex-skill-authoring/references/truth-first-operating-kernel.md",
+    ".agents/skills/codex-skill-authoring/references/authoring-workflow.md",
+    ".agents/skills/repo-context/references/index-contract.md"
+  ],
+  "required_commands": [
+    "python3 .agents/skills/codex-skill-authoring/scripts/truth_first_smoke.py",
+    "python3 .agents/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py",
+    "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
+    "python3 .agents/skills/codex-skill-authoring/scripts/skill_fleet_audit.py --text",
+    "python3 .agents/skills/codex-skill-authoring/scripts/trigger_evals.py --text",
+    "python3 .agents/skills/codex-skill-authoring/scripts/init_skill.py --name example-owner --role owner --owner-family example-owner --owned-path README.md --task-type repo-orientation --verification-bundle example-owner --workflow-pack example-owner --dry-run",
+    "./bin/hushh codex audit",
+    "python3 -m py_compile .agents/skills/codex-skill-authoring/scripts/skill_lint.py .agents/skills/codex-skill-authoring/scripts/truth_first_smoke.py .agents/skills/codex-skill-authoring/scripts/init_skill.py .agents/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py .agents/skills/codex-skill-authoring/scripts/skill_fleet_audit.py .agents/skills/codex-skill-authoring/scripts/trigger_evals.py .agents/skills/codex-skill-authoring/scripts/test_trigger_evals.py"
+  ],
+  "verification_bundles": [
+    {
+      "id": "codex-skill-authoring",
+      "commands": [
+        "python3 .agents/skills/codex-skill-authoring/scripts/truth_first_smoke.py",
+        "python3 .agents/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py",
+        "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
+        "python3 .agents/skills/codex-skill-authoring/scripts/skill_fleet_audit.py --text",
+        "python3 .agents/skills/codex-skill-authoring/scripts/trigger_evals.py --text",
+        "python3 .agents/skills/codex-skill-authoring/scripts/init_skill.py --name example-owner --role owner --owner-family example-owner --owned-path README.md --task-type repo-orientation --verification-bundle example-owner --workflow-pack example-owner --dry-run",
+        "./bin/hushh codex audit",
+        "python3 -m py_compile .agents/skills/codex-skill-authoring/scripts/skill_lint.py .agents/skills/codex-skill-authoring/scripts/truth_first_smoke.py .agents/skills/codex-skill-authoring/scripts/init_skill.py .agents/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py .agents/skills/codex-skill-authoring/scripts/skill_fleet_audit.py .agents/skills/codex-skill-authoring/scripts/trigger_evals.py .agents/skills/codex-skill-authoring/scripts/test_trigger_evals.py"
+      ],
+      "tests": [
+        "python3 .agents/skills/codex-skill-authoring/scripts/truth_first_smoke.py",
+        "python3 .agents/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py",
+        "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
+        "python3 .agents/skills/codex-skill-authoring/scripts/skill_fleet_audit.py --text",
+        "python3 .agents/skills/codex-skill-authoring/scripts/trigger_evals.py --text",
+        "./bin/hushh codex audit",
+        "python3 -m py_compile .agents/skills/codex-skill-authoring/scripts/skill_lint.py .agents/skills/codex-skill-authoring/scripts/truth_first_smoke.py .agents/skills/codex-skill-authoring/scripts/init_skill.py .agents/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py .agents/skills/codex-skill-authoring/scripts/skill_fleet_audit.py .agents/skills/codex-skill-authoring/scripts/trigger_evals.py .agents/skills/codex-skill-authoring/scripts/test_trigger_evals.py"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "repo-context",
+    "docs-governance",
+    "oss-license-governance",
+    "contributor-onboarding",
+    "subtree-upstream-governance"
+  ],
+  "adjacent_skills": [
+    "repo-context",
+    "docs-governance",
+    "oss-license-governance",
+    "contributor-onboarding",
+    "subtree-upstream-governance"
+  ],
+  "risk_tags": [
+    "skill-taxonomy-drift",
+    "manifest-drift",
+    "workflow-routing-drift"
+  ]
+}

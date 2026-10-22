@@ -13,8 +13,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import Any, Literal, Optional, cast
-from urllib.parse import urlencode, urlsplit
+from typing import Any, Literal, Optional
+from urllib.parse import urlencode
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -22,19 +22,117 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.routing import APIRoute
 from mcp.shared.auth import OAuthClientInformationFull
-from pydantic import AnyUrl, BaseModel, ConfigDict, Field, StrictBool, field_validator
+from pydantic import (
+    AnyUrl,
+)
 
-from api.middleware import require_firebase_auth, require_vault_owner_token
+from api.middleware import require_vault_owner_token
+from api.routes.connector_mcp_contracts import (
+    McpConfigurationRequest,
+    McpOAuthAttemptRequest,
+    McpOAuthBeginRequest,
+    McpOAuthCompleteRequest,
+)
+from api.routes.connector_owner_contracts import (
+    CompleteOAuthRequest as CompleteOAuthRequest,
+)
+from api.routes.connector_owner_contracts import (
+    CompleteWebOAuthRequest as CompleteWebOAuthRequest,
+)
+from api.routes.connector_owner_contracts import (
+    ConnectApiKeyRequest as ConnectApiKeyRequest,
+)
+from api.routes.connector_owner_contracts import (
+    ConnectorsResponse as ConnectorsResponse,
+)
+from api.routes.connector_owner_contracts import (
+    ConnectorSummary as ConnectorSummary,
+)
+from api.routes.connector_owner_contracts import (
+    ConnectResultResponse as ConnectResultResponse,
+)
+from api.routes.connector_owner_contracts import (
+    DriveCollectionProcessingRequest as DriveCollectionProcessingRequest,
+)
+from api.routes.connector_owner_contracts import (
+    DriveProcessingRequest as DriveProcessingRequest,
+)
+from api.routes.connector_owner_contracts import (
+    FinalizeNativeRequest as FinalizeNativeRequest,
+)
+from api.routes.connector_owner_contracts import (
+    LiveBackgroundRequest as LiveBackgroundRequest,
+)
+from api.routes.connector_owner_contracts import (
+    McpConfirmRequest as McpConfirmRequest,
+)
+from api.routes.connector_owner_contracts import (
+    McpReviewRequest as McpReviewRequest,
+)
+from api.routes.connector_owner_contracts import (
+    NativePickerAttemptFile as NativePickerAttemptFile,
+)
+from api.routes.connector_owner_contracts import (
+    NativePickerCancelRequest as NativePickerCancelRequest,
+)
+from api.routes.connector_owner_contracts import (
+    NativePickerConfirmRequest as NativePickerConfirmRequest,
+)
+from api.routes.connector_owner_contracts import (
+    NativePickerStartRequest as NativePickerStartRequest,
+)
+from api.routes.connector_owner_contracts import (
+    NativePickerStartResponse as NativePickerStartResponse,
+)
+from api.routes.connector_owner_contracts import (
+    PendingNativeAttempt as PendingNativeAttempt,
+)
+from api.routes.connector_owner_contracts import (
+    PendingNativePickerAttempt as PendingNativePickerAttempt,
+)
+from api.routes.connector_owner_contracts import (
+    PendingNativePickerResponse as PendingNativePickerResponse,
+)
+from api.routes.connector_owner_contracts import (
+    PendingNativeResponse as PendingNativeResponse,
+)
+from api.routes.connector_owner_contracts import (
+    PickerSessionRequest as PickerSessionRequest,
+)
+from api.routes.connector_owner_contracts import (
+    PodMcpConfirmRequest as PodMcpConfirmRequest,
+)
+from api.routes.connector_owner_contracts import (
+    RegisterConnectorRequest as RegisterConnectorRequest,
+)
+from api.routes.connector_owner_contracts import (
+    RemoveDriveDocumentRequest as RemoveDriveDocumentRequest,
+)
+from api.routes.connector_owner_contracts import (
+    SelectDriveDocumentsRequest as SelectDriveDocumentsRequest,
+)
+from api.routes.connector_owner_contracts import (
+    StartOAuthRequest as StartOAuthRequest,
+)
+from api.routes.connector_owner_contracts import (
+    StartOAuthResponse as StartOAuthResponse,
+)
 from hushh_mcp.one_adk import mcp_review_service
-from hushh_mcp.one_adk.governed_mcp_toolset import validated_mcp_arguments
 from hushh_mcp.one_adk.mcp_oauth_connection import mcp_oauth_attempts
-from hushh_mcp.one_adk.mcp_turn_scope import validate_mcp_turn_configurations
 from hushh_mcp.runtime_settings import get_app_runtime_settings
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.chat_key import CHAT_KEY_ERRORS
 from hushh_mcp.services.connector_feature_admission import (
     connector_feature_enabled,
     connector_features,
+)
+from hushh_mcp.services.curated_connector_catalog import (
+    catalog_card_is_hidden,
+    catalog_summary_fields,
+    registry_summary_fields,
+)
+from hushh_mcp.services.curated_connector_catalog import (
+    owner_status_fields as _owner_status_fields,
 )
 from hushh_mcp.services.curated_connector_manifest import all_catalog_entries, get_manifest
 from hushh_mcp.services.drive_native_picker_service import DriveNativePickerService
@@ -60,6 +158,12 @@ from hushh_mcp.services.external_connector_registry_service import (
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from hushh_mcp.services.mcp_public_http import UnsafeMcpEndpoint
+from hushh_mcp.services.owner_placement_guard import (
+    admit_hub_content,
+    hub_content_firebase,
+    hub_content_owner,
+)
+from hushh_mcp.services.pod_mcp_approval import PodMcpMutation, mutate_review
 
 logger = logging.getLogger(__name__)
 
@@ -73,8 +177,11 @@ class PrivateConnectorRoute(APIRoute):
                 if self.path.endswith(
                     (
                         "/mcp/review",
+                        "/mcp-approval/issue",
+                        "/mcp-approval/consume",
                         "/mcp/confirm",
                         "/mcp/catalog",
+                        "/mcp/verify",
                         "/mcp/oauth/begin",
                         "/mcp/oauth/complete",
                         "/mcp/oauth/cancel",
@@ -131,111 +238,13 @@ router = APIRouter(
 )
 
 
+async def _content_result(owner: str, result):
+    await admit_hub_content(owner, "connector_result")
+    return result
+
+
 def _user_id(token_data: dict) -> str:
     return str(token_data.get("user_id") or "")
-
-
-class ConnectorSummary(BaseModel):
-    connectorId: str
-    displayName: str
-    description: str
-    authStyle: str
-    status: str
-    accountLabel: Optional[str] = None
-    connectedAt: Optional[str] = None
-    validationState: str = "unverified"
-    profile: Literal["selected", "live"] | None = None
-    revocationOutcome: str = "not_attempted"
-    lastErrorCode: Optional[str] = None
-    available: bool = True
-    registrationKind: Literal["curated", "private"] = "curated"
-    # Server-derived, presentation only: true for an operator-registered OAuth
-    # provider that has a reviewed manifest. Start and complete re-validate the
-    # manifest pins themselves; nothing here is trusted from the client.
-    curatedOAuth: bool = False
-    # A reviewed configuration-derived card. This is presentation-only: OAuth
-    # start and completion still obtain and validate the live registry row.
-    catalogCard: bool = False
-    # `setup_pending` has no exact active runtime row, `discovery_pending` is
-    # registration-only, and `unavailable` passed neither the feature nor
-    # runtime availability check. A null value is ready for Connect.
-    catalogState: Literal["setup_pending", "discovery_pending", "unavailable"] | None = None
-
-
-class ConnectorsResponse(BaseModel):
-    connectors: list[ConnectorSummary]
-    features: dict[str, bool] = Field(default_factory=dict)
-    driveAgentPackagesEnabled: bool = False
-
-
-class RegisterConnectorRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    registrationId: UUID
-    displayName: str = Field(min_length=1, max_length=100)
-    endpoint: str = Field(min_length=1, max_length=4096)
-    authStyle: Literal["api_key", "oauth"]
-
-
-class McpConfigurationRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    connectorConfiguration: dict[str, Any] | None = Field(default=None, repr=False, exclude=True)
-
-    @field_validator("connectorConfiguration")
-    @classmethod
-    def validate_configuration(cls, value):
-        if value is None:
-            return None
-        try:
-            return next(iter(validate_mcp_turn_configurations([value]).values()))
-        except ExternalMcpError:
-            raise ValueError("Invalid connector configuration.") from None
-
-
-class McpReviewRequest(McpConfigurationRequest):
-    conversationId: str = Field(min_length=1, max_length=256)
-    toolName: str = Field(pattern=r"^mcp_[0-9a-f]{40}$")
-    arguments: dict[str, Any]
-    pendingHandle: str | None = Field(default=None, pattern=r"^one_secret_ref:[A-Za-z0-9_-]{32}$")
-
-    @field_validator("arguments")
-    @classmethod
-    def bound_arguments(cls, value):
-        try:
-            return validated_mcp_arguments({"type": "object"}, value)
-        except ExternalMcpError:
-            raise ValueError("Invalid or oversized MCP arguments.") from None
-
-
-class McpConfirmRequest(McpReviewRequest):
-    directiveId: str = Field(pattern=r"^dir_[0-9a-f]{32}$")
-    confirmed: StrictBool
-
-
-class McpRegisteredClient(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    issuer: str = Field(min_length=1, max_length=2048, repr=False)
-    clientId: str = Field(min_length=1, max_length=8192, repr=False)
-    clientSecret: str | None = Field(default=None, min_length=1, max_length=8192, repr=False)
-    tokenEndpointAuthMethod: Literal["none", "client_secret_basic", "client_secret_post"]
-
-
-class McpOAuthBeginRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    revision: UUID
-    endpoint: str = Field(min_length=1, max_length=4096, repr=False)
-    registeredClient: McpRegisteredClient | None = Field(default=None, repr=False)
-
-
-class McpOAuthAttemptRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    revision: UUID
-    attemptId: str = Field(pattern=r"^[A-Za-z0-9_-]{43}$", repr=False)
-
-
-class McpOAuthCompleteRequest(McpOAuthAttemptRequest):
-    code: str = Field(min_length=1, max_length=8192, repr=False)
-    state: str = Field(min_length=1, max_length=512, repr=False)
-    issuer: str | None = Field(default=None, max_length=4096, repr=False)
 
 
 def _mcp_oauth_binding(connector_id: str, token: dict) -> str:
@@ -248,29 +257,20 @@ def _mcp_oauth_binding(connector_id: str, token: dict) -> str:
 
 
 def _mcp_oauth_return_uri() -> str:
+    from hushh_mcp.services.oauth_redirect_policy import mcp_oauth_callback
+
     settings = get_app_runtime_settings()
-    origin = settings.app_frontend_origin
-    parsed = urlsplit(origin)
-    local = settings.environment in {"development", "test"} and parsed.hostname in {
-        "localhost",
-        "127.0.0.1",
-    }
-    if (
-        not parsed.hostname
-        or parsed.username
-        or parsed.password
-        or parsed.query
-        or parsed.fragment
-        or parsed.path not in {"", "/"}
-        or (parsed.scheme != "https" and not (local and parsed.scheme == "http"))
-    ):
-        raise HTTPException(status_code=503, detail="Connector return address is not configured.")
-    return origin.rstrip("/") + "/one/profile/connectors/oauth/return"
+    try:
+        return mcp_oauth_callback(settings.app_frontend_origin, environment=settings.environment)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=503, detail="Connector return address is not configured."
+        ) from exc
 
 
 @router.post("/{connector_id}/mcp/oauth/begin")
 async def begin_private_mcp_oauth(
-    connector_id: str, body: McpOAuthBeginRequest, token: dict = Depends(require_vault_owner_token)
+    connector_id: str, body: McpOAuthBeginRequest, token: dict = Depends(hub_content_owner)
 ):
     owner = _mcp_oauth_binding(connector_id, token)
     redirect_uri = _mcp_oauth_return_uri()
@@ -286,7 +286,7 @@ async def begin_private_mcp_oauth(
                     client_id=body.registeredClient.clientId,
                     client_secret=body.registeredClient.clientSecret,
                     token_endpoint_auth_method=body.registeredClient.tokenEndpointAuthMethod,
-                    redirect_uris=cast("list[AnyUrl]", [redirect_uri]),
+                    redirect_uris=[AnyUrl(redirect_uri)],
                 )
                 if body.registeredClient
                 else None
@@ -295,7 +295,7 @@ async def begin_private_mcp_oauth(
         )
         # The native shell may leave for a system browser only when the actual
         # server-bound return is one of its claimed HTTPS app-link routes.
-        return {**result, "redirectUri": redirect_uri}
+        return await _content_result(_user_id(token), ({**result, "redirectUri": redirect_uri}))
     except Exception:
         raise HTTPException(
             status_code=503, detail="Could not start connector login. Retry connecting."
@@ -306,7 +306,7 @@ async def begin_private_mcp_oauth(
 async def complete_private_mcp_oauth(
     connector_id: str,
     body: McpOAuthCompleteRequest,
-    token: dict = Depends(require_vault_owner_token),
+    token: dict = Depends(hub_content_owner),
 ):
     owner = _mcp_oauth_binding(connector_id, token)
     try:
@@ -324,11 +324,16 @@ async def complete_private_mcp_oauth(
             status_code=409, detail="Connector login expired or failed. Connect again."
         ) from None
     # Private no-store browser delivery only, never a model-facing tool result.
-    return {
-        "tokens": result.tokens.model_dump(mode="json", exclude_none=True),
-        "clientInfo": result.client_info.model_dump(mode="json", exclude_none=True),
-        "expiresAt": result.expires_at,
-    }
+    return await _content_result(
+        _user_id(token),
+        (
+            {
+                "tokens": result.tokens.model_dump(mode="json", exclude_none=True),
+                "clientInfo": result.client_info.model_dump(mode="json", exclude_none=True),
+                "expiresAt": result.expires_at,
+            }
+        ),
+    )
 
 
 @router.post("/{connector_id}/mcp/oauth/cancel", status_code=204)
@@ -351,9 +356,9 @@ async def cancel_private_mcp_oauth(
         ) from None
 
 
-async def _mcp_review_response(operation, **kwargs):
+async def _mcp_review_response(handler, **kwargs):
     try:
-        return await operation(**kwargs)
+        return await handler(**kwargs)
     except CHAT_KEY_ERRORS:
         # The review reads the owner's person-key conversation. Without that key
         # it refuses (403 via the app handler); it is never a retryable outage.
@@ -391,46 +396,91 @@ async def _mcp_review_response(operation, **kwargs):
 async def refresh_mcp_catalog(
     connector_id: str,
     body: McpConfigurationRequest,
-    token: dict = Depends(require_vault_owner_token),
+    token: dict = Depends(hub_content_owner),
 ):
     if body.connectorConfiguration is None:
         raise HTTPException(
             status_code=400, detail="Unlock and provide the current connector settings."
         )
-    return await _mcp_review_response(
-        mcp_review_service.discover_catalog,
-        token=token,
-        connector_id=connector_id,
-        configuration=body.connectorConfiguration,
+    return await _content_result(
+        _user_id(token),
+        (
+            await _mcp_review_response(
+                mcp_review_service.discover_catalog,
+                token=token,
+                connector_id=connector_id,
+                configuration=body.connectorConfiguration,
+            )
+        ),
+    )
+
+
+@router.post("/{connector_id}/mcp/verify")
+async def verify_mcp_account(
+    connector_id: str,
+    body: McpConfigurationRequest,
+    token: dict = Depends(hub_content_owner),
+):
+    if body.connectorConfiguration is None:
+        raise HTTPException(400, detail="Unlock and provide the current connector settings.")
+    return await _content_result(
+        _user_id(token),
+        (
+            await _mcp_review_response(
+                mcp_review_service.verify_account,
+                token=token,
+                connector_id=connector_id,
+                configuration=body.connectorConfiguration,
+            )
+        ),
     )
 
 
 @router.post("/{connector_id}/mcp/review")
 async def prepare_mcp_review(
-    connector_id: str, body: McpReviewRequest, token: dict = Depends(require_vault_owner_token)
+    connector_id: str, body: McpReviewRequest, token: dict = Depends(hub_content_owner)
 ):
-    return await _mcp_review_response(
-        mcp_review_service.prepare_review,
-        token=token,
-        connector_id=connector_id,
-        conversation_id=body.conversationId,
-        tool_name=body.toolName,
-        arguments=body.arguments,
-        **(
-            {"configuration": body.connectorConfiguration}
-            if body.connectorConfiguration is not None
-            else {}
+    return await _content_result(
+        _user_id(token),
+        (
+            await _mcp_review_response(
+                mcp_review_service.prepare_review,
+                token=token,
+                connector_id=connector_id,
+                conversation_id=body.conversationId,
+                tool_name=body.toolName,
+                arguments=body.arguments,
+                **(
+                    {"configuration": body.connectorConfiguration}
+                    if body.connectorConfiguration is not None
+                    else {}
+                ),
+                **({"pending_handle": body.pendingHandle} if body.pendingHandle else {}),
+            )
         ),
-        **({"pending_handle": body.pendingHandle} if body.pendingHandle else {}),
     )
 
 
 @router.post("/{connector_id}/mcp/confirm")
 async def confirm_mcp_review(
-    connector_id: str, body: McpConfirmRequest, token: dict = Depends(require_vault_owner_token)
+    connector_id: str,
+    body: McpConfirmRequest | PodMcpConfirmRequest,
+    token: dict = Depends(require_vault_owner_token),
 ):
     if body.confirmed is not True:
         raise HTTPException(status_code=400, detail="Confirm the exact call before continuing.")
+    if isinstance(body, PodMcpConfirmRequest):
+        if (
+            body.podReview.ownerId != str(token["user_id"])
+            or body.podReview.connectorId != connector_id
+        ):
+            raise HTTPException(403, detail="Private connector owner changed.")
+        return await _mcp_review_response(
+            mutate_review,
+            operation="confirm",
+            payload=PodMcpMutation(review=body.podReview, directiveId=body.directiveId),
+        )
+    await admit_hub_content(_user_id(token), "mcp_confirmation")
     return await _mcp_review_response(
         mcp_review_service.confirm_review,
         token=token,
@@ -473,135 +523,6 @@ async def register_connector(
     )
 
 
-class ConnectApiKeyRequest(BaseModel):
-    apiKey: str = Field(min_length=1, max_length=4096)
-    accountLabel: Optional[str] = Field(default=None, max_length=200)
-
-
-class ConnectResultResponse(BaseModel):
-    status: str
-    connectorId: str
-    revocationOutcome: Optional[str] = None
-
-
-class StartOAuthRequest(BaseModel):
-    redirectUri: str = Field(min_length=1, max_length=2048)
-    flow: Literal["web", "native"] = "web"
-    profile: Literal["selected", "live"] = "selected"
-
-
-class StartOAuthResponse(BaseModel):
-    authorizeUrl: str
-    expiresAt: str
-    attemptId: Optional[str] = None
-    connectorId: Optional[str] = None
-
-
-class CompleteOAuthRequest(BaseModel):
-    state: str = Field(min_length=1, max_length=4096)
-    code: str = Field(min_length=1, max_length=4096)
-
-
-class CompleteWebOAuthRequest(CompleteOAuthRequest):
-    attemptId: str = Field(min_length=16, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
-
-
-class FinalizeNativeRequest(BaseModel):
-    attemptId: str = Field(min_length=16, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
-
-
-class PendingNativeAttempt(BaseModel):
-    attemptId: str
-    expiresAt: str
-
-
-class PendingNativeResponse(BaseModel):
-    pending: PendingNativeAttempt | None
-
-
-class PickerSessionRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    origin: str = Field(min_length=1, max_length=2048)
-
-
-class NativePickerStartRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    redirectUri: str = Field(min_length=1, max_length=2048)
-
-
-class NativePickerStartResponse(BaseModel):
-    authorizeUrl: str
-    attemptId: str
-    expiresAt: str
-
-
-class NativePickerAttemptFile(BaseModel):
-    documentId: str
-    name: str
-    mimeType: str
-
-
-class PendingNativePickerAttempt(BaseModel):
-    attemptId: str
-    expiresAt: str
-    files: list[NativePickerAttemptFile]
-
-
-class PendingNativePickerResponse(BaseModel):
-    pending: PendingNativePickerAttempt | None
-
-
-class NativePickerConfirmRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    attemptId: UUID
-    processingConsent: Literal["selected-files-background-v1"] | None = None
-
-
-class NativePickerCancelRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    attemptId: UUID
-
-
-class SelectDriveDocumentsRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    sessionId: UUID
-    fileIds: list[str] = Field(min_length=1, max_length=25)
-    confirmed: Literal[True]
-    processingConsent: Literal["selected-files-background-v1"] | None = None
-
-
-class DriveProcessingRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    enabled: bool
-    disclosure: Literal["selected-files-background-v1"] | None = None
-    confirmed: Literal[True]
-
-
-class LiveBackgroundRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    enabled: bool
-    confirmed: Literal[True]
-
-
-class DriveCollectionProcessingRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    enabled: StrictBool
-    disclosure: Literal["live-drive-collection-v1"] | None = None
-    confirmed: StrictBool
-
-    @field_validator("confirmed")
-    @classmethod
-    def explicit_processing_confirmation(cls, value):
-        if value is not True:
-            raise ValueError("Explicit processing permission is required.")
-        return value
-
-
-class RemoveDriveDocumentRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    confirmed: Literal[True]
-
-
 def _drive_selection_error(error: Exception) -> HTTPException:
     if isinstance(error, DriveReadError):
         code = str(error)
@@ -622,13 +543,18 @@ _DRIVE_ERRORS = (
 async def drive_picker_session(
     body: PickerSessionRequest,
     response: Response,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     response.headers["Cache-Control"] = "no-store"
     response.headers["Pragma"] = "no-cache"
     try:
-        return await DriveSelectionService().picker_session(
-            user_id=_user_id(token_data), origin=body.origin
+        return await _content_result(
+            _user_id(token_data),
+            (
+                await DriveSelectionService().picker_session(
+                    user_id=_user_id(token_data), origin=body.origin
+                )
+            ),
         )
     except _DRIVE_ERRORS as error:
         raise _drive_selection_error(error) from None
@@ -638,14 +564,19 @@ async def drive_picker_session(
 async def start_native_drive_picker(
     body: NativePickerStartRequest,
     response: Response,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """Start the documented One Picker redirect without giving the app a token."""
     response.headers["Cache-Control"] = "no-store"
     response.headers["Pragma"] = "no-cache"
     try:
-        return await DriveNativePickerService().start(
-            user_id=_user_id(token_data), redirect_uri=body.redirectUri
+        return await _content_result(
+            _user_id(token_data),
+            (
+                await DriveNativePickerService().start(
+                    user_id=_user_id(token_data), redirect_uri=body.redirectUri
+                )
+            ),
         )
     except _DRIVE_ERRORS as error:
         raise _drive_selection_error(error) from None
@@ -653,12 +584,16 @@ async def start_native_drive_picker(
 
 @router.get("/google_drive/picker/native/pending", response_model=PendingNativePickerResponse)
 async def pending_native_drive_picker(
-    response: Response, token_data: dict = Depends(require_vault_owner_token)
+    response: Response, token_data: dict = Depends(hub_content_owner)
 ):
     response.headers["Cache-Control"] = "no-store"
     response.headers["Pragma"] = "no-cache"
     try:
-        return {"pending": await DriveNativePickerService().pending(user_id=_user_id(token_data))}
+        owner = _user_id(token_data)
+        return await _content_result(
+            owner,
+            {"pending": await DriveNativePickerService().pending(user_id=owner)},
+        )
     except _DRIVE_ERRORS as error:
         raise _drive_selection_error(error) from None
 
@@ -667,17 +602,22 @@ async def pending_native_drive_picker(
 async def confirm_native_drive_picker(
     body: NativePickerConfirmRequest,
     response: Response,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     response.headers["Cache-Control"] = "no-store"
     try:
-        return {
-            "documents": await DriveNativePickerService().confirm(
-                user_id=_user_id(token_data),
-                attempt_id=str(body.attemptId),
-                processing_consent=body.processingConsent,
-            )
-        }
+        return await _content_result(
+            _user_id(token_data),
+            (
+                {
+                    "documents": await DriveNativePickerService().confirm(
+                        user_id=_user_id(token_data),
+                        attempt_id=str(body.attemptId),
+                        processing_consent=body.processingConsent,
+                    )
+                }
+            ),
+        )
     except _DRIVE_ERRORS as error:
         raise _drive_selection_error(error) from None
 
@@ -736,7 +676,7 @@ async def native_drive_picker_callback(
 async def select_drive_documents(
     body: SelectDriveDocumentsRequest,
     response: Response,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     response.headers["Cache-Control"] = "no-store"
     try:
@@ -746,18 +686,19 @@ async def select_drive_documents(
             file_ids=body.fileIds,
             processing_consent=body.processingConsent,
         )
-        return {"documents": documents}
+        return await _content_result(_user_id(token_data), ({"documents": documents}))
     except _DRIVE_ERRORS as error:
         raise _drive_selection_error(error) from None
 
 
 @router.get("/google_drive/documents")
-async def list_drive_documents(
-    response: Response, token_data: dict = Depends(require_vault_owner_token)
-):
+async def list_drive_documents(response: Response, token_data: dict = Depends(hub_content_owner)):
     response.headers["Cache-Control"] = "no-store"
     try:
-        return {"documents": await DriveSelectionService().documents(user_id=_user_id(token_data))}
+        return await _content_result(
+            _user_id(token_data),
+            ({"documents": await DriveSelectionService().documents(user_id=_user_id(token_data))}),
+        )
     except _DRIVE_ERRORS as error:
         raise _drive_selection_error(error) from None
 
@@ -785,6 +726,8 @@ async def set_drive_processing(
     token_data: dict = Depends(require_vault_owner_token),
 ):
     response.headers["Cache-Control"] = "no-store"
+    if body.enabled:
+        await admit_hub_content(_user_id(token_data), "drive_processing")
     try:
         await DriveSelectionService().set_processing(
             user_id=_user_id(token_data),
@@ -799,14 +742,14 @@ async def set_drive_processing(
 
 @router.post("/google_drive/documents/{document_id}/sync")
 async def sync_drive_document(
-    document_id: UUID, response: Response, token_data: dict = Depends(require_vault_owner_token)
+    document_id: UUID, response: Response, token_data: dict = Depends(hub_content_owner)
 ):
     response.headers["Cache-Control"] = "no-store"
     try:
         await DriveSelectionService().sync(
             user_id=_user_id(token_data), document_id=str(document_id)
         )
-        return {"status": "queued"}
+        return await _content_result(_user_id(token_data), ({"status": "queued"}))
     except _DRIVE_ERRORS as error:
         raise _drive_selection_error(error) from None
 
@@ -849,27 +792,13 @@ def _manifest_row_is_pinned(connector: Any) -> bool:
 
 
 def _is_dead_catalog_card(item: ConnectorSummary) -> bool:
-    """A card the owner can do nothing with, so it is not sent at all.
-
-    The catalog says it is not ready (setup pending, discovery pending, or
-    unavailable) and there is no stored grant to disconnect or recover. A
-    half-set-up provider stays out of the product until it is actually usable;
-    a stored grant always keeps its card, so an owner can still Disconnect.
-    """
-    return item.catalogState is not None and item.status in {"not_connected", "revoked"}
-
-
-def _owner_status_fields(status: dict[str, Any] | None) -> dict[str, Any]:
-    status = status or {}
-    return {
-        "status": status.get("status", "not_connected"),
-        "accountLabel": status.get("accountLabel"),
-        "connectedAt": status.get("connectedAt"),
-        "validationState": status.get("validationState", "unverified"),
-        "profile": status.get("profile"),
-        "revocationOutcome": status.get("revocationOutcome", "not_attempted"),
-        "lastErrorCode": status.get("lastErrorCode"),
-    }
+    return bool(
+        catalog_card_is_hidden(
+            status=item.status,
+            catalog_state=item.catalogState,
+            stripe_readiness=item.stripeReadiness,
+        )
+    )
 
 
 def _catalog_summary(
@@ -882,16 +811,13 @@ def _catalog_summary(
 ) -> ConnectorSummary:
     """Build a reviewed catalog card without exposing a provider contract."""
     return ConnectorSummary(
-        connectorId=entry.connector_id,
-        displayName=entry.display_name,
-        description=entry.description,
-        authStyle="oauth",
-        registrationKind="curated",
-        curatedOAuth=curated_oauth,
-        catalogCard=True,
-        catalogState=catalog_state,
-        available=available,
-        **_owner_status_fields(status),
+        **catalog_summary_fields(
+            entry,
+            status=status,
+            available=available,
+            curated_oauth=curated_oauth,
+            catalog_state=catalog_state,
+        )
     )
 
 
@@ -902,15 +828,23 @@ def _registry_summary(
     available: bool,
 ) -> ConnectorSummary:
     return ConnectorSummary(
-        connectorId=connector.connector_id,
-        displayName=connector.display_name,
-        description=connector.description,
-        authStyle=connector.auth_style,
-        registrationKind="private" if connector.owner_user_id else "curated",
-        curatedOAuth=_curated_oauth_flag(connector),
-        available=available,
-        **_owner_status_fields(status),
+        **registry_summary_fields(
+            connector,
+            status=status,
+            available=available,
+            curated_oauth=_curated_oauth_flag(connector),
+        )
     )
+
+
+@router.get("/features")
+async def connector_feature_readiness(token_data: dict = Depends(require_vault_owner_token)):
+    """Small admission projection; connector catalog/provider reads stay independent."""
+    return {
+        "features": connector_features(_user_id(token_data)),
+        "driveAgentPackagesEnabled": os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower()
+        == "true",
+    }
 
 
 @router.get("", response_model=ConnectorsResponse)
@@ -1068,7 +1002,7 @@ async def list_connectors(token_data: dict = Depends(require_vault_owner_token))
 async def connect_with_api_key(
     connector_id: str,
     body: ConnectApiKeyRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     user_id = _user_id(token_data)
     registry = get_external_connector_registry_service()
@@ -1087,14 +1021,17 @@ async def connect_with_api_key(
         )
     except ExternalConnectorCredentialError as error:
         raise HTTPException(status_code=error.status_code, detail=str(error)) from error
-    return ConnectResultResponse(status=result["status"], connectorId=connector_id)
+    return await _content_result(
+        _user_id(token_data),
+        (ConnectResultResponse(status=result["status"], connectorId=connector_id)),
+    )
 
 
 @router.post("/{connector_id}/connect/oauth/start", response_model=StartOAuthResponse)
 async def start_oauth_connect(
     connector_id: str,
     body: StartOAuthRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     user_id = _user_id(token_data)
     oauth = get_external_connector_oauth_service()
@@ -1114,13 +1051,13 @@ async def start_oauth_connect(
         ExternalConnectorCredentialError,
     ) as error:
         raise _oauth_error(error) from None
-    return StartOAuthResponse(**result)
+    return await _content_result(_user_id(token_data), (StartOAuthResponse(**result)))
 
 
 @router.post("/oauth/complete", response_model=ConnectResultResponse)
 async def complete_oauth_connect(
     body: CompleteOAuthRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     # Mirrors calendar.py's /connect/complete: the webapp's own callback page
     # calls this while still signed in, not the OAuth provider directly, so
@@ -1140,12 +1077,12 @@ async def complete_oauth_connect(
         ExternalConnectorCredentialError,
     ) as error:
         raise _oauth_error(error) from None
-    return ConnectResultResponse(**result)
+    return await _content_result(_user_id(token_data), (ConnectResultResponse(**result)))
 
 
 @router.post("/oauth/complete/web", response_model=ConnectResultResponse)
 async def complete_web_popup(
-    body: CompleteWebOAuthRequest, user_id: str = Depends(require_firebase_auth)
+    body: CompleteWebOAuthRequest, user_id: str = Depends(hub_content_firebase)
 ):
     # Drive and operator-owned curated connectors accept this exception: both
     # adapters atomically claim an unexpired attempt previously created by this
@@ -1157,8 +1094,13 @@ async def complete_web_popup(
         oauth = get_external_connector_oauth_service()
         if oauth._verify_state(body.state) != body.attemptId:
             raise DriveOAuthError("attempt_unavailable", status_code=409)
-        return await oauth.complete_web_popup(
-            state=body.state, code=body.code, expected_user_id=user_id
+        return await _content_result(
+            user_id,
+            (
+                await oauth.complete_web_popup(
+                    state=body.state, code=body.code, expected_user_id=user_id
+                )
+            ),
         )
     except (
         ExternalConnectorOAuthError,
@@ -1217,13 +1159,16 @@ async def pending_native(response: Response, token_data: dict = Depends(require_
 
 @router.post("/oauth/native/finalize", response_model=ConnectResultResponse)
 async def finalize_native(
-    body: FinalizeNativeRequest, token_data: dict = Depends(require_vault_owner_token)
+    body: FinalizeNativeRequest, token_data: dict = Depends(hub_content_owner)
 ):
     try:
-        return (
-            await get_external_connector_oauth_service()
-            .drive()
-            .finalize_native(attempt_id=body.attemptId, user_id=_user_id(token_data))
+        return await _content_result(
+            _user_id(token_data),
+            (
+                await get_external_connector_oauth_service()
+                .drive()
+                .finalize_native(attempt_id=body.attemptId, user_id=_user_id(token_data))
+            ),
         )
     except (
         ExternalConnectorOAuthError,
@@ -1235,7 +1180,7 @@ async def finalize_native(
 
 
 @router.post("/google_drive/live/verify", response_model=ConnectResultResponse)
-async def verify_live_drive(token_data: dict = Depends(require_vault_owner_token)):
+async def verify_live_drive(token_data: dict = Depends(hub_content_owner)):
     try:
         verified = (
             await get_external_connector_oauth_service()
@@ -1244,7 +1189,10 @@ async def verify_live_drive(token_data: dict = Depends(require_vault_owner_token
         )
         if not verified:
             raise DriveOAuthError("connection_changed", status_code=409)
-        return ConnectResultResponse(connectorId="google_drive", status="connected")
+        return await _content_result(
+            _user_id(token_data),
+            (ConnectResultResponse(connectorId="google_drive", status="connected")),
+        )
     except (DriveOAuthError, ConnectorLifecycleError, ExternalConnectorCredentialError) as error:
         raise _oauth_error(error) from None
 
@@ -1271,6 +1219,8 @@ async def set_live_background(
     from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
 
     response.headers["Cache-Control"] = "no-store"
+    if body.enabled:
+        await admit_hub_content(_user_id(token_data), "drive_background")
     try:
         return await DriveLivePreferences().set_background(
             user_id=_user_id(token_data), enabled=body.enabled, confirmed=body.confirmed

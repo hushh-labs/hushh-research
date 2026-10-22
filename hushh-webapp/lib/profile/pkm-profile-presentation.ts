@@ -123,6 +123,7 @@ export type PkmProfileSummaryPresentation = {
 };
 
 const CONSUMER_HIDDEN_DOMAIN_KEYS = new Set([
+  "one_memory",
   "kyc_connector",
   "kyc_workflow",
   "runtime_secrets",

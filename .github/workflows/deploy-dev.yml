@@ -157,6 +157,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/release-tools"
+          cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
           git checkout --detach "${{ steps.resolve-sha.outputs.sha }}"
 
       - name: Validate Google Cloud workload identity configuration
@@ -329,6 +331,7 @@ jobs:
           fi
 
       - name: Validate candidate build capabilities
+        id: candidate-capabilities
         shell: bash
         env:
           BUILD_POD_IMAGE: ${{ inputs.build_pod_image && 'true' || 'false' }}
@@ -346,11 +349,15 @@ jobs:
           required_files = []
           if os.environ.get("RUN_PKM_GATE") == "true":
               required_files.append("scripts/ci/run-release-pkm-gate.sh")
+          reviewer_script = None
           if os.environ.get("RUN_REVIEWER_BYOK") == "true":
-              required_files.extend((
-                  ".codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs",
-                  ".codex/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs",
-              ))
+              # Current candidates use .agents; older main candidates retain .codex.
+              # A partial canonical tree must refuse, never borrow legacy files.
+              canonical = Path(".agents/skills/reviewer-app-testing")
+              reviewer_root = (canonical if canonical.exists() else
+                               Path(".codex/skills/reviewer-app-testing")) / "scripts"
+              reviewer_script = reviewer_root / "verify-reviewer-byok-navigation.mjs"
+              required_files.extend((reviewer_script, reviewer_root / "reviewer-rehearsal-preflight.mjs"))
           if any(not Path(filename).is_file() for filename in required_files):
               raise SystemExit("Candidate lacks selected preservation or owner-verification support")
           interfaces = [
@@ -390,6 +397,9 @@ jobs:
               ids = {step.get("id") for step in config.get("steps", [])}
               if not {"build-pod-image", "resolve-pod-image-digest"} <= ids:
                   raise SystemExit("Candidate does not support explicit pod image publication")
+          if reviewer_script is not None:
+              with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+                  output.write(f"reviewer_byok_script={reviewer_script.as_posix()}\n")
           PYBUILD
 
       - name: Sync canonical hosted runtime secrets
@@ -403,14 +413,9 @@ jobs:
               --phase resources --report-path /tmp/dev-runtime-secret-sync.json
             exit 0
           fi
-          drive_group_args=()
-          if grep -q -- '--drive-four-group-index' scripts/ops/sync_backend_runtime_secrets.py; then
-            drive_group_args=(--drive-four-group-index "false")
-          fi
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py \
             --project "${{ env.GCP_PROJECT_ID }}" \
-            --environment uat \
-            "${drive_group_args[@]}" \
+            --environment dev \
             --app-frontend-origin "${{ env.APP_FRONTEND_ORIGIN }}" \
             --db-host "cloudsql-socket" \
             --db-port "5432" \
@@ -1105,6 +1110,8 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_ENV"
 
+
+
       - name: Semantic dev verification
         id: verify-dev-1
         continue-on-error: true
@@ -1152,9 +1159,11 @@ jobs:
           REVIEWER_APP_ORIGIN: ${{ env.APP_FRONTEND_ORIGIN }}
           REVIEWER_APP_ROUTES: /,/one/kai?tab=portfolio,/one/pkm
           REVIEWER_SECRET_PROJECT: ${{ env.GCP_PROJECT_ID }}
+          REVIEWER_BYOK_SCRIPT: ${{ steps.candidate-capabilities.outputs.reviewer_byok_script }}
         run: |
           set -euo pipefail
-          node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs
+          test -n "$REVIEWER_BYOK_SCRIPT"
+          node "$REVIEWER_BYOK_SCRIPT"
 
       - name: Classify dev release outcome
         if: always()
@@ -1431,6 +1440,21 @@ jobs:
           echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
           echo "frontend_url=${frontend_url}" >> "$GITHUB_OUTPUT"
 
+          for component in backend frontend; do
+            if [ "${component}" = backend ]; then
+              revision="${backend_revision}"
+            else
+              revision="${frontend_revision}"
+            fi
+            serving_sha=""
+            if [ -n "${revision}" ]; then
+              serving_sha="$(gcloud run revisions describe "${revision}" \
+                --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+                --format='value(metadata.labels.deploy-sha)')"
+            fi
+            echo "${component}_sha=${serving_sha}" >> "$GITHUB_OUTPUT"
+          done
+
       - name: Write dev release status artifact
         if: always()
         shell: bash
@@ -1441,7 +1465,7 @@ jobs:
           BACKEND_ROLLBACK_DONE=true
           FRONTEND_ROLLBACK_DONE=true
 
-          if [ "${{ steps.classify-dev-release.outputs.release_failed }}" != "true" ]; then
+          if [ "${{ steps.classify-dev-release.outputs.release_failed }}" = "false" ]; then
             STATUS="healthy"
           else
             if [ "${{ steps.classify-dev-release.outputs.backend_failure }}" = "true" ] && [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] && [ "${{ steps.predeploy-state.outputs.backend_revision }}" != "" ]; then
@@ -1510,8 +1534,10 @@ jobs:
               },
               "final": {
                   "backend_revision": "${{ steps.final-state.outputs.backend_revision }}",
+                  "backend_sha": "${{ steps.final-state.outputs.backend_sha }}",
                   "backend_url": "${{ steps.final-state.outputs.backend_url }}",
                   "frontend_revision": "${{ steps.final-state.outputs.frontend_revision }}",
+                  "frontend_sha": "${{ steps.final-state.outputs.frontend_sha }}",
                   "frontend_url": "${{ steps.final-state.outputs.frontend_url }}",
               },
               "verification_plan": {
@@ -1549,6 +1575,21 @@ jobs:
           }
           Path("/tmp/dev-release-status.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
           PY
+
+      - name: Produce exact-SHA dev acceptance
+        if: always() && env.DEV_TARGET == 'shared-dev'
+        run: |
+          python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" create \
+            --environment dev --status /tmp/dev-release-status.json \
+            --output /tmp/dev-acceptance/acceptance.json
+
+      - name: Upload immutable dev acceptance
+        if: always() && env.DEV_TARGET == 'shared-dev'
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-acceptance-dev-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/dev-acceptance/acceptance.json
+          if-no-files-found: ignore
 
       - name: Cancel an unused parallel frontend image build
         # Hygiene only: a release that stopped before the frontend deploy leaves

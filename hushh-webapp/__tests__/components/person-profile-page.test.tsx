@@ -1,3 +1,4 @@
+import { currentGrantFixture, viewerProfile } from "./person-profile/fixtures";
 import {
   act,
   cleanup,
@@ -21,6 +22,8 @@ const mocks = vi.hoisted(() => ({
   getRequestHistory: vi.fn(),
   getPublic: vi.fn(),
   getViewer: vi.fn(),
+  getRelationship: vi.fn(),
+  getVaultOwnerToken: vi.fn(),
   push: vi.fn(),
   pathname: "/people/actual-public-ref",
   native: true,
@@ -54,7 +57,7 @@ vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({
     vaultKey: mocks.vaultKey ?? null,
     vaultOwnerToken: mocks.vaultOwnerToken ?? null,
-    getVaultOwnerToken: () => mocks.vaultOwnerToken,
+    getVaultOwnerToken: mocks.getVaultOwnerToken,
     isVaultUnlocked: mocks.isVaultUnlocked,
   }),
 }));
@@ -63,6 +66,7 @@ vi.mock("@/lib/services/person-profile-service", () => ({
   PersonProfileService: {
     getPublic: mocks.getPublic,
     getViewer: mocks.getViewer,
+    getRelationship: mocks.getRelationship,
     createInformationRequest: vi.fn(),
     connect: vi.fn(),
     cancelConnectionRequest: vi.fn(),
@@ -79,7 +83,7 @@ vi.mock("@/lib/services/drive-packet-service", () => ({
   DrivePacketService: { packets: mocks.packets },
 }));
 vi.mock("@/lib/services/external-connector-service", () => ({
-  ExternalConnectorService: { overview: mocks.connectorOverview },
+  ExternalConnectorService: { overview: mocks.connectorOverview, featureReadiness: mocks.connectorOverview },
 }));
 
 vi.mock("@/lib/services/one-kyc-client-zk-service", () => ({
@@ -90,50 +94,10 @@ vi.mock("@/lib/services/one-kyc-client-zk-service", () => ({
   },
 }));
 
-function mockCurrentGrant(
-  requestId: string,
-  bundleId: string,
-  scopeRef = "scope-0",
-) {
-  mocks.getInformationRequest.mockResolvedValue({
-    bundleId,
-    personRef: "actual-public-ref",
-    purpose: "Synthetic review",
-    durationSeconds: 86400,
-    cancelled: false,
-    items: [
-      {
-        requestId,
-        scopeRef,
-        label: "Synthetic detail",
-        sensitivity: "standard",
-        status: "granted",
-      },
-    ],
-  });
-  return {
-    requestId,
-    scopeRef,
-    encryptedExport: {
-      request_id: requestId,
-      scope: "attr.professional.synthetic",
-      export_revision: 1,
-      export_envelope: {
-        version: 2,
-        export_id: "synthetic-export",
-        aad: {
-          version: 2,
-          app_id: "agent_one",
-          grant_id: requestId,
-          export_id: "synthetic-export",
-          revision: 1,
-          machine_scope: "attr.professional.synthetic",
-          payload_algorithm: "AES-256-GCM",
-          expires_at_ms: Date.now() + 3_600_000,
-        },
-      },
-    },
-  };
+function mockCurrentGrant(requestId: string, bundleId: string, scopeRef = "scope-0") {
+  const { request, exported } = currentGrantFixture(requestId, bundleId, scopeRef);
+  mocks.getInformationRequest.mockResolvedValue(request);
+  return exported;
 }
 
 vi.mock("@/components/app-ui/app-page-shell", () => ({
@@ -172,6 +136,8 @@ vi.mock("@/components/ui/dialog", async (original) => {
   const actual = await original<typeof import("@/components/ui/dialog")>();
   return {
     ...actual,
+    DialogPortal: (props: ComponentProps<typeof actual.DialogPortal>) => mocks.realDialogs ? <actual.DialogPortal {...props} /> : <>{props.children}</>,
+    DialogOverlay: (props: ComponentProps<typeof actual.DialogOverlay>) => mocks.realDialogs ? <actual.DialogOverlay {...props} /> : <div data-testid="dialog-overlay" />,
     Dialog: (props: ComponentProps<typeof actual.Dialog>) => mocks.realDialogs ? <actual.Dialog {...props} /> : props.open === false ? null : <>{props.children}</>,
     DialogTrigger: (props: ComponentProps<typeof actual.DialogTrigger>) => mocks.realDialogs ? <actual.DialogTrigger {...props} /> : <>{props.children}</>,
     DialogContent: (props: ComponentProps<typeof actual.DialogContent>) => mocks.realDialogs ? <actual.DialogContent {...props} /> : <section>{props.children}</section>,
@@ -181,6 +147,24 @@ vi.mock("@/components/ui/dialog", async (original) => {
     DialogTitle: (props: ComponentProps<typeof actual.DialogTitle>) => mocks.realDialogs ? <actual.DialogTitle {...props} /> : <h2>{props.children}</h2>,
   };
 });
+
+vi.mock("@/components/vault/vault-unlock-dialog", () => ({
+  VaultUnlockDialog: ({
+    open,
+    title,
+    description,
+  }: {
+    open: boolean;
+    title: string;
+    description: string;
+  }) =>
+    open ? (
+      <div data-testid="vault-unlock-dialog">
+        <h3>{title}</h3>
+        <p>{description}</p>
+      </div>
+    ) : null,
+}));
 
 vi.mock("@/components/ui/textarea", () => ({
   Textarea: (props: TextareaHTMLAttributes<HTMLTextAreaElement>) => (
@@ -226,6 +210,9 @@ vi.mock("@/lib/services/answer-request-service", async (original) => ({
 }));
 
 beforeEach(() => {
+  CacheService.getInstance().clear();
+  mocks.getRelationship.mockReset().mockImplementation(() => new Promise(() => {}));
+  mocks.getVaultOwnerToken.mockReset().mockImplementation(() => mocks.vaultOwnerToken);
   mocks.realDialogs = false;
   mocks.answerGates.mockReset().mockResolvedValue({ requests: false, payments: false, payouts: false });
   mocks.answerCreate.mockReset();
@@ -233,45 +220,10 @@ beforeEach(() => {
 });
 
 import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
+import { CacheService } from "@/lib/services/cache-service";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { PersonProfilePage } from "@/components/connections/person-profile-page";
 import { CONNECTION_GRAPH_CHANGED_EVENT } from "@/lib/connections/connection-graph-events";
-
-function viewerProfile(overrides = {}) {
-  return {
-    personRef: "actual-public-ref",
-    displayName: "Actual Person",
-    photoUrl: "https://cdn.example.test/person.jpg",
-    verifiedRole: null,
-    relationship: {
-      status: "connected",
-      connectionId: "connection-1",
-      connectedAt: null,
-      requestId: null,
-    },
-    requestableScopes: [
-      {
-        scopeRef: "scope-short",
-        label: "Risk profile",
-        description: null,
-        domain: "Financial",
-        sensitivity: "standard",
-        wildcard: false,
-      },
-      {
-        scopeRef: "scope-wrapped",
-        label: "Profile preferences investment horizon selected at",
-        description: null,
-        domain: "Financial",
-        sensitivity: "standard",
-        wildcard: false,
-      },
-    ],
-    grants: [],
-    requestHistory: [],
-    ...overrides,
-  };
-}
 
 describe("PersonProfilePage native profile route", () => {
   beforeEach(() => {
@@ -553,7 +505,7 @@ describe("PersonProfilePage native profile route", () => {
         (button) =>
           button.getAttribute("aria-label") || button.textContent?.trim(),
       ),
-    ).toEqual(["Request", "Share profile", "Request a card", "Manage access"]);
+    ).toEqual(["Request", "Share profile", "Ask about files", "Request a card", "Manage access"]);
     expect(reviewButton.parentElement).not.toHaveClass("sticky");
     expect(reviewButton.parentElement).not.toHaveClass("bottom-4");
     expect(
@@ -581,7 +533,7 @@ describe("PersonProfilePage native profile route", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     fireEvent.click(cards[1]);
-    expect(await screen.findByRole("dialog", { name: "Ask about their Drive" })).toBeVisible();
+    expect(await screen.findByRole("dialog", { name: "Ask about files" })).toBeVisible();
   });
 
   it("sends one eligible Professional root request instead of twelve child requests", async () => {
@@ -822,6 +774,36 @@ describe("PersonProfilePage request catalog tools", () => {
     expect(
       screen.getByRole("button", { name: "Open Professional" }),
     ).toBeTruthy();
+  });
+
+  it("retains a request draft through consent bookkeeping but invalidates it on a real change", async () => {
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Professional" }));
+    fireEvent.click(screen.getByTestId("person-profile-scope-toggle-scope-0"));
+    fireEvent.click(screen.getByRole("button", { name: "Review request (1)" }));
+    fireEvent.change(screen.getByTestId("person-profile-purpose"), {
+      target: { value: "Review synthetic employment details" },
+    });
+    const reads = mocks.getViewer.mock.calls.length;
+    for (const source of ["cached_pending", "queued_pending", "hydrated_pending", "fallback_reconciled", "fcm_opened"]) {
+      act(() => dispatchConsentStateChanged({ source }));
+      expect(screen.getByTestId("person-profile-purpose")).toHaveValue("Review synthetic employment details");
+      expect(screen.getByRole("button", { name: "Review request (1)" })).toBeEnabled();
+      expect(screen.getByTestId("person-profile-scope-back")).toBeInTheDocument();
+      expect(mocks.getViewer).toHaveBeenCalledTimes(reads);
+    }
+
+    let resolveRefresh!: (value: ReturnType<typeof viewerProfile>) => void;
+    mocks.getViewer.mockReturnValueOnce(new Promise(resolve => { resolveRefresh = resolve; }));
+    // Explicit mutations still win even if a caller reuses a bookkeeping source.
+    act(() => dispatchConsentStateChanged({ source: "fallback_reconciled", action: "revoke" }));
+    await waitFor(() => expect(mocks.getViewer).toHaveBeenCalledTimes(reads + 1));
+    expect(screen.queryByTestId("person-profile-purpose")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("person-profile-scope-toggle-scope-0")).not.toBeInTheDocument();
+    await act(async () => { resolveRefresh(viewerProfile({ requestableScopes: manyScopes(9).slice(1) })); });
+    expect(await screen.findByRole("button", { name: "Review request" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Open Professional" }));
+    expect(screen.queryByTestId("person-profile-scope-toggle-scope-0")).not.toBeInTheDocument();
   });
 
   it("offers an access duration inside the review sheet and sends it in hours", async () => {
@@ -1394,7 +1376,7 @@ describe("PersonProfilePage request catalog tools", () => {
   it("brings the requestable catalog into view when opened with ?request=1", async () => {
     mocks.search = "request=1";
     const scrolled = vi.fn();
-    window.HTMLElement.prototype.scrollIntoView = scrolled;
+    vi.spyOn(window.HTMLElement.prototype, "scrollIntoView").mockImplementation(scrolled);
     render(
       <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
@@ -1663,8 +1645,59 @@ describe("PersonProfilePage request catalog tools", () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
     expect(screen.queryByTestId("person-profile-bundle-details")).toBeNull();
   });
-});
 
+  it("marks already-granted scopes as preselected, locked with Granted badge, and excludes them from review count", async () => {
+    const scopes = manyScopes(3);
+    mocks.getViewer.mockResolvedValue(
+      viewerProfile({
+        requestableScopes: scopes,
+        grants: [
+          {
+            scopeRef: scopes[0].scopeRef,
+            label: scopes[0].label,
+            domain: scopes[0].domain,
+            requestId: "req-already-granted",
+            issuedAt: null,
+            expiresAt: null,
+            status: "granted",
+          },
+        ],
+      }),
+    );
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Professional" }));
+
+    // Look for Granted badge for the already-granted scope
+    expect(await screen.findByTestId(`person-profile-scope-badge-granted-${scopes[0].scopeRef}`)).toHaveTextContent("Granted");
+    const grantedCheckbox = screen.getByTestId(`person-profile-scope-toggle-${scopes[0].scopeRef}`) as HTMLInputElement;
+    expect(grantedCheckbox.checked).toBe(true);
+    expect(grantedCheckbox.disabled).toBe(true);
+
+    // Review request button should be disabled because 0 ungranted scopes are selected
+    const reviewBtn = screen.getByRole("button", { name: /^Review request/ });
+    expect(reviewBtn).toBeDisabled();
+
+    // Selecting an ungranted scope (scope-2 is also in Professional) enables Review request with count 1
+    const ungrantedCheckbox = screen.getByTestId(`person-profile-scope-toggle-${scopes[2].scopeRef}`);
+    fireEvent.click(ungrantedCheckbox);
+    expect(screen.getByRole("button", { name: "Review request (1)" })).toBeEnabled();
+  });
+
+  it("scrolls to shared section and prompts vault unlock when visiting with ?section=shared while vault is locked", async () => {
+    mocks.search = "section=shared";
+    mocks.isVaultUnlocked = false;
+    mocks.vaultKey = null;
+    mocks.vaultOwnerToken = null;
+    const scrolled = vi.fn();
+    vi.spyOn(window.HTMLElement.prototype, "scrollIntoView").mockImplementation(scrolled);
+
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    await screen.findByRole("heading", { name: "Shared with you" });
+    await waitFor(() => expect(scrolled).toHaveBeenCalled());
+    expect(await screen.findByText("Unlock your private agent to reveal information shared with you.")).toBeInTheDocument();
+    vi.mocked(window.HTMLElement.prototype.scrollIntoView).mockRestore();
+  });
+});
 
 describe("Request scope during profile authority refresh", () => {
   const requestId = "33333333-3333-4333-8333-333333333333";
@@ -1675,6 +1708,10 @@ describe("Request scope during profile authority refresh", () => {
     mocks.platform = "web";
     mocks.user = { uid: "viewer", getIdToken: async () => "viewer-token" };
     mocks.authLoading = false;
+    mocks.search = "";
+    mocks.isVaultUnlocked = true;
+    mocks.vaultKey = "test-vault-key";
+    mocks.vaultOwnerToken = "test-owner-token";
     mocks.getViewer.mockReset().mockResolvedValue(viewerProfile());
     mocks.getRequestHistory.mockResolvedValue({ bundles: [], hasMore: false, nextCursor: null });
     mocks.answerGates.mockResolvedValue({ requests: true, payments: false, payouts: false });
@@ -1685,12 +1722,37 @@ describe("Request scope during profile authority refresh", () => {
   async function openQuestion() {
     const rendered = render(<PersonProfilePage personRef="actual-public-ref" initialProfile={initialProfile} />);
     fireEvent.click(await screen.findByRole("button", { name: "Ask a question", exact: true }));
-    fireEvent.change(await screen.findByLabelText("Question"), { target: { value: "What are your food preferences?" } });
+    fireEvent.change(await screen.findByLabelText("Your question"), { target: { value: "What are your food preferences?" } });
     return rendered;
   }
   function answerDoorbell() {
     dispatchConsentStateChanged({ userId: "viewer", source: "answer_request_changed", requestId: `answer_request:${requestId}`, messageId: `pkm_answer_requests:${requestId}:awaiting_owner:synthetic-timestamp` });
   }
+
+  it("admits connected actions while the complete catalog is still loading", async () => {
+    mocks.getRelationship.mockResolvedValue(viewerProfile().relationship);
+    mocks.getViewer.mockReturnValue(new Promise(() => {}));
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={initialProfile} />);
+    expect(await screen.findByText("Connected")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Loading profile details" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Ask a question", exact: true }));
+    const field = await screen.findByLabelText("Your question");
+    fireEvent.change(field, { target: { value: "What are your food preferences?" } });
+    expect(screen.getByRole("button", { name: "Send request", exact: true })).toBeEnabled();
+    expect(mocks.answerCreate).not.toHaveBeenCalled();
+  });
+
+  it("converges lightweight readiness on the complete relationship snapshot", async () => {
+    mocks.getRelationship.mockResolvedValue(viewerProfile().relationship);
+    let finish!: (value: ReturnType<typeof viewerProfile>) => void;
+    mocks.getViewer.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={initialProfile} />);
+    expect(await screen.findByText("Connected")).toBeVisible();
+    await act(async () => { finish(viewerProfile({ relationship: { status: "none" }, contactEmail: "old@example.test" })); });
+    expect(await screen.findByText("Not connected")).toBeVisible();
+    expect(screen.queryByRole("link", { name: "old@example.test" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Ask a question", exact: true })).toBeNull();
+  });
 
   it.each(["connected", "disconnected", "failed"])("retains accepted confirmation through a %s connection refresh", async (outcome) => {
     let accept!: (value: { requestId: string }) => void;
@@ -1699,7 +1761,7 @@ describe("Request scope during profile authority refresh", () => {
     mocks.answerCreate.mockReturnValue(new Promise((resolve) => { accept = resolve; }));
     await openQuestion();
     fireEvent.click(screen.getByRole("button", { name: "Send request", exact: true }));
-    await waitFor(() => expect(mocks.answerCreate).toHaveBeenCalledWith("viewer-token", "actual-public-ref", { question: "What are your food preferences?" }));
+    await waitFor(() => expect(mocks.answerCreate).toHaveBeenCalledWith("viewer-token", "actual-public-ref", { question: "What are your food preferences?" }, expect.objectContaining({ clientRequestId: expect.any(String), isEffectCurrent: expect.any(Function) })));
     mocks.getViewer.mockReturnValueOnce(new Promise((resolve, reject) => { refresh = resolve; rejectRefresh = reject; }));
     act(answerDoorbell);
     await waitFor(() => expect(mocks.getViewer).toHaveBeenCalledTimes(2));
@@ -1727,7 +1789,7 @@ describe("Request scope during profile authority refresh", () => {
     act(answerDoorbell);
     await waitFor(() => expect(mocks.getViewer).toHaveBeenCalledTimes(2));
     const send = screen.getByRole("button", { name: "Send request", exact: true });
-    expect(screen.getByLabelText("Question")).toHaveValue("What are your food preferences?");
+    expect(screen.getByLabelText("Your question")).toHaveValue("What are your food preferences?");
     expect(send).toBeDisabled();
     fireEvent.submit(send.closest("form")!);
     expect(mocks.answerCreate).not.toHaveBeenCalled();
@@ -1746,7 +1808,7 @@ describe("Request scope during profile authority refresh", () => {
     mocks.getViewer.mockReturnValueOnce(new Promise(() => {}));
     act(answerDoorbell);
     await waitFor(() => expect(mocks.getViewer).toHaveBeenCalledTimes(2));
-    expect(screen.getByLabelText("Question")).toHaveValue("What are your food preferences?");
+    expect(screen.getByLabelText("Your question")).toHaveValue("What are your food preferences?");
     fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(screen.getByRole("button", { name: "Share profile" })).toHaveFocus();
@@ -1772,7 +1834,7 @@ describe("Request scope during profile authority refresh", () => {
       await waitFor(() => expect(screen.queryByText(/Request sent\./)).toBeNull());
       expect(screen.queryByRole("link", { name: "View request" })).toBeNull();
       fireEvent.click(await screen.findByRole("button", { name: "Ask a question", exact: true }));
-      expect(await screen.findByLabelText("Question")).toHaveValue("");
+      expect(await screen.findByLabelText("Your question")).toHaveValue("");
       expect(mocks.answerCreate).toHaveBeenCalledTimes(1);
     },
   );

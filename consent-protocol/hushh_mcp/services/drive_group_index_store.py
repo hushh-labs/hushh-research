@@ -47,6 +47,7 @@ from hushh_mcp.services.drive_groups.folders import load_folders, parse_period, 
 from hushh_mcp.services.drive_groups.period import deciding_day, fiscal_quarter
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
 from hushh_mcp.services.google_drive_adapter import DriveReadError
+from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,12 @@ def _iso(value: datetime | None) -> str | None:
 
 
 class DriveGroupIndexStore(DriveLivePreferences):
+    async def _content_transaction(self, user_id, operation):
+        await admit_hub_content(user_id, "drive_group_index")
+        result = await self._transaction(operation)
+        await admit_hub_content(user_id, "drive_group_index")
+        return result
+
     def __init__(self, db=None, *, cipher=None, sealer: DriveGroupCipher | None = None):
         super().__init__(db, cipher=cipher)
         self.sealer = sealer or DriveGroupCipher()
@@ -251,7 +258,7 @@ class DriveGroupIndexStore(DriveLivePreferences):
             )
             return {**claimed, "background_revision": preference["revision"]} if claimed else None
 
-        return await self._transaction(operation)
+        return await self._content_transaction(user_id, operation)
 
     def _job(self, connection, job: dict) -> dict:
         self._require_flag(job["user_id"])
@@ -272,7 +279,9 @@ class DriveGroupIndexStore(DriveLivePreferences):
 
     async def require_current(self, job: dict) -> None:
         self._require_flag(job["user_id"])
-        await self._transaction(lambda connection: self._job(connection, job))
+        await self._content_transaction(
+            job["user_id"], lambda connection: self._job(connection, job)
+        )
 
     async def renew(self, job: dict) -> None:
         """Extend only a live lease, rechecking every authority revision first."""
@@ -307,7 +316,7 @@ class DriveGroupIndexStore(DriveLivePreferences):
                 for ref, modified, source, model, version in rows
             }
 
-        return await self._transaction(operation)
+        return await self._content_transaction(job["user_id"], operation)
 
     def _params(self, job: dict, entry: GroupEntry) -> dict[str, Any]:
         user, generation = job["user_id"], job["connection_generation"]
@@ -465,7 +474,7 @@ class DriveGroupIndexStore(DriveLivePreferences):
             )
             return {"written": len(params), "pruned": pruned, "counts": counts}
 
-        result = await self._transaction(operation)
+        result = await self._content_transaction(job["user_id"], operation)
         logger.info(
             "drive_group_index.commit written=%d pruned=%d indexed=%d kept=%d more=%d",
             result["written"],
@@ -524,7 +533,7 @@ class DriveGroupIndexStore(DriveLivePreferences):
             )
             return state, counts, preference
 
-        state, counts, preference = await self._transaction(operation)
+        state, counts, preference = await self._content_transaction(user_id, operation)
         enabled = bool(state and state["processing_enabled"])
         if not enabled:
             phase = "off"
@@ -571,7 +580,7 @@ class DriveGroupIndexStore(DriveLivePreferences):
             ).all()
             return zone["time_zone"] if zone else "UTC", rows
 
-        zone, rows = await self._transaction(operation)
+        zone, rows = await self._content_transaction(user_id, operation)
         summary = summarize_folders(
             [tuple(row) for row in rows], zone=_zone(zone), names=load_folders()
         )
@@ -634,7 +643,7 @@ class DriveGroupIndexStore(DriveLivePreferences):
             )
             return zone["time_zone"] if zone else "UTC", [dict(row) for row in rows]
 
-        zone_name, rows = await self._transaction(operation)
+        zone_name, rows = await self._content_transaction(user_id, operation)
         zone, start = _zone(zone_name), load_folders().fiscal_year_start_month
         dated = []
         for row in rows:

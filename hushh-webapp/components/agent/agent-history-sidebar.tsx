@@ -366,7 +366,8 @@ export function AgentHistorySidebar({
             <button
               type="button"
               className={cn(
-                "relative isolate overflow-hidden block min-w-0 flex-1 rounded-[12px] pl-3 pr-1 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60",
+                "block min-w-0 flex-1 rounded-[12px] pl-3 pr-1 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60",
+                isMobileMode && "relative isolate overflow-hidden",
                 // Keep the complete title readable on touch without relying on hover.
                 isMobileMode ? "min-h-11 py-2" : "min-h-9 py-2",
                 active ? "font-medium text-foreground" : "font-normal text-foreground/85 group-hover:text-foreground"
@@ -525,7 +526,7 @@ export function AgentHistorySidebar({
           <div data-stationary-panel-chrome data-agent-history-header data-agent-history-header-layout="aligned" className="flex h-[var(--agent-chat-header-row-height)] shrink-0 items-center gap-3 px-[var(--agent-chat-header-inline-gutter)]">
               {onClose && !hideCloseButton ? (
                 <span data-agent-history-close>{closeControl ?? <ShellActionSurface
-                  variant="icon" className="size-11" onClick={onClose}
+                  variant="icon" className="size-11 text-foreground" onClick={onClose}
                   aria-label="Close chat history" title="Close chat history"
                 ><AnimatedMenuCrossIcon isOpen /></ShellActionSurface>}</span>
               ) : null}

@@ -2,12 +2,12 @@
 
 Third-party dependency inventory for the Hushh Consent Protocol.
 
-This file is generated from repo lockfiles, exact-version installed license evidence, and the installed Python environment.
+This file is generated from repo lockfiles, exact-version installed license evidence, the installed Python environment, and the governed imported-resource inventory.
 Regenerate it with `python3 scripts/licenses/generate_third_party_notices.py`.
 
 ## Python packages
 
-Package count: 197
+Package count: 215
 
 ### License summary
 
@@ -17,7 +17,7 @@ Package count: 197
 - `Apache Software License`: 35
 - `Apache Software License; BSD License`: 1
 - `Apache Software License; MIT License`: 1
-- `Apache-2.0`: 26
+- `Apache-2.0`: 28
 - `Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT`: 1
 - `Apache-2.0 AND CNRI-Python`: 1
 - `Apache-2.0 AND MIT`: 1
@@ -26,15 +26,16 @@ Package count: 197
 - `Apache-2.0 OR MIT`: 1
 - `BSD License`: 18
 - `BSD-2-Clause`: 2
-- `BSD-3-Clause`: 17
+- `BSD-3-Clause`: 20
 - `BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0`: 1
 - `BSD-3-Clause, Apache-2.0, dependency licenses`: 1
 - `GNU Lesser General Public License v3 (LGPLv3)`: 1
 - `GNU Library or Lesser General Public License (LGPL)`: 1
+- `ISC`: 1
 - `ISC License (ISCL)`: 1
 - `LGPL-2.1-only`: 1
-- `MIT`: 48
-- `MIT License`: 26
+- `MIT`: 55
+- `MIT License`: 31
 - `MIT-CMU`: 1
 - `Mozilla Public License 2.0 (MPL 2.0)`: 2
 - `MPL-2.0 AND (Apache-2.0 OR MIT)`: 1
@@ -56,12 +57,14 @@ Package count: 197
 - `annotated-doc` `0.0.4` — MIT
 - `annotated-types` `0.7.0` — MIT License
 - `anthropic` `0.96.0` — MIT License
-- `anyio` `4.13.0` — MIT
+- `anyio` `4.14.2` — MIT
 - `asgiref` `3.11.1` — BSD License
 - `asyncio` `4.0.0` — Apache-2.0
 - `asyncpg` `0.31.0` — Apache-2.0
 - `attrs` `26.1.0` — MIT
 - `Authlib` `1.7.2` — BSD License
+- `azure-core` `1.41.0` — MIT
+- `azure-identity` `1.26.0` — MIT
 - `bandit` `1.9.4` — Apache-2.0
 - `beautifulsoup4` `4.14.3` — MIT License
 - `blinker` `1.9.0` — MIT License
@@ -69,6 +72,7 @@ Package count: 197
 - `botocore` `1.42.90` — Apache-2.0
 - `CacheControl` `0.14.4` — Apache-2.0
 - `cachetools` `7.1.7` — MIT
+- `cbor2` `6.1.4` — MIT
 - `certifi` `2026.2.25` — Mozilla Public License 2.0 (MPL 2.0)
 - `cffi` `2.0.0` — MIT
 - `charset-normalizer` `3.4.7` — MIT
@@ -80,7 +84,10 @@ Package count: 197
 - `defusedxml` `0.7.1` — Python Software Foundation License
 - `Deprecated` `1.3.1` — MIT License
 - `distro` `1.9.0` — Apache Software License
+- `dnspython` `2.9.0` — ISC
 - `docstring_parser` `0.18.0` — MIT License
+- `et_xmlfile` `2.0.0` — MIT License
+- `execnet` `2.1.2` — MIT
 - `fastapi` `0.136.0` — MIT
 - `filelock` `3.32.5` — MIT
 - `firebase_admin` `7.1.0` — Apache Software License
@@ -110,8 +117,10 @@ Package count: 197
 - `hf-xet` `1.6.0` — Apache-2.0
 - `hpack` `4.2.0` — MIT
 - `httpcore` `1.0.9` — BSD-3-Clause
+- `httpcore2` `2.13.1` — BSD-3-Clause
 - `httpx` `0.28.1` — BSD License
 - `httpx-sse` `0.4.3` — MIT
+- `httpx2` `2.13.1` — BSD-3-Clause
 - `huggingface_hub` `1.30.0` — Apache Software License
 - `hyperframe` `6.1.0` — MIT License
 - `idna` `3.18` — BSD-3-Clause
@@ -141,6 +150,8 @@ Package count: 197
 - `mcp` `1.28.1` — MIT License
 - `mdurl` `0.1.2` — MIT License
 - `mpmath` `1.3.0` — BSD License
+- `msal` `1.39.0` — MIT License
+- `msal-extensions` `1.3.1` — MIT License
 - `msgpack` `1.2.1` — Apache-2.0
 - `multidict` `6.7.1` — Apache License 2.0
 - `multitasking` `0.0.12` — Apache Software License
@@ -150,6 +161,7 @@ Package count: 197
 - `networkx` `3.6.1` — BSD-3-Clause
 - `numpy` `2.4.4` — BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0
 - `openai` `2.32.0` — Apache Software License
+- `openpyxl` `3.1.5` — MIT License
 - `opentelemetry-api` `1.42.1` — Apache-2.0
 - `opentelemetry-exporter-gcp-trace` `1.11.0` — Apache Software License
 - `opentelemetry-instrumentation` `0.63b1` — Apache-2.0
@@ -184,12 +196,14 @@ Package count: 197
 - `pydantic-settings` `2.14.2` — MIT
 - `pydantic_core` `2.46.1` — MIT
 - `Pygments` `2.20.0` — BSD-2-Clause
-- `PyJWT` `2.13.0` — MIT
+- `PyJWT` `2.14.0` — MIT
+- `pyOpenSSL` `26.4.0` — Apache Software License
 - `pypdfium2` `5.11.0` — BSD-3-Clause, Apache-2.0, dependency licenses
 - `pytesseract` `0.3.13` — Apache Software License
 - `pytest` `9.0.3` — MIT
 - `pytest-asyncio` `1.3.0` — Apache-2.0
 - `pytest-cov` `7.1.0` — MIT
+- `pytest-xdist` `3.8.0` — MIT
 - `python-a2a` `0.5.10` — MIT License
 - `python-dateutil` `2.9.0.post0` — Apache Software License; BSD License
 - `python-dotenv` `1.2.2` — BSD-3-Clause
@@ -209,16 +223,17 @@ Package count: 197
 - `safetensors` `0.8.0` — Apache Software License
 - `scikit-learn` `1.9.0` — BSD-3-Clause
 - `scipy` `1.18.1` — BSD License
-- `sentence-transformers` `5.2.0` — Apache Software License
+- `sentence-transformers` `6.0.0` — Apache-2.0
 - `shellingham` `1.5.4` — ISC License (ISCL)
 - `six` `1.17.0` — MIT License
 - `slowapi` `0.1.9` — MIT License
 - `sniffio` `1.3.1` — Apache Software License; MIT License
-- `soupsieve` `2.8.4` — MIT
+- `soupsieve` `2.9` — MIT
 - `SQLAlchemy` `2.0.49` — MIT
 - `sse-starlette` `3.3.4` — BSD-3-Clause
 - `starlette` `1.3.1` — BSD-3-Clause
 - `stevedore` `5.7.0` — Apache Software License
+- `stripe` `16.0.0` — MIT License
 - `sympy` `1.14.0` — BSD License
 - `tenacity` `9.1.4` — Apache Software License
 - `threadpoolctl` `3.6.0` — BSD License
@@ -226,18 +241,34 @@ Package count: 197
 - `torch` `2.14.0` — Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT
 - `tqdm` `4.67.3` — MPL-2.0 AND MIT
 - `transformers` `5.10.1` — Apache 2.0 License
+- `truststore` `0.10.5` — MIT
 - `typer` `0.27.2` — MIT
 - `typing-inspection` `0.4.2` — MIT
 - `typing_extensions` `4.15.0` — PSF-2.0
+- `tzdata` `2026.1` — Apache-2.0
 - `urllib3` `2.7.0` — MIT
 - `uuid_utils` `0.14.1` — BSD-3-Clause
 - `uvicorn` `0.44.0` — BSD-3-Clause
 - `watchdog` `6.0.0` — Apache Software License
 - `watchfiles` `1.2.0` — MIT License
+- `webauthn` `3.0.0` — BSD-3-Clause
 - `websockets` `15.0.1` — BSD License
 - `Werkzeug` `3.1.8` — BSD-3-Clause
+- `workos` `10.5.0` — MIT
 - `wrapt` `1.17.3` — BSD License
 - `xxhash` `3.6.0` — BSD License
 - `yarl` `1.23.0` — Apache-2.0
 - `yfinance` `1.3.0` — Apache Software License
 - `zstandard` `0.25.0` — BSD-3-Clause
+
+## Private pod runtime resources
+
+Package count: 1
+
+### License summary
+
+- `Apache-2.0`: 1
+
+### Package inventory
+
+- `moby-container-profiles` `4b8214fc4971e06172938a1f1554ccff6647ee80` — Apache-2.0; [License](consent-protocol/browser_runtime/azure_host/LICENSE.moby); [Upstream notice](consent-protocol/browser_runtime/azure_host/NOTICE.moby)

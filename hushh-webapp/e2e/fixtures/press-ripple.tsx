@@ -43,10 +43,10 @@ function Fixture() {
         <ArrowRight className="ml-2 h-5 w-5" aria-hidden="true" />
       </MorphyButton>
       <div className={`${authStyles.shell} w-full max-w-[430px] space-y-3`} data-testid="auth-providers">
-        <AuthProviderButton label="Continue with Apple" icon={<AppleIcon className="size-6" />} className={authStyles.providerButton} />
+        <AuthProviderButton label="Continue with Apple" icon={<AppleIcon className={`size-6 ${authStyles.appleProviderIcon}`} />} className={authStyles.providerButton} />
         <AuthProviderButton label="Continue with Google" icon={<GoogleIcon className="size-6" />} className={authStyles.providerButton} />
         <AuthProviderButton label="Continue with Microsoft" className={authStyles.providerButton}
-          icon={<span aria-hidden="true" className="grid size-6 grid-cols-2 gap-[2px]">
+          icon={<span aria-hidden="true" className={`grid size-6 grid-cols-2 gap-[2px] ${authStyles.microsoftProviderIcon}`}>
             {["#f25022", "#7fba00", "#00a4ef", "#ffb900"].map(color => <span key={color} style={{ backgroundColor: color }} />)}
           </span>} />
         <EmailSignInSection disabled={false} onBusyChange={ignoreEmailState}

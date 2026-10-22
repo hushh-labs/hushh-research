@@ -7,17 +7,21 @@ import json
 import time
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from api.middleware import require_firebase_auth_read_only
 from api.routes.one import plg
 from hushh_mcp.hushh_adk import product_activity as sdk
+from hushh_mcp.services import marketing_preferences
 from hushh_mcp.services import plg_audience as audience
+from hushh_mcp.services import plg_customer_cohort as cohort
 from hushh_mcp.services import plg_evidence as evidence
 from hushh_mcp.services import plg_outcomes as outcomes
+from hushh_mcp.services import plg_reporting as reporting
 from hushh_mcp.services import product_activity as sink
 from hushh_mcp.services.pkm_mutation_contracts import derive_pkm_mutation_commit_id
 from hushh_mcp.services.plg_catalog import activity_catalog
@@ -31,16 +35,155 @@ COMMIT = derive_pkm_mutation_commit_id(
 )
 
 
+@pytest.mark.parametrize("uid", ["owner.with+custom@example.test", "private/owner", "a" * 128])
+def test_snapshot_accepts_the_same_bounded_firebase_uid_as_subscription_enrollment(uid):
+    request = evidence.PilotRequest(accounts=[{**ACCOUNT, "accountId": uid}])
+    assert request.accounts[0].accountId == uid
+
+
+@pytest.mark.parametrize("uid", ["", "a" * 129, 17])
+def test_snapshot_uid_still_rejects_empty_overlong_and_non_string_identity(uid):
+    with pytest.raises(ValueError):
+        evidence.PilotRequest(accounts=[{**ACCOUNT, "accountId": uid}])
+
+
+@pytest.fixture
+def reporting_roster(monkeypatch):
+    monkeypatch.setenv(
+        "ONE_PLG_REPORTING_POLICY_JSON",
+        json.dumps(
+            {
+                "version": 1,
+                "excludedAccountIds": [],
+                "excludedEmails": ["staff@example.test"],
+                "excludedDomains": ["company.example"],
+            }
+        ),
+    )
+    monkeypatch.setenv("REVIEWER_UID", "reviewer")
+    monkeypatch.setenv("REVIEWER_COUNTERPART_UID", "reviewer-counterpart")
+    monkeypatch.setenv("ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS", "inner@example.test")
+    monkeypatch.setenv("ONE_MAGIC_INTELLIGENCE_SENIOR_TEAM_EMAILS", "")
+    monkeypatch.setenv("ONE_MAGIC_INTELLIGENCE_QA_EMAILS", "qa@example.test")
+
+
+def test_reporting_policy_requires_production_identity_and_explicit_internal_evidence(
+    reporting_roster, monkeypatch
+):
+    policy = reporting.reporting_policy()
+    identity = {"email": "customer@example.test", "display_name": "John Smith"}
+    assert policy.eligible("customer", identity)  # A name alone never excludes a customer.
+    assert policy.eligible("customer", {"email": "customer@company.example.evil.test"})
+    assert policy.eligible("phone", {"phone_verified": True, "phone_number": "+919876543210"})
+    assert not policy.eligible("auth-only", None)
+    assert not policy.eligible("anonymous", {"phone_number": "+919876543210"})
+    assert not policy.eligible("reviewer", identity)
+    assert not policy.eligible("reviewer-counterpart", identity)
+    for alias in (
+        " STAFF@example.test ",
+        "inner@example.test",
+        "qa@example.test",
+        "person@company.example",
+        "person@sub.company.example",
+    ):
+        assert not policy.eligible("customer", identity, [alias])
+    assert len(policy.revision) == 64 and "staff" not in json.dumps(policy.proof())
+    monkeypatch.delenv("ONE_PLG_REPORTING_POLICY_JSON")
+    with pytest.raises(reporting.ReportingPolicyUnavailable, match="policy unavailable"):
+        reporting.reporting_policy()
+
+
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setenv("ONE_PLG_EXPORT_ENABLED", "true")
     monkeypatch.setenv("ONE_PLG_EXPORT_SECRET", SECRET)
     monkeypatch.setenv("ONE_PLG_EXPORT_ACCOUNT_IDS", ACCOUNT["accountId"])
     monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda")
     app = FastAPI()
     app.include_router(plg.router)
     with TestClient(app) as value:
         yield value
+
+
+@pytest.mark.asyncio
+async def test_current_reporting_identifiers_are_bounded_read_only_and_production_only(monkeypatch):
+    from firebase_admin import auth
+
+    from api.utils import firebase_admin
+
+    record = SimpleNamespace(
+        uid="customer",
+        disabled=False,
+        custom_claims={},
+        email="customer@example.test",
+        phone_number=None,
+        provider_data=[SimpleNamespace(email="staff@company.example")],
+        password_hash="PRIVATE_AUTH_EXPORT",  # noqa: S106 - synthetic export-leak sentinel
+    )
+    calls = []
+    monkeypatch.setattr(
+        firebase_admin, "get_firebase_auth_app", lambda: SimpleNamespace(project_id="hushh-pda")
+    )
+    monkeypatch.setattr(
+        auth,
+        "get_users",
+        lambda identifiers, **kwargs: (
+            calls.append(identifiers) or SimpleNamespace(users=[record], not_found=[])
+        ),
+    )
+    result = await reporting.current_reporting_identifiers(["customer", "customer"])
+    assert result == {"customer": ("customer@example.test", "staff@company.example")}
+    assert len(calls) == 1 and len(calls[0]) == 1
+    assert "PRIVATE_AUTH_EXPORT" not in json.dumps(result)
+    record.disabled = True
+    assert await reporting.current_reporting_identifiers(["customer"]) == {}
+    monkeypatch.setattr(auth, "get_users", lambda *a, **k: SimpleNamespace(users=[], not_found=[]))
+    with pytest.raises(ValueError, match="Invalid customer reporting identities"):
+        await reporting.current_reporting_identifiers(["customer"])
+    monkeypatch.setattr(
+        auth,
+        "get_users",
+        lambda *a, **k: SimpleNamespace(users=[], not_found=[auth.UidIdentifier("customer")]),
+    )
+    assert await reporting.current_reporting_identifiers(["customer"]) == {}
+    monkeypatch.setattr(
+        firebase_admin, "get_firebase_auth_app", lambda: SimpleNamespace(project_id="hushh-uat")
+    )
+    with pytest.raises(ValueError, match="source unavailable"):
+        await reporting.current_reporting_identifiers(["customer"])
+    with pytest.raises(ValueError, match="bound exceeded"):
+        await reporting.current_reporting_identifiers([f"account-{n}" for n in range(51)])
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_marketing_permission_requires_current_auth_authority_verified_recipient(monkeypatch):
+    from firebase_admin import auth
+
+    from api.utils import firebase_admin as identity
+
+    app = object()
+    person = SimpleNamespace(
+        email=" Current@Example.invalid ",
+        email_verified=True,
+        disabled=False,
+        display_name="Fixture",
+        user_metadata=SimpleNamespace(creation_timestamp=1_700_000_000_000),
+    )
+    read = MagicMock(return_value=person)
+    monkeypatch.setattr(identity, "get_firebase_auth_app", lambda: app)
+    monkeypatch.setattr(auth, "get_user", read)
+    result = await marketing_preferences.verified_recipient("authenticated-owner")
+    read.assert_called_once_with("authenticated-owner", app=app)
+    assert result["email"] == "current@example.invalid"
+    assert result["email_hash"] == hashlib.sha256(b"current@example.invalid").hexdigest()
+    person.email_verified = False
+    with pytest.raises(marketing_preferences.VerifiedEmailRequired):
+        await marketing_preferences.verified_recipient("authenticated-owner")
+    read.side_effect = auth.UserNotFoundError("Synthetic missing recipient")
+    with pytest.raises(marketing_preferences.VerifiedEmailRequired):
+        await marketing_preferences.verified_recipient("authenticated-owner")
 
 
 def post(client, payload=None, purpose="snapshot", secret=SECRET, version=None, route="snapshot"):
@@ -61,6 +204,88 @@ def post(client, payload=None, purpose="snapshot", secret=SECRET, version=None, 
     )
 
 
+def test_optional_email_preference_uses_only_authenticated_owner(monkeypatch):
+    app = FastAPI()
+    app.include_router(plg.router)
+    client = TestClient(app)
+    body = {
+        "enabled": True,
+        "frequency": "weekly",
+        "expectedRevision": 0,
+        "disclosureVersion": "one-email-updates-v1",
+        "surface": "setup",
+    }
+    assert client.get("/api/one/plg/preferences").status_code == 401
+    assert client.put("/api/one/plg/preferences", json=body).status_code == 401
+    app.dependency_overrides[require_firebase_auth_read_only] = lambda: "authenticated-owner"
+    read = AsyncMock(return_value={"enabled": False, "revision": 0})
+    write = AsyncMock(return_value={"enabled": True, "revision": 1})
+    monkeypatch.setattr(marketing_preferences, "preference", read)
+    monkeypatch.setattr(marketing_preferences, "choose_preference", write)
+    result = client.get("/api/one/plg/preferences")
+    assert result.status_code == 200 and "no-store" in result.headers["cache-control"]
+    write.assert_not_called()
+    for invalid in [
+        {**body, "accountId": "other"},
+        {**body, "email": "other@example.test"},
+        {**body, "enabled": "true"},
+        {**body, "expectedRevision": True},
+    ]:
+        assert client.put("/api/one/plg/preferences", json=invalid).status_code == 422
+    write.assert_not_called()
+    assert client.put("/api/one/plg/preferences", json=body).status_code == 200
+    assert write.call_args.args == ("authenticated-owner",)
+    assert write.call_args.kwargs["expected_revision"] == 0
+
+
+def test_subscription_key_and_purpose_cannot_grant_other_authority(client, monkeypatch):
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda")
+    monkeypatch.setenv("ONE_PLG_SUBSCRIPTION_ENABLED", "true")
+    key = "test-only-separate-subscription-integration-key"
+    monkeypatch.setenv("ONE_PLG_SUBSCRIPTION_SECRET", key)
+    source = AsyncMock(return_value={"version": 1, "environment": "production", "changes": []})
+    monkeypatch.setattr(marketing_preferences, "pending_changes", source)
+
+    def pull(purpose, secret):
+        timestamp = str(int(time.time() * 1000))
+        signature = hmac.new(
+            secret.encode(), f"{purpose}\n{timestamp}\n{{}}".encode(), hashlib.sha256
+        ).hexdigest()
+        return client.post(
+            "/api/one/plg/subscriptions/pull",
+            content="{}",
+            headers={
+                "Content-Type": "application/json",
+                "X-PLG-Timestamp": timestamp,
+                "X-PLG-Signature": signature,
+            },
+        )
+
+    assert pull("snapshot", key).status_code == 401
+    assert pull("subscriptions.pull", SECRET).status_code == 401
+    source.assert_not_called()
+    assert pull("subscriptions.pull", key).status_code == 200
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    assert pull("subscriptions.pull", key).status_code == 404
+    assert source.await_count == 1
+
+
+def test_snapshot_adds_only_recorded_permission_cohort(client, monkeypatch):
+    monkeypatch.delenv("ONE_PLG_EXPORT_ACCOUNT_IDS", raising=False)
+    assert post(client).status_code == 404
+    monkeypatch.setenv("ONE_PLG_SUBSCRIPTION_ENABLED", "true")
+    admitted = AsyncMock(return_value={ACCOUNT["accountId"]})
+    projection = AsyncMock(return_value={"version": 1, "accounts": []})
+    monkeypatch.setattr(marketing_preferences, "permitted_snapshot_accounts", admitted)
+    monkeypatch.setattr(plg, "snapshot", projection)
+    assert post(client).status_code == 200
+    assert projection.call_args.args[1] == {ACCOUNT["accountId"]}
+    admitted.assert_awaited_once_with([ACCOUNT["accountId"]])
+    monkeypatch.setattr(plg, "snapshot", evidence.snapshot)
+    admitted.return_value = set()
+    assert post(client).status_code == 400
+
+
 def test_export_rejects_wrong_signature_purpose_and_nonproduction(client, monkeypatch):
     source = AsyncMock(return_value={"version": 1})
     monkeypatch.setattr(plg, "snapshot", source)
@@ -71,6 +296,9 @@ def test_export_rejects_wrong_signature_purpose_and_nonproduction(client, monkey
     monkeypatch.delenv("APP_RUNTIME_PROFILE", raising=False)
     assert post(client).status_code == 404
     monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    assert post(client).status_code == 404
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda")
     assert (
         post(client).status_code == 200
     )  # Negative control: correct authority reaches the source.
@@ -78,6 +306,112 @@ def test_export_rejects_wrong_signature_purpose_and_nonproduction(client, monkey
     assert source.call_args.args[0].version == 1
     assert post(client, version=2).status_code == 200
     assert source.call_args.args[0].version == 2
+
+
+def test_customer_cohort_route_has_distinct_read_authority(client, monkeypatch):
+    monkeypatch.setenv("ONE_PLG_AUDIENCE_ENABLED", "true")
+    monkeypatch.setenv("ONE_PLG_AUDIENCE_SECRET", SECRET)
+    source = AsyncMock(return_value={"version": 1})
+    monkeypatch.setattr(plg, "customer_cohort_page", source)
+    assert (
+        post(client, {"cursor": None}, purpose="audience", route="customer-cohort").status_code
+        == 401
+    )
+    assert not source.called
+    assert (
+        post(
+            client, {"cursor": None}, purpose="customer-cohort", route="customer-cohort"
+        ).status_code
+        == 200
+    )
+    source.side_effect = cohort.CohortCursorError("private cursor details")
+    assert (
+        post(
+            client, {"cursor": "bad"}, purpose="customer-cohort", route="customer-cohort"
+        ).status_code
+        == 400
+    )
+    source.side_effect = reporting.ReportingPolicyUnavailable("private config details")
+    failed = post(client, {"cursor": None}, purpose="customer-cohort", route="customer-cohort")
+    assert failed.status_code == 503 and "private config" not in failed.text
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    assert (
+        post(
+            client, {"cursor": None}, purpose="customer-cohort", route="customer-cohort"
+        ).status_code
+        == 404
+    )
+    assert source.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_customer_cohort_excludes_internal_aliases_and_tombstones_without_private_exports(
+    monkeypatch, reporting_roster
+):
+    # Simulate database collation order that differs from Python lexical order.
+    ids = ["company", "customer", "alias", "deleted", "missing", "provider", "staff"]
+    registered = (NOW - timedelta(days=30)).isoformat()
+    connection = SimpleNamespace(execute=AsyncMock())
+    connection.fetch = AsyncMock(return_value=[{"user_id": uid} for uid in ids])
+
+    class Lease:
+        async def __aenter__(self):
+            return connection
+
+        async def __aexit__(self, *_):
+            pass
+
+    connection.transaction = lambda **_: Lease()
+    monkeypatch.setattr(
+        cohort, "get_pool", AsyncMock(return_value=SimpleNamespace(acquire=lambda **_: Lease()))
+    )
+    monkeypatch.setattr(
+        cohort.AccountDeletionLifecycleService,
+        "active_projection_user_ids",
+        AsyncMock(return_value=set(ids) - {"deleted"}),
+    )
+    identities = {uid: {"email": uid + "@example.test"} for uid in ids}
+    identities["company"] = {"email": "person@company.example"}
+    monkeypatch.setattr(cohort.ActorIdentityService, "get_many", AsyncMock(return_value=identities))
+    monkeypatch.setattr(
+        cohort.ActorIdentityService,
+        "get_many_verified_email_aliases",
+        AsyncMock(return_value={"alias": ["staff@example.test"]}),
+    )
+    current = {
+        uid: {"emails": (uid + "@example.test",), "registeredAt": registered}
+        for uid in ids
+        if uid != "missing"
+    }
+    current["provider"]["emails"] = ("external@example.test", "person@company.example")
+    monkeypatch.setattr(cohort, "current_reporting_records", AsyncMock(return_value=current))
+    result = await cohort.customer_cohort_page(cohort.CohortRequest(), SECRET, NOW)
+    assert result["rows"] == [
+        {"analyticsUserId": "abfd2046757cddb0c5d965b012287279", "registeredAt": registered}
+    ]
+    assert result["scanned"] == 7 and result["excluded"] == 6 and result["nextCursor"] is None
+    assert "@" not in json.dumps(result) and "deleted" not in json.dumps(result)
+    sql, last, at = connection.fetch.call_args.args
+    assert (
+        'COLLATE "C"' not in sql and "ORDER BY user_id LIMIT 51" in sql and last == "" and at == NOW
+    )
+    # Continuation hides even the last denied UID and binds the policy and window.
+    revision = reporting.reporting_policy().revision
+    cursor = cohort._cipher(SECRET).seal(
+        json.dumps(
+            {"last": "private-denied-uid", "asOf": NOW.isoformat(), "policyRevision": revision}
+        ),
+        cohort.PURPOSE,
+    )
+    assert "private-denied-uid" not in cursor
+    assert cohort._cursor(cursor, SECRET, revision, NOW) == ("private-denied-uid", NOW)
+    for key, version, now in [
+        (SECRET + "bad", revision, NOW),
+        (SECRET, "a" * 64, NOW),
+        (SECRET, revision, NOW + timedelta(minutes=10)),
+    ]:
+        with pytest.raises(ValueError, match="Invalid customer cohort cursor"):
+            cohort._cursor(cursor, key, version, now)
 
 
 def test_validation_and_provider_errors_never_echo_identifiers_or_private_details(
@@ -91,10 +425,16 @@ def test_validation_and_provider_errors_never_echo_identifiers_or_private_detail
     assert result.status_code == 503
     assert "PRIVATE_DB_CONTENT" not in result.text
     assert result.headers["cache-control"] == "private, no-store"
+    monkeypatch.setattr(plg, "snapshot", evidence.snapshot)
+    monkeypatch.setenv("ONE_PLG_REPORTING_POLICY_JSON", "malformed")
+    result = post(client, {"accounts": [], "version": 2, "customerReporting": True})
+    assert result.status_code == 503 and "malformed" not in result.text
 
 
 @pytest.mark.asyncio
-async def test_projection_bounds_owner_and_window_and_carries_deletion_without_content(monkeypatch):
+async def test_projection_bounds_owner_and_window_and_carries_deletion_without_content(
+    monkeypatch, reporting_roster
+):
     class Connection:
         execute = AsyncMock()
 
@@ -159,6 +499,41 @@ async def test_projection_bounds_owner_and_window_and_carries_deletion_without_c
     }
     assert account["activity"]["enabled"] is False
     assert "PRIVATE_CONTENT" not in json.dumps(expanded)
+    identity = {ACCOUNT["accountId"]: {"email": "staff@example.test"}}
+    monkeypatch.setattr(evidence.ActorIdentityService, "get_many", AsyncMock(return_value=identity))
+    monkeypatch.setattr(
+        evidence,
+        "current_reporting_identifiers",
+        AsyncMock(return_value={ACCOUNT["accountId"]: ("customer@example.test",)}),
+    )
+    monkeypatch.setattr(
+        evidence.ActorIdentityService, "get_many_verified_email_aliases", AsyncMock(return_value={})
+    )
+    customer_result = await evidence.snapshot(
+        request.model_copy(update={"customerReporting": True}), {ACCOUNT["accountId"]}, NOW
+    )
+    assert customer_result["customerReporting"]["scope"] == "production_registered_contacts"
+    assert customer_result["accounts"][0]["reportingEligible"] is False
+    assert customer_result["accounts"][0]["deleted"] is False
+    assert customer_result["accounts"][0]["tasks"] == []  # Exclusion never asserts deletion.
+    identity[ACCOUNT["accountId"]]["email"] = "customer@example.test"
+    customer_result = await evidence.snapshot(
+        request.model_copy(update={"customerReporting": True}), {ACCOUNT["accountId"]}, NOW
+    )
+    assert customer_result["accounts"][0]["reportingEligible"] is True
+    assert len(customer_result["accounts"][0]["tasks"]) == 1
+    for identifiers in (
+        {ACCOUNT["accountId"]: ("customer@example.test", "provider@company.example")},
+        {},
+    ):
+        monkeypatch.setattr(
+            evidence, "current_reporting_identifiers", AsyncMock(return_value=identifiers)
+        )
+        customer_result = await evidence.snapshot(
+            request.model_copy(update={"customerReporting": True}), {ACCOUNT["accountId"]}, NOW
+        )
+        assert customer_result["accounts"][0]["reportingEligible"] is False
+        assert customer_result["accounts"][0]["tasks"] == []
     with pytest.raises(ValueError):
         await evidence.snapshot(request, {"another-owner"}, NOW)
     monkeypatch.setattr(
@@ -239,9 +614,16 @@ def test_catalog_covers_authored_agents_and_actions_without_dynamic_tool_names()
     assert {a["id"] for a in catalog["agents"]} == {a["id"] for a in registry["agents"]}
     assert {a["capability_id"] for a in graph["actions"]} <= {a["id"] for a in catalog["actions"]}
     assert {a["agentId"] for a in catalog["actions"]} <= {a["id"] for a in catalog["agents"]}
-    assert {a["id"] for a in catalog["agents"] if a["public"]} == set(outcomes.DEFINITIONS)
+    assert set(outcomes.DEFINITIONS) <= {a["id"] for a in catalog["agents"] if a["public"]}
     assert all(
-        a["outcome"]["status"] == ("supported" if a["public"] else "internal")
+        a["outcome"]["status"]
+        == (
+            "internal"
+            if not a["public"]
+            else "supported"
+            if a["id"] in outcomes.DEFINITIONS
+            else "unmeasured"
+        )
         for a in catalog["agents"]
     )
     gateway = json.loads(
@@ -553,6 +935,7 @@ async def test_audience_projection_excludes_tombstoned_owner_after_canonical_bar
 @pytest.mark.asyncio
 async def test_audience_live_page_excludes_deleted_accounts_and_never_serializes_provider_records(
     monkeypatch,
+    reporting_roster,
 ):
     records = [
         SimpleNamespace(
@@ -566,7 +949,7 @@ async def test_audience_live_page_excludes_deleted_accounts_and_never_serializes
             display_name="Phone only",
             **{"password_hash": "PRIVATE_HASH"},
         )
-        for uid in ("active", "deleted")
+        for uid in ("active", "deleted", "staff", "alias", "auth-only", "reviewer")
     ]
     monkeypatch.setattr(
         audience,
@@ -607,9 +990,29 @@ async def test_audience_live_page_excludes_deleted_accounts_and_never_serializes
     monkeypatch.setattr(
         audience.AccountDeletionLifecycleService,
         "active_projection_user_ids",
-        AsyncMock(return_value={"active"}),
+        AsyncMock(return_value={"active", "staff", "alias", "auth-only", "reviewer"}),
     )
-    monkeypatch.setattr(audience.ActorIdentityService, "get_many", AsyncMock(return_value={}))
+    monkeypatch.setattr(
+        audience.ActorIdentityService,
+        "get_many",
+        AsyncMock(
+            return_value={
+                "active": {
+                    "display_name": "John Smith",
+                    "phone_verified": True,
+                    "phone_number": "+919876543210",
+                },
+                "staff": {"email": "person@company.example"},
+                "alias": {"email": "customer@example.test"},
+                "reviewer": {"email": "customer@example.test"},
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        audience.ActorIdentityService,
+        "get_many_verified_email_aliases",
+        AsyncMock(return_value={"alias": ["staff@example.test"]}),
+    )
     monkeypatch.setattr(
         audience.ActorIdentityService,
         "read_provider_phone_fallbacks",
@@ -617,7 +1020,8 @@ async def test_audience_live_page_excludes_deleted_accounts_and_never_serializes
     )
     monkeypatch.setattr(audience, "enabled_for", lambda _: False)
     result = await audience.audience_page(audience.AudienceRequest(), SECRET, NOW)
-    assert result["scanned"] == 2 and result["excluded"] == 1
+    assert result["scanned"] == 6 and result["excluded"] == 5
+    assert result["customerReporting"]["scope"] == "production_registered_contacts"
     assert [r["accountId"] for r in result["rows"]] == ["active"]
     assert result["rows"][0]["identity"]["phoneNumber"] == "+919876543210"
     assert result["rows"][0]["verified"]["supported"] is True

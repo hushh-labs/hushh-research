@@ -66,7 +66,7 @@ async def test_request_search_uses_v1_lane_only_for_marked_live_request(
 
 
 @pytest.mark.asyncio
-async def test_v1_worker_limits_request_preparation_to_v1(monkeypatch):
+async def test_v1_worker_limits_request_preparation_to_v1(monkeypatch, shared_hub_owner):
     job_id = str(uuid4())
     store = SimpleNamespace(
         # The in-run continuation asks the V1 queue again and finds nothing.

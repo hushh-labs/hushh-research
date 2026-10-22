@@ -284,6 +284,10 @@
       "file": "app/api/ria/[...path]/route.ts"
     },
     {
+      "template": "/api/scope-commerce/{path*}",
+      "file": "app/api/scope-commerce/[...path]/route.ts"
+    },
+    {
       "template": "/api/tickers/all",
       "file": "app/api/tickers/all/route.ts"
     },
@@ -2417,6 +2421,7 @@
       },
       "voice_action_contract_file": "app/one/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "one.scheduled_tasks.open",
         "route.one_agents",
         "route.one_feed",
         "route.one_location",
@@ -2892,9 +2897,31 @@
       },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
-      "api_dependencies": [],
+      "api_dependencies": [
+        {
+          "service_file": "lib/services/scope-commerce-service.ts",
+          "service_methods": [
+            "readiness",
+            "scopeRequest",
+            "quote",
+            "purchase",
+            "cancelPurchase",
+            "revokePurchase",
+            "approveInactive",
+            "getPurchase",
+            "preparePurchase",
+            "stagePurchase"
+          ],
+          "nextjs_api_route": "/api/scope-commerce/{path*}",
+          "nextjs_proxy_file": "app/api/scope-commerce/[...path]/route.ts",
+          "backend_endpoint_family": "/api/scope-commerce/*",
+          "native_transport": "CapacitorHttp direct backend through ApiService.apiFetch; finance uses Firebase, export preparation uses vault-owner authority"
+        }
+      ],
       "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
+      "thread_and_consent_contract": {
+        "commerce_authority": "Explicit human quote confirmation reserves funds; owner-device v2 encryption stages the exact scope and recipient for server-fixed activation and expiry. Provider returns confer no authority."
+      }
     },
     {
       "route": "/one/email",
@@ -3032,6 +3059,81 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/files",
+      "page_file": "app/one/files/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/files/files-workspace.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.files",
+          "purpose": "Manage the owner’s encrypted Files library while the vault is unlocked. Private pods additionally require admission. Organization requires explicit analysis consent.",
+          "screen": "one_files",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "File changes complete only after the owner-authorized library confirms the matching operation; destructive changes require explicit confirmation.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally without inventing a control."
+        }
+      },
+      "native": {
+        "route": "/one/files",
+        "classification": "excluded-web-only",
+        "reason": "GAP: encrypted BYOC Files uses browser streaming and file-picker controls. Native transfer, key continuity, and direct-pod admission require device acceptance before enabling this route."
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/one/files/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.one_files"
+      ],
+      "api_dependencies": [
+        {
+          "service_file": "lib/files/service.ts",
+          "service_methods": [
+            "list",
+            "upload",
+            "download",
+            "organize",
+            "settings"
+          ],
+          "nextjs_api_route": null,
+          "nextjs_proxy_file": null,
+          "backend_endpoint_family": "/api/one/pod/files/*",
+          "native_transport": "Not accepted on native; browser uses signed owner-pod admission and direct HTTPS via ApiService.ownerPodRequest"
+        }
+      ],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/gmail",
       "page_file": "app/one/gmail/page.tsx",
       "physical_page_exists": true,
@@ -3126,7 +3228,7 @@
           "playbook_id": "route.one.kai",
           "purpose": "Help the person understand and use the kai screen through its generated controls.",
           "screen": "kai_market",
-          "entry_cue": "Use Market, Portfolio, or Analysis to choose the active finance view.",
+          "entry_cue": "Use Market, Portfolio, or Stocks to choose the active finance view.",
           "proactivity": "on_entry",
           "primary_action_id": "route.kai_home",
           "happy_path_action_ids": [
@@ -3422,7 +3524,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.kai.market",
-          "purpose": "Help the person move between Market, Portfolio, and Analysis through the shared Finance workspace.",
+          "purpose": "Help the person move between Market, Portfolio, and Stocks through the shared Finance workspace.",
           "screen": "kai_market",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -4674,9 +4776,25 @@
       },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
-      "api_dependencies": [],
+      "api_dependencies": [
+        {
+          "service_file": "lib/one-marketplace/service.ts",
+          "service_methods": [
+            "listAvailable",
+            "requestListing",
+            "listRequests",
+            "getDelivery"
+          ],
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "backend_endpoint_family": "/api/one/marketplace/*",
+          "native_transport": "CapacitorHttp direct backend through ApiService.apiFetch; buyer connector custody reuses OneKycClientZkService and encrypted PKM"
+        }
+      ],
       "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
+      "thread_and_consent_contract": {
+        "paid_delivery": "Canonical v2 X25519 export only; legacy P-256 envelopes are free compatibility. Owner vault key remains memory-only; connector recovery is encrypted in the existing PKM domain."
+      }
     },
     {
       "route": "/one/messages",
@@ -4762,17 +4880,21 @@
           "SurfaceStack"
         ],
         "interaction_layer_policy": {
-          "allowed_families": []
+          "allowed_families": [
+            "sharing_price_review",
+            "sharing_bundle_review"
+          ]
         },
         "voice_playbook": {
           "playbook_id": "route.one.pkm",
-          "purpose": "Memory opens on memory.md, the formatted document One uses in conversations. The owner can edit and save it; Saved, Add, and Sharing retain the specialist memory flows. Back cancels the memory.md editor before leaving Memory, and saving completes only after encrypted persistence succeeds.",
+          "purpose": "Memory has Saved and Add tabs. Saved category rows open Sharing and price at the domain level. Review listing and exact section prices, or a whole-bundle price when owner discovery permits it. Chat opens the same review without changing listing or prices. Private-agent memory remains private; editing and encrypted persistence retain their existing authority.",
           "screen": "pkm",
           "entry_cue": "You can say “Open Memory” to use the primary control on this screen.",
           "proactivity": "on_entry",
           "primary_action_id": "route.one_pkm",
           "happy_path_action_ids": [
-            "route.one_pkm"
+            "route.one_pkm",
+            "pkm.review_sharing_price"
           ],
           "required_inputs": [],
           "recoveries": {
@@ -4783,7 +4905,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "completion_boundary": "Opening bundle or price review changes nothing. Listing changes only after an explicit visibility control succeeds. Prices change only after confirmation and persistence; listing and pricing never grant recipient access or purchase confirmation.",
           "next_route": "/one/pkm",
           "return_policy": "stay",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -4810,8 +4932,12 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/pkm/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "pkm.close_sharing_bundle_review",
+        "pkm.close_sharing_price_review",
+        "pkm.review_sharing_price"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -5286,7 +5412,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "completion_boundary": "Authenticated server status establishes payment and onboarding completion. An opaque hosted return only prompts a fresh read; it never grants scope access.",
           "next_route": null,
           "return_policy": "stay",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -5313,9 +5439,35 @@
       },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
+      "api_dependencies": [
+        {
+          "service_file": "lib/services/scope-commerce-service.ts",
+          "service_methods": [
+            "readiness",
+            "account",
+            "activity",
+            "checkout",
+            "onboarding",
+            "withdrawalPreview",
+            "withdraw",
+            "refundPreview",
+            "refund"
+          ],
+          "nextjs_api_route": "/api/scope-commerce/{path*}",
+          "nextjs_proxy_file": "app/api/scope-commerce/[...path]/route.ts",
+          "backend_endpoint_family": "/api/scope-commerce/*",
+          "native_transport": "CapacitorHttp direct backend through ApiService.apiFetch; finance uses Firebase, export preparation uses vault-owner authority"
+        }
+      ],
+      "native_plugin_dependencies": [
+        {
+          "js_name": "Browser",
+          "reason": "Stripe Checkout and Connect use the system browser; trusted App Links trigger server status refresh only."
+        }
+      ],
+      "thread_and_consent_contract": {
+        "commerce_authority": "Explicit human quote confirmation reserves funds; owner-device v2 encryption stages the exact scope and recipient for server-fixed activation and expiry. Provider returns confer no authority."
+      }
     },
     {
       "route": "/one/profile/account/phone",
@@ -5540,6 +5692,71 @@
       "native": null,
       "shell": {
         "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/discovery",
+      "page_file": "app/one/profile/discovery/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/one/profile/discovery/page.tsx",
+        "shell_verification_includes": [
+          "CapabilityVaultPrerequisite",
+          "AppPageShell",
+          "AppPageContentRegion",
+          "PublicProfileReviewWorkspace"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.discovery",
+          "purpose": "Explain the source-linked public profile review without deciding which findings to claim.",
+          "screen": "profile_discovery",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the person's review goal.",
+            "cancelled": "Respect the cancellation and leave findings unclaimed.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer a safe retry in the review workspace.",
+            "callback_error": "Return to the protected review workspace without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Claim completion is shown only after the protected browser review confirms the selected information was added.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "The private agent may explain the screen; claim decisions require the person's protected review controls."
+        }
+      },
+      "native": {
+        "route": "/one/profile/discovery",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fdiscovery",
+        "expectedMarker": "native-route-profile-discovery",
+        "expectedRoute": "/one/profile/discovery",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": true,
         "page_header": false,
         "settings_ui": false,
         "shared_loader": false,
@@ -5850,6 +6067,72 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/profile/hosting",
+      "page_file": "app/one/profile/hosting/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.hosting",
+          "purpose": "Help the person understand hosting through verified settings controls.",
+          "screen": "profile_hosting",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/hosting",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fhosting",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/hosting",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/profile/integrations",
       "page_file": "app/one/profile/integrations/page.tsx",
       "physical_page_exists": true,
@@ -5964,9 +6247,24 @@
       },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
-      "api_dependencies": [],
+      "api_dependencies": [
+        {
+          "service_file": "lib/services/scope-commerce-service.ts",
+          "service_methods": [
+            "readiness",
+            "tariff",
+            "saveTariff"
+          ],
+          "nextjs_api_route": "/api/scope-commerce/{path*}",
+          "nextjs_proxy_file": "app/api/scope-commerce/[...path]/route.ts",
+          "backend_endpoint_family": "/api/scope-commerce/*",
+          "native_transport": "CapacitorHttp direct backend through ApiService.apiFetch; finance uses Firebase, export preparation uses vault-owner authority"
+        }
+      ],
       "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
+      "thread_and_consent_contract": {
+        "commerce_authority": "Explicit human quote confirmation reserves funds; owner-device v2 encryption stages the exact scope and recipient for server-fixed activation and expiry. Provider returns confer no authority."
+      }
     },
     {
       "route": "/one/profile/my-data/domain",
@@ -6030,9 +6328,24 @@
       },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
-      "api_dependencies": [],
+      "api_dependencies": [
+        {
+          "service_file": "lib/services/scope-commerce-service.ts",
+          "service_methods": [
+            "readiness",
+            "tariff",
+            "saveTariff"
+          ],
+          "nextjs_api_route": "/api/scope-commerce/{path*}",
+          "nextjs_proxy_file": "app/api/scope-commerce/[...path]/route.ts",
+          "backend_endpoint_family": "/api/scope-commerce/*",
+          "native_transport": "CapacitorHttp direct backend through ApiService.apiFetch; finance uses Firebase, export preparation uses vault-owner authority"
+        }
+      ],
       "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
+      "thread_and_consent_contract": {
+        "commerce_authority": "Explicit human quote confirmation reserves funds; owner-device v2 encryption stages the exact scope and recipient for server-fixed activation and expiry. Provider returns confer no authority."
+      }
     },
     {
       "route": "/one/profile/payouts",
@@ -6054,7 +6367,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.profile.payouts",
-          "purpose": "Help the person use payouts through its generated controls.",
+          "purpose": "Help the person manage purchase balance and source-specific earnings without changing consent or financial authority.",
           "screen": "profile_payouts",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -6372,7 +6685,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.profile.preferences.gemini",
-          "purpose": "Help the person manage Gemini preferences without exposing a credential to the private agent.",
+          "purpose": "Help the person manage the selected AI connection without exposing a credential to the private agent.",
           "screen": "profile_preferences",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -7194,6 +7507,72 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/profile/software-updates",
+      "page_file": "app/one/profile/software-updates/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.software-updates",
+          "purpose": "Help the person understand software updates through verified settings controls.",
+          "screen": "profile_software-updates",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/software-updates",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fsoftware-updates",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/software-updates",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/profile/support",
       "page_file": "app/one/profile/support/page.tsx",
       "physical_page_exists": true,
@@ -7464,6 +7843,7 @@
         "profile.world_model.email",
         "profile.world_model.invite",
         "profile.world_model.open_fact",
+        "profile.world_model.public_profiles",
         "profile.world_model.refresh",
         "profile.world_model.reject",
         "profile.world_model.reject_fact",
@@ -7629,7 +8009,10 @@
         "exemption_reason": null,
         "shell_verification_file": "components/onboarding/setup/one-setup-hub.tsx",
         "shell_verification_includes": [
-          "SetupV10Surface"
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader"
         ],
         "interaction_layer_policy": {
           "allowed_families": []
@@ -7640,9 +8023,9 @@
           "screen": "one_setup_hub",
           "entry_cue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
           "proactivity": "on_entry",
-          "primary_action_id": "setup.open_connections",
+          "primary_action_id": "setup.open_cloud",
           "happy_path_action_ids": [
-            "setup.open_connections",
+            "setup.open_cloud",
             "setup.open_gmail",
             "setup.open_calendar",
             "setup.open_location",
@@ -7823,6 +8206,133 @@
       }
     },
     {
+      "route": "/one/setup/cloud",
+      "page_file": "app/one/setup/cloud/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/connections/byoc-cloud-setup-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.setup.cloud",
+          "purpose": "Choose verified hosting, then configure AI access in the same agent setup wizard.",
+          "screen": "one_setup_cloud",
+          "entry_cue": "Choose where your private agent lives, then choose its AI access.",
+          "proactivity": "on_entry",
+          "primary_action_id": "setup.finish_cloud",
+          "happy_path_action_ids": [
+            "setup.finish_cloud"
+          ],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Finish returns to the hub only after verified hosting and a durable AI choice; it never acknowledges root onboarding.",
+          "next_route": "/one/setup",
+          "return_policy": "return_to_hub",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/setup/cloud",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fcloud",
+        "expectedMarker": "native-route-one-setup-cloud",
+        "expectedRoute": "/one/setup/cloud",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/one/setup/cloud/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "setup.finish_cloud"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/setup/cloud/azure/return",
+      "page_file": "app/one/setup/cloud/azure/return/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/connections/azure-cloud-return-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.setup.cloud.azure.return",
+          "purpose": "Finish the Microsoft sign-in that sets up or updates the person's private agent in their own Azure subscription, without exposing credentials.",
+          "screen": "one_setup_cloud",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Return to cloud setup and explain that Azure was not connected.",
+            "timeout": "Retain the goal and offer a safe retry.",
+            "callback_error": "Return to cloud setup without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "The callback completes only after the hub verifies the sign-in state and starts the setup or update job; progress is read from that job's record.",
+          "next_route": "/one/setup/cloud",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/setup/cloud/azure/return",
+        "classification": "excluded-web-only",
+        "reason": "Microsoft sign-in return leg. It receives a browser redirect carrying a one-time code and hands control back to cloud setup; Microsoft sign-in is web-only in this version, so there is nothing for a native surface to render."
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": true,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/setup/connected-systems",
       "page_file": "app/one/setup/connected-systems/page.tsx",
       "physical_page_exists": true,
@@ -7894,7 +8404,6 @@
         "exemption_reason": null,
         "shell_verification_file": "components/connections/gemini-runtime-configuration-page.tsx",
         "shell_verification_includes": [
-          "SetupV10Surface",
           "AppPageShell",
           "AppPageHeaderRegion",
           "AppPageContentRegion",
@@ -7905,9 +8414,9 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.setup.connections",
-          "purpose": "Choose private Gemini runtime configuration before feature-specific setup without exposing an API key to the agent.",
+          "purpose": "Choose a supported AI connection for the selected hosting without exposing a credential to the private agent.",
           "screen": "one_setup_connections",
-          "entry_cue": "Choose Hussh managed Gemini now, or record BYOK and add the encrypted key after setup.",
+          "entry_cue": "Use the verified cloud connection, or validate a supported owner key.",
           "proactivity": "on_entry",
           "primary_action_id": "setup.finish_connections",
           "happy_path_action_ids": [
@@ -10385,5 +10894,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "25679abf6e32081a2e0dda6ff39527b8c50df361430a6ba8b431b99fa0f846ea"
+  "content_sha256": "23d533734bee68bd11920719b1b2ab285ced2703fe38a932878ee3e9e4c65a78"
 }

@@ -11,7 +11,7 @@ import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref, type RefObject } from "react";
 import { NativeChromeLease, chromeControlId, chromeOwnerEpoch, currentChromeInstallation, canResumeNativeChrome, suspendOwnedNativeChrome, peekNativeChromeCapabilities, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome, retireOwnedNativeChrome, measureNativeChromeGeometry, type ChromeAgentSurface, type ChromeChoice, type ChromeChoiceOutcome, type ChromeOption, type ChromeControl, type ChromeAccentPalette } from "@/lib/capacitor/native-chrome";
 import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
-import { nativeDocumentId, subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
+import { nativeDocumentId, nativePrivacyCanInteract, subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
 import { isCurrentNativeControlAppearance, NATIVE_CONTROL_CONTRACT_VERSION, useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { isSessionChromeSuppressed, useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { getVoiceSurfaceMetadata, useVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
@@ -59,8 +59,8 @@ type Props = {
   { kind: "date"; label: string; value: string; minimum: string; maximum: string; onValueChange: (value: string) => void });
 
 /** Opt-in presentation only. The caller retains its DOM control, layout and action
- * owner. History reserves 44x44; the two-option selector reserves 88..320 x 44.
- * New native families require --hushh-native-chat-chrome on a Debug iPhone.
+ * owner. Public preferences use supported native capabilities; chat families
+ * require --hushh-native-chat-chrome on a Debug iPhone.
  * Authored native/gesture dismissal can request acknowledged native focus;
  * DOM keyboard return keeps its fallback active until focus leaves the slot. */
 export function NativeChatChrome(props: Props) {
@@ -164,7 +164,7 @@ export function NativeChatChrome(props: Props) {
     !moving.current && !slot.current?.closest("[inert]") &&
     !isSessionChromeSuppressed() && !getVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions &&
     document.visibilityState !== "hidden", []);
-  const canAct = useCallback(() => current.current.allowed && canReachPresentation(), [canReachPresentation]);
+  const canAct = useCallback(() => current.current.allowed && nativePrivacyCanInteract() && canReachPresentation(), [canReachPresentation]);
   // Preparing presentation grants no operation authority. A detail destination
   // is laid out while its native menu is still closing; rejecting preparation
   // solely for that coverage would expose a web Back or leave an empty slot.
@@ -257,7 +257,7 @@ export function NativeChatChrome(props: Props) {
       const target = request.props.focusRef.current;
       if (hidden || hasOutstandingNativeChrome(controlId) || !canReachPresentation() ||
           !isCurrentAttempt() || !target?.isConnected || target.matches(":disabled") ||
-          target.closest("[inert]")) return false;
+          target.closest("[hidden], [inert]") || getComputedStyle(target).visibility === "hidden") return false;
       target.focus({ preventScroll: true });
       return document.activeElement === target;
     }
@@ -356,7 +356,15 @@ export function NativeChatChrome(props: Props) {
     const invalidateRemoved = () => { removedLease.current = lease.current; invalidate(); };
     const readmit = () => {
       const active = lease.current, snapshot = current.current;
-      if (cancelled || subscriptionsFailed || !active?.ownsInstallation || active.context !== snapshot.context || active.projection.ownerEpoch !== snapshot.epoch || !snapshot.theme) return;
+      if (cancelled || subscriptionsFailed || !nativePrivacyCanInteract() || !snapshot.theme) return;
+      if (!active?.ownsInstallation || !active.admissionReady || removedLease.current === active ||
+          active.context !== snapshot.context || active.projection.ownerEpoch !== snapshot.epoch) {
+        // Privacy may have actually retired this host. Updating its invalid
+        // lease returns false; it cannot reconstruct the presentation. Rejoin
+        // the existing acknowledged retirement/admission owner, never an action.
+        if (canPrepare()) remeasure(count => count + 1);
+        return;
+      }
       void active.update({ ...snapshot.theme, enabled: canAct(), value: snapshot.value, expanded: snapshot.expanded }, true).then(applied => {
         if (applied) notifyPresentationReady(active);
       }).catch(() => {
@@ -401,7 +409,10 @@ export function NativeChatChrome(props: Props) {
             if (outcome && lease.current === active) reportChoice(outcome);
           }).catch(() => { if (lease.current === active) reportChoice("uncertain"); });
         })), retain(nativeChrome.addListener("invalidated", invalidateRemoved)),
-        retain(nativeChrome.addListener("readmissionRequested", readmit)), retain(subscribeNativeSessionPrivacy(invalidateRemoved))]);
+        retain(nativeChrome.addListener("readmissionRequested", readmit)), retain(subscribeNativeSessionPrivacy(state => {
+          if (!state.appIsActive || state.shielded) invalidateRemoved();
+          else readmit();
+        }))]);
         if (!cancelled) {
           setInPlaceUpdates(capability.inPlaceUpdates === true);
           setRetainedControls(capability.retainedControls === true);
@@ -754,14 +765,14 @@ export function NativeHistoryOpener({ owner, context, eligible, open, pendingAtt
   return <NativeChatChrome kind="history" owner={owner} pendingAttention={pendingAttention}
     context={context} eligible={eligible && (retainedBase || !open)} style={{ visibility: open && !retainedBase ? "hidden" : undefined }}
     onActivate={() => onActivate(true)} focusRef={focusRef} ref={ref}
-    className="relative z-[540] flex h-11 w-11 shrink-0 items-center justify-center">
+    className="agent-chat-history-control relative z-[540] flex h-11 w-11 shrink-0 items-center justify-center">
     <ShellActionSurface variant="icon" id="one-chat-history-trigger" ref={focusRef}
       // Pointer entry may return to acknowledged native focus. Keyboard and
       // ambiguous activation retain the DOM focus target until explicit blur.
       onClick={(event) => { appHaptic("light"); onActivate(event.detail > 0, event.currentTarget); }}
       aria-label={`${label}${pendingAttention > 0 && !open
         ? `, ${pendingAttention} Drive ${pendingAttention === 1 ? "review needs" : "reviews need"} you` : ""}`}
-      title={label} aria-expanded={open} className="relative z-[540] size-11">
+      title={label} aria-expanded={open} className="relative z-[540] size-11 text-foreground">
       <AnimatedMenuCrossIcon isOpen={open} />
       {pendingAttention > 0 && !open && showAttentionDot
         ? <span aria-hidden="true" className="pointer-events-none absolute right-0 top-0 size-2 rounded-full bg-[color:var(--app-warning)]" /> : null}
@@ -776,7 +787,7 @@ export function NativeHistoryClose({ onClose }: {
 }) {
   return <span className="relative flex size-11 shrink-0 items-center justify-center">
     <ShellActionSurface variant="icon" aria-label="Close chat history" title="Close chat history"
-      onClick={() => { appHaptic("light"); onClose(); }} className="size-11">
+      onClick={() => { appHaptic("light"); onClose(); }} className="size-11 text-foreground">
       <AnimatedMenuCrossIcon isOpen />
     </ShellActionSurface>
   </span>;

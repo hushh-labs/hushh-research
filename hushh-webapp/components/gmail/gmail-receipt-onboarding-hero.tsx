@@ -2,12 +2,12 @@ import {
   AirplaneTilt,
   ChevronRight,
   ForkKnife,
-  Loader2,
   ShoppingBag,
   type LucideIcon,
 } from "@/components/icons";
 import { Progress } from "@/components/ui/progress";
-import { Button } from "@/lib/morphy-ux/button";
+import mailStyles from "./mail-workspace.module.css";
+import { MailActionButton as Button } from "./mail-action-button";
 
 type ReceiptCategory = {
   label: string;
@@ -84,13 +84,13 @@ export function GmailReceiptOnboardingHero({
             // families are set here -- dropping either one lets that more
             // specific shell rule silently override the other back to the
             // small default title3 scale.
-            className="text-foreground [--foundation-title2-size:calc(var(--foundation-title1-size)*0.8)] [--foundation-title3-size:var(--foundation-title2-size)] [--foundation-title2-line:1.15] [--foundation-title3-line:var(--foundation-title2-line)] [--foundation-title2-weight:700] [--foundation-title3-weight:var(--foundation-title2-weight)]"
+            className={mailStyles.sectionTitle}
             id="receipt-sync-hero-title"
           >
             Your receipts
           </h2>
           <p
-            className="mt-3 max-w-[22rem] text-[12px] leading-[17px] text-muted-foreground @md:mt-4 @md:text-[17px] @md:leading-7"
+            className={`${mailStyles.support} mt-3 max-w-[22rem] text-muted-foreground`}
             data-testid="receipt-sync-description"
           >
             Find receipts in your mail.
@@ -107,17 +107,12 @@ export function GmailReceiptOnboardingHero({
               data-voice-label="Start sync"
               data-voice-purpose="starts or refreshes Mail receipt sync."
               disabled={!syncAvailable || syncing}
+              aria-busy={syncing}
               onClick={onStartReceiptSync}
               size="prominent"
               type="button"
             >
-              {syncing ? (
-                <Loader2
-                  aria-hidden="true"
-                  className="mr-0.5 size-2.5 shrink-0 animate-spin motion-reduce:animate-none @xs:mr-1 @xs:size-3 @md:mr-2 @md:size-4"
-                />
-              ) : null}
-              {syncing ? "Scanning" : "Start sync"}
+              Start sync
             </Button>
           </div>
           {statusMessage ? (

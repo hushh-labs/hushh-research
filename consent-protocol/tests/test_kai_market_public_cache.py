@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from api.routes.kai import market_insights
@@ -128,8 +130,8 @@ def test_market_home_cache_key_uses_shared_baseline_and_user_scoped_personalizat
     )
 
     assert baseline_user_a == baseline_user_b
-    assert baseline_user_a.startswith("home:baseline:")
-    assert personalized_user_a.startswith("home:user_a:")
+    assert baseline_user_a.startswith("home:v5:baseline:")
+    assert personalized_user_a.startswith("home:v5:user_a:")
 
 
 def test_repair_quote_symbol_normalizes_known_provider_aliases():
@@ -138,8 +140,15 @@ def test_repair_quote_symbol_normalizes_known_provider_aliases():
     assert market_insights._repair_quote_symbol("MSFT") == ("MSFT", False)
 
 
-def test_market_overview_includes_all_four_supported_benchmark_proxies():
-    quote = {"price": 100.0, "change_percent": 1.25, "fetched_at": "2026-07-16T00:00:00Z"}
+def test_market_overview_uses_index_levels_and_provider_quote_evidence():
+    quote = {
+        "price": 7712.57,
+        "change_percent": 1.25,
+        "quoted_at": "2026-10-20T20:45:45Z",
+        "fetched_at": "2026-10-21T01:00:00Z",
+        "is_delayed": True,
+        "sparkline": [7700, 7712.57],
+    }
     overview = market_insights._build_market_overview(
         quote,
         quote,
@@ -164,9 +173,12 @@ def test_market_overview_includes_all_four_supported_benchmark_proxies():
     )
 
     by_label = {row["label"]: row for row in overview}
-    assert by_label["DOW 30"]["symbol"] == "DIA"
-    assert by_label["Russell 2000"]["symbol"] == "IWM"
-    assert by_label["DOW 30"]["value"] == 100.0
+    assert [row["symbol"] for row in overview[:4]] == ["^GSPC", "^IXIC", "^DJI", "^RUT"]
+    assert by_label["NASDAQ Composite"]["symbol"] == "^IXIC"
+    assert by_label["Dow Jones"]["value"] == 7712.57
+    assert by_label["Dow Jones"]["as_of"] == quote["quoted_at"]
+    assert by_label["Dow Jones"]["is_delayed"] is True
+    assert by_label["Dow Jones"]["sparkline"] == [7700, 7712.57]
     assert by_label["Russell 2000"]["delta_pct"] == 1.25
 
 
@@ -181,7 +193,7 @@ async def test_concurrent_public_module_failure_degrades_without_collapsing_home
             return await kwargs["fetcher"](), False, 0, "live", False
         if key.startswith("quotes:"):
             raise RuntimeError("quote provider unavailable")
-        if key == "macro:us":
+        if key == "macro:v2:us":
             return (
                 {
                     "vix": {
@@ -202,7 +214,7 @@ async def test_concurrent_public_module_failure_degrades_without_collapsing_home
             )
         if key == "movers:v2:us":
             return ({}, {"movers:gainers": "partial"}), False, 0, "live", False
-        if key == "sectors:us":
+        if key == "sectors:v2:us":
             return ([], "partial"), False, 0, "live", False
         if key.startswith("sparklines:"):
             return {}, False, 0, "live", False
@@ -293,3 +305,70 @@ async def test_startup_warm_seeds_shared_baseline_home_after_public_modules(monk
         "personalized": False,
         "warm_source": "startup",
     }
+
+
+@pytest.mark.asyncio
+async def test_company_facts_require_matching_identity_before_provider_work(monkeypatch):
+    from fastapi import HTTPException
+
+    called = []
+
+    async def public_module(**kwargs):
+        called.append(kwargs["key"])
+        return {"symbol": "AAPL", "market_cap": 100}, False, 0, "live", False
+
+    monkeypatch.setattr(market_insights, "_get_or_refresh_public_module", public_module)
+    with pytest.raises(HTTPException) as error:
+        await market_insights.get_market_company_facts("owner", "AAPL", "someone-else")
+    assert error.value.status_code == 403
+    assert called == []
+    result = await market_insights.get_market_company_facts("owner", "AAPL", "owner")
+    assert result["facts"]["AAPL"]["market_cap"] == 100
+    assert called == ["company_facts:v1:AAPL"]
+
+
+@pytest.mark.asyncio
+async def test_company_facts_bound_provider_work_during_background_stale_refresh(monkeypatch):
+    pending = []
+    gate = asyncio.Event()
+    running = 0
+    peak = 0
+
+    async def fetch_facts(symbol):
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        await gate.wait()
+        running -= 1
+        return {"symbol": symbol}
+
+    async def stale_module(**kwargs):
+        pending.append(asyncio.create_task(kwargs["fetcher"]()))
+        return {"symbol": kwargs["key"].split(":")[-1]}, True, 60, "memory", True
+
+    monkeypatch.setattr(market_insights, "fetch_market_company_facts", fetch_facts)
+    monkeypatch.setattr(market_insights, "_get_or_refresh_public_module", stale_module)
+    result = await market_insights.get_market_company_facts(
+        "owner", "AAPL,MSFT,NVDA,GOOG,AMZN,META,TSLA,AVGO", "owner"
+    )
+    gate.set()
+    await asyncio.gather(*pending)
+    assert len(result["facts"]) == 8
+    assert peak == 4
+    assert all(row["stale"] for row in result["facts"].values())
+
+
+@pytest.mark.asyncio
+async def test_sector_periods_use_distinct_observed_session_closes(monkeypatch):
+    async def histories(symbols):
+        return {
+            symbols[0]: [{"t": 1791849600 + day * 86400, "p": 100 + day * 2} for day in range(6)]
+        }
+
+    monkeypatch.setattr(market_insights, "fetch_market_session_history", histories)
+    rows, status = await market_insights._fetch_sector_rotation_snapshot("public", None)
+    assert status == "partial"
+    assert rows[0]["change_pct"] == pytest.approx((110 / 108 - 1) * 100)
+    assert rows[0]["change_1w_pct"] == pytest.approx(10)
+    assert rows[0]["period_start_1d"] != rows[0]["period_start_1w"]
+    assert rows[0]["basis"] == "Sector ETF price return"

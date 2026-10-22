@@ -13,6 +13,7 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import DBAPIError
 
+from hushh_mcp.services.account_external_connector_erasure import clear_external_connector_data
 from hushh_mcp.services.drive_request_owner_payout_service import DriveRequestOwnerPayoutService
 from hushh_mcp.services.hashcoin_redemption_service import HashcoinRedemptionService
 from hushh_mcp.services.hashcoin_wallet_service import HashcoinError, HashcoinWalletService
@@ -593,6 +594,10 @@ async def test_live_dispatch_fence_rejects_transfer_after_owner_erasure(ledger, 
 
 @pytest.mark.asyncio
 async def test_live_dispatch_fence_makes_erasure_wait_for_provider_write(ledger, monkeypatch):
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_sharing_retention.erase_drive_account_in_transaction",
+        lambda *args, **kwargs: None,
+    )
     _claim_live_source(ledger, monkeypatch)
     record = await ledger.reserve_redemption(
         user_id="owner",
@@ -613,6 +618,13 @@ async def test_live_dispatch_fence_makes_erasure_wait_for_provider_write(ledger,
 
     def erase_owner():
         with ledger.db.engine.begin() as connection:
+            clear_external_connector_data(
+                connection,
+                "owner",
+                {},
+                permanent=True,
+                lock_graph_users=lambda *args, **kwargs: None,
+            )
             connection.execute(text("DELETE FROM actor_profiles WHERE user_id='owner'"))
 
     dispatch = asyncio.create_task(

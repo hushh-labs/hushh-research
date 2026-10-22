@@ -6,10 +6,13 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
-from api.routes.drive_sharing import NO_STORE, Owner, _owner
+from api.routes.drive_sharing import NO_STORE
+from api.routes.drive_sharing_owner import ContentOwner as Owner
+from api.routes.drive_sharing_owner import _content_owner as _owner
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_group_index_store import DISCLOSURE, DriveGroupIndexStore
 from hushh_mcp.services.drive_groups.contract import GroupIndexDisabled, four_group_index_enabled
+from hushh_mcp.services.drive_groups.folders import load_folders
 from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
@@ -105,7 +108,12 @@ async def overview(owner: Owner = Depends(_owner)):
         store = _store()
         status = await store.status(user_id=owner.user_id)
         folders = await store.folders(user_id=owner.user_id)
-        return {"status": status, "folders": folders}
+        names = load_folders()
+        return {
+            "status": status,
+            "groups": [{"shelf": shelf, "name": name} for shelf, name in names.names.items()],
+            "folders": folders,
+        }
 
     return await _call(owner, operation)
 

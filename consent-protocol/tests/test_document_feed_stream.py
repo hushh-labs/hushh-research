@@ -212,33 +212,20 @@ async def test_v2_says_hello_then_one_typed_payout_frame_per_burst(owner_queue):
 
 
 @pytest.mark.asyncio
-async def test_v2_payout_frames_debounce_500ms_and_cap_at_2s(owner_queue):
-    loop = asyncio.get_running_loop()
+async def test_v2_payout_max_wait_applies_while_doorbells_remain_queued(owner_queue):
+    # Exact debounce/cap arithmetic is proved above with an explicit clock.
+    # Here, prove the generator actually applies that cap without relying on
+    # a producer being scheduled every 30 ms on a shared developer machine.
+    timing = StreamTiming(coalesce_debounce_seconds=30, coalesce_max_wait_seconds=0)
     frames = document_feed_event_generator(
-        "owner", CONNECTED, version=2, lifetime_seconds=30, timing=FAST
+        "owner", CONNECTED, version=2, lifetime_seconds=30, timing=timing
     )
     await _next(frames)
     await _next(frames)
-
-    started = loop.time()
-    owner_queue.queue.put_nowait(_doorbell(["wallet"]))
-    await _next(frames)
-    quiet = loop.time() - started
-    assert FAST.coalesce_debounce_seconds - 0.01 <= quiet < FAST.coalesce_max_wait_seconds
-
-    async def ring():
-        for _ in range(15):
-            owner_queue.queue.put_nowait(_doorbell(["wallet"]))
-            await asyncio.sleep(0.03)
-
-    ringer = asyncio.create_task(ring())
-    started = loop.time()
-    first = await _next(frames)
-    capped = loop.time() - started
-    assert first["event"] == "payout_changed"
-    # Doorbells every 30 ms never go quiet; the max wait still delivers.
-    assert FAST.coalesce_max_wait_seconds - 0.01 <= capped < FAST.coalesce_max_wait_seconds + 0.15
-    await ringer
+    for _ in range(3):
+        owner_queue.queue.put_nowait(_doorbell(["wallet"]))
+    assert (await _next(frames))["event"] == "payout_changed"
+    assert owner_queue.queue.qsize() == 2
     await frames.aclose()
 
 
@@ -288,16 +275,19 @@ async def test_v2_ends_with_a_reconnect_hint_at_its_lifetime(owner_queue):
 
 
 @pytest.mark.asyncio
-async def test_general_feed_writes_ring_a_content_free_feed_changed(owner_queue):
+@pytest.mark.parametrize("reason", [None, "history_mutated", "private headline"])
+async def test_general_feed_writes_ring_a_content_free_feed_changed(owner_queue, reason):
     frames = document_feed_event_generator(
         "owner", CONNECTED, version=2, lifetime_seconds=30, timing=FAST
     )
     await _next(frames)
     await _next(frames)
     owner_queue.queue.put_nowait(
-        {"type": "feed_changed", "user_id": "owner", "title": "private headline"}
+        {"type": "feed_changed", "user_id": "owner", "title": "private headline", "reason": reason}
     )
-    assert await _next(frames) == {"event": "feed_changed", "data": "{}"}
+    event = await _next(frames)
+    assert event["event"] == "feed_changed"
+    assert _payload(event) == ({"reason": "history_mutated"} if reason == "history_mutated" else {})
     await frames.aclose()
 
 

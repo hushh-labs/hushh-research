@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WalletSharing } from "@/components/wallet/wallet-sharing";
 import { loadWalletSharing } from "@/lib/services/wallet-sharing-service";
 const mocks = vi.hoisted(() => ({ push: vi.fn(), approve: vi.fn(), deny: vi.fn(), revoke: vi.fn(), getProfile: vi.fn().mockResolvedValue({ card: null, shareUrl: null }), vaultKey: "test-key" as string | null, user: { uid: "owner", getIdToken: vi.fn().mockResolvedValue("test") } }));
@@ -11,13 +11,16 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user }) }));
 vi.mock("@/lib/services/wallet-sharing-service", async (original) => ({ ...await original<object>(), loadWalletSharing: vi.fn() }));
 describe("Wallet Sharing", () => {
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
   it("retains confirmed recipients during background refresh and tab changes", async () => {
     vi.mocked(loadWalletSharing).mockResolvedValue({ requests: [], grants: [{ id: "grant", scope: "attr.wallet.summary.*", kind: "active_grant", status: "active", action: "grant", counterpart_type: "person", counterpart_label: "Alex" }] });
-    const view = render(<WalletSharing active />);
+    const getHistoryContext = () => null;
+    const view = render(<WalletSharing active getHistoryContext={getHistoryContext} />);
     await screen.findByText("Alex");
-    view.rerender(<WalletSharing active={false} />);
-    view.rerender(<WalletSharing active />);
+    expect(screen.getByRole("button", { name: "Manage" })).toBeVisible();
+    view.rerender(<WalletSharing active={false} getHistoryContext={getHistoryContext} />);
+    view.rerender(<WalletSharing active getHistoryContext={getHistoryContext} />);
     expect(loadWalletSharing).toHaveBeenCalledTimes(1);
     vi.mocked(loadWalletSharing).mockImplementationOnce(() => new Promise(() => {}));
     await act(async () => { window.dispatchEvent(new Event("focus")); });

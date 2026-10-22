@@ -13,6 +13,10 @@ import type { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { DirectMessageVoiceRecorder } from "@/components/direct-messages/direct-message-voice-recorder";
 import { DirectMessageVoicePlayer } from "@/components/direct-messages/direct-message-voice-player";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
+import { CacheService } from "@/lib/services/cache-service";
+import { DirectMessagesServiceRequestError } from "@/lib/services/direct-messages-service";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 
 const mocks = vi.hoisted(() => {
   const conversation = {
@@ -44,6 +48,7 @@ const mocks = vi.hoisted(() => {
     getConversationWithPerson: vi.fn(),
     getConversationMessages: vi.fn(),
     getAttachment: vi.fn(),
+    getViewerProfile: vi.fn(),
     markConversationRead: vi.fn(),
     acknowledgeDelivery: vi.fn(),
     captureStart: vi.fn(), captureFinish: vi.fn(), captureCancel: vi.fn(),
@@ -53,6 +58,7 @@ const mocks = vi.hoisted(() => {
     sendMessage: vi.fn(),
     editMessage: vi.fn(),
     deleteMessage: vi.fn(),
+    deleteConversation: vi.fn(),
     reactToMessage: vi.fn(),
     removeReaction: vi.fn(),
     morphyToast: { error: vi.fn(), info: vi.fn(), promise: vi.fn() },
@@ -75,6 +81,7 @@ vi.mock("@/components/one-voice/voice-session-provider", () => ({
 }));
 
 vi.mock("@/lib/direct-messages/navigate-direct-message", () => ({
+  resolveDirectMessageHref: async () => "/one/messages?token=dm1.fixture",
   navigateDirectMessage: (router: { push: (href: string) => void }, selection: unknown) => {
     mocks.navigateSelection(selection);
     router.push("/one/messages?token=dm1.fixture");
@@ -150,9 +157,14 @@ vi.mock("@/lib/services/direct-messages-service", async (importOriginal) => ({
     sendMessage: (...args: unknown[]) => mocks.sendMessage(...args),
     editMessage: (...args: unknown[]) => mocks.editMessage(...args),
     deleteMessage: (...args: unknown[]) => mocks.deleteMessage(...args),
+    deleteConversation: (...args: unknown[]) => mocks.deleteConversation(...args),
     reactToMessage: (...args: unknown[]) => mocks.reactToMessage(...args),
     removeReaction: (...args: unknown[]) => mocks.removeReaction(...args),
   },
+}));
+
+vi.mock("@/lib/services/person-profile-service", () => ({
+  PersonProfileService: { getViewer: (...args: unknown[]) => mocks.getViewerProfile(...args) },
 }));
 
 vi.mock("@/lib/services/connections-service", () => ({
@@ -218,6 +230,7 @@ function DirectMessagesPage() {
 
 describe("DirectMessagesPage", () => {
   beforeEach(() => {
+    CacheService.getInstance().clear();
     for (const item of toast.getToasts()) toast.dismiss(item.id);
     mocks.user = { uid: "viewer-1", getIdToken: vi.fn().mockResolvedValue("test-token") };
     mocks.search = "person=person-1";
@@ -227,8 +240,10 @@ describe("DirectMessagesPage", () => {
     mocks.voiceActive = false;
     mocks.router.push.mockReset();
     mocks.router.replace.mockReset();
+    mocks.user.getIdToken.mockReset().mockResolvedValue("test-token");
+    mocks.query = "person=person-1";
     mocks.liveMessageEvents = false;
-    mocks.user.getIdToken.mockClear();
+    mocks.getViewerProfile.mockReset().mockResolvedValue({ personRef: "person-1", relationship: { status: "connected" }, contactEmail: null, contactPhoneNumber: null });
     mocks.listConversations.mockResolvedValue({
       items: [mocks.conversation],
       unreadCount: 0,
@@ -260,6 +275,7 @@ describe("DirectMessagesPage", () => {
     mocks.captureCancel.mockReset().mockResolvedValue(undefined);
     mocks.captureFinish.mockReset(); mocks.captureInstances.length = 0;
     appInteractionCoordinator.handleLifecycle("active");
+    mocks.getAttachment.mockResolvedValue(new Blob(["synthetic document"]));
     mocks.openEvents.mockImplementation(() => new Promise(() => undefined));
     mocks.morphyToast.error.mockReset();
     mocks.morphyToast.info.mockReset();
@@ -286,6 +302,7 @@ describe("DirectMessagesPage", () => {
       reactions: [],
     });
     mocks.deleteMessage.mockResolvedValue({ scope: "me", message: null });
+    mocks.deleteConversation.mockReset().mockResolvedValue({ conversationId: "conversation-1", deleted: true, scope: "me" });
     mocks.reactToMessage.mockResolvedValue({
       id: "message-1",
       conversationId: "conversation-1",
@@ -310,6 +327,13 @@ describe("DirectMessagesPage", () => {
   });
 
   function arrangePhoto() {
+    const decode = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("Image", class {
+      src = "";
+      naturalWidth = 400;
+      naturalHeight = 300;
+      decode = decode;
+    });
     const observers = new Map<Element, IntersectionObserverCallback>();
     vi.stubGlobal("IntersectionObserver", class {
       constructor(private callback: IntersectionObserverCallback) {}
@@ -320,19 +344,115 @@ describe("DirectMessagesPage", () => {
     const create = vi.fn(() => "blob:fixture-photo"), revoke = vi.fn();
     vi.stubGlobal("URL", class extends URL { static createObjectURL = create; static revokeObjectURL = revoke; });
     mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation,
-      items: [{ ...visibleMessage, attachment: { kind: "photo", name: "photo.png", mimeType: "image/png", size: 24 } }],
+      items: [{ ...visibleMessage, attachment: { kind: "photo", name: "Photo", mimeType: "image/png", size: 24 } }],
       canSend: true, disconnectedNotice: null, nextBefore: null });
     const enterViewport = () => {
-      const target = [...observers.keys()].find(node => node.textContent?.includes("photo.png"))!;
+      const target = [...observers.keys()].find(node => node.querySelector('button[aria-label="Load photo"]'))!;
       act(() => observers.get(target)!([{ target, isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver));
     };
-    return { create, revoke, enterViewport };
+    return { create, revoke, enterViewport, decode };
   }
+
+  it("confirms whole-chat deletion and removes it only after acknowledgment", async () => {
+    const invalidateFeed = vi.spyOn(CacheSyncService, "onFeedHistoryMutated");
+    let finish!: () => void;
+    mocks.deleteConversation.mockReturnValueOnce(new Promise<void>(resolve => { finish = resolve; }));
+    const view = renderConnectionThread();
+    const input = await screen.findByRole("textbox", { name: "Message Ankit Kumar Singh" });
+    fireEvent.change(input, { target: { value: "Discard this deleted chat's draft" } });
+    const group = await screen.findByRole("group", { name: "Ankit Kumar Singh chat" });
+    fireEvent.keyDown(within(group).getByRole("button", { name: "Chat options" }), { key: "Enter" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete chat" }));
+    const dialog = screen.getByRole("alertdialog");
+    expect(within(dialog).getByRole("heading", { name: /for you only/ })).toBeVisible();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete chat", exact: true }));
+    await waitFor(() => expect(mocks.deleteConversation).toHaveBeenCalledTimes(1));
+    expect(group).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Deleting…" })).toBeDisabled();
+    await act(async () => finish());
+    await waitFor(() => expect(screen.queryByRole("group", { name: "Ankit Kumar Singh chat" })).not.toBeInTheDocument());
+    expect(mocks.router.replace).toHaveBeenCalledWith("/one/messages", { scroll: false });
+    expect(mocks.deleteConversation).toHaveBeenCalledWith({ idToken: "test-token", conversationId: "conversation-1" });
+    expect(invalidateFeed).toHaveBeenCalledWith("viewer-1");
+    mocks.search = ""; view.rerender(connectionThread());
+    mocks.search = "person=person-1"; view.rerender(connectionThread());
+    expect(await screen.findByRole("textbox", { name: "Message Ankit Kumar Singh" })).toHaveValue("");
+  });
+
+  it("keeps the whole chat on cancellation or failed deletion and permits retry", async () => {
+    renderConnectionThread();
+    const group = await screen.findByRole("group", { name: "Ankit Kumar Singh chat" });
+    const openDelete = async () => {
+      fireEvent.keyDown(within(group).getByRole("button", { name: "Chat options" }), { key: "Enter" });
+      fireEvent.click(await screen.findByRole("menuitem", { name: "Delete chat" }));
+    };
+    await openDelete();
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
+    expect(mocks.deleteConversation).not.toHaveBeenCalled();
+    await openDelete();
+    mocks.deleteConversation.mockRejectedValueOnce(new Error("Synthetic failure"));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete chat", exact: true }));
+    await waitFor(() => expect(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete chat", exact: true })).toBeEnabled());
+    expect(group).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete chat", exact: true }));
+    await waitFor(() => expect(mocks.deleteConversation).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole("group", { name: "Ankit Kumar Singh chat" })).not.toBeInTheDocument());
+  });
+
+  it("does not close another selected conversation when an older chat deletion completes", async () => {
+    let finish!: () => void;
+    mocks.deleteConversation.mockReturnValueOnce(new Promise<void>(resolve => { finish = resolve; }));
+    const other = { ...mocks.conversation, id: "conversation-2", peerPersonRef: "person-2", peerDisplayName: "Divya" };
+    mocks.listConversations.mockResolvedValue({ items: [mocks.conversation, other], unreadCount: 0 });
+    const view = renderConnectionThread();
+    const group = await screen.findByRole("group", { name: "Ankit Kumar Singh chat" });
+    fireEvent.keyDown(within(group).getByRole("button", { name: "Chat options" }), { key: "Enter" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete chat" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete chat", exact: true }));
+    await waitFor(() => expect(mocks.deleteConversation).toHaveBeenCalledTimes(1));
+    mocks.search = "conversation=conversation-2";
+    mocks.getConversationMessages.mockResolvedValueOnce({ conversation: other, items: [], canSend: true, disconnectedNotice: null, nextBefore: null });
+    view.rerender(connectionThread());
+    expect(await screen.findByRole("textbox", { name: "Message Divya" })).toBeEnabled();
+    const otherGroup = await screen.findByRole("group", { name: "Divya chat" });
+    fireEvent.keyDown(within(otherGroup).getByRole("button", { name: "Chat options" }), { key: "Enter" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete chat" }));
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("Delete chat with Divya for you only?");
+    mocks.router.replace.mockClear();
+    await act(async () => finish());
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("Delete chat with Divya for you only?");
+    expect(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete chat", exact: true })).toBeEnabled();
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("textbox", { name: "Message Divya" })).toBeEnabled();
+    expect(mocks.router.replace).not.toHaveBeenCalled();
+  });
+
+  it("retires a pending chat deletion when its account changes", async () => {
+    let finish!: () => void;
+    mocks.deleteConversation.mockReturnValueOnce(new Promise<void>(resolve => { finish = resolve; }));
+    const view = renderConnectionThread();
+    const group = await screen.findByRole("group", { name: "Ankit Kumar Singh chat" });
+    fireEvent.keyDown(within(group).getByRole("button", { name: "Chat options" }), { key: "Enter" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete chat" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete chat", exact: true }));
+    await waitFor(() => expect(mocks.deleteConversation).toHaveBeenCalledTimes(1));
+    mocks.user = { ...mocks.user, uid: "viewer-2" };
+    view.rerender(connectionThread());
+    expect(await screen.findByRole("group", { name: "Ankit Kumar Singh chat" })).toBeInTheDocument();
+    mocks.user = { ...mocks.user, uid: "viewer-1" };
+    view.rerender(connectionThread());
+    expect(await screen.findByRole("group", { name: "Ankit Kumar Singh chat" })).toBeInTheDocument();
+    mocks.router.replace.mockClear();
+    await act(async () => finish());
+    expect(screen.getByRole("group", { name: "Ankit Kumar Singh chat" })).toBeInTheDocument();
+    expect(mocks.router.replace).not.toHaveBeenCalled();
+  });
 
   it("repairs missed messages immediately on a stream resync", async () => {
     mocks.liveMessageEvents = true;
+    const cancelled = vi.fn();
     let stream!: ReadableStreamDefaultController<Uint8Array>;
-    mocks.openEvents.mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({ start(controller) { stream = controller; } })));
+    mocks.openEvents.mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({ start(controller) { stream = controller; }, cancel: cancelled })));
     const view = renderConnectionThread();
     try {
       await screen.findByText("Start the conversation with Ankit Kumar Singh.");
@@ -342,7 +462,7 @@ describe("DirectMessagesPage", () => {
       expect(await screen.findByText(received.content)).toBeVisible();
     } finally {
       view.unmount();
-      stream.close();
+      await waitFor(() => expect(cancelled).toHaveBeenCalledOnce());
     }
   });
 
@@ -351,7 +471,37 @@ describe("DirectMessagesPage", () => {
     renderConnectionThread();
     expect(screen.queryByText(/Start the conversation with/)).not.toBeInTheDocument();
     expect(screen.queryByText("Messaging unavailable")).not.toBeInTheDocument();
-    expect(screen.getByText("Loading messages…")).toBeInTheDocument();
+    expect(screen.queryByText("Loading messages…")).not.toBeInTheDocument();
+    expect(screen.queryByText("Connecting…")).not.toBeInTheDocument();
+    expect(screen.getByTestId("direct-message-list")).toHaveAttribute("aria-busy", "true");
+    expect(screen.queryByRole("link", { name: /View .*profile/ })).not.toBeInTheDocument();
+  });
+
+  it.each([true, false])("links the name and peer avatars to the existing profile when canSend is %s", async (canSend) => {
+    mocks.getConversationMessages.mockResolvedValueOnce({
+      conversation: mocks.conversation,
+      items: [visibleMessage], canSend,
+      disconnectedNotice: canSend ? null : "Connection ended", nextBefore: null,
+    });
+    renderConnectionThread();
+    expect(await screen.findByText(visibleMessage.content)).toBeVisible();
+    const profileLinks = () => screen.getAllByRole("link", { name: "View Ankit Kumar Singh's profile" });
+    expect(profileLinks()).toHaveLength(2);
+    for (const link of document.querySelectorAll('a[aria-label="View Ankit Kumar Singh\'s profile"]')) {
+      expect(link).toHaveAttribute("href", "/people/person-1?from=%2Fone%2Fmessages");
+    }
+  });
+
+  it("keeps avatars noninteractive when no public person reference is available", async () => {
+    mocks.search = "conversation=conversation-1";
+    mocks.getConversationMessages.mockResolvedValueOnce({
+      conversation: { ...mocks.conversation, peerPersonRef: null },
+      items: [visibleMessage], canSend: false,
+      disconnectedNotice: "Messaging unavailable", nextBefore: null,
+    });
+    renderConnectionThread();
+    expect(await screen.findByText(visibleMessage.content)).toBeVisible();
+    expect(screen.queryByRole("link", { name: /View .*profile/ })).not.toBeInTheDocument();
   });
 
   it("opens a new connected person's chat with their identity before the first message", async () => {
@@ -392,33 +542,184 @@ describe("DirectMessagesPage", () => {
     expect(screen.queryByText(/Start the conversation with/)).not.toBeInTheDocument();
   });
 
+  it("restores a visited thread immediately while checking permission again", async () => {
+    mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation, items: [visibleMessage],
+      canSend: true, disconnectedNotice: null, nextBefore: null });
+    const view = renderConnectionThread();
+    await screen.findByText(visibleMessage.content);
+    mocks.search = "conversation=another-thread";
+    mocks.getConversationMessages.mockImplementation(() => new Promise(() => {}));
+    view.rerender(<ConnectionThread />);
+    expect(screen.queryByText(visibleMessage.content)).not.toBeInTheDocument();
+    mocks.search = "person=person-1";
+    mocks.getConversationWithPerson.mockImplementation(() => new Promise(() => {}));
+    view.rerender(<ConnectionThread />);
+    expect(screen.getByText(visibleMessage.content)).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toBeDisabled();
+    expect(screen.queryByText("Loading messages…")).not.toBeInTheDocument();
+    expect(screen.queryByText("You are no longer connected.")).not.toBeInTheDocument();
+  });
+
+  it("primes the selected person's header from the inbox before history arrives", async () => {
+    mocks.getConversationWithPerson.mockImplementation(() => new Promise(() => {}));
+    renderConnectionThread();
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toBeDisabled());
+    expect(screen.queryByText("Loading messages…")).not.toBeInTheDocument();
+  });
+
+  it("keeps a cached transcript on transport failure and offers retry", async () => {
+    mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation, items: [visibleMessage],
+      canSend: true, disconnectedNotice: null, nextBefore: null });
+    const view = renderConnectionThread();
+    await screen.findByText(visibleMessage.content);
+    view.unmount();
+    mocks.getConversationWithPerson.mockRejectedValue(new TypeError("Offline"));
+    renderConnectionThread();
+    expect(screen.getByText(visibleMessage.content)).toBeInTheDocument();
+    await screen.findByRole("button", { name: "Try again" });
+    expect(screen.getByText(visibleMessage.content)).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toBeDisabled();
+  });
+
+  it.each([401, 403, 404])("clears cached history after an authoritative %s response", async (status) => {
+    mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation, items: [visibleMessage],
+      canSend: true, disconnectedNotice: null, nextBefore: null });
+    const view = renderConnectionThread();
+    await screen.findByText(visibleMessage.content);
+    view.unmount();
+    mocks.getConversationWithPerson.mockRejectedValue(new DirectMessagesServiceRequestError(status, "Unavailable"));
+    renderConnectionThread();
+    await screen.findByText("This conversation is not available right now.");
+    expect(screen.queryByText(visibleMessage.content)).not.toBeInTheDocument();
+  });
+
+  it("does not restore a denied transcript from an earlier pagination response", async () => {
+    const history = { conversation: mocks.conversation, items: [visibleMessage],
+      canSend: true, disconnectedNotice: null, nextBefore: "older-cursor" };
+    let finishOlder!: (value: unknown) => void;
+    mocks.getConversationMessages.mockResolvedValueOnce(history)
+      .mockReturnValueOnce(new Promise(resolve => { finishOlder = resolve; }))
+      .mockRejectedValueOnce(new DirectMessagesServiceRequestError(403, "Unavailable"));
+    renderConnectionThread();
+    fireEvent.click(await screen.findByRole("button", { name: "Load older messages" }));
+    await waitFor(() => expect(mocks.getConversationMessages).toHaveBeenCalledTimes(2));
+    fireEvent(window, new Event("focus"));
+    await screen.findByText("This conversation is not available right now.");
+    await act(async () => finishOlder(history));
+    expect(screen.queryByText(visibleMessage.content)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Load older messages" })).not.toBeInTheDocument();
+  });
+
+  it("never restores another account's cached transcript", async () => {
+    mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation, items: [visibleMessage],
+      canSend: true, disconnectedNotice: null, nextBefore: null });
+    const view = renderConnectionThread();
+    await screen.findByText(visibleMessage.content);
+    mocks.user.uid = "viewer-2";
+    mocks.getConversationWithPerson.mockImplementation(() => new Promise(() => {}));
+    view.rerender(<ConnectionThread />);
+    expect(screen.queryByText(visibleMessage.content)).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Message Ankit Kumar Singh" })).not.toBeInTheDocument();
+  });
+
+  it("does not cache an optimistic reaction when navigation interrupts its rollback", async () => {
+    mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation, items: [{ ...visibleMessage, reactions: [] }],
+      canSend: true, disconnectedNotice: null, nextBefore: null });
+    let reject!: (error: Error) => void;
+    mocks.reactToMessage.mockImplementation(() => new Promise((_, failure) => { reject = failure; }));
+    const view = renderConnectionThread();
+    fireEvent.click(await screen.findByText(visibleMessage.content));
+    fireEvent.click(screen.getByRole("button", { name: "React to message" }));
+    fireEvent.change(await screen.findByPlaceholderText("Search emoji"), { target: { value: "heart" } });
+    fireEvent.click(screen.getByRole("button", { name: "Use ❤️" }));
+    await waitFor(() => expect(mocks.reactToMessage).toHaveBeenCalled());
+    mocks.search = "conversation=another-thread";
+    mocks.getConversationMessages.mockImplementation(() => new Promise(() => {}));
+    view.rerender(<ConnectionThread />);
+    await act(async () => reject(new Error("Offline")));
+    mocks.search = "person=person-1";
+    mocks.getConversationWithPerson.mockImplementation(() => new Promise(() => {}));
+    view.rerender(<ConnectionThread />);
+    expect(screen.getByText(visibleMessage.content)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "❤️ reaction, 1" })).not.toBeInTheDocument();
+  });
+
+  it("starts cached photo loading only after fresh read admission succeeds", async () => {
+    arrangePhoto();
+    const view = renderConnectionThread();
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toBeEnabled());
+    const history = await mocks.getConversationMessages.mock.results[0]!.value;
+    view.unmount();
+    const photo = arrangePhoto();
+    let finish!: (value: unknown) => void;
+    mocks.getConversationMessages.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    mocks.getAttachment.mockResolvedValue(new Blob(["synthetic-photo"], { type: "image/png" }));
+    renderConnectionThread();
+    await screen.findByRole("button", { name: "Load photo" });
+    expect(mocks.getAttachment).not.toHaveBeenCalled();
+    await waitFor(() => expect(mocks.getConversationMessages).toHaveBeenCalledTimes(2));
+    await act(async () => finish(history));
+    photo.enterViewport();
+    expect(await screen.findByRole("img", { name: "Photo" })).toBeVisible();
+    expect(mocks.getAttachment).toHaveBeenCalledOnce();
+  });
+
   it("downloads an inline photo only near the viewport and releases its preview on unmount", async () => {
     const photo = arrangePhoto();
     mocks.getAttachment.mockResolvedValue(new Blob(["synthetic-photo"], { type: "image/png" }));
     const view = renderConnectionThread();
-    await screen.findByText("photo.png");
+    await screen.findByRole("button", { name: "Load photo" });
     expect(mocks.getAttachment).not.toHaveBeenCalled();
     photo.enterViewport();
-    expect(await screen.findByRole("img", { name: "photo.png" })).toHaveAttribute("src", "blob:fixture-photo");
+    expect(await screen.findByRole("img", { name: "Photo" })).toHaveAttribute("src", "blob:fixture-photo");
     expect(mocks.getAttachment).toHaveBeenCalledOnce();
+    expect(screen.queryByText("photo.png")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open photo", exact: true }));
+    expect(await screen.findByRole("img", { name: "Shared photo" })).toBeVisible();
+    act(() => { expect(unwindBackLayer("/one/messages")).toBe(true); });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Open photo", exact: true })).toBeVisible();
     view.unmount();
     expect(photo.revoke).toHaveBeenCalledWith("blob:fixture-photo");
   });
 
-  it("keeps Open available after an automatic photo failure and retries explicitly", async () => {
+  it.each(["download", "decode"])("keeps Open available after an automatic photo %s failure and retries explicitly", async (failure) => {
     const photo = arrangePhoto();
-    mocks.getAttachment.mockRejectedValueOnce(new Error("Temporary download failure"))
-      .mockResolvedValueOnce(new Blob(["synthetic-photo"], { type: "image/png" }));
+    mocks.getAttachment.mockResolvedValue(new Blob(["synthetic-photo"], { type: "image/png" }));
+    if (failure === "download") mocks.getAttachment.mockRejectedValueOnce(new Error("Temporary download failure"));
+    else photo.decode.mockRejectedValueOnce(new Error("Temporary decode failure"));
     const view = renderConnectionThread();
-    await screen.findByText("photo.png");
+    await screen.findByRole("button", { name: "Load photo" });
     photo.enterViewport();
-    const open = screen.getByRole("button", { name: "Open photo.png" });
+    const open = screen.getByRole("button", { name: /Loading photo|Load photo/ });
     await waitFor(() => expect(mocks.getAttachment).toHaveBeenCalledOnce());
     await waitFor(() => expect(open).toBeEnabled());
     fireEvent.click(open);
-    expect(await screen.findByRole("img", { name: "photo.png" })).toHaveAttribute("src", "blob:fixture-photo");
+    expect(await screen.findByRole("img", { name: "Photo" })).toHaveAttribute("src", "blob:fixture-photo");
     expect(mocks.getAttachment).toHaveBeenCalledTimes(2);
     view.unmount();
+  });
+
+  it.each(["automatic", "retry"])("releases a decoding photo immediately when its conversation unmounts (%s)", async (mode) => {
+    const photo = arrangePhoto();
+    let finish!: () => void;
+    photo.decode.mockReturnValueOnce(new Promise<void>(resolve => { finish = resolve; }));
+    mocks.getAttachment.mockResolvedValue(new Blob(["synthetic-photo"], { type: "image/png" }));
+    if (mode === "retry") mocks.getAttachment.mockRejectedValueOnce(new Error("Temporary download failure"));
+    const view = renderConnectionThread();
+    await screen.findByRole("button", { name: "Load photo" });
+    photo.enterViewport();
+    if (mode === "retry") {
+      const retry = await screen.findByRole("button", { name: "Load photo" });
+      await waitFor(() => expect(retry).toBeEnabled());
+      fireEvent.click(retry);
+    }
+    await waitFor(() => expect(photo.decode).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("img", { name: "Photo" })).not.toBeInTheDocument();
+    view.unmount();
+    expect(photo.revoke).toHaveBeenCalledWith("blob:fixture-photo");
+    await act(async () => finish());
+    expect(screen.queryByRole("img", { name: "Photo" })).not.toBeInTheDocument();
   });
 
   it("discards a pending inline photo when its conversation unmounts", async () => {
@@ -426,7 +727,7 @@ describe("DirectMessagesPage", () => {
     let finish!: (value: Blob) => void;
     mocks.getAttachment.mockImplementation(() => new Promise<Blob>(resolve => { finish = resolve; }));
     const view = renderConnectionThread();
-    await screen.findByText("photo.png");
+    await screen.findByRole("button", { name: "Load photo" });
     photo.enterViewport();
     await waitFor(() => expect(mocks.getAttachment).toHaveBeenCalledOnce());
     const input = mocks.getAttachment.mock.calls[0]![0];
@@ -434,6 +735,61 @@ describe("DirectMessagesPage", () => {
     expect(input.isEffectCurrent()).toBe(false);
     await act(async () => { finish(new Blob(["synthetic-photo"])); });
     expect(photo.create).not.toHaveBeenCalled();
+  });
+
+  it("previews selected photos instead of filenames and releases their local URLs", async () => {
+    const create = vi.fn().mockReturnValueOnce("blob:first").mockReturnValueOnce("blob:second"), revoke = vi.fn();
+    vi.stubGlobal("URL", class extends URL { static createObjectURL = create; static revokeObjectURL = revoke; });
+    const view = renderConnectionThread();
+    await screen.findByRole("textbox", { name: "Message Ankit Kumar Singh" });
+    const input = document.querySelector('input[accept="image/jpeg,image/png,image/webp"]')!;
+    fireEvent.change(input, { target: { files: [new File(["photo"], "private-photo.png", { type: "image/png" })] } });
+    expect(await screen.findByRole("img", { name: "Photo ready to send" })).toHaveAttribute("src", "blob:first");
+    expect(screen.queryByText(/private-photo.png/)).not.toBeInTheDocument();
+    fireEvent.change(input, { target: { files: [new File(["second"], "second.png", { type: "image/png" })] } });
+    await waitFor(() => expect(revoke).toHaveBeenCalledWith("blob:first"));
+    expect(screen.getByRole("img", { name: "Photo ready to send" })).toHaveAttribute("src", "blob:second");
+    fireEvent.click(screen.getByRole("button", { name: "Remove attachment" }));
+    await waitFor(() => expect(revoke).toHaveBeenCalledWith("blob:second"));
+    expect(screen.queryByRole("img", { name: "Photo ready to send" })).not.toBeInTheDocument();
+    view.unmount();
+  });
+
+  it("sends a finished voice note immediately and freezes an uncertain empty-content retry", async () => {
+    mocks.captureFinish.mockResolvedValue({ audioBase64: btoa(String.fromCharCode(...validVoiceWav())), mimeType: "audio/wav" });
+    mocks.sendMessage.mockRejectedValueOnce(new Error("Response lost"));
+    renderConnectionThread();
+    fireEvent.click(await screen.findByRole("button", { name: "Record voice message" }));
+    const send = await screen.findByRole("button", { name: "Send voice message" });
+    await waitFor(() => expect(send).toBeEnabled());
+    fireEvent.click(send);
+    await waitFor(() => expect(mocks.sendMessage).toHaveBeenCalledOnce());
+    const original = mocks.sendMessage.mock.calls[0]![0];
+    expect(original.content).toBe("");
+    expect(original.attachment).toMatchObject({ type: "audio/wav", size: 32044 });
+    const retry = await screen.findByRole("button", { name: "Retry", exact: true });
+    await waitFor(() => expect(retry).toBeEnabled());
+    expect(screen.getByRole("button", { name: "Remove attachment" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add attachment" })).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toHaveAttribute("readonly");
+    fireEvent.click(retry);
+    await waitFor(() => expect(mocks.sendMessage).toHaveBeenCalledTimes(2));
+    expect(mocks.sendMessage.mock.calls[1]![0]).toEqual(original);
+    expect(mocks.sendMessage.mock.calls[1]![0].attachment).toBe(original.attachment);
+  });
+
+  it("opens search directly without a conversation menu or contact-details read", async () => {
+    renderConnectionThread();
+    const search = await screen.findByRole("button", { name: "Search messages", exact: true });
+    await waitFor(() => expect(search).toBeEnabled());
+    expect(screen.queryByRole("button", { name: "Conversation options" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Contact info" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Search messages", exact: true }));
+    expect(screen.getByRole("searchbox", { name: "Search messages" })).toBeVisible();
+    expect(screen.queryByRole("dialog", { name: "Contact info" })).not.toBeInTheDocument();
+    expect(mocks.getViewerProfile).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("link", { name: "View Ankit Kumar Singh's profile" })[0])
+      .toHaveAttribute("href", "/people/person-1?from=%2Fone%2Fmessages");
   });
 
   it("acknowledges received inbox bodies, without treating sender messages or push hints as delivery", async () => {
@@ -450,11 +806,11 @@ describe("DirectMessagesPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Record voice message" }));
     await waitFor(() => expect(mocks.morphyToast.error).toHaveBeenCalledWith("Microphone enabled. Tap the mic again to record."));
     fireEvent.click(screen.getByRole("button", { name: "Record voice message" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Use voice recording" })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send voice message" })).toBeEnabled());
     expect(mocks.captureInstances).toHaveLength(1);
     let finish!: (value: unknown) => void;
     mocks.captureFinish.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
-    fireEvent.click(screen.getByRole("button", { name: "Use voice recording" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send voice message" }));
     act(() => appInteractionCoordinator.handleLifecycle("background"));
     await act(async () => { finish({ audioBase64: "invalid-stale-bytes" }); });
     expect(onRecorded).not.toHaveBeenCalled();
@@ -475,13 +831,13 @@ describe("DirectMessagesPage", () => {
     recording.release();
   });
 
-  it("stages a bounded WAV for explicit sending and releases the microphone", async () => {
+  it("validates a bounded WAV before handing it to the send owner and releases the microphone", async () => {
     mocks.captureFinish.mockResolvedValue({ audioBase64: btoa(String.fromCharCode(...validVoiceWav())), mimeType: "audio/wav" });
     const onRecorded = vi.fn(), onRecordingChange = vi.fn();
     render(<DirectMessageVoiceRecorder disabled={false} onRecorded={onRecorded} onRecordingChange={onRecordingChange} />);
     fireEvent.click(screen.getByRole("button", { name: "Record voice message" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Use voice recording" })).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: "Use voice recording" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send voice message" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Send voice message" }));
     await waitFor(() => expect(onRecorded).toHaveBeenCalledOnce());
     expect(onRecorded.mock.calls[0]![0]).toMatchObject({ name: "Voice message.wav", type: "audio/wav", size: 32044 });
     expect(mocks.sendMessage).not.toHaveBeenCalled();
@@ -489,8 +845,25 @@ describe("DirectMessagesPage", () => {
     expect(mocks.captureCancel).toHaveBeenCalled();
   });
 
-  it("keeps the composer in the conversation while sending to the selected connection", async () => {
-    renderConnectionThread();
+  it.each(["open", "late"])("releases the %s response stream on route departure", async (phase) => {
+    const cancelled = vi.fn();
+    const body = new ReadableStream<Uint8Array>({ cancel: cancelled });
+    let deliver!: (response: Response) => void;
+    mocks.openEvents.mockImplementation(() => new Promise<Response>((resolve) => { deliver = resolve; }));
+    const view = renderConnectionThread();
+    await waitFor(() => expect(mocks.openEvents).toHaveBeenCalled());
+    if (phase === "open") {
+      await act(async () => { deliver(new Response(body)); });
+      await waitFor(() => expect(body.locked).toBe(true));
+    }
+    view.unmount();
+    if (phase === "late") await act(async () => { deliver(new Response(body)); });
+    await waitFor(() => expect(cancelled).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(body.locked).toBe(false));
+  });
+
+  it("uses the shared Chat dock while sending to the selected connection", async () => {
+    const view = renderConnectionThread();
 
     expect(await screen.findByRole("button", { name: /Ankit Kumar Singh/ })).toBeVisible();
     const composer = await screen.findByRole("textbox", {
@@ -510,9 +883,25 @@ describe("DirectMessagesPage", () => {
         replyToMessageId: undefined,
       }),
     );
+    await waitFor(() => expect(mocks.router.replace).toHaveBeenCalledWith("/one/messages?token=dm1.fixture", { scroll: false }));
+    // Navigation may settle on a later frame. The server-accepted message
+    // must remain visible on the source route too, not blink out meanwhile.
+    expect(screen.getByText("Hello Ankit")).toBeVisible();
+    mocks.search = "conversation=conversation-1";
+    let settleHistory!: (value: unknown) => void;
+    mocks.getConversationMessages.mockImplementationOnce(() => new Promise(resolve => { settleHistory = resolve; }));
+    view.rerender(<ConnectionThread />);
+    // The accepted exact-owner/destination handoff remains visible while its
+    // history refresh is pending; it does not authorize another send.
+    expect(screen.getByText("Hello Ankit")).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toBeDisabled();
+    expect(screen.getByTestId("route-readiness")).toHaveAttribute("data-state", "loading");
+    await waitFor(() => expect(settleHistory).toBeDefined());
+    const accepted = await mocks.sendMessage.mock.results[0]!.value;
+    await act(async () => { settleHistory({ conversation: mocks.conversation, canSend: true,
+      disconnectedNotice: null, items: [accepted.message], nextBefore: null }); });
     expect(await screen.findByText("Hello Ankit")).toBeVisible();
-    // Accepted sends remain on the authenticated selection; no raw ID route.
-    expect(mocks.router.replace).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toBeEnabled();
   });
 
   it("keeps the inbox available and opens a selected chat from its row", async () => {
@@ -573,6 +962,11 @@ describe("DirectMessagesPage", () => {
     await waitFor(() => expect(mocks.sendMessage).toHaveBeenCalledTimes(1));
     mocks.search = "";
     view.rerender(<ConnectionThread />);
+    const group = await screen.findByRole("group", { name: "Ankit Kumar Singh chat" });
+    fireEvent.keyDown(within(group).getByRole("button", { name: "Chat options" }), { key: "Enter" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete chat" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(mocks.deleteConversation).not.toHaveBeenCalled();
     await act(async () => finishSend({
       conversation: mocks.conversation,
       message: { id: "late-message", conversationId: "conversation-1", senderIsViewer: true,
@@ -728,7 +1122,6 @@ describe("DirectMessagesPage", () => {
     renderConnectionThread();
 
     expect(await screen.findByText("Budget review tomorrow")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Contact info" }));
     fireEvent.click(screen.getByRole("button", { name: "Search messages" }));
     fireEvent.change(screen.getByRole("searchbox", { name: "Search messages" }), {
       target: { value: "budget" },
@@ -752,7 +1145,6 @@ describe("DirectMessagesPage", () => {
     expect(screen.queryByRole("menuitem", { name: "Edit" })).toBeNull();
     fireEvent.click(screen.getByRole("menuitem", { name: "Reply" }));
     expect(document.body).not.toHaveTextContent("synthetic-encrypted-payload");
-    fireEvent.click(screen.getByRole("button", { name: "Contact info" }));
     fireEvent.click(screen.getByRole("button", { name: "Search messages" }));
     fireEvent.change(screen.getByRole("searchbox", { name: "Search messages" }), { target: { value: "synthetic-encrypted-payload" } });
     expect(screen.queryByRole("region", { name: "Shared payment card" })).toBeNull();
@@ -778,7 +1170,7 @@ describe("DirectMessagesPage", () => {
 
       mocks.user = { uid: "viewer-2", getIdToken: vi.fn().mockResolvedValue("next-owner-token") };
       mocks.listConversations.mockRejectedValueOnce(new Error("Synthetic inbox read failure"));
-      view.rerender(connectionThread());
+      view.rerender(<ConnectionThread />);
       expect(screen.getByLabelText("Search conversations")).toHaveValue("");
       expect(screen.queryByRole("button", { name: /Ankit Kumar Singh/ })).not.toBeInTheDocument();
       await waitFor(() => expect(screen.getByTestId("route-readiness")).toHaveAttribute("data-state", "error"));
@@ -815,7 +1207,8 @@ describe("DirectMessagesPage", () => {
     },
   );
 
-  it("offers the full emoji picker and opens One chat for voice", async () => {
+
+  it("offers the full emoji picker and a voice recorder for the selected person", async () => {
     const view = renderConnectionThread();
 
     const composer = await screen.findByRole("textbox", {
@@ -872,7 +1265,7 @@ describe("DirectMessagesPage", () => {
 
     mocks.search = "person=person-2";
     mocks.getConversationWithPerson.mockRejectedValueOnce(new Error("synthetic provider failure"));
-    view.rerender(connectionThread());
+    view.rerender(<ConnectionThread />);
     expect(screen.getByTestId("route-readiness")).toHaveAttribute("data-state", "loading");
     await waitFor(() => expect(screen.getByTestId("route-readiness"))
       .toHaveAttribute("data-state", "error"));
@@ -888,7 +1281,7 @@ describe("DirectMessagesPage", () => {
     const view = renderConnectionThread();
     await waitFor(() => expect(resolveOldPeer).toBeDefined());
     mocks.signedIn = false;
-    view.rerender(connectionThread());
+    view.rerender(<ConnectionThread />);
     await waitFor(() => expect(screen.getByTestId("route-readiness"))
       .toHaveAttribute("data-state", "unavailable-valid"));
     await act(async () => resolveOldPeer({
@@ -913,11 +1306,12 @@ describe("DirectMessagesPage", () => {
 
     mocks.user = { ...mocks.user, uid: "viewer-2" };
     mocks.getConversationMessages.mockRejectedValueOnce(new Error("synthetic read failure"));
-    view.rerender(connectionThread());
+    view.rerender(<ConnectionThread />);
     expect(screen.queryByText("Previous owner's private message")).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId("route-readiness")).toHaveAttribute("data-state", "error"));
     expect(screen.queryByText("Previous owner's private message")).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Message Ankit Kumar Singh" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "View Ankit Kumar Singh's profile" })).not.toBeInTheDocument();
   });
 
   it.each(["send", "pagination"] as const)("ignores a %s completion from an owner that no longer owns the screen", async (operation) => {
@@ -945,8 +1339,20 @@ describe("DirectMessagesPage", () => {
       conversation: mocks.conversation, items: [], canSend: true,
       disconnectedNotice: null, nextBefore: null,
     });
-    view.rerender(connectionThread());
+    view.rerender(<ConnectionThread />);
     await waitFor(() => expect(screen.getByTestId("route-readiness")).toHaveAttribute("data-state", "empty-valid"));
+    let finishCurrentSend!: (value: unknown) => void;
+    if (operation === "send") {
+      // Returning to the first owner starts a new lease at the same scope.
+      mocks.user = { ...mocks.user, uid: "viewer-1" };
+      view.rerender(<ConnectionThread />);
+      await waitFor(() => expect(screen.getByTestId("route-readiness")).toHaveAttribute("data-state", "empty-valid"));
+      mocks.sendMessage.mockReturnValueOnce(new Promise(resolve => { finishCurrentSend = resolve; }));
+      const currentInput = screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" });
+      fireEvent.change(currentInput, { target: { value: "Current owner's pending message" } });
+      fireEvent.submit(currentInput.closest("form")!);
+      await waitFor(() => expect(mocks.sendMessage).toHaveBeenCalledTimes(2));
+    }
     await act(async () => finishOldOperation({
       conversation: mocks.conversation,
       message: { id: "late-message", conversationId: "conversation-1", senderIsViewer: true,
@@ -956,9 +1362,21 @@ describe("DirectMessagesPage", () => {
       canSend: true, disconnectedNotice: null, nextBefore: null,
     }));
     expect(screen.queryByText("Old owner's private result")).not.toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toHaveValue("");
-    expect(screen.getByTestId("route-readiness")).toHaveAttribute("data-state", "empty-valid");
-    expect(mocks.router.replace).not.toHaveBeenCalled();
+    const currentInput = screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" });
+    expect(currentInput).toHaveValue(operation === "send" ? "Current owner's pending message" : "");
+    if (operation === "send") {
+      expect(currentInput).toHaveAttribute("readonly");
+      await act(async () => finishCurrentSend({ conversation: mocks.conversation,
+        message: { ...visibleMessage, senderIsViewer: true, content: "Current owner's accepted message" } }));
+      await waitFor(() => expect(currentInput).not.toHaveAttribute("readonly"));
+      fireEvent.change(currentInput, { target: { value: "Next valid message" } });
+      fireEvent.submit(currentInput.closest("form")!);
+      await waitFor(() => expect(mocks.sendMessage).toHaveBeenCalledTimes(3));
+    }
+    if (operation === "pagination") {
+      expect(screen.getByTestId("route-readiness")).toHaveAttribute("data-state", "empty-valid");
+      expect(mocks.router.replace).not.toHaveBeenCalled();
+    }
   });
 
   it("keeps day separators and delivery state inside the conversation bubbles", async () => {
@@ -1087,7 +1505,9 @@ describe("DirectMessagesPage", () => {
       pointer("pointerup");
     } finally { vi.useRealTimers(); }
     expect(within(screen.getByRole("menu")).queryByRole("group", { name: "Quick reactions" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("menuitem", { name: "React", exact: true }));
+    expect(screen.queryByRole("menuitem", { name: "React", exact: true })).not.toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "React to message", exact: true }));
     fireEvent.change(await screen.findByPlaceholderText("Search emoji"), { target: { value: "heart" } });
     fireEvent.click(screen.getByRole("button", { name: "Use ❤️" }));
     await waitFor(() =>
@@ -1130,6 +1550,23 @@ describe("DirectMessagesPage", () => {
         replyToMessageId: "message-1",
       }),
     );
+  });
+
+  it.each(["edit", "delete"] as const)("reconciles the selected reply quote after a remote %s", async (change) => {
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    const history = { conversation: mocks.conversation, items: [visibleMessage], canSend: true, disconnectedNotice: null, nextBefore: null };
+    mocks.getConversationMessages.mockResolvedValue(history);
+    renderConnectionThread();
+    const content = await screen.findByText(visibleMessage.content);
+    fireEvent.click(content);
+    fireEvent.keyDown(screen.getByRole("button", { name: "Message options" }), { key: "Enter" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Reply", exact: true }));
+    expect(await screen.findByText("Replying to Ankit Kumar Singh")).toBeVisible();
+    mocks.getConversationMessages.mockResolvedValue({ ...history, items: [{ ...visibleMessage,
+      content: change === "edit" ? "Updated original" : "", deletedForEveryoneAt: change === "delete" ? "2026-10-06T10:02:00Z" : null }] });
+    act(() => window.dispatchEvent(new Event("focus")));
+    if (change === "delete") await waitFor(() => expect(screen.queryByText("Replying to Ankit Kumar Singh")).not.toBeInTheDocument());
+    else await waitFor(() => expect(document.querySelector('[class*="composerReplyPreview"]')).toHaveTextContent("Updated original"));
   });
 
   it("keeps a failed reply in the composer without a toast", async () => {
@@ -1177,8 +1614,8 @@ describe("DirectMessagesPage", () => {
   });
 
   it.each((["edit", "reaction", "delete"] as const).flatMap((action) =>
-    (["success", "failure"] as const).map((outcome) => ({ action, outcome })),
-  ))("retires an old owner's $action selection and $outcome outcome", async ({ action, outcome }) => {
+    (["result", "failure", "authorization"] as const).map((outcome) => ({ action, outcome })),
+  ))("retires an old owner's $action selection and $outcome", async ({ action, outcome }) => {
     mocks.search = "conversation=conversation-1";
     const message = { id: "message-1", conversationId: "conversation-1", senderIsViewer: true,
       content: "Synthetic owner A message", createdAt: "2026-10-06T10:01:00.000Z", readAt: null };
@@ -1188,10 +1625,12 @@ describe("DirectMessagesPage", () => {
     const view = renderConnectionThread();
     fireEvent.click(await screen.findByText(message.content));
     let finish!: (value: unknown) => void;
-    let fail!: (cause: Error) => void;
+    let fail!: (reason: Error) => void;
     const pending = new Promise((resolve, reject) => { finish = resolve; fail = reject; });
     const operation = action === "edit" ? mocks.editMessage : action === "reaction" ? mocks.reactToMessage : mocks.deleteMessage;
-    operation.mockReturnValueOnce(pending);
+    const tokenReads = mocks.user.getIdToken.mock.calls.length;
+    if (outcome === "authorization") mocks.user.getIdToken.mockReturnValueOnce(pending);
+    else operation.mockReturnValueOnce(pending);
     if (action === "reaction") {
       fireEvent.click(screen.getByRole("button", { name: "React to message" }));
       fireEvent.change(screen.getByPlaceholderText("Search emoji"), { target: { value: "heart" } });
@@ -1204,24 +1643,28 @@ describe("DirectMessagesPage", () => {
         fireEvent.click(screen.getByRole("button", { name: "Save", exact: true }));
       } else fireEvent.click(screen.getByRole("button", { name: "Yes, delete", exact: true }));
     }
-    await waitFor(() => expect(operation).toHaveBeenCalled());
+    await waitFor(() => outcome === "authorization"
+      ? expect(mocks.user.getIdToken.mock.calls.length).toBeGreaterThan(tokenReads)
+      : expect(operation).toHaveBeenCalled());
     mocks.user = { ...mocks.user, uid: "viewer-2" };
     // The same identifier makes stale replacement/deletion observable.
     mocks.getConversationMessages.mockResolvedValueOnce({
       conversation: mocks.conversation, items: [{ ...message, senderIsViewer: false, content: "Synthetic owner B message" }],
       canSend: true, disconnectedNotice: null, nextBefore: null,
     });
-    view.rerender(connectionThread());
+    view.rerender(<ConnectionThread />);
     expect(await screen.findByText("Synthetic owner B message")).toBeVisible();
     expect(screen.queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument();
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     await act(async () => {
-      if (outcome === "failure") fail(new Error("Synthetic stale A failure"));
+      if (outcome === "failure") fail(new Error("Synthetic retired action"));
+      else if (outcome === "authorization") finish("retired-owner-token");
       else finish(action === "delete" ? { scope: "me", message: null } : { ...message, content: "Synthetic stale A result" });
     });
+    if (outcome === "authorization") expect(operation).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Couldn’t (update this message|add that reaction|delete this message)/)).not.toBeInTheDocument();
     expect(screen.getByText("Synthetic owner B message")).toBeVisible();
     expect(screen.queryByText("Synthetic stale A result")).not.toBeInTheDocument();
-    expect(screen.queryByText(/Couldn’t (?:update this message|add that reaction|delete this message)/)).not.toBeInTheDocument();
     expect(toast.getToasts().map((item) => item.title)).not.toContain(
       action === "edit" ? "Message edited" : action === "reaction" ? "Reaction added" : "Message deleted for you",
     );
@@ -1237,29 +1680,31 @@ describe("DirectMessagesPage", () => {
     const view = renderConnectionThread();
     await screen.findByText(message.content);
     fireEvent.keyDown(screen.getByRole("button", { name: "Message options" }), { key: "Enter" });
-    const reply = await screen.findByRole("menuitem", { name: "Reply" });
-    // Force the observed CI ordering: Reply's frame runs before Radix's
-    // deferred close autofocus. The latter must not steal composer focus.
     const frames: FrameRequestCallback[] = [];
-    const frame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+    const scheduleFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
       frames.push(callback);
       return frames.length;
     });
-    vi.useFakeTimers();
     try {
-      fireEvent.click(reply);
-      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-      act(() => { for (const callback of [...frames]) callback(0); });
-      await act(async () => { await vi.runOnlyPendingTimersAsync(); });
-      expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toHaveFocus();
+      fireEvent.click(await screen.findByRole("menuitem", { name: "Reply" }));
+      expect(screen.getByText("Replying to yourself")).toBeVisible();
+      // Force the reported ordering: the reply frame runs before Radix's
+      // deferred close focus. Focus must remain in the composer afterward.
+      await act(async () => {
+        for (const callback of frames.splice(0)) callback(performance.now());
+        await new Promise((resolve) => window.setTimeout(resolve, 0));
+      });
+      await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+      await waitFor(() => expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toHaveFocus());
     } finally {
-      vi.useRealTimers();
-      frame.mockRestore();
+      scheduleFrame.mockRestore();
     }
-    expect(screen.getByText("Replying to yourself")).toBeVisible();
+    const options = screen.getByRole("button", { name: "Message options" });
+    fireEvent.keyDown(options, { key: "Enter" });
+    fireEvent.keyDown(await screen.findByRole("menu"), { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
-    await waitFor(() => expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toHaveFocus());
-    fireEvent.keyDown(screen.getByRole("button", { name: "Message options" }), { key: "Enter" });
+    await waitFor(() => expect(options).toHaveFocus());
+    fireEvent.keyDown(options, { key: "Enter" });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Delete for me" }));
     expect(await screen.findByRole("alertdialog")).toBeVisible();
     if (change === "owner") mocks.user = { ...mocks.user, uid: "viewer-2" };
@@ -1268,11 +1713,25 @@ describe("DirectMessagesPage", () => {
       conversation: { ...mocks.conversation, id: change === "route" ? "conversation-2" : "conversation-1" },
       items: [], canSend: true, disconnectedNotice: null, nextBefore: null,
     });
-    view.rerender(connectionThread());
+    view.rerender(<ConnectionThread />);
     await waitFor(() => expect(screen.getByTestId("route-readiness")).toHaveAttribute("data-state", "empty-valid"));
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(screen.queryByText("Replying to yourself")).not.toBeInTheDocument();
     expect(mocks.deleteMessage).not.toHaveBeenCalled();
+  });
+
+  it("erases account drafts before returning to a previously signed-in owner", async () => {
+    const view = renderConnectionThread();
+    const composer = await screen.findByRole("textbox", { name: "Message Ankit Kumar Singh" });
+    fireEvent.change(composer, { target: { value: "Synthetic owner A draft" } });
+    const originalOwner = mocks.user;
+    mocks.user = { uid: "viewer-2", getIdToken: vi.fn().mockResolvedValue("next-owner-token") };
+    view.rerender(<ConnectionThread />);
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toHaveValue(""));
+    fireEvent.change(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" }), { target: { value: "Synthetic owner B draft" } });
+    mocks.user = originalOwner;
+    view.rerender(<ConnectionThread />);
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toHaveValue(""));
   });
 
   it("settles Reply focus for the latest menu opening and preserves Escape focus return", async () => {

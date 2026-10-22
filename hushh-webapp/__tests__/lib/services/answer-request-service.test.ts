@@ -207,3 +207,28 @@ it.each([undefined, null, "2026-01-01"])(
     expect(JSON.parse(apiFetch.mock.calls[0][1].body)).toEqual({ personRef: "person", ...terms });
   },
 );
+
+describe("answer payout return authority", () => {
+  const attempt = "11111111-2222-4333-8444-555555555555";
+  const callback = `https://one.hushh.ai/one/profile/payouts?commerceReturn=1&commerceAttemptId=${attempt}&commerceSource=answers`;
+  const receipt = { url: "https://connect.stripe.com/setup/synthetic", attempt_id: attempt, return_url: callback };
+  it("binds a hosted answer link to its exact attempt and settlement source", async () => {
+    apiFetch.mockReturnValue(json(receipt));
+    const result = await AnswerRequestService.payoutOnboarding("owner-token", attempt);
+    expect(result).toMatchObject({ source: "answers", attemptId: attempt, returnUrl: callback });
+    expect(apiFetch).toHaveBeenCalledWith("/api/one/answer-requests/payout-account/onboarding", expect.objectContaining({
+      method: "POST", body: JSON.stringify({ attempt_id: attempt }),
+      headers: { Authorization: "Bearer owner-token", "Content-Type": "application/json" },
+    }));
+  });
+  it.each([
+    { ...receipt, attempt_id: "different" },
+    { ...receipt, return_url: callback.replace("answers", "documents") },
+    { ...receipt, return_url: callback.replace("/payouts", "/account") },
+    { ...receipt, return_url: callback + "&commerceSource=answers" },
+    { ...receipt, url: "https://connect.stripe.com.evil.invalid/setup" },
+  ])("refuses an unbound or foreign-source receipt", async value => {
+    apiFetch.mockReturnValue(json(value));
+    await expect(AnswerRequestService.payoutOnboarding("owner-token", attempt)).rejects.toThrow();
+  });
+});

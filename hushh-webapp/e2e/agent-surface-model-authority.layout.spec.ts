@@ -148,11 +148,13 @@ function decide(mode: Mode, variant: Variant, width = 1024) {
     canPickOneModel: variant.canPickOneModel,
     modelPreference: MODEL_PREFERENCE,
     hasInlineModelPicker: width >= 640,
+    nativeCompact: !variant.centeredHeader,
   };
   const showPicker = variant.applyShippedGate
     ? Boolean(evaluateShippedExpression(SRC.cloudPicker.gateExpression, scope))
     : MODEL_PREFERENCE.choices.length > 1;
   return {
+    centered: evaluateShippedExpression(SRC.header.centeredMarkerExpression, scope) === "true",
     name: String(evaluateShippedExpression(SRC.header.nameExpression, scope)),
     subtitle: String(
       evaluateShippedExpression(SRC.header.subtitleExpression, scope),
@@ -212,8 +214,12 @@ function renderScreen(mode: Mode, variant: Variant, width: number): string {
        ><svg aria-hidden="true" class="${SRC.cloudPicker.iconClass}" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2" fill="none" stroke="currentColor"/></svg><span class="truncate">${escapeHtml(cloudChipLabel())}</span></button>`
     : "";
 
-  const toggle = `<div class="${SRC.toggle.frameClass}"><div role="radiogroup" data-testid="agent-toggle" aria-label="${escapeHtml(SRC.toggle.ariaLabel)}"
-             class="${SRC.toggle.containerClass}" style="min-width:${SRC.toggle.minimumWidth}px">${segments}</div></div>`;
+  const toggleGroup = `<div role="radiogroup" data-testid="agent-toggle" aria-label="${escapeHtml(SRC.toggle.ariaLabel)}"
+             class="${SRC.toggle.containerClass} w-auto shrink-0" style="min-width:${SRC.toggle.minimumWidth}px">${segments}</div>`;
+  const framedToggle = `<div class="${SRC.toggle.frameClass}">${toggleGroup}</div>`;
+  const toggle = variant.centeredHeader
+    ? `<div class="${SRC.header.centered.surfaceClass}"><div>${framedToggle}</div></div>`
+    : framedToggle;
   const profileButton = `<button type="button" data-testid="profile-open-button" aria-label="Open Profile"
              class="inline-flex shrink-0 items-center justify-center rounded-full ${SRC.header.profileClass}"><span data-testid="profile-photo" class="${SRC.header.profilePhotoClass}"></span></button>`;
   const profile = variant.centeredHeader
@@ -223,7 +229,7 @@ function renderScreen(mode: Mode, variant: Variant, width: number): string {
   const artworkMarkup = `<div class="${artwork.containerClass}"><img data-testid="one-artwork" alt="" width="64" height="64" class="${artwork.className}"></div>`;
   const brand = mode === "one"
     ? `<span class="relative inline-flex shrink-0 overflow-visible align-middle"><button data-agent-chat-one-profile-trigger data-testid="one-profile-button" aria-label="Open One profile" class="inline-flex items-center justify-center rounded-full ${SRC.header.centered.profileTriggerClass}"><span class="inline-flex items-center justify-center">${artworkMarkup}</span></button></span>`
-    : "";
+    : artworkMarkup;
   const subtitle = variant.workingSubtitle ?? plan.subtitle;
   // Rendered in the shipped source order, so the toggle's anchor is whatever
   // the product anchors it to.
@@ -232,7 +238,7 @@ function renderScreen(mode: Mode, variant: Variant, width: number): string {
     .join("");
 
   const header = `
-    <div data-testid="agent-header" data-agent-header-layout="${variant.centeredHeader ? "portrait" : "compact"}" ${variant.centeredHeader && mode === "one" ? 'data-one-centered-header="true"' : ""} class="${SRC.header.containerClass}">
+    <div data-testid="agent-header" data-agent-header-layout="${variant.centeredHeader ? "portrait" : "compact"}" ${plan.centered ? 'data-one-centered-header="true"' : ""} class="${SRC.header.containerClass}">
       <button type="button" data-testid="history-button" aria-label="Open chat history" class="${escapeHtml(SRC.header.historyClass)}"></button>
       <div data-agent-chat-header-region="identity" data-testid="agent-identity" class="${SRC.header.identityClass}">
         <div data-agent-chat-brand-tile data-testid="agent-brand-tile" class="${SRC.header.brandTileClass}">${brand}</div>
@@ -247,7 +253,7 @@ function renderScreen(mode: Mode, variant: Variant, width: number): string {
   /*
    * Puppy One's surface. Only the two things this spec measures are modelled:
    * its own model control (the real `PuppyModelPicker` trigger's classes and
-   * title, extracted) and its own composer. The pill reports a local weight
+   * title, extracted) and its own composer. The picker reports a local weight
    * file, which is what makes the "no cloud model name on this screen" sweep
    * meaningful rather than tautological.
    */
@@ -257,11 +263,14 @@ function renderScreen(mode: Mode, variant: Variant, width: number): string {
       <div class="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col gap-3">
         <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border/60 bg-background">
           <div class="${SRC.puppy.panelHeaderClass}">
-            <span class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 bg-[color:var(--app-success-tint)] text-[color:var(--app-success-deep)]">${escapeHtml(PUPPY_MODEL)}</span>
-            <button type="button" class="${SRC.puppy.pickerClass} ml-auto"
+            <div class="${SRC.puppy.panelBodyClass}">
+              <div class="${SRC.puppy.controlsClass}">
+            <button type="button" class="${SRC.puppy.pickerClass} ${SRC.puppy.pickerInstanceClass}"
                     title="${escapeHtml(SRC.puppy.pickerTitle)}">${escapeHtml(PUPPY_MODEL)}</button>
             <button type="button" aria-pressed="true"
-                    class="rounded-full px-2 py-0.5 text-[11px] font-medium">${escapeHtml(SRC.puppy.pinOnLabel)}</button>
+                    class="${SRC.puppy.pinOnClass}">${escapeHtml(SRC.puppy.pinOnLabel)}</button>
+              </div>
+            </div>
           </div>
           <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4"></div>
           <div class="flex items-end gap-2 border-t border-border/60 px-4 py-3">
@@ -568,7 +577,7 @@ test.describe("Agent Chat: which agent is answering", () => {
     ).toHaveAttribute("aria-checked", "true");
 
     // The selected agent's concise authored name matches native and web.
-    expect(puppyOption.accessibleLabel).toBe("Puppy One");
+    expect(puppyOption.accessibleLabel).toBe("Puppy One, on your linked computer");
     expect(oneOption.accessibleLabel ?? "").toMatch(/cloud/i);
 
     // Name and controls moved in the same render: the surface below is Puppy's
@@ -643,6 +652,9 @@ test.describe("Agent Chat: which agent is answering", () => {
       expect(tile.x + tile.width).toBeLessThanOrEqual(
         header.x + header.width + 0.5,
       );
+      await switchTo(page, "puppy");
+      await expect(page.getByTestId("one-artwork")).toBeVisible();
+      expect(await box(page, "agent-brand-tile")).toEqual(tile);
     });
 
     test(`the header cluster does not move when the mode changes at ${width}px`, async ({
@@ -671,10 +683,7 @@ test.describe("Agent Chat: which agent is answering", () => {
         header: await box(page, "agent-header"),
       };
 
-      // Order is why this holds: the picker leaves on the far side of the
-      // toggle, which is anchored to the profile button at the right edge. Put
-      // the picker between them and its exit drags the toggle sideways out
-      // from under the thumb that just pressed it.
+      // Keep the toggle beside Profile when One's picker leaves.
       expect(Math.abs(after.toggle.x - before.toggle.x)).toBeLessThanOrEqual(
         0.5,
       );
@@ -685,8 +694,7 @@ test.describe("Agent Chat: which agent is answering", () => {
         0.5,
       );
 
-      // The right-hand cluster keeps its right edge (it narrows by exactly the
-      // picker it lost), and stays on the page.
+      // The action cluster keeps its right edge and stays on the page.
       expect(
         Math.abs(
           after.cluster.x +
@@ -699,15 +707,11 @@ test.describe("Agent Chat: which agent is answering", () => {
       );
       expect(after.cluster.x).toBeGreaterThanOrEqual(-0.5);
 
-      // And the header does not grow a line on the longer name: "Puppy One"
-      // is three times "One", and the identity block it sits in is the half
-      // that is allowed to shrink.
-      expect(after.header.height).toBe(60);
+      // Both agents retain the same portrait reservation.
+      expect(after.header.height).toBe(before.header.height);
       expect(before.header.height).toBeGreaterThan(60);
 
-      // Nothing slides under a control: the identity region ends before the
-      // actions begin, in both modes. This is the 390px defect where the brand
-      // tile painted under the toggle and the name collapsed to zero width.
+      // Identity and actions remain disjoint in both modes.
       for (const mode of ["puppy", "one"] as const) {
         if (mode === "one") await switchTo(page, "one");
         const identity = await box(page, "agent-identity");
@@ -716,7 +720,6 @@ test.describe("Agent Chat: which agent is answering", () => {
         expect(disjoint, "Identity and actions must occupy separate tracks, never overlap").toBe(true);
 
         expect((await box(page, "agent-name")).width).toBeGreaterThan(0);
-        // Identity and controls are side by side, not two separate app-bar rows.
         expect((await box(page, "agent-header")).height).toBeGreaterThanOrEqual(60);
         const name = page.getByTestId("agent-name");
         expect(await name.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
@@ -936,10 +939,16 @@ test.describe("One portrait header: responsive restoration", () => {
         }
         await page.getByTestId("agent-name").evaluate(el => { el.textContent = "A much longer saved private agent name"; });
         const longName = await box(page, "agent-name");
+        const longLabel = (await page.getByTestId("agent-name").locator("..").boundingBox())!;
         expect(longName.x).toBeGreaterThanOrEqual(0);
         expect(longName.x + longName.width).toBeLessThanOrEqual(width);
         expect(longName.y).toBe(name.y);
         expect(longName.height).toBe(name.height);
+        expect(longName.x).toBeGreaterThanOrEqual(longLabel.x);
+        expect(longName.x + longName.width).toBeLessThanOrEqual(longLabel.x + longLabel.width);
+        expect(Math.abs(longLabel.x + longLabel.width / 2 - (avatar.x + avatar.width / 2))).toBeLessThanOrEqual(1);
+        expect(longName.y + longName.height).toBeLessThanOrEqual(header.y + header.height - 8);
+        await expect(page.getByTestId("agent-name")).toHaveCSS("text-overflow", "ellipsis");
       }
     }
   });

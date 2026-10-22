@@ -466,7 +466,10 @@ def test_verify_firebase_bearer_certificate_fetch_returns_503(monkeypatch):
         verify_firebase_bearer("Bearer some-token")
 
     assert exc.value.status_code == 503
-    assert "temporarily unavailable" in exc.value.detail.lower()
+    assert exc.value.detail == {
+        "error_code": "AUTH_PROVIDER_UNAVAILABLE",
+        "message": "Authentication service temporarily unavailable",
+    }
 
 
 def test_verify_firebase_bearer_invalid_id_token_returns_401(monkeypatch):
@@ -781,10 +784,12 @@ def test_ensure_firebase_auth_admin_falls_back_to_default_admin(monkeypatch):
 
 
 def test_get_firebase_auth_app_falls_back_to_default_app(monkeypatch):
-    default_app = object()
+    from types import SimpleNamespace
+
+    default_app = SimpleNamespace(project_id="hushh-pda-uat")
 
     monkeypatch.setattr(
-        "api.utils.firebase_admin.ensure_firebase_auth_admin", lambda: (True, "hushh-pda")
+        "api.utils.firebase_admin.ensure_firebase_auth_admin", lambda: (True, "hushh-pda-uat")
     )
     monkeypatch.setattr(
         "api.utils.firebase_admin._get_existing_app",

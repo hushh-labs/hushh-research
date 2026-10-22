@@ -28,7 +28,6 @@ import {
   ShieldCheck,
   Sliders,
   SquaresFour,
-  Trash,
   User,
   WarningCircle,
   X,
@@ -37,6 +36,7 @@ import {
 } from "@phosphor-icons/react";
 
 import { AccentedKeyIcon } from "./accented-key-icon";
+import { AppleTrashIcon } from "./trash-icon";
 
 export type UiIconProps = IconProps & {
   size?: number | string;
@@ -288,7 +288,7 @@ export function TrashIcon({
   ...props
 }: UiIconProps) {
   return (
-    <Trash
+    <AppleTrashIcon
       size={size}
       weight={weight}
       className={className}

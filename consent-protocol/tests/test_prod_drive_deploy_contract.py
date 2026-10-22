@@ -8,6 +8,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pathspec
@@ -438,6 +439,7 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     tools = (
         "resolve_prod_release_mode.py",
         "verify_prod_prerequisites.py",
+        "verify_hashcoin_config.sh",
         "setup_native_callback_log_exclusion.sh",
         "deploy_worker_service_prod.sh",
         "setup_work_drain_scheduler_prod.sh",
@@ -446,13 +448,32 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     )
     current_paths = [
         *old_paths,
+        "scripts/ci/verify-predecessor-acceptance.py",
+        "scripts/ops/runtime_config_retention.py",
+        "scripts/ops/scope_commerce_runtime_policy.py",
+        "scripts/ops/shared_files_runtime_policy.py",
+        "scripts/ops/passkey_domain_policy.py",
+        "scripts/ops/upsert_gcp_secret.py",
         "deploy/email-auth/bind_secrets.sh",
         "deploy/plg/bind_secrets.sh",
         "scripts/ci/verify-prod-places-readiness.py",
         "scripts/ci/cloudrun-retention.py",
         "scripts/ci/account-deletion-fence-decision.py",
+        "scripts/ci/managed_provider_readiness.py",
         "scripts/ops/verify-env-secrets-parity.py",
         *(f"deploy/drive/{name}" for name in tools),
+        *(
+            f"scripts/deploy/{name}"
+            for name in (
+                "backend-deploy.sh",
+                "verify-managed-vertex-runtime.sh",
+                *(path.name for path in (ROOT / "scripts/deploy").glob("backend-*-settings.sh")),
+                "commerce-preview-bindings.sh",
+                "scope-commerce-secrets.sh",
+                "pod-release-env.sh",
+                "preserve-pod-release.py",
+            )
+        ),
     ]
     for path in current_paths:
         write(path, (ROOT / path).read_text())
@@ -482,20 +503,48 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
             (
                 "resolve-cloud-run-deploy-revision.py",
                 "resolve-uat-verified-image.py",
+                "verify-predecessor-acceptance.py",
                 "verify-prod-places-readiness.py",
                 "passkey-domain-aliases.json",
             )
         ):
             continue
         assert (repo / path).read_text() == (ROOT / path).read_text()
+    # Exercise the file-relative policy imports in the restored old checkout.
+    # No cloud command or credential read is admitted by this probe.
+    subprocess.run(  # noqa: S603 - pure restored policy helpers, synthetic checkout
+        [
+            sys.executable,
+            "-c",
+            "import runpy; "
+            "sync = runpy.run_path('scripts/ops/sync_backend_runtime_secrets.py'); "
+            "assert callable(sync['_scope_commerce_runtime_policy']()['apply_policy']); "
+            "assert callable(runpy.run_path('scripts/ops/shared_files_runtime_policy.py')['apply_policy']); "
+            "assert callable(runpy.run_path('scripts/ops/passkey_domain_policy.py')['allowed_rp_ids']); "
+            "runpy.run_path('scripts/ops/upsert_gcp_secret.py', run_name='restored_secret_tool')",
+        ],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
     build = yaml.safe_load((repo / "deploy/backend.cloudbuild.yaml").read_text())
-    referenced = set()
-    for step in build["steps"]:
-        for argument in step.get("args", []):
-            referenced.update(
-                re.findall(r"(?m)^\s*source\s+(deploy/[A-Za-z0-9_./-]+\.sh)\b", argument)
-            )
+    from tests.fixtures.cloudbuild_sources import cloudbuild_sourced_shell_helpers
+
+    referenced = cloudbuild_sourced_shell_helpers(repo, build)
+    assert "scripts/deploy/backend-deploy.sh" in referenced
+    assert "scripts/deploy/verify-managed-vertex-runtime.sh" in referenced
+    referenced.update(
+        match
+        for step in build["steps"]
+        for argument in step.get("args", [])
+        for match in re.findall(
+            r"\bpython3\s+(scripts/ci/managed_provider_readiness\.py)\b", argument
+        )
+    )
     assert referenced, "Exercise the preserved Cloud Build source dependencies"
+    assert "scripts/ci/managed_provider_readiness.py" in referenced
     upload_filter = pathspec.GitIgnoreSpec.from_lines(
         (repo / ".gcloudignore").read_text().splitlines()
     )

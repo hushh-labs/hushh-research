@@ -8,6 +8,10 @@ dropping the binding."""
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -19,6 +23,7 @@ from hushh_mcp.services.curated_connector_manifest import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+DEPLOY_SCRIPT = (REPO_ROOT / "scripts/deploy/backend-deploy.sh").read_text(encoding="utf-8")
 CLOUDBUILD = (REPO_ROOT / "deploy" / "backend.cloudbuild.yaml").read_text(encoding="utf-8")
 UAT_WORKFLOW = (REPO_ROOT / ".github" / "workflows" / "deploy-uat.yml").read_text(encoding="utf-8")
 PROD_WORKFLOW = (REPO_ROOT / ".github" / "workflows" / "deploy-production.yml").read_text(
@@ -98,13 +103,40 @@ def test_the_reader_rejects_a_bad_secret_name(tmp_path):
 
 def test_cloud_build_has_one_generic_loop_and_no_per_provider_lines():
     assert "_CURATED_CONNECTOR_SECRETS" in CLOUDBUILD
-    assert 'add_secret "$s" "$s"' in CLOUDBUILD
+    assert '"scripts/deploy/backend-deploy.sh"' in CLOUDBUILD
+    assert '"_CURATED_CONNECTOR_SECRETS=${_CURATED_CONNECTOR_SECRETS}"' in CLOUDBUILD
+    assert 'for s in $(echo "${_CURATED_CONNECTOR_SECRETS}" | tr' in DEPLOY_SCRIPT
+    assert 'append_optional_secret "$s" "$s"' in DEPLOY_SCRIPT
+    assert "^[A-Z][A-Z0-9_]{1,127}$" in DEPLOY_SCRIPT
+    assert "Invalid curated connector secret name." in DEPLOY_SCRIPT
     for name in ("HUBSPOT", "NOTION"):
-        assert name not in CLOUDBUILD, "provider names must not be wired into the build file"
+        assert name not in CLOUDBUILD + DEPLOY_SCRIPT, "provider wiring must stay manifest-derived"
 
 
 def test_the_coverage_check_sees_the_generic_binding():
     assert "_CURATED_CONNECTOR_SECRETS" in coverage_check.bound_substitutions()
+
+
+def test_empty_default_secret_binding_retains_missing_lane_enforcement(
+    tmp_path, monkeypatch, capsys
+):
+    secret = "_GOOGLE_DRIVE_PICKER_API_KEY_SECRET"
+    assert secret in coverage_check.bound_substitutions()
+    assert coverage_check.main() == 0
+
+    baseline = json.loads(coverage_check.BASELINE.read_text(encoding="utf-8"))
+    baseline["lanes"]["deploy-dev.yml"]["absent"].remove(secret)
+    baseline["lanes"]["deploy-dev.yml"]["reasons"].pop(secret)
+    fixture = tmp_path / "coverage.json"
+    fixture.write_text(json.dumps(baseline), encoding="utf-8")
+    deploy_script = tmp_path / "scripts/deploy/backend-deploy.sh"
+    deploy_script.parent.mkdir(parents=True)
+    deploy_script.write_text(DEPLOY_SCRIPT, encoding="utf-8")
+    monkeypatch.setattr(coverage_check, "BASELINE", fixture)
+    monkeypatch.setattr(coverage_check, "REPO_ROOT", tmp_path)
+
+    assert coverage_check.main() == 1
+    assert f"deploy-dev.yml: {secret} is bound" in capsys.readouterr().err
 
 
 def test_the_uat_lane_passes_the_derived_names_and_checks_they_exist():
@@ -148,3 +180,30 @@ def test_production_uses_its_own_opt_in_and_fails_before_deploy_on_missing_clien
     )
     assert '--curated-mcp-connectors "$PROD_CURATED_MCP_CONNECTORS"' in PROD_WORKFLOW
     assert "CURATED_MCP_CONNECTORS_UAT" not in PROD_WORKFLOW
+
+
+def test_registry_import_needs_no_runtime_keys_or_network() -> None:
+    """Deployment registry maintenance must not import runtime credential authority."""
+    program = """
+import socket
+
+def refuse(*args, **kwargs):
+    raise AssertionError('network access is forbidden during registry imports')
+socket.socket.connect = refuse
+from hushh_mcp.services.drive_uat_registry_provisioning import assert_google_drive_uat_registry_target
+from hushh_mcp.services.drive_prod_registry_provisioning import assert_google_drive_prod_registry_target
+assert_google_drive_uat_registry_target(environment={
+    'HUSSH_RELEASE_ENVIRONMENT': 'uat',
+    'GCP_PROJECT_ID': 'hushh-pda-uat',
+    'CLOUDSQL_INSTANCE_CONNECTION_NAME': 'hushh-pda-uat:us-central1:hushh-uat-pg',
+})
+"""
+    result = subprocess.run(  # noqa: S603 - fixed interpreter and repository-owned probe
+        [sys.executable, "-B", "-c", program],
+        cwd=REPO_ROOT / "consent-protocol",
+        env={"PATH": os.environ.get("PATH", ""), "PYTHON_DOTENV_DISABLED": "1"},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, "registry import requires runtime credentials or network"

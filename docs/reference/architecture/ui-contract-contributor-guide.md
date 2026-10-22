@@ -105,6 +105,14 @@ required for generation and behavioral tests; the tiny parser install is only
 for fast validation. Review and commit authored changes and generated mirrors
 together. Verification and the pre-push hook never stamp or repair files.
 
+Web browser history correction uses the authored Back owner only for a verified
+backward traversal. Forward or unknown direction stays native; browsers without
+Navigation API entry indices retain native browser history. Profile pane history
+remains with its existing owner. Its confirmation overlay can consume a declined
+Profile history depth when entry indices are unavailable; known Forward traversal
+never dismisses that overlay or triggers route-parent correction. `npm run test:web-history-boundary` exercises
+trusted Back and Forward in Chromium; pure synthetic events cannot prove this.
+
 CI has one mandatory **UI Contracts** job for Back/Search structure, source
 freshness, Surface Map, Gateway, Siri and Route Orchestration mirrors, plus validator mutation regressions. Required
 Web Core runs validator mutation regressions. The required full Vitest suite
@@ -149,7 +157,7 @@ never resolve them wholesale as generated files. Keep generated gateway,
 capability and topology copies consistent across their deployment contexts.
 
 Canonical architecture: [route contracts](./route-contracts.md).
-Agent owner: [frontend architecture skill](../../../.codex/skills/frontend-architecture/SKILL.md).
+Agent owner: [frontend architecture skill](../../../.agents/skills/frontend-architecture/SKILL.md).
 Connect product inventory: [Connect UI Contract](../../../hushh-webapp/docs/ui-contracts/connect.md).
 Profile and Feed inventories, shared navigation and font usage:
 [Product UI contracts](../../../hushh-webapp/docs/ui-contracts/README.md).

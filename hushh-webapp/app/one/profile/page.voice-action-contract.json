@@ -241,7 +241,14 @@
       "aliases": [
         "link my bank",
         "set up payouts",
-        "document earnings"
+        "document earnings",
+        "payments",
+        "add funds",
+        "purchase balance",
+        "information-access earnings",
+        "wallet",
+        "open payouts",
+        "payments and earnings"
       ],
       "search_keywords": [
         "link my bank",
@@ -707,7 +714,7 @@
     {
       "action_id": "profile.delete_account",
       "label": "Delete Account",
-      "meaning": "Deletes investor/ria persona or full account depending on selected target.",
+      "meaning": "Starts owner-confirmed account deletion. A private cloud requires exact resource and retention review, fresh owner cloud authorization, and verified cleanup before final deletion.",
       "aliases": [
         "delete my account",
         "remove account"
@@ -738,7 +745,11 @@
         "path": "local_handler",
         "target": "profile.delete_account"
       },
-      "control_ids": [],
+      "control_ids": [
+        "cloud-cleanup-refresh",
+        "cloud-cleanup-continue",
+        "cloud-cleanup-approve"
+      ],
       "state_exposure": [],
       "docs_references": [
         "app/profile/profile-workspace-page.tsx"

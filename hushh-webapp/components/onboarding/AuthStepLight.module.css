@@ -49,7 +49,7 @@
 .back:hover { background: #ececf0; }
 .back:disabled { opacity: .4; pointer-events: none; }
 .back:focus-visible, .providerButton:focus-visible {
-  outline: 3px solid #0071e3;
+  outline: 3px solid var(--app-accent-deep);
   outline-offset: 3px;
 }
 
@@ -83,7 +83,7 @@
   line-height: 36px;
   letter-spacing: -.5px;
 }
-.title > span { color: #0071e3; }
+.title > span { color: var(--app-accent-deep); }
 .actions { width: 100%; max-width: 430px; transform: none; }
 .contacts {
   color: #6e6e73;
@@ -100,9 +100,9 @@
   border-color: #86868b;
 }
 .contacts :global([data-slot="checkbox"][data-state="checked"]) {
-  border-color: #0071e3;
-  background: #0071e3;
-  color: #fff;
+  border-color: var(--app-accent-deep);
+  background: var(--app-accent);
+  color: var(--app-accent-fg);
 }
 
 .providerButton {
@@ -134,11 +134,25 @@
   }
 }
 .providerButton:hover { background: #f8f8fa !important; }
+.providerButton [data-auth-provider-content] {
+  display: grid;
+  width: 240px;
+  max-width: 100%;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 12px;
+  text-align: left;
+}
+/* Match Google's painted mark while preserving each logo's proportions. */
+.appleProviderIcon { width: 26.4px; height: 26.4px; }
+.emailProviderIcon { width: 27.1px; height: 27.1px; }
+.appleProviderIcon, .emailProviderIcon { flex-shrink: 0; max-width: none; }
+.microsoftProviderIcon { width: 22px; height: 22px; }
 .providerButton [data-auth-provider-content] > span:last-child {
   font-family: var(--font-app-body) !important;
   font-size: 16px !important;
   font-weight: 600 !important;
   line-height: 22px !important;
+  white-space: normal;
 }
 .actions :global(#enterprise-sso-email) {
   height: 53px;
@@ -163,7 +177,7 @@
   letter-spacing: 0 !important;
 }
 .legalRow p { margin: 0; color: #6e6e73; font-weight: 400; }
-.legalRow a { color: #0071e3; font-weight: 600; }
+.legalRow a { color: var(--app-accent-deep); font-weight: 600; }
 
 @media (min-width: 800px) {
   .frame {
@@ -210,11 +224,7 @@
   --app-secondary-surface: #fff;
   --app-separator: #d8d8dc;
   --app-input-radius: var(--auth-control-radius);
-  --app-accent: #0071e3;
-  --app-accent-hover: #0067d1;
-  --app-accent-fg: #fff;
-  --app-accent-tint: #f0f7ff;
-  --app-focus-ring: rgb(0 113 227 / 24%);
+  /* Accent and focus inherit the owner-selected app palette. */
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--app-form-related-gap);

@@ -5,7 +5,7 @@ import type {
 } from "@/lib/one-location/types";
 
 export type CircleRecipientExclusionReason =
-  "self" | "location_setup_needed" | "phone_verification_needed";
+  "self" | "location_setup_needed";
 
 export type CircleRecipientExclusion = {
   member: OneLocationCircleMember;
@@ -96,8 +96,6 @@ export function sourceCircleIdForRecipient(
 
 function exclusionLabel(reason: CircleRecipientExclusionReason): string {
   if (reason === "self") return "You are not added as a recipient";
-  if (reason === "phone_verification_needed")
-    return "Phone verification is needed for SMS";
   return "Location setup is not complete";
 }
 
@@ -109,7 +107,6 @@ function exclusionLabel(reason: CircleRecipientExclusionReason): string {
 export function resolveCircleRecipientSelection(params: {
   circle: OneLocationCircleDetail;
   currentUserId?: string | null;
-  requirePhoneVerified?: boolean;
 }): CircleRecipientSelection {
   const currentUserId = String(params.currentUserId || "").trim();
   const ready: CircleRecipientTarget[] = [];
@@ -124,8 +121,6 @@ export function resolveCircleRecipientSelection(params: {
     let reason: CircleRecipientExclusionReason | null = null;
     if (userId === currentUserId) {
       reason = "self";
-    } else if (params.requirePhoneVerified && !member.phoneVerified) {
-      reason = "phone_verification_needed";
     } else if (
       !member.canReceiveLocation ||
       !member.keyId ||

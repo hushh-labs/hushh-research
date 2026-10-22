@@ -94,7 +94,9 @@ class _QueuedDb:
 
     def execute_raw(self, sql: str, params: dict):
         self.raw_calls.append((sql, params))
-        if sql.startswith("\nWITH keyed"):
+        if "AS history_revision" in sql:
+            data = [{"history_revision": "fixture-history-revision"}]
+        elif sql.startswith("\nWITH keyed"):
             query = self.queries.pop(0)
             data = (
                 [{"unread_count": query.count}]
@@ -160,6 +162,29 @@ def test_legacy_feed_event_without_source_id_keeps_append_only_insert() -> None:
     ]
 
 
+def test_profile_discovery_feed_projection_accepts_only_generic_status_metadata() -> None:
+    db = _Db()
+    service = FeedService()
+    service._db = db
+
+    service.record_event(
+        user_id="user-1",
+        source_domain="profile_discovery",
+        event_type="profile_discovery_ready",
+        metadata={
+            "user_facing_status": "ready",
+            "claim": "private public-web finding",
+            "source_url": "https://example.invalid/person",
+        },
+        source_row_id="opaque-job:3",
+    )
+
+    assert len(db.raw_calls) == 1
+    _, params = db.raw_calls[0]
+    assert params["source_domain"] == "profile_discovery"
+    assert params["metadata_json"] == '{"user_facing_status": "ready"}'
+
+
 def test_list_feed_uses_bounded_keyset_pagination_and_exact_unread_count() -> None:
     list_query = _Query(
         data=[
@@ -177,7 +202,9 @@ def test_list_feed_uses_bounded_keyset_pagination_and_exact_unread_count() -> No
     assert [item["id"] for item in result["items"]] == ["10", "9"]
     assert result["next_cursor"] == "9"
     assert result["unread_count"] == 41
-    sql, params = service._db.raw_calls[0]
+    assert result["history_revision"] == "fixture-history-revision"
+    assert service._db.raw_calls[0][1] == {"user_id": "user-1"}
+    sql, params = service._db.raw_calls[1]
     assert params == {"user_id": "user-1", "cursor": 11, "page_size": 3}
     assert "FROM grouped WHERE" in sql
     assert "row_number() OVER (PARTITION BY thread_key ORDER BY id DESC)" in sql
@@ -741,7 +768,7 @@ def test_feed_projection_allows_only_bounded_renderer_metadata() -> None:
         "actor_label": f"  {'A' * 200}  ",
         "metadata": {
             "counterpart_label": f"  {'B' * 300}  ",
-            "counterpart_photo_url": f"  https://cdn.example.test/{'p' * 1200}.jpg  ",
+            "counterpart_photo_url": f"  https://cdn.example.test/{'p' * 999}  ",
             "phone_number": "+1 555 010 1234",
             "requester_masked_phone": "***1234",
             "requested_duration_hours": 3,
@@ -762,9 +789,57 @@ def test_feed_projection_allows_only_bounded_renderer_metadata() -> None:
     assert item["actor_label"] == "A" * 160
     assert item["metadata"] == {
         "counterpart_label": "B" * 256,
+        "counterpart_photo_url": "https://cdn.example.test/" + "p" * 999,
         "requested_duration_hours": 3,
         "is_extension": True,
     }
+
+
+@pytest.mark.parametrize("authoritative", [True, False, None, "true", 1])
+def test_nocharge_feed_receipt_survives_wire_sanitation_without_trusting_snapshot(authoritative):
+    request_id = "11111111-2222-4333-8444-555555555555"
+    service = FeedService()
+    service._db = _QueuedDb(
+        raw_results=[
+            [
+                {
+                    "request_id": request_id,
+                    "current_existing_access_nocharge": authoritative,
+                    "provider_secret": "must-not-cross",
+                }
+            ]
+        ]
+    )
+    rows = service._with_drive_payment_status(
+        "requester",
+        [
+            {
+                "id": 1,
+                "event_type": "document_share_outcome",
+                "metadata": {
+                    "request_id": request_id,
+                    "current_existing_access_nocharge": True,
+                    "file_name": "private.pdf",
+                },
+            }
+        ],
+    )
+    item = service._to_item(rows[0], "requester")
+    assert item["metadata"].get("current_existing_access_nocharge") is (
+        True if authoritative is True else None
+    )
+    assert "provider_secret" not in str(item)
+    assert "private.pdf" not in str(item)
+    assert (
+        "current_existing_access_nocharge"
+        not in service._to_item(
+            {
+                "id": 2,
+                "event_type": "document_share_outcome",
+                "metadata": {"current_existing_access_nocharge": True},
+            }
+        )["metadata"]
+    )
 
 
 def test_historical_drive_payment_reads_current_requester_scoped_status() -> None:
@@ -1060,7 +1135,7 @@ def test_direct_message_feed_body_is_only_a_recipient_scoped_transient_preview(
     # The Feed row itself remains plaintext-free; only the authenticated DTO
     # acquires the result of opening the message envelope.
     assert list_query.data[0]["metadata"] == {}
-    sql, params = service._db.raw_calls[1]
+    sql, params = service._db.raw_calls[2]
     assert "feed.user_id = :viewer_user_id" in sql
     assert "conversation.participant_a_user_id = message.sender_user_id" in sql
     assert "conversation.participant_b_user_id = message.sender_user_id" in sql
@@ -1176,7 +1251,7 @@ def test_list_feed_enriches_connection_rows_with_counterpart_photo() -> None:
     assert result["items"][0]["metadata"]["counterpart_photo_url"] == (
         "https://cdn.example.test/kushal.jpg"
     )
-    assert "connection_requests" in service._db.raw_calls[1][0]
+    assert "connection_requests" in service._db.raw_calls[2][0]
     assert "counterpart_user_id" not in result["items"][0]["metadata"]
 
 
@@ -1217,7 +1292,7 @@ def test_list_feed_enriches_location_grant_rows_with_counterpart_photo() -> None
     assert result["items"][0]["metadata"]["counterpart_photo_url"] == (
         "https://cdn.example.test/ankit.jpg"
     )
-    assert "one_location_share_grants" in service._db.raw_calls[1][0]
+    assert "one_location_share_grants" in service._db.raw_calls[2][0]
 
 
 def test_durable_identity_gives_same_person_photo_to_mixed_feed_events() -> None:

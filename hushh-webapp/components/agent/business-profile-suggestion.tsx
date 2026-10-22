@@ -51,7 +51,6 @@ export function BusinessProfileSuggestion(props: Props) {
   const foregroundChatActive = useForegroundChatActive();
   const [discovery, setDiscovery] = useState<{ ownerId: string; token: string; key: string;
     candidates: BusinessCandidate[]; incomplete: boolean; status: string } | null>(null);
-  const [attempt, setAttempt] = useState(0);
   const [visibleIds, setVisibleIds] = useState<Set<string>>(() => new Set());
   const onCandidateVisible = useCallback((id: string, visible: boolean) => {
     setVisibleIds(current => {
@@ -88,21 +87,14 @@ export function BusinessProfileSuggestion(props: Props) {
       }
     })();
     return () => abort.abort();
-  }, [ownerId, vaultKey, vaultOwnerToken, enabled, foregroundChatActive, tokenExpiresAt, attempt]);
+  }, [ownerId, vaultKey, vaultOwnerToken, enabled, foregroundChatActive, tokenExpiresAt]);
   if (!currentDiscovery) return null;
   const candidates = discovery.candidates.filter(candidate => candidate.synthetic === false &&
     candidate.sourceIdentity.source === "directory" && !isDemoBusinessSource(candidate.sourceIdentity.sourceKey) &&
     !props.dismissedBusinessUids?.has(candidate.businessUid));
-  const retryableStatus = discovery.status === "unavailable" || discovery.incomplete;
-  if (!candidates.length && !retryableStatus && discovery.status !== "insufficient_signals") return null;
+  // Ambient discovery offers a real candidate; an empty lookup is not a chat task.
+  if (!candidates.length) return null;
   return <div className="space-y-[var(--app-form-section-gap)]">
-    {props.present !== false && retryableStatus && <div className="space-y-[var(--app-form-field-gap)]">
-      <HelperText>{discovery.status === "unavailable"
-        ? "Business lookup is temporarily unavailable. Nothing was saved; try again when the directory is reachable."
-        : "Business lookup is incomplete. Available suggestions may not include every business."}</HelperText>
-      <Button variant="link" size="standard" onClick={() => setAttempt(value => value + 1)}>Retry business lookup</Button>
-    </div>}
-    {props.present !== false && discovery.status === "insufficient_signals" && <HelperText>Your verified contacts could not be used for business lookup yet. Nothing has been saved.</HelperText>}
     {props.present !== false && candidates.length > 1 && <HelperText>I found several possible businesses. Choose the details you want to review.</HelperText>}
     {candidates.map(candidate => <BusinessCandidateReview key={candidate.businessUid} {...props} candidate={candidate}
       onCompleted={() => setCompletedOwner(ownerId)}

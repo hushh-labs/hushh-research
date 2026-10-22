@@ -46,7 +46,7 @@ describe("top shell breadcrumbs", () => {
     ]);
   });
 
-  it("returns a query-selected saved analysis to its Analysis workspace", () => {
+  it("returns a query-selected saved analysis to its Stocks workspace", () => {
     expect(
       resolveTopShellBreadcrumb(
         "/one/kai",
@@ -60,7 +60,7 @@ describe("top shell breadcrumbs", () => {
       align: "center",
       items: [
         { label: "Finance", href: "/one/kai?tab=market" },
-        { label: "Analysis", href: "/one/kai?tab=analysis" },
+        { label: "Stocks", href: "/one/kai?tab=analysis" },
         { label: "NVDA analysis" },
       ],
     });
@@ -1144,9 +1144,11 @@ describe("top shell title slot", () => {
   it.each([
     // Agent roots own their visible heading in the page body, not beside Back.
     ["/one/pkm", "", "none"],
-    ["/one/gmail", "", "title"],
+    ["/one/gmail", "", ["Mail"]],
     ["/one/feed", "", ["Feed"]],
     ["/one/connect", "", ["Connect"]],
+    ["/one/connect/settings", "", ["Connect", "AI connection"]],
+    ["/one/profile/preferences/gemini", "", ["Preferences", "AI connection"]],
     // Profile > Memory swapped its trail for a "Profile" chip.
     ["/one/profile/my-data", "", ["Profile", "Memory"]],
     ["/one/pkm/recent", "", ["Memory", "Recently learned"]],
@@ -1156,7 +1158,7 @@ describe("top shell title slot", () => {
     ["/one/connected-systems", "", ["Connected Systems"]],
     ["/one/consent", "", "none"],
     ["/consents", "", "none"],
-    ["/one/gmail", "from=/one/setup", "title"],
+    ["/one/gmail", "from=/one/setup", ["Mail"]],
   ])(
     "keeps %s (%s) titled beside its back arrow, even scrolled",
     (pathname, search, expected) => {

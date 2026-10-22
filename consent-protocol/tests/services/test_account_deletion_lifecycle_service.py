@@ -518,7 +518,7 @@ def test_phone_orphan_delete_failure_never_disables_a_potentially_established_id
 def test_phone_orphan_cleanup_revalidates_exact_uid_before_delete(monkeypatch):
     from firebase_admin import auth as firebase_auth
 
-    firebase_app = object()
+    firebase_app = SimpleNamespace(project_id="hushh-pda-uat")
     events: list[tuple[str, str, object]] = []
     phone_number = "+16505550101"
     phone_digest = account_deletion_phone_digest(phone_number)

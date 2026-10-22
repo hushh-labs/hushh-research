@@ -1,4 +1,5 @@
-.workspace {
+.workspace,
+.circleCreateDetails {
   --page-inline-gutter-standard: 24px;
   --app-shell-reading: 728px;
   --type-row-label-size: 14px;
@@ -23,8 +24,16 @@
   --foundation-title1-size: 28px;
   --foundation-title1-weight: 600;
   --foundation-title1-line: 36px;
-  max-width: 728px;
   font-family: var(--font-app-body), system-ui, sans-serif;
+}
+.workspace {
+  max-width: 728px;
+}
+.circleCreateDescription {
+  font-family: var(--font-app-body), system-ui, sans-serif;
+  font-size: var(--type-row-description-size);
+  font-weight: var(--type-row-description-weight);
+  line-height: var(--type-row-description-line);
 }
 .workspace :global([data-slot="settings-row-title"]),
 .workspace :global([data-profile-role="name"]) {
@@ -93,12 +102,27 @@
 .circleSearch input {
   min-height: 48px;
   height: 48px;
-  border: 0;
+  border: 1px solid var(--app-label);
   border-radius: 12px;
   background: var(--app-secondary-fill);
   font-size: 14px;
   font-weight: 400;
   line-height: 22px;
+}
+/* One neutral perimeter in every state; no separate focus ring or outline. */
+.workspace :global([data-testid="connect-search-row"] input),
+.workspace :global(input[type="search"]:not([data-slot="input-group-control"])),
+.workspace :global([data-slot="input-group"]:has(input[type="search"])) {
+  border: 1px solid var(--app-label);
+  box-shadow: none;
+}
+.workspace :global([data-testid="connect-search-row"] input:focus),
+.workspace :global(input[type="search"]:not([data-slot="input-group-control"]):focus),
+.workspace :global([data-slot="input-group"]:has(input[type="search"]):focus-within) {
+  border-color: var(--app-label);
+  outline: 0 none transparent;
+  outline-offset: 0;
+  box-shadow: none;
 }
 .workspace :global([data-testid="connect-search-row"]) {
   padding-bottom: 18px;
@@ -113,7 +137,6 @@
   justify-content: flex-start;
   width: 100%;
   gap: 26px;
-  border-bottom: 1px solid var(--app-separator);
 }
 .viewTabs :global([data-slot="tabs-trigger"]) {
   min-height: 48px;
@@ -128,6 +151,27 @@
   bottom: 0;
   background: var(--app-accent);
 }
+.connectionTabCount {
+  display: inline-grid;
+  place-items: center;
+  align-self: center;
+  flex-shrink: 0;
+  min-width: 18px;
+  height: 17px;
+  padding-inline: 4px;
+  border-radius: 999px;
+  background: var(--app-neutral-fill);
+  color: var(--app-secondary-label);
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.viewTabs :global([data-state="active"]) .connectionTabCount {
+  background: var(--app-accent-tint);
+  color: var(--app-accent);
+}
+
 .count {
   border-radius: 5px;
   background: var(--app-secondary-fill);
@@ -154,6 +198,10 @@
   font-weight: 550;
   color: var(--app-accent);
 }
+.joinAction.joinAction {
+  background: transparent;
+}
+
 .rosterSearch {
   position: relative;
   margin-bottom: 18px;
@@ -184,7 +232,7 @@
   justify-content: space-between;
   gap: 12px;
 }
-.circleHeading h2 {
+.circleHeading :is(h2, h3) {
   --foundation-title3-size: 14px;
   --foundation-title3-weight: 600;
   --foundation-title3-line: 22px;
@@ -194,6 +242,17 @@
   font-size: 14px;
   font-weight: 600;
   line-height: 22px;
+}
+.circleHeading h3 {
+  --foundation-title3-size: 13px;
+  --foundation-title3-weight: 550;
+  --foundation-headline-size: 13px;
+  --foundation-headline-line: 22px;
+  --foundation-headline-weight: 550;
+  --foundation-headline-tracking: normal;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--app-secondary-label);
 }
 .circleRow {
   display: grid;
@@ -416,7 +475,7 @@
 }
 .swipeRow .circleRow {
   position: relative;
-  grid-template-columns: minmax(0, 1fr) 44px 36px;
+  grid-template-columns: minmax(0, 1fr) 44px;
   min-height: 84px;
   padding-inline: 22px 12px;
   border: 0;
@@ -435,6 +494,11 @@
   background: var(--app-destructive);
   color: var(--app-on-accent);
   font-size: 12px;
+}
+
+.swipeAction[data-action="delete"] {
+  background: var(--app-destructive-tint);
+  color: var(--app-destructive);
 }
 @media (max-width: 620px) {
   .swipeRow .circleRow {

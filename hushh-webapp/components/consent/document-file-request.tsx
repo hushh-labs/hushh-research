@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import Link from "next/link";
 import {
   snapshotVaultSessionEpoch,
@@ -15,10 +15,6 @@ import {
 } from "@/lib/services/drive-sharing-service";
 import { DriveRequestRequesterService } from "@/lib/services/drive-request-requester-service";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
-import {
-  DOCUMENT_FLOW_SURFACE_TYPE,
-  DOCUMENT_FLOW_TEXT_SCALE,
-} from "@/lib/consent/document-request-flow";
 import { CONSENT_ACTION_COMPLETE_EVENT } from "@/lib/consent/consent-events";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button } from "@/lib/morphy-ux/button";
@@ -29,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { MobileDocumentDateRange } from "@/components/consent/mobile-document-date-range";
+import { IllustratedRequestContent, IllustratedRequestForm, IllustratedRequestBody, IllustratedRequestActions } from "@/components/app-ui/illustrated-request-dialog";
 import {
   DocumentRequestQuoteNotice,
   useDocumentRequestQuote,
@@ -39,17 +36,8 @@ import { dayRangeLabel } from "@/components/consent/packets/packet-copy";
 import type { DriveRequestQuote } from "@/lib/services/drive-request-pricing-service";
 import {
   Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-
-const REQUEST_FILES_DIALOG_TYPE = [
-  DOCUMENT_FLOW_SURFACE_TYPE,
-  DOCUMENT_FLOW_TEXT_SCALE,
-  "[&_.ui-text-form-label]:!text-[13px] [&_.ui-text-form-label]:!leading-[1.25]",
-].join(" ");
 
 export type FileRequestTerms = {
   purpose: string;
@@ -171,6 +159,7 @@ export function useFileRequest({
   onQuoteChanged,
   identityMissing = false,
   onIdentityLinked,
+  canRequest = true,
 }: {
   userId: string;
   personRef: string;
@@ -181,6 +170,7 @@ export function useFileRequest({
   identityMissing?: boolean;
   /** A Google account was linked while sending; the preview reads it again. */
   onIdentityLinked?: () => void;
+  canRequest?: boolean;
 }) {
   const [phase, setPhase] = useState<"idle" | "verifying" | "sending">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -188,6 +178,8 @@ export function useFileRequest({
   const [linked, setLinked] = useState(false);
   const needsGoogle = needsGoogleAfterSend || (identityMissing && !linked);
   const alive = useRef(false);
+  const eligibility = useRef(canRequest);
+  eligibility.current = canRequest;
   const serial = useRef(0);
   const inFlight = useRef(false);
   const attempt = useRef<{ fingerprint: string; id: string; quoteVersion: number | null } | null>(
@@ -210,7 +202,7 @@ export function useFileRequest({
     };
   }, []);
   const send = async (terms: FileRequestTerms, quote: DriveRequestQuote | null): Promise<string | null> => {
-    if (inFlight.current || !validFileRequest(terms) || !quote || !alive.current) return null;
+    if (!eligibility.current || inFlight.current || !validFileRequest(terms) || !quote || !alive.current) return null;
     const token = getToken();
     if (!token) return null;
     const epoch = snapshotVaultSessionEpoch();
@@ -220,9 +212,9 @@ export function useFileRequest({
       serial.current === operation &&
       isVaultSessionEpochCurrent(epoch) &&
       getToken() === token;
-    const guard = () => {
+    const guard = Object.assign(() => {
       if (!current()) throw new DriveSharingError("session_changed");
-    };
+    }, { canDispatch: () => eligibility.current });
     const clean = normalize(terms);
     const fingerprint = fingerprintOf(personRef, clean);
     if (attempt.current?.fingerprint !== fingerprint ||
@@ -241,6 +233,10 @@ export function useFileRequest({
         ? AuthService.linkGoogleIdentity(userId, current)
         : AuthService.documentRequestIdentityToken(userId, current));
       guard();
+      if (!eligibility.current) {
+        setError("Your connection needs to be confirmed before sending. Your details are kept.");
+        return null;
+      }
       if (linkGoogle) {
         setNeedsGoogle(false);
         setLinked(true);
@@ -330,6 +326,11 @@ export function RequestFilesButton({
   getToken,
   agentPackagesEnabled = false,
   renderTrigger,
+  canRequest = true,
+  availabilityNotice,
+  initialOpen = false,
+  showTrigger = true,
+  returnFocusRef,
 }: {
   userId: string;
   personRef: string;
@@ -337,8 +338,13 @@ export function RequestFilesButton({
   getToken: () => string | null;
   agentPackagesEnabled?: boolean;
   renderTrigger?: (label: string) => ReactNode;
+  canRequest?: boolean;
+  availabilityNotice?: ReactNode;
+  initialOpen?: boolean;
+  showTrigger?: boolean;
+  returnFocusRef?: RefObject<HTMLButtonElement | null>;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
   const [purpose, setPurpose] = useState("");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
@@ -346,9 +352,10 @@ export function RequestFilesButton({
   const [requesterActorType, setRequesterActorType] = useState<"person" | "ria">("person");
   const [reason, setReason] = useState("");
   const [created, setCreated] = useState<{ requestId: string; purpose: string; start: string; end: string } | null>(null);
-  const quote = useDocumentRequestQuote({ active: open && !created, ownerPersonRef: personRef, getToken });
-  const identity = useRecipientIdentityPreview({ active: open && !created, userId, getToken });
+  const quote = useDocumentRequestQuote({ active: open && !created && canRequest, ownerPersonRef: personRef, getToken });
+  const identity = useRecipientIdentityPreview({ active: open && !created && canRequest, userId, getToken });
   const request = useFileRequest({
+    canRequest,
     userId,
     personRef,
     getToken,
@@ -387,28 +394,27 @@ export function RequestFilesButton({
           else close();
         }}
       >
-        <DialogTrigger asChild>
+        {showTrigger ? <DialogTrigger asChild>
           <Button size="standard" variant="none">{renderTrigger?.("Request files") ?? "Request files"}</Button>
-        </DialogTrigger>
-        <DialogContent
+        </DialogTrigger> : null}
+        <IllustratedRequestContent
+          intent="files"
+          title={created ? "Request sent" : "Request files"}
+          description={`To ${personName}`}
+          success={Boolean(created)}
           data-request-files-dialog
-          // Phone sheet geometry lives in globals.css ([data-request-files-dialog]);
-          // the centering translate is reset here because a CSS `translate`
-          // reset does not survive production minification.
-          // The flow's Feed type scale: 15px title, 13px body and labels,
-          // 11px secondary. Inputs keep their own 16px so iOS never zooms.
-          className={`max-h-[85dvh] overflow-y-auto max-sm:translate-x-0 max-sm:translate-y-0 sm:max-w-md ${REQUEST_FILES_DIALOG_TYPE}`}
-          showCloseButton={Boolean(created)}
+          showCloseButton={request.phase !== "sending"}
           srDescription={`Request files from ${personName}.`}
+          onCloseAutoFocus={(event) => {
+            if (!showTrigger && returnFocusRef?.current) {
+              event.preventDefault();
+              returnFocusRef.current.focus();
+            }
+          }}
         >
-          <DialogHeader>
-            <DialogTitle>Request files</DialogTitle>
-            <HelperText as="p" className="break-words">
-              To {personName}
-            </HelperText>
-          </DialogHeader>
           {created ? (
-            <div className="min-w-0 space-y-4">
+            <>
+              <IllustratedRequestBody>
               <BodyText role="status">Request sent.</BodyText>
               {agentPackagesEnabled && <SettingsGroup density="compact">
                 <PacketRow item={{
@@ -420,6 +426,8 @@ export function RequestFilesButton({
                   tone: "waiting",
                 }} />
               </SettingsGroup>}
+              </IllustratedRequestBody>
+              <IllustratedRequestActions>
               <FlowActionGroup
                 primary={
                   <Button asChild size="prominent">
@@ -438,6 +446,7 @@ export function RequestFilesButton({
                     type="button"
                     size="prominent"
                     variant="none"
+                    disabled={!canRequest}
                     onClick={() => {
                       setCreated(null);
                       request.reset();
@@ -447,18 +456,20 @@ export function RequestFilesButton({
                   </Button>
                 }
               />
-            </div>
+              </IllustratedRequestActions>
+            </>
           ) : (
-            <form
-              className="min-w-0 space-y-4"
+            <IllustratedRequestForm
               onSubmit={(event) => {
                 event.preventDefault();
                 void submit();
               }}
             >
+              <IllustratedRequestBody>
+              {availabilityNotice}
               <div className="space-y-2">
                 <Label htmlFor="document-request-purpose">
-                  What do you need?
+                  Which files do you need?
                 </Label>
                 <Textarea
                   id="document-request-purpose"
@@ -467,7 +478,7 @@ export function RequestFilesButton({
                   maxLength={2000}
                   required
                   disabled={busy}
-                  placeholder="Six months of bank statements"
+                  placeholder="Bank statements"
                 />
               </div>
               {agentPackagesEnabled && <>
@@ -489,8 +500,9 @@ export function RequestFilesButton({
                     placeholder="Why do you need these documents?" />
                 </div>
               </>}
-              <fieldset className="min-w-0" disabled={busy}>
-                <legend className="mb-2">Period (required)</legend>
+              <fieldset className="min-w-0" disabled={busy} aria-describedby="document-period-help">
+                <legend className="mb-2">Dates covered</legend>
+                <span id="document-period-help" className="sr-only">Start and end dates are required.</span>
                 <MobileDocumentDateRange
                   start={start}
                   end={end}
@@ -531,7 +543,7 @@ export function RequestFilesButton({
                   <option value={90}>90 days</option>
                 </select>
               </div>}
-              {!start || !end ? (
+              {(start || end) && (!start || !end) ? (
                 <HelperText role="status">Choose a start and end date.</HelperText>
               ) : null}
               {start && end && !validDocumentRequestPeriod(start, end) ? (
@@ -547,9 +559,11 @@ export function RequestFilesButton({
               <RecipientIdentityNotice preview={identity} />
               <DocumentRequestQuoteNotice quote={quote.quote} loading={quote.loading}
                 error={quote.error} onRetry={quote.refresh} personName={personName} />
+              </IllustratedRequestBody>
+              <IllustratedRequestActions>
               <FlowActionGroup
                 primary={
-                  <Button type="submit" size="prominent" disabled={!valid || !quote.quote || busy}>
+                  <Button type="submit" size="prominent" disabled={!canRequest || !valid || !quote.quote || busy}>
                     {request.phase !== "idle"
                       ? "Sending…"
                       : request.needsGoogle
@@ -569,9 +583,10 @@ export function RequestFilesButton({
                   </Button>
                 }
               />
-            </form>
+              </IllustratedRequestActions>
+            </IllustratedRequestForm>
           )}
-        </DialogContent>
+        </IllustratedRequestContent>
       </Dialog>
     </>
   );

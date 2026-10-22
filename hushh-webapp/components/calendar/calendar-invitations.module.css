@@ -24,6 +24,7 @@
 .avatar[data-tone="1"] { color: var(--app-accent); background: var(--app-accent-surface); }
 .avatar[data-tone="2"] { color: var(--app-success-deep); background: color-mix(in oklab, var(--app-success) 12%, var(--app-card-surface-default-solid)); }
 .avatar[data-tone="3"] { color: var(--app-secondary-label); background: var(--app-neutral-fill); }
+.avatarFallback { background: transparent; color: inherit; font-size: inherit; font-weight: inherit; }
 .preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--app-secondary-label); font-size: 13px; line-height: 20px; margin-top: 6px; }
 .chevron { align-self: center; width: 16px; color: var(--app-secondary-label); }
 .response { align-self: flex-start; margin-top: 4px; font-size: 12px; color: var(--app-secondary-label); }
@@ -38,7 +39,6 @@
 .detailCard { overflow: hidden; border: 1px solid var(--app-separator); border-radius: var(--app-card-radius-standard); background: var(--app-card-surface-default-solid); }
 .detailHeading { display: flex; align-items: flex-start; gap: 16px; padding: 20px 16px; }
 .detailHeading h2 { font-size: 18px; line-height: 25px; font-weight: 600; letter-spacing: -.025em; }
-.timeZone { font-size: 11px; color: var(--app-secondary-label); }
 .meeting { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 6px; font-size: 13px; }
 .meeting > a { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 14px; border-radius: 999px; text-decoration: none; background: var(--app-accent-surface); color: var(--app-accent); }
 .detailSection { padding: 16px; border-top: 1px solid var(--app-separator); }

@@ -1,7 +1,7 @@
 # Branch Governance
 
 The canonical state-changing operator procedure is the
-[Admin merge and release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md).
+[Admin merge and release SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md).
 This page defines branch policy and governed cohorts; it does not redefine the
 exact-head Admin PR landing or environment dispatch sequence.
 
@@ -57,7 +57,7 @@ This repo runs on a dedicated PR-train branch, a protected promotion branch, and
 | `main` | Promotion branch for deployable history | Governed maintainers open PRs **directly into `main`** from a branch cut off `origin/main`; the train also opens normal promotion PRs. CI gate + merge queue + post-merge smoke always required. |
 | Dev | Agentic proving ground (fast lane) | Manual governed dispatch of a **CI-green SHA from `integration/pr-train` (default) or any ref** — never gated on `main`. See [dev-fast-lane.md](./dev-fast-lane.md). |
 | UAT | Hosted signoff environment | Manual deploy of an exact green `main` SHA |
-| Production | Live user traffic | Manual deploy of an approved green `main` SHA |
+| Production | Live user traffic | Approved green `main` SHA through governed manual dispatch or certified release cadence |
 
 ## Working Rules
 
@@ -71,7 +71,7 @@ This repo runs on a dedicated PR-train branch, a protected promotion branch, and
 8. After an isolated hotfix lands, return local work to the normal development branch or `integration/pr-train` and delete the temporary branch after rollout validation.
 9. Do not use `deploy_uat` or `deploy` as release branches; they are retired from the deployment path.
 10. UAT deploys only from a successful `Main Post-Merge Smoke` run on `main` and uses an explicitly chosen exact green commit SHA.
-11. Production deploys only from a manually chosen SHA that is reachable from `origin/main` and already green in CI.
+11. Production deploys only from a manually chosen or certified-cadence SHA that is reachable from `origin/main` and already green in CI.
 12. Do not open release PRs into environment branches; the deployment source of truth is `main`.
 
 ## Codex Branch Preservation Gate
@@ -132,10 +132,10 @@ Before deleting a local backup branch, classify its unique commits as:
 ### Production
 
 1. Production does not auto-deploy from branch pushes.
-2. Production deploys only through a manual workflow dispatch with an explicit green `main` SHA.
+2. Production deploys only through a governed `workflow_dispatch` with an explicit green `main` SHA.
 3. The workflow validates that the SHA is reachable from `origin/main`.
 4. The workflow also validates that `Main Post-Merge Smoke Gate` succeeded for that SHA before deployment starts.
-5. Only actors listed in `production.manual_dispatch_users` may dispatch the production workflow after the SHA preflight passes.
+5. Manual operators must be listed in `production.manual_dispatch_users`. The sole unattended exception is `production.automatic_release_workflow`: the protected-main release cadence controller, with immutable exact-run authority, complete input binding and a verified UAT source. The bot is never added to the human cohort. See [automatic native release cadence](./ci.md#automatic-native-release-cadence).
 6. The canonical GitHub deployment environment for this lane is `production`.
 
 ## Protected Surfaces & Trust Model
@@ -157,6 +157,7 @@ listed in `config/ci-governance.json` under `main.protected_pipeline_paths`:
   runs its own copy, so changing it needs the same review as the workflow)
 - `deploy/`
 - `config/ci-governance.json`
+- `config/release-cadence.json` (cadence and automatic public-release policy)
 - `config/protected-behaviors.json`
 - `config/runtime-capacity.json` (the release admission budget: who may deploy
   is decided by these connection limits, so they change only with the same
@@ -270,6 +271,53 @@ protection and team membership directly, so the team role grants them nothing th
 did not already hold. The demotion therefore applies to exactly the population it
 matters for — org *members* who would otherwise gain a grant path they should not
 have.
+
+## The bypass lane
+
+The most privileged path in the repository, gathered in one place because it was
+previously described correctly but scattered across a dozen paragraphs with no heading
+of its own — so nobody could find it by searching for what it is called.
+
+**What it is.** A single sanctioned cohort — the `allowed-maintainers-to-approve` GitHub
+team, declared in [`config/ci-governance.json`](../../../config/ci-governance.json) as
+`review_bypass_users` and `merge_queue_bypass_users`. It applies to both the `main` and
+`pr_train` branch policies.
+
+**What it waives.** Two things only:
+
+1. **Review.** A member may land a PR on `main` without a counted GitHub approval. A PR
+   author still cannot self-approve through GitHub — sanctioned "self approval" *is* this
+   explicit branch-protection bypass, not a review that GitHub counted.
+2. **The train detour.** A member may open a PR **directly into `main`** from any branch,
+   instead of routing through `integration/pr-train` or a registered promote branch.
+
+It additionally carries the right to edit `protected_pipeline_paths`
+(`.github/workflows/`, `deploy/`, `scripts/ci/`, `config/ci-governance.json`), through the
+separate `protected_pipeline_edit_users` list.
+
+**What it never waives — this is the load-bearing half.** Bypass waives *review*, never
+*validation*. All of these still apply, to every member, on every PR:
+
+- `CI Status Gate`
+- merge queue validation
+- `Main Post-Merge Smoke Gate`
+
+A bypass that skipped validation would not be a lane, it would be a hole. Anything
+presented as needing to "bypass CI" is out of contract — see
+[ci.md](./ci.md) and never route it through this cohort.
+
+**Where the live membership lives.** `config/ci-governance.json`, and nowhere else. Do
+**not** transcribe the names into prose anywhere, including here — they drift, and a stale
+copy in a document is worse than no copy. The rings table above shows the relationships;
+the JSON shows who.
+
+**How to change it.** Edit the JSON, then run
+`python3 scripts/ci/apply-governance.py --apply`. The cohort lists are protected-surface
+edits — see *Adding or removing a maintainer* below for the one standardized procedure,
+and *Rule: deploy-actor lists are governance* for why they are not routine config.
+`scripts/ci/verify-main-branch-protection.sh` and
+`scripts/ci/verify-deployment-environment-governance.py` fail if the live GitHub state and
+this JSON drift apart.
 
 ### Rule: deploy-actor lists are governance, not routine config
 

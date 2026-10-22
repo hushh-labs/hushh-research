@@ -6,6 +6,7 @@ import { nativeDrawerIsolation } from "./native-drawers";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type Ref, type RefObject } from "react";
 import { nativeDocumentId, nativePrivacyObservation, subscribeNativePrivacyObservation, subscribeNativeSessionPrivacy, type NativeSessionPrivacyState } from "@/lib/capacitor/session-privacy";
 import { type NativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
+import type { NativeNavigationColumn } from "@/lib/capacitor/native-navigation-column";
 import { setNativeBaseAperture, removeNativeBaseAperture } from "./native-base-apertures";
 import type { ChromeFrame } from "./native-chrome";
 import { nativePresentationAdmission, setNativePresentationRegionIsolation, syncNativePresentationRegions, useNativePresentationRegionRevision } from "./native-presentation-regions";
@@ -26,13 +27,14 @@ type NavigationState = NativeControlAppearance & {
   interactionEnabled: boolean;
   selected: NativeNavigationTab;
   feedAttention: boolean;
+  column: NativeNavigationColumn;
   scrollFollowing?: boolean;
   presentationRegionRevision?: number;
   privacyGeneration?: number;
 };
 
 export interface HushhNativeNavigationPlugin {
-  getCapabilities(): Promise<Geometry & { contractVersion: number; interactionIsolation?: boolean; underlayPresentation?: boolean; contentBackedPresentation?: boolean; reservedPresentationRegions?: boolean; fullWindowOverlays?: boolean; wholeNativeDrawers?: boolean; synchronizedBottomScroll?: boolean }>;
+  getCapabilities(): Promise<Geometry & { contractVersion: number; columnLayout?: boolean; interactionIsolation?: boolean; underlayPresentation?: boolean; contentBackedPresentation?: boolean; reservedPresentationRegions?: boolean; fullWindowOverlays?: boolean; wholeNativeDrawers?: boolean; synchronizedBottomScroll?: boolean }>;
   setState(options: NavigationState): Promise<Geometry>;
   setScroll?(options: NativeNavigationScroll): Promise<{ applied: boolean }>;
   confirmSelection(options: Selection): Promise<{ valid: boolean }>;
@@ -41,7 +43,11 @@ export interface HushhNativeNavigationPlugin {
   addListener(eventName: "scrollResetRequested", listener: (event: NativeNavigationScrollReset) => void): Promise<PluginListenerHandle>;
 }
 
-const nativeNavigation = registerPlugin<HushhNativeNavigationPlugin>("HushhNativeNavigation");
+// Registered on first use, not at import, like the session privacy plugin.
+let nativeNavigationPlugin: HushhNativeNavigationPlugin | undefined;
+function nativeNavigation(): HushhNativeNavigationPlugin {
+  return (nativeNavigationPlugin ??= registerPlugin<HushhNativeNavigationPlugin>("HushhNativeNavigation"));
+}
 let documentId: string | undefined;
 let revision = 0;
 let operationQueue: Promise<unknown> = Promise.resolve();
@@ -80,7 +86,7 @@ function setInstalled(next: boolean) {
   publish();
 }
 function sendState(state: NavigationState, current: () => boolean = () => true) {
-  const operation = operationQueue.catch(() => undefined).then(() => current() ? nativeNavigation.setState(state) : undefined);
+  const operation = operationQueue.catch(() => undefined).then(() => current() ? nativeNavigation().setState(state) : undefined);
   operationQueue = operation;
   return operation;
 }
@@ -151,12 +157,13 @@ export function useNativeNavigationOverlayRef<T extends HTMLElement>(forwardedRe
   }, [enabled, forwardedRef, release, owningLayer]);
 }
 
-export function useNativeNavigation({ enabled, visible, interactionEnabled = true, selected, feedAttention, appearance, accentHex, foregroundHex, onSelect }: NativeControlAppearance & {
+export function useNativeNavigation({ enabled, visible, interactionEnabled = true, selected, feedAttention, appearance, accentHex, foregroundHex, column, onSelect }: NativeControlAppearance & {
   enabled: boolean;
   visible: boolean;
   interactionEnabled?: boolean;
   selected: NativeNavigationTab;
   feedAttention: boolean;
+  column: NativeNavigationColumn | null;
   onSelect: (tab: NativeNavigationTab) => void;
 }) {
   const [supported, setSupported] = useState(false);
@@ -228,8 +235,8 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
     };
     void (async () => {
       try {
-        const capability = await nativeNavigation.getCapabilities();
-        if (!capability.supported || capability.contractVersion !== NATIVE_NAVIGATION_CONTRACT_VERSION || cancelled) return;
+        const capability = await nativeNavigation().getCapabilities();
+        if (!capability.supported || capability.contractVersion !== NATIVE_NAVIGATION_CONTRACT_VERSION || capability.columnLayout !== true || cancelled) return;
         // Experimental wrappers requiring apertures/regions cannot host the
         // recovery renderer. Use their established web fallback, never strand
         // a reserved bar or resurrect the rejected custom composition.
@@ -238,13 +245,13 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
         underlayPresentation.current = capability.underlayPresentation === true;
         reservedRegions.current = capability.reservedPresentationRegions === true;
         documentId ??= nativeDocumentId();
-        if (capability.synchronizedBottomScroll === true && nativeNavigation.setScroll) {
-          const delivery = new NativeNavigationScrollDelivery({ setScroll: sample => nativeNavigation.setScroll!(sample) },
+        if (capability.synchronizedBottomScroll === true && nativeNavigation().setScroll) {
+          const delivery = new NativeNavigationScrollDelivery({ setScroll: sample => nativeNavigation().setScroll!(sample) },
             () => { if (!cancelled) setScrollFailed(true); });
           scrollDelivery.current = delivery;
           removeScroll = subscribeKaiBottomChromeProgress(progress => delivery.publish(
             window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? 0 : progress));
-          await retain(nativeNavigation.addListener("scrollResetRequested", event => {
+          await retain(nativeNavigation().addListener("scrollResetRequested", event => {
             const state = current.current;
             if (cancelled || !state || event.documentId !== state.documentId || event.revision !== state.revision ||
                 event.interactionEpoch !== state.interactionEpoch || !Number.isSafeInteger(event.scrollGeneration) ||
@@ -264,14 +271,14 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
           if (state) reconcilePrivacyAdmission(state);
         });
         await retain(subscribeNativeSessionPrivacy(reconcilePrivacyAdmission));
-        await retain(nativeNavigation.addListener("selectionRequested", (event) => {
+        await retain(nativeNavigation().addListener("selectionRequested", (event) => {
           const state = current.current;
           if (!state?.visible || !state.interactionEnabled || overlays.size > 0 || event.documentId !== state.documentId ||
               event.interactionEpoch !== state.interactionEpoch || !Number.isSafeInteger(event.sequence) ||
               event.sequence <= lastSelection.current || !NATIVE_NAVIGATION_TABS.includes(event.tab)) return;
           const requestEpoch = confirmationEpoch;
           const isolation = nativeDrawerIsolation();
-          void nativeNavigation.confirmSelection(event).then(({ valid }) => {
+          void nativeNavigation().confirmSelection(event).then(({ valid }) => {
             const latest = current.current;
             if (!valid || cancelled || isolation.isolated || nativeDrawerIsolation().isolated || isolation.generation !== nativeDrawerIsolation().generation || requestEpoch !== confirmationEpoch || !latest?.visible || !latest.interactionEnabled || overlays.size > 0 ||
                 document.visibilityState === "hidden" || event.documentId !== latest.documentId ||
@@ -280,7 +287,7 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
             select.current(event.tab);
           }).catch(() => undefined);
         }));
-        await retain(nativeNavigation.addListener("geometryChanged", (event) => {
+        await retain(nativeNavigation().addListener("geometryChanged", (event) => {
           if (!cancelled) {
             try {
               const state = current.current;
@@ -332,16 +339,17 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
   }, [enabled, applyAperture]);
 
   useLayoutEffect(() => {
-    if (!supported || !documentId || !/^#[\da-f]{6}$/i.test(accentHex) || !/^#[\da-f]{6}$/i.test(foregroundHex)) return;
-    const nextInteractionEnabled = visible && interactionEnabled && !overlayBlocked;
+    const retainedColumn = column ?? current.current?.column;
+    if (!supported || !documentId || !retainedColumn || !/^#[\da-f]{6}$/i.test(accentHex) || !/^#[\da-f]{6}$/i.test(foregroundHex)) return;
+    const nextInteractionEnabled = visible && column !== null && interactionEnabled && !overlayBlocked;
     // Legacy wrappers lack a separate interaction fence: retain their safe hide
     // behavior. Negotiated wrappers retain presentation during overlay isolation.
-    const nextVisible = visible && (interactionIsolation || nextInteractionEnabled);
+    const nextVisible = visible && column !== null && (interactionIsolation || nextInteractionEnabled);
     if (!current.current || current.current.visible !== nextVisible ||
         current.current.interactionEnabled !== nextInteractionEnabled) interactionEpoch += 1;
     const state: NavigationState = {
       documentId, revision: ++revision, interactionEpoch, visible: nextVisible, interactionEnabled: nextInteractionEnabled,
-      selected, feedAttention, appearance, accentHex, foregroundHex,
+      selected, feedAttention, appearance, accentHex, foregroundHex, column: retainedColumn,
       ...(scrollDelivery.current ? { scrollFollowing: !scrollFailed } : {}),
     };
     current.current = state;
@@ -376,7 +384,7 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
       console.warn("NATIVE_NAVIGATION_STATE_UNAVAILABLE");
     });
     return () => { cancelled = true; };
-  }, [supported, interactionIsolation, visible, interactionEnabled, overlayBlocked, selected, feedAttention, appearance, accentHex, foregroundHex, applyAperture, regionRevision, scrollFailed, privacyAdmissionRevision]);
+  }, [supported, interactionIsolation, visible, interactionEnabled, overlayBlocked, selected, feedAttention, appearance, accentHex, foregroundHex, applyAperture, regionRevision, column, scrollFailed, privacyAdmissionRevision]);
 
   return { ready, height, reserved: ready || discovering || supported };
 }

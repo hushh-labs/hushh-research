@@ -67,8 +67,8 @@ export function YourMoneyCard({ wallet, bank, liveRedeemEnabled, bankRows, fresh
   const refocus = (row: string) => window.requestAnimationFrame(() => {
     card.current?.querySelector<HTMLElement>(`[data-testid="${row}"] button`)?.focus({ preventScroll: true });
   });
-  return <section ref={card} aria-label="Your money" className="space-y-2">
-    <SettingsGroup title="Your money" density="compact" description={wallet.failed ? undefined : freshness}>
+  return <section ref={card} aria-label="Document and answer earnings" className="space-y-2">
+    <SettingsGroup title="Document/answer earnings" density="compact" description={wallet.failed ? undefined : freshness}>
       <SettingsRow testId="payout-coins-row" icon={ProfileAccountWalletIcon} iconTone="capability"
         title={data ? coins(data.live.balanceCoins) : "Hussh Coins"}
         description={data ? coinSummary(data.live, liveRedeemEnabled, bank) : wallet.loading ? "Loading…" : undefined}

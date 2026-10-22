@@ -67,6 +67,26 @@ No invitation contents or credentials are persisted to device storage. RSVP revi
 and confirmation, along with explicit invitation requests in chat, continue to
 use live provider requests.
 
+## People message snapshots
+
+`DirectMessagesResourceService` keeps owner-scoped presentation snapshots in
+`CacheService` memory for five minutes: up to 24 selection aliases, 600 messages
+per transcript and 64 verified route-token mappings. No message body or route
+mapping is written to device storage. Cached send permission is always false;
+the existing authenticated history/relationship request checks it on each entry.
+
+Revisits render the matching transcript while revalidation runs. Cold entries
+retain the shell and known contact header without a blocking loading panel or
+premature empty state. Transport failures retain readable history; authoritative
+401/403/404 responses clear it. Focus, resume, polling and message signals use
+the existing bounded history reconciliation, including remote edits/deletions.
+Pending optimistic reactions are excluded from snapshot publication.
+
+`CacheSyncService` invalidates transcript snapshots and outstanding writers on
+received message-change signals and connection changes. Read receipts keep them warm. Sign-out,
+account deletion and cache clear purge snapshots and verified route mappings;
+request-session fences prevent late responses from restoring purged entries.
+
 ## Mail receipt snapshots
 
 Detailed canonical receipt rows belong to Mail's encrypted device snapshot.
@@ -105,6 +125,20 @@ owner snapshots. Notifications are lossy wake-ups, never payment authority or a
 durable transaction journal. Initial connection, listener recovery, and Feed
 queue overflow send `feed_reset`; authenticated reads recover the current state.
 Legacy consent queues remain separate from Feed-only burst/reset handling.
+
+Deleting a participant chat emits the owner-only `history_mutated` reason on a
+general Feed hint. The stream admits only that exact enum and discards other
+producer fields. `CacheSyncService.onFeedHistoryMutated` advances the Feed
+presentation revision, evicts its saved pages, and invalidates list/count reads.
+The next authoritative page drops previously loaded deleted rows; a stale
+unmount cannot save them again. An opaque `history_revision` from existing
+owner received-message deletion flags repairs missed hints on reread, including
+off-page removals. It is captured before reading the page, so it cannot bless
+older rows with a newer deletion revision. Both local and server revision
+changes fence pending older-page responses. Ordinary arrivals and read receipts
+leave this revision unchanged and retain reading continuity. The indexed
+revision aggregate scans that owner's direct-message Feed sources; it creates
+no new persistence store.
 
 The backend shares its existing LISTEN connection, expires Feed streams after
 120 seconds, rechecks authentication every 30 seconds using the existing verifier
@@ -460,3 +494,30 @@ five minutes. `lib/cache/pkm-invalidation-epoch.ts` closes that gap:
   - first-party financial/one/profile/portfolio/history writes must go through `PkmWriteCoordinator`
   - stale manifests/domains should resume the client-side PKM upgrade before save when the vault is unlocked
   - if the vault is locked and the domain is stale, the UI should surface an upgrade-required/read-only state instead of attempting a legacy plaintext fallback
+
+### Profile and Feed state ownership (2026-10-21)
+
+Feed opts into `useStaleResource` version-aware single flight using the existing
+Feed invalidation epoch and auth generation. A forced invalidation during a read
+coalesces into one forced successor; publication waits for the current version.
+Same-version slow backend results are accepted. Token acquisition and final
+transport dispatch are session-fenced; a post-sign-out result cannot refill cache.
+Consent mutations now invalidate Feed as well as their existing projections.
+The existing consent read-after-write owner also increments a monotonic epoch,
+including multiple changes in one millisecond. Feed's five consent resources
+use that epoch with an auth-scoped request lifetime. Summary/list services keep
+returning complete responses but publish to memory/device caches only while
+their captured epoch and auth generation remain current. A confirmed no-charge
+Drive completion records the consent mutation before notifying/refetching Feed,
+so a pre-completion Pay projection cannot win an in-flight read.
+
+Feed return-position memory is separate from canonical list/count data and never
+authorizes actions. Confirmed history mutations invalidate its revision so later
+cleanup cannot restore raw dismissed/cleared rows. Sign-out clears owner memory.
+
+Person profile uses cached public identity for display, independent lightweight
+relationship and owner-feature readiness reads, and the existing complete viewer
+payload for all catalog, grants and history data. Retained labels/drafts are
+separate from current permission authority. Revalidation keeps workflow owners
+mounted, gates new submits while uncertain and accepts already dispatched server
+receipts under the original session guard. No backend response fields are removed.

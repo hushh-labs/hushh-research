@@ -61,7 +61,7 @@
       "playbookId": "route.one.home",
       "purpose": "Help the person understand and use the one screen through its generated controls.",
       "screen": "one_agents",
-      "entryCue": "You can say “Open Agents” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen Agents\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_agents",
       "happyPathActionIds": [
@@ -180,18 +180,21 @@
     "shellVerification": {
       "file": "components/onboarding/setup/one-setup-hub.tsx",
       "includes": [
-        "SetupV10Surface"
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader"
       ]
     },
     "voicePlaybook": {
       "playbookId": "route.one.setup",
       "purpose": "Help the person choose, resume, skip, or finish one setup capability.",
       "screen": "one_setup_hub",
-      "entryCue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
+      "entryCue": "Choose something to set up, or say \u2018finish setup\u2019 when you are ready.",
       "proactivity": "on_entry",
-      "primaryActionId": "setup.open_connections",
+      "primaryActionId": "setup.open_cloud",
       "happyPathActionIds": [
-        "setup.open_connections",
+        "setup.open_cloud",
         "setup.open_gmail",
         "setup.open_calendar",
         "setup.open_location",
@@ -389,7 +392,7 @@
       "playbookId": "route.login",
       "purpose": "Let the person choose Google or Apple and begin the matching sign-in flow.",
       "screen": "login",
-      "entryCue": "Say ‘Continue with Google’ or ‘Continue with Apple’.",
+      "entryCue": "Say \u2018Continue with Google\u2019 or \u2018Continue with Apple\u2019.",
       "proactivity": "on_entry",
       "primaryActionId": "auth.sign_in_google",
       "happyPathActionIds": [
@@ -698,7 +701,7 @@
       "playbookId": "route.one.location",
       "purpose": "Help the person understand and use the location screen through its generated controls.",
       "screen": "one_location",
-      "entryCue": "You can say “Open Location” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen Location\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_location",
       "happyPathActionIds": [
@@ -1825,13 +1828,14 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.pkm",
-      "purpose": "Memory opens on memory.md, the formatted document One uses in conversations. The owner can edit and save it; Saved, Add, and Sharing retain the specialist memory flows. Back cancels the memory.md editor before leaving Memory, and saving completes only after encrypted persistence succeeds.",
+      "purpose": "Memory has Saved and Add tabs. Saved category rows open Sharing and price at the domain level. Review listing and exact section prices, or a whole-bundle price when owner discovery permits it. Chat opens the same review without changing listing or prices. Private-agent memory remains private; editing and encrypted persistence retain their existing authority.",
       "screen": "pkm",
-      "entryCue": "You can say “Open Memory” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen Memory\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_pkm",
       "happyPathActionIds": [
-        "route.one_pkm"
+        "route.one_pkm",
+        "pkm.review_sharing_price"
       ],
       "requiredInputs": [],
       "recoveries": {
@@ -1842,7 +1846,7 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "completionBoundary": "Opening bundle or price review changes nothing. Listing changes only after an explicit visibility control succeeds. Prices change only after confirmation and persistence; listing and pricing never grant recipient access or purchase confirmation.",
       "nextRoute": "/one/pkm",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1859,6 +1863,12 @@
         }
       ],
       "kind": "parent"
+    },
+    "interactionLayerPolicy": {
+      "allowedFamilies": [
+        "sharing_price_review",
+        "sharing_bundle_review"
+      ]
     }
   },
   {
@@ -1878,7 +1888,7 @@
       "playbookId": "route.one.pkm.recent",
       "purpose": "Help the person browse the latest memories One has kept, through its generated controls.",
       "screen": "pkm_recent",
-      "entryCue": "You can say “Open Memory” to return to the Memory home from this list.",
+      "entryCue": "You can say \u201cOpen Memory\u201d to return to the Memory home from this list.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_pkm",
       "happyPathActionIds": [
@@ -1929,7 +1939,7 @@
       "playbookId": "route.one.pkm.location",
       "purpose": "Help the person read saved places and visit details directly in Location memory.",
       "screen": "pkm_location",
-      "entryCue": "You can say “Open Memory” to return to the Memory home from this list.",
+      "entryCue": "You can say \u201cOpen Memory\u201d to return to the Memory home from this list.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_pkm_location_home",
       "happyPathActionIds": [
@@ -1980,7 +1990,7 @@
       "playbookId": "route.one.pkm.location.detail",
       "purpose": "Help the person manage a selected Location memory detail through its verified controls.",
       "screen": "pkm_location_detail",
-      "entryCue": "You can say “Open Memory” to return to the Memory home from this list.",
+      "entryCue": "You can say \u201cOpen Memory\u201d to return to the Memory home from this list.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_pkm_location_home",
       "happyPathActionIds": [
@@ -2175,6 +2185,54 @@
     }
   },
   {
+    "route": "/one/files",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/files/files-workspace.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.files",
+      "purpose": "Manage the owner\u2019s encrypted Files library while the vault is unlocked. Private pods additionally require admission. Organization requires explicit analysis consent.",
+      "screen": "one_files",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "File changes complete only after the owner-authorized library confirms the matching operation; destructive changes require explicit confirmation.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally without inventing a control."
+    },
+    "backVerification": {
+      "kind": "parent",
+      "cases": [
+        {
+          "href": "/one/files",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ]
+    }
+  },
+  {
     "route": "/one/puppy",
     "mode": "standard",
     "shellVerification": {
@@ -2312,7 +2370,7 @@
       "playbookId": "route.one.connected.systems",
       "purpose": "Help the person understand and use the connected systems screen through its generated controls.",
       "screen": "connected_systems",
-      "entryCue": "You can say “Open Connected Systems Panel” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen Connected Systems Panel\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.profile_connected_systems",
       "happyPathActionIds": [
@@ -2512,11 +2570,14 @@
       "cases": [
         {
           "href": "/one/messages",
-          "expected": null
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
         }
       ],
-      "kind": "root",
-      "reason": "Messages owns thread-level navigation inside its workspace through route-scoped Back layers."
+      "kind": "parent"
     }
   },
   {
@@ -2571,7 +2632,7 @@
     "exemptionReason": "Mandatory post-login phone verification flow intentionally bypasses the signed-in app shell.",
     "voicePlaybook": {
       "playbookId": "route.register.phone",
-      "purpose": "Verify the signed-in person’s phone before setup continues.",
+      "purpose": "Verify the signed-in person\u2019s phone before setup continues.",
       "screen": "register_phone",
       "entryCue": "Say your phone number including country code, or type it below.",
       "proactivity": "on_entry",
@@ -2660,7 +2721,7 @@
       "playbookId": "route.consents",
       "purpose": "Help the person understand and use the consents screen through its generated controls.",
       "screen": "consents",
-      "entryCue": "You can say “Open RIA Requests” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen RIA Requests\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_requests_compat",
       "happyPathActionIds": [
@@ -2838,7 +2899,7 @@
       "playbookId": "route.one.kai",
       "purpose": "Help the person understand and use the kai screen through its generated controls.",
       "screen": "kai_market",
-      "entryCue": "Use Market, Portfolio, or Analysis to choose the active finance view.",
+      "entryCue": "Use Market, Portfolio, or Stocks to choose the active finance view.",
       "proactivity": "on_entry",
       "primaryActionId": "route.kai_home",
       "happyPathActionIds": [
@@ -2981,7 +3042,7 @@
     "exemptionReason": "Compatibility route only redirects to the canonical /one/kai Finance Market tab.",
     "voicePlaybook": {
       "playbookId": "route.one.kai.market",
-      "purpose": "Help the person move between Market, Portfolio, and Analysis through the shared Finance workspace.",
+      "purpose": "Help the person move between Market, Portfolio, and Stocks through the shared Finance workspace.",
       "screen": "kai_market",
       "entryCue": "",
       "proactivity": "ambient",
@@ -3226,7 +3287,7 @@
       "playbookId": "route.one.kai.import",
       "purpose": "Help the person understand and use the import screen through its generated controls.",
       "screen": "import",
-      "entryCue": "You can say “Open Portfolio Import” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen Portfolio Import\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.kai_import",
       "happyPathActionIds": [
@@ -3937,12 +3998,117 @@
     }
   },
   {
+    "route": "/one/setup/cloud",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/connections/byoc-cloud-setup-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.setup.cloud",
+      "purpose": "Choose verified hosting, then configure AI access in the same agent setup wizard.",
+      "screen": "one_setup_cloud",
+      "entryCue": "Choose where your private agent lives, then choose its AI access.",
+      "proactivity": "on_entry",
+      "primaryActionId": "setup.finish_cloud",
+      "happyPathActionIds": [
+        "setup.finish_cloud"
+      ],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Finish returns to the hub only after verified hosting and a durable AI choice; it never acknowledges root onboarding.",
+      "nextRoute": "/one/setup",
+      "returnPolicy": "return_to_hub",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "kind": "parent",
+      "cases": [
+        {
+          "href": "/one/setup/cloud",
+          "expected": {
+            "href": "/one/setup",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/setup/cloud?from=%2Fone%2Fprofile%2Fhosting",
+          "expected": {
+            "href": "/one/profile/hosting",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "route": "/one/setup/cloud/azure/return",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/connections/azure-cloud-return-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.setup.cloud.azure.return",
+      "purpose": "Finish the Microsoft sign-in that sets up or updates the person's private agent in their own Azure subscription, without exposing credentials.",
+      "screen": "one_setup_cloud",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Return to cloud setup and explain that Azure was not connected.",
+        "timeout": "Retain the goal and offer a safe retry.",
+        "callbackError": "Return to cloud setup without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "The callback completes only after the hub verifies the sign-in state and starts the setup or update job; progress is read from that job's record.",
+      "nextRoute": "/one/setup/cloud",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "kind": "parent",
+      "cases": [
+        {
+          "href": "/one/setup/cloud/azure/return",
+          "expected": {
+            "href": "/one/setup",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ]
+    }
+  },
+  {
     "route": "/one/setup/connections",
     "mode": "standard",
     "shellVerification": {
       "file": "components/connections/gemini-runtime-configuration-page.tsx",
       "includes": [
-        "SetupV10Surface",
         "AppPageShell",
         "AppPageHeaderRegion",
         "AppPageContentRegion",
@@ -3951,9 +4117,9 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.setup.connections",
-      "purpose": "Choose private Gemini runtime configuration before feature-specific setup without exposing an API key to the agent.",
+      "purpose": "Choose a supported AI connection for the selected hosting without exposing a credential to the private agent.",
       "screen": "one_setup_connections",
-      "entryCue": "Choose Hussh managed Gemini now, or record BYOK and add the encrypted key after setup.",
+      "entryCue": "Use the verified cloud connection, or validate a supported owner key.",
       "proactivity": "on_entry",
       "primaryActionId": "setup.finish_connections",
       "happyPathActionIds": [
@@ -4683,7 +4849,7 @@
       "playbookId": "route.profile",
       "purpose": "Help the person understand and use the profile screen through its generated controls.",
       "screen": "profile_account",
-      "entryCue": "You can say “Open Profile” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen Profile\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.profile",
       "happyPathActionIds": [
@@ -4758,6 +4924,51 @@
     }
   },
   {
+    "route": "/one/profile/discovery",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/one/profile/discovery/page.tsx",
+      "includes": [
+        "CapabilityVaultPrerequisite",
+        "AppPageShell",
+        "AppPageContentRegion",
+        "PublicProfileReviewWorkspace"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.profile.discovery",
+      "purpose": "Explain the source-linked public profile review without deciding which findings to claim.",
+      "screen": "profile_discovery",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the person's review goal.",
+        "cancelled": "Respect the cancellation and leave findings unclaimed.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer a safe retry in the review workspace.",
+        "callbackError": "Return to the protected review workspace without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Claim completion is shown only after the protected browser review confirms the selected information was added.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "The private agent may explain the screen; claim decisions require the person's protected review controls."
+    },
+    "backVerification": {
+      "kind": "surface-owned",
+      "reason": "The one-time protected review owns completion and Return to One controls; it is not a generic Profile panel.",
+      "cases": [
+        {
+          "href": "/one/profile/discovery",
+          "expected": null
+        }
+      ]
+    }
+  },
+  {
     "route": "/one/profile/regulatory",
     "mode": "redirect",
     "exemptionReason": "Compatibility redirect to the canonical RIA profile.",
@@ -4824,7 +5035,7 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "completionBoundary": "Authenticated server status establishes payment and onboarding completion. An opaque hosted return only prompts a fresh read; it never grants scope access.",
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -5005,7 +5216,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.profile.preferences.gemini",
-      "purpose": "Help the person manage Gemini preferences without exposing a credential to the private agent.",
+      "purpose": "Help the person manage the selected AI connection without exposing a credential to the private agent.",
       "screen": "profile_preferences",
       "entryCue": "",
       "proactivity": "ambient",
@@ -5252,7 +5463,7 @@
       "playbookId": "route.profile.security",
       "purpose": "Help the person understand and use the security screen through its generated controls.",
       "screen": "profile_security_panel",
-      "entryCue": "You can say “Open Vault Security Panel” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen Vault Security Panel\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.profile_security_panel",
       "happyPathActionIds": [
@@ -5452,7 +5663,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.profile.payouts",
-      "purpose": "Help the person use payouts through its generated controls.",
+      "purpose": "Help the person manage purchase balance and source-specific earnings without changing consent or financial authority.",
       "screen": "profile_payouts",
       "entryCue": "",
       "proactivity": "ambient",
@@ -5492,6 +5703,22 @@
         },
         {
           "href": "/one/profile/payouts?documentPayouts=refresh",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/profile/payouts?commerceReturn=1&commerceAttemptId=opaque_attempt_12345",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/profile/payouts?commerceReturn=1&commerceAttemptId=opaque_attempt_12345&commerceAction=onboarding_refresh",
           "expected": {
             "href": "/one/profile",
             "mode": "push",
@@ -6119,7 +6346,7 @@
       "playbookId": "route.profile.support",
       "purpose": "Help the person understand and use the support screen through its generated controls.",
       "screen": "profile_support_panel",
-      "entryCue": "You can say “Open Support Panel” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen Support Panel\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.profile_support_panel",
       "happyPathActionIds": [
@@ -6591,7 +6818,7 @@
       "playbookId": "route.ria.clients",
       "purpose": "Help the person understand and use the clients screen through its generated controls.",
       "screen": "ria_clients",
-      "entryCue": "You can say “Open RIA Clients” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen RIA Clients\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_clients",
       "happyPathActionIds": [
@@ -6641,7 +6868,7 @@
       "playbookId": "route.ria.clients.userid",
       "purpose": "Help the person understand and use the clients screen through its generated controls.",
       "screen": "ria_client_workspace",
-      "entryCue": "You can say “Open RIA Client Workspace” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen RIA Client Workspace\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_client_workspace",
       "happyPathActionIds": [
@@ -6691,7 +6918,7 @@
       "playbookId": "route.ria.clients.userid.accounts.accountid",
       "purpose": "Help the person understand and use the accounts screen through its generated controls.",
       "screen": "ria_client_account_detail",
-      "entryCue": "You can say “Return To Client Information Explorer” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cReturn To Client Information Explorer\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "ria.client_account.open_workspace_fallback",
       "happyPathActionIds": [
@@ -6741,7 +6968,7 @@
       "playbookId": "route.ria.clients.userid.requests.requestid",
       "purpose": "Help the person understand and use the requests screen through its generated controls.",
       "screen": "ria_client_request_detail",
-      "entryCue": "You can say “Return To Client Access” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cReturn To Client Access\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "ria.client_request.open_access_fallback",
       "happyPathActionIds": [
@@ -6789,7 +7016,7 @@
       "playbookId": "route.ria.claim",
       "purpose": "Help the person claim their SEC advisor or firm profile with their office number.",
       "screen": "ria_claim",
-      "entryCue": "You can say “Claim RIA Profile” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cClaim RIA Profile\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_claim",
       "happyPathActionIds": [
@@ -6838,7 +7065,7 @@
       "playbookId": "route.ria.onboarding",
       "purpose": "Help the person understand and use the onboarding screen through its generated controls.",
       "screen": "ria_onboarding",
-      "entryCue": "You can say “Open RIA Onboarding” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen RIA Onboarding\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_onboarding",
       "happyPathActionIds": [
@@ -6888,7 +7115,7 @@
       "playbookId": "route.ria.picks",
       "purpose": "Help the person understand and use the picks screen through its generated controls.",
       "screen": "ria_picks",
-      "entryCue": "You can say “Open RIA Picks” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen RIA Picks\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_picks",
       "happyPathActionIds": [
@@ -7253,7 +7480,7 @@
       "playbookId": "route.ria.profile",
       "purpose": "Help the advisor view and manage their RIA profile.",
       "screen": "profile_regulatory",
-      "entryCue": "You can say “Open RIA Profile” to return here.",
+      "entryCue": "You can say \u201cOpen RIA Profile\u201d to return here.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_profile",
       "happyPathActionIds": [
@@ -7339,6 +7566,14 @@
         {
           "href": "/people/sample",
           "expected": null
+        },
+        {
+          "href": "/people/sample?from=%2Fone%2Fmessages",
+          "expected": {
+            "href": "/one/messages",
+            "mode": "push",
+            "transitionMode": "full"
+          }
         }
       ],
       "kind": "root",
@@ -7380,6 +7615,104 @@
       ],
       "kind": "surface-owned",
       "reason": "Cross-product sign-in handoff intentionally suppresses the signed-in app shell while it validates and completes the one-time launch."
+    }
+  },
+  {
+    "route": "/one/profile/hosting",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/profile/profile-workspace-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.profile.hosting",
+      "purpose": "Help the person understand hosting through verified settings controls.",
+      "screen": "profile_hosting",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "kind": "parent",
+      "cases": [
+        {
+          "href": "/one/profile/hosting",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "route": "/one/profile/software-updates",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/profile/profile-workspace-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.profile.software-updates",
+      "purpose": "Help the person understand software updates through verified settings controls.",
+      "screen": "profile_software-updates",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "kind": "parent",
+      "cases": [
+        {
+          "href": "/one/profile/software-updates",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ]
     }
   },
   {

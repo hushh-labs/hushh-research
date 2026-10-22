@@ -140,18 +140,27 @@ describe("Privacy Policy and Terms of Use pages", () => {
     );
     expect(available.map((p) => p.id)).toContain("gemini");
     expect(privacy).toContain("Gemini");
+    // Azure OpenAI is the model inside a person's own Azure subscription (the
+    // owner-cloud home), not the bring-your-own-key OpenAI provider. It may be
+    // named only in that conditional sentence; any other mention still fails.
+    const azureHome =
+      "If you run your private agent in your own Microsoft Azure subscription, it can answer you with an Azure OpenAI model deployed in that subscription.";
+    expect(privacy).toContain(azureHome);
+    const outsideAzureHome = privacy.replace(azureHome, "");
+    expect(outsideAzureHome).not.toContain("Azure OpenAI");
     for (const provider of RUNTIME_PROVIDER_CATALOG) {
       if (provider.availability === "available") continue;
-      expect(privacy).not.toContain(provider.name);
+      expect(outsideAzureHome).not.toContain(provider.name);
     }
   });
 
   it("discloses the separate Azure/Bing research opt-in and Bing privacy boundary", () => {
     const privacy = LEGAL_DOCUMENTS.privacy;
     const text = plainText(privacy);
-    expect(privacy.version).toBe("2.10");
-    expect(privacy.lastUpdated).toBe("2026-10-21");
-    expect(text).toContain("Microsoft Azure AI is the server-managed primary processor");
+    expect(privacy.version).toBe("2.11");
+    expect(privacy.lastUpdated).toBe("2026-10-22");
+    expect(text).toContain("Hussh selects Microsoft Azure AI or Google Gemini as the primary processor");
+    expect(text).toContain("before any output");
     expect(text).toContain("No model-settings toggle or personal pilot approval is required or created");
     expect(text).toContain("Current file access, owner consent, payment requirements and sharing permissions still apply");
     expect(text).toContain("an earlier Google research setting does not authorize Microsoft research");

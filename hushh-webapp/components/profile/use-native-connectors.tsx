@@ -9,6 +9,7 @@ import { nativeMemoryText } from "./use-native-memory";
 import { ownerPacketSections } from "@/components/consent/drive-packet-catalog";
 import { ownerPacketTitle, ownerStatusLine } from "@/components/consent/packets/packet-copy";
 import { connectorArtworkId } from "@/lib/profile/connector-artwork";
+import { DRIVE_GROUP_DISCLOSURE } from "@/components/agent/drive-data-packets";
 
 class ConnectorVisit {
   constructor(readonly owner: string, readonly active: boolean) {}
@@ -24,7 +25,7 @@ class ConnectorVisit {
   model() { return this.presentation; }
   retire() { this.live = false; this.handles.clear(); this.presentation = undefined; this.editor = null; }
 }
-type Local = { custom: string | null; drive: "files" | "packets" | "preparation" | "trust" | null; revoke: string | null;
+type Local = { custom: string | null; drive: "files" | "packets" | "preparation" | "trust" | "groups" | null; revoke: string | null;
   rule: string | null; link: { network: "instagram" | "linkedin"; baseline: string } | null; page: Record<string, number>; failedEditor: boolean };
 const initial = (): Local => ({ custom: null, drive: null, revoke: null, rule: null, link: null, page: {}, failedEditor: false });
 const title = (value: string) => nativeMemoryText(value, 256)[0] || "Connector";
@@ -124,6 +125,18 @@ export function useNativeConnectors(model: ConnectorsPanelPresentation | undefin
       ...(detail.collection ? [bind("drive-preparation", "Prepare packets", () => change(value => ({ ...value, drive: "preparation" })), { detail: detail.collection.caption, chevron: true }),
         ...(detail.collection.status ? [bind("drive-packets", "Packets", () => change(value => ({ ...value, drive: "packets" })), { chevron: true })] : [])] : []),
       bind("drive-trust", "Trusted documents", () => change(value => ({ ...value, drive: "trust" })), { chevron: true }),
+      ...(detail.groups ? [read("drive-groups-heading", "Data packets", detail.groups.caption),
+        ...(detail.groups.overview?.groups.map(group => bind(`drive-group:${group.shelf}`, group.name,
+          () => { detail.groups?.open(group.shelf); change(value => ({ ...value, drive: "groups" })); },
+          { detail: `${detail.groups?.overview?.status.counts[group.shelf] ?? 0} files`, chevron: true, symbol: "folder" })) ?? []),
+        ...(detail.groups.overview ? [bind("drive-group-kept", "Not sorted yet", () => { detail.groups?.open("kept"); change(value => ({ ...value, drive: "groups" })); },
+          { detail: `${detail.groups.overview.status.counts.kept} files`, chevron: true }),
+          ...(!detail.groups.overview.status.enabled ? text("drive-group-disclosure", DRIVE_GROUP_DISCLOSURE) : []),
+          bind("drive-group-processing", detail.groups.saving ? "Saving…" : detail.groups.overview.status.enabled ? "Pause data packets" : "Prepare data packets",
+            detail.groups.toggle, { enabled: detail.groups.canToggle }),
+        ] : []),
+        ...(detail.groups.failed === "overview" || detail.groups.failed === "processing" ? [bind("drive-group-retry", "Retry data packets", detail.groups.refresh)] : []),
+      ] : []),
       ...(detail.files.length ? [bind("drive-files", "Previously added files", () => change(value => ({ ...value, drive: "files" })), { chevron: true })] : []),
     ];
     else if (detail.kind === "curated") detailRows = [...text("curated-description", detail.description), ...text("curated-account", detail.account ?? ""), read("curated-status", detail.status),
@@ -134,6 +147,16 @@ export function useNativeConnectors(model: ConnectorsPanelPresentation | undefin
     read("connector-unavailable-copy", "This connector is unavailable."), bind("connector-unavailable-retry", "Retry", model.catalog.retry),
   ] }] });
   const drive = detail?.kind === "drive" ? detail : null;
+  if (drive?.groups?.selected && local.drive === "groups") {
+    const groups = drive.groups;
+    pages.push({ id: "connector-group-files", title: title(groups.selectedName), sections: [{ id: "group-files-content", rows: [
+      ...pageRows(`group-files:${groups.selected}`, groups.page?.items ?? [], file => [bind(`group-file:${file.ref}`, file.title, () => groups.openFile(file), { detail: file.day ?? "Open in Google Drive", chevron: true })]),
+      ...(groups.loading ? text("group-files-loading", "Loading files…") : []),
+      ...(groups.page && !groups.page.items.length && !groups.loading ? text("group-files-empty", "No indexed files in this folder yet.") : []),
+      ...(groups.failed === "files" ? [read("group-files-error", "Couldn’t load files."), bind("group-files-retry", "Retry files", groups.retry, { enabled: !groups.loading })] : []),
+      ...(groups.page?.nextCursor !== null && groups.page?.nextCursor !== undefined ? [bind("group-files-more", "Load more files", groups.more, { enabled: !groups.loading })] : []),
+    ] }] });
+  }
   if (drive && local.drive === "preparation" && drive.collection) {
     const collection = drive.collection, status = collection.status;
     const content = [read("preparation-caption", "Prepare packets", collection.caption),
@@ -217,10 +240,10 @@ export function useNativeConnectors(model: ConnectorsPanelPresentation | undefin
     bind("custom-confirm-cancel", "Cancel", custom.cancelRemove, { enabled: !custom.busy }),
     bind("custom-confirm-remove", "Remove connector", removeCustom, { enabled: !custom.busy, destructive: true }),
   ] }] });
-  const blocking = Boolean(custom?.busy || confirmation?.busy || drive?.busy || drive?.collection?.busy || drive?.packet.busy || drive?.trust.busy);
+  const blocking = Boolean(custom?.busy || confirmation?.busy || drive?.busy || drive?.collection?.busy || drive?.groups?.saving || drive?.packet.busy || drive?.trust.busy);
   const navigationBlocked = () => {
     const model = visit.model(), drive = model?.detail?.kind === "drive" ? model.detail : null;
-    return Boolean(model?.custom?.mutationPending() || model?.confirmation?.busy || drive?.mutationPending() || drive?.collection?.mutationPending() || drive?.packet.mutationPending() || drive?.trust.mutationPending());
+    return Boolean(model?.custom?.mutationPending() || model?.confirmation?.busy || drive?.mutationPending() || drive?.collection?.mutationPending() || drive?.groups?.mutationPending() || drive?.packet.mutationPending() || drive?.trust.mutationPending());
   };
   const back = () => {
     if (navigationBlocked()) return true;
@@ -232,6 +255,7 @@ export function useNativeConnectors(model: ConnectorsPanelPresentation | undefin
     if (local.revoke) { change(value => ({ ...value, revoke: null })); return true; }
     if (local.rule) { change(value => ({ ...value, rule: null })); return true; }
     if (drive?.packets.opened) { drive.packets.close(); return true; }
+    if (drive?.groups?.selected) { drive.groups.close(); change(value => ({ ...value, drive: null })); return true; }
     if (local.drive) { change(value => ({ ...value, drive: null })); return true; }
     if (current?.custom?.editing) { current.custom.nativeEditor.cancelEditor(); return true; }
     if (local.custom) { change(value => ({ ...value, custom: null })); return true; }
@@ -242,7 +266,7 @@ export function useNativeConnectors(model: ConnectorsPanelPresentation | undefin
     if (choice.rowId === "connectors") {
       custom?.nativeEditor.cancelEditor(); custom?.cancelRemove(); model?.confirmation?.cancel(); model?.catalog.show(); change(() => initial());
     } else if (choice.rowId === "connector-detail") {
-      model?.confirmation?.cancel(); drive?.packets.close(); change(value => ({ ...value, drive: null, rule: null, revoke: null }));
+      model?.confirmation?.cancel(); drive?.packets.close(); drive?.groups?.close(); change(value => ({ ...value, drive: null, rule: null, revoke: null }));
     } else if (choice.rowId === "connector-trust") change(value => ({ ...value, rule: null, revoke: null }));
     else if (choice.rowId === "connector-packets") drive?.packets.close();
     else if (choice.rowId === "connector-files") model?.confirmation?.cancel();
@@ -252,6 +276,8 @@ export function useNativeConnectors(model: ConnectorsPanelPresentation | undefin
   return { pages, rows, blocking, navigationBlocked, back, ancestor, nested: pages.length > 1,
     mapped: Boolean(model),
     failed: local.failedEditor,
+    formScene: custom?.editing ? "connector-custom-server" as const : detail?.kind === "social" && local.link?.network === detail.network
+      ? "connector-profile-link" as const : drive?.packet.editingPrice ? "connector-packet-price" as const : null,
     editor: (destinationId: string) => {
       const onFallback = () => change(value => ({ ...value, failedEditor: true }));
       if (custom?.editing) return <NativeConnectorEditor model={custom.nativeEditor} owner={owner} destinationId={destinationId} onClose={custom.nativeEditor.cancelEditor} onFallback={onFallback} />;

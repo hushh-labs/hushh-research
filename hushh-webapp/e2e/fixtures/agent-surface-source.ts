@@ -1,34 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
+import { BOTTOM_CHROME_COLUMN_CLASSNAME } from "../../components/app-ui/bottom-chrome-column";
 
 /**
- * The Agent Chat header, read out of the shipped source rather than retyped.
- *
- * `agent-chat-workspace.tsx` is 6,200 lines behind One's sign-in, wired to
- * Firebase auth, the vault, the AG-UI stream and a dozen services. A Playwright
- * spec cannot mount it, and a spec that navigates to `/one` without reviewer
- * credentials proves only that the welcome screen renders.
- *
- * So the header is REBUILT as a standalone fixture, the way
- * `gemini-endpoint-fields.layout.spec.ts` rebuilds the endpoint fields: every
- * value that decides what appears on screen is extracted from the shipped file,
- * not copied into the test. Two kinds of value are lifted here:
- *
- *   1. Class strings and copy, so the fixture lays out and reads like the real
- *      header and a stale copy of either cannot pass.
- *   2. The CONDITIONAL EXPRESSIONS themselves. `gateExpression` is the literal
- *      source text of the guard that decides whether One's cloud model picker
- *      renders, and the fixture EXECUTES it with `isPuppySurface` bound. Delete
- *      the guard, invert it, or reorder the actions around it, and the
- *      fixture's screen changes with the product's.
- *
- * Every extraction is anchored and asserted. A rename this file cannot follow
- * throws here, at build time, instead of quietly rendering an empty header that
- * satisfies every assertion downstream.
- *
- * What this CANNOT do is exercise the real component: state, effects, focus
- * handling and Radix internals are not in the fixture. The spec's own header
- * comment records that boundary and stays inside it.
+ * Model authority from shipped classes, copy and plain guards, including imported
+ * controls. Every anchor matches once; changed gates alter the measured screen.
+ * Unlike an unauthenticated visit, this exercises the signed-in header shape.
+ * It proves presentation, not React state, focus or Radix behavior; the owning
+ * spec records those separate acceptance limits. No Firebase or vault is mocked.
  */
 
 const WEBAPP_ROOT = process.cwd();
@@ -100,6 +79,8 @@ export function evaluateShippedExpression(
 const WORKSPACE_PATH = "components/agent/agent-chat-workspace.tsx";
 const PANEL_PATH = "components/agent/hermes-chat-panel.tsx";
 const PUPPY_PICKER_PATH = "components/agent/puppy-model-picker.tsx";
+const PUPPY_RIBBON_PATH = "components/agent/puppy-chat-controls.tsx";
+const PUPPY_CONTROLS_PATH = "components/agent/puppy-local-controls.tsx";
 const SEGMENTED_PATH = "lib/morphy-ux/ui/segmented-control.tsx";
 
 const workspace = read(WORKSPACE_PATH);
@@ -115,6 +96,7 @@ if (headerStart < 0 || headerEnd < headerStart) {
   fail("the header region", WORKSPACE_PATH);
 }
 const header = workspace.slice(headerStart, headerEnd);
+one(header, /<NativeHistoryOpener\b/, "authored history opener", WORKSPACE_PATH);
 
 const headerContainerClass = one(
   header,
@@ -124,7 +106,7 @@ const headerContainerClass = one(
 )[1];
 const chromeSource = read("components/app-ui/native-chat-chrome.tsx");
 const historySource = chromeSource.slice(chromeSource.indexOf("export function NativeHistoryOpener"), chromeSource.indexOf("export function NativeHistoryClose"));
-const historyClass = one(historySource, /className="(relative z-\[540\] flex h-11 w-11[^\"]+)"/,
+const historyClass = one(historySource, /<NativeChatChrome\b[\s\S]*?kind="history"[\s\S]*?className="([^\"]+)"/,
   "authored History hit region", "components/app-ui/native-chat-chrome.tsx")[1];
 
 /**
@@ -295,6 +277,12 @@ const stripMatch = one(
   WORKSPACE_PATH,
 );
 
+const profileButton = one(
+  header,
+  /data-testid="(profile-open-button)"\s+aria-label="([^"]+)"[\s\S]*?className="([^"]+)"/,
+  "the profile button",
+  WORKSPACE_PATH,
+);
 const actionAnchors = {
   picker: header.indexOf("<Select\n"),
   toggle: header.indexOf("<SegmentedControl"),
@@ -363,14 +351,29 @@ const puppyMountedLazily = workspace.includes("{puppyEverOpened ? (");
 
 const panel = read(PANEL_PATH);
 const puppyPicker = read(PUPPY_PICKER_PATH);
+const puppyRibbon = read(PUPPY_RIBBON_PATH);
+const puppyControls = read(PUPPY_CONTROLS_PATH);
 const segmented = read(SEGMENTED_PATH);
 
+// Refuse a fixture whose extracted controls are no longer composed by the panel.
+one(panel, /<PuppyLocalControls\b/, "the local controls composition", PANEL_PATH);
+one(panel, /<AgentBarSurface\b/, "the native-aware composer composition", PANEL_PATH);
+
 const panelHeaderClass = one(
-  panel,
-  /<div className="(flex items-center gap-2 border-b[^"]+)">/,
+  puppyRibbon,
+  /data-puppy-controls\s+className=\{`([^`]+)`\}/,
   "the Puppy panel header row",
-  PANEL_PATH,
-)[1];
+  PUPPY_RIBBON_PATH,
+)[1].replace("${BOTTOM_CHROME_COLUMN_CLASSNAME}", BOTTOM_CHROME_COLUMN_CLASSNAME);
+const panelBodyClass = one(puppyRibbon, /<div className="([^"]+)">\{children\}<\/div>/,
+  "the Puppy ribbon body", PUPPY_RIBBON_PATH)[1];
+const controlsClass = one(puppyControls, /<PuppyControlRibbon accessory=\{accessory\}>\s*<div className="([^"]+)">/,
+  "the Puppy wrapping controls", PUPPY_CONTROLS_PATH)[1];
+const pickerInstanceClass = one(puppyControls, /<PuppyModelPicker\b[^>]+className="([^"]+)"/,
+  "the Puppy picker placement", PUPPY_CONTROLS_PATH)[1];
+const pinClasses = one(puppyControls,
+  /aria-pressed=\{onDevice\}\s+className=\{cn\(\s*"([^"]+)",\s*onDevice\s*\?\s*"([^"]+)"\s*:\s*"([^"]+)"/,
+  "the Puppy pin sizing and selected state", PUPPY_CONTROLS_PATH);
 
 const puppyComposerPlaceholder = one(
   panel,
@@ -387,10 +390,10 @@ const puppySendLabel = one(
 )[1];
 
 const puppyPinLabels = one(
-  panel,
+  puppyControls,
   /\{onDevice \? "([^"]+)" : "([^"]+)"\}/,
   "the on-device pin labels",
-  PANEL_PATH,
+  PUPPY_CONTROLS_PATH,
 );
 
 const puppyPickerMatch = one(
@@ -422,18 +425,19 @@ const toggleClass = one(header, /<SegmentedControl[\s\S]*?\sclassName="([^"]+)"/
 const segmentedGroupBase = one(segmented, /role="radiogroup"[\s\S]*?className=\{cn\(\s*"([^"]+)"/, "the segmented group base", SEGMENTED_PATH)[1];
 const segmentedSlidingGroup = one(segmented, /isSliding\s*\?\s*"([^"]+)"\s*:\s*"bg-black/, "the sliding group sizing", SEGMENTED_PATH)[1];
 
-const segmentedSegmentBase = one(
+const segmentedSegmentClasses = one(
   segmented,
-  /\/\/ Base styles\s*"([^"]+)"/,
+  /\/\/ Base styles\s*"([^"]+)",\s*isSliding \? "([^"]+)" : "([^"]+)"/,
   "the segmented-control segment base classes",
   SEGMENTED_PATH,
-)[1];
+);
+const segmentedSegmentBase = segmentedSegmentClasses[1];
 const segmentedSlidingGap = one(segmented, /isSliding \? "(gap-[^"]+)" :/, "the sliding segment gap", SEGMENTED_PATH)[1];
 const segmentedSlidingSize = one(segmented, /isSliding \? "([^"]+)" : config\.segment/, "the sliding segment sizing", SEGMENTED_PATH)[1];
 const segmentedMinimum = one(segmented, /minWidth: options\.length \* (\d+) \+ (\d+)/, "the sliding minimum hit measure", SEGMENTED_PATH);
 
 // Keep the empty-chat geometry tied to the shipped welcome and scroll column.
-const welcome = workspace.slice(workspace.indexOf("function AgentWelcomePanel("), workspace.indexOf("function useAnimatedAssistantText("));
+const welcome = read("components/agent/agent-welcome-panel.tsx");
 const transcriptViewport = workspace.slice(workspace.indexOf("One's transcript region"), workspace.indexOf("ref={transcriptRef}"));
 const transcript = workspace.slice(workspace.indexOf("ref={transcriptRef}"), workspace.indexOf("{visibleMessages.map"));
 const transcriptClasses = one(transcript, /className=\{cn\(\s*"([^"]+)",\s*"([^"]+)"/, "transcript scroll classes", WORKSPACE_PATH);
@@ -441,7 +445,7 @@ const welcomeDescriptionLayout = one(
   welcome,
   /<p data-profile-role="header-description" className=\{cn\("([^"]+)",\s*CHAT_WELCOME_COPY_CLASSNAME\)\}/,
   "welcome description using shared chat typography",
-  WORKSPACE_PATH,
+  "components/agent/agent-welcome-panel.tsx",
 )[1];
 const chatStylesPath = "components/agent/chat-message-styles.tsx";
 const welcomeDescriptionTypography = one(
@@ -454,9 +458,9 @@ const welcomeDescriptionTypography = one(
 export const AGENT_SURFACE_SOURCE = {
   welcome: {
     viewportClass: one(transcriptViewport, /"(relative min-h-0 flex-1 overflow-hidden)"/, "transcript viewport", WORKSPACE_PATH)[1],
-    sectionClass: one(welcome, /<section className="([^"]+)"/, "welcome section", WORKSPACE_PATH)[1],
-    columnClass: one(welcome, /<div className="([^"]+)"/, "welcome reading column", WORKSPACE_PATH)[1],
-    headingClass: one(welcome, /<h2 data-profile-role="identity-name" className="([^"]+)"/, "welcome heading", WORKSPACE_PATH)[1],
+    sectionClass: one(welcome, /<section className="([^"]+)"/, "welcome section", "components/agent/agent-welcome-panel.tsx")[1],
+    columnClass: one(welcome, /<div className="([^"]+)"/, "welcome reading column", "components/agent/agent-welcome-panel.tsx")[1],
+    headingClass: one(welcome, /<h2 data-profile-role="identity-name" className="([^"]+)"/, "welcome heading", "components/agent/agent-welcome-panel.tsx")[1],
     descriptionClass: `${welcomeDescriptionLayout} ${welcomeDescriptionTypography}`,
     scrollClass: `${transcriptClasses[1]} ${transcriptClasses[2]}`,
     transcriptColumnClass: one(transcript, /<div className="(mx-auto flex min-h-full [^"]+)"/, "transcript reading column", WORKSPACE_PATH)[1],
@@ -468,9 +472,9 @@ export const AGENT_SURFACE_SOURCE = {
       one(
         workspace,
         /data-one-centered-header=\{([^}]+)\}/,
-        "One-only centered header marker",
+        "shared portrait header marker",
         WORKSPACE_PATH,
-      )[1],
+      )[1].replaceAll("customNativePresentationEnabled()", "nativeCompact"),
     ),
     identityClass,
     brandTileClass,
@@ -536,6 +540,11 @@ export const AGENT_SURFACE_SOURCE = {
     nameExpression: flatten(nameMatch[2]),
     subtitleClass,
     subtitleExpression,
+    profileButton: {
+      testId: profileButton[1],
+      ariaLabel: profileButton[2],
+      className: profileButton[3],
+    },
   },
   toggle: {
     ariaLabel: toggleAriaLabel,
@@ -578,6 +587,10 @@ export const AGENT_SURFACE_SOURCE = {
   },
   puppy: {
     panelHeaderClass,
+    panelBodyClass,
+    controlsClass,
+    pickerInstanceClass,
+    pinOnClass: `${pinClasses[1]} ${pinClasses[2]}`,
     composerPlaceholder: puppyComposerPlaceholder,
     sendLabel: puppySendLabel,
     pinOnLabel: puppyPinLabels[1],

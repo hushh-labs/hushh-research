@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentBubble } from "@/components/agent/agent-chat-workspace";
 import { ChatOnboardingTurns } from "@/components/agent/chat-onboarding/chat-onboarding-transcript";
+import { AgentSuggestionList } from "@/components/agent/agent-follow-up-suggestions";
 import {
   useChatOnboarding,
   useChatOnboardingSession,
@@ -31,6 +32,8 @@ vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
 }));
 
 const onConnect = vi.fn();
+const onStarter = vi.fn();
+const onCompletionShown = vi.fn();
 /** Every (turn id, status) the transcript hands to the real assistant bubble. */
 const bubbleCalls: { id: string; status: string; role: string }[] = [];
 
@@ -53,12 +56,15 @@ function Harness({ messages = [] as { id: string }[], startSignal = true, userId
       <ChatOnboardingTurns
         controller={controller}
         slot={{ kind: "top" }}
+        onCompletionShown={onCompletionShown}
         renderBubble={(message) => {
           bubbleCalls.push({ id: message.id, status: message.status, role: message.role });
           return <AgentBubble message={message} />;
         }}
         onConnect={onConnect}
         gmailConnected={Boolean(gmail.status?.connected && !gmail.status.revoked && !gmail.status.needs_reauth)}
+        completion={!messages.length ? <AgentSuggestionList suggestions={["What's on my calendar this week?", "Which emails need a reply?", "What do you remember about me?"]}
+          layout="starter-grid" label="Start a conversation" onSelect={onStarter} /> : undefined}
       />
       <ChatOnboardingTurns
         controller={controller}
@@ -111,6 +117,8 @@ beforeEach(() => {
     fullBlob: {},
   });
   onConnect.mockReset();
+  onStarter.mockReset();
+  onCompletionShown.mockReset();
   bubbleCalls.length = 0;
 });
 
@@ -181,6 +189,7 @@ describe("onboarding conversation", () => {
     render(<Harness messages={[{ id: "ordinary-question" }]} />);
     const resolved = () => screen.getByTestId("onboarding-resolved").textContent;
     expect(resolved()).toBe("false");
+    expect(screen.queryByRole("group", { name: "Start a conversation" })).toBeNull();
     fireEvent.click(await screen.findByRole("button", { name: "Call me Kushal" }));
     expect(resolved()).toBe("false");
     fireEvent.click(await screen.findByRole("button", { name: "Mail" }));
@@ -189,9 +198,11 @@ describe("onboarding conversation", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Save to memory" }));
     await waitFor(() => expect(finishSave).toBeTypeOf("function"));
     expect(resolved()).toBe("false");
+    expect(screen.queryByRole("group", { name: "Start a conversation" })).toBeNull();
     await act(async () => finishSave({ saveState: "failed", success: false, fullBlob: {} }));
     await screen.findByRole("button", { name: "Try again" });
     expect(resolved()).toBe("false");
+    expect(screen.queryByRole("group", { name: "Start a conversation" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(resolved()).toBe("true"));
   });
@@ -200,10 +211,16 @@ describe("onboarding conversation", () => {
     render(<Harness />);
     for (let question = 0; question < 3; question++) {
       expect(screen.getByTestId("onboarding-resolved")).toHaveTextContent("false");
-      fireEvent.click(await screen.findByRole("button", { name: "Skip for now" }));
+      await screen.findByText(`Question ${question + 1} of 3`);
+      expect(screen.queryByRole("group", { name: "Start a conversation" })).toBeNull();
+      expect(onCompletionShown).not.toHaveBeenCalled();
+      fireEvent.click(await screen.findByRole("button", { name: "Skip this question" }));
     }
     await waitFor(() => expect(screen.getByTestId("onboarding-resolved")).toHaveTextContent("true"));
     expect(PkmWriteCoordinator.saveMergedDomain).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole("button", { name: "What do you remember about me?" }));
+    expect(onStarter).toHaveBeenCalledWith("What do you remember about me?");
+    expect(onCompletionShown).toHaveBeenCalledOnce();
   });
   it("waits for owner progress and does not inherit another owner's completed onboarding", async () => {
     let finishLoad!: (value: Awaited<ReturnType<typeof PreVaultUserStateService.bootstrapState>>) => void;
@@ -256,6 +273,8 @@ describe("onboarding conversation", () => {
     });
     await waitFor(() => expect(PkmWriteCoordinator.saveMergedDomain).toHaveBeenCalledTimes(1));
     await screen.findByText(/Saved\. You can change it anytime in Memory\./);
+    fireEvent.click(await screen.findByRole("button", { name: "What's on my calendar this week?" }));
+    expect(onStarter).toHaveBeenCalledWith("What's on my calendar this week?");
 
     // The durable record never carries an answer value.
     for (const [, record] of vi.mocked(PreVaultUserStateService.syncOneChatOnboarding).mock.calls) {
@@ -281,7 +300,7 @@ describe("onboarding conversation", () => {
     fireEvent.click(screen.getByRole("button", { name: "type-unrelated" }));
     await waitFor(() => expect(screen.getByTestId("capture").textContent).toBe("Type what I should call you"));
     expect(screen.queryByRole("button", { name: "Call me Kushal" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Skip for now" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Skip this question" })).toBeInTheDocument();
     expect(PkmWriteCoordinator.saveMergedDomain).not.toHaveBeenCalled();
   });
 
@@ -293,7 +312,7 @@ describe("onboarding conversation", () => {
     fireEvent.keyDown(first, { key: "ArrowRight" });
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Something else" }));
     fireEvent.keyDown(document.activeElement!, { key: "End" });
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Skip for now" }));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Skip this question" }));
   });
 });
 
@@ -316,7 +335,7 @@ describe("semantic name assessment and encrypted write boundary", () => {
 
   it.each(["Roopmann", "Love", "Zoë 🦋", "نور", "李 小龍", "A".repeat(64)])("saves %s only after a successful turn, then advances", async name => {
     const turn = pending();
-    turn.stage(JSON.stringify(answer(turn, { preferred_name: name })), "call");
+    turn.stage(JSON.stringify({ data: answer(turn, { preferred_name: name }) }), "call");
     expect(PkmWriteCoordinator.saveMergedDomain).not.toHaveBeenCalled();
     turn.finish(true);
     turn.finish(true);

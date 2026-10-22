@@ -1,16 +1,15 @@
 """ADK tools for the One Personal Information Agent (marketplace chatbot).
 
-Slice 1 = read-only query tools. They let the owner ask, in chat, what data
-they have published to the marketplace and what it is worth. Persistence and
-pricing live in MarketplaceInformationService; scope checks live in @hushh_tool.
-
-Every tool reads ONLY the current user's own published-slice metadata and the
-deterministic pricing engine — never raw PKM values, never another user's data.
+Query tools read the current owner's published information metadata, hypothetical
+research prices, and bounded recorded commerce metadata through the canonical
+MarketplaceInformationService port. Scope checks live in @hushh_tool. Financial
+actions require human review in the application; these reads carry no spending
+or encrypted-export preparation authority and expose no raw PKM values.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.hushh_adk.context import HushhContext
@@ -43,6 +42,17 @@ def _requests() -> MarketplaceRequestService:
     return MarketplaceRequestService()
 
 
+def _commerce():
+    context = _ctx()
+    if "marketplace_information" in context.service_ports:
+        return context.service_ports["marketplace_information"]
+    from hushh_mcp.runtime_settings import pod_mode
+
+    if pod_mode():
+        raise PermissionError("Commerce metadata port is unavailable for this runtime")
+    return _service()
+
+
 @hushh_tool(scope=ConsentScope.CAP_PKM_MARKETPLACE_VIEW, name="list_published_slices")
 async def list_published_slices() -> dict[str, Any]:
     """List the data slices the user has published to the marketplace (every scope
@@ -59,17 +69,46 @@ async def get_earnings_summary(
     power: str = "affluent",
     mood: str = "affinity",
 ) -> dict[str, Any]:
-    """Summarize buyer demand + potential monthly earnings for published slices.
+    """Read hypothetical research prices and buyer interest, never actual earnings.
 
-    Read-only. Reports REAL buyer demand (pendingRequestCount, approvedBuyerCount,
-    interestedBuyerCount) alongside each slice's potential monthly price. But
-    payments are NOT enabled yet (payoutsEnabled is False, accruedCents is always
-    0). Use this to answer 'how much have I made / what are my slices worth / who
-    wants my data'. Be honest: cite real buyer interest if any, but always say
-    payments are coming soon and nothing has been paid out yet.
+    Compatibility fields in this estimate do not establish current payment
+    availability. Use get_scope_commerce_summary for recorded financial facts.
+    Suggested prices are separate from exact owner tariffs and accepted quotes.
     """
     context = _ctx()
-    return await _service().earnings_summary(user_id=context.user_id, power=power, mood=mood)
+    estimate = await _service().earnings_summary(user_id=context.user_id, power=power, mood=mood)
+    return {
+        **estimate,
+        "isEstimate": True,
+        "note": "Potential research prices and buyer interest only. Read get_scope_commerce_summary for payment readiness and recorded earnings.",
+    }
+
+
+@hushh_tool(scope=ConsentScope.CAP_PKM_MARKETPLACE_VIEW, name="get_scope_commerce_summary")
+async def get_scope_commerce_summary() -> dict[str, Any]:
+    """Read the current owner's recorded earnings and payment setup readiness.
+
+    Pending earnings are distinct from withdrawable earnings and bank payout.
+    This tool never pays, funds, approves, prepares or stages information.
+    """
+    context = _ctx()
+    return await _commerce().scope_commerce_summary(user_id=context.user_id)
+
+
+@hushh_tool(scope=ConsentScope.CAP_PKM_MARKETPLACE_VIEW, name="get_scope_commerce_activity")
+async def get_scope_commerce_activity(
+    view: Literal["purchases", "sales", "transactions"] = "sales",
+    cursor: str | None = None,
+) -> dict[str, Any]:
+    """Read a bounded page of the current owner's canonical commercial history.
+
+    Only safe metadata appears. Follow a next_action link for authenticated
+    human review; opening or reading it never confirms spending or fulfillment.
+    """
+    context = _ctx()
+    return await _commerce().scope_commerce_activity(
+        user_id=context.user_id, view=view, cursor=cursor
+    )
 
 
 @hushh_tool(scope=ConsentScope.CAP_PKM_MARKETPLACE_MANAGE, name="list_access_requests")
@@ -142,6 +181,8 @@ PERSONAL_INFORMATION_QUERY_TOOLS = [
     read_my_pkm_domain_summary,
     list_published_slices,
     get_earnings_summary,
+    get_scope_commerce_summary,
+    get_scope_commerce_activity,
     propose_publish,
 ]
 

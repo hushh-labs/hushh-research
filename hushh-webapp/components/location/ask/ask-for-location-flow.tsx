@@ -212,7 +212,7 @@ function PersonPicker({
     );
   }
   return (
-    <div className="space-y-2" role="list" aria-label="Choose who to ask">
+    <div className="space-y-2" role="list" aria-label="Choose whom to ask">
       {people.items.map((recipient) => (
         <button
           key={recipient.userId}

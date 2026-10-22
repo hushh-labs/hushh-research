@@ -107,6 +107,33 @@ async def test_replay_builds_packets_through_the_production_worker():
     assert result.packets[0].member_case_ids == ["c0", "c1", "c2"]
 
 
+@pytest.mark.parametrize("method", ["run_facts_one", "run_packet_one"])
+async def test_replay_refuses_foreign_owners_before_content_or_registry_reads(monkeypatch, method):
+    from unittest.mock import AsyncMock
+
+    from fastapi import HTTPException
+
+    monkeypatch.setenv("HUSSH_POD_MODE", "0")
+    registry = AsyncMock(side_effect=AssertionError("Synthetic replay reached real placement"))
+    monkeypatch.setattr("hushh_mcp.services.owner_placement_guard.get_owner_hosting_mode", registry)
+    runner = ReplayRunner(
+        interpret=replay.FakeInterpret(), model="fixture-interpret", budget=Budget(max_usd=50)
+    )
+    facts = replay.InMemoryFactsStore(cases(1), policy="policy-1", profile="fixture")
+    facts.enqueue = AsyncMock(side_effect=AssertionError("Foreign owner reached content"))
+    facts.packets.claim_packet = AsyncMock(
+        side_effect=AssertionError("Foreign owner reached packet claim")
+    )
+    worker = runner._worker(facts, "policy-1")
+    with pytest.raises(HTTPException) as refused:
+        await getattr(worker, method)(user_id="foreign-owner")
+    assert refused.value.status_code == 503
+    assert refused.value.detail["code"] == "AGENT_HOSTING_UNAVAILABLE"
+    registry.assert_not_awaited()
+    facts.enqueue.assert_not_awaited()
+    facts.packets.claim_packet.assert_not_awaited()
+
+
 def test_resume_skips_completed_cases_and_refuses_mixed_runtimes():
     done = ObservationRow(
         batch_id="B",
@@ -177,19 +204,29 @@ class NamedHolder(replay.FakeInterpret):
         return answer
 
 
-async def test_owner_name_runs_the_wrong_person_fence_in_replay():
-    def run(owner):
-        runner = ReplayRunner(
-            interpret=NamedHolder(), model="fixture-interpret", budget=Budget(max_usd=50)
-        )
-        return runner.run_owner_path(batch_id="B", cases=cases(1), runtime=RUNTIME, owner=owner)
+async def test_owner_name_reaches_both_authored_assessments_in_replay():
+    seen = []
 
-    checked = await run({"names": ["Avery Quill"]})
-    [packet] = checked.packets
-    assert packet.state == "incomplete"
-    assert packet.visible["assessment"]["gaps"] == ["Document names a different person"]
-    # Without a name the replay is not checked by that fence, as before.
-    assert [item.state for item in (await run(None)).packets] == ["ready"]
+    class Recording(NamedHolder):
+        async def __call__(self, *, prompt, user_id, output_schema):
+            request = json.loads(prompt)
+            if "owner_identity" in request:
+                seen.append(request["owner_identity"])
+            return await super().__call__(
+                prompt=prompt, user_id=user_id, output_schema=output_schema
+            )
+
+    owner = {"names": ["Avery Quill"]}
+    runner = ReplayRunner(
+        interpret=Recording(), model="fixture-interpret", budget=Budget(max_usd=50)
+    )
+    checked = await runner.run_owner_path(
+        batch_id="B", cases=cases(1), runtime=RUNTIME, owner=owner
+    )
+    assert len(seen) >= 2 and all(value == owner for value in seen)
+    # All-Ready fixtures do not establish semantic identity assurance. Their
+    # judgments stay observable for independent evaluation, without host edits.
+    assert [item.state for item in checked.packets] == ["ready"]
 
 
 def test_run_batch_owner_listing_prefers_an_explicit_name():

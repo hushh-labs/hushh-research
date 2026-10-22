@@ -9,6 +9,7 @@ without an owner identity, Bing search, a vault key, or any database write.
 from __future__ import annotations
 
 import asyncio
+import base64
 import importlib.util
 import json
 import os
@@ -97,6 +98,15 @@ def _initialize_synthetic_runtime() -> None:
     """
     os.environ["APP_SIGNING_KEY"] = secrets.token_hex(32)
     os.environ["VAULT_DATA_KEY"] = secrets.token_hex(32)
+    # Strict UAT imports now verify an enabled audit signer. Qualify against a
+    # fresh process-only signer rather than borrowing application custody or
+    # disabling that startup check. No receipts or stores are opened by this probe.
+    os.environ["CONSENT_AUDIT_SIGNING_ALG"] = "ed25519"
+    os.environ["CONSENT_AUDIT_ED25519_PRIVATE_KEY"] = base64.b64encode(
+        secrets.token_bytes(32)
+    ).decode("ascii")
+    os.environ["CONSENT_AUDIT_ED25519_KID"] = "synthetic-readiness"
+    os.environ["CONSENT_AUDIT_ED25519_PUBLIC_KEYS"] = ""
 
 
 def _production_contract_examples() -> tuple[dict, dict]:
@@ -156,10 +166,14 @@ def _production_contract_examples() -> tuple[dict, dict]:
     return values, schemas
 
 
+class AzurePwmTrustError(RuntimeError):
+    """A received model answer violated an authored attribution/trust case."""
+
+
 def _failure(check: str, fields: list[str]) -> None:
     """Emit authored case/field names only; suppress model text and provider errors."""
     print(json.dumps({"azure_pwm_probe_failure": check, "failed_fields": fields}), flush=True)
-    raise RuntimeError(f"Azure {check} evaluation failed")
+    raise AzurePwmTrustError(f"Azure {check} evaluation failed")
 
 
 async def _probe_primary(config: dict[str, str], supplier: Callable[[], str]) -> None:
@@ -282,55 +296,14 @@ async def _probe_primary(config: dict[str, str], supplier: Callable[[], str]) ->
 
 
 async def _probe_managed_text() -> None:
-    """Exercise the actual shared primary contract with synthetic text only."""
-    from google.adk.models.llm_request import LlmRequest
-    from google.genai import types
+    from scripts.probe_managed_text import probe_managed_text
 
-    from hushh_mcp.runtime_providers.managed_text import build_managed_text_model
-
-    class NoFallback:
-        model = "probe_must_use_azure"
-
-        async def generate_content_async(self, request, stream=False):
-            raise RuntimeError("Readiness must succeed on Azure primary")
-            yield
-
-    async def synthetic_authority():
-        # Probe-owned synthetic input; no owner, document or connector information.
-        return None
-
-    for scope in ("one_text_chat", "drive_document_requests"):
-        model = build_managed_text_model(scope=scope, require_current=synthetic_authority)
-        model.fallback_model = NoFallback()
-        request = LlmRequest(
-            model=model.model,
-            contents=[
-                types.Content(
-                    role="user", parts=[types.Part(text='Return exactly {"ready":true}.')]
-                )
-            ],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_json_schema={
-                    "type": "object",
-                    "properties": {"ready": {"type": "boolean"}},
-                    "required": ["ready"],
-                    "additionalProperties": False,
-                },
-                max_output_tokens=256,
-                thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW),
-            ),
-        )
-        results = [item async for item in model.generate_content_async(request)]
-        answer = "".join(
-            part.text or ""
-            for item in results
-            for part in (item.content.parts if item.content else [])
-            if not part.thought
-        )
-        if json.loads(answer) != {"ready": True}:
-            raise RuntimeError("Managed UAT text structured response failed")
-    print(json.dumps({"azure_managed_text_contract": "ok", "scopes": 2}), flush=True)
+    receipt = await probe_managed_text("azure_openai")
+    print(json.dumps({"managed_text_provider_probe": receipt}), flush=True)
+    print(
+        json.dumps({"azure_managed_text_contract": "ok", "scopes": len(receipt["scopes"])}),
+        flush=True,
+    )
 
 
 async def probe() -> None:
@@ -359,6 +332,7 @@ async def probe() -> None:
         ),
         flush=True,
     )
+    await _probe_managed_text()
     started_at = time.monotonic()
     _stage("federation", "start", started_at=started_at)
     supplier = _token_provider(tenant_id=config["tenant_id"], client_id=config["client_id"])
@@ -371,17 +345,31 @@ async def probe() -> None:
     _stage("primary", "start", started_at=started_at)
     await _probe_primary(config, lambda: token)
     _stage("primary", "ok", started_at=started_at)
-    await _probe_managed_text()
+    from scripts.probe_managed_capabilities import probe_managed_capabilities
+
+    capabilities = await probe_managed_capabilities("azure_openai")
+    if not capabilities["ready"]:
+        raise RuntimeError("Managed Azure capability qualification failed")
 
 
 def main() -> int:
     try:
         # One strict HTTP-200 readiness call precedes the bounded attribution
         # call. Neither performs search or sends owner information.
-        asyncio.run(asyncio.wait_for(probe(), timeout=200))
+        asyncio.run(asyncio.wait_for(probe(), timeout=360))
     except Exception as error:  # noqa: BLE001 - print only the error class, never a token
+        from hushh_mcp.runtime_providers.dependency_health import classify_provider_error
+
         print(
-            json.dumps({"azure_pwm_runtime_probe_result": "failed", "error": type(error).__name__})
+            json.dumps(
+                {
+                    "azure_pwm_runtime_probe_result": "failed",
+                    "classification": classify_provider_error(error),
+                    "error_type": type(error).__name__,
+                    "pwm_trust_failure": isinstance(error, AzurePwmTrustError),
+                }
+            ),
+            flush=True,
         )
         return 1
     print(json.dumps({"azure_pwm_runtime_probe_result": "ok"}))

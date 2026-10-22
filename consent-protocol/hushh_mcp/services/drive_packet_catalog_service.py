@@ -4,6 +4,7 @@ from hushh_mcp.services.drive_packet_store import DrivePacketStore
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError, ShareRequestPurpose
 from hushh_mcp.services.drive_sharing_service import DriveSharingService
 from hushh_mcp.services.drive_work_wake import wake_drive_work_stages
+from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
 
 class DrivePacketCatalogService:
@@ -19,12 +20,17 @@ class DrivePacketCatalogService:
 
     async def list_packets(self, *, user_id, owner_user_id=None, cursor=None):
         await self._current()
+        own_information = owner_user_id is None or owner_user_id == user_id
+        if own_information:
+            await admit_hub_content(user_id, "drive_packet_catalog")
         # The owner's own list says what is inside each packet; the store
         # withholds it from every other viewer.
         result = await self.packets.list_packets(
             user_id=user_id, owner_user_id=owner_user_id, cursor=cursor, owner_contents=True
         )
         await self._current()
+        if own_information:
+            await admit_hub_content(user_id, "drive_packet_catalog")
         return result
 
     async def set_listing(self, **kwargs):

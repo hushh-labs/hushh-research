@@ -1,12 +1,8 @@
+import { buildChatOnboardingFixture } from "./fixtures/chat-onboarding-build";
 import { expect, test, type Page } from "@playwright/test";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 
 import {
   awaitProductFont,
-  productFontStyle,
-  stripAppFontFaces,
 } from "./fixtures/product-font";
 
 /**
@@ -22,72 +18,10 @@ let css: string;
 let script: string;
 
 test.beforeAll(async () => {
-  const root = process.cwd();
-  const { build } = await import("vite");
-  const { Scanner } = await import("@tailwindcss/oxide");
-  const scanner = new Scanner({});
-  const candidates = new Set<string>();
-  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "chat-onboarding-"));
-  await build({
-    configFile: false,
-    logLevel: "error",
-    plugins: [
-      {
-        name: "fixture-css-candidates",
-        transform(source, id) {
-          if (!id.includes("node_modules") && /\.[tj]sx?$/.test(id))
-            for (const candidate of scanner.scanFiles([{ content: source, extension: "tsx" }]))
-              candidates.add(candidate);
-        },
-      },
-    ],
-    oxc: { jsx: { runtime: "automatic", development: false } },
-    resolve: { alias: [
-      ...["@/hooks/use-auth", "@/lib/vault/vault-context", "@/lib/services/pre-vault-user-state-service",
-        "@/lib/services/personal-knowledge-model-service", "@/lib/services/api-service",
-        "@/lib/services/pkm-upgrade-orchestrator", "@/lib/services/pkm-upgrade-service"].map(find => ({
-          find, replacement: path.join(root, "e2e/fixtures/onboarding-name-boundaries.ts"),
-        })),
-      { find: "@", replacement: root },
-    ] },
-    define: {
-      "process.env.NODE_ENV": JSON.stringify("production"),
-      "process.env": "{}",
-    },
-    build: {
-      outDir,
-      emptyOutDir: false,
-      lib: {
-        entry: path.join(root, "e2e/fixtures/chat-onboarding.tsx"),
-        name: "Fixture",
-        formats: ["iife"],
-        fileName: () => "fixture.js",
-      },
-    },
-  });
-  script = fs.readFileSync(path.join(outDir, "fixture.js"), "utf8");
-  const { compile } = await import("tailwindcss");
-  const compiler = await compile(
-    fs
-      .readFileSync(path.join(root, "app/globals.css"), "utf8")
-      .replace(/^@source\s+[^;]+;\s*$/gm, ""),
-    {
-      base: path.join(root, "app"),
-      loadStylesheet: async (id, base) => {
-        const file =
-          id === "tailwindcss"
-            ? path.join(root, "node_modules/tailwindcss/index.css")
-            : id === "tw-animate-css"
-              ? path.join(root, "node_modules/tw-animate-css/dist/tw-animate.css")
-              : path.resolve(base, id);
-        return { path: file, base: path.dirname(file), content: fs.readFileSync(file, "utf8") };
-      },
-    },
-  );
-  css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
+  ({ css, script } = await buildChatOnboardingFixture(process.cwd()));
 });
 
-async function mount(page: Page, theme: "light" | "dark", journey = false) {
+async function mount(page: Page, theme: "light" | "dark", journey: boolean | "ordinary" = false) {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route("http://localhost/chat-onboarding*", (route) =>
@@ -96,12 +30,77 @@ async function mount(page: Page, theme: "light" | "dark", journey = false) {
       body: `<!doctype html><html class="${theme}"><head><title>Chat onboarding layout contract</title><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>${css}</style></head><body><div id="root"></div></body></html>`,
     }),
   );
-  await page.goto(`http://localhost/chat-onboarding${journey ? "?name-journey" : ""}`);
+  await page.goto(`http://localhost/chat-onboarding${journey === "ordinary" ? "?ordinary-name" : journey ? "?name-journey" : ""}`);
   await page.addScriptTag({ content: script });
   await awaitProductFont(page);
   await expect(journey ? page.getByLabel("Chat profile name") : page.getByTestId("transcript")).toBeVisible();
   return errors;
 }
+
+test("access explanations fit a narrow phone without requesting device permissions", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 740 });
+  await mount(page, "light");
+  const permissionRequests: string[] = [];
+  await page.addInitScript(() => {
+    navigator.geolocation.getCurrentPosition = () => { throw new Error("Unexpected location prompt"); };
+  });
+  page.on("request", request => { if (request.url().includes("/api/")) permissionRequests.push(request.url()); });
+  await page.goto("http://localhost/chat-onboarding?access");
+  await page.addScriptTag({ content: script });
+  await expect(page.getByRole("heading", { name: "What One knows" })).toBeVisible();
+  await expect(page.getByText(/No apps connected/)).toBeVisible();
+  const sharing = page.getByRole("link", { name: "Review sharing permissions" });
+  await expect(sharing).toHaveAttribute("href", "/one/consent");
+  expect((await sharing.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
+  expect(permissionRequests).toEqual([]);
+  const deviceExplanation = page.getByText(/Opening this panel requests no device permissions/);
+  await deviceExplanation.scrollIntoViewIfNeeded();
+  await expect(deviceExplanation).toBeVisible();
+  await page.getByRole("heading", { name: "One access", exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: test.info().outputPath("access-phone.png"), fullPage: true });
+});
+
+test("an ordinary chat name saves encrypted memory, updates the label and survives re-entry", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let encrypted: unknown = null;
+  let revision = 0;
+  let failWrite = true;
+  const writes: string[] = [];
+  await page.route("**/__fixture/identity", async route => {
+    if (route.request().method() === "PUT") {
+      writes.push(route.request().postData()!);
+      if (failWrite) { failWrite = false; await route.fulfill({ status: 500 }); return; }
+      encrypted = route.request().postDataJSON().encrypted;
+      revision++;
+    }
+    await route.fulfill({ json: { encrypted, revision } });
+  });
+  await page.route("**/__fixture/one", route => route.fulfill({ json: {
+    content: { status: "preferred_name_update_ready", preferred_name: "Ruby", proposed: { tone: "warm", length: "short" } },
+  } }));
+  const errors = await mount(page, "light", "ordinary");
+  const submit = async () => {
+    await page.getByRole("textbox", { name: "Your reply" }).fill("Please call me Ruby");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+  };
+  await submit();
+  await expect(page.getByRole("status")).toHaveText("Couldn't save your name. Please try again.");
+  await expect(page.getByLabel("Chat profile name")).toHaveText("One");
+  await submit();
+  await expect(page.getByRole("status")).toHaveText("Preferred name saved.");
+  await expect(page.getByLabel("Chat profile name")).toHaveText("Ruby");
+  await page.screenshot({ path: test.info().outputPath("preferred-name-saved.png") });
+  expect(writes).toHaveLength(2);
+  for (const write of writes) {
+    expect(write).not.toContain("Ruby");
+    expect(JSON.parse(write).encrypted.algorithm).toBe("aes-256-gcm");
+  }
+  await page.reload();
+  await page.addScriptTag({ content: script });
+  await expect(page.getByLabel("Chat profile name")).toHaveText("Ruby");
+  expect(errors).toEqual([]);
+});
 
 test("preferred name entry saves privately, refreshes the profile label, and recovers from failure", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -126,7 +125,7 @@ test("preferred name entry saves privately, refreshes the profile label, and rec
   const errors = await mount(page, "light", true);
   await page.getByRole("button", { name: "Something else" }).click();
   await expect(page.getByText("Okay. What should I call you?")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Skip for now" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Skip this question" })).toBeVisible();
   await page.getByRole("textbox", { name: "Your reply" }).fill("Please call me Roopmann");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
@@ -147,6 +146,7 @@ test("preferred name entry saves privately, refreshes the profile label, and rec
 });
 
 test("a picked name labels One at once, holds through the save, and reverts when declined", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: "reduce" });
   let encrypted: unknown = null;
   let revision = 0;
@@ -173,7 +173,7 @@ test("a picked name labels One at once, holds through the save, and reverts when
   });
   const labelSeen = () => page.evaluate(() => (window as unknown as { labelSeen: string[] }).labelSeen);
   const answerRest = async () => {
-    await page.getByRole("button", { name: "Skip for now" }).click();
+    await page.getByRole("button", { name: "Skip this question" }).click();
     await page.getByRole("button", { name: "Casual" }).click();
   };
 
@@ -183,6 +183,7 @@ test("a picked name labels One at once, holds through the save, and reverts when
   await expect(label).toHaveText("Owner");
   await answerRest();
   await page.getByRole("button", { name: "Don't save" }).click();
+  await expect(page.getByRole("button", { name: "What do you remember about me?" })).toBeVisible();
   await expect(label).toHaveText("One");
   expect(writes).toHaveLength(0);
   expect(await labelSeen()).toEqual(["One", "Owner", "One"]);
@@ -196,6 +197,11 @@ test("a picked name labels One at once, holds through the save, and reverts when
   await answerRest();
   await page.getByRole("button", { name: "Save to memory" }).click();
   await expect(page.getByText(/^Saved\. You can change it anytime in Memory/)).toBeVisible();
+  const starter = page.getByRole("button", { name: "What's on my calendar this week?" });
+  await starter.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: test.info().outputPath("saved-starters-phone.png") });
+  await starter.click();
+  await expect(page.getByRole("textbox", { name: "Your reply" })).toHaveValue("What's on my calendar this week?");
   await expect(label).toHaveText("Owner");
   expect(writes).toHaveLength(1);
   expect(writes[0]).not.toContain("Owner");
@@ -223,7 +229,7 @@ test("Skip invalidates a slow semantic answer before it can save", async ({ page
   await page.getByRole("textbox", { name: "Your reply" }).fill("Stale");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect.poll(() => typeof finishReply).toBe("function");
-  await page.getByRole("button", { name: "Skip for now" }).click();
+  await page.getByRole("button", { name: "Skip this question" }).click();
   await finishReply();
   await expect(page.getByRole("textbox", { name: "Your reply" })).toBeEnabled();
   await expect(page.getByLabel("Chat profile name")).toHaveText("One");
@@ -243,7 +249,7 @@ async function assertContract(page: Page, viewportWidth: number) {
   const chips = page.getByTestId("chat-onboarding-chips").getByRole("button");
   await expect(chips).toHaveCount(10);
   await expect(chips).toHaveText([
-    "Location", "Mail", "Calendar", "Finance", "Advisor", "Wallet", "Consent", "Memory", "Messages", "Skip for now",
+    "Location", "Mail", "Calendar", "Finance", "Advisor", "Wallet", "Consent", "Memory", "Messages", "Skip this question",
   ]);
   const boxes = await chips.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().toJSON()));
   expect(boxes[9].y).toBeGreaterThanOrEqual(Math.max(...boxes.slice(0, 9).map((box) => box.bottom)));
@@ -295,9 +301,13 @@ async function assertContract(page: Page, viewportWidth: number) {
     if (isStarter) {
       for (const geometry of geometries) {
         expect(Math.abs(geometry.width - geometries[0].width)).toBeLessThanOrEqual(1);
-        expect(Math.abs(geometry.height - geometries[0].height)).toBeLessThanOrEqual(1);
+        if (viewportWidth >= 640) expect(Math.abs(geometry.height - geometries[0].height)).toBeLessThanOrEqual(1);
       }
       expect(Math.abs(geometries[0].x - bubble.x)).toBeLessThanOrEqual(6);
+      if (viewportWidth < 640) {
+        for (let index = 1; index < geometries.length; index++)
+          expect(geometries[index].y - geometries[index - 1].y - geometries[index - 1].height).toBeCloseTo(0, 1);
+      }
       if (viewportWidth >= 640) {
         expect(geometries.every((geometry) => geometry.y === geometries[0].y)).toBe(true);
         const firstGap = geometries[1].x - geometries[0].right;
@@ -446,7 +456,7 @@ for (const theme of ["light", "dark"] as const) {
       await page.keyboard.press("ArrowRight");
       await expect(chips.nth(1)).toBeFocused();
       await page.keyboard.press("End");
-      await expect(page.getByRole("button", { name: "Skip for now" })).toBeFocused();
+      await expect(page.getByRole("button", { name: "Skip this question" })).toBeFocused();
 
       await page.getByRole("button", { name: "Dismiss tip" }).click();
       await expect(page.getByTestId("chat-onboarding-daily-tip")).toHaveCount(0);

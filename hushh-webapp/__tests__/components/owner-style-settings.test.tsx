@@ -31,6 +31,7 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 import { AgentStructuredExperienceView } from "@/components/agent/agent-structured-experience";
 import { CommunicationPreferencesSection, useCommunicationPreferencesEditor, type CommunicationSaveOutcome } from "@/components/profile/communication-preferences-section";
 import { parseAgentToolResultExperience } from "@/lib/agent/agui-structured-experiences";
+import { saveChatPreferredName } from "@/lib/agent/owner-style-settings-writer";
 import {
   OWNER_STYLE_SETTINGS_SOURCE,
   stageOwnerStyleProposal,
@@ -46,6 +47,37 @@ beforeEach(() => {
 });
 
 describe("chat offers a style change; it never writes", () => {
+  it("replays only the remaining style offer, never a name-saving card", () => {
+    expect(parseAgentToolResultExperience("propose_style_settings", {
+      status: "preferred_name_update_ready", preferred_name: "Ruby",
+    })).toBeNull();
+    expect(parseAgentToolResultExperience("propose_style_settings", {
+      status: "preferred_name_update_ready", preferred_name: "Ruby",
+      proposed: { preferred_name: "Injected", tone: "warm" },
+    })).toEqual({ type: "one.style_settings_offer.v1", proposed: { tone: "warm" } });
+    expect(mocks.saveMergedDomain).not.toHaveBeenCalled();
+  });
+
+  it("saves only the chosen name through the chat writer, retaining sibling information", async () => {
+    mocks.saveMergedDomain.mockResolvedValue({ success: true });
+    const beforeEffect = vi.fn().mockResolvedValue(undefined);
+    let current = true;
+    const mayPublish = () => current;
+    expect(await saveChatPreferredName({ userId: "owner-1", vaultKey: "k", vaultOwnerToken: "t", name: "Ruby", beforeEffect, mayPublish })).toBe(true);
+    const request = mocks.saveMergedDomain.mock.calls[0][0];
+    expect(request.confirmation).toEqual({ confirmedByUser: true, surface: "chat", source: "one_chat_preferred_name" });
+    expect(request.beforeEffect).toBe(beforeEffect);
+    current = false;
+    expect(request.mayPublish()).toBe(false);
+    const original = { profile: { country: "IN" }, communication_preferences: {
+      preferred_name: "Old", tone: "warm", owner_style_note: "Keep this", reply_style: "legacy",
+    } };
+    const built = request.build({ currentDomainData: original });
+    expect(built.domainData).toEqual({ ...original, communication_preferences: {
+      ...original.communication_preferences, preferred_name: "Ruby", updated_at: expect.any(String),
+    } });
+    expect(JSON.stringify(built.summary)).not.toContain("Ruby");
+  });
   it("names the proposed values and drops a note chat is not allowed to set", () => {
     const offer = parseAgentToolResultExperience("propose_style_settings", JSON.stringify({
       status: "offer_ready",

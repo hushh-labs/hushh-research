@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { useCommerceSession } from "@/components/consent/use-commerce-session";
 import { BodyText, HelperText } from "@/components/app-ui/typography";
 import { parseDrivePackageDisclosure, type DrivePackageDisclosure } from "@/lib/consent/drive-package-disclosure";
-import { useAuth } from "@/hooks/use-auth";
 import {
   formatPaymentMoney,
   presentRequesterPayment,
@@ -19,7 +19,6 @@ import { usePeriodicTask } from "@/lib/perf/use-periodic-task";
 import { DriveRequestPaymentService, drivePaymentErrorMessage } from "@/lib/services/drive-request-payment-service";
 import { DriveSharingError, DriveSharingService } from "@/lib/services/drive-sharing-service";
 import { useArmedAction } from "@/lib/ui/use-armed-action";
-import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { useVault } from "@/lib/vault/vault-context";
 
 export type RequesterPaymentSectionProps = {
@@ -133,7 +132,9 @@ function PaymentBlock({ view, withdrawn, ownerName, busy, withdrawConfirm, onPay
  * with an armed confirmation. Renders nothing when no payment applies.
  */
 export function RequesterPaymentSection({ requestId, revision, payment, packageDisclosure, ownerName = null, onChanged }: RequesterPaymentSectionProps) {
-  const { user } = useAuth();
+  const { user, capture } = useCommerceSession(`document-request:${requestId}:${revision}:${
+    payment && "packageDisclosure" in payment ? payment.packageDisclosure?.packageDigest : packageDisclosure?.packageDigest
+  }:${payment && "packageDisclosure" in payment ? payment.packageDisclosure?.packageRevision : packageDisclosure?.packageRevision}`);
   const { getVaultOwnerToken } = useVault();
   const withdrawConfirm = useArmedAction();
   const [busy, setBusy] = useState<"pay" | "withdraw" | null>(null);
@@ -144,15 +145,11 @@ export function RequesterPaymentSection({ requestId, revision, payment, packageD
   const [withdrawn, setWithdrawn] = useState(false);
 
   // Each committed account/request owns its asynchronous checkout callback.
-  const checkoutScope = useRef<object | null>(null);
   useEffect(() => {
-    const scope = {};
-    checkoutScope.current = scope;
     setBusy(null);
     setError(null);
     setReply(null);
     setWithdrawn(false);
-    return () => { if (checkoutScope.current === scope) checkoutScope.current = null; };
   }, [user?.uid, requestId, revision, packageDisclosure?.packageDigest, packageDisclosure?.packageRevision,
     payment?.packageDisclosure?.packageDigest, payment?.packageDisclosure?.packageRevision]);
 
@@ -165,11 +162,8 @@ export function RequesterPaymentSection({ requestId, revision, payment, packageD
 
   const pay = async () => {
     if (busy || payBlocked) return;
-    const scope = checkoutScope.current;
-    const epoch = snapshotVaultSessionEpoch();
-    const current = () => scope !== null && checkoutScope.current === scope &&
-      isVaultSessionEpochCurrent(epoch);
-    if (!current()) return;
+    const current = capture();
+    const currentView = capture(false);
     setBusy("pay");
     setError(null);
     try {
@@ -178,36 +172,38 @@ export function RequesterPaymentSection({ requestId, revision, payment, packageD
       if (!idToken) throw new Error("Sign in to continue");
       const checkoutUrl = await DriveRequestPaymentService.checkout(idToken, requestId);
       if (!current()) return;
-      window.location.assign(checkoutUrl);
+      if (typeof checkoutUrl === "string") window.location.assign(checkoutUrl);
+      else onChanged();
     } catch (cause) {
-      if (!current()) return;
-      setError(drivePaymentErrorMessage(cause));
-      onChanged();
+      if (current()) { setError(drivePaymentErrorMessage(cause)); onChanged(); }
     } finally {
-      if (current()) setBusy(null);
+      if (currentView()) setBusy(null);
     }
   };
 
   const withdraw = async () => {
     const token = getVaultOwnerToken();
     if (busy || !token) return;
-    const epoch = snapshotVaultSessionEpoch();
+    const current = capture();
+    const currentView = capture(false);
     const guard = () => {
-      if (!isVaultSessionEpochCurrent(epoch) || getVaultOwnerToken() !== token)
+      if (!current() || getVaultOwnerToken() !== token)
         throw new DriveSharingError("session_changed");
     };
     setBusy("withdraw");
     setError(null);
     try {
       const result = await DriveSharingService.decide(token, requestId, "cancel", revision, guard);
+      if (!current()) return;
       setReply(result.payment ?? null);
       setWithdrawn(true);
       onChanged();
     } catch (cause) {
+      if (!current()) return;
       setError(withdrawErrorCopy(cause));
       onChanged();
     } finally {
-      setBusy(null);
+      if (currentView()) setBusy(null);
     }
   };
 

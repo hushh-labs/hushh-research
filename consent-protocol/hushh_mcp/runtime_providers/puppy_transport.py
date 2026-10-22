@@ -12,10 +12,13 @@ import asyncio
 import json
 import os
 import uuid
-from typing import Any, AsyncIterator
+from contextlib import aclosing
+from typing import Any, AsyncGenerator, AsyncIterator
 
 from .base import ProviderTransport
 from .normalized import NormalizedChunk, NormalizedFunctionCall, NormalizedResponse
+from .openai_transport import tool_json
+from .puppy_reasoning import publish_reasoning, reasoning_text
 from .translate import NeutralRequest
 
 DEFAULT_TIMEOUT_SECONDS = 120.0
@@ -26,8 +29,20 @@ class PuppyRelayUnavailable(RuntimeError):
     """The linked Puppy connection is unavailable or was interrupted."""
 
 
+class PuppyInferenceTimedOut(PuppyRelayUnavailable):
+    """The device inference or its response wait exceeded the existing budget."""
+
+
 class PuppyRelayProtocolError(RuntimeError):
     """Puppy returned a malformed, mismatched, or explicitly failed frame."""
+
+
+class PuppyModelUnavailable(PuppyRelayUnavailable):
+    """The selected local model is no longer installed or reachable."""
+
+
+class PuppyCatalogStale(PuppyRelayUnavailable):
+    """The selected model catalog changed before dispatch."""
 
 
 class PuppyCapabilityUnsupported(RuntimeError):
@@ -97,7 +112,9 @@ def _messages(request: NeutralRequest) -> list[dict[str, Any]]:
                     pending.remove(call_id)
                 if call_id:
                     item["toolCallId"] = call_id
-                item["toolResult"] = message.tool_result
+                # JSON-safe at the source: the sealed envelope serializes this with
+                # plain json.dumps, so a recall result's datetime ended the turn.
+                item["toolResult"] = json.loads(tool_json(message.tool_result))
             elif call_id:
                 item["toolCallId"] = call_id
         if len(item) > 1:
@@ -172,11 +189,13 @@ class PuppyRelayTransport(ProviderTransport):
         *,
         relay_url: str | None = None,
         device_id: str | None = None,
+        catalog_version: str | None = None,
         timeout_seconds: float | None = None,
     ) -> None:
         self._token = str(api_key or "").strip()
         self._url = (relay_url or os.getenv("PUPPY_INFERENCE_RELAY_URL") or "").strip()
         self._device_id = (device_id or os.getenv("PUPPY_INFERENCE_DEVICE_ID") or "").strip()
+        self._catalog_version = str(catalog_version or "").strip()
         self._timeout = timeout_seconds or _env_float(
             "PUPPY_INFERENCE_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS
         )
@@ -192,13 +211,19 @@ class PuppyRelayTransport(ProviderTransport):
             "type": "inference.request",
             "requestId": request_id,
             "deviceId": self._device_id,
-            "model": model,
             "messages": _messages(request),
             "systemInstruction": request.system_instruction,
             "temperature": request.temperature,
             "maxOutputTokens": request.max_output_tokens,
             "tools": _tools(request),
         }
+        # An absent model keeps the device's configured default. Sending the
+        # historical sentinel `local` as an explicit selection would make the
+        # device reject ordinary turns against its installed-model inventory.
+        if self._catalog_version and model and model != "local":
+            payload["model"] = model
+        if self._catalog_version:
+            payload["catalogVersion"] = self._catalog_version
         # Only set knobs travel: an absent key means "not asked", which the device
         # can tell apart from "asked for the default".
         response_format = _response_format(request)
@@ -279,7 +304,7 @@ class PuppyRelayTransport(ProviderTransport):
 
     async def _frames(
         self, request: NeutralRequest, *, model: str
-    ) -> AsyncIterator[dict[str, Any]]:
+    ) -> AsyncGenerator[dict[str, Any], None]:
         request_id = uuid.uuid4().hex
         socket = await self._connect()
         try:
@@ -310,7 +335,7 @@ class PuppyRelayTransport(ProviderTransport):
                     async with asyncio.timeout(self._timeout):
                         frame = self._decode(await socket.recv())
                 except asyncio.TimeoutError as exc:
-                    raise PuppyRelayUnavailable("Puppy inference timed out") from exc
+                    raise PuppyInferenceTimedOut("Puppy inference timed out") from exc
                 except PuppyRelayProtocolError:
                     raise
                 except Exception as exc:  # noqa: BLE001
@@ -319,6 +344,8 @@ class PuppyRelayTransport(ProviderTransport):
                     raise PuppyRelayProtocolError("Puppy returned a mismatched request")
                 kind = str(frame.get("type") or "")
                 if kind == "inference.error":
+                    if frame.get("code") == "PUPPY_TIMEOUT":
+                        raise PuppyInferenceTimedOut("Puppy inference timed out")
                     if str(frame.get("code") or "") == UNSUPPORTED_CAPABILITY_CODE:
                         capability = str(frame.get("capability") or "")
                         raise PuppyCapabilityUnsupported(capability or "requested capability")
@@ -352,23 +379,37 @@ class PuppyRelayTransport(ProviderTransport):
     ) -> AsyncIterator[NormalizedChunk]:
         emitted_result = False
         reported = ""
-        async for frame in self._frames(request, model=model):
-            kind = str(frame.get("type") or "")
-            reported = _reported_model(frame) or reported
-            if kind in {"inference.delta", "inference.result"}:
-                value = frame.get("text")
-                if isinstance(value, str) and value:
-                    emitted_result = True
-                    yield NormalizedChunk(
-                        text=value,
-                        function_calls=self._calls(frame.get("functionCalls")),
-                        model_version=reported,
-                    )
-                else:
-                    calls = self._calls(frame.get("functionCalls"))
-                    if calls:
-                        yield NormalizedChunk(function_calls=calls, model_version=reported)
-            if kind == "inference.done" and not emitted_result:
-                value = frame.get("text")
-                if isinstance(value, str) and value:
-                    yield NormalizedChunk(text=value, model_version=reported)
+        async with aclosing(self._frames(request, model=model)) as frames:
+            async for frame in frames:
+                kind = str(frame.get("type") or "")
+                reported = _reported_model(frame) or reported
+                emitted_frame = False
+                if kind == "inference.delta":
+                    # Display-only; never becomes model content (see puppy_reasoning).
+                    await publish_reasoning(reasoning_text(frame))
+                if kind in {"inference.delta", "inference.result"}:
+                    value = frame.get("text")
+                    if isinstance(value, str) and value:
+                        emitted_result = True
+                        emitted_frame = True
+                        yield NormalizedChunk(
+                            text=value,
+                            function_calls=self._calls(frame.get("functionCalls")),
+                            model_version=reported,
+                        )
+                    else:
+                        calls = self._calls(frame.get("functionCalls"))
+                        if calls:
+                            emitted_frame = True
+                            yield NormalizedChunk(function_calls=calls, model_version=reported)
+                if kind == "inference.done" and not emitted_result:
+                    value = frame.get("text")
+                    if isinstance(value, str) and value:
+                        emitted_frame = True
+                        yield NormalizedChunk(text=value, model_version=reported)
+                if (
+                    kind in {"inference.result", "inference.done"}
+                    and reported
+                    and not emitted_frame
+                ):
+                    yield NormalizedChunk(model_version=reported)

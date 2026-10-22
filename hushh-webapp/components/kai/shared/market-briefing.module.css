@@ -1,0 +1,78 @@
+@font-face {
+  font-family: "Inter";
+  src: url("/fonts/Inter/InterVariable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+/* The supplied Market reference calls for the same restrained Inter treatment
+   already used by Calendar. Keep it scoped to this workspace and consume the
+   shared semantic roles, whose important rules cannot be styled by utilities. */
+.typography {
+  --font-app-body: "Inter", system-ui, sans-serif;
+  --font-app-display: var(--font-app-body);
+  --font-app-heading: var(--font-app-body);
+  --type-agent-title-weight: 700;
+  --type-agent-title-tracking: -0.03em;
+  --foundation-title1-weight: 700;
+  --foundation-title1-tracking: -0.03em;
+  --type-card-title-size: 18px;
+  --type-card-title-line: 24px;
+  --type-card-title-weight: 650;
+  --type-card-title-tracking: -0.025em;
+  --type-major-section-title-size: 18px;
+  --type-major-section-title-line: 24px;
+  --type-major-section-title-weight: 650;
+  --type-major-section-title-tracking: -0.025em;
+  font-family: var(--font-app-body);
+  font-optical-sizing: auto;
+}
+
+.cardBody { padding: 20px; }
+.sectionHeader { margin-bottom: 12px; }
+.sectionHeader :global([data-slot="section-header-row"]) { flex-direction: row; align-items: center; flex-wrap: wrap; column-gap: 12px; }
+.sectionHeader :global([data-slot="section-header-actions"]) { width: auto; }
+.sectionHeader :global([data-slot="section-header-row"]) > div:first-child { min-width: max-content; }
+.sections { display: grid; gap: 28px; padding-top: 28px; }
+.activity { display: grid; align-items: start; gap: 16px; }
+.moversBody { padding: 12px 16px; }
+.indexLabel { font-size: 14px; line-height: 20px; font-weight: 600; }
+.indexValue { font-size: 18px; line-height: 24px; font-weight: 650; letter-spacing: -0.025em; font-variant-numeric: tabular-nums; }
+.metadata { font-size: 12px; line-height: 18px; font-weight: 400; color: var(--muted-foreground); }
+.indexDetailSurface {
+  --type-navigation-title-size: 20px;
+  --type-navigation-title-line: 26px;
+  --type-navigation-title-weight: 650;
+  --type-navigation-title-tracking: -0.025em;
+  --foundation-title3-size: 20px;
+  --foundation-title3-line: 26px;
+  --foundation-title3-weight: 650;
+  --foundation-title3-tracking: -0.025em;
+}
+.indexDetailSectionTitle { --foundation-title3-size: 14px; --foundation-title3-line: 20px; --foundation-title3-weight: 600; --foundation-title3-tracking: normal; }
+.indexDetailValue { margin-top: 4px; font-size: 30px; line-height: 36px; font-weight: 650; letter-spacing: -0.035em; font-variant-numeric: tabular-nums; }
+.groupLabel {
+  --foundation-headline-size: 13px;
+  --foundation-headline-line: 18px;
+  --foundation-headline-weight: 600;
+  --foundation-headline-tracking: normal;
+  margin-bottom: 4px;
+  color: var(--muted-foreground);
+}
+.newsTitle { display: block; font-size: 15px; line-height: 22px; font-weight: 600; letter-spacing: -0.015em; overflow-wrap: anywhere; }
+.newsMetadata { display: block; margin-top: 6px; font-size: 12px; line-height: 18px; font-weight: 400; color: var(--muted-foreground); }
+.sectorContent { display: grid; gap: 8px; }
+.sectorContent .sectionHeader { margin-bottom: 0; }
+.sectorRows { display: grid; }
+.sectorRow { display: grid; grid-template-columns: minmax(0, 1fr) 40px 60px; align-items: center; gap: 12px; min-height: 30px; padding: 4px 0; font-size: 14px; line-height: 20px; }
+
+@media (min-width: 640px) {
+  .sectorRows { display: none; }
+  .cardBody { padding: 24px; }
+  .indexValue { font-size: 22px; line-height: 28px; }
+}
+
+@media (min-width: 1024px) {
+  .activity { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 24px; }
+}

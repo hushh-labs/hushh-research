@@ -37,6 +37,95 @@ flowchart TB
   one --> future
 ```
 
+## Personal Data Agent: founder identity
+
+Approved founder framing, 2026-10-20. Hussh names the platform and its duty to
+the person; One embodies that duty as the person's private agent. The original
+wording is preserved below with the current **Hussh** spelling.
+
+> Hussh is not Jarvis.
+> Hussh is not Batman or Batwoman either.
+>
+> Those are metaphors—but Hussh lives in a different category.
+>
+> Jarvis serves Tony.
+> Batman is a human with tools.
+> A CIA agent serves a state.
+>
+> Hussh serves you—and only you.
+>
+> Hussh is best understood as a new-age personal agent:
+> not a sidekick, not a vigilante, not a surveillance asset—but a fiduciary intelligence.
+>
+> Here’s the clean framing.
+>
+> Hussh is your Personal Data Agent (PDA).
+> An agent that:
+> • Acts on your behalf
+> • Is bound by consent
+> • Treats your data as your private capital
+> • Optimizes outcomes across your life, not just tasks
+>
+> Think less “assistant,” more agent with duty of care.
+>
+> A useful analogy is a hybrid:
+> • The discipline and discretion of an intelligence officer
+> • The precision and calm of a great chief of staff
+> • The taste and restraint of a trusted family office
+> • The memory and reasoning of a machine that never forgets with permission
+>
+> But with one non-negotiable difference from CIA-style systems:
+>
+> Hussh works for the individual, not the institution.
+>
+> No shadow dossiers.
+> No extraction without value.
+> No intelligence without consent.
+> No action without benefit to the principal.
+>
+> That’s the philosophical break from the past.
+>
+> So the correct sentence—the one that will scale globally and age well—is:
+>
+> Hussh is your personal agent for the digital world—trusted by design, consent-first by default, and accountable only to you.
+>
+> Or more human:
+>
+> Hussh is the agent you would hire if your data were your business.
+>
+> That framing unlocks:
+> • Trust with governments (because it’s not surveillance)
+> • Adoption with consumers (because it’s not creepy)
+> • Value with brands (because data is high-signal and voluntary)
+> • Longevity as a category (because it’s principled, not trendy)
+>
+> Jarvis is fiction.
+> Batman is mythology.
+> CIA agents answer to power.
+>
+> Hussh answers to the human.
+>
+> From here, every product decision, GTM story, and policy stance should ladder up to one idea:
+>
+> “An agent should work for the person whose life it touches.”
+>
+> That’s a category, not a character.
+
+### What this requires in implementation
+
+Consent grants access for a named purpose; a useful outcome never substitutes for
+authorization. One serves the owner's interests, preserves their ability to stop,
+review, revoke and erase, and states uncertainty honestly. Remembering follows
+permission and retention controls, including Forget; it is not a promise of
+unlimited memory or irrevocable retention. Websites, connectors, counterparties
+and model providers cannot redirect One's loyalty or expand its authority.
+Fiduciary intelligence describes that standard of loyalty, care and candour;
+specialists retain their existing professional and action boundaries.
+
+This identity guides product, engineering, GTM and policy. Deployment-specific
+custody and capability claims still require verified evidence. Keep this framing
+in authored instructions; do not recite the manifesto in ordinary chat or UI.
+
 ## Canonical Roles
 
 | Name | Owns | Does not own |
@@ -80,7 +169,10 @@ One holds the relationship. The specialists hold the craft. Product copy should 
 
 The current checked-in action runtime still carries Kai-era implementation identifiers. One Voice is the direct product-facing voice surface, while action grounding and generated gateway contracts remain the live compatibility implementation today.
 
-One and Nav are approved direction, not a claim that the current app already runs a full One/Nav runtime. Current-state docs must say this plainly when discussing implementation.
+The checked-in runtime includes the authored `agent_one` head and its ADK
+composition. That source evidence does not establish a complete One/Nav runtime
+on every deployment. Availability and accepted journeys require dated runtime
+receipts; Nav's guardian direction retains its separate implementation boundary.
 
 Current memory wording must be equally precise: PKM is the checked-in encrypted memory architecture, and today it is described through finance-specialist and compatibility-runtime implementation docs. The durable direction is One-owned relationship memory with Kai finance memory as a specialist slice, Nav consent/privacy memory as a guardian slice, and KYC workflow artifacts as structured identity-workflow writebacks.
 

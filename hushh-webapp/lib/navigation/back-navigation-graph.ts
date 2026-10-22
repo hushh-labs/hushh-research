@@ -44,6 +44,7 @@ import {
   NEARBY_PRIVATE_RETURN_TOKEN_PARAM,
 } from "@/lib/one-location/nearby-private-navigation";
 import type { TopShellBreadcrumbConfig } from "@/lib/navigation/top-shell-breadcrumbs";
+import { ONE_LEAF_WORKSPACE_BACK_RULES } from "./one-leaf-workspace-back-rules";
 
 type SearchParamsLike =
   | URLSearchParams
@@ -120,6 +121,8 @@ export function resolveSmsContactsBackAction(
 }
 
 function profilePanelLabel(panel: ProfilePanel | null): string | null {
+  if (panel === "hosting") return "Hosting";
+  if (panel === "software-updates") return "Software updates";
   if (panel === "account") return "Account";
   if (panel === "my-data") return "Memory";
   if (panel === "payouts") return "Payouts";
@@ -180,6 +183,7 @@ export function profileOriginCrumbLabel(backHref: string): string {
     [ROUTES.CONNECTED_SYSTEMS]: "Connected Systems",
     [ROUTES.CONSENTS]: "Consent Center",
     [ROUTES.ONE_FEED]: "Feed",
+    [ROUTES.ONE_MESSAGES]: "Messages",
     [ROUTES.ONE_TODOS]: "To-do List",
     [ROUTES.ONE_KYC]: "KYC",
     [KAI_MARKET_PATH]: "Finance",
@@ -196,7 +200,8 @@ function profileDetailLabel(detail: string | null): string | null {
   if (detail === "sharing") return "Sharing";
   if (detail === "appearance") return "Appearance";
   if (detail === "kai-preferences") return "Finance preferences";
-  if (detail === "gemini") return "Gemini";
+  if (detail === "gemini") return "AI connection";
+  if (detail === "device") return "On-device first";
   if (detail === "vault") return "Vault methods";
   if (detail === "session") return "Session";
   if (detail === "danger") return "Danger zone";
@@ -229,19 +234,7 @@ function resolveCapabilitySetupBackHref(
 }
 
 export const BACK_NAVIGATION_RULES: BackRule[] = [
-  {
-    id: "one-referrals",
-    resolve: (pathname) => {
-      if (pathname !== ROUTES.ONE_REFERRALS) return undefined;
-      return {
-        backHref: ROUTES.ONE_HOME,
-        width: "content",
-        align: "center",
-        items: [{ label: "One", href: ROUTES.ONE_HOME }],
-        suppressFallbackTitle: true,
-      };
-    },
-  },
+  ...ONE_LEAF_WORKSPACE_BACK_RULES,
   {
     id: "legal-terms-privacy",
     resolve: (pathname) => {
@@ -265,7 +258,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
         backHref: ROUTES.CONNECT,
         width: "content",
         align: "center",
-        items: [{ label: "Connect", href: ROUTES.CONNECT }, { label: "Gemini" }],
+        items: [{ label: "Connect", href: ROUTES.CONNECT }, { label: "AI connection" }],
       };
     },
   },
@@ -282,6 +275,19 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
           { label: "Set up", href: ROUTES.ONE_SETUP },
           { label: "Choose your AI" },
         ],
+      };
+    },
+  },
+  {
+    id: "one-files",
+    resolve: (pathname) => {
+      if (pathname !== ROUTES.ONE_FILES) return undefined;
+      return {
+        backHref: ROUTES.ONE_HOME,
+        width: "profile",
+        align: "center",
+        suppressFallbackTitle: false,
+        items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Files" }],
       };
     },
   },
@@ -375,7 +381,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
           align: "center",
           items: [
             { label: "Finance", href: ROUTES.KAI_HOME },
-            { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
+            { label: "Stocks", href: ROUTES.KAI_ANALYSIS },
             { label: ticker ? `${ticker} analysis` : "Saved analysis" },
           ],
         };
@@ -387,7 +393,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
           align: "center",
           items: [
             { label: "Finance", href: ROUTES.KAI_HOME },
-            { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
+            { label: "Stocks", href: ROUTES.KAI_ANALYSIS },
             { label: ticker ? `${ticker} live` : "Active run" },
           ],
         };
@@ -399,7 +405,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
           align: "center",
           items: [
             { label: "Finance", href: ROUTES.KAI_HOME },
-            { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
+            { label: "Stocks", href: ROUTES.KAI_ANALYSIS },
             { label: `${ticker} preview` },
           ],
         };
@@ -411,7 +417,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
           align: "center",
           items: [
             { label: "Finance", href: ROUTES.KAI_HOME },
-            { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
+            { label: "Stocks", href: ROUTES.KAI_ANALYSIS },
             { label: "Debate" },
           ],
         };
@@ -905,7 +911,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
         backHref: resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
         width: "profile",
         align: "center",
-        items: [{ label: "One" }],
+        items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Mail" }],
       };
     },
   },

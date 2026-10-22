@@ -1491,6 +1491,7 @@
         "calendar.read",
         "consent.chat.turn",
         "location.chat.turn",
+        "one.scheduled_tasks.open",
         "route.one_agents",
         "route.one_feed",
         "route.one_location",
@@ -1936,6 +1937,51 @@
       "native_surface_id": "native-route-feed"
     },
     {
+      "route_pattern": "/one/files",
+      "page_file": "app/one/files/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.files",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.one.files",
+        "purpose": "Manage the owner’s encrypted Files library while the vault is unlocked. Private pods additionally require admission. Organization requires explicit analysis consent.",
+        "screen": "one_files",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "File changes complete only after the owner-authorized library confirms the matching operation; destructive changes require explicit confirmation.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally without inventing a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "one_files",
+      "voice_contract_file": "app/one/files/page.voice-action-contract.json",
+      "action_ids": [
+        "route.one_files"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": null
+    },
+    {
       "route_pattern": "/one/gmail",
       "page_file": "app/one/gmail/page.tsx",
       "route_mode": "standard",
@@ -1992,7 +2038,7 @@
         "playbook_id": "route.one.kai",
         "purpose": "Help the person understand and use the kai screen through its generated controls.",
         "screen": "kai_market",
-        "entry_cue": "Use Market, Portfolio, or Analysis to choose the active finance view.",
+        "entry_cue": "Use Market, Portfolio, or Stocks to choose the active finance view.",
         "proactivity": "on_entry",
         "primary_action_id": "route.kai_home",
         "happy_path_action_ids": [
@@ -2025,6 +2071,11 @@
         "analysis.open_detailed_tab",
         "analysis.open_summary_tab",
         "analysis.resume_active",
+        "analysis.start",
+        "market.sectors.show_all",
+        "market.sectors.show_day",
+        "market.sectors.show_highlights",
+        "market.sectors.show_week",
         "route.back",
         "route.kai_home"
       ],
@@ -2079,6 +2130,10 @@
         "analysis.open_summary_tab",
         "analysis.resume_active",
         "analysis.start",
+        "market.sectors.show_all",
+        "market.sectors.show_day",
+        "market.sectors.show_highlights",
+        "market.sectors.show_week",
         "route.analysis_history",
         "route.back",
         "route.kai_analysis",
@@ -2135,6 +2190,10 @@
         "analysis.open_summary_tab",
         "analysis.resume_active",
         "analysis.start",
+        "market.sectors.show_all",
+        "market.sectors.show_day",
+        "market.sectors.show_highlights",
+        "market.sectors.show_week",
         "route.analysis_history",
         "route.back",
         "route.kai_analysis",
@@ -2191,6 +2250,10 @@
         "analysis.open_summary_tab",
         "analysis.resume_active",
         "analysis.start",
+        "market.sectors.show_all",
+        "market.sectors.show_day",
+        "market.sectors.show_highlights",
+        "market.sectors.show_week",
         "route.analysis_history",
         "route.back",
         "route.kai_analysis",
@@ -2246,6 +2309,11 @@
         "analysis.open_detailed_tab",
         "analysis.open_summary_tab",
         "analysis.resume_active",
+        "analysis.start",
+        "market.sectors.show_all",
+        "market.sectors.show_day",
+        "market.sectors.show_highlights",
+        "market.sectors.show_week",
         "route.back",
         "route.kai_home"
       ],
@@ -2448,7 +2516,7 @@
       "context_policy": "suppress",
       "voice_playbook": {
         "playbook_id": "route.one.kai.market",
-        "purpose": "Help the person move between Market, Portfolio, and Analysis through the shared Finance workspace.",
+        "purpose": "Help the person move between Market, Portfolio, and Stocks through the shared Finance workspace.",
         "screen": "kai_market",
         "entry_cue": "",
         "proactivity": "ambient",
@@ -3359,13 +3427,14 @@
       "context_policy": "publish",
       "voice_playbook": {
         "playbook_id": "route.one.pkm",
-        "purpose": "Memory opens on memory.md, the formatted document One uses in conversations. The owner can edit and save it; Saved, Add, and Sharing retain the specialist memory flows. Back cancels the memory.md editor before leaving Memory, and saving completes only after encrypted persistence succeeds.",
+        "purpose": "Memory has Saved and Add tabs. Saved category rows open Sharing and price at the domain level. Review listing and exact section prices, or a whole-bundle price when owner discovery permits it. Chat opens the same review without changing listing or prices. Private-agent memory remains private; editing and encrypted persistence retain their existing authority.",
         "screen": "pkm",
         "entry_cue": "You can say “Open Memory” to use the primary control on this screen.",
         "proactivity": "on_entry",
         "primary_action_id": "route.one_pkm",
         "happy_path_action_ids": [
-          "route.one_pkm"
+          "route.one_pkm",
+          "pkm.review_sharing_price"
         ],
         "required_inputs": [],
         "recoveries": {
@@ -3376,17 +3445,23 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Opening bundle or price review changes nothing. Listing changes only after an explicit visibility control succeeds. Prices change only after confirmation and persistence; listing and pricing never grant recipient access or purchase confirmation.",
         "next_route": "/one/pkm",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
       "interaction_layer_policy": {
-        "allowed_families": []
+        "allowed_families": [
+          "sharing_price_review",
+          "sharing_bundle_review"
+        ]
       },
       "canonical_screen": "pkm",
-      "voice_contract_file": null,
+      "voice_contract_file": "app/one/pkm/page.voice-action-contract.json",
       "action_ids": [
+        "pkm.close_sharing_bundle_review",
+        "pkm.close_sharing_price_review",
+        "pkm.review_sharing_price",
         "route.one_pkm",
         "route.profile_pkm_agent_lab"
       ],
@@ -3721,7 +3796,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Authenticated server status establishes payment and onboarding completion. An opaque hosted return only prompts a fresh read; it never grants scope access.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -3970,6 +4045,49 @@
       "native_surface_id": null
     },
     {
+      "route_pattern": "/one/profile/discovery",
+      "page_file": "app/one/profile/discovery/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.discovery",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.profile.discovery",
+        "purpose": "Explain the source-linked public profile review without deciding which findings to claim.",
+        "screen": "profile_discovery",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the person's review goal.",
+          "cancelled": "Respect the cancellation and leave findings unclaimed.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer a safe retry in the review workspace.",
+          "callback_error": "Return to the protected review workspace without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Claim completion is shown only after the protected browser review confirms the selected information was added.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "The private agent may explain the screen; claim decisions require the person's protected review controls."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "profile_discovery",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile-discovery"
+    },
+    {
       "route_pattern": "/one/profile/gmail",
       "page_file": "app/one/profile/gmail/page.tsx",
       "route_mode": "redirect",
@@ -4185,6 +4303,49 @@
       "native_surface_id": null
     },
     {
+      "route_pattern": "/one/profile/hosting",
+      "page_file": "app/one/profile/hosting/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.hosting",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.profile.hosting",
+        "purpose": "Help the person understand hosting through verified settings controls.",
+        "screen": "profile_hosting",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "profile_hosting",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
       "route_pattern": "/one/profile/integrations",
       "page_file": "app/one/profile/integrations/page.tsx",
       "route_mode": "redirect",
@@ -4326,7 +4487,7 @@
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.profile.payouts",
-        "purpose": "Help the person use payouts through its generated controls.",
+        "purpose": "Help the person manage purchase balance and source-specific earnings without changing consent or financial authority.",
         "screen": "profile_payouts",
         "entry_cue": "",
         "proactivity": "ambient",
@@ -4551,7 +4712,7 @@
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.profile.preferences.gemini",
-        "purpose": "Help the person manage Gemini preferences without exposing a credential to the private agent.",
+        "purpose": "Help the person manage the selected AI connection without exposing a credential to the private agent.",
         "screen": "profile_preferences",
         "entry_cue": "",
         "proactivity": "ambient",
@@ -5127,6 +5288,49 @@
       "native_surface_id": "native-route-profile"
     },
     {
+      "route_pattern": "/one/profile/software-updates",
+      "page_file": "app/one/profile/software-updates/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.software-updates",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.profile.software-updates",
+        "purpose": "Help the person understand software updates through verified settings controls.",
+        "screen": "profile_software-updates",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "profile_software-updates",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
       "route_pattern": "/one/profile/support",
       "page_file": "app/one/profile/support/page.tsx",
       "route_mode": "standard",
@@ -5409,9 +5613,9 @@
         "screen": "one_setup_hub",
         "entry_cue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
         "proactivity": "on_entry",
-        "primary_action_id": "setup.open_connections",
+        "primary_action_id": "setup.open_cloud",
         "happy_path_action_ids": [
-          "setup.open_connections",
+          "setup.open_cloud",
           "setup.open_gmail",
           "setup.open_calendar",
           "setup.open_location",
@@ -5442,6 +5646,7 @@
       "action_ids": [
         "setup.hub_master_ack",
         "setup.open_calendar",
+        "setup.open_cloud",
         "setup.open_connected_systems",
         "setup.open_connections",
         "setup.open_email",
@@ -5553,6 +5758,98 @@
       "native_surface_id": null
     },
     {
+      "route_pattern": "/one/setup/cloud",
+      "page_file": "app/one/setup/cloud/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.setup.cloud",
+      "context_policy": "publish",
+      "voice_playbook": {
+        "playbook_id": "route.one.setup.cloud",
+        "purpose": "Choose verified hosting, then configure AI access in the same agent setup wizard.",
+        "screen": "one_setup_cloud",
+        "entry_cue": "Choose where your private agent lives, then choose its AI access.",
+        "proactivity": "on_entry",
+        "primary_action_id": "setup.finish_cloud",
+        "happy_path_action_ids": [
+          "setup.finish_cloud"
+        ],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Finish returns to the hub only after verified hosting and a durable AI choice; it never acknowledges root onboarding.",
+        "next_route": "/one/setup",
+        "return_policy": "return_to_hub",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "one_setup_cloud",
+      "voice_contract_file": "app/one/setup/cloud/page.voice-action-contract.json",
+      "action_ids": [
+        "setup.finish_cloud"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": "native-route-one-setup-cloud"
+    },
+    {
+      "route_pattern": "/one/setup/cloud/azure/return",
+      "page_file": "app/one/setup/cloud/azure/return/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.setup.cloud.azure.return",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.one.setup.cloud.azure.return",
+        "purpose": "Finish the Microsoft sign-in that sets up or updates the person's private agent in their own Azure subscription, without exposing credentials.",
+        "screen": "one_setup_cloud",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Return to cloud setup and explain that Azure was not connected.",
+          "timeout": "Retain the goal and offer a safe retry.",
+          "callback_error": "Return to cloud setup without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "The callback completes only after the hub verifies the sign-in state and starts the setup or update job; progress is read from that job's record.",
+        "next_route": "/one/setup/cloud",
+        "return_policy": "navigate",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "one_setup_cloud",
+      "voice_contract_file": null,
+      "action_ids": [
+        "setup.finish_cloud"
+      ],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
+    },
+    {
       "route_pattern": "/one/setup/connected-systems",
       "page_file": "app/one/setup/connected-systems/page.tsx",
       "route_mode": "standard",
@@ -5610,9 +5907,9 @@
       "context_policy": "publish",
       "voice_playbook": {
         "playbook_id": "route.one.setup.connections",
-        "purpose": "Choose private Gemini runtime configuration before feature-specific setup without exposing an API key to the agent.",
+        "purpose": "Choose a supported AI connection for the selected hosting without exposing a credential to the private agent.",
         "screen": "one_setup_connections",
-        "entry_cue": "Choose Hussh managed Gemini now, or record BYOK and add the encrypted key after setup.",
+        "entry_cue": "Use the verified cloud connection, or validate a supported owner key.",
         "proactivity": "on_entry",
         "primary_action_id": "setup.finish_connections",
         "happy_path_action_ids": [

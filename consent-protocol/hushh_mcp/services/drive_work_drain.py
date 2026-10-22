@@ -15,6 +15,7 @@ from typing import Any
 
 from hushh_mcp.services.drive_bulk_share_worker import DriveBulkShareWorker
 from hushh_mcp.services.drive_document_worker import DriveDocumentWorker
+from hushh_mcp.services.drive_group_index_job import DriveGroupIndexJob
 from hushh_mcp.services.drive_owner_search_worker import DriveOwnerSearchWorker
 from hushh_mcp.services.drive_permission_worker import DrivePermissionWorker
 from hushh_mcp.services.drive_request_bulk_removal_worker import DriveRequestBulkRemovalWorker
@@ -29,6 +30,7 @@ from hushh_mcp.services.pkm_packet_order_worker import PkmPacketOrderWorker
 
 MAX_JOBS_PER_WORKER = 20
 WORKER_JOB_LIMITS = {
+    "groups": 1,
     "documents": 20,
     "suggestions": 1,
     "searches": 1,
@@ -42,6 +44,7 @@ WORKER_JOB_LIMITS = {
     "packet_orders": 20,
 }
 STAGE_WORKERS = {
+    "groups": frozenset({"groups"}),
     "documents": frozenset({"documents"}),
     "suggestions": frozenset({"suggestions", "searches"}),
     "v1": frozenset(
@@ -69,6 +72,7 @@ STAGE_WORKERS = {
     ),
 }
 STAGE_MAX_SECONDS = {
+    "groups": 180,
     "documents": 180,
     "suggestions": 175,
     "searches": 90,
@@ -82,6 +86,7 @@ STAGE_MAX_SECONDS = {
     "packet_orders": 35,
 }
 STAGE_MIN_SECONDS = {
+    "groups": 160,
     "documents": 160,
     "suggestions": 150,
     "searches": 20,
@@ -97,6 +102,9 @@ STAGE_MIN_SECONDS = {
 MAX_OUTCOME_COUNT = 500
 
 _WORKER_ALLOWED_OUTCOMES = {
+    "groups": frozenset(
+        {"queued", "indexed", "idle", "unavailable", "disabled", "deadline", "deferred"}
+    ),
     "searches": frozenset(
         {
             "queued",
@@ -321,6 +329,7 @@ class DriveWorkDrain:
         self,
         *,
         document_worker: DriveDocumentWorker | None = None,
+        group_worker: DriveGroupIndexJob | None = None,
         suggestion_worker: DriveSuggestionWorker | None = None,
         search_worker: DriveOwnerSearchWorker | None = None,
         permission_worker: DrivePermissionWorker | None = None,
@@ -335,6 +344,7 @@ class DriveWorkDrain:
         # Sharing permissions precede notifications in the same stage. Other
         # stages run on their own fixed scheduler jobs, never in this request.
         self._workers = (
+            ("groups", group_worker or DriveGroupIndexJob()),
             ("documents", document_worker or DriveDocumentWorker()),
             ("suggestions", suggestion_worker or DriveSuggestionWorker()),
             ("searches", search_worker or DriveOwnerSearchWorker()),

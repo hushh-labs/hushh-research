@@ -15,6 +15,11 @@ import tempfile
 import unittest
 from unittest import mock
 
+from test_release_artifact_receipts import (
+    ReplayedProductionReleaseArtifactTest as ReplayedProductionReleaseArtifactTest,
+    ReplayedUatReleaseArtifactTest as ReplayedUatReleaseArtifactTest,
+)
+
 SCRIPT = pathlib.Path(__file__).with_name("cloudrun-retention.py")
 SPEC = importlib.util.spec_from_file_location("cloudrun_retention", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
@@ -2114,7 +2119,12 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             self.assertNotIn("uat-drain-wait:", text)
             self.assertNotIn("uat-drain-recheck:", text)
             self.assertNotIn('sleep "$wait_seconds"', text)
-            self.assertNotIn("--force-inspection", text)
+            # Only the explicit, separately authorized production bridge may
+            # force inspection. Ordinary ticks must retain the quiet due check.
+            for line in text.splitlines():
+                if "--force-inspection" in line:
+                    self.assertRegex(line.strip(), r'^if \[\[ "\$CAPACITY_BRIDGE" = true \]\]; then flags(?:=|\+=)\(--force-inspection(?: --production-capacity-bridge)?\); fi$')
+            self.assertIn('[[ "$GITHUB_EVENT_NAME" = workflow_dispatch && "$RELEASE_ENV" = production && "$APPLY" = true ]] || exit 1', text)
             concurrency = text.split("\nconcurrency:\n", 1)[1].split(
                 "\npermissions:", 1
             )[0]
@@ -2161,6 +2171,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                             "|| github.event.action == 'capacity-maintenance-tick-uat' || inputs.environment == 'production'"), clock_source),
             (source.replace("'Capacity Maintenance tick (uat)'", "'Capacity Maintenance (uat)'"), clock_source),
             (source + '\n  uat-drain-wait:\n    run: sleep "$wait_seconds"\n', clock_source),
+            (source + '\n          flags=(--force-inspection)\n', clock_source),
             (source.replace("github.event_name == 'repository_dispatch') && 'scheduled'", "false) && 'scheduled'"), clock_source),
             (source, clock_source.replace("      name: capacity-maintenance-clock\n", "      name: uat\n")),
             (source, clock_source.replace("needs.check.outputs.uat_ready == 'true' || needs.check.outputs.production_ready == 'true'", "true")),
@@ -2169,16 +2180,34 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             with self.assertRaises(AssertionError):
                 check_policy(broken, broken_clock)
 
-    def test_only_the_capacity_workflows_carry_its_dispatch_events(self):
+    def test_only_the_capacity_workflows_emit_its_dispatch_events(self):
         # A deploy workflow sending a tick would re-couple maintenance to releases.
         workflows = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows"
         allowed = {"capacity-maintenance.yml", "capacity-maintenance-clock.yml"}
+
+        def check_policy(name, text):
+            if name in allowed:
+                return
+            if name == "release-cadence.yml":
+                # The downstream observer may receive the existing broadcast,
+                # but cannot become another clock/tick producer or alter its wait.
+                subscription = "  repository_dispatch:\n    types: [capacity-maintenance-clock]\n"
+                self.assertIn(subscription, text)
+                text = text.replace(subscription, "", 1)
+            self.assertNotIn("capacity-maintenance-tick", text)
+            self.assertNotIn("capacity-maintenance-clock", text)
+
         for path in sorted(workflows.glob("*.y*ml")):
-            text = path.read_text()
-            if path.name not in allowed:
-                with self.subTest(workflow=path.name):
-                    self.assertNotIn("capacity-maintenance-tick", text)
-                    self.assertNotIn("capacity-maintenance-clock", text)
+            with self.subTest(workflow=path.name):
+                check_policy(path.name, path.read_text())
+        observer = (workflows / "release-cadence.yml").read_text()
+        for broken in (observer + "\nrun: gh api dispatches -f event_type=capacity-maintenance-clock\n",
+                       observer + "\nrun: gh api dispatches -f event_type=capacity-maintenance-tick\n",
+                       observer.replace("types: [capacity-maintenance-clock]", "types: [capacity-maintenance-clock, another]")):
+            with self.assertRaises(AssertionError):
+                check_policy("release-cadence.yml", broken)
+        with self.assertRaises(AssertionError):
+            check_policy("deploy-uat.yml", observer)
 
     def test_direct_deployment_capacity_checks_have_bounded_process_groups(self):
         workflow_dir = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows"
@@ -3237,7 +3266,10 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             check = steps[check_index]
             self.assertIn("--verify-source-only", check)
             self.assertIn("--release-run-id", check)
-            self.assertNotIn("--force-inspection", check)
+            if "--force-inspection" in check:
+                self.assertIn("CAPACITY_BRIDGE: ${{ inputs.production_capacity_bridge }}", check)
+                self.assertIn('if [[ "$CAPACITY_BRIDGE" = true ]]; then flags=(--force-inspection); fi', check)
+                self.assertNotIn("--force-inspection", check.replace('if [[ "$CAPACITY_BRIDGE" = true ]]; then flags=(--force-inspection); fi', ""))
             self.assertNotIn("--apply", check)
             for i, step in enumerate(steps):
                 protected = any(
@@ -3271,6 +3303,10 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             broken = job.replace("        if: " + gate + "\n", "", 1)
             with self.assertRaises(AssertionError):
                 assert_guarded(broken)
+            if "--force-inspection" in job:
+                broken = job.replace('if [[ "$CAPACITY_BRIDGE" = true ]]; then flags=(--force-inspection); fi', 'if true; then flags=(--force-inspection); fi')
+                with self.assertRaises(AssertionError):
+                    assert_guarded(broken)
 
     def test_newest_artifact_is_available_without_eager_history_scan(self):
         first = {"id": 1}
@@ -3551,6 +3587,8 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     ],
                     "in_progress",
                 )
+
+
 
 
 if __name__ == "__main__":

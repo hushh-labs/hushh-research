@@ -24,13 +24,18 @@ import time
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 
+import release_artifact_receipts
+
 retention = importlib.import_module("cloudrun-retention")
+capacity_bridge = importlib.import_module("production-capacity-bridge")
 REGION = "us-central1"
 LANES = {
     "uat": {
         "project": "hushh-pda-uat",
         "workflow": "deploy-uat.yml",
         "prefix": "uat",
+        "deploy_job": "Deploy UAT Scope",
+        "upload_step": "Upload UAT deploy artifacts",
         "state_artifact": "uat-retention-state",
         "services": {
             "consent-protocol": 2,
@@ -42,6 +47,8 @@ LANES = {
         "project": "hushh-pda",
         "workflow": "deploy-production.yml",
         "prefix": "prod",
+        "deploy_job": "Deploy Production Scope",
+        "upload_step": "Upload production deploy artifacts",
         "state_artifact": "production-retention-state",
         "services": {"consent-protocol": 2, "hushh-webapp": 10},
     },
@@ -333,6 +340,36 @@ def artifact_exists(repository: str, run_id: int, name: str) -> bool:
     return True
 
 
+def replayed_release_artifact(
+    repository: str, run_id: int, name: str, environment: str = "uat"
+) -> dict:
+    """Resolve a duplicate release name only from its exact current upload step."""
+    if environment not in LANES:
+        raise retention.UnsafeState("release environment is invalid")
+    return release_artifact_receipts.resolve_replayed_artifact(
+        repository, run_id, name, LANES[environment], environment,
+        api=api, governed_dispatch=governed_dispatch, timestamp=_github_timestamp,
+    )
+
+
+def download_replayed_release(
+    repository: str, artifact: dict, directory: Path, environment: str = "uat"
+) -> None:
+    """Read only the release status from an immutable, digest-verified archive."""
+    if environment not in LANES:
+        raise retention.UnsafeState("release environment is invalid")
+    deadline = _LOOKUP_DEADLINE.get()
+    timeout = min(180.0, deadline - time.monotonic()) if deadline is not None else 180.0
+    release_artifact_receipts.download_replayed_artifact(
+        repository, artifact, directory, f"{LANES[environment]['prefix']}-release-status.json",
+        run_command=retention.run_command, timeout=timeout,
+    )
+
+# Preserve existing UAT-only imports while both lanes share the strict reader.
+replayed_uat_release_artifact = replayed_release_artifact
+download_replayed_uat_release = download_replayed_release
+
+
 def download(repository: str, run_id: int, name: str, directory: Path) -> None:
     command(
         "gh",
@@ -354,6 +391,19 @@ def governed_dispatch(
     policy = json.loads(
         (Path(__file__).resolve().parents[2] / "config/ci-governance.json").read_text()
     )
+    if (
+        environment == "production"
+        and trusted_origin(run, repository, workflow or LANES[environment]["workflow"])
+        and run.get("event") == "workflow_dispatch"
+        and (run.get("actor") or {}).get("login") == "github-actions[bot]"
+    ):
+        from release_cadence import UnsafeRelease
+        from release_cadence_github import recorded_authority
+        try:
+            _, lane = recorded_authority(repository, run)
+            return lane == "deploy"
+        except UnsafeRelease:
+            return False
     return (
         trusted_origin(run, repository, workflow or LANES[environment]["workflow"])
         and run.get("event") == "workflow_dispatch"
@@ -365,12 +415,21 @@ def governed_dispatch(
 def load_release(repository: str, run_id: int, directory: Path, environment: str) -> dict | None:
     prefix = LANES[environment]["prefix"]
     name = f"{prefix}-release-{run_id}"
-    if not artifact_exists(repository, run_id, name):
-        return None
-    release_directory = directory / str(run_id)
+    artifact = None
+    try:
+        if not artifact_exists(repository, run_id, name):
+            return None
+    except retention.UnsafeState:
+        artifact = replayed_release_artifact(repository, run_id, name, environment)
+    release_directory = directory / (
+        f"{run_id}-artifact-{artifact['id']}" if artifact else str(run_id)
+    )
     status_file = release_directory / f"{prefix}-release-status.json"
     if not status_file.exists():
-        download(repository, run_id, name, release_directory)
+        if artifact:
+            download_replayed_release(repository, artifact, release_directory, environment)
+        else:
+            download(repository, run_id, name, release_directory)
     if status_file.is_symlink():
         raise retention.UnsafeState("source release artifact is a symlink")
     release = json.loads(status_file.read_text())
@@ -1587,8 +1646,11 @@ def main() -> int:
 
 
 def checkpoint(args, run_id, observed, pending, status):
+    receipt_file = args.state_dir / "completed.json"
+    prior = json.loads(receipt_file.read_text()) if receipt_file.exists() else {}
+    bridge = capacity_bridge.receipt_state(prior.get("capacity_bridge"))
     retention.atomic_state(
-        args.state_dir / "completed.json",
+        receipt_file,
         {
             "schema_version": 1,
             "checkpoint_version": 2,
@@ -1598,6 +1660,7 @@ def checkpoint(args, run_id, observed, pending, status):
             "observed_run_id": observed,
             "pass_status": status,
             "pending_services": list(pending),
+            **({"capacity_bridge": bridge} if bridge is not None else {}),
         },
     )
     output = os.environ.get("GITHUB_OUTPUT")
@@ -1700,6 +1763,9 @@ def assert_no_pending_mutations(repository, directory, environment):
     receipt = directory / "completed.json"
     if receipt.exists():
         state = json.loads(receipt.read_text())
+        bridge = capacity_bridge.receipt_state(state.get("capacity_bridge"))
+        if bridge is not None and bridge["status"] != "verified":
+            raise retention.UnsafeState("Capacity bridge provider outcome requires maintenance reconciliation")
         if state.get("pass_status", "complete") == "unresolved":
             raise retention.UnsafeState(
                 "Cleanup provider outcome is unresolved; reconcile maintenance before deployment"
@@ -1730,6 +1796,7 @@ def maintenance_pass() -> int:
     parser.add_argument("--release-run-id", default="")
     parser.add_argument("--state-dir", type=Path, required=True)
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--production-capacity-bridge", action="store_true")
     parser.add_argument("--verify-source-only", action="store_true")
     parser.add_argument("--check-mutations", action="store_true")
     parser.add_argument(
@@ -1739,6 +1806,10 @@ def maintenance_pass() -> int:
     )
     parser.add_argument("--environment", choices=tuple(LANES), default="uat")
     args = parser.parse_args()
+    if args.production_capacity_bridge and (args.environment != "production" or not args.apply
+            or args.verify_source_only or args.check_mutations or not args.force_inspection
+            or os.getenv("GITHUB_EVENT_NAME") != "workflow_dispatch" or os.getenv("GITHUB_REF_NAME") != "main"):
+        parser.error("capacity bridge requires explicit manual production apply with forced inspection")
     if (args.verify_source_only or args.check_mutations) and args.apply:
         parser.error("source verification cannot apply cleanup")
     if args.release_run_id and not args.release_run_id.isdigit():
@@ -1820,6 +1891,15 @@ def maintenance_pass() -> int:
                 if isinstance(exc, retention.MutationUncertain)
                 else "deferred"
             )
+            checkpoint(args, run_id, observation, pending, outcome)
+            record_uat_cleanup_outcome(args, outcome)
+            return 0
+    if args.apply and args.environment == "production":
+        try:
+            capacity_bridge.maintain(release, args.state_dir / "completed.json", create=args.production_capacity_bridge)
+        except (retention.BudgetExpired, retention.MutationUncertain) as exc:
+            bridge = capacity_bridge.receipt_state(json.loads((args.state_dir / "completed.json").read_text()).get("capacity_bridge"))
+            outcome = "unresolved" if isinstance(exc, retention.MutationUncertain) or (bridge is not None and bridge["status"] == "intent" and bridge["requested"]) else "deferred"
             checkpoint(args, run_id, observation, pending, outcome)
             record_uat_cleanup_outcome(args, outcome)
             return 0

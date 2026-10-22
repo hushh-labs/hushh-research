@@ -332,7 +332,20 @@
     "365_one_product_activity_observations.sql",
     "366_one_product_activity_correlation.sql",
     "367_one_product_value_receipts.sql",
-    "368_drive_group_index.sql"
+    "368_drive_existing_access_nocharge.sql",
+    "369_calendar_additional_accounts.sql",
+    "370_one_marketing_preferences.sql",
+    "399_public_profile_release_foundation.sql",
+    "400_vault_environment_enrollment.sql",
+    "401_consumer_scope_commerce.sql",
+    "402_one_shared_hosting_choice.sql",
+    "403_public_profile_bridge.sql",
+    "404_one_placement_reader_foundation.sql",
+    "405_one_legacy_shared_continuity.sql",
+    "406_stripe_payout_source_binding.sql",
+    "407_plg_memory_revision_index.sql",
+    "408_validate_plg_memory_revision_index.sql",
+    "409_drive_group_index.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -688,6 +701,13 @@
     "347_one_referral_dashboard_lifecycle.sql": "rollback/347_one_referral_dashboard_lifecycle.rollback.sql",
     "348_one_referral_confirmed_memory_reward.sql": "rollback/348_one_referral_confirmed_memory_reward.rollback.sql",
     "349_one_referral_dashboard_truth.sql": "rollback/349_one_referral_dashboard_truth.rollback.sql",
+    "400_vault_environment_enrollment.sql": "rollback/400_vault_environment_enrollment.rollback.sql",
+    "401_consumer_scope_commerce.sql": "rollback/401_consumer_scope_commerce.rollback.sql",
+    "402_one_shared_hosting_choice.sql": "rollback/402_one_shared_hosting_choice.rollback.sql",
+    "403_public_profile_bridge.sql": "rollback/403_public_profile_bridge.rollback.sql",
+    "404_one_placement_reader_foundation.sql": "rollback/404_one_placement_reader_foundation.rollback.sql",
+    "405_one_legacy_shared_continuity.sql": "rollback/405_one_legacy_shared_continuity.rollback.sql",
+    "406_stripe_payout_source_binding.sql": "rollback/406_stripe_payout_source_binding.rollback.sql",
     "350_circle_chat_full_emoji_reactions.sql": "rollback/350_circle_chat_full_emoji_reactions.rollback.sql",
     "351_wallet_card_requests.sql": "rollback/351_wallet_card_requests.rollback.sql",
     "352_pwm_invitation_secondary_contact.sql": "rollback/352_pwm_invitation_secondary_contact.rollback.sql",
@@ -706,6 +726,12 @@
     "365_one_product_activity_observations.sql": "rollback/365_one_product_activity_observations.rollback.sql",
     "366_one_product_activity_correlation.sql": "rollback/366_one_product_activity_correlation.rollback.sql",
     "367_one_product_value_receipts.sql": "rollback/367_one_product_value_receipts.rollback.sql",
-    "368_drive_group_index.sql": "rollback/368_drive_group_index.rollback.sql"
+    "368_drive_existing_access_nocharge.sql": "rollback/368_drive_existing_access_nocharge.rollback.sql",
+    "369_calendar_additional_accounts.sql": "rollback/369_calendar_additional_accounts.rollback.sql",
+    "370_one_marketing_preferences.sql": "rollback/370_one_marketing_preferences.rollback.sql",
+    "399_public_profile_release_foundation.sql": "rollback/399_public_profile_release_foundation.rollback.sql",
+    "407_plg_memory_revision_index.sql": "rollback/407_plg_memory_revision_index.rollback.sql",
+    "408_validate_plg_memory_revision_index.sql": "rollback/408_validate_plg_memory_revision_index.rollback.sql",
+    "409_drive_group_index.sql": "rollback/409_drive_group_index.rollback.sql"
   }
 }

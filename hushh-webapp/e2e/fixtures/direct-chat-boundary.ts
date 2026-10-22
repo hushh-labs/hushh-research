@@ -37,12 +37,12 @@ if (new URLSearchParams(window.location.search).has("preview")) {
 }
 function conversation(id: string): DirectMessageConversation {
   return { id, peerPersonRef: id === "maya" ? "person-maya" : id, peerDisplayName: id === "maya" ? "Maya Rao" : id === "leah" ? "Leah Roy" : "Arjun Mehta with a very long display name",
-    peerPhotoUrl: id === "maya" ? "/fixture-person-0.webp" : "/fixture-person-1.webp", createdAt: rows.get(id)![0]!.createdAt,
-    lastMessageAt: rows.get(id)!.at(-1)!.createdAt, latestMessage: rows.get(id)!.at(-1)!, unreadCount: rows.get(id)!.filter((item) => !item.senderIsViewer && !item.readAt).length };
+    peerPhotoUrl: id === "maya" ? "/fixture-person-0.webp" : "/fixture-person-1.webp", createdAt: rows.get(id)![0]?.createdAt ?? "2026-10-09T09:00:00Z",
+    lastMessageAt: rows.get(id)!.at(-1)?.createdAt ?? null, latestMessage: rows.get(id)!.at(-1) ?? null, unreadCount: rows.get(id)!.filter((item) => !item.senderIsViewer && !item.readAt).length };
 }
 // A selected public person reference is distinct from the existing thread ID.
 const conversationIdForPerson = (personRef: string) => personRef === "person-maya" ? "maya" : personRef;
-const sends: { recipientPersonRef: string; content: string; clientMessageId: string; replyToMessageId?: string }[] = [];
+const sends: { recipientPersonRef: string; content: string; clientMessageId: string; replyToMessageId?: string; attachment?: File }[] = [];
 const reads: { conversationId: string; throughMessageId: string }[] = [];
 let loseResponse = false;
 let delaySend = false;
@@ -139,7 +139,7 @@ export class DirectMessagesService {
 
   static async listConversations() {
     if (delayInbox) await new Promise<void>((resolve) => { settleInbox = resolve; });
-    const items = [conversation("maya"), conversation("arjun")];
+    const items = [conversation("maya"), conversation("arjun")].filter(item => item.latestMessage);
     if (overflowingInbox) {
       items.push(...Array.from({ length: 30 }, (_, index) => ({ ...conversation("arjun"), id: `extra-${index}`, peerDisplayName: `Connection ${index + 1}` })));
     }
@@ -182,6 +182,10 @@ export class DirectMessagesService {
     let message = items.find((item) => item.id === input.clientMessageId);
     if (!message) { message = { id: input.clientMessageId, conversationId, senderIsViewer: true, content: input.content,
       createdAt: new Date(Date.parse(items.at(-1)?.createdAt ?? "2026-10-09T12:00:00Z") + 60_000).toISOString(), readAt: null }; items.push(message); }
+    if (input.attachment) {
+      attachments.set(message.id, input.attachment);
+      message.attachment = { kind: "photo", name: input.attachment.name, mimeType: input.attachment.type, size: input.attachment.size };
+    }
     if (input.replyToMessageId) {
       const reply = items.find((item) => item.id === input.replyToMessageId)!;
       message.replyTo = { id: reply.id, content: reply.content, senderIsViewer: reply.senderIsViewer, deletedForEveryoneAt: reply.deletedForEveryoneAt ?? null };
@@ -201,6 +205,10 @@ export class DirectMessagesService {
     const message = rows.get(input.conversationId)!.find((item) => item.id === input.messageId)!;
     Object.assign(message, { content: input.content, editedAt: new Date().toISOString() }); return { ...message };
   }
+  static async deleteConversation(input: { conversationId: string }) {
+    rows.set(input.conversationId, []);
+    return { conversationId: input.conversationId, deleted: true, scope: "me" };
+  }
   static async deleteMessage(input: { conversationId: string; messageId: string; scope: "me" | "everyone" }) {
     const items = rows.get(input.conversationId)!;
     const message = items.find((item) => item.id === input.messageId)!;
@@ -211,6 +219,14 @@ export class DirectMessagesService {
     const message = rows.get(input.conversationId)!.find((item) => item.id === input.messageId)!;
     message.reactions = [{ emoji: input.emoji, count: 1, reactedByViewer: true }];
     if (delayReaction) await new Promise<void>(resolve => { settleReaction = resolve; });
+    return { ...message };
+  }
+  static async removeReaction(input: { conversationId: string; messageId: string; emoji: string }) {
+    const message = rows.get(input.conversationId)!.find((item) => item.id === input.messageId)!;
+    message.reactions = (message.reactions ?? []).flatMap(reaction => {
+      if (reaction.emoji !== input.emoji || !reaction.reactedByViewer) return [reaction];
+      return reaction.count > 1 ? [{ ...reaction, count: reaction.count - 1, reactedByViewer: false }] : [];
+    });
     return { ...message };
   }
   static async openEvents() { return new Response(new ReadableStream({ start() {} }), { status: 200 }); }

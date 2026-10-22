@@ -34,6 +34,9 @@ import {
   type MarketplaceConsentEntryRef,
 } from "@/lib/consent/marketplace-consent";
 import { OneMarketplaceService } from "@/lib/one-marketplace/service";
+import { AuthService } from "@/lib/services/auth-service";
+import { ScopeCommerceService, commerceReadinessCopy } from "@/lib/services/scope-commerce-service";
+import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import { sealSliceForRequest } from "@/lib/one-marketplace/seal-delivery";
 import type {
   ConsentActionKind,
@@ -70,6 +73,7 @@ export function useMarketplaceConsentActions(
   const { userId, onActionComplete } = options;
   const [activeActions, setActiveActions] = useState<ConsentActionState[]>([]);
   const inflight = useRef<Map<string, Promise<void>>>(new Map());
+  const approvalKeys = useRef(new Map<string, string>());
 
   const runWithLock = useCallback(
     (action: ConsentActionState, run: () => Promise<void>): Promise<void> => {
@@ -153,7 +157,7 @@ export function useMarketplaceConsentActions(
    * this; the backend approve endpoint is owner-scoped.
    */
   const handleApprove = useCallback(
-    (entry: MarketplaceConsentActionEntry): Promise<void> => {
+    (entry: MarketplaceConsentActionEntry, durationHours?: number): Promise<void> => {
       const ref: MarketplaceConsentEntryRef = parseMarketplaceConsentEntry(entry);
       const requestId = ref.requestId;
       if (!requestId) {
@@ -170,8 +174,29 @@ export function useMarketplaceConsentActions(
           }
           const vaultOwnerToken = requireToken();
           if (!vaultOwnerToken) return;
+          const epoch = snapshotVaultSessionEpoch();
+          const requireCurrent = () => { if (!isVaultSessionEpochCurrent(epoch)) throw new Error("Your vault session changed. Review this request again."); };
 
           const promise = (async () => {
+            if (ref.scopeHandle || entry.metadata?.commercial_required === true) {
+              const firebaseToken = await AuthService.getIdToken();
+              requireCurrent();
+              if (!firebaseToken) throw new Error("Sign in again before reviewing this request.");
+              const state = await ScopeCommerceService.scopeRequest(firebaseToken, requestId);
+              requireCurrent();
+              if (state.role !== "owner") throw new Error("Open this request in the information owner's account.");
+              if (state.tariff && state.tariff.price_cents > 0) {
+                const readiness = await ScopeCommerceService.readiness(firebaseToken);
+                requireCurrent();
+                if (!readiness.capabilities.approve_paid_request) throw new Error(commerceReadinessCopy(readiness));
+                let key = approvalKeys.current.get(requestId);
+                if (!key) { key = crypto.randomUUID(); approvalKeys.current.set(requestId, key); }
+                await ScopeCommerceService.approveInactive(vaultOwnerToken, requestId, durationHours ? durationHours * 3600 : state.duration_seconds, key);
+                return "Terms approved. Waiting for buyer payment and encrypted preparation.";
+              }
+              if (entry.metadata?.commercial_required === true) throw new Error("Refresh this paid request before continuing.");
+            }
+            requireCurrent();
             const envelope = await sealSliceForRequest({
               userId,
               vaultKey,
@@ -181,6 +206,7 @@ export function useMarketplaceConsentActions(
               scopeHandle: ref.scopeHandle,
               sliceName: ref.sliceName,
             });
+            requireCurrent();
             await OneMarketplaceService.approveRequest({
               vaultOwnerToken,
               requestId,

@@ -33,6 +33,15 @@ function item(
 const recipient = { feed_audience: "recipient" };
 
 describe("Drive rows in the Feed", () => {
+  it.each([
+    [recipient, "Files ready · Already had access · No charge"],
+    [{}, "Files delivered · No payment due"],
+  ])("renders the current no-charge receipt for its audience (%j)", (audience, description) => {
+    expect(presentFeedItem(item("document_share_outcome", {
+      ...audience, current_existing_access_nocharge: true,
+    })).description).toBe(description);
+  });
+
   it("tells the recipient who shared files with them", () => {
     const row = presentFeedItem(
       item("document_share_outcome", {

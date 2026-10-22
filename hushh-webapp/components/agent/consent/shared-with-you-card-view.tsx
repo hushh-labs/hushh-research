@@ -39,6 +39,7 @@ export type SharedWithYouItemView = {
   accessEndsAt: string | null;
   purpose: string | null;
   sensitive: boolean;
+  modelProcessingAllowed?: boolean;
   /** Field names only, for the locked and loading outline. */
   fieldOutline: string[];
   /** Each field's own C7 reading, when the server sent one (names only). */
@@ -134,12 +135,13 @@ function CopyValueButton({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ValueRows({ rows, hidden, itemLabel, itemSensitive }: {
+function ValueRows({ rows, hidden, itemLabel, itemSensitive, modelProcessingAllowed }: {
   rows: SharedValueRow[];
   hidden: boolean;
   itemLabel: string;
   /** The whole item is sensitive; otherwise only rows marked `sensitive` hide. */
   itemSensitive: boolean;
+  modelProcessingAllowed?: boolean;
 }) {
   return (
     <dl className="divide-y divide-border/50" data-testid="shared-with-you-values" data-hidden={hidden ? "true" : "false"}>
@@ -160,7 +162,7 @@ function ValueRows({ rows, hidden, itemLabel, itemSensitive }: {
                       className="inline-flex shrink-0 items-center gap-1 font-medium">
                       <ShieldCheck className="size-3 shrink-0" aria-hidden="true" />
                       Sensitive
-                      <span className="sr-only"> · not shared with One’s model</span>
+                      <span className="sr-only">{modelProcessingAllowed ? " · identifier model use approved; credentials stay private" : " · not shared with One’s model"}</span>
                     </span>
                   ) : null}
                 </dt>
@@ -247,7 +249,7 @@ function SharedItem({ item, personName, status, onRetry }: {
         <p data-testid="shared-with-you-sensitive"
           className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium leading-4 text-muted-foreground">
           <ShieldCheck className="size-3.5 shrink-0" aria-hidden="true" />
-          <span className="min-w-0">Sensitive · not shared with One’s model</span>
+          <span className="min-w-0">{item.modelProcessingAllowed ? "Sensitive · identifier model use approved; credentials stay private" : "Sensitive · not shared with One’s model"}</span>
         </p>
       ) : null}
       {item.purpose && item.state !== "ended" ? (
@@ -272,7 +274,7 @@ function SharedItem({ item, personName, status, onRetry }: {
         ) : (
           <div className="overflow-hidden rounded-[var(--app-card-radius-compact)] bg-muted/40">
             {item.state === "ready" && rows.length ? (
-              <ValueRows rows={rows} hidden={hidden} itemLabel={item.label} itemSensitive={item.sensitive} />
+              <ValueRows rows={rows} hidden={hidden} itemLabel={item.label} itemSensitive={item.sensitive} modelProcessingAllowed={item.modelProcessingAllowed} />
             ) : item.state === "ready" ? (
               <p className={cn(ROW, "text-sm text-muted-foreground")}>Nothing readable was shared.</p>
             ) : (

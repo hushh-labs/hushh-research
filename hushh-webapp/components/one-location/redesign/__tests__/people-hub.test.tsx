@@ -287,7 +287,7 @@ describe("PeopleHub requests sent manage surface", () => {
 
     const dialog = screen.getByRole("dialog", { name: "Roopmann V" });
     expect(within(dialog).getByText(
-      "Roopmann V is connected on One. They need to open One before they can receive your location.",
+      "Roopmann V is connected on One. Location receiving is unavailable.",
     )).toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "Share my location" })).toBeNull();
     expect(onStartShare).not.toHaveBeenCalled();

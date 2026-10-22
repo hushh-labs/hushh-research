@@ -13,13 +13,18 @@ distribution without a public App Store submission.
 
 ## What testers receive
 
-The workflow uploads one exact build from a green `main` SHA.
+The workflow uploads one exact build from a green `main` SHA. Before packaging or
+diagnosing tester visibility, follow [live version and concurrent-release admission](../../../.agents/skills/release-ios-appstore/references/release-proof.md#live-version-and-concurrent-release-admission):
+an increasing build number does not advance the marketing version or prove the default update.
 
-- Internal testers receive that build after Apple marks it `VALID`.
+- Internal group eligibility requires Apple `VALID` processing and the correct
+  group assignment; neither proves device installation or notification delivery.
 - The same build is assigned to the external group and includes the required
   beta-review contact and notes.
-- External availability is reported as `pending_apple_beta_review` until Apple
-  approves it, then as `active`.
+- External availability remains pending until an authorized beta-review submission
+  is approved, then becomes `active`. A `NOT_SUBMITTED` review state means no review
+  request exists; it is not waiting for an Apple decision. This workflow does not
+  submit beta review implicitly.
 
 This is a TestFlight-only operation. Assigning a build to an external group is
 not a public App Store submission.
@@ -125,7 +130,7 @@ and that a Live session ends when the app is backgrounded.
 
 ## Run the normal build
 
-Follow the [admin release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md)
+Follow the [admin release SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md)
 for branch authority, required review, rollback, and deployment escalation. This
 guide adds the TestFlight-specific gates; it does not replace that release
 authority contract.
@@ -179,7 +184,8 @@ model bytes are removed or never uploaded.
 | UAT backend provenance differs from source SHA | Deploy that exact reviewed SHA to UAT, then restart the release workflow. |
 | Transcription or semantic model access fails | Restore the configured non-Live provider access and verify it against the matching backend; local model packs are retired. |
 | Missing group, contact, notes, or privacy attestation | Configure the protected UAT release material; the workflow intentionally will not upload. |
-| External beta review pending | Internal testers can use the valid build; wait for Apple's beta-review decision for external testers. |
+| External beta review `NOT_SUBMITTED` / `READY_FOR_BETA_SUBMISSION` | Group assignment is not submission. Use a separately authorized beta-review submission; do not claim Apple is reviewing it. |
+| External beta review submitted and awaiting a decision | Wait for Apple's beta-review decision; verify internal eligibility independently. |
 | External beta review rejected | Correct the reviewer-facing issue and dispatch a new build; the workflow fails closed. |
 | `App Store Connect ... failed with HTTP 400` after processing | The binary is already uploaded and `VALID`; inspect the endpoint in the step error. The workflow prepares review metadata before group attachment, treats an unsubmitted external review as pending, and never creates a beta-review submission implicitly. |
 

@@ -113,10 +113,9 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
         ref={shellRef}
         style={nativeBottomInset === null ? undefined : { paddingBottom: nativeBottomInset }}
         data-app-bottom-shell
-        data-agent-dock-chat={model.agentBarHidden || undefined}
+        data-agent-dock-chat={(model.agentBarHidden && !model.includeComposerHeight) || undefined}
         data-native-agent-dock={nativeDock?.owned || undefined}
         data-messages-dock={model.includeComposerHeight || undefined}
-        // Completed command cards still need their dismiss controls while typing.
         data-command-active={command?.active || (command && command.view.phase !== "idle") || undefined}
         data-ui-role="bottom-shell"
         data-bottom-shell-navigation-hidden={

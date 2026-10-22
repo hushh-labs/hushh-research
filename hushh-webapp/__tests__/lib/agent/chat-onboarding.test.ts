@@ -51,6 +51,16 @@ function lastAssistant(state: ChatOnboardingState) {
 }
 
 describe("chat onboarding sequence", () => {
+  it("a newer chosen name replaces the pending label and final setup Save", () => {
+    let state = chip(start().state, "name_signin").state;
+    state = run(state, { type: "preferred_name_chosen", name: "Rootman" }).state;
+    expect(pickedPreferredName(state)).toBe("Rootman");
+    state = chip(state, "skip").state;
+    state = chip(state, "tone_casual").state;
+    expect(lastAssistant(state).text).toContain("Rootman");
+    const saved = chip(state, "save");
+    expect(saved.effects).toContainEqual({ type: "save_preferences", name: "Rootman", tone: "casual" });
+  });
   it("asks name, then focus, then tone, one question per assistant turn, then confirms", () => {
     const started = start();
     expect(started.state.step).toBe("name");
@@ -58,19 +68,19 @@ describe("chat onboarding sequence", () => {
     expect(welcome.role).toBe("assistant");
     expect(welcome.text).toMatch(/^Welcome, Kushal\. I'm One, your private agent on Hussh\./);
     expect(welcome.text).not.toMatch(/—/); // no em dashes
-    expect(welcome.chips?.map((c) => c.label)).toEqual(["Call me Kushal", "Something else", "Skip for now"]);
+    expect(welcome.chips?.map((c) => c.label)).toEqual(["Call me Kushal", "Something else", "Skip this question"]);
 
     const named = chip(started.state, "name_signin");
     expect(named.state.step).toBe("focus");
     expect(lastAssistant(named.state).text).toBe("Nice to meet you, Kushal. What should I help with first?");
     expect(lastAssistant(named.state).chips?.map((c) => c.label)).toEqual([
-      "Location", "Mail", "Calendar", "Finance", "Advisor", "Wallet", "Consent", "Memory", "Messages", "Skip for now",
+      "Location", "Mail", "Calendar", "Finance", "Advisor", "Wallet", "Consent", "Memory", "Messages", "Skip this question",
     ]);
 
     const focused = chip(named.state, "focus_chat");
     expect(focused.state.step).toBe("tone");
     expect(lastAssistant(focused.state).chips?.map((c) => c.label)).toEqual([
-      "Short and direct", "Detailed", "Casual", "Skip for now",
+      "Short and direct", "Detailed", "Casual", "Skip this question",
     ]);
 
     const toned = chip(focused.state, "tone_short_direct");
@@ -113,7 +123,7 @@ describe("unrelated input never breaks onboarding", () => {
     const dismissed = chip(started, "name_other");
     expect(dismissed.state.step).toBe("name_typing");
     expect(dismissed.state.turns.at(-1)).toMatchObject({
-      role: "assistant", text: "Okay. What should I call you?", chips: [{ id: "skip", label: "Skip for now" }],
+      role: "assistant", text: "Okay. What should I call you?", chips: [{ id: "skip", label: "Skip this question" }],
     });
     expect(dismissed.state.progress.status).toBe("in_progress");
     expect(dismissed.effects).toEqual([{ type: "focus_composer" }]);
@@ -246,7 +256,7 @@ describe("what to help with first", () => {
     const calendar = readFileSync(join(root, "components/calendar/calendar-agent-page.tsx"), "utf8");
     const connectors = readFileSync(join(root, "components/agent/connectors-panel.tsx"), "utf8");
     const workspace = readFileSync(join(root, "components/agent/agent-chat-workspace.tsx"), "utf8");
-    expect(calendar).toContain('const connect = async (accessLevel: "read" | "manage" = "read", includeCalendarList = false) =>');
+    expect(calendar).toContain('const connect = async (accessLevel: "read" | "manage" = "read",');
     expect(connectors).toContain('const connectMail = (purpose: "send" | "compose" = "send") =>');
     expect(connectors).toContain('createGmailOAuthPopupAttempt(user.uid, purpose === "send" ? "send" : "read")');
     expect(workspace).toMatch(/if \(provider === "calendar"\) \{\s*calendarChatRecoveryRef\.current\(\);/);
@@ -260,7 +270,7 @@ describe("what to help with first", () => {
     expect(user).toMatchObject({ role: "user", text: "Finance" });
     expect(explanation?.action).toMatchObject({ kind: "route", href: ROUTES.KAI_PORTFOLIO_SOURCES });
     expect(explanation?.chips).toBeUndefined();
-    expect(tone?.text).toBe("Last one. How should I talk with you?");
+    expect(tone?.text).toBe("How should I talk with you?");
   });
 });
 

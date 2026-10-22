@@ -12,6 +12,7 @@ const mock = vi.hoisted(() => ({
   key: "key-a",
   token: "token-a",
   pathname: "/one/profile/world-model",
+  skipBackgroundWrites: false,
   preferences: vi.fn(),
   observe: vi.fn(),
   load: vi.fn(),
@@ -22,6 +23,10 @@ const mock = vi.hoisted(() => ({
   seen: [] as string[],
 }));
 vi.mock("next/navigation", () => ({ usePathname: () => mock.pathname }));
+vi.mock("@/lib/testing/native-test", async original => {
+  const actual = await original<typeof import("@/lib/testing/native-test")>();
+  return { ...actual, shouldSkipReviewerBackgroundWritesForAutomation: () => mock.skipBackgroundWrites || actual.shouldSkipReviewerBackgroundWritesForAutomation() };
+});
 vi.mock("@/lib/firebase/auth-context", () => ({
   useAuth: () => ({
     user: mock.user,
@@ -155,6 +160,7 @@ beforeEach(() => {
   mock.key = "key-a";
   mock.token = "token-a";
   mock.pathname = "/one/profile/world-model";
+  mock.skipBackgroundWrites = false;
   mock.seen.length = 0;
   mock.preferences.mockResolvedValue({ enabled: true });
   mock.observe.mockResolvedValue(undefined);
@@ -166,6 +172,22 @@ afterEach(() => {
   delete (document as { hidden?: boolean }).hidden;
 });
 describe("PWM owner and request isolation", () => {
+  it("keeps restricted reviewer entry read-only while preserving explicit refresh", async () => {
+    mock.skipBackgroundWrites = true;
+    const { unmount } = render(<WorldModelProvider><Probe /></WorldModelProvider>);
+    await waitFor(() => expect(mock.preferences).toHaveBeenCalledOnce());
+    expect(mock.observe).not.toHaveBeenCalled();
+    expect(mock.load).not.toHaveBeenCalled();
+    fireEvent(document, new Event("visibilitychange"));
+    await settle();
+    expect(mock.observe).not.toHaveBeenCalled();
+    expect(mock.load).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText("Refresh"));
+    await waitFor(() => expect(mock.observe).toHaveBeenCalledOnce());
+    expect(mock.observe.mock.calls[0][0].refresh).toBe(true);
+    unmount();
+  });
+
   it.each([
     ["read_only", true], ["preparation_only", true],
     ["bounded_mutation", true], ["mutation_authorized", false],
@@ -174,11 +196,13 @@ describe("PWM owner and request isolation", () => {
     window.__HUSHH_NATIVE_TEST__ = { enabled: true, autoReviewerLogin: true, reviewerMutationPolicy: policy };
     const view = render(<WorldModelProvider><Probe /></WorldModelProvider>);
     try {
-      await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(1));
-      expect(mock.observe.mock.calls[0][0].readOnly).toBe(readOnly);
+      if (readOnly) {
+        await waitFor(() => expect(mock.preferences).toHaveBeenCalled());
+        expect(mock.observe).not.toHaveBeenCalled();
+      } else await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(1));
       fireEvent.click(screen.getByText("Refresh"));
-      await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(2));
-      expect(mock.observe.mock.calls[1][0]).toMatchObject({ readOnly: false, refresh: true });
+      await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(readOnly ? 1 : 2));
+      expect(mock.observe.mock.calls.at(-1)?.[0]).toMatchObject({ readOnly: false, refresh: true });
     } finally {
       view.unmount();
       window.__HUSHH_NATIVE_TEST__ = previous;
@@ -203,7 +227,7 @@ describe("PWM owner and request isolation", () => {
     expect(result.links).toEqual([{ title: "Public search", url: "https://www.google.com/search?q=public" }]);
   });
   it("rejects a sibling's old snapshot before the provider can update its owner or token", () => {
-    const writer = worldModelResearchStore.attach({ reload: vi.fn(), refresh: vi.fn() });
+    const writer = worldModelResearchStore.attach({ reload: vi.fn(), refresh: vi.fn(), researchPublicProfiles: vi.fn() });
     const owner = { owner: "owner-a", key: "key-a", token: "token-a" };
     writer.setAuthority(owner);
     writer.setSnapshot(() => ({ ...owner, result: pending, preferences: { enabled: true, email_enabled: true,
@@ -645,6 +669,33 @@ describe("PWM owner and request isolation", () => {
     rerender(view(false));
     expect(screen.getByText("outside")).toBeInTheDocument();
     expect(screen.getByText("no preferences")).toBeInTheDocument();
+  });
+  it("uses the sole provider for owner-selected profiles and drops them on token replacement", async () => {
+    const view = render(<WorldModelProvider><Probe /></WorldModelProvider>);
+    await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(1));
+    const urls = ["https://github.com/public-example"];
+    act(() => { worldModelResearchStore.getSnapshot().researchPublicProfiles(urls); urls[0] = "https://github.com/changed"; });
+    await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(2));
+    expect(mock.observe.mock.calls[1][0]).toMatchObject({ refresh: true, publicProfileUrls: ["https://github.com/public-example"] });
+    mock.token = "token-renewed";
+    view.rerender(<WorldModelProvider><Probe /></WorldModelProvider>);
+    await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(3));
+    expect(mock.observe.mock.calls[2][0].publicProfileUrls).toBeUndefined();
+    expect(mock.observe.mock.calls[2][0].refresh).not.toBe(true);
+  });
+  it("requires the public-page permission before Azure research and keeps Gemini review separate", () => {
+    mock.read.mockResolvedValue(null);
+    const research = vi.fn();
+    const props = { ownerId: "owner-a", vaultKey: "key-a", vaultOwnerToken: "token-a", name: "Alice", onResearchPublicProfiles: research };
+    const view = render(<WorldModelSources {...props} />);
+    fireEvent.change(screen.getByLabelText("Page links, one per line"), { target: { value: "https://github.com/public-example" } });
+    const button = screen.getByRole("button", { name: "Research these profiles" });
+    expect(button).toBeDisabled(); fireEvent.click(button); expect(research).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("checkbox")); fireEvent.click(button);
+    expect(research).toHaveBeenCalledWith(["https://github.com/public-example"]);
+    expect(mock.prepare).not.toHaveBeenCalled();
+    view.rerender(<WorldModelSources {...props} present={false} />);
+    expect(screen.getByRole("button", { name: "Research these profiles" })).toBeDisabled();
   });
   it("does not let an old initial read replace a newly prepared draft", async () => {
     let finish!: (value: unknown) => void;

@@ -874,7 +874,10 @@ class ConnectionsService:
         page_items = ranked[offset : offset + normalized_limit]
         domain_counts = Counter(str(entry.get("domain") or "") for entry in ranked)
         return {
-            "items": page_items,
+            "items": [
+                {key: value for key, value in entry.items() if key != "registry_handle"}
+                for entry in page_items
+            ],
             "page": normalized_page,
             "limit": normalized_limit,
             "hasMore": offset + len(page_items) < len(ranked),
@@ -934,6 +937,7 @@ class ConnectionsService:
             safe_entries.append(
                 {
                     "scope": scope,
+                    "registry_handle": str(entry.get("registry_handle") or "").strip() or None,
                     "label": human_scope_label(scope, str(entry.get("label") or "")),
                     "description": str(entry.get("description") or "") or None,
                     "domain": str(entry.get("domain") or "") or None,
