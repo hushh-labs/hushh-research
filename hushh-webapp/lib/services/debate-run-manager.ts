@@ -1,5 +1,7 @@
 "use client";
 
+import { buildDecisionHistoryRawCard } from "@/lib/kai/decision-history-record";
+
 import { ApiService } from "@/lib/services/api-service";
 import { consumeCanonicalKaiStream } from "@/lib/streaming/kai-stream-client";
 import type { KaiStreamEnvelope } from "@/lib/streaming/kai-stream-types";
@@ -617,16 +619,7 @@ class DebateRunManager {
         typeof decisionEnvelope.payload === "object"
           ? (decisionEnvelope.payload as Record<string, unknown>)
           : {};
-      const rawCard =
-        payload.raw_card && typeof payload.raw_card === "object"
-          ? ({ ...(payload.raw_card as Record<string, unknown>) } as Record<
-              string,
-              unknown
-            >)
-          : {};
-      rawCard.debate_run_id = task.runId;
-      rawCard.analysis_degraded = Boolean(payload.analysis_degraded || rawCard.analysis_degraded);
-      rawCard.degraded_agents = Array.isArray(payload.degraded_agents) ? payload.degraded_agents : rawCard.degraded_agents;
+      const rawCard = buildDecisionHistoryRawCard(payload, task.runId);
       const transcript = buildTranscriptFromEnvelopes(buffer);
       items.push({
         task,
@@ -1160,16 +1153,7 @@ class DebateRunManager {
         ? (decisionEnvelope.payload as Record<string, unknown>)
         : {};
     const transcript = buildTranscriptFromEnvelopes(buffer);
-    const rawCard =
-      payload.raw_card && typeof payload.raw_card === "object"
-        ? ({ ...(payload.raw_card as Record<string, unknown>) } as Record<
-            string,
-            unknown
-          >)
-        : ({} as Record<string, unknown>);
-    rawCard.debate_run_id = runId;
-    rawCard.analysis_degraded = Boolean(payload.analysis_degraded || rawCard.analysis_degraded);
-    rawCard.degraded_agents = Array.isArray(payload.degraded_agents) ? payload.degraded_agents : rawCard.degraded_agents;
+    const rawCard = buildDecisionHistoryRawCard(payload, runId);
 
     const entry: AnalysisHistoryEntry = {
       ticker: toUpperTicker(String(payload.ticker || task.ticker)),

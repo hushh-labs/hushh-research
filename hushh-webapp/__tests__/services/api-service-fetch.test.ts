@@ -92,34 +92,7 @@ import { trackRequestStart } from "@/lib/motion/api-progress-tracker";
 
 const mockFetch = global.fetch as ReturnType<typeof vi.fn>;
 
-function jsonResponse(
-  body: unknown,
-  status = 200,
-  headers?: Record<string, string>,
-): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json", ...headers },
-  });
-}
-
-function makeUnsignedToken(payload: Record<string, unknown>): string {
-  const payloadBase64 = btoa(JSON.stringify(payload))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-  return `header.${payloadBase64}.sig`;
-}
-
-function deferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise;
-    reject = rejectPromise;
-  });
-  return { promise, resolve, reject };
-}
+import { jsonResponse, makeUnsignedToken, deferred } from "../fixtures/api-service-responses";
 
 describe("ApiService.apiFetch", () => {
   it.each([false, true])("preserves cookie-free pod requests (stream=%s) and hub cookies", async (streaming) => {
