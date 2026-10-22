@@ -335,6 +335,7 @@
     "368_drive_existing_access_nocharge.sql",
     "369_calendar_additional_accounts.sql",
     "370_one_marketing_preferences.sql",
+    "399_public_profile_release_foundation.sql",
     "400_vault_environment_enrollment.sql",
     "401_consumer_scope_commerce.sql",
     "402_one_shared_hosting_choice.sql",
@@ -724,6 +725,7 @@
     "367_one_product_value_receipts.sql": "rollback/367_one_product_value_receipts.rollback.sql",
     "368_drive_existing_access_nocharge.sql": "rollback/368_drive_existing_access_nocharge.rollback.sql",
     "369_calendar_additional_accounts.sql": "rollback/369_calendar_additional_accounts.rollback.sql",
-    "370_one_marketing_preferences.sql": "rollback/370_one_marketing_preferences.rollback.sql"
+    "370_one_marketing_preferences.sql": "rollback/370_one_marketing_preferences.rollback.sql",
+    "399_public_profile_release_foundation.sql": "rollback/399_public_profile_release_foundation.rollback.sql"
   }
 }
