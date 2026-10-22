@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Check, Loader2, Send, ShieldAlert } from "@/components/icons";
 import { toast } from "sonner";
 
-import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
+import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { ContactInvitationSheet } from "@/components/connections/contact-invitation-sheet";
 import { CONTACT_SHEET_MAX_HEIGHT_CLASSNAME } from "@/components/connections/contact-sheet-layout";
 import type { ContactInvitationController } from "@/lib/contacts/use-contact-invitations";
@@ -13,7 +13,6 @@ import {
   TAKEOVER_OVERLAY_Z_CLASSNAME,
   TAKEOVER_SURFACE_Z_CLASSNAME,
 } from "@/components/one-location/onboarding/save-location-sheet-layout";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -37,16 +36,6 @@ import { withLocationTypography } from "@/components/one-location/redesign/locat
 const SheetContent = withLocationTypography(UnscopedSheetContent);
 
 const MATCH_PAGE_SIZE = 100;
-
-function initials(value: string): string {
-  return value
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase();
-}
 
 function resultStatus(
   outcome: OneLocationContactSignalResult["matches"][number]["outcome"],
@@ -326,21 +315,17 @@ export function ContactSyncResultsSheet({
                     key={match.userId}
                     className="flex min-h-16 items-center gap-3 px-3 py-2.5"
                   >
-                    <Avatar className="h-10 w-10 shrink-0">
-                      {match.photoUrl ? (
-                        <AvatarImage src={match.photoUrl} alt="" />
-                      ) : null}
-                      <AvatarFallback>{initials(name)}</AvatarFallback>
-                    </Avatar>
+                    <ConnectionPersonAvatar
+                      size="list"
+                      photoUrl={match.photoUrl}
+                      label={name}
+                      fromContacts={match.outcome === "auto_connected" || match.outcome === "already_connected"}
+                    />
                     <div className="min-w-0 flex-1">
                       <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
                         <p data-location-type-role="row-title" className="min-w-0 break-words text-sm font-semibold [overflow-wrap:anywhere]">
                           {name}
                         </p>
-                        {match.outcome === "auto_connected" ||
-                        match.outcome === "already_connected" ? (
-                          <ContactSourceBadge />
-                        ) : null}
                       </div>
                       <p data-location-type-role="row-description" className="break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
                         {requested

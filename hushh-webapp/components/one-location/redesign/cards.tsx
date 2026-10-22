@@ -876,7 +876,7 @@ export function TemporaryLinkCard({
           onClick={onShare}
           className="ui-text-button-label h-12 rounded-[15px] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
         >
-          <Share2 className="mr-1.5 h-4 w-4" />
+          <Share2 onAccent className="mr-1.5 h-4 w-4" />
           Share
         </Button>
         <Button

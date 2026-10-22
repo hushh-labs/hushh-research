@@ -4566,7 +4566,7 @@ export function PublicLinkActionRows({
           size="compact"
           className="ui-text-button-label h-11 min-w-0 gap-1.5 rounded-full px-3 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
         >
-          <Share2 className="h-4 w-4" />
+          <Share2 onAccent className="h-4 w-4" />
           Share
         </Button>
         <Button data-location-type-role="compact-action"
