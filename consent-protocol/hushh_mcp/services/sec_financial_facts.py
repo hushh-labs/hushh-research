@@ -39,7 +39,9 @@ INSTANT_TAGS = {
 }
 
 
-def annual_rows(gaap: dict[str, Any], tags: tuple[str, ...], *, flow: bool) -> list[dict[str, Any]]:
+def annual_rows(
+    gaap: dict[str, Any], tags: tuple[str, ...], *, flow: bool, latest_filing_first: bool = False
+) -> list[dict[str, Any]]:
     selected: dict[str, dict[str, Any]] = {}
     for priority, tag in enumerate(tags):
         for row in gaap.get(tag, {}).get("units", {}).get("USD", []):
@@ -63,10 +65,21 @@ def annual_rows(gaap: dict[str, Any], tags: tuple[str, ...], *, flow: bool) -> l
             candidate = {**row, "tag": tag, "priority": priority}
             previous = selected.get(end.isoformat())
             # Same period: authored tag priority, then most recent amendment.
-            if previous is None or (-priority, row.get("filed", "")) > (
-                -previous["priority"],
-                previous.get("filed", ""),
-            ):
+            rank: tuple[Any, Any] = (
+                (row.get("filed", ""), -priority)
+                if latest_filing_first
+                else (-priority, row.get("filed", ""))
+            )
+            previous_rank: tuple[Any, Any] | None = (
+                (
+                    (previous.get("filed", ""), -previous["priority"])
+                    if latest_filing_first
+                    else (-previous["priority"], previous.get("filed", ""))
+                )
+                if previous
+                else None
+            )
+            if previous_rank is None or rank > previous_rank:
                 selected[end.isoformat()] = candidate
     return [selected[end] for end in sorted(selected)]
 
@@ -101,7 +114,7 @@ def extract_annual_facts(payload: dict[str, Any], *, today: date | None = None) 
         ("research_and_development", "rnd_trend"),
     ):
         # A restatement of a prior period replaces that period, not its fiscal label.
-        trend = rows[name][-4:]
+        trend = annual_rows(gaap, FLOW_TAGS[name], flow=True, latest_filing_first=True)[-4:]
         consecutive = []
         for row in reversed(trend):
             if consecutive:

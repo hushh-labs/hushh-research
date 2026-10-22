@@ -77,14 +77,18 @@ def calculate_quant_metrics(sec_filings: Dict[str, Any]) -> Dict[str, Any]:
         return [row for row in latest.get(name, []) if _measured(row.get("value")) is not None]
 
     def growth(rows):
-        if len(rows) < 2 or int(rows[-1]["year"]) - int(rows[-2]["year"]) != 1:
+        if (
+            latest.get("headline_stale")
+            or len(rows) < 2
+            or int(rows[-1]["year"]) - int(rows[-2]["year"]) != 1
+        ):
             return None
         previous = _measured(rows[-2]["value"])
         return (rows[-1]["value"] - previous) / abs(previous) if previous else None
 
     revenue = trend("revenue_trend")
     cagr = None
-    if len(revenue) >= 4:
+    if len(revenue) >= 4 and not latest.get("headline_stale"):
         window = revenue[-4:]
         years = [int(row["year"]) for row in window]
         if (
