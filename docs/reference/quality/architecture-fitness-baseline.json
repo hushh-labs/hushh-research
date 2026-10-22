@@ -1645,7 +1645,7 @@
       }
     ],
     "evidence_revision": "3c28325791",
-    "review": "Independent lifecycle security review qualifies only four admission-query lines in the existing repository. Original Azure bindings persist through bounded same-cloud retries; a stale heartbeat cannot authorize replacement. Global budgets and other ceilings unchanged. Provider settlement and full teardown remain separate. Follow-up review of59882a7fc4 also qualifies exactly the class248→252 slot: the same four SQL lines, with no new responsibility. The first local ratchet failure is retained; this correction precedes any publication."
+    "review": "Independent lifecycle security review qualifies only four admission-query lines in the existing repository. Original Azure bindings persist through bounded same-cloud retries; a stale heartbeat cannot authorize replacement. Global budgets and other ceilings unchanged. Provider settlement and full teardown remain separate. Follow-up review of59882a7fc4 also qualifies exactly the class248\u2192252 slot: the same four SQL lines, with no new responsibility. The first local ratchet failure is retained; this correction precedes any publication."
   },
   "browser_schedule_core_fixture_review_20261013": {
     "findings": [
@@ -8683,7 +8683,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "__init__",
-      "value": 771
+      "value": 774
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -8710,7 +8710,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "_delete_full_account_transaction",
-      "value": 569
+      "value": 571
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -17251,7 +17251,7 @@
       "limit": 80,
       "path": "scripts/ops/sync_backend_runtime_secrets.py",
       "symbol": "_build_backend_runtime_config",
-      "value": 108
+      "value": 109
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -18709,7 +18709,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/runtime_settings.py",
       "symbol": null,
-      "value": 1432
+      "value": 1433
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20527,7 +20527,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_account_service_cleanup_tables.py",
       "symbol": null,
-      "value": 1853
+      "value": 1855
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24496,7 +24496,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/profile/profile-workspace-page.tsx",
       "symbol": null,
-      "value": 5237
+      "value": 5261
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -31133,7 +31133,7 @@
       "kind": "function_size",
       "path": "consent-protocol/tests/services/test_product_activity_postgres.py",
       "detail": "function exceeds the advisory gene budget",
-      "value": 321,
+      "value": 331,
       "limit": 80,
       "symbol": "test_observation_lifecycle_on_disposable_postgres",
       "key": "function_size|consent-protocol/tests/services/test_product_activity_postgres.py|test_observation_lifecycle_on_disposable_postgres|function exceeds the advisory gene budget"
@@ -31502,7 +31502,7 @@
       "kind": "module_size",
       "path": "consent-protocol/tests/services/test_plg_evidence.py",
       "detail": "module exceeds the advisory operon budget",
-      "value": 1112,
+      "value": 1237,
       "limit": 500,
       "symbol": null,
       "key": "module_size|consent-protocol/tests/services/test_plg_evidence.py||module exceeds the advisory operon budget"
@@ -31511,7 +31511,7 @@
       "kind": "module_size",
       "path": "consent-protocol/tests/services/test_product_activity_postgres.py",
       "detail": "module exceeds the advisory operon budget",
-      "value": 754,
+      "value": 951,
       "limit": 500,
       "symbol": null,
       "key": "module_size|consent-protocol/tests/services/test_product_activity_postgres.py||module exceeds the advisory operon budget"
@@ -31893,6 +31893,24 @@
       "path": "consent-protocol/hushh_mcp/services/private_text_processing_approval_service.py",
       "symbol": "set_private_text_approval",
       "value": 82
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_product_activity_postgres.py|_assert_email_permission_lifecycle|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_product_activity_postgres.py",
+      "symbol": "_assert_email_permission_lifecycle",
+      "value": 184
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/marketing_preferences.py|pending_changes|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/marketing_preferences.py",
+      "symbol": "pending_changes",
+      "value": 113
     }
   ],
   "inspected_files": 6625,
@@ -33987,7 +34005,7 @@
           "key": "module_size|hushh-webapp/__tests__/components/wallet-workspace.test.tsx||module exceeds the advisory operon budget",
           "multiset_slot": 0,
           "previous": 546,
-          "rationale": "Owner A→B→A/lock and introduction/readiness tests remain against real SVG projection; main QR rotation invalidates old link before recovery. Confirmed-save versus old list response is separate real consistency regression; obsolete demo iframe assertions adapted.",
+          "rationale": "Owner A\u2192B\u2192A/lock and introduction/readiness tests remain against real SVG projection; main QR rotation invalidates old link before recovery. Confirmed-save versus old list response is separate real consistency regression; obsolete demo iframe assertions adapted.",
           "reviewed": 652,
           "source_sha256": "3c96b63943a6e971e4842d207b38e1daefba6ace756d6e531f13a5687d21cfca"
         },
@@ -41130,7 +41148,7 @@
         "disposition": "reviewed coupled contract",
         "key": "module_size|hushh-webapp/components/connections/byoc-cloud-setup-page.tsx||module exceeds the advisory operon budget",
         "measured": 782,
-        "rationale": "The three-line net increase preserves an existing Azure job’s explicit Files selection when signing in again; it is coupled to setup continuation rather than a new selection authority.",
+        "rationale": "The three-line net increase preserves an existing Azure job\u2019s explicit Files selection when signing in again; it is coupled to setup continuation rather than a new selection authority.",
         "slot": 0
       },
       {
@@ -56647,7 +56665,7 @@
         "value": 824
       }
     ],
-    "review": "Independent exact-body native resolver extraction review; one existing test-module slot822→824. Actual Dev/UAT source-free negative controls fail with unconditional sourcing. Detector, budgets, all2581 occurrences and unrelated ceilings remain unchanged.",
+    "review": "Independent exact-body native resolver extraction review; one existing test-module slot822\u2192824. Actual Dev/UAT source-free negative controls fail with unconditional sourcing. Detector, budgets, all2581 occurrences and unrelated ceilings remain unchanged.",
     "source_bindings": [
       {
         "git_blob": "1290d629bbccaf71af72949bfe4c15a9bfb4e5f1",
@@ -83999,6 +84017,117 @@
         "after": 628,
         "source_sha256": "d41a9c8229d5520c1ea88e89e5cd947b2eefc6b09c07c7a7b80bb2370a19b1b2",
         "review": "Read-only inherited-main review: preserve main Calendar invitation/review, Profile, check-in, saved-place and grouped Circle behavior alongside existing private-owner admission. Eleven paths match frozen main; nine are reviewed combined sources. No dependency or import exception."
+      }
+    ]
+  },
+  "mvp_main_optional_permission_review_20261022": {
+    "source_revisions": [
+      "904fbd215c661dd376a57ff712b11f12b9eec23c",
+      "4a7ffb18515eb81c5493942b7a362a9b89faafeb"
+    ],
+    "reviewers": [
+      "mvp_backend_merge_review",
+      "mvp_frontend_merge_review"
+    ],
+    "entries": [
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|__init__|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 771,
+        "after": 774,
+        "source_sha256": "1de86202385f9c7f7932ccef967a7040659580fa717215b2c8f9d842ccc693e5",
+        "reviewer": "mvp_backend_merge_review",
+        "review": "Reviewed bounded main optional email-permission integration. Preserve provider-aware hosting, owner admission, deletion/reset distinction, fail-closed environment activation and existing service ownership. Main feed is bounded to25 records with8-limited identity lookups and final deletion/revision check; tests cover the same authority. Exact composed size only; no dependency/import exception or global budget change."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|_delete_full_account_transaction|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 569,
+        "after": 571,
+        "source_sha256": "1de86202385f9c7f7932ccef967a7040659580fa717215b2c8f9d842ccc693e5",
+        "reviewer": "mvp_backend_merge_review",
+        "review": "Reviewed bounded main optional email-permission integration. Preserve provider-aware hosting, owner admission, deletion/reset distinction, fail-closed environment activation and existing service ownership. Main feed is bounded to25 records with8-limited identity lookups and final deletion/revision check; tests cover the same authority. Exact composed size only; no dependency/import exception or global budget change."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/services/test_product_activity_postgres.py|test_observation_lifecycle_on_disposable_postgres|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 321,
+        "after": 331,
+        "source_sha256": "1d1cec3f16cffaabc988b92acb0eea2b31fe01c44281fcae35d309e76204f528",
+        "reviewer": "mvp_backend_merge_review",
+        "review": "Reviewed bounded main optional email-permission integration. Preserve provider-aware hosting, owner admission, deletion/reset distinction, fail-closed environment activation and existing service ownership. Main feed is bounded to25 records with8-limited identity lookups and final deletion/revision check; tests cover the same authority. Exact composed size only; no dependency/import exception or global budget change."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/services/test_product_activity_postgres.py|_assert_email_permission_lifecycle|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 184,
+        "source_sha256": "1d1cec3f16cffaabc988b92acb0eea2b31fe01c44281fcae35d309e76204f528",
+        "reviewer": "mvp_backend_merge_review",
+        "review": "Reviewed bounded main optional email-permission integration. Preserve provider-aware hosting, owner admission, deletion/reset distinction, fail-closed environment activation and existing service ownership. Main feed is bounded to25 records with8-limited identity lookups and final deletion/revision check; tests cover the same authority. Exact composed size only; no dependency/import exception or global budget change."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/marketing_preferences.py|pending_changes|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 113,
+        "source_sha256": "997498f2c84ea9771ac3ca88ea3d09b4bcade696dac5e5811f285aea5365fbbb",
+        "reviewer": "mvp_backend_merge_review",
+        "review": "Reviewed bounded main optional email-permission integration. Preserve provider-aware hosting, owner admission, deletion/reset distinction, fail-closed environment activation and existing service ownership. Main feed is bounded to25 records with8-limited identity lookups and final deletion/revision check; tests cover the same authority. Exact composed size only; no dependency/import exception or global budget change."
+      },
+      {
+        "key": "function_size|scripts/ops/sync_backend_runtime_secrets.py|_build_backend_runtime_config|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 108,
+        "after": 109,
+        "source_sha256": "6081e0cd2fbfa678c9c6b90d0d2396918866c88a12369d733473869d2889efbd",
+        "reviewer": "mvp_backend_merge_review",
+        "review": "Reviewed bounded main optional email-permission integration. Preserve provider-aware hosting, owner admission, deletion/reset distinction, fail-closed environment activation and existing service ownership. Main feed is bounded to25 records with8-limited identity lookups and final deletion/revision check; tests cover the same authority. Exact composed size only; no dependency/import exception or global budget change."
+      },
+      {
+        "key": "module_size|hushh-webapp/components/profile/profile-workspace-page.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 5237,
+        "after": 5261,
+        "source_sha256": "4059128d2fd4f83dd82fc853a088894c87e9a5d016f14bdc72b4bd22f1717416",
+        "reviewer": "mvp_frontend_merge_review",
+        "review": "Reviewed bounded main optional email-permission integration. Preserve provider-aware hosting, owner admission, deletion/reset distinction, fail-closed environment activation and existing service ownership. Main feed is bounded to25 records with8-limited identity lookups and final deletion/revision check; tests cover the same authority. Exact composed size only; no dependency/import exception or global budget change."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_account_service_cleanup_tables.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1853,
+        "after": 1855,
+        "source_sha256": "bb8487f4fdc596e9528c8dfbda469b4d10eab70e3c339d2830ddea239fa30fbd",
+        "reviewer": "mvp_backend_merge_review",
+        "review": "Reviewed bounded main optional email-permission integration. Preserve provider-aware hosting, owner admission, deletion/reset distinction, fail-closed environment activation and existing service ownership. Main feed is bounded to25 records with8-limited identity lookups and final deletion/revision check; tests cover the same authority. Exact composed size only; no dependency/import exception or global budget change."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/runtime_settings.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1432,
+        "after": 1433,
+        "source_sha256": "e8be6a36ad188c83775355fcfd217f409fb37f8ffc318a852ec023c43a50c0c1",
+        "reviewer": "mvp_backend_merge_review",
+        "review": "Reviewed bounded main optional email-permission integration. Preserve provider-aware hosting, owner admission, deletion/reset distinction, fail-closed environment activation and existing service ownership. Main feed is bounded to25 records with8-limited identity lookups and final deletion/revision check; tests cover the same authority. Exact composed size only; no dependency/import exception or global budget change."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_plg_evidence.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1112,
+        "after": 1237,
+        "source_sha256": "aecf189e04c6dd6d990498fbe36951c6c1169b462fdcf761c34307af3a5e73f7",
+        "reviewer": "mvp_backend_merge_review",
+        "review": "Reviewed bounded main optional email-permission integration. Preserve provider-aware hosting, owner admission, deletion/reset distinction, fail-closed environment activation and existing service ownership. Main feed is bounded to25 records with8-limited identity lookups and final deletion/revision check; tests cover the same authority. Exact composed size only; no dependency/import exception or global budget change."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_product_activity_postgres.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 754,
+        "after": 951,
+        "source_sha256": "1d1cec3f16cffaabc988b92acb0eea2b31fe01c44281fcae35d309e76204f528",
+        "reviewer": "mvp_backend_merge_review",
+        "review": "Reviewed bounded main optional email-permission integration. Preserve provider-aware hosting, owner admission, deletion/reset distinction, fail-closed environment activation and existing service ownership. Main feed is bounded to25 records with8-limited identity lookups and final deletion/revision check; tests cover the same authority. Exact composed size only; no dependency/import exception or global budget change."
       }
     ]
   }
