@@ -12,6 +12,7 @@ import re
 from typing import Any, Callable
 import urllib.error
 import urllib.request
+from urllib.parse import parse_qs, urlsplit
 from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -22,6 +23,7 @@ MAX_PAGES = 50
 SHA = re.compile(r"[0-9a-f]{40}")
 Document = dict[str, Any]
 Read = Callable[[str], Any]
+ReadPage = Callable[[str], tuple[Any, str]]
 
 
 class Refused(RuntimeError):
@@ -43,6 +45,9 @@ class GitHub:
         self.repository, self.token = repository, token
 
     def read(self, path: str) -> Any:
+        return self.read_page(path)[0]
+
+    def read_page(self, path: str) -> tuple[Any, str]:
         root = f"repos/{self.repository}"
         if path != root and not path.startswith(root + "/"):
             raise Refused("GitHub request left its repository")
@@ -59,6 +64,7 @@ class GitHub:
                 request, timeout=20
             ) as response:
                 raw = response.read(MAX_PAGE_BYTES + 1)
+                links = response.headers.get("Link", "")
         except urllib.error.HTTPError as error:
             error.close()
             raise Refused(f"GitHub authority unavailable (HTTP {error.code})") from None
@@ -67,7 +73,7 @@ class GitHub:
         if len(raw) > MAX_PAGE_BYTES:
             raise Refused("GitHub response exceeded its bound")
         try:
-            return json.loads(raw)
+            return json.loads(raw), links
         except (ValueError, UnicodeError):
             raise Refused("GitHub response was not valid JSON") from None
 
@@ -149,12 +155,69 @@ def verify_source(read: Read, repository: str, expected: Document) -> Document:
     }
 
 
-def inventory(read: Read, repository: str, family: str) -> Document:
+def next_alert_page(
+    links: str, repository: str, family: str, repository_id: int | None = None
+) -> str | None:
+    """Follow only GitHub's next link for this exact open-alert inventory."""
+    if not isinstance(links, str) or len(links) > 16384:
+        raise Refused("Alert pagination header exceeded its bound")
+    next_path = None
+    for part in links.split(",") if links else ():
+        match = re.fullmatch(r'\s*<([^<>]+)>\s*;\s*rel="([^"]+)"\s*', part)
+        if not match:
+            raise Refused("Alert pagination header is malformed")
+        if "next" not in match[2].split():
+            continue
+        if next_path is not None:
+            raise Refused("Alert pagination has multiple next links")
+        url = urlsplit(match[1])
+        expected = f"/repos/{repository}/{family}/alerts"
+        paths = {expected}
+        if repository_id is not None:
+            paths.add(
+                f"/repositories/{positive(repository_id, 'repository identity')}/{family}/alerts"
+            )
+        if (
+            url.scheme != "https"
+            or url.netloc != "api.github.com"
+            or url.path not in paths
+            or url.fragment
+        ):
+            raise Refused("Alert pagination left its repository inventory")
+        try:
+            query = parse_qs(url.query, strict_parsing=True, max_num_fields=5)
+        except ValueError:
+            raise Refused("Alert pagination query is malformed") from None
+        allowed = {"state", "per_page", "after", "before"}
+        if family == "secret-scanning":
+            allowed.add("page")
+        if (
+            query.keys() - allowed
+            or query.get("state") != ["open"]
+            or query.get("per_page") != ["100"]
+            or any(len(values) != 1 or not values[0] for values in query.values())
+            or len(query.keys() & {"after", "before", "page"}) != 1
+        ):
+            raise Refused("Alert pagination changed its inventory filters")
+        # GitHub may return its immutable numeric alias. Keep every request on
+        # the already verified named repository, preserving the opaque cursor.
+        next_path = expected.lstrip("/") + "?" + url.query
+    return next_path
+
+
+def inventory(
+    read: ReadPage, repository: str, family: str, repository_id: int | None = None
+) -> Document:
+    if family not in {"secret-scanning", "dependabot"}:
+        raise Refused("Unknown alert inventory")
     count, severities = 0, {}
-    for page in range(1, MAX_PAGES + 1):
-        rows = read(
-            f"repos/{repository}/{family}/alerts?state=open&per_page=100&page={page}"
-        )
+    path = f"repos/{repository}/{family}/alerts?state=open&per_page=100"
+    visited = set()
+    for _ in range(MAX_PAGES):
+        if path in visited:
+            raise Refused("Alert pagination repeated a page")
+        visited.add(path)
+        rows, links = read(path)
         if (
             not isinstance(rows, list)
             or len(rows) > 100
@@ -173,7 +236,8 @@ def inventory(read: Read, repository: str, family: str) -> Document:
                 if severity not in {"critical", "high", "medium", "low", "unknown"}:
                     raise Refused("Alert severity is malformed")
                 severities[severity] = severities.get(severity, 0) + 1
-        if len(rows) < 100:
+        path = next_alert_page(links, repository, family, repository_id)
+        if path is None:
             return {"complete": True, "open": count, "severity": severities}
     raise Refused(
         "Alert inventory exceeded its bounded pagination; clearance unavailable"
@@ -202,8 +266,12 @@ def produce(environment: Document) -> Document:
     expected = requested_source(event, environment, policy)
     source = verify_source(source_api.read, repository, expected)
     alert_api = GitHub(repository, environment.get("GH_SECURITY_ALERTS_TOKEN", ""))
-    secrets = inventory(alert_api.read, repository, "secret-scanning")
-    dependencies = inventory(alert_api.read, repository, "dependabot")
+    secrets = inventory(
+        alert_api.read_page, repository, "secret-scanning", source["repository_id"]
+    )
+    dependencies = inventory(
+        alert_api.read_page, repository, "dependabot", source["repository_id"]
+    )
     # Re-read after inventory; an old attempt cannot mint a current clearance.
     verify_source(source_api.read, repository, expected)
     return {
