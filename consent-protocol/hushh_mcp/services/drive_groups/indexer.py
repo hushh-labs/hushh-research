@@ -24,6 +24,7 @@ from hushh_mcp.services.drive_groups.contract import (
     Placement,
     four_group_index_enabled,
 )
+from hushh_mcp.services.drive_groups.fusion import fuse
 from hushh_mcp.services.drive_groups.models import ModelBundle, load_bundle
 from hushh_mcp.services.drive_groups.placement import place
 from hushh_mcp.services.drive_telemetry import drive_logger
@@ -34,7 +35,7 @@ logger = drive_logger(__name__)
 EMBED_BATCH = 100
 # Default for callers that do not opt into a wider, bounded network pipeline.
 READ_CONCURRENCY = 2
-MAX_READ_CONCURRENCY = 8
+MAX_READ_CONCURRENCY = 32
 _NOT_FILES = frozenset(
     {"application/vnd.google-apps.folder", "application/vnd.google-apps.shortcut"}
 )
@@ -128,11 +129,14 @@ async def index_files(
     owner_email: str | None = None,
     bundle: ModelBundle | None = None,
     read_concurrency: int = READ_CONCURRENCY,
+    require_head: bool = False,
 ) -> IndexRun:
     if not four_group_index_enabled():
         raise GroupIndexDisabled("the Drive four-group index is off")
     if type(read_concurrency) is not int or not 1 <= read_concurrency <= MAX_READ_CONCURRENCY:
         raise ValueError("invalid read concurrency")
+    if type(require_head) is not bool:
+        raise ValueError("invalid head requirement")
     started = time.perf_counter()
     bundle = bundle or load_bundle()
     listed = [
@@ -145,16 +149,22 @@ async def index_files(
     files = []
     for index, (row, evidence) in enumerate(listed):
         head, vector = texts[index], vectors.get(index)
-        placement = place(
-            FileEvidence(
-                evidence.name,
-                evidence.mime_type,
-                evidence.owned_by_me,
-                evidence.shared_with_me,
-                head,
-                vector,
-            ),
-            bundle,
+        # A prefix-only run explicitly requires decoded content. On extraction
+        # failure, abstain before invoking any classifier, including metadata.
+        placement = (
+            fuse((), bundle.fusion, bundle.version)
+            if require_head and not head
+            else place(
+                FileEvidence(
+                    evidence.name,
+                    evidence.mime_type,
+                    evidence.owned_by_me,
+                    evidence.shared_with_me,
+                    head,
+                    vector,
+                ),
+                bundle,
+            )
         )
         kept = placement.group is None
         files.append(

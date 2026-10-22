@@ -456,6 +456,41 @@ async def test_compilation_can_tell_when_drive_extraction_was_truncated(monkeypa
     assert result.payload == {"fileContent": "first pages", "contentTruncated": True}
 
 
+@pytest.mark.parametrize("native", [False, True])
+async def test_index_prefix_uses_bounded_bytes_and_never_falls_back_to_exports(monkeypatch, native):
+    mime = "application/vnd.google-apps.document" if native else "application/pdf"
+    adapter = SimpleNamespace(
+        get_metadata=AsyncMock(
+            return_value=DriveMetadata(FILE_ID, "Synthetic", mime, "3", None, 999999, None)
+        ),
+        read_live_prefix=AsyncMock(return_value=(mime, b"bounded prefix")),
+        read_live_bytes=AsyncMock(side_effect=AssertionError("full download forbidden")),
+    )
+    parse = AsyncMock(side_effect=DriveReadError("invalid_document"))
+    drive = transport(adapter=adapter, monkeypatch=monkeypatch)
+    drive._raw_prefix = True
+    drive._parser = SimpleNamespace(parse=parse)
+    result = await drive.read_group_index_tool(
+        user_id="owner",
+        tool_name="read_file_content",
+        arguments={"fileId": FILE_ID},
+        expected_generation=7,
+    )
+    assert result.payload["textFormattingNotSupported"] is True
+    adapter.read_live_bytes.assert_not_awaited()
+    if native:
+        assert result.payload["reason"] == "prefix_unavailable"
+        adapter.read_live_prefix.assert_not_awaited()
+        parse.assert_not_awaited()
+    else:
+        adapter.read_live_prefix.assert_awaited_once()
+        assert parse.await_args.kwargs == {
+            "mime_type": mime,
+            "content": b"bounded prefix",
+            "live": True,
+        }
+
+
 async def test_an_unparseable_file_is_unsupported_not_a_failure(monkeypatch):
     adapter = SimpleNamespace(
         get_metadata=AsyncMock(

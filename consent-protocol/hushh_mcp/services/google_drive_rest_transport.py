@@ -239,11 +239,16 @@ def _as_mcp_file(item: dict[str, Any]) -> dict[str, Any]:
 
 
 class GoogleDriveRestTransport:
-    def __init__(self, *, oauth=None, adapter=None, writer=None, parser=None) -> None:
+    def __init__(
+        self, *, oauth=None, adapter=None, writer=None, parser=None, raw_prefix: bool = False
+    ) -> None:
+        if type(raw_prefix) is not bool:
+            raise ValueError("invalid raw prefix mode")
         self._oauth = oauth or get_external_connector_oauth_service().drive()
         self.adapter = adapter or GoogleDriveAdapter()
         self.writer = writer or GoogleDriveWriteAdapter()
         self._parser = parser if parser is not None else IsolatedDocumentParser()
+        self._raw_prefix = raw_prefix
 
     async def probe(self, *, access_token: str) -> None:
         """Prove the granted owner can search Drive before the grant is verified."""
@@ -417,10 +422,17 @@ class GoogleDriveRestTransport:
         return ExternalMcpToolResult(is_error=False, payload=payload, truncated=False)
 
     async def _read_index_file_content(self, arguments: dict[str, Any], token: str) -> dict:
-        return await self._read_file_content(arguments, token, strict=True)
+        return await self._read_file_content(
+            arguments, token, strict=True, raw_prefix=self._raw_prefix
+        )
 
     async def _read_file_content(
-        self, arguments: dict[str, Any], token: str, *, strict: bool = False
+        self,
+        arguments: dict[str, Any],
+        token: str,
+        *,
+        strict: bool = False,
+        raw_prefix: bool = False,
     ) -> dict:
         file_id = arguments.get("fileId")
         if not isinstance(file_id, str) or not FILE_ID.fullmatch(file_id):
@@ -442,13 +454,18 @@ class GoogleDriveRestTransport:
                 "metadataOnly": True,
                 "file": await self.adapter.get_file_facts(file_id=file_id, access_token=token),
             }
-        mime_type, content = await self.adapter.read_live_bytes(
+        if raw_prefix and metadata.mime_type.startswith("application/vnd.google-apps."):
+            return {"textFormattingNotSupported": True, "reason": "prefix_unavailable"}
+        mime_type, content = await (
+            self.adapter.read_live_prefix if raw_prefix else self.adapter.read_live_bytes
+        )(
             file_id=file_id,
             mime_type=metadata.mime_type,
             access_token=token,
             **(
                 {"max_bytes": LIVE_COLLECTION_CONTENT_LIMIT}
-                if metadata.mime_type
+                if not raw_prefix
+                and metadata.mime_type
                 in {
                     "application/vnd.google-apps.spreadsheet",
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

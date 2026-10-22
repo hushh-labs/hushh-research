@@ -220,13 +220,51 @@ Separate negative controls that advance the cursor early or bypass the expected
 generation check fail the corresponding recovery and trust-boundary tests.
 
 The exporter defaults to six concurrent fenced reads (`--read-concurrency 1` to
-`8`); its parser still starts at most two children concurrently. Every read gets
+`32`); its parser still starts at most two children concurrently. Every read gets
 fresh canonical credential, connection and registry checks. Only an expiring
 credential queues behind the local refresh lock, where canonical authority is
 read again. No token, policy or consent cache was added. The exporter and worker
 reuse the existing task-scoped HTTP session across listing and reads; child reads
 finish or cancel before the session closes. The worker retains two concurrent
 reads.
+
+For an explicitly bounded content index, add `--raw-prefix-kib 200`. This caps
+each uploaded-file content read at 204,800 raw bytes, before parsing, text-head
+capture and embedding. Inventory listing and CSV serialization retain their
+normal behavior. The transport requests `Range: bytes=0-204799`, checks partial
+response ranges, refuses compression, and closes at the cap if the provider
+ignores the range. It never downloads a tail to repair a partial document.
+Google Workspace exports do not support partial downloads; native Docs, Sheets
+and Slides receive `prefix_unavailable`. An uploaded PDF or Office document
+whose prefix cannot be decoded receives `prefix_unreadable`. Both remain on
+the kept shelf without model scores or metadata-only classification. Other
+unsupported types receive `metadata_only`; decoded prefixes receive
+`indexed_raw_prefix`. The trained classifier still sees the configured 400
+character text head. The byte cap does not increase that model input size.
+The command reports `indexDurationSeconds` for content reads, parsing, embedding
+and classification separately from `inventoryDurationSeconds` and total duration.
+
+Prefix and full-content checkpoints have different evidence contexts and cannot
+be reused across modes. Prefix runs may use 32 concurrent reads while retaining
+the two-child parser cap and 100-head embedding batch bound. The local prefix
+adapter reads connection, registry and background preference together in a
+fresh SQL statement before and after every operation, through a bounded
+read-only pool. The canonical OAuth code still decrypts and validates each
+credential and owns refresh. No grant survives into another operation, no
+database transaction spans provider I/O, and publication retains the canonical
+background and exact-revision check. PostgreSQL regressions exercise registry
+deactivation, connection replacement, background disablement and revision
+changes during provider I/O; every stale result is refused.
+
+On 2026-10-22 a fresh prefix run used no saved inventory or classifications and
+published all 4,941 rows with zero pending entries. It took 305.698 seconds
+inside the CLI, or 311.723 seconds including the fresh helper process and
+credential setup. Five inventory pages and one changes page were read. Of 566
+eligible uploaded documents, 175 prefixes yielded text and 391 were unreadable;
+106 native Workspace documents were unavailable in this mode and 4,269 other
+files were metadata-only. The run attempted 565 prefix downloads and received
+87,858,994 bounded content bytes. This does **not** meet the two-minute fresh
+rebuild target, and unavailable prefixes are not a complete content index.
 
 On 2026-10-22 a matched local comparison read the same 12 authorized Drive files
 with the pinned offline model in separate processes, without checkpoint reuse.

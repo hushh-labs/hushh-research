@@ -34,13 +34,23 @@ _PER_FILE_CODES = frozenset(
 class TransportHeadSource:
     """Reads a file's text start through the fenced ``read_file_content`` tool."""
 
-    def __init__(self, transport: Any, user_id: str, *, limit: int = HEAD_CHARS) -> None:
+    def __init__(
+        self,
+        transport: Any,
+        user_id: str,
+        *,
+        limit: int = HEAD_CHARS,
+        mime_types: frozenset[str] = LIVE_EXTRACTABLE_ORIGINAL_TYPES,
+    ) -> None:
+        if not mime_types <= LIVE_EXTRACTABLE_ORIGINAL_TYPES:
+            raise ValueError("unsupported head types")
         self._transport, self._user_id, self._limit = transport, user_id, limit
+        self._mime_types = mime_types
 
     async def head(self, row: Mapping[str, Any]) -> str | None:
         file_id, mime = row.get("id"), row.get("mimeType")
         # No OCR: images and other types without a text layer are not read.
-        if not isinstance(file_id, str) or mime not in LIVE_EXTRACTABLE_ORIGINAL_TYPES:
+        if not isinstance(file_id, str) or mime not in self._mime_types:
             return None
         try:
             result = await self._transport.read_tool(

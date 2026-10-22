@@ -39,8 +39,14 @@ class DriveLivePreferences(DriveDocumentStore):
             "SELECT * FROM external_mcp_connectors WHERE connector_id='google_drive' FOR SHARE",
             {},
         )
+        return self.validate_live(row, policy, generation=generation)
+
+    @staticmethod
+    def validate_live(row, policy, *, generation: int | None = None):
+        """Canonical live-state validation, independent of the read adapter."""
         if (
-            row["status"] != "connected"
+            not row
+            or row["status"] != "connected"
             or row["validation_state"] != "verified"
             or row["verified_policy_hash"] != LIVE_POLICY_HASH
             or generation is not None
@@ -63,6 +69,10 @@ class DriveLivePreferences(DriveDocumentStore):
             """SELECT * FROM drive_live_preferences WHERE user_id=:user FOR SHARE""",
             {"user": user_id},
         )
+        return self.validate_background(preference, user_id=user_id, generation=generation)
+
+    @staticmethod
+    def validate_background(preference, *, user_id: str, generation: int):
         # Live Drive defaults to background preparation while connected. A
         # recorded OFF choice is account-level and survives OAuth reconnects;
         # connection generation still fences each search and Google grant.

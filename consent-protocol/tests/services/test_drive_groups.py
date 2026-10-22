@@ -157,6 +157,29 @@ async def test_a_placed_file_keeps_nothing_and_a_kept_file_keeps_its_head_and_ve
     assert kept.placement.candidate in GROUP_IDS
 
 
+async def test_prefix_index_abstains_before_classification_when_content_is_unavailable(on):
+    inputs = [row("fin", "statement.pdf")]
+    bundle = tiny_bundle(min_confidence=0.5)
+    # Negative control: this metadata-only input otherwise produces a group.
+    normal = await index_files(inputs, heads=Heads({}), embedder=Vectors({}), bundle=bundle)
+    assert normal.files[0].placement.group == "financial_statements"
+    prefix = await index_files(
+        inputs, heads=Heads({}), embedder=Vectors({}), bundle=bundle, require_head=True
+    )
+    placement = prefix.files[0].placement
+    assert placement.group is None and placement.candidate is None
+    assert placement.reason == "no_evidence" and placement.readings == ()
+    # A decoded prefix still reaches the existing classifier without substitution.
+    decoded = await index_files(
+        inputs,
+        heads=Heads({"fin": "statement"}),
+        embedder=Vectors({}),
+        bundle=bundle,
+        require_head=True,
+    )
+    assert decoded.files[0].placement.group == "financial_statements"
+
+
 async def test_folders_and_shortcuts_are_skipped_and_every_other_file_gets_one_shelf(on):
     rows = [
         row("d", "Folder", "application/vnd.google-apps.folder"),
@@ -289,7 +312,7 @@ async def test_parallel_heads_preserve_order_and_cancel_siblings_on_failure(on, 
         await asyncio.gather(task, return_exceptions=True)
 
 
-@pytest.mark.parametrize("concurrency", [0, 9, True, 1.5])
+@pytest.mark.parametrize("concurrency", [0, 33, True, 1.5])
 async def test_invalid_read_concurrency_never_reads(on, concurrency):
     heads = Heads({})
     with pytest.raises(ValueError, match="invalid read concurrency"):
@@ -900,6 +923,64 @@ async def test_local_export_revocation_during_backoff_prevents_another_provider_
             )
         )
     assert read.await_count == 1
+
+
+async def test_local_prefix_export_labels_missing_content_and_cannot_resume_full_mode(
+    monkeypatch, tmp_path, local_export_setup
+):
+    from contextlib import nullcontext
+
+    from scripts import drive_group_local_adapters, drive_group_local_authority, export_drive_groups
+
+    setup = local_export_setup
+    inputs = [
+        row("good", "statement.pdf", version="1"),
+        row("bad", "statement.pdf", version="1"),
+        row("native", "statement", "application/vnd.google-apps.document", version="1"),
+    ]
+    setup.listing.return_value = (inputs, True, False)
+    monkeypatch.setattr(
+        drive_group_local_authority,
+        "FreshDriveReadAuthority",
+        lambda oauth, **kw: SimpleNamespace(oauth=oauth, operation=nullcontext, close=lambda: None),
+    )
+    monkeypatch.setattr(setup.indexer, "index_files", index_files)
+    monkeypatch.setattr(drive_group_local_adapters, "LocalHeadEmbedder", lambda: Vectors({}))
+    monkeypatch.setattr(
+        export_drive_groups,
+        "ProgressHeads",
+        lambda source, count: SimpleNamespace(
+            head=Heads({"good": "statement"}).head, text_files={"good"}
+        ),
+    )
+    args = SimpleNamespace(
+        email="owner@example.com",
+        time_zone="UTC",
+        format="csv",
+        output=tmp_path / "prefix.csv",
+        raw_prefix_kib=200,
+    )
+    result = await export_drive_groups.export(args)
+    exported = list(csv.DictReader(args.output.read_text(encoding="utf-8-sig").splitlines()))
+    assert result["reusedFiles"] == 0 and result["evidenceMode"] == "raw_prefix_204800"
+    assert [item["index_status"] for item in exported] == [
+        "indexed_raw_prefix",
+        "prefix_unreadable",
+        "prefix_unavailable",
+    ]
+    for item in exported[1:]:
+        assert item["group"] == load_folders().kept and not item["fiscal_quarter"]
+        for key in (
+            "confidence",
+            "model_top_class",
+            "candidate_group",
+            "group_source",
+            "model_version",
+        ):
+            assert item[key] == ""
+    args.resume, args.raw_prefix_kib = True, None
+    with pytest.raises(RuntimeError, match="checkpoint_context_changed"):
+        await export_drive_groups.export(args)
 
 
 @pytest.mark.asyncio

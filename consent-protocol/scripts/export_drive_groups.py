@@ -38,9 +38,15 @@ def _arguments():
     parser.add_argument("--time-zone", default="Asia/Kolkata")
     parser.add_argument("--deadline-seconds", type=int, default=1800)
     parser.add_argument(
+        "--raw-prefix-kib",
+        type=int,
+        choices=(200,),
+        help="Index only the first 200 KiB of uploaded-file bytes.",
+    )
+    parser.add_argument(
         "--read-concurrency",
         type=int,
-        choices=range(1, 9),
+        choices=range(1, 33),
         default=6,
         help="Concurrent fenced reads (default: 6); parser children remain capped at two.",
     )
@@ -121,6 +127,7 @@ async def export(args):
         get_external_connector_oauth_service,
     )
     from hushh_mcp.services.google_drive_adapter import (
+        LIVE_EXPORTS,
         LIVE_EXTRACTABLE_ORIGINAL_TYPES,
         LIVE_POLICY_HASH,
         DriveReadError,
@@ -135,6 +142,12 @@ async def export(args):
     from scripts.drive_group_local_inventory import load_inventory
 
     zone = ZoneInfo(args.time_zone)
+    prefix_mode = getattr(args, "raw_prefix_kib", None) == 200
+    source_types = (
+        LIVE_EXTRACTABLE_ORIGINAL_TYPES - frozenset(LIVE_EXPORTS)
+        if prefix_mode
+        else LIVE_EXTRACTABLE_ORIGINAL_TYPES
+    )
     if os.getenv("ENVIRONMENT", "").lower() not in {"uat", "test", "local", "development"}:
         raise RuntimeError("local_environment_required")
     user = await asyncio.to_thread(auth.get_user_by_email, args.email, app=get_firebase_auth_app())
@@ -182,6 +195,14 @@ async def export(args):
                 )["revision"]
 
         expected_revision = await asyncio.to_thread(background_revision)
+        fresh_authority = None
+        if prefix_mode:
+            from scripts.drive_group_local_authority import FreshDriveReadAuthority
+
+            fresh_authority = FreshDriveReadAuthority(
+                oauth, owner=user.uid, generation=generation, revision=expected_revision
+            )
+            sessions.callback(fresh_authority.close)
 
         def background_allowed():
             return background_revision() == expected_revision
@@ -208,7 +229,11 @@ async def export(args):
                 )
 
         parser = IsolatedDocumentParser(process=windows_parser_process) if os.name == "nt" else None
-        transport = GoogleDriveRestTransport(oauth=oauth, parser=parser)
+        transport = GoogleDriveRestTransport(
+            oauth=fresh_authority.oauth if fresh_authority else oauth,
+            parser=parser,
+            **({"raw_prefix": True} if prefix_mode else {}),
+        )
         await sessions.enter_async_context(transport.owner_search_session())
 
         class Reads:
@@ -217,6 +242,14 @@ async def export(args):
                     raise DriveReadError("connection_changed")
 
                 async def fenced_read():
+                    if fresh_authority:
+                        async with fresh_authority.operation():
+                            return await transport.read_group_index_tool(
+                                user_id=user_id,
+                                tool_name=tool_name,
+                                arguments=arguments,
+                                expected_generation=generation,
+                            )
                     if not await asyncio.to_thread(revision_unchanged):
                         raise DriveReadError("background_preparation_required")
                     return await transport.read_group_index_tool(
@@ -227,7 +260,7 @@ async def export(args):
                     )
 
                 result = await retry_read(fenced_read)
-                if not await asyncio.to_thread(revision_unchanged):
+                if not fresh_authority and not await asyncio.to_thread(revision_unchanged):
                     raise DriveReadError("background_preparation_required")
                 return result
 
@@ -241,6 +274,7 @@ async def export(args):
             "model": bundle.version,
             "zone": args.time_zone,
             "format": args.format,
+            **({"evidence_mode": "raw_prefix_204800"} if prefix_mode else {}),
         }
         checkpoint = args.output.with_name(args.output.name + ".checkpoint.json")
         cached, saved = {}, {}
@@ -251,7 +285,9 @@ async def export(args):
             cached = saved["items"]
         elif checkpoint.exists():
             raise RuntimeError("output_exists")
+        inventory_started = time.perf_counter()
         inventory = await load_inventory(reads, user.uid, saved=saved.get("inventory"))
+        inventory_seconds = time.perf_counter() - inventory_started
         rows, complete, limited = inventory.rows, inventory.complete, inventory.limited
         print(
             json.dumps(
@@ -272,13 +308,13 @@ async def export(args):
         }
         pending = [row for row in rows if row["id"] not in cached]
         reused = len(cached)
-        metadata_only = [
-            row for row in pending if row["mimeType"] not in LIVE_EXTRACTABLE_ORIGINAL_TYPES
-        ]
-        readable = [row for row in pending if row["mimeType"] in LIVE_EXTRACTABLE_ORIGINAL_TYPES]
-        batches = ([metadata_only] if metadata_only else []) + [
-            readable[start : start + 25] for start in range(0, len(readable), 25)
-        ]
+        metadata_only = [row for row in pending if row["mimeType"] not in source_types]
+        readable = [row for row in pending if row["mimeType"] in source_types]
+        batches = ([metadata_only] if metadata_only else []) + (
+            ([readable] if readable else [])
+            if prefix_mode
+            else [readable[start : start + 25] for start in range(0, len(readable), 25)]
+        )
         placeholders = pending_rows(rows)
         published = args.output.exists()
 
@@ -318,9 +354,13 @@ async def export(args):
             flush=True,
         )
         embedder = LocalHeadEmbedder()
-        heads = ProgressHeads(TransportHeadSource(reads, user.uid), len(pending))
+        heads = ProgressHeads(
+            TransportHeadSource(reads, user.uid, mime_types=source_types), len(pending)
+        )
         skipped = 0
+        index_seconds = 0.0
         for batch in batches:
+            index_started = time.perf_counter()
             indexed = await index_files(
                 batch,
                 heads=heads,
@@ -328,8 +368,31 @@ async def export(args):
                 owner_email=args.email,
                 bundle=bundle,
                 read_concurrency=getattr(args, "read_concurrency", 6),
+                **({"require_head": True} if prefix_mode else {}),
             )
+            index_seconds += time.perf_counter() - index_started
             projected = placement_rows(batch, indexed.files, zone=zone)
+            if prefix_mode:
+                for row, item in zip(batch, projected, strict=True):
+                    item["index_status"] = (
+                        "indexed_raw_prefix"
+                        if row["id"] in heads.text_files
+                        else "prefix_unreadable"
+                        if row["mimeType"] in source_types
+                        else "prefix_unavailable"
+                        if row["mimeType"] in LIVE_EXPORTS
+                        else "metadata_only"
+                    )
+                    if item["index_status"] != "indexed_raw_prefix":
+                        item["reason"] = item["index_status"]
+                        for key in (
+                            "confidence",
+                            "model_top_class",
+                            "candidate_group",
+                            "group_source",
+                            "model_version",
+                        ):
+                            item[key] = ""
             versions = {row["id"]: row["version"] for row in batch}
             for item, file in zip(projected, indexed.files, strict=True):
                 cached[file.file_id] = {
@@ -356,6 +419,9 @@ async def export(args):
             "listingComplete": complete,
             "limited": limited,
             "refreshMode": inventory.mode,
+            "evidenceMode": "raw_prefix_204800" if prefix_mode else "full",
+            "inventoryDurationSeconds": round(inventory_seconds, 3),
+            "indexDurationSeconds": round(index_seconds, 3),
             "reusedFiles": reused,
             "changedFiles": len(pending),
             "groups": dict(Counter(item["shelf"] for item in cached.values())),
@@ -449,11 +515,14 @@ class ProgressHeads:
     def __init__(self, source, total):
         self.source, self.total = source, total
         self.done, self.readable = 0, 0
+        self.text_files = set()
 
     async def head(self, row):
         head = await self.source.head(row)
         self.done += 1
         self.readable += bool(head)
+        if head:
+            self.text_files.add(row["id"])
         if self.done % 25 == 0 or self.done == self.total:
             print(
                 json.dumps({"stage": "read", "files": self.done, "textHeads": self.readable}),

@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import replace
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -80,6 +80,108 @@ async def opted_in(groups, zone="UTC"):
     job = await groups.claim(user_id="owner")
     assert job is not None
     return job
+
+
+@pytest.mark.parametrize("change", [None, "generation", "registry", "background", "revision"])
+async def test_local_fresh_read_port_rechecks_joined_authority_after_provider_io(
+    groups, drive, change
+):
+    from hushh_mcp.services.external_connector_google_oauth import (
+        AUTHORIZE_URL,
+        LIVE_SCOPES,
+        REGISTRY_SCOPES,
+        TOKEN_URL,
+    )
+    from hushh_mcp.services.external_connector_registry_service import (
+        ExternalConnectorRegistryService,
+    )
+    from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransport
+    from scripts.drive_group_local_authority import FreshDriveReadAuthority
+
+    current, credential = await drive.current_credential(user_id="owner", refresh=False)
+    expires = datetime.now(UTC) + timedelta(hours=1)
+    envelope = drive.credentials.seal_credential(
+        user_id="owner",
+        connector_id="google_drive",
+        generation=1,
+        version=current["credential_version"],
+        expires_at=expires,
+        secret={
+            **credential,
+            "profile": "live",
+            "grantedScopes": list(LIVE_SCOPES),
+            "expiresAt": expires.isoformat(),
+        },
+    )
+    with groups.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE user_external_connector_connections SET
+            credential_ciphertext=:ciphertext,credential_iv=:iv,credential_algorithm=:algorithm,
+            credential_expires_at=:expires WHERE user_id='owner' AND connector_id='google_drive'"""),
+            {**envelope, "expires": expires},
+        )
+        connection.execute(
+            text("""UPDATE external_mcp_connectors SET
+            oauth_authorize_url=:authorize,oauth_token_url=:token,oauth_scopes=:scopes,
+            oauth_client_id_env='GOOGLE_DRIVE_OAUTH_CLIENT_ID',
+            oauth_client_secret_env='GOOGLE_DRIVE_OAUTH_CLIENT_SECRET',is_active=true
+            WHERE connector_id='google_drive'"""),
+            {"authorize": AUTHORIZE_URL, "token": TOKEN_URL, "scopes": " ".join(REGISTRY_SCOPES)},
+        )
+    drive.registry = ExternalConnectorRegistryService(db=groups.db)
+    authority = FreshDriveReadAuthority(
+        drive, owner="owner", generation=1, revision=0, engine=groups.db.engine
+    )
+
+    async def provider(**kwargs):
+        # A different transaction can change authority while provider I/O runs.
+        # No share lock or open grant transaction may span this callback.
+        def mutate():
+            with groups.db.engine.begin() as connection:
+                connection.exec_driver_sql("SET LOCAL lock_timeout='1s'")
+                if change == "generation":
+                    connection.exec_driver_sql(
+                        "UPDATE user_external_connector_connections SET connection_generation=2 WHERE user_id='owner'"
+                    )
+                elif change == "registry":
+                    connection.exec_driver_sql(
+                        "UPDATE external_mcp_connectors SET is_active=false WHERE connector_id='google_drive'"
+                    )
+                elif change in {"background", "revision"}:
+                    connection.exec_driver_sql("""INSERT INTO drive_live_preferences
+                        (user_id,connection_generation,background_enabled,revision)
+                        VALUES ('owner',1,true,1)""")
+                    if change == "background":
+                        connection.exec_driver_sql(
+                            "UPDATE drive_live_preferences SET background_enabled=false WHERE user_id='owner'"
+                        )
+
+        await asyncio.to_thread(mutate)
+        return {"files": []}
+
+    adapter = SimpleNamespace(list_files=AsyncMock(side_effect=provider))
+    transport = GoogleDriveRestTransport(oauth=authority.oauth, adapter=adapter)
+    async with authority.operation():
+        operation = transport.read_group_index_tool(
+            user_id="owner",
+            tool_name="search_files",
+            arguments={"query": "title contains 'synthetic'", "pageSize": 1},
+            expected_generation=1,
+        )
+        if change:
+            with pytest.raises(
+                DriveReadError, match="connection_changed|background_preparation_required"
+            ):
+                await operation
+        else:
+            assert (await operation).payload["files"] == []
+        assert (authority.registry_row.get() is None) == bool(change)
+        with pytest.raises(DriveReadError, match="connection_changed"):
+            await authority.oauth.lifecycle.read(
+                user_id="another-owner", connector_id="google_drive"
+            )
+    assert not authority.active.get() and authority.registry_row.get() is None
+    adapter.list_files.assert_awaited_once()
 
 
 async def commit(groups, job, entries, *, more=True, keep=None, listed=None):
