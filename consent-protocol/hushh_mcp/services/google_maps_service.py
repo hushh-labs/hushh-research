@@ -80,7 +80,12 @@ _cache_clock = time.monotonic
 # directory's per-category, caller-chosen-radius lookups have different key
 # shapes and must not collide with each other.
 _nearby_places_cache: TTLCache = TTLCache(
-    maxsize=_PLACES_CACHE_MAX_ENTRIES, ttl=_PLACES_CACHE_TTL_SECONDS, timer=lambda: _cache_clock()
+    # Discovery no longer truncates rows. Bound retained venue records rather
+    # than request keys so dense areas cannot multiply this worker's memory.
+    maxsize=_PLACES_CACHE_MAX_ENTRIES * _NEARBY_CHECK_IN_RESULT_LIMIT,
+    getsizeof=lambda rows: max(1, len(rows)),
+    ttl=_PLACES_CACHE_TTL_SECONDS,
+    timer=lambda: _cache_clock(),
 )
 _directory_cache: TTLCache = TTLCache(
     maxsize=_PLACES_CACHE_MAX_ENTRIES, ttl=_PLACES_CACHE_TTL_SECONDS, timer=lambda: _cache_clock()
