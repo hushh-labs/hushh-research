@@ -155,4 +155,13 @@ printf '%s' "${DEPLOY_SERVICE_ACCOUNT_EMAIL}" | gh variable set GCP_DEPLOY_SERVI
 
 python3 scripts/ci/verify-deployment-environment-governance.py --surface production
 
+# Read back what GCP actually has and compare it to the literals above. This file is
+# the authoritative record of who may mint a production deploy token; until now
+# nothing compared that record to reality, so a console edit to the provider or an
+# out-of-band role binding on the deploy account was undetectable. The check runs
+# here because this is the one place the operator credential can read IAM -- the
+# deploy lane's federated identity is scoped to deploying and cannot.
+python3 scripts/ci/verify-deploy-identity-provenance.py \
+  --report-path /tmp/production-deploy-identity.json
+
 echo "Production GitHub WIF configuration is ready."

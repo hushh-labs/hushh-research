@@ -8,7 +8,7 @@
 :global(.dark) .sticker, :global(.dark) .codeDots { border-color: #393c47; background: #1b1c22; color: #f5f5f7; }
 .icon { display: grid; place-items: center; width: 7.2cqw; height: 7.2cqw; flex: 0 0 auto; border-radius: 2.1cqw; }
 .icon svg { width: 4.7cqw; height: 4.7cqw; }
-.blue { background: #e5f0ff; color: #0071e3; }
+.blue { background: #e5f0ff; color: var(--app-accent); }
 .pink { background: #fce6f2; color: #a43b7e; }
 .mint { background: #e3f2e7; color: #377657; }
 .topSticker { left: 1cqw; top: 13cqw; transform: rotate(-6deg); }
@@ -17,7 +17,7 @@
 [data-phone-scene="code"] .bottomSticker { right: 1cqw; bottom: 15cqw; }
 .codeDots { position: absolute; z-index: 4; right: 0; top: 20cqw; display: flex; align-items: center; gap: 1.6cqw; padding: 3cqw; border: 1px solid #d9dde6; border-radius: 3.5cqw; background: #fff; box-shadow: 0 2cqw 5cqw #17172009; transform: rotate(7deg); }
 .codeDots i { width: 4cqw; height: 5.3cqw; border-radius: 1cqw; background: #b8cfff; }
-.codeDots i:nth-child(4) { background: #0071e3; }
+.codeDots i:nth-child(4) { background: var(--app-accent); }
 @media (min-width: 800px) { .artboard { width: min(100%, 495px); } }
 @media (max-height: 690px) { .artboard { width: min(100%, 190px); } }
 @media (min-width: 800px) and (max-height: 690px) { .artboard { width: min(100%, 360px); } }

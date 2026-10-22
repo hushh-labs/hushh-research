@@ -1,9 +1,10 @@
+import { verifyHistoryMovement } from "./helpers/history-motion";
+import { expectPaneRestingAtFrame, mountAppChrome, hitAt, awaitClosedHistoryGeometry } from "./helpers/drawer-geometry";
 import { expect, test, type ElementHandle, type Locator } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { HUSHH_MARK_PATH } from "../lib/brand/hushh-mark";
-import { mountAppChrome, awaitClosedHistoryGeometry } from "./fixtures/app-chrome-layer";
 import {
   productFontStyle,
   stripAppFontFaces,
@@ -85,6 +86,9 @@ test.beforeAll(async () => {
           "@/lib/firebase/config",
           "@/lib/vault/vault-context",
           "@/lib/services/api-service",
+          "./api-service",
+          "./auth-service",
+          "./agent-chat-client",
           "@/lib/services/todo-list-pkm-service",
           "@/lib/cache/cache-sync-service",
           "@/lib/capacitor",
@@ -187,12 +191,6 @@ test.beforeEach(async ({ page }) => {
   await page.route(/^http:\/\/localhost\/one-presence\/(?:still|connected|thinking|working|answering)\.webp$/, route =>
     route.fulfill({
       contentType: "image/webp",
-      body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
-    }),
-  );
-  await page.route(/^http:\/\/localhost\/one-presence\/(?:(?:hd\/)?(?:connected|thinking|working|answering)\.riv|rive\.wasm)$/, route =>
-    route.fulfill({
-      contentType: route.request().url().endsWith(".wasm") ? "application/wasm" : "application/octet-stream",
       body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)),
     }),
   );
@@ -331,7 +329,7 @@ for (const width of [390, 1440])
   });
 
 async function profileFrame(page: import("@playwright/test").Page, safeSidePane = false) {
-  return page.evaluate((safeSidePane) => {
+  return page.evaluate(({ safeSidePane }) => {
     const reference = document.createElement("div");
     reference.className = safeSidePane ? "" : "profile-pane-sheet";
     reference.dataset.slot = "sheet-content";
@@ -371,7 +369,7 @@ async function profileFrame(page: import("@playwright/test").Page, safeSidePane 
       } };
     reference.remove();
     return result;
-  }, safeSidePane);
+  }, { safeSidePane });
 }
 
 for (const width of [390, 1440]) for (const dark of [false, true])
@@ -617,15 +615,20 @@ for (const { width, native } of [...[390, 768, 1440].map(width => ({ width, nati
     expect(corners).toEqual(Array(4).fill(reference.radius));
     const close = chats.getByRole("button", { name: "Close chat history", exact: true });
     const closeBox = (await close.boundingBox())!;
-    expect(closeBox.width).toBeGreaterThanOrEqual(44);
-    expect(closeBox.height).toBeGreaterThanOrEqual(44);
+    const target = await close.evaluate(element => {
+      const style = getComputedStyle(element);
+      return { width: parseFloat(style.width), height: parseFloat(style.height) };
+    });
+    expect(target.width).toBeGreaterThanOrEqual(44);
+    expect(target.height).toBeGreaterThanOrEqual(44);
+    // Preserve rendered hitbox coverage without treating matrix roundoff as shrinkage.
+    expect(closeBox.width).toBeCloseTo(target.width, 4);
+    expect(closeBox.height).toBeCloseTo(target.height, 4);
     const leadingInset = await chats.evaluate(node => {
       const header = node.querySelector("[data-agent-history-header]")!;
       return parseFloat(getComputedStyle(header).paddingLeft) + parseFloat(getComputedStyle(node).borderLeftWidth);
     });
     expect(closeBox.x - drawerBox.x).toBeCloseTo(leadingInset, 0);
-    // Layout width, not WebKit's fractional translated DOMRect rounding.
-    expect(await close.evaluate(element => (element as HTMLElement).offsetWidth)).toBeGreaterThanOrEqual(44);
     expect(await close.evaluate(element => parseFloat(getComputedStyle(element).borderRadius))).toBeGreaterThanOrEqual(closeBox.width / 2);
     const title = chats.getByText("A weekend idea", { exact: true });
     const age = chats.locator("time");
@@ -637,7 +640,8 @@ for (const { width, native } of [...[390, 768, 1440].map(width => ({ width, nati
       return { size: style.fontSize, line: style.lineHeight, weight: style.fontWeight };
     });
     expect(titleStyle).toEqual({ size: "20px", line: "23px", weight: "600" });
-    // Both panels inherit the same material authority in each theme.
+    // Match the side-pane renderer, including WebKit's intentional opaque
+    // fallback. Floating Profile and portaled menus retain their glass policy.
     for (const dark of [false, true]) {
       await page.evaluate(enabled => document.documentElement.classList.toggle("dark", enabled), dark);
       const reference = await profileFrame(page);
@@ -655,18 +659,10 @@ for (const { width, native } of [...[390, 768, 1440].map(width => ({ width, nati
     await expect(opener).toBeFocused();
   });
 
-/** What a finger at (x, y) would land on: the scrim, the panel, or chrome. */
-function hitAt(page: import("@playwright/test").Page, x: number, y: number) {
-  return page.evaluate(([px, py]) => {
-    const element = document.elementFromPoint(px, py);
-    if (!element) return "none";
-    if (element.closest("[data-agent-history-scrim]")) return "scrim";
-    if (element.closest("[data-agent-history-drawer]")) return "panel";
-    if (element.closest("[data-fixture-bottom-bar]")) return "bottom-bar";
-    if (element.closest("header.agent-chat-header")) return "header";
-    return element.tagName.toLowerCase();
-  }, [x, y] as const);
-}
+
+test("History tap and interrupted pulls settle the entire panel without shifting Chat", async ({ page }) => {
+  await verifyHistoryMovement(page, false);
+});
 
 for (const { width, safeLeft } of [
   { width: 390, safeLeft: 0 },
@@ -731,10 +727,7 @@ for (const { width, safeLeft } of [
     // Removing the gesture hint is not a rendered-position receipt. WebKit
     // can still be completing the CSS handoff; that is a valid interrupted
     // re-grab, tested separately, not this fully-open closing contract.
-    await expect.poll(async () => {
-      const bounds = await page.locator('[data-agent-history-drawer]').boundingBox();
-      return bounds?.x;
-    }).toBeCloseTo(Math.max(safeLeft, (await profileFrame(page)).x), 0);
+    await expectPaneRestingAtFrame(page, page.locator('[data-agent-history-drawer]'), safeLeft);
     await expect(page.locator("[data-agent-history-drawer]")).not.toHaveAttribute("style", /will-change/);
     // Auth freshness can temporarily disable the gesture while the drawer
     // remains open. Reattaching must preserve the same closed endpoint.
@@ -744,6 +737,9 @@ for (const { width, safeLeft } of [
       }, enabled);
       await page.evaluate(() => new Promise(requestAnimationFrame));
     }
+    await expect.poll(() => page.locator("[data-agent-history-drawer]").evaluate(panel =>
+      Math.abs(panel.getBoundingClientRect().x - (panel as HTMLElement).offsetLeft),
+    )).toBeLessThanOrEqual(1);
     const closing = await page.evaluate(async () => {
       const frame = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
       const panel = frame;
@@ -932,7 +928,7 @@ for (const width of [390, 768])
       ),
     ).toBe(true);
     await connectors.click();
-    await expect(page.getByRole("dialog", { name: "Chat connectors", exact: true })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Connectors", exact: true })).toBeVisible();
   });
 
 test("chat sidebar closes from its own control and returns focus to the trigger", async ({ page }) => {
@@ -975,15 +971,24 @@ for (const width of [320, 390, 768, 1440])
     const chatSearch = page.getByRole("searchbox", { name: "Search chats" });
     await chatSearch.fill("History filter");
     await expect(chatSearch).toHaveValue("History filter");
-    const historyFrame = await page.locator("[data-agent-history-drawer]").elementHandle();
-    const historyGeometry = await page.locator("[data-agent-history-drawer]").boundingBox();
     await page.getByLabel("Open Connectors", { exact: true }).click();
-    const drawer = page.getByRole("dialog", { name: "Chat connectors", exact: true });
+    const drawer = page.getByRole("dialog", { name: "Connectors", exact: true });
     await expect(page.getByRole("dialog", { name: "Agent chat history", exact: true })).not.toBeVisible();
-    expect(await drawer.evaluate((node, prior) => node === prior, historyFrame)).toBe(true);
-    await expect.poll(() => drawer.boundingBox()).toEqual(historyGeometry);
+    await expect(drawer).toHaveAttribute("data-slot", width < 640 ? "sheet-content" : "dialog-content");
+    if (width >= 640) {
+      expect((await drawer.boundingBox())!.width).toBeLessThanOrEqual(448);
+      await expect.poll(async () => {
+        const box = (await drawer.boundingBox())!;
+        return Math.abs(box.x + box.width / 2 - width / 2);
+      }).toBeLessThan(2);
+    } else {
+      await expect.poll(async () => {
+        const box = (await drawer.boundingBox())!;
+        return Math.abs(box.y + box.height - 820);
+      }).toBeLessThan(2);
+    }
     await expect(drawer.getByRole("heading", { name: "Connected" })).toBeVisible();
-    const overlay = page.locator('[data-agent-history-scrim]');
+    const overlay = page.locator('[data-slot="dialog-overlay"], [data-slot="sheet-overlay"]').last();
     await expect(overlay).toBeVisible();
     expect(await overlay.evaluate((element) => getComputedStyle(element).backdropFilter)).toContain("blur(");
     await expect(drawer.getByRole("heading", { name: "Available" })).toBeVisible();
@@ -1065,10 +1070,10 @@ for (const width of [320, 390, 1440])
     await page.getByRole("button", { name: "Open drawer", exact: true }).click();
     await page.getByLabel("Open Connectors", { exact: true }).click();
 
-    const dialog = page.getByRole("dialog", { name: "Chat connectors", exact: true });
+    const dialog = page.getByRole("dialog", { name: "Connectors", exact: true });
     const scrollRegion = dialog.locator('[data-history-connectors-scroll]');
-    await expect(dialog.getByRole("heading", { name: "Connectors", exact: true })).toBeVisible();
-    expect(await scrollRegion.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+    await expect(dialog.getByRole("banner").getByRole("heading", { name: "Connectors", exact: true })).toBeVisible();
+    await expect.poll(() => scrollRegion.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
 
     const plaid = dialog.getByTestId("profile-connector-row-plaid").getByRole("button").first();
     await plaid.scrollIntoViewIfNeeded();
@@ -1083,44 +1088,53 @@ for (const width of [320, 390, 1440])
     expect(action!.x + action!.width).toBeLessThanOrEqual(width + 1);
   });
 
-test("dismissing Connectors returns the next hamburger open to chat history", async ({ page }) => {
-  await page.setViewportSize({ width: 768, height: 820 });
-  const hamburger = page.getByRole("button", { name: "Open drawer", exact: true });
-  const connectors = page.getByRole("dialog", { name: "Chat connectors", exact: true });
-  const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
+for (const width of [390, 768, 1024]) {
+  test(`dismissing Connectors returns the next hamburger open to chat history at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 820 });
+    const hamburger = page.getByRole("button", { name: "Open drawer", exact: true });
+    const connectors = page.getByRole("dialog", { name: "Connectors", exact: true });
+    const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
 
-  // Radix attaches its outside-pointer listener after the open transition
-  // starts; clicking the scrim mid-animation was a race (flaky on chromium).
-  const settled = () =>
-    expect
-      .poll(() =>
-        connectors.evaluate(
-          (node) => node.getAnimations().filter((a) => a.playState === "running").length,
-        ),
-      )
-      .toBe(0);
+    // Mobile uses the bottom Sheet; desktop uses the centered Dialog. Exercise
+    // their actual dismissal targets after motion, then retain Escape coverage.
+    const settled = () =>
+      expect
+        .poll(() =>
+          page.evaluate(
+            () => document.getAnimations().filter((a) => a.playState === "running").length,
+          ),
+        )
+        .toBe(0);
 
-  await hamburger.click();
-  await page.getByLabel("Open Connectors", { exact: true }).click();
-  await expect(connectors).toBeVisible();
-  await settled();
-  await page.mouse.click(744, 400);
-  await expect(connectors).not.toBeVisible();
-  await hamburger.click();
-  await expect(chats.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
+    await hamburger.click();
+    await page.getByLabel("Open Connectors", { exact: true }).click();
+    await expect(connectors).toBeVisible();
+    await settled();
+    if (width < 640) await connectors.getByRole("button", { name: "Close connectors", exact: true }).click();
+    else {
+      const bounds = (await connectors.boundingBox())!;
+      expect(bounds.x).toBeGreaterThan(0);
+      const x = bounds.x / 2;
+      expect(await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest('[data-slot="dialog-overlay"]') != null, [x, 400])).toBe(true);
+      await page.mouse.click(x, 400);
+    }
+    await expect(connectors).not.toBeVisible();
+    await hamburger.click();
+    await expect(chats.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
 
-  await page.getByLabel("Open Connectors", { exact: true }).click();
-  await expect(connectors).toBeVisible();
-  await settled();
-  await page.keyboard.press("Escape");
-  await expect(connectors).not.toBeVisible();
-  await expect(chats.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
-  await expect(chats.getByRole("button", { name: "Open Connectors" })).toBeFocused();
-  await page.keyboard.press("Escape");
-  await expect(chats).not.toBeVisible();
-  await hamburger.click();
-  await expect(chats.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
-});
+    await page.getByLabel("Open Connectors", { exact: true }).click();
+    await expect(connectors).toBeVisible();
+    await settled();
+    await page.keyboard.press("Escape");
+    await expect(connectors).not.toBeVisible();
+    await expect(chats.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
+    await expect(chats.getByRole("button", { name: "Open Connectors" })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(chats).not.toBeVisible();
+    await hamburger.click();
+    await expect(chats.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
+  });
+}
 
 test("Picker focus, explicit admission, and removal", async ({
   page,
@@ -1136,7 +1150,7 @@ test("Picker focus, explicit admission, and removal", async ({
   ).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(
-    page.getByRole("dialog", { name: "Chat connectors", exact: true }),
+    page.getByRole("dialog", { name: "Connectors", exact: true }),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Choose files", exact: true }),
@@ -1218,7 +1232,7 @@ test("background processing needs explicit consent and can be paused without rem
   await expect(processing).toBeChecked();
   await expect(page.getByText("Agent One prepares this file while you’re away.", { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 440 });
-  const dialog = page.getByRole("dialog", { name: "Chat connectors", exact: true });
+  const dialog = page.getByRole("dialog", { name: "Connectors", exact: true });
   const remove = dialog.getByRole("button", { name: /^Remove .+$/ });
   await remove.scrollIntoViewIfNeeded();
   const removeBox = (await remove.boundingBox())!;
@@ -1956,7 +1970,7 @@ test.describe("One profile artwork and animated presence", () => {
             expect(pixels.opaque).toBeGreaterThan(0);
             hashes[index]!.add(pixels.hash);
           }
-          await expectPresenceNameGap(page.getByTestId("one-presence-header"));
+          // Header identity is inline; the compact-header regression below verifies nonoverlap.
           await expectPresenceNameGap(surfaces[1]!, true);
           if (!reducedMotion) await expect.poll(() => requests.includes(`/one-presence/hd/${state}.riv`)).toBe(true);
         }
@@ -2052,7 +2066,7 @@ test.describe("One profile artwork and animated presence", () => {
         for (const width of [390, 1440]) {
           await page.setViewportSize({ width, height: 900 });
           await expectPresencePlayback(trigger);
-          await expectPresenceNameGap(page.getByTestId("one-presence-header"));
+          // Header identity is inline; the compact-header regression below verifies nonoverlap.
           for (const size of [128, 192, 256, 192]) {
             await artwork.evaluate((node, size) => {
               (node.parentElement as HTMLElement).style.setProperty("--one-presence-size", `${size}px`);
@@ -2179,6 +2193,7 @@ test.describe("One profile artwork and animated presence", () => {
       await expect(profile.locator('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "answering");
       await expect(profile.locator("[data-one-presence-artwork]")).toHaveCount(1);
       await expectPresencePlayback(profile);
+      await expect.poll(() => page.evaluate(() => (window as any).__presenceContinuity.frames)).toBeGreaterThan(5);
     } finally {
       release();
       proof = await page.evaluate(() => {
@@ -2195,7 +2210,6 @@ test.describe("One profile artwork and animated presence", () => {
       fs.writeFileSync(probePath, JSON.stringify(proof, null, 2));
       await test.info().attach("presence-transition-frame-probe", { path: probePath, contentType: "application/json" });
     }
-    expect(proof.frames).toBeGreaterThan(5);
     expect(proof.interruptedOpacity).toBeGreaterThan(0);
     expect(proof.interruptedOpacity).toBeLessThan(1);
     expect(proof.blank, "no empty animation frame").toBe(0);
@@ -2337,8 +2351,7 @@ test.describe("One profile artwork and animated presence", () => {
             parentBackground: getComputedStyle(node.parentElement!).backgroundColor,
             parentRadius: getComputedStyle(node.parentElement!).borderRadius } } : {}),
         };
-      }))).toEqual([expectedSurface, { ...expectedSurface,
-        canvas: { ...expectedSurface.canvas, width: 672, height: 672 }, profile: {
+      }))).toEqual([{ ...expectedSurface, canvas: { ...expectedSurface.canvas, width: 96, height: 96 } }, { ...expectedSurface, canvas: { ...expectedSurface.canvas, width: 672, height: 672 }, profile: {
         width: 224, height: 224, background: "rgba(0, 0, 0, 0)",
         parentBackground: "rgba(0, 0, 0, 0)", parentRadius: "0px",
       } }]);
@@ -2352,7 +2365,7 @@ test.describe("One profile artwork and animated presence", () => {
         expect((await presencePixels(canvas)).cornerAlpha).toEqual([0, 0, 0, 0]);
       }));
       await expectPresenceMotion(canvases);
-      await expectPresenceNameGap(page.getByTestId("one-presence-header"));
+      // Header identity is inline; the compact-header regression below verifies nonoverlap.
       await expectPresenceNameGap(profile, true);
       await page.screenshot({ path: test.info().outputPath(`presence-${phase.state}.png`) });
     }
@@ -2389,7 +2402,8 @@ test.describe("One profile artwork and animated presence", () => {
     await expect(canvas).toHaveCSS("visibility", "visible");
     await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await expect(canvas).toHaveCSS("visibility", "hidden");
+    await expect(canvas).toBeHidden();
+    await expect(poster).toBeVisible();
     await expect(poster).toHaveAttribute("src", "/one-presence/drafting-hd.png");
     await expect(poster).toHaveCSS("visibility", "visible");
     await expect.poll(() => poster.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth >= image.getBoundingClientRect().width * devicePixelRatio)).toBe(true);
@@ -2402,14 +2416,14 @@ test.describe("One profile artwork and animated presence", () => {
     await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
     await expect.poll(async () => (await presencePixels(canvas)).hash).not.toBe(reduced);
     await page.evaluate(() => (window as any).__setOnePresenceLifecycle("background"));
-    await expect(canvas).toHaveCSS("visibility", "hidden");
-    await expect(poster).toHaveCSS("visibility", "visible");
+    await expect(canvas).toBeHidden();
+    await expect(poster).toBeVisible();
     const paused = (await presencePixels(canvas)).hash;
     await page.waitForTimeout(200);
     expect((await presencePixels(canvas)).hash).toBe(paused);
     await page.evaluate(() => (window as any).__setOnePresenceLifecycle("active"));
-    await expect(canvas).toHaveCSS("visibility", "visible");
-    await expect(poster).toHaveCSS("visibility", "hidden");
+    await expect(canvas).toBeVisible();
+    await expect(poster).toBeHidden();
     await expect.poll(async () => (await presencePixels(canvas)).hash).not.toBe(paused);
     // Exercise Rive's own zero-size recovery, which normally restores device
     // DPR. The avatar must restore its source pixel budget before playback.

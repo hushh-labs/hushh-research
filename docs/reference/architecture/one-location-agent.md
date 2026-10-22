@@ -242,6 +242,19 @@ live-location grants:
   One Location saved-place API
 - Location → Settings reads and mutates saved places only while the vault is
   unlocked; decrypted values remain in memory or the encrypted device cache
+- Explicit checkout saves appear under Checked In Places. New saves keep the
+  venue name, street address, provider place ID and actual check-in timestamp
+  separately inside that same encrypted record. Rows show the address before
+  expansion and the visit date on the right. Older records without a visit
+  timestamp label their existing date as Saved; no visit time is inferred.
+- Older combined name/address labels remain stored intact. Their display uses
+  the first segment as a fallback name, and missing addresses are resolved on
+  load through the existing authenticated reverse-geocoding service, in memory
+  for the current vault session. Provider failures retain the available saved
+  address text and the existing manual recovery action.
+- A checked-in row offers Add to favorites and Remove. Favoriting moves that
+  existing record without changing its pin, visit time, or Home/Work categories;
+  repeating the action is idempotent. Edit is available on favorite rows.
 - reverse geocoding may send the captured point through the authenticated Maps
   proxy to obtain display copy and an ISO country code, but the Maps service
   does not persist the point or result
@@ -638,10 +651,12 @@ never prints or persists the header value.
 
 Operators configure that hourly job through
 `deploy/one-location/setup_retention_scheduler.sh`. It calls
-`POST /api/one/location/retention/purge?older_than_hours=12` with
-`X-Hushh-Maintenance-Token` backed by the dedicated
-`ONE_LOCATION_RETENTION_TOKEN`, so due encrypted material is scrubbed within
-the configured scheduler interval even when no feature traffic occurs. Public
+`POST /api/one/location/retention/purge?older_than_hours=12` authenticated by a
+per-invocation Google-signed OIDC token, so due encrypted material is scrubbed
+within the configured scheduler interval even when no feature traffic occurs.
+The job carries no secret: the identity it runs as must appear in
+`ONE_LOCATION_RETENTION_SCHEDULER_SERVICE_ACCOUNTS` and its token's audience
+must equal `ONE_LOCATION_RETENTION_AUDIENCE`. Public
 request-link invites, public submissions, Invite to One links, expired/revoked
 named Circle codes, and checked-out/expired nearby presence follow the same
 terminal-state retention boundary. Pending targeted Circle-member invitations

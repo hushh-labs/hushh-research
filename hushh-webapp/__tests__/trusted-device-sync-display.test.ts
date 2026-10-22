@@ -2,8 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
 
 const api = vi.hoisted(() => ({ list: vi.fn(), revoke: vi.fn() }));
-vi.mock("@/lib/services/api-service", () => ({ ApiService: { listTrustedDevices: api.list, revokeTrustedDevice: api.revoke } }));
+vi.mock("@/lib/services/api-service", () => ({ ApiService: { listTrustedDevices: api.list, revokeTrustedDeviceEverywhere: async (...args: unknown[]) => ({ hub: await api.revoke(...args), pod: { delivered: true, pending: null } }) } }));
 vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => false }, registerPlugin: () => ({}) }));
+vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: null }) }));
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { CacheService } from "@/lib/services/cache-service";
 import { useTrustedDevicesModel } from "@/components/profile/use-trusted-devices-model";

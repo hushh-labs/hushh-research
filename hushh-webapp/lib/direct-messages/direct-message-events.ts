@@ -1,9 +1,12 @@
 "use client";
 
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+
 /** A metadata-only invalidation signal; message bodies never cross this boundary. */
 export const DIRECT_MESSAGES_UPDATED_EVENT = "hushh:direct-messages-updated";
 
 const DIRECT_MESSAGES_CHANNEL = "hushh-direct-messages-v1";
+let lastInvalidationKey = "";
 
 export type DirectMessagesUpdatedDetail = {
   userId: string;
@@ -12,6 +15,16 @@ export type DirectMessagesUpdatedDetail = {
   source: "send" | "fcm" | "sse" | "read" | "delete";
   changedAt: number;
 };
+
+function invalidateMessageSnapshot(detail: DirectMessagesUpdatedDetail): void {
+  if (detail.source === "read") return;
+  const key = JSON.stringify([detail.userId, detail.conversationId, detail.messageId, detail.source, detail.changedAt]);
+  // Multiple consumers receive the same window/channel event. Invalidate its
+  // request session once, before any consumer starts the replacement request.
+  if (key === lastInvalidationKey) return;
+  lastInvalidationKey = key;
+  CacheSyncService.onDirectMessagesMutated(detail.userId);
+}
 
 function normalizeDetail(
   value: Partial<DirectMessagesUpdatedDetail> | null | undefined,
@@ -39,6 +52,7 @@ export function dispatchDirectMessagesUpdated(
   if (typeof window === "undefined") return;
   const normalized = normalizeDetail({ ...detail, changedAt: Date.now() });
   if (!normalized) return;
+  invalidateMessageSnapshot(normalized);
   window.dispatchEvent(
     new CustomEvent<DirectMessagesUpdatedDetail>(DIRECT_MESSAGES_UPDATED_EVENT, {
       detail: normalized,
@@ -60,6 +74,7 @@ export function subscribeToDirectMessagesUpdated(
     const key = `${detail.userId}:${detail.conversationId ?? ""}:${detail.messageId ?? ""}:${detail.changedAt}`;
     if (key === lastDeliveredKey) return;
     lastDeliveredKey = key;
+    invalidateMessageSnapshot(detail);
     listener(detail);
   };
   const onWindowEvent = (event: Event) => {

@@ -82,6 +82,8 @@ def _search_metadata(payload: dict[str, Any]) -> dict[str, Any]:
         and set(payload) <= {"nextPageToken", "content"}
         and not (payload.get("nextPageToken") or payload.get("content"))
     ):
+        # Drive MCP answers "no matches" with `{}`: that is zero files, not a
+        # broken provider. Any other shape without a file list stays invalid.
         files = []
     if not isinstance(files, list) or any(not isinstance(item, dict) for item in files):
         raise ExternalMcpError("Invalid Drive listing.", code="MCP_INVALID_RESULT")

@@ -34,7 +34,7 @@ import re
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from google.adk.events import Event
@@ -2771,3 +2771,68 @@ async def test_end_of_access_may_follow_a_shared_answer_once_and_carries_nothing
             revoked, outcome="revoked", state={consent_outcome_state_key(_BUNDLE): "revoked"}
         )
     assert again.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_unqualified_private_information_proposal_never_falls_back_to_hub(monkeypatch):
+    from hushh_mcp import runtime_settings
+    from hushh_mcp.services import pod_owner_cloud
+
+    monkeypatch.setattr(runtime_settings, "pod_mode", lambda: True)
+    monkeypatch.setattr(pod_owner_cloud, "owner_cloud_agent", lambda: False)
+    monkeypatch.setattr(
+        action_tools, "_read_tool_user_id", AsyncMock(return_value=("user_1", None))
+    )
+
+    refuse_hub_constructor = Mock(
+        side_effect=AssertionError("Unqualified private proposal must not open a hub database")
+    )
+
+    monkeypatch.setattr(action_tools, "ConnectionsService", refuse_hub_constructor)
+    monkeypatch.setattr(action_tools, "PersonProfileService", refuse_hub_constructor)
+    with _auth(), _waiting():
+        result = await propose_information_request(
+            "Sarah", "employment status", "Employee onboarding review", _ctx(_state()), 1
+        )
+    assert result["status"] == "failed"
+    refuse_hub_constructor.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_private_information_proposal_uses_owner_metadata_ports_without_hub_database(
+    monkeypatch,
+):
+    from hushh_mcp.services import pod_information_discovery
+
+    class PrivateDiscovery:
+        def list_connections(self, *, user_id):
+            assert user_id == "user_1"
+            return [{"displayName": "Sarah Chen", "publicPersonRef": PERSON_REF}]
+
+        def pending(self, person_ref, scope_refs):
+            assert person_ref == PERSON_REF
+            return []
+
+        def catalog(self, person_ref):
+            assert person_ref == PERSON_REF
+            return {**PROFILE, "connectorReady": True}
+
+    monkeypatch.setattr(
+        pod_information_discovery, "private_information_discovery", lambda owner: PrivateDiscovery()
+    )
+
+    def refuse_hub_constructor(*args, **kwargs):
+        raise AssertionError("Private proposal must not construct a hub database service")
+
+    monkeypatch.setattr(action_tools, "ConnectionsService", refuse_hub_constructor)
+    monkeypatch.setattr(action_tools, "PersonProfileService", refuse_hub_constructor)
+    monkeypatch.setattr(action_tools, "InformationRequestService", refuse_hub_constructor)
+    state = _state()
+    with _auth(), _waiting():
+        result = await propose_information_request(
+            "Sarah", "employment status", "Employee onboarding review", _ctx(state), 1
+        )
+    assert result["status"] == "proposal_ready"
+    assert result["person"]["personRef"] == PERSON_REF
+    assert result["fields"] == ["Employment status"]
+    assert result["connectorReady"] is True

@@ -2,6 +2,13 @@
 
 > Canonical entry point for durable repo knowledge.
 
+## Founder / CTO: start here
+
+- [Current readiness decision](./reference/quality/adk-orchestration-docs-audit.md): what works, what serves dev, measured outcomes and blockers.
+- [Private-agent north star](./reference/architecture/private-agent-north-star.md): architecture and ownership requirements.
+- [System diagrams](./reference/architecture/README.md#founder-and-cto-diagram-guide): cloud, Docker images, agents and information boundaries.
+- [Browser execution evidence](../consent-protocol/docs/reference/private-browser-runtime.md): ADK integration and each native sandbox gate.
+
 ## Visual Map
 
 ```mermaid
@@ -66,7 +73,7 @@ Start here:
 - [reference/architecture/architecture-view-catalog.md](./reference/architecture/architecture-view-catalog.md): C4 + ISO 42010 catalog of Hussh system, container, component, dynamic, deployment, network, physical, and data-boundary views
 - [reference/architecture/founder-language-matrix.md](./reference/architecture/founder-language-matrix.md): founder-language terminology contract
 - [reference/operations/brand-and-compatibility-contract.md](./reference/operations/brand-and-compatibility-contract.md): public naming rule and compatibility boundary
-- [reference/operations/branch-governance.md](./reference/operations/branch-governance.md): delivery model
+- [reference/operations/branch-governance.md](./reference/operations/branch-governance.md): delivery model, protected surfaces, and **the bypass lane** — who may land directly on `main` and edit protected pipeline paths, and what that bypass never waives
 - [vision/README.md](./vision/README.md): product thesis and positioning
 - [future/README.md](./future/README.md): future roadmap and R&D planning home
 

@@ -356,8 +356,13 @@ describe("Top app bar responsive contract", () => {
     );
   });
 
+
   it("keeps onboarding chrome canonical and shell-sized", () => {
-    const source = read("components/app-ui/top-app-bar.tsx");
+    const topBar = read("components/app-ui/top-app-bar.tsx");
+    const source = topBar + "\n" + read("components/onboarding/onboarding-route-actions.tsx");
+    expect(topBar).toContain('import { OnboardingRouteActions }');
+    expect(topBar).toContain("<OnboardingRouteActions");
+    expect(topBar).not.toContain("function OnboardingRouteActions()");
     const signOutItemStart = source.indexOf(
       "onClick={() => void handleSignOut()}",
     );
@@ -392,15 +397,15 @@ describe("Top app bar responsive contract", () => {
     expect(deleteItemSource).toContain("cursor-pointer");
     expect(deleteItemSource).toContain("rounded-[10px]");
     expect(deleteItemSource).toContain(
-      "hover:!bg-[color:var(--app-destructive)]",
+      "hover:!bg-[color:var(--app-destructive-tint)]",
     );
     expect(deleteItemSource).toContain(
-      "hover:!text-[color:var(--app-destructive-fg)]",
+      "hover:!text-destructive",
     );
-    expect(deleteItemSource).toContain(
+    expect(deleteItemSource).not.toContain(
       "hover:[&_svg]:!stroke-[color:var(--app-destructive-fg)]",
     );
-    expect(deleteItemSource).toContain(
+    expect(deleteItemSource).not.toContain(
       "hover:[&_svg]:!text-[color:var(--app-destructive-fg)]",
     );
     expect(deleteItemSource).not.toContain(

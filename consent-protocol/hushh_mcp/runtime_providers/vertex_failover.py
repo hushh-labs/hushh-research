@@ -105,6 +105,7 @@ class VertexRegionalClient:
         self._cooldown_seconds = max(0.0, cooldown_seconds)
         self._lock = threading.Lock()
         self._cooldowns: dict[str, float] = {}
+        self._closed = False
         self._clients: dict[str, Any] = {locations[0]: self._new_client(locations[0])}
         self.aio = _AsyncNamespace(self)
         self.models = _SyncModels(self)
@@ -112,8 +113,29 @@ class VertexRegionalClient:
     def _new_client(self, location: str) -> Any:
         return self._client_factory(vertexai=True, project=self._project, location=location)
 
+    async def aclose(self) -> None:
+        """Invocation owner calls only after all regional requests have joined."""
+        from hushh_mcp.runtime_providers.lifecycle import close_owned_model_client
+
+        with self._lock:
+            self._closed = True
+            clients, self._clients = list(self._clients.values()), {}
+        failure: BaseException | None = None
+        try:
+            for client in clients:
+                try:
+                    await close_owned_model_client(client)
+                except BaseException as exc:
+                    failure = failure or exc
+        finally:
+            clients.clear()
+        if failure is not None:
+            raise failure
+
     def _client_for(self, location: str) -> Any:
         with self._lock:
+            if self._closed:
+                raise RuntimeError("Model client is closed")
             client = self._clients.get(location)
             if client is None:
                 client = self._new_client(location)
@@ -146,31 +168,61 @@ class VertexRegionalClient:
 
     def _call_sync(self, method_name: str, kwargs: dict[str, Any]) -> Any:
         last_error: Exception | None = None
+        prior_failures = 0
         for location in self._available_locations():
             try:
                 method = getattr(self._client_for(location).models, method_name)
-                return method(**kwargs)
+                result = method(**kwargs)
+                if prior_failures:
+                    logger.info(
+                        "vertex_region_failover stage=%s outcome=success attempts=%s location=%s",
+                        method_name,
+                        prior_failures + 1,
+                        location,
+                    )
+                return result
             except Exception as error:  # noqa: BLE001 - provider boundary
                 if not is_retryable_vertex_error(error):
                     raise
                 last_error = error
+                prior_failures += 1
                 self._mark_transient_failure(location, error)
         if last_error is not None:
+            logger.warning(
+                "vertex_region_failover stage=%s outcome=exhausted attempts=%s",
+                method_name,
+                prior_failures,
+            )
             raise last_error
         raise RuntimeError("Vertex regional failover exited without an attempt")
 
     async def _call_async(self, method_name: str, kwargs: dict[str, Any]) -> Any:
         last_error: Exception | None = None
+        prior_failures = 0
         for location in self._available_locations():
             try:
                 method = getattr(self._client_for(location).aio.models, method_name)
-                return await method(**kwargs)
+                result = await method(**kwargs)
+                if prior_failures:
+                    logger.info(
+                        "vertex_region_failover stage=%s outcome=success attempts=%s location=%s",
+                        method_name,
+                        prior_failures + 1,
+                        location,
+                    )
+                return result
             except Exception as error:  # noqa: BLE001 - provider boundary
                 if not is_retryable_vertex_error(error):
                     raise
                 last_error = error
+                prior_failures += 1
                 self._mark_transient_failure(location, error)
         if last_error is not None:
+            logger.warning(
+                "vertex_region_failover stage=%s outcome=exhausted attempts=%s",
+                method_name,
+                prior_failures,
+            )
             raise last_error
         raise RuntimeError("Vertex regional failover exited without an attempt")
 

@@ -53,7 +53,16 @@ logger = logging.getLogger(__name__)
 
 _MAX_LIMIT = 100
 _SOURCE_DOMAINS = frozenset(
-    {"consent", "location", "kai", "kyc", "connected_systems", "connections", "pwm"}
+    {
+        "consent",
+        "location",
+        "kai",
+        "kyc",
+        "connected_systems",
+        "connections",
+        "profile_discovery",
+        "pwm",
+    }
 )
 _MAX_ACTOR_LABEL_LENGTH = 160
 _MAX_METADATA_STRING_LENGTH = 256
@@ -268,10 +277,11 @@ _SAFE_METADATA_KEYS = frozenset(
         # one row where that distinction matters most. A short, bounded enum
         # written by our own service, carrying nothing about the person.
         "share_kind",
+        "person_ref",
+        "bundle_id",
         # One Feed item per person-to-person request (migration 259): which
         # request it is, and what was asked for in human words, so the item
         # reads "<Name> wants your <labels> · <reason>" and can act inline.
-        "bundle_id",
         "requested_labels",
         "requested_count",
         # The owner's one "One sent N files to B" card per Drive request
@@ -337,14 +347,7 @@ def _safe_feed_metadata(value: object) -> dict[str, str | int | float | bool]:
                 safe[key] = photo
             continue
         if isinstance(raw, str):
-            cleaned = _bounded_text(
-                raw,
-                limit=(
-                    _MAX_METADATA_URL_LENGTH
-                    if key == _COUNTERPART_PHOTO_KEY
-                    else _MAX_METADATA_STRING_LENGTH
-                ),
-            )
+            cleaned = _bounded_text(raw, limit=_MAX_METADATA_STRING_LENGTH)
             if cleaned is not None:
                 safe[key] = cleaned
         elif isinstance(raw, bool):

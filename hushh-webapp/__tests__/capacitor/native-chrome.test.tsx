@@ -16,7 +16,7 @@ import { DockEventFence, nativeDockRestingFrame, type DockEvent, type DockState 
 import { NativeDrawerChoiceFence, validNativeConnectorPath, validNativeDrawerProjection, nativeDrawerIsolation, subscribeNativeDrawerIsolation, type NativeDrawerProjection, type NativeDrawerChoice, type NativeDrawerIsolation, type NativeDrawerReadmission, type HushhNativeDrawersPlugin } from "@/lib/capacitor/native-drawers";
 import { NativeDrawerPresentation } from "@/lib/capacitor/native-drawer-presentation";
 import type { NativeDrawerPresentationState } from "@/lib/capacitor/native-drawers";
-import { nativeDrawerChoiceAllowed, nativeDrawersPlatformEligible, nativeDrawers } from "@/lib/capacitor/native-drawers";
+import { nativeDrawerChoiceAllowed, nativeDrawersPlatformEligible, nativeDrawers, nativeWorkspaceRetirementBarrier, trackNativeWorkspaceRetirement } from "@/lib/capacitor/native-drawers";
 import { createNativeDrawerIdentity, nativeDrawerOwnerIsCurrent } from "@/lib/capacitor/native-drawer-owner";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -50,6 +50,93 @@ import { validNativeWorkspace, workspaceAcknowledged, type NativeWorkspaceProjec
 import { useNativeWorkspace } from "@/lib/capacitor/use-native-workspace";
 
 describe("private route-body presentation boundary", () => {
+  it("keeps an uncertain route retirement fenced until exact native absence is read back", async () => {
+    const identity = { documentId: "public-retirement-document", ownerEpoch: "public-retirement-owner",
+      ownerGeneration: 1, revision: 1, workspace: "referrals" as const };
+    const receipt = { ...identity, updateSequence: 0, privacyGeneration: 0, layoutRevision: 0,
+      phase: "retired" as const, settled: true };
+    const source = { getWorkspaceState: vi.fn().mockResolvedValue({ valid: false }) };
+    trackNativeWorkspaceRetirement(identity, Promise.resolve(false), source);
+    try {
+      await Promise.resolve();
+      expect(await nativeWorkspaceRetirementBarrier()).toBe(false);
+      source.getWorkspaceState.mockResolvedValue({ ...receipt, ownerEpoch: "other-owner" });
+      expect(await nativeWorkspaceRetirementBarrier()).toBe(false);
+      source.getWorkspaceState.mockResolvedValue(receipt);
+      expect(await nativeWorkspaceRetirementBarrier()).toBe(true);
+      expect(nativeWorkspaceRetirementBarrier()).toBeUndefined();
+      expect(source.getWorkspaceState).toHaveBeenCalledTimes(3);
+    } finally {
+      source.getWorkspaceState.mockResolvedValue(receipt);
+      await nativeWorkspaceRetirementBarrier();
+    }
+  });
+  it("waits for route-body disappearance before reopening a retained Profile drawer", async () => {
+    const bootstrap = Object.getOwnPropertyDescriptor(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__");
+    Object.defineProperty(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", { configurable: true,
+      value: { contractVersion: 1, enabled: true, coherentShell: true } });
+    vi.mocked(customNativePresentationEnabled).mockReturnValue(true);
+    publishValidatedAuthSessionOwner("synthetic-return-owner");
+    bridge.documentId = crypto.randomUUID();
+    privacy.state = { generation: 0, shielded: false, appIsActive: true, cause: "inactive" };
+    document.documentElement.style.setProperty("--muted-foreground", "#8e8e93");
+    const originalObserver = globalThis.ResizeObserver;
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    const measure = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      x: 0, y: 100, width: window.innerWidth, height: 400 } as DOMRect);
+    drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true,
+      wholePresentation: true, routeWorkspaces: ["referrals"], ...nativeDrawerIsolation() });
+    const retirement = deferred<unknown>();
+    let absent = false;
+    drawerBridge.retireWorkspace.mockReset().mockImplementation(() => retirement.promise);
+    drawerBridge.applyWorkspace.mockReset().mockImplementation(async state => ({ ...state,
+      layoutRevision: state.frame.layoutRevision, phase: "active", settled: true }));
+    drawerBridge.apply.mockReset().mockImplementation(async state => {
+      if (state.open && !absent) throw new Error("NATIVE_DRAWER_RETIRING");
+      return { ...state, phase: "active" };
+    });
+    drawerBridge.retire.mockImplementation(async identity => ({ ...identity, updateSequence: 1,
+      privacyGeneration: 0, phase: "retired" }));
+    function Workspace() {
+      const phase = useNativeWorkspace({ owner: "synthetic-return-owner", current: () => true, back: () => {},
+        content: { workspace: "referrals", page: "overview", title: "Public workspace", enabled: true,
+          backEnabled: false, sections: [] }, actions: new Map() });
+      return <div data-native-workspace-seat="true"><output data-testid="workspace-phase">{phase}</output></div>;
+    }
+    function Profile({ open }: { open: boolean }) {
+      const phase = useNativeDrawerPresentation({ family: "profile", owner: "synthetic-return-owner",
+        vaultEpoch: snapshotVaultSessionEpoch(), ready: true, open, title: "Profile",
+        project: () => ({ sections: [], actions: { rows: new Map(), open: () => {}, close: () => {} } }) });
+      return <output data-testid="profile-phase">{phase}</output>;
+    }
+    function Journey() {
+      const [returned, setReturned] = useState(false);
+      return <>{!returned && <Workspace />}<Profile open={returned} />
+        <button onClick={() => setReturned(true)}>Return to Profile</button></>;
+    }
+    const view = render(<Journey />);
+    try {
+      await waitFor(() => expect(view.getByTestId("workspace-phase")).toHaveTextContent("native"));
+      await waitFor(() => expect(view.getByTestId("profile-phase")).toHaveTextContent("native"));
+      await act(async () => { fireEvent.click(view.getByRole("button", { name: "Return to Profile" })); });
+      expect(drawerBridge.retireWorkspace).toHaveBeenCalledOnce();
+      expect(drawerBridge.apply.mock.calls.filter(([state]) => state.open)).toHaveLength(0);
+      const identity = drawerBridge.retireWorkspace.mock.calls[0][0];
+      absent = true;
+      await act(async () => { retirement.resolve({ ...identity, phase: "retired", settled: true }); });
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.filter(([state]) => state.open)).toHaveLength(1));
+      await waitFor(() => expect(view.getByTestId("profile-phase")).toHaveTextContent("native"));
+    } finally {
+      absent = true;
+      retirement.resolve({ ...drawerBridge.retireWorkspace.mock.calls[0]?.[0], phase: "retired", settled: true });
+      view.unmount();
+      await act(async () => { await Promise.resolve(); });
+      measure.mockRestore(); vi.stubGlobal("ResizeObserver", originalObserver);
+      publishValidatedAuthSessionOwner(null);
+      if (bootstrap) Object.defineProperty(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__", bootstrap);
+      else Reflect.deleteProperty(window, "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__");
+    }
+  });
   it("rejects a delayed confirmation after content changes and consumes the new choice once", async () => {
     publishValidatedAuthSessionOwner("synthetic-workspace-owner");
     bridge.documentId = crypto.randomUUID();
@@ -474,6 +561,14 @@ describe("ordinary private Profile form contract", () => {
     const state = publicNameScene();
     expect(validNativeProfileNameProjection(state)).toBe(true);
     expect(validNativeProfileNameProjection({ ...state, vaultKey: "synthetic-forbidden" } as NativeProfileNameProjection)).toBe(false);
+    const handle: NativeProfileNameProjection = { ...state, scene: "referral-handle", draft: "public-handle", destinationId: "referral-visit" };
+    expect(validNativeProfileNameProjection(handle)).toBe(true);
+    expect(validNativeProfileNameProjection({ ...handle, draft: "x".repeat(33) })).toBe(false);
+    const handleFence = new NativeProfileNameFence(handle);
+    expect(handleFence.update(handle)).toBe(true);
+    expect(handleFence.update({ ...handle, scene: "account-name", updateSequence: 2 })).toBe(false);
+    expect(handleFence.consumeEdit({ ...handle, updateSequence: 1, editRevision: 1, text: "other-handle", composing: false,
+      destinationId: "old-referral-visit" })).toBe(false);
     const fence = new NativeProfileNameFence(state);
     expect(fence.update(state)).toBe(true);
     const event = { ...fenceIdentity(state), updateSequence: 1, privacyGeneration: 0,
@@ -576,6 +671,7 @@ const bridge = vi.hoisted(() => ({ platform: "ios", documentId: "document-a", ca
 const dockBridge = vi.hoisted(() => ({ callbacks: new Map<string, (event: unknown) => void>(),
   subscribe: vi.fn(), getCapabilities: vi.fn(), apply: vi.fn(), retire: vi.fn(), suspend: vi.fn(), consumeDraft: vi.fn(), beginEditingTransition: vi.fn(), confirmEvent: vi.fn(), snapshotDraft: vi.fn() }));
 const drawerBridge = vi.hoisted(() => ({ listeners: new Map<string, Set<(event: unknown) => void>>(),
+  copyProfileReferralLink: vi.fn().mockResolvedValue({ copied: true }),
   applyWorkspace: vi.fn(), retireWorkspace: vi.fn(), confirmWorkspaceChoice: vi.fn(), settleWorkspaceChoice: vi.fn(), getWorkspaceState: vi.fn(),
   getCapabilities: vi.fn(), getPresentationState: vi.fn(), apply: vi.fn(), retire: vi.fn(), confirmChoice: vi.fn(),
   applyProfileNameScene: vi.fn(), confirmProfileNameAction: vi.fn(), settleProfileNameAction: vi.fn(), retireProfileNameScene: vi.fn(),
@@ -609,6 +705,9 @@ const privacy = vi.hoisted(() => ({ callbacks: new Set<(event: { generation: num
   observations: new Set<() => void>(), epoch: 0,
   state: { generation: 0, shielded: false, appIsActive: true, cause: "inactive" as const } }));
 vi.mock("@/lib/capacitor/session-privacy", () => ({ nativeDocumentId: () => bridge.documentId,
+  expectNativeProfilePreparation: () => () => undefined,
+  nativePrivacyCanInteract: (state = privacy.state) => !!state?.appIsActive && !state.shielded,
+  nativePrivacyCanPrepareProfile: (state = privacy.state) => !!state?.appIsActive && !state.shielded,
   subscribeNativePrivacyObservation: (callback: () => void) => {
     privacy.observations.add(callback); return () => { privacy.observations.delete(callback); };
   },
@@ -2495,6 +2594,35 @@ describe("native chrome presentation lease", () => {
     await waitFor(() => expect(fallback).toBeVisible()); // Only confirmed failure retirement restores it.
     expect(bridge.getCapabilities).toHaveBeenCalledOnce();
   });
+  it("readmits a privacy-retired header after release without replaying its old choice", async () => {
+    measureSlot();
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history"], independentControls: true,
+      coherentPresentation: true, retainedControls: true, inPlaceUpdates: true });
+    bridge.prepare.mockImplementation(async state => {
+      if (privacy.state.shielded) throw new Error("NATIVE_PRIVACY_COVERED");
+      return { ...state, phase: "prepared" };
+    });
+    const action = vi.fn();
+    const view = render(<ChatHarness onAction={action} />);
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledOnce());
+    const old = bridge.prepare.mock.calls.at(-1)![0];
+    act(() => {
+      privacy.state = { ...privacy.state, generation: 1, shielded: true };
+      bridge.callbacks.get("invalidated")?.(undefined);
+      privacy.callbacks.forEach(callback => callback(privacy.state));
+    });
+    await waitFor(() => expect(hasOutstandingNativeChrome("chat-history-toggle")).toBe(false));
+    const coveredPreparations = bridge.prepare.mock.calls.length;
+    act(() => {
+      privacy.state = { ...privacy.state, shielded: false };
+      privacy.callbacks.forEach(callback => callback(privacy.state));
+    });
+    await waitFor(() => expect(bridge.prepare.mock.calls.length).toBeGreaterThan(coveredPreparations));
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(2));
+    expect(view.getByText("Authored history")).not.toBeVisible();
+    act(() => bridge.callbacks.get("choiceRequested")?.({ ...old, sequence: 1, privacyGeneration: 0, updateSequence: 0 }));
+    expect(action).not.toHaveBeenCalled();
+  });
   it.each(["back", "history"] as const)("recovers a warm concealed %s slot after listener setup fails", async (kind) => {
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: [kind], independentControls: true });
     await getNativeChromeCapabilities();
@@ -2799,6 +2927,7 @@ describe("native chrome presentation lease", () => {
   });
   it.each(["synthetic-owner", ""])("restores an admitted web opener without native/vault eligibility (owner=%s)", async owner => {
     bridge.platform = "web";
+    vi.mocked(customNativePresentationEnabled).mockReturnValue(false);
     const handle = createRef<NativeChatChromeHandle>();
     const view = render(<ChatHarness owner={owner} eligible={false} handle={handle} />);
     const opener = view.getByRole("button", { name: "Authored history" });
@@ -2809,6 +2938,7 @@ describe("native chrome presentation lease", () => {
     await act(async () => { expect(await handle.current!.restoreFocus()).toBe(false); });
     expect(opener).not.toHaveFocus();
     expect(bridge.prepare).not.toHaveBeenCalled();
+    expect(bridge.restoreFocus).not.toHaveBeenCalled();
   });
 
   it("restores authored focus only after native retirement and holds fallback until blur", async () => {
@@ -3700,7 +3830,7 @@ describe("native chrome presentation lease", () => {
     const groups = profileMenuGroups(false);
     const actions = Object.fromEntries(groups.flatMap(group => group.entries.map(entry => [entry.id, vi.fn()]))) as ProfileMenuActions;
     drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, wholePresentation: true,
-      profileMenuRows: true, profileContentHandoff: true, profileNavigationStack: true, profileSettingsPages: true, profileVoiceSettings: true, profileTrustedDevices: true, profileAccountActions: true, profileLegalReader: true, profileStyleScene: true, profileNameScene: true, profileSupportScene: true, profilePhoneScene: true, presentationCompletion: true,
+      profileMenuRows: true, profileContentHandoff: true, profileNavigationStack: true, profileSettingsPages: true, profileVoiceSettings: true, profileTrustedDevices: true, profileAccountActions: true, profileLegalReader: true, profileStyleScene: true, profileNameScene: true, profileReferralPages: true, profileSupportScene: true, profilePhoneScene: true, presentationCompletion: true,
       generation: 0, isolated: false });
     drawerBridge.getPresentationState.mockImplementation(async () => ({ ...drawerBridge.apply.mock.calls.at(-1)![0],
       valid: true, settled: true, phase: "active" }));
@@ -3709,7 +3839,7 @@ describe("native chrome presentation lease", () => {
     drawerBridge.retire.mockImplementation(async identity => ({ ...identity, phase: "retired",
       updateSequence: drawerBridge.apply.mock.calls.at(-1)?.[0].updateSequence ?? 0, privacyGeneration: 0 }));
     const confirmAccount = vi.fn(), cancelAccount = vi.fn(), confirmDevice = vi.fn();
-    const scene = (account: boolean, settings?: "preferences" | "voice" | "security" | "session" | "devices" | "device-unlink", support = false, legal?: "privacy" | "terms", confirmation?: "account-reset" | "account-delete", phone = false) => <NativeProfilePresentation lifetime="same-owner-vault" detail={account || !!settings || support || !!legal}
+    const scene = (account: boolean, settings?: "preferences" | "voice" | "security" | "session" | "devices" | "device-unlink", support = false, legal?: "privacy" | "terms", confirmation?: "account-reset" | "account-delete", phone = false, referrals = false) => <NativeProfilePresentation lifetime="same-owner-vault" detail={account || !!settings || support || !!legal || referrals}
       menu={{ owner: "owner-a", ready: true, open: true, surfaceOpen: true, name: "Public sample", email: null, groups, actions, onClose: vi.fn() }}
       page={{ pane: true, title: "Your account", owner: "owner-a", context: account ? "account" : "root", onBack: vi.fn() }}
       settings={{ active: !!settings, requiresVoice: settings === "voice", requiresDevices: settings === "devices" || settings === "device-unlink", pages: settings === "devices" || settings === "device-unlink" ? [
@@ -3731,6 +3861,10 @@ describe("native chrome presentation lease", () => {
       support={{ active: support, editor: destination => <p data-testid="public-support-sheet">{destination}</p> }}
       phone={{ active: phone, editor: options => options.native && options.destinationId ? <p data-testid="public-phone-sheet">{options.destinationId}</p> : null }}
       legal={{ active: !!legal, ...projectNativeProfileLegal(legal ?? null, vi.fn(), vi.fn()), root: vi.fn() }}
+      referrals={{ active: referrals, pages: [{ id: "referrals", title: "Invite friends", sections: [{ id: "referrals-synthetic", rows: [
+        { id: "referral-copy", label: "Copy", enabled: true },
+        { id: "referral-progress", label: "Next reward", enabled: true, readOnly: true, progress: { value: 2, total: 5 } },
+      ] }] }], rows: new Map([["referral-copy", vi.fn()]]), root: vi.fn(), editor: () => null }}
       account={{ active: account, page: { id: "account", title: "Your account", sections: [{ id: "account-portrait", rows: [
         { id: "account-photo", label: "Public sample", detail: "sample@example.test", enabled: true, portrait: true },
       ] }, { id: "account-info", rows: [
@@ -3746,6 +3880,15 @@ describe("native chrome presentation lease", () => {
     try {
       await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack).toEqual([]));
       const identity = drawerBridge.apply.mock.calls.at(-1)![0];
+      view.rerender(scene(false, undefined, false, undefined, undefined, false, true));
+      await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.[0]?.id).toBe("referrals"));
+      const invite = drawerBridge.apply.mock.calls.at(-1)![0];
+      expect(invite.revision).toBe(identity.revision);
+      expect(validNativeDrawerProjection(invite)).toBe(true);
+      expect(validNativeDrawerProjection({ ...invite, profileStack: [{ ...invite.profileStack![0], sections: [{ id: "invalid-progress", rows: [
+        { id: "invalid-row", label: "Invalid", enabled: true, readOnly: true, progress: { value: 6, total: 5 } },
+      ] }] }] })).toBe(false);
+      expect(screen.queryByText("React account exception")).not.toBeInTheDocument();
       view.rerender(scene(true));
       await waitFor(() => expect(drawerBridge.apply.mock.calls.at(-1)?.[0].profileStack?.[0]?.id).toBe("account"));
       const firstVisit = drawerBridge.apply.mock.calls.at(-1)![0];
@@ -3881,8 +4024,8 @@ describe("native chrome presentation lease", () => {
       for (const target of ["account", "preferences", "support"] as const) {
         const method = target === "account" ? "settleProfileNameAction" :
           target === "preferences" ? "retireProfileStyleScene" : "confirmProfileSupportAction";
-        const complete = nativeDrawers[method];
-        Reflect.deleteProperty(nativeDrawers, method);
+        const complete = nativeDrawers()[method];
+        Reflect.deleteProperty(nativeDrawers(), method);
         drawerBridge.apply.mockClear();
         const partial = render(scene(target === "account", target === "preferences" ? "preferences" : undefined, target === "support"));
         try {
@@ -3893,7 +4036,7 @@ describe("native chrome presentation lease", () => {
             state.profileStack?.some(page => page.id === target))).toBe(false);
         } finally {
           partial.unmount();
-          Object.assign(nativeDrawers, { [method]: complete });
+          Object.assign(nativeDrawers(), { [method]: complete });
           await act(async () => { await Promise.resolve(); });
         }
       }
@@ -3982,19 +4125,15 @@ describe("native chrome presentation lease", () => {
     });
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["profile-back", "close"], independentControls: true,
       coherentPresentation: true, ownedContentPane: true, retainedControls: true, inPlaceUpdates: true });
-    bridge.acquireContentPane.mockImplementation(async identity => ({ ...identity, phase: "active" }));
+    const acquisition = deferred<Awaited<ReturnType<typeof bridge.acquireContentPane>>>();
+    let parent: Parameters<typeof bridge.acquireContentPane>[0] | undefined;
+    bridge.acquireContentPane.mockImplementation(async identity => { parent = identity; return acquisition.promise; });
     bridge.releaseContentPane.mockImplementation(async identity => ({ ...identity, phase: "retired" }));
-    const activation = deferred<ChromeAcknowledgement>();
-    let back: ChromeProjection | undefined;
-    bridge.activate.mockImplementation(async state => {
-      if (state.controlId === "profile-back" && !back) { back = state; return activation.promise; }
-      return { ...state, phase: "active" };
-    });
     const groups = profileMenuGroups(false);
     const actions = Object.fromEntries(groups.flatMap(group => group.entries.map(entry => [entry.id, vi.fn()]))) as ProfileMenuActions;
     function PhotoModal() {
-      // The real photo sheet blocks native headers. Mounting it before parent
-      // admission reproduced the device deadlock; do not bypass this isolation.
+      // A photo sheet cannot appear until its whole parent paint plane is
+      // admitted and the outgoing native menu actually disappears.
       useNativeNavigationBlocked(true);
       return <button>Public photo preview</button>;
     }
@@ -4003,10 +4142,11 @@ describe("native chrome presentation lease", () => {
       page={{ pane: true, title: "Your account", owner: "owner-a", context: detail ? "account-photo" : "root", onBack: vi.fn(), onClose: vi.fn() }}
       detailOverlay={<PhotoModal />}><p>Public Account content</p></NativeProfilePresentation>;
     const view = render(scene(true));
-    await waitFor(() => expect(back).toBeDefined());
+    await waitFor(() => expect(parent).toBeDefined());
+    expect(bridge.prepare.mock.calls.some(([state]) => state.controlId === "profile-back")).toBe(false);
     expect(view.queryByText("Public photo preview")).toBeNull();
     if (outcome === "retired-before-parent") await waitFor(() => expect(drawerBridge.retire).toHaveBeenCalledOnce());
-    await act(async () => activation.resolve({ ...back!, phase: "active" }));
+    await act(async () => acquisition.resolve({ ...parent!, phase: "active" }));
     if (outcome === "retired-before-parent") {
       await waitFor(() => expect(view.getByText("Public photo preview")).toBeVisible());
       expect(drawerBridge.apply.mock.calls.every(([state]) => state.open)).toBe(true);

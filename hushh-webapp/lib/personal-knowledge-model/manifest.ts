@@ -616,10 +616,14 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
     a.json_path.localeCompare(b.json_path)
   );
   const jsonPaths = paths.map((path) => path.json_path);
+  const privateAgentMemory = normalizedDomain === "one_memory";
+  if (privateAgentMemory) {
+    for (const path of paths) path.exposure_eligibility = false;
+  }
   const externalizablePaths = paths
     .filter((path) => path.exposure_eligibility && path.path_type === "leaf")
     .map((path) => path.json_path);
-  const topLevelScopePaths = [
+  const topLevelScopePaths = privateAgentMemory ? [] : [
     ...new Set(
       paths
         .map((path) => path.json_path.split(".")[0])
@@ -658,8 +662,8 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
     readable_summary_version: CURRENT_READABLE_SUMMARY_VERSION,
     pkm_contract_version: CURRENT_PKM_CONTRACT_VERSION,
     readable_projection_version: CURRENT_READABLE_PROJECTION_VERSION,
-    consumer_visible: true,
-    internal_only: false,
+    consumer_visible: !privateAgentMemory,
+    internal_only: privateAgentMemory,
     consumer_item_count: countEntityMaps(params.domainData) || undefined,
     path_count: jsonPaths.length,
     externalizable_path_count: externalizablePaths.length,

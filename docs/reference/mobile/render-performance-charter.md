@@ -18,7 +18,7 @@ flowchart LR
 The bar for how the private agent moves on a phone, in numbers, and the
 program that measures and defends it. It complements the motion duration
 contract (the 150ms ceiling in `hushh-webapp/app/globals.css` and
-`skills/improve-animations/AUDIT.md`): that contract says how long an
+`.agents/skills/improve-animations/AUDIT.md`): that contract says how long an
 animation may run; this one says whether the frames inside it arrive.
 
 ## The bar
@@ -100,6 +100,15 @@ trailing slash that an authored href does not, so any comparison between the
 two normalises first, or a re-tap of the current tab runs an exit beat with
 no enter to pair with it (B51).
 
+## Browser CI ownership
+
+Absolute editor latency and History drawer timing run in the mandatory serial macOS
+performance lane in Chromium and WebKit. History retains the 100 ms first-movement
+limit and 360/260 ms entry/exit observation windows. The Linux layout lane retains
+open/close endpoints, whole-panel displacement, stationary chat, interrupted pulls
+and touch cancellation. Its software compositor is not the latency authority.
+Neither runner replaces the physical-device frame-pacing checks above.
+
 ## Measuring
 
 ### The in-app probe
@@ -163,6 +172,11 @@ written every 10 s while no gesture is in flight.
 - iOS attribution: Safari Web Inspector Timelines (Rendering Frames, Layout & Rendering, JavaScript & Events) on a Debug build, or on a Release build made inspectable with `xcodebuild -configuration Release CAPACITOR_DEBUG=true`. A Layout record with a call stack is a forced synchronous layout; count them per second of scrolling.
 - iOS JavaScript cost: `xcrun xctrace record --template 'Time Profiler' --all-processes` (the JavaScript thread lives in the WebContent process).
 - Android: `adb shell dumpsys gfxinfo com.hussh.app reset`, gestures, then `dumpsys gfxinfo com.hussh.app framestats`; Chrome DevTools over `chrome://inspect` shows forced reflows for the same JavaScript, which is the cheapest attribution even for iOS findings.
+
+Metric summaries (`summarize-xcresult-metrics.mjs`) preserve original numeric
+samples and medians: a measured `0.004 s` hitch must not become report zero.
+An export with positive FPS but zero rendered frames does not establish
+compositor acceptance; preserving precision cannot recover missing frames.
 
 Simulator numbers are attribution only. A simulator renders through the
 Mac's GPU and reports the Mac's refresh rate; it finds causes and cannot

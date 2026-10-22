@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import {
   ChevronLeftIcon as ChevronLeft,
   SpinnerGapIcon as Loader2,
@@ -34,6 +34,7 @@ export function PkmMemoryLevel({
   onDrill,
   onBack,
   onOpenLeaf,
+  sharingControls,
 }: {
   domainKey: string;
   domainTitle: string;
@@ -47,6 +48,7 @@ export function PkmMemoryLevel({
   onDrill: (segment: PkmPathSegment) => void;
   onBack: () => void;
   onOpenLeaf: (card: PkmMemoryCard) => void;
+  sharingControls?: ReactNode;
 }) {
   const level = useMemo(
     () =>
@@ -88,6 +90,8 @@ export function PkmMemoryLevel({
           {level.title}
         </h2>
       </div>
+
+      {atRoot ? sharingControls : null}
 
       {sharingImpactError ? (
         <p className="px-1 text-sm text-destructive">{sharingImpactError}</p>

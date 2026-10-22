@@ -1,8 +1,9 @@
 import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
-import { XIcon, PlusIcon, ShieldIcon, WalletIcon, Key, KeyRound, KeyIcon, AccentedKeyIcon } from "@/components/icons";
+import { XIcon, PlusIcon, ShieldIcon, WalletIcon, Key, KeyRound, KeyIcon, AccentedKeyIcon, PeoplePairIcon, Users, Trash2, TrashIcon } from "@/components/icons";
+import { ProfilePaneDeleteIcon, ProfilePanePrivacyIcon } from "@/components/profile/profile-pane-icons";
 import { PROFILE_MENU_GROUPS } from "@/components/profile/profile-menu-model";
 import * as RowIcons from "@/components/icons/agents/row-icons";
 import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-icon";
@@ -20,6 +21,38 @@ vi.mock("@/lib/capacitor/app-haptics", () => ({ usesNativeHapticPreference: () =
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { promise: vi.fn() } }));
 
 afterEach(cleanup);
+
+it("uses the Feed people pair through the existing invitation and people aliases", () => {
+  const icons = [PeoplePairIcon, Users, PROFILE_ICONS.invite, PROFILE_ICONS.people];
+  const { container } = render(<>{icons.map((Icon, index) => <Icon key={index} />)}</>);
+  for (const svg of container.querySelectorAll("svg")) {
+    expect(svg).toHaveAttribute("viewBox", "0 0 24 24");
+    const heads = [...svg.querySelectorAll("circle")];
+    expect(heads.map(head => head.getAttribute("cy"))).toEqual(["8.2", "8.2"]);
+    expect(heads.map(head => head.getAttribute("cx"))).toEqual(["6.6", "17.4"]);
+    expect(svg.querySelectorAll("path")).toHaveLength(2);
+  }
+});
+
+it("keeps every deletion glyph Apple red despite caller text and inline colors", () => {
+  const icons = [Trash2, TrashIcon, RowIcons.DeleteRowIcon, PROFILE_ICONS.delete, ProfilePaneDeleteIcon];
+  const { container } = render(<>{icons.map((Icon, index) => <Icon key={index} className="text-black" style={{ color: "black" }} />)}</>);
+  for (const svg of container.querySelectorAll("svg")) {
+    expect(svg).toHaveAttribute("data-trash-icon", "true");
+    expect(svg.style.color).toBe("var(--app-destructive)");
+  }
+});
+
+it("uses the supplied filled keyhole for Privacy Policy without replacing Wallet's lock", () => {
+  const Icon = PROFILE_ICONS.privacy;
+  const { container } = render(<><Icon /><ProfilePanePrivacyIcon /></>);
+  const [policy, wallet] = [...container.querySelectorAll("svg")];
+  expect(policy).toHaveAttribute("viewBox", "0 0 24 24");
+  expect(policy).toHaveAttribute("width", "24");
+  expect(policy).toHaveAttribute("stroke-width", "1.75");
+  expect(policy.querySelector("path.profile-pane-icon-accent-fill")).toHaveAttribute("stroke", "none");
+  expect(wallet.querySelector("path.profile-pane-icon-accent-fill")).toBeNull();
+});
 
 it("uses transparent official outline glyphs for controls and capabilities", () => {
   const { container } = render(<><XIcon /><PlusIcon /><ShieldIcon /><WalletIcon /><GiftIcon /></>);
@@ -84,17 +117,12 @@ it("keeps every row glyph on native outline geometry in an authored colour", () 
   }
 });
 
-it("keeps Codex and Claude icon skill bridges identical and resolvable", () => {
+it("resolves the host icon skill to the canonical agents source", () => {
   const root = resolve("..");
-  const canonical = readFileSync(resolve(root, "skills/hushh-icon-theme/SKILL.md"), "utf8");
-  const frontmatter = canonical.match(/^---\n[\s\S]*?\n---/)?.[0];
-  const bridges = [".agents", ".claude"].map((host) =>
-    readFileSync(resolve(root, host, "skills/hushh-icon-theme/SKILL.md"), "utf8"));
-  expect(bridges[0]).toBe(bridges[1]);
-  for (const bridge of bridges) {
-    expect(bridge.startsWith(frontmatter!)).toBe(true);
-    expect(bridge).toContain("../../../skills/hushh-icon-theme/SKILL.md");
-  }
+  const canonical = readFileSync(resolve(root, ".agents/skills/hushh-icon-theme/SKILL.md"), "utf8");
+  const adapter = resolve(root, ".claude/skills/hushh-icon-theme/SKILL.md");
+  expect(realpathSync(adapter)).toBe(realpathSync(resolve(root, ".agents/skills/hushh-icon-theme/SKILL.md")));
+  expect(readFileSync(adapter, "utf8")).toBe(canonical);
 });
 
 it("renders the approved outline artwork in the actual Preferences controls", () => {
@@ -113,6 +141,8 @@ it("restores the nested Devices artwork while retaining its unlink action", () =
   const model: TrustedDevicesModel = {
     devices: [{ device_id: "synthetic-device", device_name: "Test computer", platform: "macos", status: "active" }],
     confirmation: null, busy: false, uncertain: false, loading: false, refreshing: false, error: "",
+    puppyAccess: {}, byocReady: false, changingPuppy: null, puppyNotice: "",
+    pendingPuppyWithdrawal: [], pendingPodRevocations: [], changePuppyAccess: vi.fn(),
     refresh: vi.fn(), cancel: vi.fn(), choose: vi.fn(), confirm: vi.fn(),
   };
   render(<TrustedDevicesPage panePresentation model={model} />);

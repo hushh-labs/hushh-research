@@ -1,9 +1,13 @@
-import { exec } from "node:child_process";
+import { exec, execFile } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { createRequire } from "node:module";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 const require = createRequire(import.meta.url);
 const packageJson = require("./package.json") as {
   bin: Record<string, string>;
@@ -11,6 +15,41 @@ const packageJson = require("./package.json") as {
 };
 
 describe("hushh-mcp CLI config output", () => {
+  it("checks every projection against its source without requiring a clean Git tree or rewriting stale files", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "hushh-mcp-projections-"));
+    try {
+      const packageRoot = path.join(root, "packages", "hushh-mcp");
+      const script = path.join(packageRoot, "scripts", "generate-gateway-manifest.mjs");
+      const runtime = path.join(root, "consent-protocol");
+      fs.mkdirSync(path.dirname(script), { recursive: true });
+      fs.mkdirSync(path.join(runtime, "mcp_modules"), { recursive: true });
+      fs.copyFileSync(path.join(process.cwd(), "scripts", "generate-gateway-manifest.mjs"), script);
+      fs.writeFileSync(path.join(runtime, "mcp_server.py"), "");
+      fs.writeFileSync(path.join(runtime, "mcp_modules", "__init__.py"), "");
+      fs.writeFileSync(path.join(runtime, "mcp_modules", "public_contract.py"),
+        "def get_public_contract():\n    return {'tools': [{'name': 'synthetic-read', 'description': 'Synthetic read', 'inputSchema': {'type': 'object'}, 'outputSchema': {'type': 'object'}}]}\n");
+      fs.writeFileSync(path.join(runtime, "mcp_modules", "agentforce_contract.py"),
+        "from .public_contract import get_public_contract\ndef get_agentforce_contract():\n    return get_public_contract()\ndef agentforce_contract_errors():\n    return []\ndef get_mulesoft_agentforce_handoff():\n    return {}\ndef get_salesforce_agentexchange_handoff():\n    return {}\n");
+      const run = (...args: string[]) => execFileAsync(process.execPath, [script, ...args], { cwd: packageRoot });
+      await run();
+      await run("--check");
+      for (const name of ["hushh-mcp-gateway.json", "hushh-agentforce-mcp-manifest.json", "hushh-mulesoft-exchange-mcp-schema.json"]) {
+        const target = path.join(packageRoot, "gateway", name);
+        const expected = fs.readFileSync(target, "utf8");
+        fs.writeFileSync(target, "{}\n");
+        await expect(run("--check")).rejects.toMatchObject({ code: 1 });
+        expect(fs.readFileSync(target, "utf8")).toBe("{}\n");
+        fs.unlinkSync(target);
+        await expect(run("--check")).rejects.toMatchObject({ code: 1 });
+        expect(fs.existsSync(target)).toBe(false);
+        fs.writeFileSync(target, expected);
+      }
+      await run("--check");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }, 15_000);
+
   it("prints the MCP config through the package entrypoint executable", async () => {
     expect(packageJson.bin["hushh-mcp"]).toBe("bin/hushh-mcp.js");
     expect(packageJson.version).toBe("0.4.1");

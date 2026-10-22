@@ -13,6 +13,8 @@ from api.middleware import (
 )
 from api.routes.one import calendar, calendar_workspace
 
+pytestmark = pytest.mark.usefixtures("shared_hub_owner")
+
 
 def _app() -> FastAPI:
     app = FastAPI()

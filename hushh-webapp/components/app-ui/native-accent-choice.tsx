@@ -49,6 +49,5 @@ export function NativeAccentChoice({ value, owner, context, eligible }: {
           <SelectItem value="gold"><span aria-hidden className="inline-block size-3 shrink-0 rounded-full bg-[color:var(--accent-preview-gold)] ring-1 ring-foreground/40" /> Molten Gold</SelectItem>
         </SelectContent>
       </Select>
-    </NativeChatChrome>
-  </div>;
+    </NativeChatChrome></div>;
 }

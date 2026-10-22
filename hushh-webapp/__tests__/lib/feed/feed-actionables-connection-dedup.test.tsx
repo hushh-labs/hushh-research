@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
   appTasks: [] as Array<Record<string, unknown>>,
   dismissTask: vi.fn(),
   pendingCount: 0,
+  update: {} as Record<string, unknown>,
   userId: "user-1",
   realConsentResources: false,
   vaultToken: "vault-token" as string | null,
@@ -223,13 +224,18 @@ vi.mock("@/lib/consent/consent-display", () => ({
   }) => counterpartLabel || "Someone",
 }));
 
-vi.mock("@/lib/navigation/routes", () => ({
+vi.mock("@/lib/navigation/routes", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/navigation/routes")>()),
   buildKaiMarketRoute: () => "/one/kai",
   ROUTES: {
     ONE_FEED: "/one/feed",
     PROFILE_PAYOUTS: "/one/profile/payouts",
     PROFILE_REQUEST_PRICING: "/one/profile/request-pricing",
   },
+}));
+
+vi.mock("@/lib/feed/use-agent-deployment-follow", () => ({
+  useAgentDeploymentFollow: () => ({ update: mocks.update }),
 }));
 
 import {
@@ -274,11 +280,20 @@ beforeEach(() => {
   mocks.pendingCount = 0;
   mocks.userId = "user-1";
   mocks.realConsentResources = false;
+  mocks.update = {};
   mocks.vaultToken = "vault-token";
   mocks.account.mockResolvedValue({ account: null });
 });
 
 describe("useFeedActionables — connection request de-duplication", () => {
+  it.each(["scheduled", "updating", "blocked"])("keeps %s updates visible without offering another install", (presentationState) => {
+    mocks.update = { available: true, offerable: false, releaseId: "rel_existing", presentationState };
+    const { result } = renderHook(() => useFeedActionables());
+    const card = result.current.actionables.find((item) => item.id === "personal-agent-update:rel_existing");
+    expect(card).toBeDefined();
+    expect(card?.actions).toEqual([]);
+  });
+
   it("keeps warm consent rows visible during invalidation and replaces them on fresh resolution", async () => {
     mocks.realConsentResources = true;
     const cache = CacheService.getInstance();

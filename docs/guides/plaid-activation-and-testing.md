@@ -9,10 +9,7 @@ Runbook for enabling Kai’s read-only Plaid brokerage connectivity on localhost
 
 ## What This Enables
 
-- bank and brokerage Link connect; after a successful vault write, the access token and
-  snapshot are sealed in the person's vault. The backend handles them transiently during
-  exchange, refresh and removal, but the vault route does not persist them in its database
-- existing server-held records remain subject to the separate retirement procedure below
+- bank and brokerage Link connect, with the new connection sealed in the person's vault; the vault route does not persist Plaid tokens or snapshots server-side
 - OAuth banks on web, iOS and Android
 - accounts, holdings, securities and transactions
 - refresh on unlock and on an explicit Refresh
@@ -21,6 +18,9 @@ Runbook for enabling Kai’s read-only Plaid brokerage connectivity on localhost
 
 It does not enable live trading. Contract and device behaviour:
 [Plaid Vault Passthrough](../reference/kai/plaid-vault-passthrough.md).
+The backend and web proxy process readable provider responses transiently. Legacy server-held
+Items can coexist until migration 239 and environment-specific retirement and disconnection
+are verified.
 
 ## Required Allowlisted Redirect URIs
 
@@ -46,10 +46,9 @@ Set these in the backend runtime profile:
 
 `APP_FRONTEND_ORIGIN` must match the active frontend origin for the current profile.
 
-The vault flow does not register a webhook. `PLAID_WEBHOOK_URL` is still parsed by the shared
-Plaid configuration, but the vault route does not send it to Plaid. `PLAID_TX_HISTORY_DAYS`
-is also still parsed but has no consumer in this flow. `PLAID_ACCESS_TOKEN_KEY` is used only
-while retiring existing server-held records.
+The vault flow uses no webhooks. `PLAID_WEBHOOK_URL` is still read by the Plaid config and
+required by the deploy lanes until that requirement is removed; its value is not sent to Plaid.
+`PLAID_ACCESS_TOKEN_KEY` exists only for the one-time server-custody retirement script.
 
 ## Localhost
 
@@ -94,13 +93,10 @@ OAuth-return link paths. A 200 response alone is insufficient. After repairing
 an association document, reinstall the iOS app or allow Apple’s association
 cache to refresh; on Android, repeat the verified-link check on the device.
 
-Vault handling:
+BYOK note:
 
-- the device seals the access token and financial snapshot to the owner's vault after the
-  backend returns the exchange or snapshot response
-- the backend transiently processes access tokens and readable Plaid responses in memory;
-  the vault route does not persist those payloads
-- the web OAuth return keeps only the Link token (not an access token) in tab session
+- the current vault flow persists the access token and downloaded records in the person's encrypted vault; authorized Plaid requests process them transiently, and legacy server-custody retirement requires separate environment evidence
+- the web OAuth return keeps only the link token (never an access token) in tab session
   storage for 30 minutes, single use; the vault key is never persisted
 
 ### Statement upload and Save to Vault

@@ -424,6 +424,7 @@ export function useSharedWithYouCardModel({ person, items: rawItems, active = tr
       ...base,
       state: "ready",
       data: result.value.data,
+      modelProcessingAllowed: result.value.modelProcessingAllowed === true,
       sensitive: base.sensitive || result.value.sensitivity === "sensitive",
     };
   });

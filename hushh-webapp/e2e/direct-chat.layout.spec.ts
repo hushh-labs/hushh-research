@@ -200,8 +200,8 @@ for (const width of [768, 820, 1024]) {
   test(`message search controls fit the split conversation at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1024 });
     const errors = await mount(page);
-    await page.getByRole("button", { name: "Conversation options", exact: true }).click();
-    await page.getByRole("menuitem", { name: "Search messages", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Conversation options", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "Search messages", exact: true }).click();
     const input = page.getByRole("searchbox", { name: "Search messages" });
     await expect(input).toBeVisible();
     await expect(page.getByRole("menu")).toHaveCount(0);
@@ -298,7 +298,6 @@ test("chat theme follows the device, persists a choice, and keeps the shared nav
   await page.getByRole("button", { name: "Switch to dark mode" }).click();
   await expectSharedDockFrame(page);
 });
-
 for (const [inset, width, height] of [[0, 393, 844], [59, 393, 844], [72, 393, 844], [0, 844, 390]] as const) {
   test(`iOS Messages clears the status bar at ${inset}px in ${width}x${height} without covering the dock`, async ({ page }) => {
     await page.setViewportSize({ width, height });
@@ -315,7 +314,8 @@ for (const [inset, width, height] of [[0, 393, 844], [59, 393, 844], [72, 393, 8
     const title = page.getByRole("heading", { name: "Arjun Mehta with a very long display name", exact: true });
     await expect(title).toBeVisible();
     expect((await title.boundingBox())!.y).toBeGreaterThanOrEqual(minimumTop);
-    const dock = page.locator("[data-agent-bar-shell]");
+    const dock = page.locator("[data-bottom-shell-agent-slot] > [data-agent-bar-shell]");
+    await expect(dock).toHaveCount(1);
     const assertTranscriptClear = async () => {
       const bounds = (await canvas.boundingBox())!;
       expect(bounds.y).toBe(minimumTop);
@@ -342,8 +342,7 @@ test("system Back closes message search before returning from a People thread", 
   await page.setViewportSize({ width: 393, height: 844 });
   await mount(page);
   const chat = page.locator("[data-direct-message-page]");
-  await page.getByRole("button", { name: "Conversation options", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Search messages", exact: true }).click();
+  await page.getByRole("button", { name: "Search messages", exact: true }).click();
   await expect(page.getByRole("searchbox", { name: "Search messages" })).toBeVisible();
   const systemBack = () => page.evaluate(() => (window as any).directChatUnwindBack());
 
@@ -561,7 +560,7 @@ for (const [width, height] of [[320, 568], [393, 844], [430, 932], [767, 852], [
     await expect.poll(async () => (await send.boundingBox())!.y + (await send.boundingBox())!.height).toBeLessThanOrEqual(height! - inset + 1);
     await expect.poll(() => page.evaluate(() => {
       const transcript = document.querySelector('[data-testid="direct-message-list"]')!;
-      const dock = document.querySelector('[data-agent-bar-shell]')!;
+      const dock = document.querySelector('[data-bottom-shell-agent-slot] > [data-agent-bar-shell]')!;
       return transcript.getBoundingClientRect().bottom - dock.getBoundingClientRect().top;
     })).toBeLessThanOrEqual(1);
     const geometry = await editor.boundingBox(); const target = await send.boundingBox();
@@ -748,7 +747,7 @@ test("hover actions do not shift messages or the centered composer", async ({ pa
 
 test.describe("compact message layout", () => {
   test.use({ timezoneId: "UTC", locale: "en-US" });
-  for (const width of [320, 393, 768, 1440]) test(`compact message controls keep timestamps below text at ${width}px`, async ({ page }) => {
+  for (const width of [320, 393, 768, 1440]) test(`compact message timestamps sit at the lower right at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 });
     await page.emulateMedia({ reducedMotion: "reduce" });
     await mount(page, width === 393);
@@ -772,7 +771,8 @@ test.describe("compact message layout", () => {
         const meta = element.querySelector('[class*="messageBubbleMeta"]')!.getBoundingClientRect();
         return { textBottom: text.bottom, timeTop: time.top, timeBottom: time.bottom, bubbleBottom: bubble.bottom, rightInset: bubble.right - meta.right, expectedInset: Math.min(14, parseFloat(getComputedStyle(element).paddingRight)), timeSize: parseFloat(getComputedStyle(element.querySelector("time")!).fontSize) };
       });
-      expect(geometry.timeTop, JSON.stringify(geometry)).toBeGreaterThanOrEqual(geometry.textBottom);
+      expect(geometry.timeTop, JSON.stringify(geometry)).toBeLessThan(geometry.textBottom);
+      expect(geometry.timeBottom, JSON.stringify(geometry)).toBeGreaterThanOrEqual(geometry.textBottom);
       expect(geometry.timeBottom).toBeLessThanOrEqual(geometry.bubbleBottom);
       expect(Math.abs(geometry.rightInset - geometry.expectedInset), JSON.stringify(geometry)).toBeLessThanOrEqual(1);
       expect(geometry.timeSize).toBeLessThanOrEqual(11);
@@ -836,7 +836,7 @@ for (const width of [320, 1440]) {
       await options.click();
     }
     await page.getByRole("menuitem", { name: "Delete chat" }).click();
-    await expect(page.getByRole("alertdialog")).toContainText("The other person keeps their copy");
+    await expect(page.getByRole("alertdialog")).toContainText("Deletes this chat for you only.");
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(chat).toBeVisible();
     if (width < 768) {
@@ -948,11 +948,11 @@ test("incoming messages covered by a modal or moving composer keep their unread 
   await expect.poll(() => page.evaluate(() => (window as any).directChatFixture.reads.length)).toBeGreaterThan(before);
   const afterModal = await page.evaluate(() => (window as any).directChatFixture.reads.length);
   // A moving native dock can occlude an otherwise intersecting bottom marker.
-  await page.locator('[data-agent-bar-shell]').evaluate((node) => { (node as HTMLElement).style.transform = 'translateY(-120px)'; });
+  await page.locator('[data-bottom-shell-agent-slot] > [data-agent-bar-shell]').evaluate((node) => { (node as HTMLElement).style.transform = 'translateY(-120px)'; });
   await fixture(page, "fixture.incoming()");
   await expect(page.locator('[data-chat-message]').filter({ hasText: "New message 82" })).toHaveCount(1);
   expect(await page.evaluate(() => (window as any).directChatFixture.reads.length)).toBe(afterModal);
-  await page.locator('[data-agent-bar-shell]').evaluate((node) => { (node as HTMLElement).style.removeProperty('transform'); });
+  await page.locator('[data-bottom-shell-agent-slot] > [data-agent-bar-shell]').evaluate((node) => { (node as HTMLElement).style.removeProperty('transform'); });
   // Touch focus restoration can preserve an earlier transcript position.
   // A read requires returning to the actual latest message in that case.
   const latest = page.getByRole('button', { name: 'Go to latest messages' });
@@ -1098,6 +1098,25 @@ test("preserves replies, edits and delete actions with a short phone keyboard", 
   await page.getByRole("button", { name: "Yes, delete", exact: true }).click();
   const deleted = page.getByText("This message was deleted.", { exact: true });
   await expect(deleted).toHaveCount(1);
+  const deletedBubble = deleted.locator("xpath=..");
+  const deletedMeta = deletedBubble.locator('[class*="messageBubbleMeta"]');
+  const deletedGeometry = await deletedBubble.evaluate(element => {
+    const text = element.querySelector(":scope > p")!;
+    const meta = element.querySelector('[class*="messageBubbleMeta"]')!;
+    const time = element.querySelector("time")!;
+    return {
+      textTop: text.getBoundingClientRect().top,
+      textBottom: text.getBoundingClientRect().bottom,
+      timeTop: time.getBoundingClientRect().top,
+      timeBottom: time.getBoundingClientRect().bottom,
+      rightInset: element.getBoundingClientRect().right - meta.getBoundingClientRect().right,
+      expectedInset: parseFloat(getComputedStyle(element).paddingRight) + parseFloat(getComputedStyle(meta).marginRight),
+    };
+  });
+  expect(deletedGeometry.timeTop, JSON.stringify(deletedGeometry)).toBeLessThan(deletedGeometry.textBottom);
+  expect(deletedGeometry.timeBottom, JSON.stringify(deletedGeometry)).toBeGreaterThanOrEqual(deletedGeometry.textBottom);
+  expect(Math.abs(deletedGeometry.rightInset - deletedGeometry.expectedInset), JSON.stringify(deletedGeometry)).toBeLessThanOrEqual(1);
+  await expect(deletedMeta).toHaveCSS("justify-content", "flex-end");
   // Muted ink on the darker pressed fill fell below the text contrast floor.
   await deleted.hover();
   await page.mouse.down();
@@ -1133,6 +1152,25 @@ test("refresh reconciles remote edits and deletions throughout loaded history", 
   await expect(own).toHaveCount(0);
 });
 
+
+for (const width of [390, 1440]) test(`visited conversations stay readable during revalidation at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 900 });
+  const errors = await mount(page);
+  await page.getByRole("button", { name: "Back to messages" }).click();
+  await page.getByRole("button", { name: /Arjun Mehta/ }).click();
+  await expect(page.getByRole("textbox", { name: /Message Arjun Mehta/ })).toBeEnabled();
+  await page.getByRole("button", { name: "Back to messages" }).click();
+  await fixture(page, "fixture.holdHistory()");
+  await page.getByRole("button", { name: /Maya Rao/ }).click();
+  await expect(page.locator('[data-chat-message="maya-79"]')).toBeVisible();
+  await expect(page.getByText("Loading messages…", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Connecting…", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "Message Maya Rao" })).toBeDisabled();
+  await page.screenshot({ path: test.info().outputPath(`messages-warm-${width}.png`), animations: "disabled" });
+  await fixture(page, "fixture.releaseHistory()");
+  await expect(page.getByRole("textbox", { name: "Message Maya Rao" })).toBeEnabled();
+  expect(errors).toEqual([]);
+});
 
 test("cold route resolution completes an already pending inbox request", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 }); await mount(page, false, true);

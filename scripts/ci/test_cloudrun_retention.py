@@ -2116,7 +2116,12 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             self.assertNotIn("uat-drain-wait:", text)
             self.assertNotIn("uat-drain-recheck:", text)
             self.assertNotIn('sleep "$wait_seconds"', text)
-            self.assertNotIn("--force-inspection", text)
+            # Only the explicit, separately authorized production bridge may
+            # force inspection. Ordinary ticks must retain the quiet due check.
+            for line in text.splitlines():
+                if "--force-inspection" in line:
+                    self.assertRegex(line.strip(), r'^if \[\[ "\$CAPACITY_BRIDGE" = true \]\]; then flags(?:=|\+=)\(--force-inspection(?: --production-capacity-bridge)?\); fi$')
+            self.assertIn('[[ "$GITHUB_EVENT_NAME" = workflow_dispatch && "$RELEASE_ENV" = production && "$APPLY" = true ]] || exit 1', text)
             concurrency = text.split("\nconcurrency:\n", 1)[1].split(
                 "\npermissions:", 1
             )[0]
@@ -2163,6 +2168,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                             "|| github.event.action == 'capacity-maintenance-tick-uat' || inputs.environment == 'production'"), clock_source),
             (source.replace("'Capacity Maintenance tick (uat)'", "'Capacity Maintenance (uat)'"), clock_source),
             (source + '\n  uat-drain-wait:\n    run: sleep "$wait_seconds"\n', clock_source),
+            (source + '\n          flags=(--force-inspection)\n', clock_source),
             (source.replace("github.event_name == 'repository_dispatch') && 'scheduled'", "false) && 'scheduled'"), clock_source),
             (source, clock_source.replace("      name: capacity-maintenance-clock\n", "      name: uat\n")),
             (source, clock_source.replace("needs.check.outputs.uat_ready == 'true' || needs.check.outputs.production_ready == 'true'", "true")),
@@ -3257,7 +3263,10 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             check = steps[check_index]
             self.assertIn("--verify-source-only", check)
             self.assertIn("--release-run-id", check)
-            self.assertNotIn("--force-inspection", check)
+            if "--force-inspection" in check:
+                self.assertIn("CAPACITY_BRIDGE: ${{ inputs.production_capacity_bridge }}", check)
+                self.assertIn('if [[ "$CAPACITY_BRIDGE" = true ]]; then flags=(--force-inspection); fi', check)
+                self.assertNotIn("--force-inspection", check.replace('if [[ "$CAPACITY_BRIDGE" = true ]]; then flags=(--force-inspection); fi', ""))
             self.assertNotIn("--apply", check)
             for i, step in enumerate(steps):
                 protected = any(
@@ -3291,6 +3300,10 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             broken = job.replace("        if: " + gate + "\n", "", 1)
             with self.assertRaises(AssertionError):
                 assert_guarded(broken)
+            if "--force-inspection" in job:
+                broken = job.replace('if [[ "$CAPACITY_BRIDGE" = true ]]; then flags=(--force-inspection); fi', 'if true; then flags=(--force-inspection); fi')
+                with self.assertRaises(AssertionError):
+                    assert_guarded(broken)
 
     def test_newest_artifact_is_available_without_eager_history_scan(self):
         first = {"id": 1}

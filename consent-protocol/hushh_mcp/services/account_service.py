@@ -2,6 +2,7 @@
 """Account deletion orchestration for full-account and persona-scoped cleanup."""
 
 import hashlib
+import json
 import logging
 import os
 from collections.abc import Iterable
@@ -11,6 +12,7 @@ from typing import Any, Dict, Literal
 from sqlalchemy import text
 
 from db.db_client import get_db, get_db_connection
+from hushh_mcp.services.account_answer_erasure import guard_answer_erasure
 from hushh_mcp.services.account_deletion_lifecycle_service import (
     AccountDeletionLifecycleService,
     _postgres_sqlstate,
@@ -19,6 +21,29 @@ from hushh_mcp.services.account_deletion_provider_cleanup import (
     ProviderCredentialSnapshot,
     release_provider_grants_after_erasure,
     snapshot_provider_credentials_in_transaction,
+)
+from hushh_mcp.services.account_export_stream import EXPORT_SECTIONS, AccountExportStream
+from hushh_mcp.services.account_external_connector_erasure import (
+    ACCOUNT_ERASURE_RETAINED_TABLES as ACCOUNT_ERASURE_RETAINED_TABLES,
+)
+from hushh_mcp.services.account_external_connector_erasure import (
+    clear_external_connector_data,
+)
+from hushh_mcp.services.account_personal_agent_erasure import (
+    PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE as PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
+)
+from hushh_mcp.services.account_personal_agent_erasure import (
+    PERSONAL_AGENT_DEPROVISION_REQUIRED_MESSAGE as PERSONAL_AGENT_DEPROVISION_REQUIRED_MESSAGE,
+)
+from hushh_mcp.services.account_personal_agent_erasure import (
+    PersonalAgentDeprovisioningRequiredError as PersonalAgentDeprovisioningRequiredError,
+)
+from hushh_mcp.services.account_personal_agent_erasure import (
+    assert_external_resources_absent,
+)
+from hushh_mcp.services.account_push_erasure import (
+    erase_push_registrations,
+    push_registration_erasure_queries,
 )
 from hushh_mcp.services.connection_graph_service import (
     list_connection_graph_viewer_ids,
@@ -34,13 +59,6 @@ from hushh_mcp.services.hushh_tech_uat_database_attestation import (
 logger = logging.getLogger(__name__)
 
 DeleteAccountTarget = Literal["investor", "ria", "both"]
-PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE = (
-    "ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING"
-)
-PERSONAL_AGENT_DEPROVISION_REQUIRED_MESSAGE = (
-    "Your private agent or cloud setup must be removed before the account can be "
-    "deleted. Please try again later or contact support."
-)
 # Emitted when the erasure transaction raised and was rolled back. A commit that
 # fails on a dropped connection can still be ambiguous, so clients confirm the
 # outcome through the tombstone-aware status route before keeping the session.
@@ -55,13 +73,6 @@ def _is_release_fence_refusal(exc: BaseException) -> bool:
     return _postgres_sqlstate(exc) == "55000" and _RELEASE_FENCE_MESSAGE in str(exc)
 
 
-class PersonalAgentDeprovisioningRequiredError(RuntimeError):
-    """Account deletion cannot safely orphan external personal-agent resources."""
-
-
-# Live-catalog UID-bearing state that is not represented by the release migration
-# chain yet. Keep this list next to the erasure implementation so a contract test
-# can compare the governed catalog with the executable delete predicates.
 TRANSACTIONAL_ACCOUNT_ERASURE_TABLES = frozenset(
     {
         "byoc_setup_jobs",
@@ -91,10 +102,83 @@ class AccountService:
         self._db = None
         self._table_exists_cache: dict[str, bool] = {}
         self._delete_by_user_queries = {
+            "pod_migration_jobs": text("DELETE FROM pod_migration_jobs WHERE user_id = :user_id"),
+            "webauthn_credentials": text(
+                "DELETE FROM webauthn_credentials WHERE user_id = :user_id"
+            ),
+            "webauthn_challenges": text("DELETE FROM webauthn_challenges WHERE user_id = :user_id"),
+            "world_model_embeddings": text(
+                "DELETE FROM world_model_embeddings WHERE user_id = :user_id"
+            ),
+            "connected_system_intent_approval_challenges": text(
+                "DELETE FROM connected_system_intent_approval_challenges WHERE user_id = :user_id"
+            ),
+            "connection_voice_preferences": text(
+                "DELETE FROM connection_voice_preferences WHERE user_id = :user_id"
+            ),
+            "gmail_personal_information_request_preferences": text(
+                "DELETE FROM gmail_personal_information_request_preferences WHERE user_id = :user_id"
+            ),
+            "gmail_personal_information_request_scan_states": text(
+                "DELETE FROM gmail_personal_information_request_scan_states WHERE user_id = :user_id"
+            ),
+            "gmail_personal_information_requests": text(
+                "DELETE FROM gmail_personal_information_requests WHERE user_id = :user_id"
+            ),
+            "google_calendar_action_proposals": text(
+                "DELETE FROM google_calendar_action_proposals WHERE user_id = :user_id"
+            ),
+            "google_email_send_actions": text(
+                "DELETE FROM google_email_send_actions WHERE user_id = :user_id"
+            ),
+            "google_oauth_attempts": text(
+                "DELETE FROM google_oauth_attempts WHERE user_id = :user_id"
+            ),
+            "google_provider_connections": text(
+                "DELETE FROM google_provider_connections WHERE user_id = :user_id"
+            ),
+            "google_service_grants": text(
+                "DELETE FROM google_service_grants WHERE user_id = :user_id"
+            ),
+            "one_marketing_preferences": text(
+                "DELETE FROM one_marketing_preferences WHERE user_id = :user_id"
+            ),
             "pwm_research_preferences": text(
                 "DELETE FROM pwm_research_preferences WHERE user_id = :user_id"
             ),
             "one_adk_sessions": text("DELETE FROM one_adk_sessions WHERE user_id = :user_id"),
+            "one_agent_message_feedback": text(
+                "DELETE FROM one_agent_message_feedback WHERE user_id = :user_id"
+            ),
+            "one_email_kyc_preferences": text(
+                "DELETE FROM one_email_kyc_preferences WHERE user_id = :user_id"
+            ),
+            "one_kyc_client_connectors": text(
+                "DELETE FROM one_kyc_client_connectors WHERE user_id = :user_id"
+            ),
+            "one_location_nearby_check_in_preferences": text(
+                "DELETE FROM one_location_nearby_check_in_preferences WHERE user_id = :user_id"
+            ),
+            "one_location_sos_voice_preferences": text(
+                "DELETE FROM one_location_sos_voice_preferences WHERE user_id = :user_id"
+            ),
+            "one_model_preferences": text(
+                "DELETE FROM one_model_preferences WHERE user_id = :user_id"
+            ),
+            "one_private_text_processing_approvals": text(
+                "DELETE FROM one_private_text_processing_approvals WHERE user_id = :user_id"
+            ),
+            "one_profile_discovery_jobs": text(
+                "DELETE FROM one_profile_discovery_jobs WHERE user_id = :user_id"
+            ),
+            "pkm_embeddings": text("DELETE FROM pkm_embeddings WHERE user_id = :user_id"),
+            "ria_business_contacts": text(
+                "DELETE FROM ria_business_contacts WHERE user_id = :user_id"
+            ),
+            "ria_claim_dossiers": text("DELETE FROM ria_claim_dossiers WHERE user_id = :user_id"),
+            "ria_license_verifications": text(
+                "DELETE FROM ria_license_verifications WHERE user_id = :user_id"
+            ),
             "one_product_activity_observations": text(
                 "DELETE FROM one_product_activity_observations WHERE user_id=:user_id"
             ),
@@ -127,6 +211,9 @@ class AccountService:
             "actor_profiles": text("DELETE FROM actor_profiles WHERE user_id = :user_id"),
             "one_action_directive_ledger": text(
                 "DELETE FROM one_action_directive_ledger WHERE user_id = :user_id"
+            ),
+            "pod_lifecycle_events": text(
+                "DELETE FROM pod_lifecycle_events WHERE user_id = :user_id"
             ),
             # Sealed arguments of connector calls awaiting review. A reset keeps the
             # actor_profiles row, so the FK cascade alone would leave them behind.
@@ -179,16 +266,8 @@ class AccountService:
             "connected_system_audit_events": text(
                 "DELETE FROM connected_system_audit_events WHERE user_id = :user_id"
             ),
-            "connected_system_intent_approval_challenges": text(
-                "DELETE FROM connected_system_intent_approval_challenges WHERE user_id = :user_id"
-            ),
             "connected_system_intents": text(
                 "DELETE FROM connected_system_intents WHERE user_id = :user_id"
-            ),
-            "ria_claim_dossiers": text("DELETE FROM ria_claim_dossiers WHERE user_id = :user_id"),
-            "webauthn_challenges": text("DELETE FROM webauthn_challenges WHERE user_id = :user_id"),
-            "webauthn_credentials": text(
-                "DELETE FROM webauthn_credentials WHERE user_id = :user_id"
             ),
             "connected_system_record_bindings": text(
                 "DELETE FROM connected_system_record_bindings WHERE user_id = :user_id"
@@ -671,10 +750,7 @@ class AccountService:
                    )
                 """
             ),
-            "user_push_tokens": text("DELETE FROM user_push_tokens WHERE user_id = :user_id"),
-            "user_push_installations": text(
-                "DELETE FROM user_push_installations WHERE user_id = :user_id"
-            ),
+            **push_registration_erasure_queries(),
             "circle_chat_messages": text(
                 "DELETE FROM circle_chat_messages WHERE sender_user_id = :user_id"
             ),
@@ -686,9 +762,6 @@ class AccountService:
             ),
             "feed_events": text("DELETE FROM feed_events WHERE user_id = :user_id"),
             "byoc_setup_jobs": text("DELETE FROM byoc_setup_jobs WHERE user_id = :user_id"),
-            "pod_lifecycle_events": text(
-                "DELETE FROM pod_lifecycle_events WHERE user_id = :user_id"
-            ),
             "personal_agent_registry": text(
                 "DELETE FROM personal_agent_registry WHERE user_id = :user_id"
             ),
@@ -944,141 +1017,37 @@ class AccountService:
             conn.execute(self._delete_by_user_queries[table_name], params)
             results[table_name] = True
 
-    def _delete_personal_agent_state(
-        self,
-        conn,
-        *,
-        params: dict[str, Any],
-        results: dict[str, bool],
-    ) -> None:
-        """Erase only personal-agent state proven to have no external resources.
+    def _assert_personal_agent_external_resources_absent(
+        self, conn, *, params: dict[str, Any], finalize_erasure: bool = False
+    ) -> dict[str, bool]:
+        """Verify absence under this account transaction's existing owner locks."""
+        return assert_external_resources_absent(
+            conn, params=params, table_exists=self._table_exists, finalize_erasure=finalize_erasure
+        )
 
-        The personal-agent migrations are parked in the release tree but exist in
-        some live environments. A provisioned pod or an in-flight BYOC project can
-        outlive its database row. No in-repo worker consumes the parked deletion
-        tombstones, so any state that may own external resources must fail closed.
+    def assert_personal_agent_external_resources_absent(self, user_id: str) -> None:
+        """Observe absence under existing database locks; perform no cleanup.
+
+        This is a preflight observation, not a reservation against a later
+        provisioning request. Callers must perform no deletion after it returns.
         """
-        state_tables = (
-            "byoc_setup_jobs",
-            "pod_lifecycle_events",
-            "personal_agent_registry",
-        )
-        table_presence = {
-            table_name: self._table_exists(conn, table_name) for table_name in state_tables
-        }
-        if not any(table_presence.values()):
-            results.update({table_name: True for table_name in state_tables})
-            results["personal_agent_external_resources_absent"] = True
-            return
+        if not user_id:
+            raise ValueError("user_id is required")
+        with get_db_connection() as conn:
+            # Match erasure writers before taking registry/setup row locks.
+            AccountDeletionLifecycleService._lock_user_ids_in_transaction(conn, user_ids=(user_id,))
+            self._assert_personal_agent_external_resources_absent(conn, params={"user_id": user_id})
 
-        registry_row = None
-        if table_presence["personal_agent_registry"]:
-            registry_row = (
-                conn.execute(
-                    text(
-                        """
-                        SELECT to_jsonb(registry) AS registry
-                        FROM personal_agent_registry AS registry
-                        WHERE registry.user_id = :user_id
-                        FOR UPDATE
-                        """
-                    ),
-                    params,
-                )
-                .mappings()
-                .first()
-            )
-        byoc_row = None
-        if table_presence["byoc_setup_jobs"]:
-            byoc_row = (
-                conn.execute(
-                    text(
-                        """
-                        SELECT to_jsonb(job) AS job
-                        FROM byoc_setup_jobs AS job
-                        WHERE job.user_id = :user_id
-                        FOR UPDATE
-                        """
-                    ),
-                    params,
-                )
-                .mappings()
-                .first()
-            )
-        lifecycle_row = None
-        if table_presence["pod_lifecycle_events"]:
-            lifecycle_row = (
-                conn.execute(
-                    text(
-                        """
-                        SELECT TRUE AS present
-                        FROM pod_lifecycle_events
-                        WHERE user_id = :user_id
-                        LIMIT 1
-                        FOR UPDATE
-                        """
-                    ),
-                    params,
-                )
-                .mappings()
-                .first()
-            )
-
-        registry = dict((registry_row or {}).get("registry") or {})
-        status = str(registry.get("status") or "").strip().lower()
-        external_coordinate_fields = (
-            "space_id",
-            "external_agent_id",
-            "a2a_route",
-            "backend",
-            "backend_metadata",
-            "attestation_ref",
-            "pod_pubkey",
-            "pod_key_id",
-            "pod_key_wrapping_alg",
-            "region",
-            "provisioned_at",
-            "deployment_target",
-            "user_cloud_project",
-            "user_cloud_region",
-            "user_cloud_bootstrap_sa",
-            "user_cloud_authorized_at",
+    def _delete_personal_agent_state(
+        self, conn, *, params: dict[str, Any], results: dict[str, bool]
+    ) -> None:
+        """Keep absence assertion and account-state deletion in one transaction."""
+        table_presence = self._assert_personal_agent_external_resources_absent(
+            conn, params=params, finalize_erasure=True
         )
-        has_external_coordinates = any(
-            registry.get(field_name) not in (None, "", {}, [])
-            for field_name in external_coordinate_fields
-        )
-        has_pending_deprovision = False
-        hushh_id = str(registry.get("hushh_id") or "").strip()
-        if hushh_id and self._table_exists(conn, "personal_agent_deletion_tombstones"):
-            has_pending_deprovision = (
-                conn.execute(
-                    text(
-                        """
-                        SELECT TRUE
-                        FROM personal_agent_deletion_tombstones
-                        WHERE hushh_id = :hushh_id
-                        LIMIT 1
-                        FOR UPDATE
-                        """
-                    ),
-                    {"hushh_id": hushh_id},
-                ).first()
-                is not None
-            )
-
-        demonstrably_unprovisioned = (registry_row is None and lifecycle_row is None) or (
-            registry_row is not None and status == "unprovisioned" and not has_external_coordinates
-        )
-        if byoc_row is not None or has_pending_deprovision or not demonstrably_unprovisioned:
-            raise PersonalAgentDeprovisioningRequiredError(PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE)
-
         results["personal_agent_external_resources_absent"] = True
-
-        # Only an unprovisioned registry with no provider coordinates reaches
-        # this point. Delete the mutable job slot and narrative before its row.
-        for table_name in state_tables:
-            if table_presence[table_name]:
+        for table_name, present in table_presence.items():
+            if present:
                 conn.execute(self._delete_by_user_queries[table_name], params)
             results[table_name] = True
 
@@ -1460,46 +1429,13 @@ class AccountService:
 
     @staticmethod
     def _clear_external_connector_data(conn, user_id, results, *, permanent):
-        from hushh_mcp.services.drive_sharing_retention import erase_drive_account_in_transaction
-
-        lock_connection_graph_users(conn, user_ids=[user_id])
-        erase_drive_account_in_transaction(conn, user_id=user_id, permanent=permanent)
-        owner_hash = "sha256:" + hashlib.sha256(user_id.encode("utf-8")).hexdigest()
-        # Source deletion may have appended a final hint. Reset erases all
-        # hints but advances the surviving cursor watermark, so pre-reset
-        # clients cannot confuse new sequence values with old ones. Full
-        # erasure removes the watermark too; its tombstone blocks recreation.
-        if conn.execute(
-            text("SELECT to_regclass('public.live_memory_connector_events') IS NOT NULL")
-        ).scalar():
-            conn.execute(
-                text("""DELETE FROM public.live_memory_connector_events
-                        WHERE owner_hash=:owner_hash"""),
-                {"owner_hash": owner_hash},
-            )
-        if conn.execute(
-            text("SELECT to_regclass('public.live_memory_connector_streams') IS NOT NULL")
-        ).scalar():
-            if permanent:
-                conn.execute(
-                    text("""DELETE FROM public.live_memory_connector_streams
-                            WHERE owner_hash=:owner_hash"""),
-                    {"owner_hash": owner_hash},
-                )
-            else:
-                conn.execute(
-                    text("""INSERT INTO public.live_memory_connector_streams
-                            (owner_hash, last_sequence, first_retained_sequence)
-                            VALUES (:owner_hash, 1, 2)
-                            ON CONFLICT (owner_hash) DO UPDATE SET
-                              last_sequence=live_memory_connector_streams.last_sequence+1,
-                              first_retained_sequence=live_memory_connector_streams.last_sequence+2,
-                              updated_at=clock_timestamp()"""),
-                    {"owner_hash": owner_hash},
-                )
-        results["live_memory_connector_journal"] = True
-        results["external_connectors"] = True
-        results["drive_private_data"] = True
+        clear_external_connector_data(
+            conn,
+            user_id,
+            results,
+            permanent=permanent,
+            lock_graph_users=lock_connection_graph_users,
+        )
 
     @staticmethod
     def _clear_live_memory_source_journal(conn, user_id, results, *, permanent):
@@ -1545,6 +1481,35 @@ class AccountService:
         One identity and vault survive a reset.
         """
         params = {"user_id": user_id}
+        if self._table_exists(conn, "shared_files_storage"):
+            row = (
+                conn.execute(
+                    text(
+                        "SELECT state,receipt,writes FROM shared_files_storage WHERE user_id=:user_id FOR UPDATE"
+                    ),
+                    params,
+                )
+                .mappings()
+                .first()
+            )
+            if row:
+                receipt = row["receipt"]
+                receipt = json.loads(receipt) if isinstance(receipt, str) else receipt
+                writes = row["writes"]
+                writes = json.loads(writes) if isinstance(writes, str) else writes
+                if (
+                    row["state"] != "erased"
+                    or writes
+                    or not isinstance(receipt, dict)
+                    or receipt.get("complete") is not True
+                ):
+                    raise ValueError("SHARED_FILES_ERASURE_REQUIRED")
+                conn.execute(
+                    text("DELETE FROM shared_files_storage WHERE user_id=:user_id"), params
+                )
+            results["shared_files_storage"] = True
+
+        self._clear_external_connector_data(conn, user_id, results, permanent=False)
         if self._table_exists(conn, "pwm_claim_invitations"):
             conn.execute(
                 text(
@@ -1553,7 +1518,6 @@ class AccountService:
                 params,
             )
             results["pwm_claim_invitations"] = True
-        self._clear_external_connector_data(conn, user_id, results, permanent=False)
         if self._table_exists(conn, "one_product_activity_epochs"):
             conn.execute(
                 text(
@@ -1570,7 +1534,9 @@ class AccountService:
                 "one_product_activity_observations",
                 "one_product_value_receipts",
                 "one_action_directive_ledger",
+                "pod_lifecycle_events",
                 "one_mcp_pending_calls",
+                "one_private_text_processing_approvals",
                 "live_memory_hosted_source_envelopes",
                 "live_memory_hosted_pilot_grants",
                 "agent_chat_messages",
@@ -1634,6 +1600,13 @@ class AccountService:
                 "pkm_domain_revisions",
                 "pkm_upgrade_steps",
                 "pkm_upgrade_runs",
+                # The preference world model is private intelligence about the owner,
+                # keyed by user_id. It belongs in the pod, so a reset must not leave a
+                # copy behind on the control plane.
+                "wallet_card_access_audit",
+                "wallet_card_access_grants",
+                "wallet_card_share_requests",
+                "wallet_card_registrations",
                 "one_wallet_cards",
             ],
             params=params,
@@ -1744,10 +1717,7 @@ class AccountService:
             conn, table_name="internal_access_events", params=params
         )
         results["internal_access_events"] = True
-        self._delete_user_rows_if_table_exists(conn, table_name="user_push_tokens", params=params)
-        self._delete_user_rows_if_table_exists(
-            conn, table_name="user_push_installations", params=params
-        )
+        erase_push_registrations(conn, params, self._table_exists)
         results["push_tokens"] = True
         self._delete_owned_named_circles(
             conn,
@@ -1820,6 +1790,18 @@ class AccountService:
             "setup_state_updated_at_ms": int(updated) if updated is not None else None,
         }
 
+    async def _erase_shared_files_if_present(
+        self, user_id: str, *, backend_only: bool = False
+    ) -> Dict[str, Any] | None:
+        from hushh_mcp.services.shared_files.erasure import erase_if_present
+
+        return await erase_if_present(
+            user_id,
+            backend_only=backend_only,
+            table_exists=self._table_exists,
+            connection_factory=get_db_connection,
+        )
+
     async def reset_account(self, user_id: str) -> Dict[str, Any]:
         """Reset the One account to a fresh, just-onboarded state.
 
@@ -1829,6 +1811,9 @@ class AccountService:
         actor_profiles spine. The dashboard re-provisions lazily on next use, and the
         user re-runs onboarding.
         """
+        cleanup = await self._erase_shared_files_if_present(user_id)
+        if cleanup is not None:
+            return {**cleanup, "account_reset": False}
         logger.warning("♻️ ACCOUNT RESET requested for %s", user_id)
         results: dict[str, bool] = {}
         try:
@@ -1936,12 +1921,69 @@ class AccountService:
         requested_target: DeleteAccountTarget,
         backend_only: bool = False,
     ) -> Dict[str, Any]:
+        """Attempt one cleanup outside the transaction, then revalidate once."""
         if backend_only and (
             os.getenv("ENVIRONMENT", "").strip().lower() == "production"
             or os.getenv("APP_RUNTIME_PROFILE", "").strip().lower() == "production"
             or os.getenv("CLOUDSQL_INSTANCE_CONNECTION_NAME", "") != UAT_INSTANCE
         ):
             raise ValueError("backend_only_erasure_requires_uat_database")
+        cleanup = await self._erase_shared_files_if_present(user_id, backend_only=backend_only)
+        if cleanup is not None:
+            return cleanup
+        result = await self._delete_full_account_transaction(
+            user_id, requested_target=requested_target, backend_only=backend_only
+        )
+        if result.get("error_code") != PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE:
+            return result
+        if backend_only:
+            # A backend-only erasure must not delete, quarantine, or revoke an
+            # authority outside the UAT database. Tearing down the private agent's
+            # cloud resources is exactly that, so it fails closed and leaves the
+            # deprovision to an explicit operator step.
+            return result
+        from hushh_mcp.services.compute_backend import resolve_compute_backend
+        from hushh_mcp.services.personal_agent_owner_access_erasure import owner_access_backend
+        from hushh_mcp.services.personal_agent_provisioning_service import (
+            PersonalAgentProvisioningService as Service,
+        )
+        from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+
+        try:  # built as the route builds it; a bare Service() raised TypeError from 2026-09-08
+            registry = PersonalAgentRegistryRepo()
+            service = Service(registry=registry, backend=resolve_compute_backend())
+            owner_row = await registry.get(user_id)
+            if owner_access_backend(service, owner_row) is not None:
+                # This backend needs fresh cloud consent and explicit whole-parent
+                # cleanup terms. A failed ordinary account DELETE must not destroy
+                # pod keys before that review. The cleanup flow owns preparation.
+                return {**result, "cleanup_provider": (owner_row or {}).get("deployment_target")}
+            # A failed Azure setup can own resources before its pod coordinates
+            # publish. Only the SQL-qualified, fully joined original history
+            # enables the same owner-reviewed cleanup; never infer from an error.
+            from hushh_mcp.services.azure_teardown_store import AzureTeardownStore
+
+            if owner_row and await AzureTeardownStore(registry).can_offer_failed_setup_cleanup(
+                user_id, owner_row
+            ):
+                return {**result, "cleanup_provider": "user_azure"}
+            await service.deprovision(user_id=user_id)
+        except Exception as exc:
+            logger.warning("account.erasure_pending error_type=%s", type(exc).__name__)
+            return result
+        # The first transaction has rolled back. The second independently checks
+        # completion and archives evidence; a provider result cannot bypass it.
+        return await self._delete_full_account_transaction(
+            user_id, requested_target=requested_target, backend_only=backend_only
+        )
+
+    async def _delete_full_account_transaction(
+        self,
+        user_id: str,
+        *,
+        requested_target: DeleteAccountTarget,
+        backend_only: bool = False,
+    ) -> Dict[str, Any]:
         logger.warning("🚨 FULL ACCOUNT DELETION requested for %s", user_id)
         results = {
             "actor_identity_cache": False,
@@ -1973,6 +2015,7 @@ class AccountService:
             "kai_gmail_sync_runs": False,
             "one_kyc_workflows": False,
             "kai_receipt_memory_artifacts": False,
+            "pwm_documents": False,
             "consent_exports": False,
             "consent_export_refresh_jobs": False,
             "connected_system_audit_events": False,
@@ -1984,7 +2027,6 @@ class AccountService:
             "internal_access_events": False,
             "fabric_consent_requests": False,
             "fabric_subscription_grants": False,
-            "pwm_documents": False,
             "push_tokens": False,
             "invite_links": False,
             "relationships": False,
@@ -2010,6 +2052,7 @@ class AccountService:
             "one_product_activity_observations": False,
             "one_product_value_receipts": False,
             "one_product_activity_epochs": False,
+            "one_marketing_preferences": False,
             "one_referral_relationships": False,
             "one_referral_attributions": False,
             "one_referral_codes": False,
@@ -2046,6 +2089,7 @@ class AccountService:
             "one_location_share_grants": False,
             "one_location_recipient_keys": False,
             "feed_events": False,
+            "one_profile_discovery_jobs": False,
             "circle_chat_messages": False,
             "circle_chat_recipients": False,
             "circle_chat_preferences": False,
@@ -2099,6 +2143,7 @@ class AccountService:
                     )
                 results["account_deletion_tombstone"] = True
                 results["firebase_cleanup_intent_count"] = len(cleanup_user_ids)
+                guard_answer_erasure(conn, user_id=user_id)
                 self._delete_personal_agent_state(
                     conn,
                     params=params,
@@ -2130,10 +2175,37 @@ class AccountService:
                         "one_product_activity_observations",
                         "one_product_value_receipts",
                         "one_product_activity_epochs",
+                        "one_marketing_preferences",
                         # Remove challenge bindings before their enrollment lookup.
                         "email_auth_challenges",
                         "email_auth_enrollments",
                         "one_action_directive_ledger",
+                        "webauthn_credentials",
+                        "webauthn_challenges",
+                        "world_model_embeddings",
+                        "connected_system_intent_approval_challenges",
+                        "connection_voice_preferences",
+                        "gmail_owner_send_actions",
+                        "gmail_personal_information_request_preferences",
+                        "gmail_personal_information_request_scan_states",
+                        "gmail_personal_information_requests",
+                        "google_calendar_action_proposals",
+                        "google_email_send_actions",
+                        "google_oauth_attempts",
+                        "google_service_grants",
+                        "google_provider_connections",
+                        "one_agent_message_feedback",
+                        "one_email_kyc_preferences",
+                        "one_kyc_client_connectors",
+                        "one_location_nearby_check_in_preferences",
+                        "one_location_sos_voice_preferences",
+                        "one_model_preferences",
+                        "one_private_text_processing_approvals",
+                        "one_profile_discovery_jobs",
+                        "pkm_embeddings",
+                        "ria_business_contacts",
+                        "ria_claim_dossiers",
+                        "ria_license_verifications",
                         "one_mcp_pending_calls",
                         "live_memory_hosted_source_envelopes",
                         "live_memory_hosted_pilot_grants",
@@ -2324,12 +2396,7 @@ class AccountService:
                     conn, table_name="internal_access_events", params=params
                 )
                 results["internal_access_events"] = True
-                self._delete_user_rows_if_table_exists(
-                    conn, table_name="user_push_tokens", params=params
-                )
-                self._delete_user_rows_if_table_exists(
-                    conn, table_name="user_push_installations", params=params
-                )
+                erase_push_registrations(conn, params, self._table_exists)
                 results["push_tokens"] = True
                 self._delete_owned_named_circles(
                     conn,
@@ -2372,6 +2439,10 @@ class AccountService:
                     "one_location_envelopes",
                     "one_location_share_grants",
                     "one_location_recipient_keys",
+                    "wallet_card_access_audit",
+                    "wallet_card_access_grants",
+                    "wallet_card_share_requests",
+                    "wallet_card_registrations",
                     "one_wallet_cards",
                     # Last derived-data cleanup, before the identity/vault spine.
                     "circle_chat_messages",
@@ -2399,6 +2470,11 @@ class AccountService:
                     conn, table_name="runtime_persona_state", params=params
                 )
                 results["runtime_persona_state"] = True
+                # Preserve profile IDs until relationship cleanup has used them.
+                # Explicitly erase the profile rather than relying on the actor FK.
+                if self._table_exists(conn, "ria_profiles"):
+                    conn.execute(text("DELETE FROM ria_profiles WHERE user_id = :user_id"), params)
+                results["ria_profiles"] = True
                 self._delete_user_rows_if_table_exists(
                     conn, table_name="actor_profiles", params=params
                 )
@@ -2407,6 +2483,14 @@ class AccountService:
                     conn, table_name="vault_key_wrappers", params=params
                 )
                 results["vault_key_wrappers"] = True
+                if self._table_exists(conn, "shared_files_storage"):
+                    conn.execute(
+                        text(
+                            "DELETE FROM shared_files_storage WHERE user_id=:user_id AND state='erased' AND writes='{}'::jsonb AND receipt->>'complete'='true'"
+                        ),
+                        params,
+                    )
+                    results["shared_files_storage"] = True
                 conn.execute(text("DELETE FROM vault_keys WHERE user_id = :user_id"), params)
                 results["vault_keys"] = True
 
@@ -2774,75 +2858,32 @@ class AccountService:
                 "details": results,
             }
 
+    def prepare_export(self, user_id: str) -> AccountExportStream:
+        """Prepare the HTTP export without collecting its encrypted history in RAM."""
+        return AccountExportStream(
+            user_id=user_id,
+            connection_factory=get_db_connection,
+            table_exists=self._table_exists,
+            queries=self._safe_export_queries,
+        ).prepare()
+
     async def export_data(self, user_id: str) -> Dict[str, Any]:
         """
-        Export all user data.
+        Compatibility dictionary export for internal callers.
 
-        Returns a dictionary containing:
-        - Vault Keys (Encrypted)
-        - PKM Index
-        - PKM Data (Encrypted)
-        - Identity (Encrypted)
+        HTTP downloads use prepare_export so retained ciphertext is not materialized.
         """
         try:
             with get_db_connection() as conn:
                 params = {"user_id": user_id}
-                export_payload = {
-                    "actor_profile": self._fetch_optional_single_row(
-                        conn, table_name="actor_profiles", query_name="actor_profile", params=params
-                    ),
-                    "runtime_persona_state": self._fetch_optional_single_row(
-                        conn,
-                        table_name="runtime_persona_state",
-                        query_name="runtime_persona_state",
-                        params=params,
-                    ),
-                    "verified_email_aliases": self._fetch_optional_many_rows(
-                        conn,
-                        table_name="actor_verified_email_aliases",
-                        query_name="verified_email_aliases",
-                        params=params,
-                    ),
-                    "encrypted_vault_keys": self._fetch_optional_many_rows(
-                        conn,
-                        table_name="vault_keys",
-                        query_name="encrypted_vault_keys",
-                        params=params,
-                    ),
-                    "encrypted_pkm_manifests": self._fetch_optional_many_rows(
-                        conn,
-                        table_name="pkm_manifests",
-                        query_name="encrypted_pkm_manifests",
-                        params=params,
-                    ),
-                    "encrypted_pkm_index": self._fetch_optional_many_rows(
-                        conn,
-                        table_name="pkm_index",
-                        query_name="encrypted_pkm_index",
-                        params=params,
-                    ),
-                    "encrypted_pkm_blobs": self._fetch_optional_many_rows(
-                        conn,
-                        table_name="pkm_blobs",
-                        query_name="encrypted_pkm_blobs",
-                        params=params,
-                    ),
-                    "encrypted_pkm_recovery_revisions": self._fetch_optional_many_rows(
-                        conn,
-                        table_name="pkm_domain_revisions",
-                        query_name="encrypted_pkm_recovery_revisions",
-                        params=params,
-                    ),
-                    "encrypted_pkm_recovery_segments": self._fetch_optional_many_rows(
-                        conn,
-                        table_name="pkm_domain_revision_segments",
-                        query_name="encrypted_pkm_recovery_segments",
-                        params=params,
-                    ),
-                    "consent_audit": self._fetch_optional_many_rows(
-                        conn, table_name="consent_audit", query_name="consent_audit", params=params
-                    ),
-                }
+                export_payload = {}
+                for key, table, many in EXPORT_SECTIONS:
+                    fetch = (
+                        self._fetch_optional_many_rows if many else self._fetch_optional_single_row
+                    )
+                    export_payload[key] = fetch(
+                        conn, table_name=table, query_name=key, params=params
+                    )
             return {
                 "success": True,
                 "requested_target": "account",

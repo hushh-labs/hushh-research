@@ -181,12 +181,30 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  delete window.__HUSHH_NATIVE_TEST__;
   vi.useRealTimers();
   publishValidatedAuthSessionOwner(null);
   useOneConversationSession.getState().clearSession();
 });
 
 describe("onboarding profile draft and owner confirmation", () => {
+  it("suppresses ambient research for read-only review while preserving authorized owner research", async () => {
+    window.__HUSHH_NATIVE_TEST__ = {
+      enabled: true,
+      autoReviewerLogin: true,
+      reviewerMutationPolicy: "read_only",
+    };
+    const view = render(<ProfileResearchCard {...props} />);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
+    expect(mocks.apiFetch).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("profile-research-card")).toBeNull();
+
+    window.__HUSHH_NATIVE_TEST__.reviewerMutationPolicy = "mutation_authorized";
+    view.rerender(<ProfileResearchCard {...props} />);
+    expect(await screen.findByTestId("profile-research-card")).toBeTruthy();
+    await waitFor(() => expect(mocks.apiFetch.mock.calls.filter(([path]) => path === "/api/one/profile-research/jobs")).toHaveLength(1));
+  });
+
   it("keeps cited choices without the duplicate summary or provider chips", async () => {
     const html =
       '<style>.container { padding: 8px; }</style><div class="container"><a href="https://www.google.com/search?q=Example">Example</a></div>';

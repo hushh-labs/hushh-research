@@ -19,7 +19,7 @@ BODY = {"searchJobId": SEARCH, "clientRequestId": CLIENT, "audience": "trusted_c
 
 
 @pytest.fixture
-def setup(monkeypatch):
+def setup(shared_hub_owner, monkeypatch):
     app = FastAPI()
     app.include_router(routes.router)
     service = SimpleNamespace(
@@ -40,7 +40,7 @@ def setup(monkeypatch):
     )
     current = AsyncMock(return_value={"user_id": "owner-a"})
     monkeypatch.setattr(routes, "_bulk_share_service", lambda: service)
-    monkeypatch.setattr(routes, "require_vault_owner_token", current)
+    monkeypatch.setattr("api.routes.drive_sharing_owner.require_vault_owner_token", current)
     return app, TestClient(app), service, current
 
 

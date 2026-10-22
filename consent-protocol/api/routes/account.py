@@ -25,28 +25,28 @@ Security:
 
 import asyncio
 import base64
-import hashlib
 import hmac
 import logging
 import os
 import re
-import secrets
 import time
 from typing import Any, Literal, cast
 
+from anyio import CancelScope, fail_after
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from google.auth.exceptions import TransportError
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2 import id_token as google_id_token
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 from api.middleware import (
     require_firebase_auth,
     require_firebase_auth_read_only,
     require_vault_owner_token,
 )
+from api.routes.account_cloud_cleanup import AccountCloudCleanupRequest, account_cloud_cleanup
 from api.routes.account_legal_acceptance import router as legal_acceptance_router
 from api.utils.firebase_admin import get_firebase_auth_app
 from api.utils.firebase_auth import (
@@ -60,6 +60,7 @@ from hushh_mcp.services.account_deletion_lifecycle_service import (
     account_deletion_phone_digest,
     drain_account_deletion_cleanup_intents,
 )
+from hushh_mcp.services.account_export_stream import AccountExportBusy, AccountExportStream
 from hushh_mcp.services.account_service import (
     ACCOUNT_DELETION_FAILED_CODE,
     ACCOUNT_DELETION_PAUSED_CODE,
@@ -72,6 +73,20 @@ from hushh_mcp.services.actor_identity_service import (
     ActorIdentityPhoneClaimConflictError,
     ActorIdentityService,
     ActorIdentitySyncUnavailableError,
+)
+from hushh_mcp.services.phone_test_transport import (
+    _configured_phone_test_code as _configured_phone_test_code,
+)
+from hushh_mcp.services.phone_test_transport import (
+    _configured_phone_test_numbers as _configured_phone_test_numbers,
+)
+from hushh_mcp.services.phone_test_transport import (
+    _normalize_phone_number,
+    create_phone_test_challenge,
+    validate_phone_test_confirmation,
+)
+from hushh_mcp.services.phone_test_transport import (
+    _phone_test_enabled as _phone_test_enabled,
 )
 from hushh_mcp.services.support_email_service import (
     SupportEmailDeliveryUncertainError,
@@ -345,6 +360,14 @@ class TrustedDeviceExchangeRequest(BaseModel):
     code_verifier: str = Field(min_length=43, max_length=128)
 
 
+class TrustedDeviceSelfEnrollRequest(BaseModel):
+    device_public_key: str = Field(alias="devicePublicKey", min_length=80, max_length=2048)
+    device_name: str = Field(alias="deviceName", min_length=1, max_length=100)
+    platform: Literal["web", "ios", "android"]
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class TrustedDeviceVaultHandoffRequest(BaseModel):
     vault_handoff_wrapped_key: str = Field(min_length=40, max_length=64)
     vault_handoff_iv: str = Field(min_length=16, max_length=24)
@@ -545,6 +568,29 @@ async def create_trusted_device_authorization(
     }
 
 
+@router.post("/trusted-devices/self-enroll")
+async def trusted_device_self_enroll(
+    payload: TrustedDeviceSelfEnrollRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+    authorization: str | None = Header(None, alias="Authorization"),
+):
+    """Enroll this signed-in app installation without granting Puppy authority."""
+    await _trusted_device_guard(firebase_uid)
+    browser_uid = await _verify_browser_enrollment_identity(authorization)
+    if browser_uid != firebase_uid:
+        raise HTTPException(status_code=401, detail="Invalid Firebase ID token")
+    try:
+        return await run_in_threadpool(
+            TrustedDeviceService().self_enroll,
+            user_id=firebase_uid,
+            device_public_key=payload.device_public_key,
+            device_name=payload.device_name,
+            platform=payload.platform,
+        )
+    except TrustedDeviceError as exc:
+        _raise_trusted_device_error(exc)
+
+
 @router.post("/trusted-device-authorizations/{authorization_id}/vault-handoff")
 async def attach_trusted_device_vault_handoff(
     authorization_id: str,
@@ -635,6 +681,319 @@ async def list_trusted_devices(firebase_uid: str = Depends(require_firebase_auth
     return {"devices": devices}
 
 
+class PodBindingIssueRequest(BaseModel):
+    puppy_inference: bool = Field(default=False, alias="puppyInference")
+
+
+class PuppyAccessRequest(BaseModel):
+    enabled: bool
+
+
+class PuppyModelSelectionRequest(BaseModel):
+    request_id: str = Field(alias="requestId", min_length=8, max_length=80)
+    model: str = Field(min_length=1, max_length=120)
+    catalog_version: str = Field(alias="catalogVersion", min_length=64, max_length=64)
+    expected_version: int = Field(alias="expectedVersion", ge=0, strict=True)
+
+
+class PuppyModelSelectionAck(BaseModel):
+    id: str = Field(min_length=8, max_length=80)
+    version: int = Field(ge=1, strict=True)
+    result: Literal["applied", "refused"]
+    reason: str = Field(default="", max_length=40)
+    proof: str = Field(min_length=1, max_length=2048)
+
+
+@router.get("/trusted-devices/{device_id}/pod-binding")
+async def read_pod_binding(
+    device_id: str,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Read this owner's current signed binding for one active trusted device."""
+    await _trusted_device_guard(firebase_uid)
+    from hushh_mcp.services.pod_binding_service import PodBindingError, PodBindingService
+
+    try:
+        binding = await PodBindingService().latest(user_id=firebase_uid, device_id=device_id)
+    except PodBindingError as exc:
+        raise HTTPException(
+            status_code=exc.status,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    if binding is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "POD_BINDING_NOT_ISSUED", "message": "No active pod binding exists."},
+        )
+    return binding
+
+
+@router.post("/trusted-devices/{device_id}/pod-binding")
+async def issue_pod_binding(
+    device_id: str,
+    payload: PodBindingIssueRequest = Body(default_factory=PodBindingIssueRequest),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Issue a higher-version binding for this owner and their selected pod."""
+    await _trusted_device_guard(firebase_uid)
+    from hushh_mcp.services.pod_binding_service import PodBindingError, PodBindingService
+
+    try:
+        return await PodBindingService().issue(
+            user_id=firebase_uid,
+            device_id=device_id,
+            puppy_inference=payload.puppy_inference,
+        )
+    except PodBindingError as exc:
+        raise HTTPException(
+            status_code=exc.status,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+
+
+class PodTombstoneRequest(BaseModel):
+    intent: dict[str, Any]
+    signature: str = Field(min_length=1, max_length=2048)
+
+
+@router.post("/trusted-devices/{device_id}/pod-tombstone")
+async def courier_pod_tombstone(
+    device_id: str,
+    payload: PodTombstoneRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Queue the app-signed owner intent; this endpoint cannot mint revocations."""
+    from hushh_mcp.services.pod_binding_service import PodBindingError, PodBindingService
+
+    try:
+        return await PodBindingService().courier_tombstone(
+            user_id=firebase_uid,
+            device_id=device_id,
+            intent=payload.intent,
+            signature=payload.signature,
+        )
+    except PodBindingError as exc:
+        raise HTTPException(
+            status_code=exc.status,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+
+
+@router.get("/trusted-devices/{device_id}/puppy-access")
+async def get_puppy_access(
+    device_id: str,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    from hushh_mcp.services.pod_binding_service import PodBindingError, PodBindingService
+
+    try:
+        return await PodBindingService().get_puppy_access(
+            user_id=token_data["user_id"], device_id=device_id
+        )
+    except PodBindingError as exc:
+        raise HTTPException(
+            status_code=exc.status, detail={"code": exc.code, "message": exc.message}
+        ) from exc
+
+
+@router.put("/trusted-devices/{device_id}/puppy-access")
+async def set_puppy_access(
+    device_id: str,
+    payload: PuppyAccessRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Only a vault-unlocked owner may grant or withdraw Puppy inference."""
+    from hushh_mcp.services.pod_binding_service import PodBindingError, PodBindingService
+
+    try:
+        return await PodBindingService().set_puppy_access(
+            user_id=token_data["user_id"], device_id=device_id, enabled=payload.enabled
+        )
+    except PodBindingError as exc:
+        raise HTTPException(
+            status_code=exc.status, detail={"code": exc.code, "message": exc.message}
+        ) from exc
+
+
+@router.post("/trusted-devices/{device_id}/puppy-activation")
+async def activate_puppy(device_id: str, token_data: dict = Depends(require_vault_owner_token)):
+    from hushh_mcp.services.pod_binding_service import PodBindingError
+    from hushh_mcp.services.puppy_activation import request_activation
+
+    try:
+        return await request_activation(token_data["user_id"], device_id)
+    except PodBindingError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code, "message": exc.message}) from None
+
+
+@router.get("/trusted-devices/{device_id}/puppy-model-selection")
+async def read_puppy_model_selection(
+    device_id: str,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Read the owner's last device-default command and its observed outcome."""
+    from hushh_mcp.services.pod_binding_service import PodBindingError
+    from hushh_mcp.services.puppy_model_selection import PuppyModelSelectionService
+
+    try:
+        return await PuppyModelSelectionService().read(
+            user_id=token_data["user_id"],
+            device_id=device_id,
+        )
+    except PodBindingError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code, "message": exc.message}) from None
+
+
+@router.post("/trusted-devices/{device_id}/puppy-model-selection")
+async def request_puppy_model_selection(
+    device_id: str,
+    payload: PuppyModelSelectionRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Queue one exact owner-approved local model; only the device may apply it."""
+    from hushh_mcp.services.pod_binding_service import PodBindingError
+    from hushh_mcp.services.puppy_model_selection import PuppyModelSelectionService
+
+    try:
+        return await PuppyModelSelectionService().request(
+            user_id=token_data["user_id"],
+            device_id=device_id,
+            request_id=payload.request_id,
+            model=payload.model,
+            catalog_version=payload.catalog_version,
+            expected_version=payload.expected_version,
+        )
+    except PodBindingError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code, "message": exc.message}) from None
+
+
+@router.post("/trusted-devices/{device_id}/puppy-model-selection/ack")
+async def acknowledge_puppy_model_selection(
+    device_id: str,
+    payload: PuppyModelSelectionAck,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """A signed receipt from the enrolled device key; Firebase alone is insufficient."""
+    from hushh_mcp.services.pod_binding_service import PodBindingError
+    from hushh_mcp.services.puppy_model_selection import PuppyModelSelectionService
+
+    try:
+        return await PuppyModelSelectionService().acknowledge(
+            user_id=firebase_uid,
+            device_id=device_id,
+            request_id=payload.id,
+            version=payload.version,
+            result=payload.result,
+            reason=payload.reason,
+            proof=payload.proof,
+        )
+    except PodBindingError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code, "message": exc.message}) from None
+
+
+@router.post("/trusted-devices/{device_id}/puppy-inference-grant")
+async def issue_puppy_inference_grant(
+    device_id: str,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Issue the short-lived compatibility relay capability for an active BYOC pod."""
+    await _trusted_device_guard(firebase_uid)
+    from hushh_mcp.consent.token import issue_token
+    from hushh_mcp.constants import ConsentScope
+    from hushh_mcp.services.compute_backend import is_owner_cloud_target
+    from hushh_mcp.services.consent_db import ConsentDBService
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+
+    try:
+        row = await PersonalAgentRegistryRepo().get(firebase_uid)
+    except Exception:  # noqa: BLE001 - a failed lookup is never BYOC proof
+        logger.warning("puppy.inference_placement_lookup_failed")
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "PUPPY_PLACEMENT_UNAVAILABLE", "message": "Pod status is unavailable."},
+        ) from None
+    metadata = row.get("backend_metadata") if isinstance(row, dict) else None
+    pod_url = str((metadata or {}).get("url") or "").strip() if isinstance(metadata, dict) else ""
+    if (
+        not isinstance(row, dict)
+        or not is_owner_cloud_target(row.get("deployment_target"))
+        or str(row.get("status") or "").strip() != "provisioned"
+        or not pod_url.startswith("https://")
+        or not str(row.get("pod_key_id") or "").strip()
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PUPPY_REQUIRES_BYOC_POD",
+                "message": "Puppy inference requires an active pod in your own Google Cloud project.",
+            },
+        )
+    if not await run_in_threadpool(
+        TrustedDeviceService().is_active_device,
+        user_id=firebase_uid,
+        device_id=device_id,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "TRUSTED_DEVICE_NOT_ACTIVE",
+                "message": "The trusted device is not active.",
+            },
+        )
+
+    from hushh_mcp.services.pod_binding_service import PodBindingService
+
+    if not PodBindingService.puppy_access_approved(row, device_id):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "PUPPY_OWNER_APPROVAL_REQUIRED",
+                "message": "The owner has not enabled Puppy access for this device and pod.",
+            },
+        )
+
+    scope = ConsentScope.CAP_PUPPY_INFERENCE.value
+    agent_id = f"device:{device_id}"
+    token = issue_token(
+        user_id=firebase_uid,
+        agent_id=agent_id,
+        scope=scope,
+        expires_in_ms=15 * 60 * 1000,
+    )
+    try:
+        await ConsentDBService().insert_event(
+            user_id=firebase_uid,
+            agent_id=agent_id,
+            scope=scope,
+            action="CONSENT_GRANTED",
+            token_id=token.token,
+            expires_at=token.expires_at,
+            scope_description="Puppy inference through the owner's BYOC pod",
+            metadata={
+                "grant_kind": "puppy_inference",
+                "deployment_target": str(row.get("deployment_target") or "").strip(),
+            },
+        )
+    except Exception:  # noqa: BLE001 - never return an unrecorded inference capability
+        from hushh_mcp.consent.token import revoke_token
+
+        revoke_token(token.token)
+        logger.warning("puppy.inference_grant_record_failed")
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "PUPPY_GRANT_UNAVAILABLE",
+                "message": "Puppy inference access is unavailable.",
+            },
+        ) from None
+    return {
+        "device_id": device_id,
+        "scope": scope,
+        "token": token.token,
+        "expires_at": token.expires_at,
+    }
+
+
 @router.get("/trusted-devices/{device_id}/status")
 async def trusted_device_status(
     device_id: str,
@@ -671,7 +1030,36 @@ async def trusted_device_status(
                 "message": "No such trusted device for this account.",
             },
         )
-    return {**status, "server_time_ms": int(time.time() * 1000)}
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+    from hushh_mcp.services.puppy_activation import current_activation
+
+    hint = None
+    if status.get("status") == "active":
+        try:
+            row = await PersonalAgentRegistryRepo().get(firebase_uid)
+            hint = current_activation(row, device_id) if row else None
+        except Exception:
+            # A wake hint is advisory. Failure cannot imply revocation or widen a grant.
+            pass
+    selection = None
+    if status.get("status") == "active":
+        try:
+            from hushh_mcp.services.puppy_model_selection import PuppyModelSelectionService
+
+            selection = await PuppyModelSelectionService().pending(
+                user_id=firebase_uid,
+                device_id=device_id,
+            )
+        except Exception:
+            # A control-command lookup cannot turn a valid device status into
+            # a false revocation. The next poll retries; owner read shows expiry.
+            logger.warning("trusted_device.puppy_model_selection_unavailable")
+    return {
+        **status,
+        "server_time_ms": int(time.time() * 1000),
+        "puppyActivation": hint,
+        "puppyModelSelection": selection,
+    }
 
 
 @router.post("/trusted-devices/{device_id}/seal-ack")
@@ -808,12 +1196,23 @@ async def revoke_trusted_device(
 ):
     # Revocation is a recovery operation, not an enrollment operation. Keep it
     # available even when the feature flag or rollout allowlist is withdrawn.
+    devices = TrustedDeviceService()
     revoked = await run_in_threadpool(
-        TrustedDeviceService().revoke_device,
+        devices.revoke_device,
         user_id=firebase_uid,
         device_id=device_id,
     )
-    if not revoked:
+    # An interrupted cross-plane revoke may safely retry for this same owner.
+    existing = (
+        None
+        if revoked
+        else await run_in_threadpool(
+            devices.device_status,
+            user_id=firebase_uid,
+            device_id=device_id,
+        )
+    )
+    if not revoked and (not existing or existing.get("status") != "revoked"):
         raise HTTPException(
             status_code=404,
             detail={
@@ -844,7 +1243,45 @@ async def revoke_trusted_device(
                 token_id=token_id,
                 metadata={"reason": "trusted_device_revoked"},
             )
-    return {"success": True, "device_id": device_id}
+
+    # Puppy inference is a separate device-scoped capability, not vault-owner
+    # authority. Revoke its current visible grant too; relay admission also checks
+    # the active-device row so a ledger outage cannot keep a revoked device live.
+    try:
+        from hushh_mcp.constants import ConsentScope
+
+        puppy_scope = ConsentScope.CAP_PUPPY_INFERENCE.value
+        puppy_tokens = await consent_service.get_active_tokens(firebase_uid, agent_id=agent_id)
+        for token_row in puppy_tokens:
+            if str(token_row.get("scope") or "") != puppy_scope:
+                continue
+            token_id = str(token_row.get("token_id") or "")
+            if not token_id:
+                continue
+            revoke_token(token_id)
+            await consent_service.insert_event(
+                user_id=firebase_uid,
+                agent_id=agent_id,
+                scope=puppy_scope,
+                action="REVOKED",
+                token_id=token_id,
+                scope_description="Puppy inference through the owner's BYOC pod",
+                metadata={"reason": "trusted_device_revoked"},
+            )
+    except Exception:  # noqa: BLE001 - device revocation and active-row checks remain authoritative
+        logger.warning("trusted_device.puppy_grant_revoke_failed")
+    # Fresh statement after device revocation commits: a preceding issuer may
+    # have completed while the revoke waited for its device lock.
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+
+    pod = await PersonalAgentRegistryRepo().get(firebase_uid)
+    metadata = (pod or {}).get("backend_metadata") or {}
+    binding = (metadata.get("bindings") or {}).get(device_id) or {}
+    return {
+        "success": True,
+        "device_id": device_id,
+        "podBindingVersion": int(binding.get("version") or 0),
+    }
 
 
 class IdentityRefreshRequest(BaseModel):
@@ -1060,6 +1497,7 @@ class DeleteAccountRequest(BaseModel):
         default="both",
         description="Delete only the investor persona, only the RIA persona, or the full account.",
     )
+    cleanup: AccountCloudCleanupRequest | None = None
 
 
 class LostVaultDeleteRequest(BaseModel):
@@ -1101,118 +1539,6 @@ def _require_phone_verification_owner(expected_user_id: str | None, firebase_uid
                 "message": "Your signed-in account changed. Start phone verification again.",
             },
         )
-
-
-def _clean_env(name: str) -> str:
-    return str(os.getenv(name) or "").strip()
-
-
-def _runtime_environment() -> str:
-    return (_clean_env("ENVIRONMENT") or _clean_env("HUSHH_DEPLOY_ENV")).lower()
-
-
-def _is_truthy_env(name: str) -> bool:
-    return _clean_env(name).lower() in {"1", "true", "yes", "on", "enabled"}
-
-
-def _is_uat_environment() -> bool:
-    return _runtime_environment() == "uat"
-
-
-def _normalize_phone_number(raw_phone: str) -> str:
-    cleaned = re.sub(r"[^\d+]", "", str(raw_phone or "").strip())
-    if cleaned.startswith("00"):
-        cleaned = f"+{cleaned[2:]}"
-    if cleaned and not cleaned.startswith("+"):
-        cleaned = f"+{cleaned}"
-    if cleaned.count("+") > 1 or ("+" in cleaned[1:]):
-        return ""
-    return cleaned
-
-
-def _parse_phone_test_numbers(raw: str) -> set[str]:
-    if not raw:
-        return set()
-    return {
-        normalized
-        for normalized in (_normalize_phone_number(part) for part in re.split(r"[,;\n]+", raw))
-        if normalized
-    }
-
-
-def _configured_uat_phone_test_numbers() -> set[str]:
-    raw = _clean_env("HUSHH_UAT_PHONE_TEST_NUMBERS") or _clean_env("UAT_PHONE_TEST_NUMBERS")
-    return _parse_phone_test_numbers(raw)
-
-
-def _configured_prod_phone_test_numbers() -> set[str]:
-    return _parse_phone_test_numbers(_clean_env("HUSHH_PROD_PHONE_TEST_NUMBERS"))
-
-
-def _configured_phone_test_numbers() -> set[str]:
-    environment = _runtime_environment()
-    if environment == "uat":
-        return _configured_uat_phone_test_numbers()
-    if environment == "production" and _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED"):
-        return _configured_prod_phone_test_numbers()
-    return set()
-
-
-def _configured_uat_phone_test_code() -> str:
-    return _clean_env("HUSHH_UAT_PHONE_TEST_CODE") or _clean_env("UAT_PHONE_TEST_CODE")
-
-
-def _configured_prod_phone_test_code() -> str:
-    return _clean_env("HUSHH_PROD_PHONE_TEST_CODE")
-
-
-def _configured_prod_phone_test_challenge_secret() -> str:
-    return _clean_env("HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET")
-
-
-def _configured_phone_test_code() -> str:
-    environment = _runtime_environment()
-    if environment == "uat":
-        return _configured_uat_phone_test_code()
-    if environment == "production" and _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED"):
-        return _configured_prod_phone_test_code()
-    return ""
-
-
-def _phone_test_enabled() -> bool:
-    if _runtime_environment() == "production":
-        return bool(
-            _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED")
-            and _configured_prod_phone_test_numbers()
-            and _configured_prod_phone_test_code()
-            and _configured_prod_phone_test_challenge_secret()
-        )
-    return bool(_configured_phone_test_numbers() and _configured_phone_test_code())
-
-
-def _phone_test_challenge_key() -> str:
-    environment = _runtime_environment()
-    if environment == "production" and _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED"):
-        return _configured_prod_phone_test_challenge_secret()
-    return (
-        _clean_env("HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET")
-        or _clean_env("APP_SIGNING_KEY")
-        or _configured_uat_phone_test_code()
-    )
-
-
-def _create_uat_phone_test_verification_id(phone_number: str) -> str:
-    digest = hmac.new(
-        _phone_test_challenge_key().encode("utf-8"),
-        phone_number.encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
-    return f"uat-test-phone:{digest}"
-
-
-def _is_valid_uat_phone_test_verification_id(phone_number: str, verification_id: str) -> bool:
-    expected = _create_uat_phone_test_verification_id(phone_number)
-    return secrets.compare_digest(str(verification_id or "").strip(), expected)
 
 
 def _raise_alias_error(exc: ActorIdentityAliasError) -> None:
@@ -1515,10 +1841,9 @@ async def start_uat_test_phone_verification(
 ):
     """Start an environment-gated fixed-code phone verification challenge."""
     phone_number = _normalize_phone_number(payload.phone_number)
-    enabled = _phone_test_enabled()
-    eligible = enabled and phone_number in _configured_phone_test_numbers()
+    challenge = create_phone_test_challenge(firebase_uid, phone_number)
 
-    if not eligible:
+    if challenge is None:
         return {
             "success": True,
             "eligible": False,
@@ -1546,7 +1871,7 @@ async def start_uat_test_phone_verification(
     return {
         "success": True,
         "eligible": True,
-        "verification_id": _create_uat_phone_test_verification_id(phone_number),
+        "verification_id": challenge,
     }
 
 
@@ -1558,40 +1883,18 @@ async def confirm_uat_test_phone_verification(
     """Persist an environment-gated fixed-code phone verification claim."""
     _require_phone_verification_owner(payload.expected_user_id, firebase_uid)
     phone_number = _normalize_phone_number(payload.phone_number)
-    configured_code = _configured_phone_test_code()
-
-    if not _phone_test_enabled() or phone_number not in _configured_phone_test_numbers():
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "code": "UAT_PHONE_TEST_NOT_ALLOWLISTED",
-                "message": "This phone number is not allowlisted for UAT test verification.",
-            },
-        )
-
-    if not _is_valid_uat_phone_test_verification_id(phone_number, payload.verification_id):
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "code": "UAT_PHONE_TEST_INVALID_CHALLENGE",
-                "message": "The UAT phone verification challenge is invalid.",
-            },
-        )
-
-    if not secrets.compare_digest(str(payload.verification_code or "").strip(), configured_code):
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "code": "UAT_PHONE_TEST_INVALID_CODE",
-                "message": "The UAT phone verification code is invalid.",
-            },
-        )
+    source = validate_phone_test_confirmation(
+        firebase_uid,
+        phone_number,
+        payload.verification_id,
+        payload.verification_code,
+    )
 
     try:
         identity = await ActorIdentityService().claim_verified_phone(
             user_id=firebase_uid,
             phone_number=phone_number,
-            source="uat_test_phone_claim",
+            source=source,
         )
     except ActorIdentityPhoneClaimConflictError:
         raise HTTPException(
@@ -1613,7 +1916,7 @@ async def confirm_uat_test_phone_verification(
             },
         )
 
-    logger.info("UAT phone test claim persisted user=%s", firebase_uid)
+    logger.info("Recorded phone transport claim persisted")
     return {
         "success": True,
         "user_id": firebase_uid,
@@ -1799,22 +2102,47 @@ async def delete_account(
     """Delete an account or persona after vault unlock (VAULT_OWNER authority)."""
     user_id = token_data["user_id"]
     target = payload.target if payload else "both"
+    if payload and payload.cleanup:
+        if target != "both":
+            raise HTTPException(status_code=422, detail={"code": "FULL_ACCOUNT_CLEANUP_REQUIRED"})
+        return await account_cloud_cleanup(user_id, payload.cleanup)
     return await _perform_account_deletion(user_id, target=target)
+
+
+def _files_erasure_pending_response(code: str | None) -> JSONResponse | None:
+    messages = {
+        "FILES_ERASURE_IN_PROGRESS": (
+            "Files cleanup is still in progress. Account not deleted. Try again to continue."
+        ),
+        "FILES_ERASURE_WAITING_FOR_WRITES": (
+            "An upload outcome is unverified. Account not deleted. Contact support before retrying."
+        ),
+    }
+    message = messages.get(code or "")
+    if message is None:
+        return None
+    return JSONResponse(
+        status_code=409,
+        content={"detail": message, "code": code},
+    )
+
+
+async def _delete_account_result(user_id: str, *, target: str) -> dict[str, Any]:
+    """Preserve the erasure service's result, including a definite pre-transaction failure."""
+    service = AccountService()
+    try:
+        return cast(dict[str, Any], await service.delete_account(user_id, target=target))
+    except Exception as exc:
+        # Transaction failures are returned by the service. A raised exception
+        # occurred before erasure, so preserve the existing retry-safe result.
+        logger.error("account.delete_failed user=%s error=%s", user_id, type(exc).__name__)
+        return {"success": False, "error": type(exc).__name__}
 
 
 async def _perform_account_deletion(user_id: str, *, target: str):
     """Shared erasure lifecycle. Authority is checked by the calling route."""
     logger.warning("⚠️ DELETE ACCOUNT REQUESTED for user %s target=%s", user_id, target)
-    service = AccountService()
-    try:
-        result = await service.delete_account(user_id, target=target)
-    except Exception as exc:
-        # The erasure itself catches every error once its transaction begins,
-        # and provider release never raises, so an exception here happened
-        # before anything was erased (for example the profile read). Report it
-        # with the machine code so the client keeps a session it can retry.
-        logger.error("account.delete_failed user=%s error=%s", user_id, type(exc).__name__)
-        result = {"success": False, "error": type(exc).__name__}
+    result = await _delete_account_result(user_id, target=target)
 
     if not result["success"]:
         if result.get("error_code") == PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE:
@@ -1823,6 +2151,11 @@ async def _perform_account_deletion(user_id: str, *, target: str):
                 detail={
                     "code": PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
                     "message": PERSONAL_AGENT_DEPROVISION_REQUIRED_MESSAGE,
+                    **(
+                        {"cleanupProvider": "azure"}
+                        if result.get("cleanup_provider") == "user_azure"
+                        else {}
+                    ),
                 },
             )
         if result.get("error_code") == ACCOUNT_DELETION_PAUSED_CODE:
@@ -1833,6 +2166,11 @@ async def _perform_account_deletion(user_id: str, *, target: str):
                 status_code=503,
                 content={"detail": "Account deletion paused", "code": ACCOUNT_DELETION_PAUSED_CODE},
             )
+        pending_files = _files_erasure_pending_response(result.get("error_code"))
+        if pending_files is not None:
+            # Preserve the exact safe refusal. Unverified uploads require
+            # reconciliation; only a settled bounded batch invites continuation.
+            return pending_files
         # SECURITY: do not reflect the internal error string in the HTTP response.
         # The service-layer error may include persona names, DB state, or persona IDs.
         logger.error("account.delete_failed user=%s error=%s", user_id, result.get("error"))
@@ -1899,21 +2237,51 @@ async def reset_account(
     return result
 
 
+class _AccountExportResponse(StreamingResponse):
+    """Close the prepared snapshot even if headers fail or the client disconnects."""
+
+    def __init__(self, stream: AccountExportStream) -> None:
+        self._export = stream
+        super().__init__(
+            stream,
+            media_type="application/json",
+            headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+        )
+
+    async def __call__(self, scope, receive, send) -> None:
+        terminal_sent = False
+
+        async def tracked_send(message):
+            nonlocal terminal_sent
+            await send(message)
+            if message["type"] == "http.response.body" and not message.get("more_body", False):
+                terminal_sent = True
+
+        try:
+            with fail_after(self._export.remaining_seconds):
+                await super().__call__(scope, receive, tracked_send)
+                if terminal_sent:
+                    self._export.confirm_produced()
+        except Exception as exc:
+            logger.warning("account_export outcome=stream_failed error_type=%s", type(exc).__name__)
+            raise RuntimeError("Account export interrupted") from None
+        finally:
+            with CancelScope(shield=True):
+                await run_in_threadpool(self._export.close)
+
+
 @router.get("/export")
 async def export_account_data(token_data: dict = Depends(require_vault_owner_token)):
-    """
-    Export logged-in user's account data bundle.
-
-    Returns encrypted/private-user-bound payloads only. No plaintext PKM content.
-    Requires VAULT_OWNER token.
-    """
-    user_id = token_data["user_id"]
-    logger.info("Account export requested for user %s", user_id)
-
+    """Stream the token owner's encrypted account bundle from one read-only snapshot."""
     service = AccountService()
-    result = await service.export_data(user_id)
-
-    if not result["success"]:
-        raise HTTPException(status_code=500, detail="Account export failed")
-
-    return result
+    try:
+        stream = await run_in_threadpool(service.prepare_export, token_data["user_id"])
+    except AccountExportBusy:
+        raise HTTPException(
+            status_code=503, detail="Account export busy", headers={"Retry-After": "30"}
+        ) from None
+    except Exception as exc:
+        # Database errors may contain private parameters; retain only their class.
+        logger.warning("account_export outcome=prepare_failed error_type=%s", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Account export failed") from None
+    return _AccountExportResponse(stream)

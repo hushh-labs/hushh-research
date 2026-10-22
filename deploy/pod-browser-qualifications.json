@@ -1,0 +1,10 @@
+[
+  {
+    "receipt": "pod-browser-gcp-dev28.json",
+    "sha256": "843c46a7f8cc7f555c991cf5f9b9056c3c60dba293989efe9460f430a553e330"
+  },
+  {
+    "receipt": "pod-browser-azure-dev28.json",
+    "sha256": "715850fc4863ce80717e90e174136d660d82db947390130c810fe8d0912310ec"
+  }
+]

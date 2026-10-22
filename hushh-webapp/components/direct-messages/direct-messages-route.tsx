@@ -4,6 +4,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { DirectMessagesService } from "@/lib/services/direct-messages-service";
+import { DirectMessagesResourceService } from "@/lib/services/direct-messages-resource-service";
 import { DirectMessagesPage } from "./direct-messages-page";
 
 import { readMessageHistory, replaceMessageHistory, subscribeMessageHistory } from "@/lib/direct-messages/message-history";
@@ -37,17 +38,22 @@ export function DirectMessagesRoute() {
   const selectionKey = JSON.stringify([user?.uid || "", token, conversationId, personRef]);
   const [selection, setSelection] = useState<{ key: string; kind: "conversation" | "person"; ref: string } | null>(null);
   const selected = Boolean(token || conversationId || personRef);
+  const cachedSelection = user && token ? DirectMessagesResourceService.readRoute(user.uid, token) : null;
+  const visibleSelection = selection?.key === selectionKey ? selection : cachedSelection;
   useEffect(() => {
     let active = true;
     setSelection(null);
     if (!user || !selected) return;
+    const session = DirectMessagesResourceService.beginRequest(user.uid);
     void (async () => {
       try {
-        const result = await DirectMessagesService.routeSelection({
+        const cached = token ? DirectMessagesResourceService.readRoute(user.uid, token) : null;
+        const result = cached ? { ...cached, token } : await DirectMessagesService.routeSelection({
           idToken: await user.getIdToken(),
           ...(token ? { token } : conversationId ? { conversationId } : { personRef }),
         });
         if (!active) return;
+        DirectMessagesResourceService.writeRoute(user.uid, session, result);
         replaceMessageHistory({ owner: user.uid, token: result.token });
         writeLastMessagesSelection(user.uid, { lane: "people", token: result.token });
         setSelection({ key: token ? selectionKey : JSON.stringify([user.uid, result.token, "", ""]), kind: result.kind, ref: result.ref });
@@ -61,5 +67,5 @@ export function DirectMessagesRoute() {
     })();
     return () => { active = false; };
   }, [user, selected, token, conversationId, personRef, selectionKey, router]);
-  return <DirectMessagesPage key={user?.uid || "signed-out"} resolvingSelection={loading || Boolean(user && selected && selection?.key !== selectionKey)} selection={selection?.key === selectionKey ? selection : null} restoredSelection={hasExplicitSelection || selected ? null : saved} />;
+  return <DirectMessagesPage key={user?.uid || "signed-out"} resolvingSelection={loading || Boolean(user && selected && !visibleSelection)} selection={visibleSelection} restoredSelection={hasExplicitSelection || selected ? null : saved} />;
 }

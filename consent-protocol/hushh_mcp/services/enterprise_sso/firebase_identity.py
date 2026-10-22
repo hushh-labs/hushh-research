@@ -86,8 +86,8 @@ class FirebaseAdminIdentity:
             assert_firebase_identity_mutation_allowed,
         )
 
-        firebase_auth, app = self._auth()
         try:
+            firebase_auth, app = self._auth()
             assert_firebase_identity_mutation_allowed(app)
         except FirebaseAuthorityError as exc:
             raise EnterpriseSsoError("sso_unavailable", 503) from exc
@@ -159,7 +159,12 @@ class FirebaseAdminIdentity:
 
     async def revoke_sessions(self, uid: str) -> bool:
         """End live sessions without disabling the account."""
-        firebase_auth, app = self._auth()
+        from api.utils.firebase_admin import FirebaseAuthorityError
+
+        try:
+            firebase_auth, app = self._auth()
+        except FirebaseAuthorityError:
+            return False
         try:
             from api.utils.firebase_admin import assert_firebase_identity_mutation_allowed
 

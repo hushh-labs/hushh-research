@@ -23,12 +23,39 @@ vi.mock("@/lib/capacitor", () => ({
 }));
 
 import { OneLocationService } from "@/lib/one-location/service";
+import { customCircleTypeGroups } from "@/lib/one-location/circle-types";
+import type { OneLocationCircleDetail } from "@/lib/one-location/types";
 import type { CircleManagementAction } from "@/lib/one-location/command-circle-management";
 
 describe("OneLocationService Circle member invitations", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockApiJson.mockResolvedValue({});
+  });
+
+  it("keeps a new custom type through the create payload, response and refreshed list", async () => {
+    const stored: OneLocationCircleDetail[] = [];
+    mockApiJson.mockImplementation(async (path: string, options?: RequestInit) => {
+      expect(path).toBe("/api/one/location/circles");
+      if (options?.method === "POST") {
+        const draft = JSON.parse(String(options.body));
+        expect(draft).toEqual({ name: expect.any(String), kind: "other", customTypeLabel: "Finance" });
+        const circle = { ...draft, id: String(stored.length), role: "owner", memberCount: 1, memberLimit: 20, members: [] };
+        stored.push(circle);
+        return { circle: structuredClone(circle) };
+      }
+      return { circles: structuredClone(stored), customTypePolicy: { version: 1, maxTypes: 3 } };
+    });
+    for (const name of ["Investments", "Tax records"]) {
+      const created = await OneLocationService.createNamedCircle({ vaultOwnerToken: "fixture", name, kind: "other", customTypeLabel: "Finance" });
+      expect(created.name).toBe(name);
+      expect(created.customTypeLabel).toBe("Finance");
+    }
+    const workspace = await OneLocationService.listCircleWorkspace("fixture");
+    const groups = customCircleTypeGroups(workspace.circles);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].label).toBe("Finance");
+    expect(groups[0].circles.map(circle => circle.name)).toEqual(["Investments", "Tax records"]);
   });
 
   it.each<[CircleManagementAction, string, string]>([

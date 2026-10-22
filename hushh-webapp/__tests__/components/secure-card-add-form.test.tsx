@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { useLayoutEffect } from "react";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { SecureCardAddForm as CardForm } from "@/components/wallet/secure-card-add-form";
 
 const networkApi = vi.hoisted(() => ({ resolve: vi.fn(), supported: vi.fn(), artwork: vi.fn(), select: vi.fn(), preview: vi.fn(), display: vi.fn(), banks: vi.fn() }));
@@ -104,8 +105,11 @@ it("offers camera and gallery, links validation errors, and has no security-code
 });
 it("submits once, preserves retry identity and clears details after success", async () => {
   const save = vi.fn().mockRejectedValueOnce(new Error("private diagnostic")).mockResolvedValueOnce(undefined);
-  render(<SecureCardAddForm onSubmit={save} />); fillRequired(); await waitFor(() => expect(screen.getByTestId("secure-card-save")).not.toBeDisabled());
-  submit(); submit(); await waitFor(() => expect(notify.error).toHaveBeenCalled());
+  const cancel = vi.fn(); render(<SecureCardAddForm backRoute="/one/wallet" onCancel={cancel} onSubmit={save} />); fillRequired(); await waitFor(() => expect(screen.getByTestId("secure-card-save")).not.toBeDisabled());
+  submit(); submit();
+  act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
+  expect(cancel).not.toHaveBeenCalled();
+  await waitFor(() => expect(notify.error).toHaveBeenCalled());
   expect(save).toHaveBeenCalledTimes(1); const first = save.mock.calls[0][0]; expect(first).not.toHaveProperty("cvv"); expect(first).not.toHaveProperty("pin");
   expect(screen.queryByText("private diagnostic")).toBeNull(); submit(); await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
   expect(save.mock.calls[1][0].draftId).toBe(first.draftId); await waitFor(() => expect(screen.getByLabelText("Card number")).toHaveValue(""));
@@ -258,6 +262,42 @@ it("explains an incompatible manual network length and recovers after correction
   await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ brand: "amex", pan: "378282246310005" })));
 });
 
+
+it("consumes Back during a pending save and clears the draft only after success", async () => {
+  let finish!: () => void;
+  const save = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+  const cancel = vi.fn();
+  render(<SecureCardAddForm backRoute="/one/wallet" onCancel={cancel} onSubmit={save} />);
+  fillRequired();
+  await waitFor(() => expect(screen.getByTestId("secure-card-save")).not.toBeDisabled());
+  submit(); submit();
+  expect(save).toHaveBeenCalledOnce();
+  expect(screen.getByLabelText("Card number")).toHaveValue("4242 4242 4242 4242");
+  act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
+  expect(cancel).not.toHaveBeenCalled();
+  await act(async () => finish());
+  expect(screen.getByLabelText("Card number")).toHaveValue("");
+});
+
+it("cancels an inline scan before Add, rejects late fields, and releases inactive Back ownership", async () => {
+  let finish!: (draft: ReturnType<typeof reading>) => void;
+  scan.read.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const cancel = vi.fn(), save = vi.fn();
+  const props = { backRoute: "/one/wallet", onCancel: cancel, onSubmit: save };
+  const view = render(<SecureCardAddForm {...props} />);
+  await selectPhoto();
+  const signal = scan.read.mock.calls.at(-1)![1] as AbortSignal;
+  act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
+  expect(signal.aborted).toBe(true);
+  expect(cancel).not.toHaveBeenCalled();
+  await act(async () => finish(reading({ pan: "5555555555554444" })));
+  expect(screen.getByLabelText("Card number")).toHaveValue("");
+  act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
+  expect(cancel).toHaveBeenCalledOnce(); expect(save).not.toHaveBeenCalled();
+  view.rerender(<SecureCardAddForm {...props} active={false} />);
+  expect(unwindBackLayer("/one/wallet")).toBe(false);
+  view.unmount(); expect(unwindBackLayer("/one/wallet")).toBe(false);
+});
 
 it.each([
   ["911111111116", "Other", "other", "9111 1111 1116"],

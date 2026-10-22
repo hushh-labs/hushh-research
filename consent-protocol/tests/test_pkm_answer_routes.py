@@ -285,7 +285,9 @@ async def test_incomplete_exact_approved_facts_never_reach_composer(monkeypatch,
     composer.assert_not_called()
 
 
-async def test_gemini_partial_answer_with_gaps_gets_no_chargeable_receipt(monkeypatch):
+async def test_gemini_partial_answer_with_gaps_gets_no_chargeable_receipt(
+    monkeypatch, shared_hub_owner
+):
     from hushh_mcp.services.answer_composer import AnswerComposer
 
     service = Mock(
@@ -340,7 +342,7 @@ async def test_gemini_partial_answer_with_gaps_gets_no_chargeable_receipt(monkey
     ],
 )
 async def test_narrower_approved_answer_requires_disclosure_and_no_unexpected_gaps(
-    monkeypatch, answer, gaps, payable
+    monkeypatch, shared_hub_owner, answer, gaps, payable
 ):
     from hushh_mcp.services.answer_composer import AnswerComposer
     from hushh_mcp.services.answer_composition_receipt import verify_composition_receipt
@@ -496,7 +498,7 @@ async def test_composer_refuses_unapproved_or_unbounded_freshness_before_model(
     ],
 )
 async def test_composer_carries_bounded_exact_scope_freshness_into_gemini_receipt(
-    monkeypatch, scope, value
+    monkeypatch, shared_hub_owner, scope, value
 ):
     from hushh_mcp.services.answer_composer import AnswerComposer
     from hushh_mcp.services.answer_composition_receipt import verify_composition_receipt
@@ -776,3 +778,29 @@ async def test_invalid_period_fails_before_catalog_or_storage(monkeypatch, start
             period_end=end,
         )
     catalog.assert_not_called()
+
+
+async def test_composer_refuses_hosting_change_before_provider_dispatch(
+    monkeypatch, shared_hub_owner
+):
+    async def answerable(**kwargs):
+        shared_hub_owner.return_value = "byoc"
+        return {"approvedScopes": ["attr.travel.trips"], "modelProcessingConsented": True}
+
+    monkeypatch.setattr(routes, "_requests", lambda: Mock(assert_answerable=answerable))
+    composer = Mock()
+    monkeypatch.setattr(routes, "AnswerComposer", composer)
+    with pytest.raises(HTTPException) as error:
+        await routes.compose_answer(
+            uuid4(),
+            Response(),
+            {
+                "projection": {
+                    "memory": "synthetic",
+                    "values": {"attr.travel.trips": {"trips": [{"city": "Tokyo"}]}},
+                }
+            },
+            "owner",
+        )
+    assert error.value.status_code == 409
+    composer.assert_not_called()

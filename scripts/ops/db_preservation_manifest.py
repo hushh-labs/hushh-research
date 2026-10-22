@@ -18,6 +18,7 @@ import os
 import re
 import sys
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -72,7 +73,8 @@ async def _catalog(conn: asyncpg.Connection) -> dict[str, Any]:
     columns = await conn.fetch(
         """
         SELECT table_name, column_name, ordinal_position, data_type, udt_name,
-               is_nullable, column_default
+               is_nullable, column_default, character_maximum_length,
+               numeric_precision, numeric_scale, datetime_precision, collation_name
         FROM information_schema.columns
         WHERE table_schema = 'public'
         ORDER BY table_name, ordinal_position
@@ -134,10 +136,12 @@ async def _catalog(conn: asyncpg.Connection) -> dict[str, Any]:
     }
 
 
-async def _primary_key_columns(conn: asyncpg.Connection, table: str) -> list[str]:
+async def _primary_key_components(
+    conn: asyncpg.Connection, table: str
+) -> list[tuple[str, bool]]:
     rows = await conn.fetch(
         """
-        SELECT a.attname AS column_name
+        SELECT a.attname AS column_name, a.attcollation <> 0 AS collatable
         FROM pg_index i
         JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
         WHERE i.indrelid = to_regclass($1) AND i.indisprimary
@@ -145,7 +149,23 @@ async def _primary_key_columns(conn: asyncpg.Connection, table: str) -> list[str
         """,
         f"public.{table}",
     )
-    return [str(row["column_name"]) for row in rows]
+    return [(str(row["column_name"]), bool(row["collatable"])) for row in rows]
+
+
+async def _primary_key_columns(conn: asyncpg.Connection, table: str) -> list[str]:
+    return [name for name, _ in await _primary_key_components(conn, table)]
+
+
+def _primary_key_order(
+    components: list[tuple[str, bool]], prefix: str = "", *, descending: bool = False
+) -> str:
+    return ", ".join(
+        prefix
+        + _quote(name)
+        + (' COLLATE pg_catalog."C"' if collatable else "")
+        + (" DESC" if descending else "")
+        for name, collatable in components
+    )
 
 
 async def _table_manifest(
@@ -154,11 +174,12 @@ async def _table_manifest(
     column_names: list[str],
 ) -> dict[str, Any]:
     quoted_table = _quote(table)
-    primary_key = await _primary_key_columns(conn, table)
+    components = await _primary_key_components(conn, table)
+    primary_key = [name for name, _ in components]
     order_clause = (
-        ", ".join(f"source.{_quote(column)}" for column in primary_key)
+        _primary_key_order(components, "source.")
         if primary_key
-        else "md5(row_to_json(source)::text)"
+        else 'md5(row_to_json(source)::text) COLLATE pg_catalog."C"'
     )
     projected_columns = ", ".join(f"source.{_quote(column)}" for column in column_names)
     digest = hashlib.sha256()
@@ -184,11 +205,12 @@ async def _table_manifest(
         else f"SELECT COUNT(*) AS count FROM {quoted_table}"
     )
     null_counts = {
-        column: int(null_row[f"n{index}"])
-        for index, column in enumerate(column_names)
+        column: int(null_row[f"n{index}"]) for index, column in enumerate(column_names)
     }
 
-    ciphertext_columns = [column for column in column_names if _CIPHERTEXT_COLUMN.search(column)]
+    ciphertext_columns = [
+        column for column in column_names if _CIPHERTEXT_COLUMN.search(column)
+    ]
     ciphertext_bytes: dict[str, int] = {}
     for column in ciphertext_columns:
         value = await conn.fetchval(
@@ -200,13 +222,14 @@ async def _table_manifest(
     pk_range_digest = None
     if primary_key and row_count:
         pk_expression = ", ".join(_quote(column) for column in primary_key)
-        pk_order = ", ".join(_quote(column) for column in primary_key)
+        pk_order = _primary_key_order(components)
+        pk_desc_order = _primary_key_order(components, descending=True)
         bounds = await conn.fetchrow(
             "SELECT md5("
             f"COALESCE((SELECT ROW({pk_expression})::text FROM {quoted_table} "
             f"ORDER BY {pk_order} LIMIT 1), '') || '|' || "
             f"COALESCE((SELECT ROW({pk_expression})::text FROM {quoted_table} "
-            f"ORDER BY {pk_order} DESC LIMIT 1), '')"
+            f"ORDER BY {pk_desc_order} LIMIT 1), '')"
             ") AS digest"
         )
         pk_range_digest = str(bounds["digest"] or "")
@@ -258,6 +281,22 @@ async def _foreign_key_orphans(conn: asyncpg.Connection) -> list[dict[str, Any]]
     return results
 
 
+@asynccontextmanager
+async def _snapshot_connection(database_url: str, timeout: float, snapshot_id: str = ""):
+    if snapshot_id and not re.fullmatch(r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{8}-[0-9]+", snapshot_id):
+        raise ValueError("invalid exported PostgreSQL snapshot identifier")
+    conn = await asyncpg.connect(database_url, command_timeout=timeout)
+    try:
+        async with conn.transaction(isolation="repeatable_read", readonly=True):
+            if snapshot_id:
+                # SET TRANSACTION requires a literal; the closed grammar above
+                # admits only PostgreSQL's opaque export identifier.
+                await conn.execute(f"SET TRANSACTION SNAPSHOT '{snapshot_id}'")
+            yield conn
+    finally:
+        await conn.close()
+
+
 async def run(args: argparse.Namespace) -> int:
     repo_root = Path(__file__).resolve().parents[2]
     output = _required_tmp_output(repo_root, args.output)
@@ -274,9 +313,9 @@ async def run(args: argparse.Namespace) -> int:
 
         database_url = get_database_url()
     started = time.time()
-    conn = await asyncpg.connect(database_url, command_timeout=float(args.statement_timeout))
-    try:
-        await conn.execute("SET default_transaction_read_only = on")
+    async with _snapshot_connection(
+        database_url, float(args.statement_timeout), getattr(args, "snapshot_id", "")
+    ) as conn:
         identity = await conn.fetchrow(
             "SELECT current_database() AS database_name, current_setting('server_version_num') AS version"
         )
@@ -399,8 +438,6 @@ async def run(args: argparse.Namespace) -> int:
             "catalog_sha256", "duration_ms", "violation_count"
         )}))
         return 0 if report["status"] in {"ok", "capture_only"} else 1
-    finally:
-        await conn.close()
 
 
 def parse_args() -> argparse.Namespace:
@@ -428,6 +465,11 @@ def parse_args() -> argparse.Namespace:
         help="Checksum independently verified for the backup restored into this database.",
     )
     parser.add_argument("--statement-timeout", type=float, default=300.0)
+    parser.add_argument(
+        "--snapshot-id",
+        default="",
+        help="Import the same still-open exported snapshot used by pg_dump --snapshot.",
+    )
     return parser.parse_args()
 
 

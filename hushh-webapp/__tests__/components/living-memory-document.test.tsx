@@ -6,6 +6,7 @@ import type { LiveMirrorClaim, LiveMirrorView } from "@/lib/pkm/live-mirror-cont
 import type { MemoryRefreshStatus } from "@/lib/pkm/memory-refresh";
 
 const m = vi.hoisted(() => ({
+  navigate: vi.fn(),
   uid: "owner-a",
   unlocked: true,
   token: "fixture-token-0",
@@ -14,6 +15,7 @@ const m = vi.hoisted(() => ({
   listeners: new Set<() => void>(),
   privacy: { generation: 0, appIsActive: true, shielded: false },
 }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: m.navigate }) }));
 vi.mock("@/lib/capacitor/session-privacy", () => ({ nativePrivacyObservation: () => ({ state: m.privacy }) }));
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: { uid: m.uid } }),
@@ -319,6 +321,17 @@ describe("native Memory operation boundary", () => {
 });
 
 describe("Profile Live Mirror", () => {
+  it("opens the existing Saved and Add workspace only while unlocked", () => {
+    const rendered = render(<LivingMemoryDocument />);
+    fireEvent.click(screen.getByRole("button", { name: /Saved and Add/ }));
+    expect(m.navigate).toHaveBeenCalledExactlyOnceWith("/one/pkm");
+    expect(screen.getByText(/SYNTHETIC_A_NAME/)).toBeInTheDocument();
+    m.unlocked = false;
+    m.epoch++;
+    rendered.rerender(<LivingMemoryDocument />);
+    expect(screen.queryByRole("button", { name: /Saved and Add/ })).toBeNull();
+  });
+
   it("announces only the headline; the ticking check time stays outside the live region", () => {
     m.view = mirror({ readAt: "2026-10-15T10:09:00.000Z" });
     render(<LivingMemoryDocument />);

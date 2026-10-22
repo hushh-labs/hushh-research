@@ -1,3 +1,4 @@
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import type {
   LegalDocumentDetail,
   ProfileDetail,
@@ -460,6 +461,9 @@ export function popProfilePaneLocation(
 ): void {
   if (typeof window === "undefined") return;
   const current = resolveProfilePaneUrlState(searchParams);
+  if (current.open && current.location.panel && !current.location.detail && unwindBackLayer(pathname, toSearchParams(searchParams), {
+    [PROFILE_PANE_QUERY]: "1", [PROFILE_PANE_PANEL_QUERY]: current.location.panel,
+  })) return;
   const paneState = currentPaneHistoryState();
   // Opened straight onto this location from another screen: Back returns
   // there. The previous history entry is that screen, so this closes the pane

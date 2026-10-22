@@ -1,8 +1,20 @@
+import { ownerContentIsPrivate } from './private-agent-specialist-chat';
+import { privateGoogleStatus, disconnectPrivateGoogle, requireSharedGoogleExchange, PrivateGoogleUnsupportedError } from './private-google-connections';
 import { trackEvent } from "@/lib/observability/client";
 import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from "@/lib/services/auth-service";
 import { CACHE_TTL, CacheService } from "@/lib/services/cache-service";
 import { clearCachedGmailReceipts } from "@/lib/profile/gmail-receipts-cache";
+import {
+  type GmailConnectStartResponse,
+  type GmailNativeConnectStartResponse,
+  parseGmailConnectStartPayload,
+  parseGmailNativeConnectStartPayload,
+} from "@/lib/services/gmail-oauth-contract";
+export type {
+  GmailConnectStartResponse,
+  GmailNativeConnectStartResponse,
+} from "@/lib/services/gmail-oauth-contract";
 import {
   buildGmailNudgesPath,
   buildGmailReceiptsPath,
@@ -118,20 +130,6 @@ export interface GmailConnectionStatus {
   connected_at?: string | null;
   disconnected_at?: string | null;
   latest_run?: GmailSyncRun | null;
-}
-
-export interface GmailConnectStartResponse {
-  configured: boolean;
-  authorize_url: string;
-  state: string;
-  redirect_uri: string;
-  expires_at: string;
-}
-
-export interface GmailNativeConnectStartResponse {
-  configured: boolean;
-  server_client_id: string;
-  purpose: "read" | "send" | "compose";
 }
 
 export interface GmailSyncQueueResponse {
@@ -710,37 +708,13 @@ function parseLiveReceiptDetailResponse(
 async function parseNativeConnectStartResponse(
   response: Response,
 ): Promise<GmailNativeConnectStartResponse> {
-  const payload: unknown = await response.json();
-  if (
-    !isRecord(payload) ||
-    typeof payload.configured !== "boolean" ||
-    typeof payload.server_client_id !== "string" ||
-    payload.server_client_id.trim().length === 0 ||
-    (payload.purpose !== "read" && payload.purpose !== "send")
-  ) {
-    throw new Error("Mail OAuth start returned an invalid response.");
-  }
-  return payload as unknown as GmailNativeConnectStartResponse;
+  return parseGmailNativeConnectStartPayload(await response.json());
 }
 
 async function parseConnectStartResponse(
   response: Response,
 ): Promise<GmailConnectStartResponse> {
-  const payload: unknown = await response.json();
-  if (
-    !isRecord(payload) ||
-    typeof payload.configured !== "boolean" ||
-    typeof payload.authorize_url !== "string" ||
-    payload.authorize_url.trim().length === 0 ||
-    typeof payload.state !== "string" ||
-    payload.state.trim().length === 0 ||
-    typeof payload.redirect_uri !== "string" ||
-    typeof payload.expires_at !== "string" ||
-    payload.expires_at.trim().length === 0
-  ) {
-    throw new Error("Mail OAuth start returned an invalid response.");
-  }
-  return payload as unknown as GmailConnectStartResponse;
+  return parseGmailConnectStartPayload(await response.json());
 }
 
 async function parseConnectionStatus(
@@ -799,6 +773,12 @@ export class GmailReceiptsService {
     /** Bypass the short-TTL cache when the caller needs guaranteed-fresh data. */
     force?: boolean;
   }): Promise<GmailConnectionStatus> {
+    if (await ownerContentIsPrivate()) {
+      const value = await privateGoogleStatus('gmail');
+      const manage = value.capabilities.manage;
+      const connected = value.status === 'connected' && value.capabilities.read;
+      return { configured: true, connected, status: connected ? 'connected' : 'disconnected', connection_state: value.status === 'needs_reauth' || value.status === 'connected' && !connected ? 'needs_reauth' : connected ? 'connected' : 'not_connected', needs_reauth: value.status === 'needs_reauth' || value.status === 'connected' && !connected, scope_csv: '', compose_permission_granted: manage, modify_permission_granted: manage, send_permission_granted: manage, last_sync_status: 'idle', auto_sync_enabled: false, revoked: false, receipt_sync_available: false, receipt_storage_message: 'Receipt sync is not available for your private agent yet.' };
+    }
     const cache = CacheService.getInstance();
     const cacheKey = gmailStatusCacheKey(params.userId);
     const cacheGeneration = gmailStatusCacheGenerations.get(cacheKey) || 0;
@@ -837,6 +817,7 @@ export class GmailReceiptsService {
     includeGrantedScopes: boolean;
     purpose?: "read" | "send" | "compose" | "modify";
   }): Promise<GmailConnectStartResponse> {
+    await requireSharedGoogleExchange();
     trackGmailEventForOwner(params.userId, "gmail_connect_started", {
       action: params.includeGrantedScopes ? "incremental" : "full",
       result: "success",
@@ -886,6 +867,7 @@ export class GmailReceiptsService {
     userId: string;
     purpose?: "read" | "send" | "compose";
   }): Promise<GmailNativeConnectStartResponse> {
+    await requireSharedGoogleExchange();
     trackGmailEventForOwner(params.userId, "gmail_connect_started", {
       action: params.purpose === "send" ? "incremental" : "full",
       result: "success",
@@ -928,6 +910,7 @@ export class GmailReceiptsService {
     serverAuthCode: string;
     purpose?: "read" | "send";
   }): Promise<GmailConnectionStatus> {
+    await requireSharedGoogleExchange();
     try {
       const response = await ApiService.apiFetch(
         GMAIL_RECEIPTS_API_TEMPLATES.connectNativeComplete,
@@ -995,6 +978,7 @@ export class GmailReceiptsService {
     code: string;
     state: string;
   }, options: { recordTelemetry?: boolean } = {}): Promise<GmailConnectionStatus> {
+    await requireSharedGoogleExchange();
     const recordTelemetry = options.recordTelemetry !== false;
     try {
       const response = await ApiService.apiFetch(
@@ -1042,6 +1026,10 @@ export class GmailReceiptsService {
     idToken: string;
     userId: string;
   }): Promise<GmailConnectionStatus> {
+    if (await ownerContentIsPrivate()) {
+      await disconnectPrivateGoogle('gmail');
+      return this.getStatus({ ...params, force: true });
+    }
     const response = await ApiService.apiFetch(
       GMAIL_RECEIPTS_API_TEMPLATES.disconnect,
       {
@@ -1084,6 +1072,9 @@ export class GmailReceiptsService {
     idToken: string;
     userId: string;
   }): Promise<GmailConnectionStatus> {
+    if (await ownerContentIsPrivate()) {
+      return this.getStatus({ ...params, force: true });
+    }
     const response = await ApiService.apiFetch(
       GMAIL_RECEIPTS_API_TEMPLATES.reconcile,
       {
@@ -1118,6 +1109,7 @@ export class GmailReceiptsService {
     idToken: string;
     userId: string;
   }): Promise<GmailSyncQueueResponse> {
+    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Mail receipt sync');
     trackEvent("gmail_sync_requested", {
       action: "manual",
       result: "success",
@@ -1158,6 +1150,7 @@ export class GmailReceiptsService {
     userId: string;
     runId: string;
   }): Promise<{ run: GmailSyncRun }> {
+    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Mail receipt sync');
     const query = new URLSearchParams({ user_id: params.userId }).toString();
     const response = await ApiService.apiFetch(
       `${buildGmailSyncRunPath(params.runId)}?${query}`,
@@ -1282,6 +1275,7 @@ export class GmailReceiptsService {
     page?: number;
     perPage?: number;
   }): Promise<ReceiptListResponse> {
+    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Mail receipt sync');
     const query = new URLSearchParams({
       page: String(params.page ?? 1),
       per_page: String(params.perPage ?? 25),
@@ -1315,6 +1309,7 @@ export class GmailReceiptsService {
     userId: string;
     limit?: number;
   }): Promise<GmailNudgesResponse> {
+    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Mail receipt sync');
     const query = new URLSearchParams({
       limit: String(params.limit ?? 10),
     }).toString();

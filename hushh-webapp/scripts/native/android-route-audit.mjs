@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import { createAndroidCredentialRunId, deliverAndroidAuditCredentials } from "./android-audit-credentials.mjs";
+import { applyNativeAuditBuildEnvironment } from "./native-build-environment.mjs";
 import path from "node:path";
 import { execFileSync, execSync, spawn } from "node:child_process";
 import {
   defaultReviewerIdentityEnvFiles,
-  parseEnvFile,
   resolveReviewerTestIdentity,
 } from "../testing/reviewer-test-identity.mjs";
 import { syncNativeFirebaseConfigs } from "./sync-native-firebase-configs.mjs";
@@ -292,51 +293,8 @@ function resolveAdbDevice() {
   return devices[0];
 }
 
-function applyEnvValues(values = {}) {
-  for (const [key, value] of Object.entries(values)) {
-    if (value !== undefined && value !== "") {
-      process.env[key] = value;
-    }
-  }
-}
-
 function ensureNativeTestBuildEnv() {
-  const uatEnvPath = path.join(repoRoot, ".env.uat.local");
-  const uatValues = parseEnvFile(uatEnvPath);
-  const configured = String(process.env.NEXT_PUBLIC_BACKEND_URL || "").trim();
-  const backendUrl =
-    configured && !/^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(configured)
-      ? configured
-      : String(uatValues.NEXT_PUBLIC_BACKEND_URL || "").trim();
-
-  if (!backendUrl || /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(backendUrl)) {
-    throw new Error(
-      "native Android route audit requires a reviewer-capable UAT backend. Set NEXT_PUBLIC_BACKEND_URL in the shell or hushh-webapp/.env.uat.local."
-    );
-  }
-
-  applyEnvValues({
-    APP_RUNTIME_PROFILE: uatValues.APP_RUNTIME_PROFILE || "uat",
-    NEXT_PUBLIC_APP_ENV: uatValues.NEXT_PUBLIC_APP_ENV || "uat",
-    NEXT_PUBLIC_BACKEND_URL: backendUrl,
-    NEXT_PUBLIC_APP_URL: uatValues.NEXT_PUBLIC_APP_URL,
-    NEXT_PUBLIC_PASSKEY_RP_ID: uatValues.NEXT_PUBLIC_PASSKEY_RP_ID,
-    NEXT_PUBLIC_FIREBASE_API_KEY: uatValues.NEXT_PUBLIC_FIREBASE_API_KEY,
-    NEXT_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY: uatValues.NEXT_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY,
-    NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: uatValues.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-    NEXT_PUBLIC_FIREBASE_PROJECT_ID: uatValues.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-    NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: uatValues.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-    NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID:
-      uatValues.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-    NEXT_PUBLIC_FIREBASE_APP_ID: uatValues.NEXT_PUBLIC_FIREBASE_APP_ID,
-    NEXT_PUBLIC_FIREBASE_VAPID_KEY: uatValues.NEXT_PUBLIC_FIREBASE_VAPID_KEY,
-    NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: uatValues.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
-    NEXT_PUBLIC_OBSERVABILITY_ENABLED: uatValues.NEXT_PUBLIC_OBSERVABILITY_ENABLED,
-    NEXT_PUBLIC_OBSERVABILITY_DEBUG: uatValues.NEXT_PUBLIC_OBSERVABILITY_DEBUG,
-    NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE: uatValues.NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE,
-  });
-
-  console.log(`==> native test backend: ${backendUrl}`);
+  applyNativeAuditBuildEnvironment(repoRoot);
 }
 
 function buildApp() {
@@ -388,6 +346,7 @@ function reinstallApp(serial) {
 }
 
 function launchRoute(serial, route) {
+  const credentialRunId = createAndroidCredentialRunId();
   const shouldReinstallForRoute =
     reinstallBetweenRoutes || reinstallRouteSet.has(route.route);
   clearStatus(serial, {
@@ -416,11 +375,8 @@ function launchRoute(serial, route) {
     "HUSHH_NATIVE_TEST_AUTO_REVIEWER_LOGIN",
     route.autoReviewerLogin ? "true" : "false",
     "--es",
-    "HUSHH_NATIVE_TEST_VAULT_PASSPHRASE",
-    reviewerVaultPassphrase,
-    "--es",
-    "HUSHH_NATIVE_TEST_EXPECTED_USER_ID",
-    reviewerUid,
+    "HUSHH_NATIVE_TEST_CREDENTIAL_RUN_ID",
+    credentialRunId,
   ];
 
   if (route.expectedRoute) {
@@ -428,6 +384,7 @@ function launchRoute(serial, route) {
   }
 
   runAdb(serial, args);
+  deliverAndroidAuditCredentials({ adb, serial, runId: credentialRunId, reviewerUid, reviewerVaultPassphrase });
 }
 
 function readStatus(serial) {

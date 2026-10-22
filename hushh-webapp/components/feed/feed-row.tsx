@@ -9,6 +9,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { toast } from "sonner";
+import { PeoplePairIcon } from "@/components/icons";
 
 import {
   AlertDialog,
@@ -56,6 +57,7 @@ function FeedGlyph({ eventType }: { eventType: string }) {
               ? "card"
               : null;
   if (!icon) return null;
+  if (icon === "people") return <PeoplePairIcon size={22} />;
 
   const accent = "var(--app-accent)";
   return (
@@ -87,15 +89,6 @@ function FeedGlyph({ eventType }: { eventType: string }) {
         <>
           <path d="M7 3h7l5 5v12H7zM14 3v5h5" />
           <path stroke={accent} d="M9.5 13h5M9.5 16.5h3.5" />
-        </>
-      ) : icon === "people" ? (
-        <>
-          {/* Two people side by side, each with both shoulders: the earlier
-              drawing gave each a half body that ended mid-way. */}
-          <circle cx="6.6" cy="8.2" r="2.7" />
-          <path d="M2.4 19.4c.3-3.5 1.9-5.6 4.2-5.6s3.9 2.1 4.2 5.6" />
-          <circle cx="17.4" cy="8.2" r="2.7" stroke={accent} />
-          <path stroke={accent} d="M13.2 19.4c.3-3.5 1.9-5.6 4.2-5.6s3.9 2.1 4.2 5.6" />
         </>
       ) : icon === "pin" ? (
         <>

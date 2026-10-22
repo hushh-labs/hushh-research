@@ -36,6 +36,7 @@ from hushh_mcp.services.chat_key import get_chat_key_provider, retain_request_ch
 from hushh_mcp.services.magic_intelligence_admission import magic_intelligence_owner_admitted
 from hushh_mcp.services.magic_intelligence_completion import magic_intelligence_saved
 from hushh_mcp.services.one_owner_admission import lookup_fresh_owner_identity, owner_setup_resolved
+from hushh_mcp.services.owner_placement_guard import admit_hub_content
 from hushh_mcp.services.profile_research_service import (
     offer_profile_research,
     resolve_profile_research_identity,
@@ -134,6 +135,7 @@ provider_breaker = ProviderBreaker()
 
 async def admission(user_id: str, consent_token: str) -> tuple[dict[str, Any] | None, str]:
     """Fresh, fail-closed authority for both dispatch and cached draft release."""
+    await admit_hub_content(user_id, "profile_research")
     if await validate_first_party_owner_token(user_id, consent_token) is None:
         raise PermissionError("Owner session ended")
     if not one_profile_research_enabled():
@@ -161,6 +163,7 @@ async def admission(user_id: str, consent_token: str) -> tuple[dict[str, Any] | 
         raise PermissionError("Owner session ended")
     if not one_profile_research_enabled():
         return {"status": "disabled", "pkm_written": False}, ""
+    await admit_hub_content(user_id, "profile_research")
     return None, binding
 
 

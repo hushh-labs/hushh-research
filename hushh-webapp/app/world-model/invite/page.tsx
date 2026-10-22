@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
@@ -9,6 +9,10 @@ import { HelperText } from "@/components/app-ui/typography";
 import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
+import {
+  isValidatedAuthSessionOwnerCurrent,
+  snapshotValidatedAuthSessionOwner,
+} from "@/lib/auth/session-owner";
 import { ROUTES, buildProfileVaultRoute } from "@/lib/navigation/routes";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
 import { WorldModelInvitationsService } from "@/lib/services/world-model-invitations-service";
@@ -27,11 +31,17 @@ export default function WorldModelInvitePage() {
   const router = useRouter();
   const { user, loading, sessionVerificationRequired } = useAuth();
   const { isVaultUnlocked } = useVault();
+  const continuation = useRef(0);
   const [token, setToken] = useState<string | null>(null);
   const [accountSwitchHandoff, setAccountSwitchHandoff] = useState<string | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [message, setMessage] = useState("Checking your invitation…");
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    continuation.current += 1;
+    setBusy(false);
+    return () => { continuation.current += 1; };
+  }, [user?.uid, loading, sessionVerificationRequired, isVaultUnlocked, token]);
   useEffect(() => {
     const read = () => {
       const fromFragment = new URLSearchParams(window.location.hash.slice(1)).get("claim");
@@ -124,12 +134,18 @@ export default function WorldModelInvitePage() {
       );
       return;
     }
+    const owner = snapshotValidatedAuthSessionOwner();
+    if (!owner || owner.userId !== user.uid) return;
+    const request = ++continuation.current;
+    const stillCurrent = () => continuation.current === request
+      && isValidatedAuthSessionOwnerCurrent(owner);
     setBusy(true);
     try {
       const next = await PostAuthRouteService.resolveAfterLogin({
         userId: user.uid,
         redirectPath: destination,
       });
+      if (!stillCurrent()) return;
       router.push(
         next !== destination
           ? next
@@ -138,9 +154,9 @@ export default function WorldModelInvitePage() {
             : buildProfileVaultRoute(destination),
       );
     } catch {
-      setMessage("Couldn’t continue. Please try again.");
+      if (stillCurrent()) setMessage("Couldn’t continue. Please try again.");
     } finally {
-      setBusy(false);
+      if (continuation.current === request) setBusy(false);
     }
   }
   const hasPreparedPreview = preview !== null && "report" in preview;

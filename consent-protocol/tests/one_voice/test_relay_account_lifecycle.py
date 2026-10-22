@@ -120,11 +120,12 @@ async def _card(transport, fake, pending):
         await asyncio.gather(task, return_exceptions=True)
         raise
     transport.push({"type": "pending_action.shown", "pending_action_id": card["pending_action_id"]})
-    await asyncio.sleep(0.05)
     return session, task, card
 
 
 async def _tap(transport, card, *, proof: str | None = FRESH_PROOF):
+    expected = "pending_action.resolved" if proof == FRESH_PROOF else "error"
+    next_count = len(transport.frames(expected)) + 1
     frame = {
         "type": "confirm_action",
         "pending_action_id": card["pending_action_id"],
@@ -133,7 +134,7 @@ async def _tap(transport, card, *, proof: str | None = FRESH_PROOF):
     if proof is not None:
         frame["firebase_id_token"] = proof
     transport.push(frame)
-    await asyncio.sleep(0.2)
+    await transport.wait_for_frame(expected, count=next_count)
 
 
 @pytest.mark.parametrize("auth_delay", [0, 0.5], ids=["immediate-auth", "delayed-auth"])
@@ -183,7 +184,8 @@ async def test_reset_tap_issues_a_device_step_and_the_server_stamp_settles_it(
             "payload": {"outcome": "reset", "token_seen": "HCT:should-never-reach-model"},
         }
     )
-    await asyncio.sleep(0.2)
+    await transport.wait_for_frame("pending_action.resolved", count=2)
+    await transport.wait_for_frame("tool.result", count=3)
 
     settled = transport.frames("pending_action.resolved")[-1]
     assert settled["pending_action_id"] == card["pending_action_id"]
@@ -229,7 +231,7 @@ async def test_delete_device_reports_deleted_but_no_tombstone_is_not_narrated_as
             "payload": {"outcome": "deleted"},
         }
     )
-    await asyncio.sleep(0.2)
+    await transport.wait_for_frame("pending_action.resolved", count=2)
 
     settled = transport.frames("pending_action.resolved")[-1]["result_public"]
     assert settled["status"] == "not_changed"
@@ -260,7 +262,7 @@ async def test_delete_tombstone_settles_deleted_even_when_the_device_reply_is_lo
             "payload": {},
         }
     )
-    await asyncio.sleep(0.2)
+    await transport.wait_for_frame("pending_action.resolved", count=2)
 
     settled = transport.frames("pending_action.resolved")[-1]["result_public"]
     assert settled["status"] == "account_deleted"
@@ -287,7 +289,7 @@ async def test_needs_unlock_from_the_device_is_an_honest_handoff_not_a_change(do
             "payload": {"outcome": "needs_unlock"},
         }
     )
-    await asyncio.sleep(0.2)
+    await transport.wait_for_frame("pending_action.resolved", count=2)
 
     settled = transport.frames("pending_action.resolved")[-1]["result_public"]
     assert settled["status"] == "needs_unlock"

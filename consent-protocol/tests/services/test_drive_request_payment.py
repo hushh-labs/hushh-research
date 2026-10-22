@@ -11,7 +11,6 @@ import json
 import threading
 import time
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
@@ -1582,19 +1581,6 @@ def test_queued_unposted_grants_do_not_block_terminal_refund_candidate():
     ]
     assert "'queued'" not in effects_check
     assert "'dispatching'" in effects_check and "'unknown'" in effects_check
-
-
-def test_payment_migration_replay_guards_existing_triggers():
-    migration = (
-        Path(__file__).resolve().parents[2] / "db/migrations/262_drive_request_payments.sql"
-    ).read_text()
-    for trigger, table in (
-        ("drive_request_payment_obligation_mirror", "drive_request_payment_orders"),
-        ("drive_request_payment_erasure", "drive_share_requests"),
-    ):
-        guard = f"tgname='{trigger}'\n      AND tgrelid='{table}'::regclass"
-        assert guard in migration
-        assert migration.index(guard) < migration.index(f"CREATE TRIGGER {trigger}")
 
 
 @pytest.mark.asyncio

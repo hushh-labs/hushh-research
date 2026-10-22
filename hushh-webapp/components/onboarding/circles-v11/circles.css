@@ -3,7 +3,7 @@
 .oc-root {
   --oc-bg:#ffffff; --oc-ink:#1D1D1F; --oc-muted:#71717A; --oc-muted2:#85858E;
   --oc-stroke:#E7E7EB; --oc-surface:#FFFFFF; --oc-surface-secondary:#F7F7FA;
-  --oc-row-hover:#F8F9FC; --oc-blue:#0071E3; --oc-blue-soft:#E8F1FF;
+  --oc-row-hover:#F8F9FC; --oc-blue:var(--app-accent); --oc-blue-soft:#E8F1FF;
   --oc-pink-soft:#FCE7F1; --oc-orange-soft:#FFF1CE; --oc-success:#218568;
   --oc-control-stroke:#DCDDE5;--oc-scrim:rgba(16,19,30,.35);
   font-family:var(--font-app-body,"Plus Jakarta Sans",system-ui,sans-serif);
@@ -20,7 +20,7 @@
   --oc-blue:var(--app-accent);--oc-blue-soft:#152E50;--oc-pink-soft:#3A2736;--oc-orange-soft:#393124;
   --oc-success:#62C99D;--oc-control-stroke:#4A4F5C;--oc-scrim:rgba(0,0,0,.68)}
 .oc-root *, .oc-root *::before, .oc-root *::after {box-sizing:border-box}
-.oc-root button{font:inherit;-webkit-tap-highlight-color:transparent;cursor:pointer}
+.oc-root button:not([data-slot="add-people-action"]){font:inherit;-webkit-tap-highlight-color:transparent;cursor:pointer}
 .oc-root button:disabled{cursor:not-allowed;opacity:.55}
 .oc-root button:focus-visible{outline:3px solid var(--oc-blue);outline-offset:3px}
 .oc-root h1,.oc-root h2,.oc-root p{margin:0}
@@ -73,7 +73,7 @@
   padding:12px 25px;border-radius:999px;font-size:15px;font-weight:600;letter-spacing:-.018em;
   transition:background-color .16s,opacity .16s;text-align:center;line-height:1.35}
 .oc-button:not(:disabled):active{opacity:.88}
-.oc-button--primary{color:white;background:var(--oc-blue);min-width:215px;white-space:normal;font-weight:650}
+.oc-button--primary{color:var(--app-accent-fg);background:var(--oc-blue);min-width:215px;white-space:normal;font-weight:650}
 .oc-button--primary:hover:not(:disabled){filter:brightness(1.06)}
 .oc-button--outline{background:var(--oc-surface);color:var(--oc-blue);border:1px solid var(--oc-blue-soft)}
 .oc-button--quiet{background:transparent;color:var(--oc-blue)}

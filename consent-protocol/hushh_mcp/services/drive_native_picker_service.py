@@ -20,6 +20,12 @@ from urllib.parse import urlencode, urlsplit
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_document_store import PROCESSING_DISCLOSURE_VERSION
+from hushh_mcp.services.drive_native_picker_state import (
+    _PICKER_RESULT_VERSION,
+    _decode_candidates,
+    open_proof,
+    same_attempt,
+)
 from hushh_mcp.services.drive_native_picker_store import DriveNativePickerStore
 from hushh_mcp.services.drive_selection_service import DriveSelectionService
 from hushh_mcp.services.external_connector_credentials_service import (
@@ -42,10 +48,10 @@ from hushh_mcp.services.google_drive_adapter import (
     GoogleDriveAdapter,
     selected_file_ids,
 )
+from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
 NATIVE_PICKER_CALLBACK_PATH = "/api/connectors/google_drive/picker/native/callback"
 NATIVE_PICKER_SCOPES = (DRIVE_FILE_SCOPE,)
-_PICKER_RESULT_VERSION = 1
 
 
 def _attempt_aad(row: dict[str, Any], purpose: str) -> str:
@@ -142,64 +148,6 @@ def _candidate_payload(files: list[DriveMetadata]) -> list[dict[str, Any]]:
     ]
 
 
-def _decode_candidates(value: str) -> tuple[str, list[dict[str, Any]]]:
-    try:
-        decoded = json.loads(value)
-        if (
-            not isinstance(decoded, dict)
-            or decoded.get("version") != _PICKER_RESULT_VERSION
-            or set(decoded) != {"version", "subject", "files"}
-            or not isinstance(decoded.get("subject"), str)
-            or not 1 <= len(decoded["subject"]) <= 255
-            or not isinstance(decoded.get("files"), list)
-            or not 1 <= len(decoded["files"]) <= MAX_SELECTION
-        ):
-            raise ValueError("invalid candidate envelope")
-        result: list[dict[str, Any]] = []
-        ids: set[str] = set()
-        handles: set[str] = set()
-        for candidate in decoded["files"]:
-            if not isinstance(candidate, dict):
-                raise ValueError("invalid candidate")
-            handle, source = candidate.get("documentId"), candidate.get("file")
-            if (
-                not isinstance(handle, str)
-                or str(uuid.UUID(handle)) != handle
-                or not isinstance(source, dict)
-            ):
-                raise ValueError("invalid candidate")
-            file_id = source.get("file_id")
-            if not isinstance(file_id, str) or file_id in ids or handle in handles:
-                raise ValueError("invalid candidate")
-            metadata = DriveMetadata(
-                file_id=file_id,
-                name=source["name"],
-                mime_type=source["mime_type"],
-                version=source["version"],
-                modified_time=source["modified_time"],
-                size=source.get("size"),
-                checksum=source.get("checksum"),
-            )
-            # Reuse the canonical strict identifier parser.  The other fields
-            # are display-only until the exact same source is re-read at
-            # confirmation.
-            selected_file_ids([metadata.file_id])
-            if (
-                not isinstance(metadata.name, str)
-                or not 1 <= len(metadata.name) <= 1024
-                or not isinstance(metadata.mime_type, str)
-                or not isinstance(metadata.version, str)
-                or not isinstance(metadata.modified_time, str)
-            ):
-                raise ValueError("invalid candidate")
-            ids.add(metadata.file_id)
-            handles.add(handle)
-            result.append({"documentId": handle, "metadata": metadata})
-        return decoded["subject"], result
-    except (KeyError, TypeError, ValueError):
-        raise DriveReadError("selection_expired") from None
-
-
 class DriveNativePickerService:
     def __init__(self, *, oauth=None, store=None, adapter=None, selection=None):
         self.oauth = oauth or get_external_connector_oauth_service().drive()
@@ -219,19 +167,10 @@ class DriveNativePickerService:
             or not 1 <= len(subject) <= 255
         ):
             raise DriveReadError("reconnect_required")
+        await admit_hub_content(user_id, "drive_picker_current")
         return connector, row, credential
 
-    @staticmethod
-    def _same_attempt(
-        attempt: dict[str, Any], row: dict[str, Any], credential: dict[str, Any], *, client_id: str
-    ) -> None:
-        if (
-            int(attempt["connection_generation"]) != int(row["connection_generation"])
-            or int(attempt["credential_version"]) != int(row["credential_version"])
-            or credential.get("oauthClientId") != client_id
-            or not isinstance(credential.get("subject"), str)
-        ):
-            raise DriveReadError("connection_changed")
+    _same_attempt = staticmethod(same_attempt)
 
     async def start(self, *, user_id: str, redirect_uri: str) -> dict[str, str]:
         connector, row, credential = await self._current(user_id)
@@ -286,24 +225,8 @@ class DriveNativePickerService:
             "expiresAt": attempt["expires_at"].isoformat(),
         }
 
-    def _open_proof(self, attempt: dict[str, Any]) -> dict[str, str]:
-        try:
-            result = json.loads(
-                self.oauth.credentials.decrypt_secret(
-                    ciphertext=attempt["proof_ciphertext"],
-                    iv=attempt["proof_iv"],
-                    aad=_attempt_aad(attempt, "proof"),
-                )
-            )
-            if (
-                not isinstance(result, dict)
-                or not all(isinstance(result.get(key), str) and result[key] for key in result)
-                or set(result) != {"verifier", "subject", "clientId", "redirectUri"}
-            ):
-                raise ValueError("invalid proof")
-            return result
-        except (ValueError, TypeError, ExternalConnectorCredentialError):
-            raise DriveReadError("selection_expired") from None
+    def _open_proof(self, attempt):
+        return open_proof(self, attempt)
 
     async def callback(
         self,
@@ -338,6 +261,23 @@ class DriveNativePickerService:
             return attempt_id, "failed"
         return attempt_id, "ready" if staged else "failed"
 
+    async def _callback_files(self, ids, callback_token, owner_token):
+        try:
+            async with asyncio.timeout(20):
+                callback_files = [
+                    await self.adapter.get_metadata(file_id=file_id, access_token=callback_token)
+                    for file_id in ids
+                ]
+                files = [
+                    await self.adapter.get_metadata(file_id=file_id, access_token=owner_token)
+                    for file_id in ids
+                ]
+        except TimeoutError:
+            raise DriveReadError("provider_unavailable", retryable=True) from None
+        if callback_files != files:
+            raise DriveReadError("source_changed", retryable=True)
+        return files
+
     async def _stage_callback(
         self,
         *,
@@ -350,8 +290,10 @@ class DriveNativePickerService:
         if attempt is None:
             return False
         try:
-            proof = self._open_proof(attempt)
+            await admit_hub_content(attempt["user_id"], "drive_picker_callback")
             connector, client_id, client_secret = await self.oauth._configuration()
+            await admit_hub_content(attempt["user_id"], "drive_picker_dispatch")
+            proof = self._open_proof(attempt)
             if proof["clientId"] != client_id or proof["redirectUri"] != _redirect_uri(
                 proof["redirectUri"], connector
             ):
@@ -374,24 +316,9 @@ class DriveNativePickerService:
             self._same_attempt(attempt, row, credential, client_id=client_id)
             if not hmac.compare_digest(str(credential["subject"]), proof["subject"]):
                 raise DriveOAuthError("identity_not_verified", status_code=401)
-            try:
-                async with asyncio.timeout(20):
-                    callback_files = [
-                        await self.adapter.get_metadata(
-                            file_id=file_id, access_token=callback_access_token
-                        )
-                        for file_id in ids
-                    ]
-                    files = [
-                        await self.adapter.get_metadata(
-                            file_id=file_id, access_token=credential["accessToken"]
-                        )
-                        for file_id in ids
-                    ]
-            except TimeoutError:
-                raise DriveReadError("provider_unavailable", retryable=True) from None
-            if callback_files != files:
-                raise DriveReadError("source_changed", retryable=True)
+            files = await self._callback_files(
+                ids, callback_access_token, credential["accessToken"]
+            )
             # A disconnect, credential refresh, registry policy change or account
             # switch during provider I/O must suppress staging.
             _, row, credential = await self._current(str(attempt["user_id"]))
@@ -443,6 +370,7 @@ class DriveNativePickerService:
         if attempt is None:
             return None
         try:
+            await admit_hub_content(user_id, "drive_picker_pending")
             _, candidates = self._open_candidates(attempt)
         except DriveReadError:
             await self.store.discard_callback(
@@ -480,6 +408,7 @@ class DriveNativePickerService:
         if attempt is None:
             raise DriveReadError("selection_expired")
         try:
+            await admit_hub_content(user_id, "drive_picker_confirm")
             staged_subject, candidates = self._open_candidates(attempt)
             _, row, credential = await self._current(user_id)
             _, client_id, _ = await self.oauth._configuration()

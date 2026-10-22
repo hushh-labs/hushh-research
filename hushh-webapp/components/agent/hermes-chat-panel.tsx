@@ -7,20 +7,18 @@ import {
   useRef,
   useState,
   type MouseEvent,
+  type ReactNode,
 } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { HttpAgent } from "@ag-ui/client";
 import { containsSecretSpan } from "@/lib/pkm/secret-patterns";
-import { Check, Copy, Laptop, Loader2, Send } from "@/components/icons";
+import { Check, Copy, Loader2, Send, StopSquare } from "@/components/icons";
 
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
 import { CHAT_WELCOME_COPY_CLASSNAME, OneChatBubble } from "@/components/agent/chat-message-styles";
 import { copyTextToClipboard } from "@/components/agent/chat-markdown-link";
-import {
-  PuppyModelPicker,
-  type ModelSelection,
-} from "@/components/agent/puppy-model-picker";
+import type { ModelSelection } from "@/components/agent/puppy-model-picker";
 import { formatRelativeTime } from "@/lib/format/relative-time";
 import { isLocalHost } from "@/lib/hermes/local-host";
 import { usePuppyLink } from "@/lib/hermes/use-puppy-link";
@@ -36,6 +34,7 @@ import {
   type PuppyStatus,
 } from "@/lib/services/puppy-one-service";
 import { cn } from "@/lib/utils";
+import { PuppyLocalControls } from "@/components/agent/puppy-local-controls";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
@@ -82,6 +81,7 @@ export function HermesChatPanel({
   active = true,
   sharedDock = false,
   composerDisabled = false,
+  accessory,
 }: {
   className?: string;
   /**
@@ -98,6 +98,7 @@ export function HermesChatPanel({
   /** Presentation only: Puppy retains its own draft and guarded send owner. */
   sharedDock?: boolean;
   composerDisabled?: boolean;
+  accessory?: ReactNode;
 }) {
   const [status, setStatus] = useState<PuppyStatus | null>(null);
   const [turns, setTurns] = useState<PuppyTurn[]>([]);
@@ -145,6 +146,14 @@ export function HermesChatPanel({
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const mountedRef = useRef(true);
   const agentRef = useRef<HttpAgent | null>(null);
+  const cancelledRef = useRef(false);
+  const [stopping, setStopping] = useState(false);
+  const stop = () => {
+    if (!agentRef.current || cancelledRef.current) return;
+    cancelledRef.current = true;
+    setStopping(true);
+    agentRef.current.abortRun();
+  };
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -281,6 +290,8 @@ export function HermesChatPanel({
     }
     setDraft("");
     setError("");
+    cancelledRef.current = false;
+    setStopping(false);
     setSending(true);
 
     const assistantId = `a-${Date.now()}`;
@@ -324,6 +335,7 @@ export function HermesChatPanel({
             if (runId) sessionRef.current = runId;
           },
           onRunErrorEvent: ({ event }) => {
+            if (cancelledRef.current) return;
             setError(
               String(event.message ?? "") || "Puppy One could not answer.",
             );
@@ -334,12 +346,13 @@ export function HermesChatPanel({
       // A real unmount (route change, workspace close) fails quietly rather
       // than writing into a dead tree. Being HIDDEN is not an unmount, so a
       // turn started before a toggle to One still lands and waits.
-      if (mountedRef.current) {
+      if (mountedRef.current && !cancelledRef.current) {
         setError("Puppy One is not answering on this machine.");
       }
     } finally {
       agentRef.current = null;
       if (mountedRef.current) {
+        setStopping(false);
         setSending(false);
         setStreamingId(null);
       }
@@ -367,10 +380,10 @@ export function HermesChatPanel({
       editorLabel: "Message Puppy",
       expanded: false, editable: !composerDisabled && connected && !sending,
       sendEnabled: !composerDisabled && connected && !sending && !!draft.trim(),
-      micEnabled: false, cancelEnabled: false, recording: false, recordingReady: false,
+      micEnabled: false, cancelEnabled: sending && !stopping, recording: false, recordingReady: false,
       supportsHold: false, muted: false, attachmentRevision: 0, editorRevision: nativeEditor.current.revision, attachments: [] },
     onEdit: text => { nativeEditor.current.echo = text; setDraft(text); },
-    onAction: event => event.action === "send" ? send(event.text) : undefined,
+    onAction: event => event.action === "cancel" ? stop() : event.action === "send" ? send(event.text) : undefined,
   } : null);
   // The bridge, when it is connected, is the stronger claim and keeps the
   // pill. Then the pre-answer form. Only then does One's record speak.
@@ -382,61 +395,8 @@ export function HermesChatPanel({
 
   return (
     <div data-one-chat-surface className={cn("flex min-h-0 flex-1 flex-col", className)}>
-      <div className="flex items-center gap-2 border-b border-border/60 px-1 py-2.5 text-xs">
-        <Laptop className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-        <span
-          className={cn(
-            "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5",
-            // The success role tokens, not a flat #34C759: the raw hex measured
-            // 2.01:1 on white and had no dark form, so the one label that says
-            // the owner's machine is alive was the least legible text on the
-            // surface. `-deep` is the LIGHT-surface tone and is inherited
-            // unchanged in dark, which is why the `dark:` half selecting
-            // `-bright` is load-bearing and not decoration.
-            pill.live
-              ? "bg-[color:var(--app-success-tint)] text-[color:var(--app-success-deep)] dark:text-[color:var(--app-success-bright)]"
-              : "bg-muted text-muted-foreground",
-          )}
-        >
-          {pill.pending ? (
-            // A spinner, not the grey dot: that dot already means "there is no
-            // machine", and "we have not asked yet" must not look like it.
-            <Loader2 className="size-2.5 animate-spin" aria-hidden />
-          ) : (
-            <span
-              className={cn(
-                "size-1.5 rounded-full",
-                pill.live ? "bg-current" : "bg-muted-foreground/60",
-              )}
-            />
-          )}
-          {pill.label}
-        </span>
-        {connected ? (
-          <PuppyModelPicker onApplied={applyModel} className="ml-auto" />
-        ) : null}
-        {connected ? (
-          <button
-            type="button"
-            onClick={togglePin}
-            aria-pressed={onDevice}
-            className={cn(
-              "relative rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors",
-              onDevice
-                ? "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)]"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-            title={
-              onDevice
-                ? "Answers are generated on this machine."
-                : "Answers may use a cloud model."
-            }
-          >
-            {onDevice ? "on-device" : "any model"}
-            <MaterialRipple variant="none" effect="glass" />
-          </button>
-        ) : null}
-      </div>
+      <PuppyLocalControls active={active && !composerDisabled} currentModel={status?.model ?? undefined} connected={connected} pill={pill} onDevice={onDevice}
+        onTogglePin={togglePin} onApplied={applyModel} accessory={accessory} />
 
       {/* No inner gutter of its own: the column around the panel already
           carries One's gutters and reading measure, so a second px-4 here left
@@ -497,9 +457,9 @@ export function HermesChatPanel({
       {/* The composer is One's compact pill (surface, height, radius, type
           size), not a bordered box on a divider: the small 40px field under a
           rule was the clearest sign this surface was a different, lesser app.
-          The shared field keeps One’s 16px text and 24px line box. */}
+          16px text and a 24px line box, matching One on phones and desktop. */}
       <AgentDockPortal enabled={sharedDock} active={active} visible>
-      <AgentBarSurface embedded={sharedDock} inert={composerDisabled} className={cn("agent-chat-composer-surface agent-chat-composer-compact min-w-0 shrink-0 items-end gap-2", !sharedDock && "mt-3")}>
+      <AgentBarSurface embedded={sharedDock} inert={composerDisabled && !sending} className={cn("agent-chat-composer-surface agent-chat-composer-compact mx-auto min-w-0 shrink-0 items-end gap-2", !sharedDock && "mt-3")}>
         <textarea
           ref={editorRef}
           value={draft}
@@ -525,7 +485,11 @@ export function HermesChatPanel({
           className="agent-chat-composer-field h-auto min-w-0 flex-1 resize-none overflow-y-auto border-0 bg-transparent text-[16px] text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-60 break-words [overflow-wrap:anywhere] [word-break:break-word]"
         />
         <div className="agent-chat-composer-actions flex shrink-0 items-center">
-        <ShellActionSurface
+        {sending ? <ShellActionSurface type="button" data-agent-composer-action="stop"
+          onClick={stop} disabled={stopping} aria-label="Stop" title="Stop"
+          className="text-[color:var(--app-accent-fg)]">
+          <StopSquare className="size-3.5" aria-hidden />
+        </ShellActionSurface> : <ShellActionSurface
           type="button"
           data-agent-composer-action="send"
           className="text-[color:var(--app-accent-fg)] disabled:text-muted-foreground"
@@ -534,7 +498,7 @@ export function HermesChatPanel({
           aria-label="Send to Puppy One"
         >
           <Send className="size-4" />
-        </ShellActionSurface>
+        </ShellActionSurface>}
         </div>
       </AgentBarSurface>
       </AgentDockPortal>

@@ -6,7 +6,8 @@ import asyncio
 import json
 import logging
 import time
-from typing import AsyncGenerator
+from contextlib import aclosing
+from typing import Any, AsyncGenerator
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
@@ -16,7 +17,9 @@ from fastapi.routing import APIRoute
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
-from api.middleware import require_firebase_auth
+from api.middleware import require_firebase_auth, require_firebase_auth_read_only
+from api.routes.document_feed_stream import StreamLease
+from api.routes.notification_stream import notification_events, open_notification_stream
 from hushh_mcp.services.chat_notification_state import unread_message_count
 from hushh_mcp.services.direct_message_route_cipher import DirectMessageRouteCipher
 from hushh_mcp.services.direct_messages_service import (
@@ -485,28 +488,34 @@ def _direct_message_event(payload: object) -> dict[str, object] | None:
 
 
 async def _message_event_stream(
-    user_id: str, request: Request
+    user_id: str, request: Request, *, lease: StreamLease | None = None
 ) -> AsyncGenerator[dict[str, str], None]:
-    """Filter the shared user-state queue to direct-message doorbells."""
+    """Filter the bounded shared user-state queue to direct-message doorbells."""
 
-    from api.consent_listener import (
-        LOCAL_RESYNC_EVENT_TYPE,
-        subscribe_consent_queue,
-        unsubscribe_consent_queue,
-    )
+    async def authorize() -> None:
+        current_owner = await require_firebase_auth_read_only(request.headers.get("authorization"))
+        if current_owner != user_id:
+            raise HTTPException(403, "Stream owner changed.")
 
-    queue = await subscribe_consent_queue(user_id, snapshot_resets=True)
+    from api.consent_listener import LOCAL_RESYNC_EVENT_TYPE
+
+    async def initial_resync() -> list[dict[str, Any]]:
+        return [{"type": LOCAL_RESYNC_EVENT_TYPE}]
+
     seen: set[str] = set()
-    try:
-        # Subscribe before asking the client to reread. An initial page load
-        # and this stream can otherwise miss a commit between their requests.
-        yield {"event": "resync", "data": "{}"}
-        while True:
-            if await request.is_disconnected():
-                break
-            try:
-                payload = await asyncio.wait_for(queue.get(), timeout=25)
-            except asyncio.TimeoutError:
+    async with aclosing(
+        notification_events(
+            user_id,
+            request,
+            lease=lease,
+            authorize=authorize,
+            heartbeat_seconds=25,
+            snapshot_resets=True,
+            backfill=initial_resync,
+        )
+    ) as events:
+        async for payload in events:
+            if payload is None:
                 yield {
                     "event": "heartbeat",
                     "data": json.dumps({"timestamp": int(time.time() * 1000)}),
@@ -523,8 +532,6 @@ async def _message_event_stream(
             if event_id in seen:
                 continue
             seen.add(event_id)
-            # Bound the per-stream dedupe set.  The network transport is a
-            # doorbell, not durable history, and a client reconnect rereads.
             if len(seen) > 500:
                 seen.clear()
                 seen.add(event_id)
@@ -533,19 +540,13 @@ async def _message_event_stream(
                 "id": event_id,
                 "data": json.dumps(event, separators=(",", ":")),
             }
-    except asyncio.CancelledError:
-        raise
-    finally:
-        await unsubscribe_consent_queue(user_id, queue)
 
 
 async def _events_response(request: Request, firebase_uid: str) -> EventSourceResponse:
-    return EventSourceResponse(
-        _message_event_stream(firebase_uid, request),
-        headers={
-            "Cache-Control": "no-cache, no-store",
-            "X-Accel-Buffering": "no",
-        },
+    return open_notification_stream(
+        firebase_uid,
+        request,
+        lambda lease: _message_event_stream(firebase_uid, request, lease=lease),
     )
 
 

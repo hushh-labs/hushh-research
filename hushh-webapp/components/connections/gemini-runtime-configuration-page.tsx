@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import {
   AppPageContentRegion,
@@ -9,52 +9,66 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { PrivateAgentCard } from "@/components/connections/private-agent-card";
 import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
-import { GeminiLogo } from "@/components/brand/gemini-logo";
-import { RuntimeProviderMark } from "@/components/brand/runtime-provider-mark";
-import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
-import { SetupV10Icon, SetupV10Surface } from "@/components/onboarding/setup/setup-v10-surface";
-import { RUNTIME_PROVIDER_CATALOG } from "@/lib/connections/runtime-provider-catalog";
-import { Button } from "@/lib/morphy-ux/button";
+import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import setupStyles from "@/components/onboarding/setup/one-setup-hub.module.css";
-import aiStyles from "./one-setup-ai.module.css";
-import { PwmResearchDisclosure } from "@/components/onboarding/setup/pwm-research-disclosure";
-import { InitialContactsOnboardingService as InitialContacts } from "@/lib/services/initial-contacts-onboarding-service";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
+import {
+  isValidatedAuthSessionOwnerCurrent,
+  snapshotValidatedAuthSessionOwner,
+} from "@/lib/auth/session-owner";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import {
   buildOneSetupRoute,
-  buildInitialContactsWelcomeRoute,
-  resolveOneSetupCompletionTarget,
   resolveOneSetupReturnTo,
   ROUTES,
 } from "@/lib/navigation/routes";
+import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { VaultService } from "@/lib/services/vault-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import type { OneRuntimeSetupChoice } from "@/lib/services/pre-vault-user-state-service";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
-import {
-  GEMINI_RUNTIME_CREDENTIAL_REF,
-  PersonalKnowledgeModelService,
-} from "@/lib/services/personal-knowledge-model-service";
-import { PostUnlockSyncService } from "@/lib/services/post-unlock-sync-service";
-import { FinanceSetupDraftService } from "@/lib/services/finance-setup-draft-service";
-import { acknowledgeOneSetupExit } from "@/lib/services/one-setup-exit-service";
-import { notifyGeminiRuntimeConfigurationChanged } from "@/lib/connections/gemini-runtime-configuration";
-import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { useVault } from "@/lib/vault/vault-context";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 type GeminiRuntimeConfigurationPageProps = {
   setupMode?: boolean;
+  embeddedInCloudSetup?: boolean;
+  onSetupReadyChange?: (ready: boolean) => void;
 };
 
-export function GeminiRuntimeConfigurationPage({
+export function GeminiRuntimeConfigurationPage(
+  props: GeminiRuntimeConfigurationPageProps,
+) {
+  const auth = useAuth();
+  const owner = snapshotValidatedAuthSessionOwner();
+  return (
+    <OwnerRuntimeConfigurationPage
+      key={`${auth.user?.uid ?? "signed-out"}:${owner?.generation ?? "unresolved"}`}
+      {...props}
+      auth={auth}
+    />
+  );
+}
+
+function OwnerRuntimeConfigurationPage({
   setupMode = false,
-}: GeminiRuntimeConfigurationPageProps) {
+  embeddedInCloudSetup = false,
+  onSetupReadyChange,
+  auth,
+}: GeminiRuntimeConfigurationPageProps & { auth: ReturnType<typeof useAuth> }) {
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
+  const searchParams = useSearchParams();
+  const { user, loading: authLoading } = auth;
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const [hasVault, setHasVault] = useState<boolean | null>(
     setupMode ? true : null,
@@ -66,24 +80,14 @@ export function GeminiRuntimeConfigurationPage({
     null,
   );
   const [canContinue, setCanContinue] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [unlockOpen, setUnlockOpen] = useState(false);
   const [finishing, setFinishing] = useState(false);
-  const [setupVaultDialogOpen, setSetupVaultDialogOpen] = useState(false);
-  const [finalizationError, setFinalizationError] = useState<string | null>(
-    null,
-  );
-  const finalizationInFlightRef = useRef<Promise<string | undefined> | null>(null);
-  const activeUserRef = useRef<string | null>(user?.uid ?? null);
+  const embedded = setupMode && embeddedInCloudSetup;
+
   useEffect(() => {
-    activeUserRef.current = user?.uid ?? null;
-    return () => {
-      activeUserRef.current = null;
-    };
-  }, [user?.uid]);
-  const queueEntryWelcome = useOneConversationSession(
-    (state) => state.queueEntryWelcome,
-  );
+    onSetupReadyChange?.(canContinue && hasRuntimeChoice === true);
+    return () => onSetupReadyChange?.(false);
+  }, [canContinue, hasRuntimeChoice, onSetupReadyChange]);
 
   useEffect(() => {
     if (setupMode) {
@@ -146,168 +150,24 @@ export function GeminiRuntimeConfigurationPage({
     }
   }, [authLoading, router, setupMode, user]);
 
-  const needsVaultCreation = !setupMode && Boolean(
-    user && !isVaultUnlocked && hasVault === false,
-  );
-  const needsUnlock = !setupMode && Boolean(
-    user && !isVaultUnlocked && hasVault === true,
-  );
-
-  // Choosing an AI is the one mandatory setup step. Finishing it here
-  // completes setup outright (set a lock if needed, then go home) instead of
-  // bouncing back to the `/one/setup` hub -- with nothing else left for the
-  // hub to show, that hop was a redundant extra screen. Mirrors
-  // `OneSetupHub.completeSetupAfterVault`; kept local rather than shared
-  // because the hub remains an independent, still-reachable entry point
-  // (explicit `/one/setup` deep links, "Reset account") with its own tested
-  // behavior that this change does not touch.
-  const completeSetupAndGoHome = useCallback(async (): Promise<string | undefined> => {
-    if (!user?.uid) {
-      router.replace(ROUTES.HOME);
-      return ROUTES.HOME;
-    }
-    if (!vaultKey || !vaultOwnerToken) {
-      throw new Error("Not ready yet. Try again.");
-    }
-    if (finalizationInFlightRef.current) {
-      return finalizationInFlightRef.current;
-    }
-    // Acknowledging completion can let the outer admission guard navigate
-    // immediately. Capture the setup URL before any await; reading it after
-    // that handoff would lose return_to and send an invite recipient home.
-    const returnTo = resolveOneSetupReturnTo(
-      new URLSearchParams(window.location.search).get("return_to"),
-    );
-    const completionTarget = resolveOneSetupCompletionTarget(
-      returnTo,
-      PreVaultSensitiveDraftService.hasFinanceIntent(user.uid),
-    );
-
-    const finalize = (async () => {
-      setFinalizationError(null);
-      await PreVaultSensitiveDraftService.finalizeForVault({
-        userId: user.uid,
-        vaultKey,
-        vaultOwnerToken,
-      });
-      const bootstrap = PreVaultUserStateService.getCachedBootstrapState(user.uid);
-      if (bootstrap?.oneRuntimeSetupChoice === "byok_pending_vault") {
-        const savedKey = await PersonalKnowledgeModelService.loadRuntimeSecret({
-          userId: user.uid,
-          vaultKey,
-          vaultOwnerToken,
-          credentialRef: GEMINI_RUNTIME_CREDENTIAL_REF,
-        });
-        if (!savedKey) {
-          throw new Error("Your Gemini key was not saved. Choose your AI again.");
-        }
-      }
-      await PostUnlockSyncService.run({
-        userId: user.uid,
-        vaultKey,
-        vaultOwnerToken,
-      });
-      await FinanceSetupDraftService.finalizeForVault({
-        userId: user.uid,
-        vaultKey,
-        vaultOwnerToken,
-      });
-      notifyGeminiRuntimeConfigurationChanged(user.uid);
-
-      if (activeUserRef.current !== user.uid) return;
-      const showContactsWelcome =
-        bootstrap?.initialContactsWelcomeAcknowledged === false ||
-        InitialContacts.getSnapshot().ownerId === user.uid;
-      const completion = acknowledgeOneSetupExit({
-        userId: user.uid,
-        skipped: false,
-        isVaultUnlocked: true,
-        vaultKey,
-        vaultOwnerToken,
-      });
-      // The completion latch can make the admission guard unmount this screen
-      // before the durable write settles. Queue the owner-scoped greeting in
-      // the same turn as the latch, after the encrypted setup work above.
-      if (!showContactsWelcome) queueEntryWelcome(user.uid);
-      await completion;
-      if (activeUserRef.current !== user.uid) return;
-      setSetupVaultDialogOpen(false);
-      const next = showContactsWelcome
-        ? buildInitialContactsWelcomeRoute(completionTarget)
-        : completionTarget;
-      router.replace(next);
-      return next;
-    })();
-    finalizationInFlightRef.current = finalize;
-    try {
-      return await finalize;
-    } catch (error) {
-      setFinalizationError(
-        error instanceof Error
-          ? error.message
-          : "Couldn't save your setup. Try again.",
-      );
-      throw error;
-    } finally {
-      if (finalizationInFlightRef.current === finalize) {
-        finalizationInFlightRef.current = null;
-      }
-    }
-  }, [queueEntryWelcome, router, user?.uid, vaultKey, vaultOwnerToken]);
-
-  // Once the lock dialog (opened below) resolves, finish automatically --
-  // no separate "now tap Finish" screen in between.
-  useEffect(() => {
-    if (
-      !setupMode ||
-      !setupVaultDialogOpen ||
-      !isVaultUnlocked ||
-      !vaultKey ||
-      !vaultOwnerToken ||
-      !user?.uid ||
-      finalizationInFlightRef.current
-    ) {
-      return;
-    }
+  const needsVaultCreation =
+    !setupMode && Boolean(user && !isVaultUnlocked && hasVault === false);
+  const needsUnlock =
+    !setupMode && Boolean(user && !isVaultUnlocked && hasVault === true);
+  const returnToSetupHub = useCallback(() => {
     setFinishing(true);
-    void completeSetupAndGoHome()
-      .catch(() => undefined)
-      .finally(() => setFinishing(false));
-  }, [
-    completeSetupAndGoHome,
-    isVaultUnlocked,
-    setupMode,
-    setupVaultDialogOpen,
-    vaultKey,
-    vaultOwnerToken,
-    user?.uid,
-  ]);
-
-  const finishSetupAndGoHome = useCallback(async (): Promise<{
-    status: "succeeded";
-    summary: string;
-    routeAfter?: string;
-  }> => {
-    if (!user?.uid) {
-      router.replace(ROUTES.HOME);
-      return { status: "succeeded", summary: "Opening home." };
-    }
-    setFinishing(true);
-    try {
-      if (!isVaultUnlocked) {
-        setSetupVaultDialogOpen(true);
-        return { status: "succeeded", summary: "One step left: set a lock." };
-      }
-      const routeAfter = await completeSetupAndGoHome();
-      return {
-        status: "succeeded",
-        summary: "Setup complete.",
-        routeAfter,
-      };
-    } finally {
-      setFinishing(false);
-    }
-  }, [completeSetupAndGoHome, isVaultUnlocked, router, user?.uid]);
+    const href = buildOneSetupRoute({
+      returnTo: resolveOneSetupReturnTo(searchParams.get("return_to")),
+    });
+    const requested = requestInternalAppNavigation({
+      href,
+      replace: true,
+      scroll: false,
+      source: "programmatic",
+      transitionMode: "full",
+    });
+    if (!requested) router.replace(href);
+  }, [router, searchParams]);
 
   const finishConnections = useCallback(async () => {
     if (!canContinue) {
@@ -322,136 +182,107 @@ export function GeminiRuntimeConfigurationPage({
         summary: "AI access setup is already being finished.",
       };
     }
-    return finishSetupAndGoHome();
-  }, [finishing, canContinue, finishSetupAndGoHome]);
+    returnToSetupHub();
+    return {
+      status: "started" as const,
+      summary: "AI access setup is complete. Returning to setup.",
+      routeAfter: ROUTES.ONE_SETUP,
+      screenAfter: "one_setup",
+    };
+  }, [finishing, canContinue, returnToSetupHub]);
 
   useLocalOnboardingActionHandler(
     "setup.finish_connections",
     finishConnections,
-    { enabled: setupMode },
+    { enabled: setupMode && !embedded },
   );
 
-  usePublishVoiceSurfaceMetadata({
-    screenId: setupMode ? "one_setup_connections" : "one_connections_settings",
-    title: setupMode ? "AI access setup" : "Gemini settings",
-    purpose: "Choose how the private agent reaches Gemini.",
-    actions:
-      setupMode && canContinue && !finishing
-        ? [
-            {
-              id: "finish_connections",
-              actionId: "setup.finish_connections",
-              label: "Finish AI access setup",
-              purpose: "Keep the selected runtime and finish setup.",
-            },
-          ]
-        : [],
-  });
+  usePublishVoiceSurfaceMetadata(
+    embedded
+      ? null
+      : {
+          screenId: setupMode
+            ? "one_setup_connections"
+            : "one_connections_settings",
+          title: setupMode ? "AI access setup" : "AI settings",
+          purpose: "Choose and verify the private agent’s AI connection.",
+          actions:
+            setupMode && canContinue && !finishing
+              ? [
+                  {
+                    id: "finish_connections",
+                    actionId: "setup.finish_connections",
+                    label: "Finish AI access setup",
+                    purpose: "Keep the selected runtime and return to setup.",
+                  },
+                ]
+              : [],
+        },
+  );
 
-  const backToSetup = () => {
-    if (finishing) return;
-    setMenuOpen(false);
-    router.replace(buildOneSetupRoute({
-      returnTo: resolveOneSetupReturnTo(
-        new URLSearchParams(window.location.search).get("return_to"),
-      ),
-    }));
-  };
+  const runtimeSettings = (
+    <GeminiRuntimeSettingsCard
+      userId={user?.uid}
+      vaultKey={vaultKey}
+      vaultOwnerToken={vaultOwnerToken}
+      needsVaultCreation={needsVaultCreation}
+      needsUnlock={needsUnlock}
+      onRequestVaultCreation={() => setUnlockOpen(true)}
+      onRequestVaultUnlock={() => setUnlockOpen(true)}
+      requiresExplicitSelection={setupMode}
+      initiallyConfigured={
+        hasRuntimeChoice === true &&
+        (setupChoice !== "byok_pending_vault" ||
+          Boolean(
+            user?.uid &&
+            PreVaultSensitiveDraftService.hasGeminiRuntime(user.uid),
+          ))
+      }
+      onCanContinueChange={setupMode ? setCanContinue : undefined}
+      initialSetupChoice={setupChoice}
+      onSelectionReadyChange={
+        setupMode && user?.uid
+          ? async (choice) => {
+              const owner = snapshotValidatedAuthSessionOwner();
+              if (!mountedRef.current || !owner || owner.userId !== user.uid)
+                return;
+              const state = await PreVaultUserStateService.markOneRuntimeChoice(
+                user.uid,
+                choice,
+              );
+              if (
+                !mountedRef.current ||
+                !isValidatedAuthSessionOwnerCurrent(owner)
+              )
+                return;
+              setSetupChoice(state.oneRuntimeSetupChoice);
+              setHasRuntimeChoice(true);
+              if (choice === "hushh_managed_vertex") {
+                PreVaultSensitiveDraftService.clearGeminiRuntime(user.uid);
+              }
+            }
+          : undefined
+      }
+      onPreVaultDraftStaged={
+        setupMode && user?.uid
+          ? (draft) =>
+              PreVaultSensitiveDraftService.stageGeminiRuntime(user.uid, draft)
+          : undefined
+      }
+      onPreVaultDraftCleared={
+        setupMode && user?.uid
+          ? () => PreVaultSensitiveDraftService.clearGeminiRuntime(user.uid)
+          : undefined
+      }
+    />
+  );
 
-  if (setupMode) {
+  if (embedded) {
     return (
-      <SetupV10Surface
-        stage="ai"
-        onBack={backToSetup}
-        backDisabled={finishing}
-        onMenu={() => {
-          if (!finishing) setMenuOpen((open) => !open);
-        }}
-        menuDisabled={finishing}
-        menuOpen={menuOpen}
-        menuContent={<button type="button" onClick={backToSetup}>Back to setup</button>}
-        contentClassName={aiStyles.content}
-      >
-        <NativeTestBeacon
-          routeId="/one/setup/connections"
-          marker="native-route-one-setup-connections"
-          authState={user ? "authenticated" : "pending"}
-          dataState={authLoading || hasVault === null || hasRuntimeChoice === null ? "loading" : "loaded"}
-        />
-        <h1 className={aiStyles.heading}>Choose your AI</h1>
-        <p className={aiStyles.subtitle}>Use ours, or bring your own key.</p>
-        <div className={aiStyles.available}>
-          <GeminiLogo title="Google Gemini" />
-          <strong>Google Gemini</strong>
-          <span>Available now</span>
-        </div>
-        <div className={aiStyles.runtimeCard}>
-          <GeminiRuntimeSettingsCard
-            userId={user?.uid}
-            vaultKey={vaultKey}
-            vaultOwnerToken={vaultOwnerToken}
-            needsVaultCreation={needsVaultCreation}
-            needsUnlock={needsUnlock}
-            onRequestVaultCreation={() => setUnlockOpen(true)}
-            onRequestVaultUnlock={() => setUnlockOpen(true)}
-            requiresExplicitSelection
-            initiallyConfigured={hasRuntimeChoice === true && (
-              setupChoice !== "byok_pending_vault" ||
-              Boolean(user?.uid && PreVaultSensitiveDraftService.hasGeminiRuntime(user.uid))
-            )}
-            onCanContinueChange={setCanContinue}
-            initialSetupChoice={setupChoice}
-            onSelectionReadyChange={user?.uid
-              ? async (choice) => {
-                  const state = await PreVaultUserStateService.markOneRuntimeChoice(user.uid, choice);
-                  setSetupChoice(state.oneRuntimeSetupChoice);
-                  setHasRuntimeChoice(true);
-                }
-              : undefined}
-            onPreVaultDraftStaged={user?.uid
-              ? (draft) => PreVaultSensitiveDraftService.stageGeminiRuntime(user.uid, draft)
-              : undefined}
-            onPreVaultDraftCleared={user?.uid
-              ? () => PreVaultSensitiveDraftService.clearGeminiRuntime(user.uid)
-              : undefined}
-          />
-        </div>
-        <div className={aiStyles.footer}>
-          {canContinue ? <PwmResearchDisclosure compact className={aiStyles.disclosure} /> : null}
-          <Button
-            type="button"
-            variant="blue"
-            effect="fill"
-            size="prominent"
-            fullWidth
-            className={aiStyles.continue}
-            onClick={() => void finishConnections().catch(() => undefined)}
-            loading={finishing}
-            disabled={!canContinue || finishing}
-            data-testid="one-setup-connections-terminal"
-            data-voice-control-id="one-setup-connections-terminal"
-            data-voice-action-id="setup.finish_connections"
-            data-voice-label="Continue"
-            data-voice-purpose="Record the selected Gemini runtime and finish setup."
-          >
-            Continue <SetupV10Icon name="arrow-right" size={18} />
-          </Button>
-        </div>
-        {finalizationError ? <p role="alert" className={aiStyles.error}>{finalizationError}</p> : null}
-        {user ? (
-          <VaultUnlockDialog
-            user={user}
-            open={setupVaultDialogOpen}
-            onOpenChange={setSetupVaultDialogOpen}
-            dismissible={false}
-            enableGeneratedDefault
-            setupPresentation
-            title="Set a lock"
-            description="Only you can open what you save. Not even we can read it."
-            onSuccess={() => undefined}
-          />
-        ) : null}
-      </SetupV10Surface>
+      <section aria-label="AI access" className="space-y-4">
+        <h2 className="text-base font-semibold">AI access</h2>
+        {runtimeSettings}
+      </section>
     );
   }
 
@@ -475,48 +306,12 @@ export function GeminiRuntimeConfigurationPage({
       }}
     >
       <AppPageHeaderRegion>
-        {/* The provider marks used to live on a full-screen prologue with its
-            own Continue button — one extra screen and one extra tap in front of
-            a two-option choice. They carry the same "these are the models"
-            context here, inline, at zero cost. */}
-        {setupMode ? (
-          <ul
-            className="mb-4 flex flex-wrap items-center gap-2"
-            aria-label="AI providers"
-            data-runtime-provider-lane
-          >
-            {RUNTIME_PROVIDER_CATALOG.map((provider) => (
-              <li key={provider.id} className="relative">
-                <span
-                  className="inline-flex h-9 w-9 items-center justify-center"
-                  title={
-                    provider.availability === "available"
-                      ? `${provider.name} is available now`
-                      : `${provider.name} is coming soon`
-                  }
-                >
-                  {/* One size for every mark. The row gave each provider a
-                      36px slot but only Gemini was sized to it — the other four
-                      kept the mark's own 48px default, so they overflowed their
-                      slots and overlapped each other by 4px, which is why the
-                      logos looked cramped and Grok came out clipped. */}
-                  <RuntimeProviderMark provider={provider} className="h-9 w-9" />
-                </span>
-                <span className="sr-only">
-                  {provider.availability === "available"
-                    ? `${provider.name} is available now.`
-                    : `${provider.name} is coming soon.`}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : null}
         <PageHeader
-          title={setupMode ? "Choose your AI" : "Gemini settings"}
+          title={setupMode ? "Choose your AI" : "AI settings"}
           description={
             setupMode
-              ? "Use ours, or bring your own key."
-              : "Choose how your private agent reaches Gemini."
+              ? "Your pod's AI, or your own key."
+              : "Choose your AI connection."
           }
           accent="neutral"
           className={setupMode ? setupStyles.setupHeader : undefined}
@@ -525,71 +320,32 @@ export function GeminiRuntimeConfigurationPage({
       {/* space-y-6 gives the Gemini and "Coming soon" groups the standard
           surface rhythm; without it the two SettingsGroups render flush and the
           "Coming soon" heading looks cramped against the Gemini card (#1940). */}
-      <AppPageContentRegion className={setupMode ? setupStyles.aiSelectionContent : "space-y-6"}>
-        <GeminiRuntimeSettingsCard
-          userId={user?.uid}
-          vaultKey={vaultKey}
-          vaultOwnerToken={vaultOwnerToken}
-          needsVaultCreation={needsVaultCreation}
-          needsUnlock={needsUnlock}
-          onRequestVaultCreation={() => setUnlockOpen(true)}
-          onRequestVaultUnlock={() => setUnlockOpen(true)}
-          requiresExplicitSelection={setupMode}
-          initiallyConfigured={hasRuntimeChoice === true && (
-            setupChoice !== "byok_pending_vault" ||
-            Boolean(user?.uid && PreVaultSensitiveDraftService.hasGeminiRuntime(user.uid))
-          )}
-          onCanContinueChange={setupMode ? setCanContinue : undefined}
-          initialSetupChoice={setupChoice}
-          onSelectionReadyChange={
-            setupMode && user?.uid
-              ? async (choice) => {
-                  const state = await PreVaultUserStateService.markOneRuntimeChoice(
-                    user.uid,
-                    choice,
-                  );
-                  setSetupChoice(state.oneRuntimeSetupChoice);
-                  setHasRuntimeChoice(true);
-
-                }
-              : undefined
-          }
-          onPreVaultDraftStaged={
-            setupMode && user?.uid
-              ? (draft) => PreVaultSensitiveDraftService.stageGeminiRuntime(user.uid, draft)
-              : undefined
-          }
-          onPreVaultDraftCleared={
-            setupMode && user?.uid
-              ? () => PreVaultSensitiveDraftService.clearGeminiRuntime(user.uid)
-              : undefined
-          }
-        />
-        {setupMode ? (
-          <div className={`mx-auto w-full sm:w-80 ${setupStyles.aiSelectionFooter}`}>
-            {/* Continue finishes setup here without visiting the hub, so it
-                carries the same research disclosure. */}
-            <PwmResearchDisclosure className="mb-4" />
-            <Button
-              type="button" variant="blue" effect="fill" size="prominent" fullWidth
-              onClick={() => void finishConnections().catch(() => undefined)}
-              loading={finishing} disabled={!canContinue || finishing}
-              data-testid="one-setup-connections-terminal"
-              data-voice-control-id="one-setup-connections-terminal"
-              data-voice-action-id="setup.finish_connections"
-              data-voice-label="Continue"
-              data-voice-purpose="Record the selected Gemini runtime and finish setup."
-            >Continue</Button>
-          </div>
-        ) : null}
+      <AppPageContentRegion
+        className={setupMode ? setupStyles.aiSelectionContent : "space-y-6"}
+      >
+        {runtimeSettings}
+        {/* Not shown during first-run setup: the person is still connecting the key
+            the pod would run on, and offering to build one mid-flow would interrupt
+            the journey they are already in. */}
+        {setupMode ? null : (
+          <PrivateAgentCard
+            vaultOwnerToken={vaultOwnerToken}
+            needsUnlock={needsUnlock}
+            onRequestVaultUnlock={() => setUnlockOpen(true)}
+          />
+        )}
       </AppPageContentRegion>
-      {setupMode && finalizationError ? (
-        <div
-          role="alert"
-          className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-[var(--app-card-radius-compact)] border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
-        >
-          <span>{finalizationError}</span>
-        </div>
+      {setupMode ? (
+        <SetupCompletionFooter
+          label="Continue"
+          onComplete={() => void finishConnections()}
+          busy={finishing}
+          disabled={!canContinue || finishing}
+          controlId="one-setup-connections-terminal"
+          actionId="setup.finish_connections"
+          purpose="Record the selected AI connection and return to setup."
+          supportingText="Pick one to continue."
+        />
       ) : null}
       {!setupMode && user ? (
         <VaultUnlockDialog
@@ -601,28 +357,14 @@ export function GeminiRuntimeConfigurationPage({
               ? "Set up your private vault"
               : "Open your private vault"
           }
-          description="Gemini access stays in your vault."
+          description="Manage your AI connection securely."
           onSuccess={() => setUnlockOpen(false)}
-        />
-      ) : null}
-      {setupMode && user ? (
-        <VaultUnlockDialog
-          user={user}
-          open={setupVaultDialogOpen}
-          onOpenChange={setSetupVaultDialogOpen}
-          dismissible={false}
-          enableGeneratedDefault
-          title="Set a lock"
-          description="Only you can open what you save. Not even we can read it."
-          onSuccess={() => undefined}
         />
       ) : null}
     </AppPageShell>
   );
 
-  // AI access is a root prerequisite rather than an agent capability, and it is
-  // the ONE step that blocks finishing setup. It deliberately does not sit
-  // behind the shared cinematic prologue: a mandatory two-option choice must be
-  // one tap from the hub, not a screen, a Continue, and then the choice.
+  // The standalone route remains available for existing bookmarks. New setup
+  // composes the same authority-bearing choice inside the hosting wizard.
   return content;
 }

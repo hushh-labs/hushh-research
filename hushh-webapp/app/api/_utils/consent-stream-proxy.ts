@@ -1,7 +1,7 @@
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
 
 const PRIVATE_HEADERS = { "Cache-Control": "private, no-store", Vary: "Authorization" };
-// A fixed marker the backend trusts only to end proxied Feed streams before
+// A fixed marker the backend trusts only to end proxied notification streams before
 // this server's request timeout (120 s in production, 300 s in UAT), so they
 // rotate cleanly instead of being cut mid-frame.
 const STREAM_PROXY_HEADER = "X-Hussh-Stream-Via";
@@ -58,19 +58,27 @@ export async function proxyConsentStream(
   if (!authorization || !/^Bearer [^\s]+$/i.test(authorization)) {
     return failure(401, "Sign in to receive updates");
   }
+  const upstreamAbort = new AbortController();
+  const abortUpstream = () => upstreamAbort.abort();
+  if (request.signal.aborted) abortUpstream();
+  else request.signal.addEventListener("abort", abortUpstream, { once: true });
+  const releaseRequest = () => {
+    request.signal.removeEventListener("abort", abortUpstream);
+    abortUpstream();
+  };
   const headers: Record<string, string> = {
     Authorization: authorization,
     "Cache-Control": "no-cache",
     Connection: "keep-alive",
   };
-  if (stream === "document-feed") headers[STREAM_PROXY_HEADER] = STREAM_PROXY_VALUE;
+  headers[STREAM_PROXY_HEADER] = STREAM_PROXY_VALUE;
   try {
     const upstream = await fetch(
       `${getPythonApiUrl()}/api/consent/${stream}/${encodeURIComponent(userId)}${query}`,
       {
         method: "GET",
         headers,
-        signal: request.signal,
+        signal: upstreamAbort.signal,
         redirect: "error",
         cache: "no-store",
       },
@@ -85,6 +93,9 @@ export async function proxyConsentStream(
         errorCode = text ? upstreamErrorCode(JSON.parse(text)) : undefined;
       } catch {
         errorCode = undefined;
+      } finally {
+        releaseRequest();
+        await upstream.body?.cancel().catch(() => {});
       }
       // A busy backend says when to come back; pass on only a plain delay.
       const retryAfter = upstream.status === 503 ? upstream.headers.get("retry-after") : null;
@@ -96,28 +107,57 @@ export async function proxyConsentStream(
       );
     }
     if (capabilities) {
-      const payload: unknown = await upstream.json();
+      let payload: unknown;
+      try { payload = await upstream.json(); }
+      finally { releaseRequest(); }
       const enabled = payload && typeof payload === "object"
         ? (payload as { enabled?: unknown }).enabled : undefined;
       if (typeof enabled !== "boolean") return failure(502, "Could not check consent delivery");
       return Response.json({ enabled }, { headers: PRIVATE_HEADERS });
     }
-    if (!upstream.body) return failure(502, "No stream body from backend");
+    if (!upstream.body) {
+      releaseRequest();
+      return failure(502, "No stream body from backend");
+    }
     if (upstream.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !== "text/event-stream") {
+      releaseRequest();
       await upstream.body.cancel().catch(() => {});
       return failure(502, "Could not connect to consent events stream");
     }
-    return new Response(upstream.body, {
-      headers: {
-        ...PRIVATE_HEADERS,
-        "Content-Type": "text/event-stream",
-        Connection: "keep-alive",
-        "X-Accel-Buffering": "no",
-        // next.config compress:true would otherwise hold frames back in gzip.
-        "Content-Encoding": "none",
+    const reader = upstream.body.getReader();
+    let stopped = false;
+    const stop = () => {
+      if (stopped) return false;
+      stopped = true;
+      releaseRequest();
+      return true;
+    };
+    const body = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
+          const { done, value } = await reader.read();
+          if (stopped) return;
+          if (done) {
+            stop();
+            controller.close();
+          } else controller.enqueue(value);
+        } catch (error) {
+          const wasAborted = upstreamAbort.signal.aborted;
+          if (!stop()) return;
+          if (wasAborted) controller.close();
+          else controller.error(error);
+        }
+      },
+      async cancel() {
+        stop();
+        await reader.cancel().catch(() => {});
       },
     });
+    return new Response(body, {
+      headers: { ...PRIVATE_HEADERS, "Content-Type": "text/event-stream", Connection: "keep-alive", "X-Accel-Buffering": "no", "Content-Encoding": "none" },
+    });
   } catch {
+    releaseRequest();
     // Never reflect private provider errors or response bodies to the client.
     return failure(502, "Could not connect to consent events stream");
   }

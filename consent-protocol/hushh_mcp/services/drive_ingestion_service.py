@@ -24,6 +24,7 @@ from hushh_mcp.services.google_drive_adapter import (
     DriveReadError,
     GoogleDriveAdapter,
 )
+from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
 logger = logging.getLogger(__name__)
 
@@ -45,14 +46,19 @@ class DriveIngestionService:
         self.store = store or DriveIngestionStore(db=self.oauth.lifecycle.db)
         self.adapter = adapter or GoogleDriveAdapter()
 
-    async def _fetch(self, job: dict) -> DriveContent | None:
+    async def _require_current(self, job):
+        await admit_hub_content(job["user_id"], "drive_document_processing")
         await self.store.current(job)
+        await admit_hub_content(job["user_id"], "drive_document_processing")
+
+    async def _fetch(self, job: dict) -> DriveContent | None:
+        await self._require_current(job)
         row, credential = await self.oauth.current_credential(
             user_id=job["user_id"], required_profile=job.get("source_profile", "selected")
         )
         if row["connection_generation"] != job["connection_generation"]:
             raise DriveReadError("connection_changed")
-        await self.store.current(job)
+        await self._require_current(job)
         metadata = self.store.cipher.open(job)
         if job.get("source_profile") == "live":
             before = await self.adapter.get_metadata(
@@ -95,16 +101,17 @@ class DriveIngestionService:
             if asdict(fresh) == metadata and job["active_version"] == expected:
                 await self.store.unchanged(job)
                 return None
-            await self.store.current(job)
+            await self._require_current(job)
         return await self.adapter.fetch_content(
             file_id=metadata["file_id"],
             access_token=credential["accessToken"],
-            require_current=lambda: self.store.current(job),
+            require_current=lambda: self._require_current(job),
         )
 
     async def run_one(
         self, *, user_id: str, document_ids=None, prefer_profile_upgrade=False
     ) -> dict[str, str]:
+        await admit_hub_content(user_id, "drive_document_claim")
         targets = document_targets(document_ids)
         row = await self.oauth.lifecycle.read(user_id=user_id, connector_id="google_drive")
         if not row:
@@ -142,6 +149,7 @@ class DriveIngestionService:
                 if content is None:
                     return {"status": "unchanged"}
                 await self.store.stage(job, "parsing")
+                await self._require_current(job)
                 live = job.get("source_profile") == "live"
                 if live:
                     progress = await self.store.page_progress(
@@ -178,7 +186,7 @@ class DriveIngestionService:
                 )
                 if current["connection_generation"] != job["connection_generation"]:
                     raise DriveReadError("connection_changed")
-                await self.store.current(job)
+                await self._require_current(job)
                 after = await self.adapter.get_metadata(
                     file_id=content.metadata.file_id,
                     access_token=credential["accessToken"],
@@ -186,6 +194,7 @@ class DriveIngestionService:
                 )
                 if after != content.metadata:
                     raise DriveReadError("source_changed", retryable=True)
+                await self._require_current(job)
                 if live:
                     complete = await self.store.publish_pages(job, metadata=after, batch=prepared)
                     if not complete:

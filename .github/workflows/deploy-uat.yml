@@ -290,6 +290,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/release-tools"
+          cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-cloud-run-deploy-revision.py \
             "${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py"
           cp scripts/ci/runtime-capacity-budget.py \
@@ -309,10 +310,20 @@ jobs:
               "${RUNNER_TEMP}/release-tools/managed_provider_readiness.py"
             cp deploy/backend.cloudbuild.yaml \
               "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml"
-            cp deploy/email-auth/bind_secrets.sh \
-              "${RUNNER_TEMP}/release-tools/email-auth-bind-secrets.sh"
-            cp deploy/plg/bind_secrets.sh \
-              "${RUNNER_TEMP}/release-tools/plg-bind-secrets.sh"
+            printf '%s\n' \
+              scripts/deploy/backend-deploy.sh \
+              scripts/deploy/verify-managed-vertex-runtime.sh \
+              scripts/deploy/commerce-preview-bindings.sh \
+              scripts/deploy/backend-model-settings.sh \
+              scripts/deploy/backend-drive-secret-settings.sh \
+              scripts/deploy/scope-commerce-secrets.sh \
+              deploy/email-auth/bind_secrets.sh \
+              deploy/plg/bind_secrets.sh \
+              deploy/sso/bind_workos.sh > "${RUNNER_TEMP}/release-tools/vertex-exception-tools.txt"
+            while IFS= read -r tool; do
+              mkdir -p "${RUNNER_TEMP}/release-tools/$(dirname "$tool")"
+              cp "$tool" "${RUNNER_TEMP}/release-tools/$tool"
+            done < "${RUNNER_TEMP}/release-tools/vertex-exception-tools.txt"
           fi
 
       - name: Checkout deployment SHA
@@ -338,13 +349,11 @@ jobs:
               scripts/ci/managed_provider_readiness.py
             cp "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml" \
               deploy/backend.cloudbuild.yaml
-            mkdir -p deploy/email-auth
-            cp "${RUNNER_TEMP}/release-tools/email-auth-bind-secrets.sh" \
-              deploy/email-auth/bind_secrets.sh
+            while IFS= read -r tool; do
+              mkdir -p "$(dirname "$tool")"
+              cp "${RUNNER_TEMP}/release-tools/$tool" "$tool"
+            done < "${RUNNER_TEMP}/release-tools/vertex-exception-tools.txt"
             printf '\n!deploy/email-auth/bind_secrets.sh\n' >> .gcloudignore
-            mkdir -p deploy/plg
-            cp "${RUNNER_TEMP}/release-tools/plg-bind-secrets.sh" \
-              deploy/plg/bind_secrets.sh
             printf '\n!deploy/plg/bind_secrets.sh\n' >> .gcloudignore
           fi
 
@@ -454,6 +463,15 @@ jobs:
             --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
             --github-output "$GITHUB_OUTPUT" \
             --json
+
+      - name: Require exact-SHA dev acceptance
+        id: predecessor-acceptance
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" require \
+            --environment dev --sha "${{ steps.resolve-sha.outputs.sha }}" \
+            --scope "${{ steps.scope.outputs.scope }}" --output /tmp/uat-predecessor-acceptance.json
 
       - name: Enforce UAT database connection budget before deployment
         shell: bash
@@ -2121,24 +2139,7 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_ENV"
 
-          if [ "${{ steps.verification-plan.outputs.run_reviewer_byok }}" = "true" ]; then
-            reviewer_uid="$(gcloud secrets versions access latest \
-              --secret=REVIEWER_UID \
-              --project="${{ env.GCP_PROJECT_ID }}")"
-            reviewer_passphrase="$(gcloud secrets versions access latest \
-              --secret=REVIEWER_VAULT_PASSPHRASE \
-              --project="${{ env.GCP_PROJECT_ID }}")"
-            echo "::add-mask::$reviewer_uid"
-            echo "::add-mask::$reviewer_passphrase"
-            {
-              echo "REVIEWER_UID<<EOF"
-              printf '%s\n' "$reviewer_uid"
-              echo "EOF"
-              echo "REVIEWER_VAULT_PASSPHRASE<<EOF"
-              printf '%s\n' "$reviewer_passphrase"
-              echo "EOF"
-            } >> "$GITHUB_ENV"
-          fi
+
 
       - name: Semantic UAT verification
         id: verify-uat-1
@@ -2179,6 +2180,7 @@ jobs:
         env:
           REVIEWER_APP_ORIGIN: ${{ env.APP_FRONTEND_ORIGIN }}
           REVIEWER_APP_ROUTES: /,/one/kai?tab=portfolio,/one/pkm
+          REVIEWER_SECRET_PROJECT: ${{ env.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
           passes=1
@@ -2186,7 +2188,7 @@ jobs:
           {
             for ((pass = 1; pass <= passes; pass++)); do
               printf 'Reviewer BYOK acceptance pass %s/%s\n' "$pass" "$passes"
-              node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs
+              node .agents/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs
               echo "passes_completed=$pass" >> "$GITHUB_OUTPUT"
             done
           } 2>&1 | tee /tmp/uat-reviewer-byok.log
@@ -2205,7 +2207,7 @@ jobs:
           PWM_OWNER_CONFIRMED_PROFILE: ${{ inputs.pwm_owner_confirmed_profile }}
           PWM_EVIDENCE_PUBLIC_KEY: ${{ inputs.pwm_evidence_public_key }}
           PWM_PROOF_OUTPUT: ${{ github.workspace }}/tmp/pwm-acceptance.sealed.json
-        run: node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-pwm.mjs
+        run: node .agents/skills/reviewer-app-testing/scripts/verify-reviewer-pwm.mjs
 
       - name: Upload sealed PWM acceptance evidence
         if: always() && inputs.run_pwm_acceptance
@@ -3275,7 +3277,7 @@ jobs:
           if [ "${{ inputs.preserve_paused_drive_worker }}" = "true" ] \
              && [ "${{ steps.scope.outputs.deploy_backend }}" != "true" ]; then
             STATUS="blocked"
-          elif [ "${{ steps.classify-uat-release.outputs.release_failed }}" != "true" ]; then
+          elif [ "${{ steps.classify-uat-release.outputs.release_failed }}" = "false" ]; then
             if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
                && { [ "${{ steps.activate-account-deletion.outcome }}" != "success" ] \
                  || [ "${{ steps.activate-personal-gmail-monitor.outcome }}" != "success" ] \
@@ -3353,6 +3355,7 @@ jobs:
                   "lanes": json.loads(os.environ.get("VERIFICATION_PLAN_LANES") or "{}"),
                   "pkm_evaluator_runs": "${{ steps.verification-plan.outputs.pkm_evaluator_runs }}",
                   "pkm_upgrade_gate_required": "${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}",
+                  "pkm_preservation_outcome": "${{ steps.verify-pkm-preservation.outcome }}",
                   "reviewer_byok_required": "${{ steps.verification-plan.outputs.run_reviewer_byok }}",
                   "parity_attempt_1": "${{ steps.verify-parity-1.outcome }}",
                   "parity_attempt_2": "${{ steps.verify-parity-2.outcome }}",
@@ -3403,8 +3406,28 @@ jobs:
                   "frontend_image_wait": "${{ steps.build-frontend-image.outputs.wait_seconds || '0' }}",
               },
           }
+          predecessor = Path("/tmp/uat-predecessor-acceptance.json")
+          payload["predecessor_acceptance"] = (
+              json.loads(predecessor.read_text(encoding="utf-8")) if predecessor.exists() else None
+          )
           Path("/tmp/uat-release-status.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
           PY
+
+      - name: Produce exact-SHA UAT acceptance
+        if: always()
+        run: |
+          python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" create \
+            --environment uat --status /tmp/uat-release-status.json \
+            --predecessor /tmp/uat-predecessor-acceptance.json \
+            --output /tmp/uat-acceptance/acceptance.json
+
+      - name: Upload immutable UAT acceptance
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-acceptance-uat-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/uat-acceptance/acceptance.json
+          if-no-files-found: ignore
 
       - name: Cancel an unused parallel frontend image build
         # Hygiene only: a release that stopped before the frontend deploy leaves
@@ -3434,6 +3457,7 @@ jobs:
           name: uat-release-${{ github.run_id }}
           if-no-files-found: ignore
           path: |
+            /tmp/uat-predecessor-acceptance.json
             /tmp/uat-runtime-secret-sync.json
             /tmp/uat-frontend-runtime-secret-sync.json
             /tmp/uat-runtime-parity-attempt-1.json
@@ -3516,7 +3540,12 @@ jobs:
             # Degradation is reported next to the status, not buried in the JSON.
             # A release that deployed correctly while a provider was down must be
             # readable as exactly that -- neither a clean success nor a failure.
-            degraded_capabilities="$(python3 -c "import json; from pathlib import Path; print(','.join(json.loads(Path('/tmp/uat-release-status.json').read_text(encoding='utf-8')).get('dependency_health', {}).get('degraded_capabilities') or []))" 2>/dev/null || true)"
+            # Read from the CLASSIFICATION file, which is the only one that has
+            # ever carried `dependency_health`. This read pointed at the status
+            # file, whose payload has no such key, so `.get(...)` always returned
+            # {} and the branch below always printed "healthy" -- a banner that
+            # said the same thing whether or not a capability was down.
+            degraded_capabilities="$(python3 -c "import json; from pathlib import Path; print(','.join(json.loads(Path('/tmp/uat-release-classification.json').read_text(encoding='utf-8')).get('dependency_health', {}).get('degraded_capabilities') or []))" 2>/dev/null || true)"
             if [[ -n "${degraded_capabilities}" ]]; then
               echo "- **Dependency health: DEGRADED**"
               echo "- Degraded capabilities: \`${degraded_capabilities}\`"

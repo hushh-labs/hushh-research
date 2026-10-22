@@ -741,9 +741,16 @@ def test_invitation_ordinal_review_is_client_only_and_owner_conversation_grant_b
 
     schedule = Schedule()
     schedule.calendar = calendar
-    monkeypatch.setattr(
-        calendar_schedule_service, "get_calendar_schedule_service", lambda: schedule
-    )
+    from types import MethodType
+
+    from hushh_mcp.services.google_calendar_service import GoogleCalendarService
+
+    def bound_schedule(*, calendar: object):
+        assert calendar is schedule.calendar
+        return schedule
+
+    monkeypatch.setattr(calendar_schedule_service, "CalendarScheduleService", bound_schedule)
+    calendar.invitations = MethodType(GoogleCalendarService.invitations, calendar)
     monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
     ctx = _context()
     ctx.state["hussh:conversation_id"] = "same-conversation"

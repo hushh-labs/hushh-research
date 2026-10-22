@@ -51,7 +51,6 @@ import { cn } from "@/lib/utils";
 import { openExternalUrl } from "@/lib/utils/browser-navigation";
 import { getVerifiedReceiptMerchant, resolveVerifiedReceiptMerchantBrand } from "@/lib/mail/receipt-merchant-registry";
 
-const DEFAULT_RECEIPT_LOGO_TEMPLATE = "https://icons.duckduckgo.com/ip3/{domain}.ico";
 const RECEIPT_LOGO_TIMEOUT_MS = 5000;
 
 const CATEGORY_ICONS = {
@@ -114,7 +113,7 @@ export function ReceiptMerchantLogo({
   );
   const configuredTemplate =
     providerUrlTemplate === undefined
-      ? process.env.NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE ?? DEFAULT_RECEIPT_LOGO_TEMPLATE
+      ? process.env.NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE
       : providerUrlTemplate;
   const logoUrl = buildReceiptLogoUrl(configuredTemplate, logoDomain);
   const requestLogo = online && Boolean(logoUrl) && failedLogoUrl !== logoUrl;

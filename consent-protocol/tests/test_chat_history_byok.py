@@ -402,14 +402,17 @@ async def test_agent_turn_is_refused_before_streaming_without_a_key(monkeypatch)
         "require_vault_owner_token",
         AsyncMock(return_value={"user_id": "owner-1", "token": "synthetic"}),
     )
-    request = Request({"type": "http", "headers": [(b"authorization", b"Bearer synthetic")]})
+    request = Request({"type": "http", "headers": [(b"authorization", b"Bearer HCT:synthetic")]})
+    monkeypatch.setattr(agent_chat, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
     with pytest.raises(HTTPException) as refused:
         await agent_chat._extract_state(request, _input())
     assert refused.value.status_code == 403
 
     # A thread id held by a platform-key conversation is refused, not overwritten.
     monkeypatch.setattr(
-        agent_chat._session_service, "is_legacy_session", AsyncMock(return_value=True)
+        agent_chat,
+        "_session_service",
+        SimpleNamespace(is_legacy_session=AsyncMock(return_value=True)),
     )
     with bound_request_chat_key("owner-1", PERSON_KEY):
         with pytest.raises(HTTPException) as retired:
@@ -572,7 +575,7 @@ def test_prepare_turn_seals_title_and_message_and_excludes_legacy_rows() -> None
 def test_no_chat_store_can_reach_the_platform_key() -> None:
     for relative in (
         "hushh_mcp/services/agent_chat_service.py",
-        "hushh_mcp/one_adk/encrypted_session_service.py",
+        "hushh_mcp/one_adk/adk_session_repository.py",
         "hushh_mcp/services/command_checkpoints.py",
         "hushh_mcp/services/chat_key.py",
     ):
@@ -746,14 +749,14 @@ async def test_stream_maps_a_stringified_key_error_to_the_recovery_message(monke
 
 
 def test_only_the_chat_stores_touch_chat_ciphertext_columns() -> None:
-    """Migration 249 replays on every deploy and deletes any unmarked chat row.
+    """Only sealed chat stores may write ciphertext retained by history cutover.
 
-    A new writer that bypassed ChatCipher would therefore be wiped silently on the
-    next deploy. Keep every write to these columns inside the three chat stores.
+    Bypassing ChatCipher can silently lose unmarked rows when cutover runs.
     """
     import re as _re
 
     allowed = {
+        "hushh_mcp/one_adk/adk_session_repository.py",
         "hushh_mcp/one_adk/encrypted_session_service.py",
         "hushh_mcp/services/agent_chat_service.py",
         "hushh_mcp/services/command_checkpoints.py",

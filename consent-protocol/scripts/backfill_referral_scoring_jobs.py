@@ -33,17 +33,12 @@ CONSENT_ROOT = Path(__file__).resolve().parents[1]
 if str(CONSENT_ROOT) not in sys.path:
     sys.path.insert(0, str(CONSENT_ROOT))
 
-from dotenv import load_dotenv  # noqa: E402
-
-load_dotenv(CONSENT_ROOT / ".env")
-
-from sqlalchemy import text  # noqa: E402
-
-from db.db_client import get_db_connection  # noqa: E402
-from hushh_mcp.services.one_referral_scoring_service import enqueue_scoring_work  # noqa: E402
-
 
 def _qualified_relationships_without_a_scoring_job() -> list[tuple[str, str]]:
+    from sqlalchemy import text
+
+    from db.db_client import get_db_connection
+
     with get_db_connection() as connection:
         rows = connection.execute(
             text(
@@ -70,12 +65,19 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    from dotenv import load_dotenv
+
+    load_dotenv(CONSENT_ROOT / ".env")
+
     pending = _qualified_relationships_without_a_scoring_job()
     print(f"{len(pending)} qualified relationship(s) have no scoring job yet.")
 
     if not args.apply:
         print("Dry run (pass --apply to enqueue). No jobs created.")
         return
+
+    from db.db_client import get_db_connection
+    from hushh_mcp.services.one_referral_scoring_service import enqueue_scoring_work
 
     enqueued = 0
     for relationship_id, referrer_user_id in pending:

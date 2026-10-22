@@ -69,6 +69,7 @@ from hushh_mcp.services.mcp_public_http import (
     create_public_mcp_http_client,
     validate_mcp_endpoint,
 )
+from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
 RESPONSE_LIMIT = 256 * 1024
 _REFRESH_MARGIN = timedelta(seconds=120)
@@ -442,7 +443,9 @@ class ExternalConnectorCuratedOAuth:
         attempt = await self.lifecycle.claim_attempt(attempt_id=attempt_id, user_id=owner)
         if attempt is None:
             raise CuratedConnectorOAuthError("attempt_unavailable", status_code=409)
+        await admit_hub_content(attempt["user_id"], "curated_oauth_exchange")
         connector, client_id, client_secret = await self._configuration(attempt["connector_id"])
+        await admit_hub_content(attempt["user_id"], "curated_oauth_dispatch")
         if attempt["oauth_client_id"] != client_id or attempt[
             "redirect_uri"
         ] not in registered_redirect_uris(connector):
@@ -474,6 +477,7 @@ class ExternalConnectorCuratedOAuth:
         )
         credential = self._token_fields(token)
         credential["oauthClientId"] = client_id
+        await admit_hub_content(attempt["user_id"], "curated_credential_return")
         return attempt, credential
 
     def _seal_activation(self, attempt: dict, current: dict, credential: dict) -> dict:
@@ -524,23 +528,11 @@ class ExternalConnectorCuratedOAuth:
         user_id: str,
         connector: ExternalMcpConnectorDefinition | None = None,
     ) -> tuple[dict, ExternalMcpConnectorDefinition, str, str | None]:
-        """Read current connection/configuration without decrypting or refreshing."""
-        row = await self.lifecycle.read(user_id=user_id, connector_id=connector_id, purge=False)
-        if not row or row["status"] == "revoked":
-            # Never connected, or the person disconnected it: nothing to report.
-            raise CuratedNotConnectedError()
-        if row["status"] not in {"connected", "verifying"} or row["envelope_version"] != 2:
-            # needs_reauth (the provider rejected the refresh token), error, or a legacy
-            # envelope: the person did connect it and it stopped working, so say so.
-            raise CuratedConnectorOAuthError("reconnect_required", status_code=401)
-        connector, client_id, client_secret = await self._configuration(connector_id, connector)
-        # Check the registry hasn't drifted from what was consented to BEFORE
-        # any decrypt or provider call: an operator edit (endpoint, token
-        # URL, client) must force reconnect, never silently carry an old
-        # refresh token or access token to a changed target.
-        if row.get("verified_policy_hash") not in (None, curated_policy_hash(connector)):
-            raise CuratedConnectorOAuthError("reconnect_required", status_code=401)
-        return row, connector, client_id, client_secret
+        from hushh_mcp.services.curated_connector_credential_execution import validated_connection
+
+        return await validated_connection(
+            self, user_id=user_id, connector_id=connector_id, connector=connector
+        )
 
     async def connection_snapshot(
         self,
@@ -561,84 +553,10 @@ class ExternalConnectorCuratedOAuth:
         user_id: str,
         connector: ExternalMcpConnectorDefinition | None = None,
     ) -> tuple[dict, dict]:
-        """Execution credentials; refresh only for a cold catalog or actual call."""
-        row, connector, client_id, client_secret = await self._validated_connection(
-            connector_id=connector_id, user_id=user_id, connector=connector
-        )
-        credential = self.credentials.open_credential(
-            user_id=user_id, connector_id=connector_id, row=row
-        )
-        if credential.get("oauthClientId") != client_id:
-            raise CuratedConnectorOAuthError("reconnect_required", status_code=401)
-        if row["credential_expires_at"] > datetime.now(UTC) + _REFRESH_MARGIN:
-            return row, credential
-        common = dict(
-            user_id=user_id,
-            connector_id=connector_id,
-            generation=row["connection_generation"],
-            version=row["credential_version"],
-        )
-        lease_id = secrets.token_urlsafe(24)
-        if not await self.lifecycle.claim_refresh(**common, lease_id=lease_id):
-            # Another caller holds the lease (parallel tool calls at the margin).
-            # Give it a moment to persist, then use its fresh credential.
-            return await self._await_concurrent_refresh(
-                user_id=user_id,
-                connector_id=connector_id,
-                generation=row["connection_generation"],
-                client_id=client_id,
-            )
-        refreshed: dict[str, Any] | None = None
-        try:
-            token = await self._post(
-                connector.oauth_token_url,
-                token_url=connector.oauth_token_url,
-                data=dict(
-                    grant_type="refresh_token",
-                    refresh_token=credential["refreshToken"],
-                    **self._client_auth(client_id, client_secret),
-                ),
-                timeout_seconds=_REFRESH_POST_TIMEOUT,
-            )
-            refreshed = {**credential, **self._token_fields(token)}
-            # RFC 6749 doesn't require a refresh grant to return a new
-            # refresh token; HubSpot's is documented as single-use and
-            # rotating, so a provider that omits one here is treated as
-            # keeping the prior token valid, not as revoking it.
-            refreshed["refreshToken"] = refreshed.get("refreshToken") or credential["refreshToken"]
-            encrypted = self.credentials.seal_credential(
-                user_id=user_id,
-                connector_id=connector_id,
-                generation=common["generation"],
-                version=common["version"] + 1,
-                secret=refreshed,
-                expires_at=datetime.fromisoformat(refreshed["expiresAt"]),
-            )
-            await self._persist_refresh(common, lease_id, encrypted)
-        except CuratedConnectorOAuthError as error:
-            await self.lifecycle.settle_refresh(
-                **common, lease_id=lease_id, rejected=str(error) == "grant_rejected"
-            )
-            if str(error) == "connection_changed" and refreshed is not None:
-                # The person disconnected while the provider was rotating the token. The
-                # new pair was never stored, so nothing here can ever revoke it later.
-                await self._revoke_unstored(connector_id, client_id, client_secret, refreshed)
-            raise
-        except BaseException:
-            # Cancellation (the chat turn's deadline) or a storage failure: never
-            # leave the lease held. Shielded so a cancel cannot skip the release.
-            await asyncio.shield(self._release_lease(common, lease_id))
-            raise
-        updated = await self.lifecycle.read(user_id=user_id, connector_id=connector_id, purge=False)
-        if (
-            not updated
-            or updated["connection_generation"] != common["generation"]
-            or updated["status"] not in {"connected", "verifying"}
-        ):
-            await self._revoke_unstored(connector_id, client_id, client_secret, refreshed)
-            raise CuratedConnectorOAuthError("connection_changed", status_code=409)
-        return updated, self.credentials.open_credential(
-            user_id=user_id, connector_id=connector_id, row=updated
+        from hushh_mcp.services.curated_connector_credential_execution import current_credential
+
+        return await current_credential(
+            self, user_id=user_id, connector_id=connector_id, connector=connector
         )
 
     async def _revoke_unstored(
@@ -707,6 +625,7 @@ class ExternalConnectorCuratedOAuth:
                 and fresh["status"] in {"connected", "verifying"}
                 and fresh["credential_expires_at"] > datetime.now(UTC) + _REFRESH_MARGIN
             ):
+                await admit_hub_content(user_id, "curated_refresh_join")
                 credential = self.credentials.open_credential(
                     user_id=user_id, connector_id=connector_id, row=fresh
                 )

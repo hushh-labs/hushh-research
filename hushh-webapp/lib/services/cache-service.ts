@@ -163,6 +163,9 @@ class CacheService {
    */
   invalidateUser(userId: string): void {
     const keysToDelete = new Set<string>([
+      CACHE_KEYS.DIRECT_MESSAGE_THREADS(userId),
+      CACHE_KEYS.DIRECT_MESSAGE_ROUTES(userId),
+      CACHE_KEYS.DIRECT_MESSAGE_SESSION(userId),
       CACHE_KEYS.PKM_METADATA(userId),
       CACHE_KEYS.PKM_BLOB(userId),
       CACHE_KEYS.PKM_DECRYPTED_BLOB(userId),
@@ -171,6 +174,7 @@ class CacheService {
       CACHE_KEYS.VAULT_STATUS(userId),
       CACHE_KEYS.VAULT_CHECK(userId),
       CACHE_KEYS.ACCOUNT_IDENTITY(userId),
+      CACHE_KEYS.TRUSTED_DEVICES(userId),
       CACHE_KEYS.PRE_VAULT_BOOTSTRAP(userId),
       CACHE_KEYS.ACTIVE_CONSENTS(userId),
       CACHE_KEYS.PENDING_CONSENTS(userId),
@@ -287,6 +291,9 @@ class CacheService {
 export const CACHE_KEYS = {
   CONNECTOR_FEATURES: (userId: string) => `connector_features_${userId}`,
   WALLET_PRESENTATIONS: (userId: string) => `wallet_presentations_${userId}`,
+  DIRECT_MESSAGE_THREADS: (userId: string) => `direct_message_threads_${userId}`,
+  DIRECT_MESSAGE_ROUTES: (userId: string) => `direct_message_routes_${userId}`,
+  DIRECT_MESSAGE_SESSION: (userId: string) => `direct_message_session_${userId}`,
   GOOGLE_CONNECTION: (userId: string, service: "drive" | "calendar", generation: number, vaultEpoch: number, revision: number) =>
     `google_connection_${userId}_${service}_${generation}_${vaultEpoch}_${revision}`,
   PKM_METADATA: (userId: string) => `pkm_metadata_${userId}`,

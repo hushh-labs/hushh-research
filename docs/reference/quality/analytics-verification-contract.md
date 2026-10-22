@@ -112,7 +112,7 @@ UAT smoke note:
 Use the maintained inspection helper:
 
 ```bash
-python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py validate
+python3 .agents/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py validate
 ```
 
 Required checks:
@@ -145,7 +145,7 @@ Required checks:
 If a required custom dimension is missing and the service account has edit access, the helper can create missing event-scoped dimensions:
 
 ```bash
-python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py ensure-custom-dimensions
+python3 .agents/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py ensure-custom-dimensions
 ```
 
 ## 3. GA Data API Event Availability
@@ -153,7 +153,7 @@ python3 .codex/skills/analytics-observability-governance/scripts/inspect_analyti
 Use the health command:
 
 ```bash
-python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py health
+python3 .agents/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py health
 ```
 
 This checks recent GA reporting availability for:

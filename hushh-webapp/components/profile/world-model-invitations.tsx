@@ -105,7 +105,7 @@ export function useWorldModelInvitations({
         current.current.vaultKey === vaultKey &&
         current.current.vaultOwnerToken === vaultOwnerToken,
     });
-    void WorldModelInvitationsService.list({ vaultKey, vaultOwnerToken })
+    void WorldModelInvitationsService.list({ vaultKey, vaultOwnerToken, isCurrent: capture.isCurrent, signal: controller.signal })
       .then((value) => {
         if (capture.isCurrent()) setRows(value);
       })
@@ -121,7 +121,7 @@ export function useWorldModelInvitations({
     if (!clean.name || (!clean.email && !clean.phone) || clean.name.length > 160 || clean.email.length > 320 || clean.phone.length > 16 ||
         clean.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean.email) || clean.phone && !/^\+[1-9]\d{7,14}$/.test(clean.phone)) throw new Error("Invalid invitation contact.");
     await capture.assertCurrent();
-    const result = await WorldModelInvitationsService.create(session, clean.email || clean.phone,
+    const result = await WorldModelInvitationsService.create({ ...session, isCurrent: capture.isCurrent, signal: ownerSession.controller.signal }, clean.email || clean.phone,
       { subject_name: clean.name, ...(clean.email && clean.phone ? { secondary_contact: clean.phone } : {}) });
     await capture.assertCurrent();
     setLink(result.url); setEmail(""); setPhone(""); setName(""); setRevision(value => value + 1);
@@ -135,7 +135,7 @@ export function useWorldModelInvitations({
     } catch (error) { if (!isShareCancellationError(error)) throw error; }
   });
   const revoke = (id: string) => run(async () => {
-    const capture = guard(); await capture.assertCurrent(); await WorldModelInvitationsService.revoke(session, id);
+    const capture = guard(); await capture.assertCurrent(); await WorldModelInvitationsService.revoke({ ...session, isCurrent: capture.isCurrent, signal: ownerSession.controller.signal }, id);
     await capture.assertCurrent(); setLink(null); setRevision(value => value + 1);
   });
   return { name, setName, email, setEmail, phone, setPhone, link, rows, busy, message, emailValid, phoneValid, create, share, revoke };

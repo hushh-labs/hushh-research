@@ -1027,7 +1027,7 @@ export function AdaptiveDetailSurface({
       )}
     >
       <Icon icon={X} size="xs" />
-      <MaterialRipple variant="none" effect="fade" className="z-10" />
+      <MaterialRipple variant="none" effect="fade" disableHover className="z-10" />
     </button>
   );
 

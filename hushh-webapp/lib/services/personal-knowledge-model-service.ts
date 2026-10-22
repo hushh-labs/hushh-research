@@ -17,6 +17,7 @@ import { assertWalletSecurityCodeWrite, type WalletSecurityCodeChange } from "@/
  * Caching: uses CacheService for in-memory caching with TTL to reduce API calls.
  */
 
+import { parsePkmSharingImpact } from "@/lib/personal-knowledge-model/sharing-impact";
 import { mergeWithSupersedeHistory } from "@/lib/pkm/pkm-supersede-merge";
 import type { LocationPkmFinalizeAuthorizationV1 } from "@/lib/services/one-location-onboarding-run-client";
 import { locationFinalizeWire } from "@/lib/one-location/pkm-finalize-authorization";
@@ -28,6 +29,7 @@ import {
   assertReservedBranchesUntouched,
 } from "@/lib/pkm/reserved-branches";
 import { Capacitor } from "@capacitor/core";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import { HushhPersonalKnowledgeModel } from "@/lib/capacitor";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { currentPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
@@ -1195,7 +1197,7 @@ export class PersonalKnowledgeModelService {
     vaultOwnerToken?: string;
     isEffectCurrent?: () => boolean;
   }): Promise<void> {
-    if (Capacitor.isNativePlatform()) {
+    if (Capacitor.isNativePlatform() || shouldSkipReviewerBackgroundWritesForAutomation()) {
       return;
     }
     if (!params.vaultOwnerToken) {
@@ -1237,7 +1239,7 @@ export class PersonalKnowledgeModelService {
           `/api/tickers/sync-holdings/${encodeURIComponent(params.userId)}`,
           {
             method: "POST",
-            isEffectCurrent: params.isEffectCurrent,
+            isEffectCurrent: () => !shouldSkipReviewerBackgroundWritesForAutomation() && (params.isEffectCurrent?.() ?? true),
             headers: {
               "Content-Type": "application/json",
               ...this.getAuthHeaders(params.vaultOwnerToken),
@@ -2610,24 +2612,7 @@ export class PersonalKnowledgeModelService {
     if (!response.ok) {
       throw new Error("Current sharing could not be verified. Refresh and try again.");
     }
-    const payload = (await response.json()) as Record<string, unknown>;
-    return {
-      activeRecipientCount: Math.max(0, Number(payload.active_recipient_count) || 0),
-      recipientLabels: Array.isArray(payload.recipient_labels)
-        ? payload.recipient_labels.map(String).filter(Boolean)
-        : [],
-      entersNextExportRevision: payload.enters_next_export_revision === true,
-      summary:
-        typeof payload.summary === "string" && payload.summary.trim()
-          ? payload.summary.trim()
-          : "No active recipients are affected.",
-      affectedGrantIds: Array.isArray(payload.affected_grant_ids)
-        ? payload.affected_grant_ids.map(String).filter(Boolean)
-        : [],
-      affectedExportIds: Array.isArray(payload.affected_export_ids)
-        ? payload.affected_export_ids.map(String).filter(Boolean)
-        : [],
-    };
+    return parsePkmSharingImpact(await response.json());
   }
 
   static async getDomainManifest(
@@ -4126,6 +4111,7 @@ export class PersonalKnowledgeModelService {
     confirmation: PkmUserConfirmation;
     expectedValue?: string | null;
     mayPublish?: () => boolean;
+    beforeEffect?: () => Promise<void>;
   }): Promise<StoreDomainDataResult> {
     const parsed = this.parsePkmCredentialRef(params.credentialRef);
     const secret = params.secret.trim();
@@ -4169,6 +4155,7 @@ export class PersonalKnowledgeModelService {
       initialSnapshot: existing.snapshot,
       applyMutation,
       mayPublish: params.mayPublish,
+      beforeEffect: params.beforeEffect,
     });
   }
 
@@ -4306,6 +4293,7 @@ export class PersonalKnowledgeModelService {
     initialSnapshot: DomainSnapshotV1 | null;
     applyMutation: (base: Record<string, unknown>) => Record<string, unknown>;
     mayPublish?: () => boolean;
+    beforeEffect?: () => Promise<void>;
   }): Promise<StoreDomainDataResult> {
     let built = await this.buildRuntimeSecretsCommit({
       userId: params.userId,
@@ -4319,9 +4307,10 @@ export class PersonalKnowledgeModelService {
     });
 
     return runRuntimeSecretCommitWithRetry<StoreDomainDataResult>({
-      send: () => {
+      send: async () => {
+        await params.beforeEffect?.();
         if (params.mayPublish && !params.mayPublish()) throw new DOMException("The effect session changed.", "AbortError");
-        return this.storeDomainData({ ...built, mayPublish: params.mayPublish });
+        return this.storeDomainData({ ...built, mayPublish: params.mayPublish, beforeEffect: params.beforeEffect });
       },
       rebuildAfterConflict: async () => {
         // A genuine version conflict: another writer advanced this domain. Drop

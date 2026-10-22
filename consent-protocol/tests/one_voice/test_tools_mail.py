@@ -906,7 +906,13 @@ def open_app(monkeypatch):
     from api.middleware import require_vault_owner_token
     from api.routes.one import voice
     from hushh_mcp.one_voice.tools.base import EntityContext
+    from hushh_mcp.services import owner_placement_guard
 
+    # This fixture exercises Shared mail through the real placement dependency.
+    monkeypatch.setattr(owner_placement_guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(
+        owner_placement_guard, "get_owner_hosting_mode", AsyncMock(return_value="shared")
+    )
     _FakeReader.calls = []
     entities = EntityContext()
     entities.offer_mail(["id-first", "id-second"], account=ACCOUNT, mailbox="inbox")

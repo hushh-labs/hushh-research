@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useId, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import { ROUTES } from "@/lib/navigation/routes";
 import { SettingsDetailPanel, SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Footnote, Headline, RowDescription, SectionLabel } from "@/components/app-ui/typography";
 import { LiveMirrorClaimLines } from "@/components/profile/live-mirror-preview";
@@ -270,12 +272,20 @@ function LiveMirrorPanel({ view, title }: { view: LiveMirrorView; title: ReactNo
  * prior view. Corrections go to the source; nothing here writes the mirror.
  */
 export function LivingMemoryDocument() {
+  const router = useRouter();
   const state = useLiveMirrorView();
   const headingId = useId();
   if (state.status === "locked") {
     return <section aria-label="Live memory" className="min-w-0"><StatusLine status={liveMirrorStatus("locked")} /></section>;
   }
-  const title = <SectionLabel as="h2" id={headingId} className="px-1">Live memory</SectionLabel>;
+  const title = <>
+    <SectionLabel as="h2" id={headingId} className="px-1">Live memory</SectionLabel>
+    <SettingsGroup embedded separatorInset>
+      <SettingsRow title="Saved and Add" description="Open saved memories, sharing and prices."
+        voiceControlId="profile_memory_workspace" voiceActionId="route.one_pkm"
+        chevron onClick={() => router.push(ROUTES.PKM)} />
+    </SettingsGroup>
+  </>;
   return (
     <section aria-labelledby={headingId} className="min-w-0 space-y-3">
       {state.status === "loading" ? (

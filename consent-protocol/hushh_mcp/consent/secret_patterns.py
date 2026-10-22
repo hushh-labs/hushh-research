@@ -221,10 +221,14 @@ def find_secret_spans(text: str | None) -> tuple[SecretSpan, ...]:
     return tuple(spans)
 
 
-def first_secret_kind(text: str | None) -> str | None:
+def first_secret_kind(text: str | None, *, allow_identifiers: bool = False) -> str | None:
     """The kind of the first secret in ``text``, or None when it holds none."""
-    spans = find_secret_spans(text)
-    return spans[0].kind if spans else None
+    allowed = (
+        _contract()["owner_preparation"]["allowed_identifier_kinds"]
+        if allow_identifiers is True
+        else ()
+    )
+    return next((span.kind for span in find_secret_spans(text) if span.kind not in allowed), None)
 
 
 __all__ = ["SecretSpan", "find_secret_spans", "first_secret_kind"]

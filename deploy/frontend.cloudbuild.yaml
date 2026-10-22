@@ -75,10 +75,16 @@ steps:
           echo "Could not derive the frontend passkey RP ID from APP_FRONTEND_ORIGIN."
           exit 1
         fi
-        # Deploy-only consumes a validated, environment-specific image digest
-        # without uploading source. Catalog validation belongs to image builds.
-        if [[ "$${FRONTEND_IMAGE_PREBUILT:-false}" != "true" ]]; then
-        # One environment-scoped domain catalog owns frontend and backend aliases.
+        if [[ -n "${_SECRET_PREFIX}" ]]; then
+          if [[ "${_SECRET_PREFIX}" != "SCOPE_COMMERCE_SANDBOX_" || "$PROJECT_ID" != "hushh-pda-dev" \
+            || "${_OBSERVABILITY_ENABLED}" != "false" \
+            || "$${PASSKEY_RP_ID_VAL}" != hushh-webapp-commerce-sandbox-*.run.app ]]; then
+            echo "Commerce preview frontend origin/bindings are invalid." >&2; exit 1
+          fi
+        fi
+        # Prebuilt deploys have no uploaded source; image builds validate the catalog.
+        # The isolated commerce origin keeps its stricter binding checks above.
+        if [[ -z "${_SECRET_PREFIX}" && "$${FRONTEND_IMAGE_PREBUILT:-false}" != "true" ]]; then
         python3 - "${_DEPLOY_ENV}" "$${PASSKEY_RP_ID_VAL}" <<'PY_RP'
         import json
         import sys
@@ -92,6 +98,23 @@ steps:
         fi
         printf '%s' "$${PASSKEY_RP_ID_VAL}" > "$${passkey_rp_id_file}"
 
+        # Analytics is disabled only for the fixed isolated preview. Public IDs
+        # remain empty there; shared deployments require their existing secrets.
+        analytics_dir="/workspace/.frontend-analytics"
+        mkdir -p "$${analytics_dir}"
+        for analytics_name in NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID NEXT_PUBLIC_GTM_ID; do
+          : > "$${analytics_dir}/$${analytics_name}"
+          if [[ "${_OBSERVABILITY_ENABLED}" == "true" ]]; then
+            if ! gcloud secrets versions access latest --project="$PROJECT_ID" \
+              --secret="${_SECRET_PREFIX}$${analytics_name}" > "$${analytics_dir}/$${analytics_name}" 2>/dev/null \
+              || [[ ! -s "$${analytics_dir}/$${analytics_name}" ]]; then
+              echo "Required frontend analytics configuration is unavailable." >&2; exit 1
+            fi
+          elif [[ "${_OBSERVABILITY_ENABLED}" != "false" || "${_SECRET_PREFIX}" != "SCOPE_COMMERCE_SANDBOX_" ]]; then
+            echo "Frontend analytics policy is invalid." >&2; exit 1
+          fi
+        done
+
         google_contacts_client_id_file="/workspace/.google-contacts-client-id"
         google_contacts_secret_error="$$(mktemp)"
         trap 'rm -f "$${google_contacts_secret_error}"' EXIT
@@ -103,7 +126,7 @@ steps:
         # is a hard UAT failure; production/dev remain dark until their own
         # explicit OAuth client setup is complete.
         if gcloud secrets versions access latest \
-          --secret=NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID \
+          --secret=${_SECRET_PREFIX}NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID \
           --project="$PROJECT_ID" \
           > "$${google_contacts_client_id_file}" \
           2> "$${google_contacts_secret_error}"; then
@@ -137,8 +160,11 @@ steps:
           : > "$${google_sign_in_client_id_file}"
           chmod 600 "$${google_sign_in_client_id_file}"
         else
+          source scripts/deploy/frontend-google-native-config.sh
+          resolve_google_native_public_clients "${_DEPLOY_ENV}" "${_SECRET_PREFIX}" "$PROJECT_ID" \
+            "/workspace/.google-native-connectors" "$${google_contacts_secret_error}"
           bash scripts/deploy/resolve-google-sign-in-client.sh \
-            "$PROJECT_ID" "$${google_sign_in_client_id_file}"
+            "$PROJECT_ID" "$${google_sign_in_client_id_file}" "${_SECRET_PREFIX}"
         fi
 
         # Receipt logos are optional and resolved for UAT only. Never bind a
@@ -189,6 +215,8 @@ steps:
           echo "_SKIP_IMAGE_BUILD must be true or false." >&2
           exit 1
         fi
+        NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_VAL="$$(cat /workspace/.frontend-analytics/NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID)"
+        NEXT_PUBLIC_GTM_ID_VAL="$$(cat /workspace/.frontend-analytics/NEXT_PUBLIC_GTM_ID)"
         required_vars=(
           NEXT_PUBLIC_FIREBASE_API_KEY_VAL
           NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN_VAL
@@ -198,8 +226,6 @@ steps:
           NEXT_PUBLIC_FIREBASE_APP_ID_VAL
           NEXT_PUBLIC_FIREBASE_VAPID_KEY_VAL
           APP_FRONTEND_ORIGIN_VAL
-          NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_VAL
-          NEXT_PUBLIC_GTM_ID_VAL
           BACKEND_URL_VAL
         )
         for name in "${required_vars[@]}"; do
@@ -223,7 +249,7 @@ steps:
         #
         # Both ids are public -- they ship in the HTML of every page -- and are
         # the ones recorded in
-        # .codex/skills/analytics-observability-governance/references/property-stream-dataset-matrix.md
+        # .agents/skills/analytics-observability-governance/references/property-stream-dataset-matrix.md
         prod_measurement_id="G-2PCECPSKCR"
         uat_measurement_id="G-H1KGXGZTCF"
         case "${_DEPLOY_ENV}" in
@@ -257,6 +283,11 @@ steps:
         fi
         PASSKEY_RP_ID="$$(cat "$${passkey_rp_id_file}")"
         GOOGLE_CONTACTS_CLIENT_ID_VAL="$$(cat "$${google_contacts_client_id_file}")"
+        native_config_dir="/workspace/.google-native-connectors"
+        GOOGLE_IOS_CONNECTOR_CLIENT_ID_VAL="$$(cat "$${native_config_dir}/NEXT_PUBLIC_GOOGLE_IOS_CONNECTOR_CLIENT_ID")"
+        GOOGLE_ANDROID_CONNECTOR_CLIENT_ID_VAL="$$(cat "$${native_config_dir}/NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_CLIENT_ID")"
+        GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI_VAL="$$(cat "$${native_config_dir}/NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI")"
+        GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED_VAL="$$(cat "$${native_config_dir}/NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED")"
         google_sign_in_client_id_file="/workspace/.google-sign-in-client-id"
         if [[ ! -f "$${google_sign_in_client_id_file}" ]]; then
           echo "Google sign-in OAuth client resolver artifact is missing."
@@ -269,7 +300,7 @@ steps:
           exit 1
         fi
         RECEIPT_LOGO_URL_TEMPLATE_VAL="$$(cat "$${receipt_logo_url_template_file}")"
-        trap 'rm -f "$${google_contacts_client_id_file}" "$${google_sign_in_client_id_file}" "$${passkey_rp_id_file}" "$${receipt_logo_url_template_file}"' EXIT
+        trap 'rm -f "$${google_contacts_client_id_file}" "$${google_sign_in_client_id_file}" "$${passkey_rp_id_file}" "$${receipt_logo_url_template_file}"; rm -rf "$${native_config_dir}"' EXIT
 
         # Registry layer cache (buildx, mode=max): caches the npm ci + next build layers
         # so an unchanged package-lock turns dependency install into a cache hit. First
@@ -297,8 +328,9 @@ steps:
           --build-arg NEXT_PUBLIC_APP_URL=$$APP_FRONTEND_ORIGIN_VAL \
           --build-arg NEXT_PUBLIC_PASSKEY_RP_ID=$$PASSKEY_RP_ID \
           --build-arg NEXT_PUBLIC_APP_ENV=${_APP_ENV} \
-          --build-arg NEXT_PUBLIC_OBSERVABILITY_ENABLED=true \
+          --build-arg NEXT_PUBLIC_OBSERVABILITY_ENABLED=${_OBSERVABILITY_ENABLED} \
           --build-arg NEXT_PUBLIC_ONE_WALLET_CARD_ENABLED=${_ONE_WALLET_CARD_ENABLED} \
+          --build-arg NEXT_PUBLIC_ONE_WALLET_ENABLED=${_ONE_WALLET_ENABLED} \
           --build-arg NEXT_PUBLIC_ONE_LOCATION_NEARBY_CHECK_IN=${_ONE_LOCATION_NEARBY_CHECK_IN} \
           --build-arg NEXT_PUBLIC_LOCATION_MAP_DEMO=${_LOCATION_MAP_DEMO} \
           --build-arg NEXT_PUBLIC_WORKOS_SSO_ENABLED=${_WORKOS_SSO_ENABLED} \
@@ -306,6 +338,10 @@ steps:
           --build-arg NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE=1 \
           --build-arg NEXT_PUBLIC_GTM_ID=$$NEXT_PUBLIC_GTM_ID_VAL \
           --build-arg "NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID=$$GOOGLE_CONTACTS_CLIENT_ID_VAL" \
+          --build-arg "NEXT_PUBLIC_GOOGLE_IOS_CONNECTOR_CLIENT_ID=$$GOOGLE_IOS_CONNECTOR_CLIENT_ID_VAL" \
+          --build-arg "NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_CLIENT_ID=$$GOOGLE_ANDROID_CONNECTOR_CLIENT_ID_VAL" \
+          --build-arg "NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI=$$GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI_VAL" \
+          --build-arg "NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED=$$GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED_VAL" \
           --build-arg "NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID=$$GOOGLE_SIGN_IN_CLIENT_ID_VAL" \
           --build-arg "NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE=$$RECEIPT_LOGO_URL_TEMPLATE_VAL" \
           --build-arg NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY=$$NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY_VAL \
@@ -322,8 +358,6 @@ steps:
       "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID_VAL",
       "NEXT_PUBLIC_FIREBASE_APP_ID_VAL",
       "NEXT_PUBLIC_FIREBASE_VAPID_KEY_VAL",
-      "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_VAL",
-      "NEXT_PUBLIC_GTM_ID_VAL",
       "NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY_VAL",
       "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY_VAL"
     ]
@@ -337,20 +371,28 @@ steps:
       - |
         set -euo pipefail
 
-        secrets="BACKEND_URL=BACKEND_URL:latest,DEVELOPER_API_URL=BACKEND_URL:latest,FIREBASE_ADMIN_CREDENTIALS_JSON=FIREBASE_ADMIN_CREDENTIALS_JSON:latest,APPLE_TEAM_ID=APPLE_TEAM_ID:latest,NEXT_PUBLIC_IOS_BUNDLE_ID=NEXT_PUBLIC_IOS_BUNDLE_ID:latest,NEXT_PUBLIC_ANDROID_APP_ID=NEXT_PUBLIC_ANDROID_APP_ID:latest,ANDROID_SHA256_CERT_FINGERPRINTS=ANDROID_SHA256_CERT_FINGERPRINTS:latest"
+        if [[ -n "${_SECRET_PREFIX}" && ("${_SECRET_PREFIX}" != "SCOPE_COMMERCE_SANDBOX_" \
+          || "$PROJECT_ID" != "hushh-pda-dev" || "${_FRONTEND_SERVICE}" != "hushh-webapp-commerce-sandbox" \
+          || "${_FRONTEND_RUNTIME_SERVICE_ACCOUNT}" != "commerce-sandbox-runtime@hushh-pda-dev.iam.gserviceaccount.com") ]]; then
+          echo "Commerce preview frontend target is invalid." >&2; exit 1
+        fi
+        secrets="BACKEND_URL=${_SECRET_PREFIX}BACKEND_URL:latest,DEVELOPER_API_URL=${_SECRET_PREFIX}BACKEND_URL:latest,FIREBASE_ADMIN_CREDENTIALS_JSON=${_SECRET_PREFIX}FIREBASE_ADMIN_CREDENTIALS_JSON:latest,APPLE_TEAM_ID=${_SECRET_PREFIX}APPLE_TEAM_ID:latest,NEXT_PUBLIC_IOS_BUNDLE_ID=${_SECRET_PREFIX}NEXT_PUBLIC_IOS_BUNDLE_ID:latest,NEXT_PUBLIC_ANDROID_APP_ID=${_SECRET_PREFIX}NEXT_PUBLIC_ANDROID_APP_ID:latest,ANDROID_SHA256_CERT_FINGERPRINTS=${_SECRET_PREFIX}ANDROID_SHA256_CERT_FINGERPRINTS:latest"
+        if [[ -n "${_SECRET_PREFIX}" ]]; then
+          secrets="${secrets},APP_FRONTEND_ORIGIN=${_SECRET_PREFIX}APP_FRONTEND_ORIGIN:latest"
+        fi
 
         if [[ -n "${_RATE_LIMIT_STORAGE_URI_SECRET}" ]]; then
-          if ! gcloud secrets describe "${_RATE_LIMIT_STORAGE_URI_SECRET}" --project="$PROJECT_ID" >/dev/null 2>&1; then
+          if ! gcloud secrets describe "${_SECRET_PREFIX}${_RATE_LIMIT_STORAGE_URI_SECRET}" --project="$PROJECT_ID" >/dev/null 2>&1; then
             echo "Missing required shared rate-limit secret ${_RATE_LIMIT_STORAGE_URI_SECRET}."
             exit 1
           fi
-          secrets="${secrets},RATE_LIMIT_STORAGE_URI=${_RATE_LIMIT_STORAGE_URI_SECRET}:latest"
+          secrets="${secrets},RATE_LIMIT_STORAGE_URI=${_SECRET_PREFIX}${_RATE_LIMIT_STORAGE_URI_SECRET}:latest"
         fi
 
         # `hushh-mail-api` key for user-requested SOS mail only. Keep optional:
         # binding a missing secret would fail the whole frontend deploy.
-        if gcloud secrets describe MAIL_API_KEY --project="$PROJECT_ID" >/dev/null 2>&1; then
-          secrets="${secrets},MAIL_API_KEY=MAIL_API_KEY:latest"
+        if gcloud secrets describe "${_SECRET_PREFIX}MAIL_API_KEY" --project="$PROJECT_ID" >/dev/null 2>&1; then
+          secrets="${secrets},MAIL_API_KEY=${_SECRET_PREFIX}MAIL_API_KEY:latest"
         else
           echo "Skipping optional secret MAIL_API_KEY; not found in project ${PROJECT_ID}."
         fi
@@ -369,7 +411,6 @@ steps:
           "--image=${image_reference}"
           "--region=${_REGION}"
           "--platform=managed"
-          "--allow-unauthenticated"
           "--port=8080"
           "--memory=${_CLOUD_RUN_MEMORY}"
           "--cpu=1"
@@ -384,6 +425,11 @@ steps:
           "--set-secrets=${secrets}"
         )
 
+        # Preview admission is verified by the workflow after application
+        # promotion. Preserve private bootstrap and existing application IAM.
+        if [[ -z "${_SECRET_PREFIX}" ]]; then
+          cmd+=("--allow-unauthenticated")
+        fi
         if [[ -n "${_VPC_CONNECTOR}" ]]; then
           cmd+=("--vpc-connector=${_VPC_CONNECTOR}" "--vpc-egress=private-ranges-only")
         fi
@@ -410,6 +456,8 @@ substitutions:
   _FRONTEND_RUNTIME_SERVICE_ACCOUNT: ""
   _REGION: us-central1
   _APP_ENV: production
+  _SECRET_PREFIX: ""
+  _OBSERVABILITY_ENABLED: "true"
   # The browser RP ID is derived from APP_FRONTEND_ORIGIN in the Cloud SDK
   # step. Keeping it out of substitutions prevents one lane's domain from
   # silently shipping in another lane's frontend image.
@@ -417,6 +465,8 @@ substitutions:
   # the backend ONE_WALLET_CARD_ENABLED flag still decides whether it works.
   _ONE_WALLET_CARD_ENABLED: "false"
   # Wallet (payment cards) tile, /one/wallet, and chat widgets. Default off;
+  # the backend ONE_WALLET_ENABLED flag still decides whether agent_wallet exists.
+  _ONE_WALLET_ENABLED: "false"
   # Offers nearby check-in in a production build. Default off: the check-in
   # point is client-supplied and unattestable, so the backend admits production
   # callers by cohort and this only avoids collecting a location for a flow that
@@ -464,31 +514,27 @@ substitutions:
 # Secrets to fetch
 availableSecrets:
   secretManager:
-    - versionName: projects/$PROJECT_ID/secrets/BACKEND_URL/versions/latest
+    - versionName: projects/$PROJECT_ID/secrets/${_SECRET_PREFIX}BACKEND_URL/versions/latest
       env: "BACKEND_URL_VAL"
-    - versionName: projects/$PROJECT_ID/secrets/APP_FRONTEND_ORIGIN/versions/latest
+    - versionName: projects/$PROJECT_ID/secrets/${_SECRET_PREFIX}APP_FRONTEND_ORIGIN/versions/latest
       env: "APP_FRONTEND_ORIGIN_VAL"
-    - versionName: projects/$PROJECT_ID/secrets/NEXT_PUBLIC_FIREBASE_API_KEY/versions/latest
+    - versionName: projects/$PROJECT_ID/secrets/${_SECRET_PREFIX}NEXT_PUBLIC_FIREBASE_API_KEY/versions/latest
       env: "NEXT_PUBLIC_FIREBASE_API_KEY_VAL"
-    - versionName: projects/$PROJECT_ID/secrets/NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN/versions/latest
+    - versionName: projects/$PROJECT_ID/secrets/${_SECRET_PREFIX}NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN/versions/latest
       env: "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN_VAL"
-    - versionName: projects/$PROJECT_ID/secrets/NEXT_PUBLIC_FIREBASE_PROJECT_ID/versions/latest
+    - versionName: projects/$PROJECT_ID/secrets/${_SECRET_PREFIX}NEXT_PUBLIC_FIREBASE_PROJECT_ID/versions/latest
       env: "NEXT_PUBLIC_FIREBASE_PROJECT_ID_VAL"
-    - versionName: projects/$PROJECT_ID/secrets/NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET/versions/latest
+    - versionName: projects/$PROJECT_ID/secrets/${_SECRET_PREFIX}NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET/versions/latest
       env: "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET_VAL"
-    - versionName: projects/$PROJECT_ID/secrets/NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID/versions/latest
+    - versionName: projects/$PROJECT_ID/secrets/${_SECRET_PREFIX}NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID/versions/latest
       env: "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID_VAL"
-    - versionName: projects/$PROJECT_ID/secrets/NEXT_PUBLIC_FIREBASE_APP_ID/versions/latest
+    - versionName: projects/$PROJECT_ID/secrets/${_SECRET_PREFIX}NEXT_PUBLIC_FIREBASE_APP_ID/versions/latest
       env: "NEXT_PUBLIC_FIREBASE_APP_ID_VAL"
-    - versionName: projects/$PROJECT_ID/secrets/NEXT_PUBLIC_FIREBASE_VAPID_KEY/versions/latest
+    - versionName: projects/$PROJECT_ID/secrets/${_SECRET_PREFIX}NEXT_PUBLIC_FIREBASE_VAPID_KEY/versions/latest
       env: "NEXT_PUBLIC_FIREBASE_VAPID_KEY_VAL"
-    - versionName: projects/$PROJECT_ID/secrets/NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID/versions/latest
-      env: "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_VAL"
-    - versionName: projects/$PROJECT_ID/secrets/NEXT_PUBLIC_GTM_ID/versions/latest
-      env: "NEXT_PUBLIC_GTM_ID_VAL"
-    - versionName: projects/$PROJECT_ID/secrets/NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY/versions/latest
+    - versionName: projects/$PROJECT_ID/secrets/${_SECRET_PREFIX}NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY/versions/latest
       env: "NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY_VAL"
-    - versionName: projects/$PROJECT_ID/secrets/NEXT_PUBLIC_GOOGLE_MAPS_API_KEY/versions/latest
+    - versionName: projects/$PROJECT_ID/secrets/${_SECRET_PREFIX}NEXT_PUBLIC_GOOGLE_MAPS_API_KEY/versions/latest
       env: "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY_VAL"
 
 # Options

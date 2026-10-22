@@ -37,6 +37,10 @@ Use this pattern for any new Kai, One Voice, Agent Chat, or portfolio-import str
 - Consume streams with `hushh-webapp/lib/streaming/kai-stream-client.ts`.
 - Never add route-specific ad hoc parsers.
 - In Agent Chat, consume the existing AG-UI protocol through `hushh-webapp/lib/services/agent-chat-client.ts`; assistant text deltas are the source of incremental response text, not tool progress or provider payloads.
+- Agent Chat's 90-second byte-idle watchdog begins after response headers and a
+  stream body arrive. Cold pod admission retains its separate HTTP deadline;
+  admission is not a silent model stream. Cancellation invalidates the run so
+  late admission cannot dispatch a cancelled turn or restart its watchdog.
 - Agent Chat settles a turn from an explicit `RUN_FINISHED` or `RUN_ERROR`. After a clean transport EOF without either event, the client allows 500 ms for already received parser callbacks, then aborts a stuck SDK transport and reports one incomplete result. The workspace reconciles persisted turn history before offering another attempt. An intentional review-card detach remains a separate pending state, not a stream failure. Terminal callbacks are guarded so a late frame cannot create a second completion.
 - A confirmed chat-key refusal may retain one unexecuted request in memory for
   its requested unlock. The shared composer still clears on lock. Recovery
@@ -46,6 +50,53 @@ Use this pattern for any new Kai, One Voice, Agent Chat, or portfolio-import str
   permission and source content; it never restores fetched sources as a draft
   attachment or automatically captures them into Memory. Stale/exhausted refusals
   and uncertain transport outcomes do not gain automatic replay authority.
+
+### Private pod reconnect and settled work
+
+Private Agent Chat keeps its existing AG-UI protocol and encrypted conversation
+store. `one_adk/pod_chat_stream.py` separates the transport reader from the
+admitted run, with at most 64 buffered frames / 1 MiB. Detachment discards the
+buffer; it does not resubmit the turn. The producer exhausts SDK cleanup and
+retains only the original request-key lifetime (at most 300 seconds), including
+the existing update permit and access checks. Explicit Stop and parked review
+cards use the existing authenticated stop route. A preparing producer is fenced
+by owner and conversation; an unacknowledged Stop is reported as unconfirmed.
+
+Reconnection reads encrypted history and `turn.pending`; activity is sampled
+before and after the read so an older snapshot cannot invite a duplicate turn.
+No token replay log, parallel action ledger or automatic effect replay is added.
+Lost or uncertain consequential outcomes still need their owning reconciliation.
+Files activity reads only existing queued/running jobs, one at a time, while
+visible and online. The ten-minute observation window stops on terminal state,
+mutation, owner change, vault closure or unmount; it never resubmits a job.
+
+Private command proposals and pending MCP arguments use separate bounded,
+owner-chat-key-encrypted CAS slots in the existing owner object store. Command
+reconnect reads the stored revision; it never dispatches an effect automatically.
+An accepted effect is journaled as `dispatching` before execution. An uncertain
+response stays uncertain rather than returning to a runnable checkpoint.
+
+After a pod restart, MCP recovery reads the sealed native ADK confirmation and
+its encrypted pending arguments. Only the process epoch may change. The existing
+hub action ledger atomically cancels the old directive and issues its exact
+successor with the original expiry; a fresh browser confirmation is required.
+A persisted rebind intent reconciles a lost acknowledgement before another
+restart. Consumed, expired or mismatched directives cannot be revived. Private
+arguments and previews never enter hub persistence or the history cache.
+
+Each recovered browser continuation has a fresh cancellation lifetime and
+message identity. Late events cannot update a stopped or replaced segment.
+Stop remains pending until its server acknowledgement; failure displays an
+uncertain outcome. Recovery reads do not start a model turn or prolong idle
+compute. Old clients are explicitly refused by the new command contract; a
+legacy pod can accept a fresh supported command but cannot promise restart
+recovery.
+
+Process-local continuation does not guarantee completion after process loss.
+Request-based Cloud Run does not provide continuous CPU after the request ends;
+durable background completion belongs to the existing authenticated job/queue
+owners. Keep selected cost settings unchanged. See [Cloud Run CPU and background
+execution](https://docs.cloud.google.com/run/docs/tips/general).
 
 ### Personal World Model research
 
@@ -183,7 +234,9 @@ visibility, or every 5 minutes. A 503 waits for `Retry-After`. A 401 gets one
 token refresh, then the stream waits for a recovery signal (session verified
 again, a new ID token, network back, or visible 60 s after the last attempt), at
 most 3 times per 15 minutes. Once the validated session owner changes, the old
-stream connects and dispatches nothing.
+stream connects and dispatches nothing. The manager rechecks that owner after
+token acquisition and response headers; a retired attempt stops without retry
+and cancels any late response body, even when the transport ignores abort.
 
 `payout_changed` rings only the payout bus (`hushh-webapp/lib/payouts/payout-events.ts`).
 Feed frames reread the Feed on a burst's first frame and once more after the
@@ -347,6 +400,40 @@ The canonical app stream surface is `hushh-webapp/components/app-ui/stream-progr
 - Validate backend: `ruff`, `mypy`, `pytest`.
 - Run manual smoke on Import / Optimize / Analyze in iOS, Android, and web.
 
+
+## Direct Puppy streams
+
+`/api/one/pod/turn/stream` emits bounded `token` deltas followed by one `done` or
+`error` terminal. It shares the ordinary turn's owner/device consent, admission
+and update permits. The browser keeps its abort listener through the response
+body and never falls back to a cloud model for unavailable Puppy inference.
+
+Preparation is bounded at 205 seconds. Immediately before the authenticated
+direct POST, the existing dispatch callback starts a separate 170-second
+inference deadline in both the stream consumer and its caller. Cold admission
+does not consume that inference budget. Neither tokens nor retries extend it;
+an aborted preparation cannot dispatch later. The panel reports connection
+until that dispatch point, then waits for the machine's response.
+
+HTTP edges may keep the upstream alive after browser abort. The explicit
+[turn stop](../architecture/api-contracts.md#direct-puppy-turn-cancellation) joins
+that existing producer using the same request identity. Duplicate stops do not
+interrupt cleanup or dispatch another turn. A stopped producer ends the upstream
+with `PUPPY_CANCELLED`; the bounded browser stop wait reports
+`PUPPY_CANCEL_UNCONFIRMED` if settlement cannot be established. Neither code
+proves a device-side stop acknowledgement. The UI retains a stopping state until
+the authoritative request settles; late deltas cannot repopulate a cancelled turn.
+
+### Local Hermes chat
+
+The localhost `/api/hermes/chat/stream` bridge follows Hermes’s existing
+session-stream lifetime: request abort and downstream cancellation abort the
+same upstream request, including session preparation. The bridge releases its
+reader and removes listeners on settlement. Hiding the mounted Puppy surface
+does not abort a turn. The Stop control distinguishes an owner cancellation
+from a connection failure and preserves partial text. This is transport
+cancellation under the local Hermes disconnect contract, not a direct-pod Stop
+receipt or proof that an already delivered tool effect was undone.
 
 ## Typed-chat emoji reactions
 

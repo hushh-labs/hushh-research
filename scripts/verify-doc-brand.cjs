@@ -46,11 +46,11 @@ const targets = [
   "hushh-webapp/components/vault/vault-method-prompt.tsx",
   "hushh-webapp/components/vault/recovery-key-dialog.tsx",
   "hushh-webapp/app/profile/page.tsx",
-  ".codex/skills/codex-skill-authoring/scripts/init_skill.py",
-  ".codex/skills/repo-context/scripts/repo_scan.py",
-  ".codex/skills/repo-operations/scripts/ci_monitor.py",
-  ".codex/skills",
-  ".codex/workflows",
+  ".agents/skills/codex-skill-authoring/scripts/init_skill.py",
+  ".agents/skills/repo-context/scripts/repo_scan.py",
+  ".agents/skills/repo-operations/scripts/ci_monitor.py",
+  ".agents/skills",
+  ".agents/workflows",
 ];
 
 // Files whose USER-FACING copy must spell the brand "Hussh", checked with a

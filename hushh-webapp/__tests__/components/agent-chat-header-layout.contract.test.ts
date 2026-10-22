@@ -111,7 +111,14 @@ describe("agent chat header layout", () => {
     expect(header).toContain(
       'className="size-[var(--one-header-artwork-size,32px)] shrink-0"',
     );
-    expect(header).toContain('className="inline-flex size-[var(--one-header-artwork-size,44px)]');
+    // The handler contains an arrow, so the first `>` is not the tag boundary.
+    const trigger = header.match(/<ShellActionSurface\b[\s\S]*?<\/ShellActionSurface>/g)
+      ?.find(surface => surface.includes("data-agent-chat-one-profile-trigger"));
+    expect(trigger).toBeDefined();
+    expect(trigger).toContain("<ShellActionSurface");
+    expect(trigger).toContain('variant="icon"');
+    expect(trigger).toContain("ripple={false}");
+    expect(trigger?.match(/className="([^"]*)"/)?.[1].split(/\s+/)).toContain("!size-[var(--one-header-artwork-size,44px)]");
     expect(workspace).toContain('data-one-centered-header={!isPuppySurface && !customNativePresentationEnabled() ? "true" : undefined}');
     expect(header).not.toContain("🤫");
   });

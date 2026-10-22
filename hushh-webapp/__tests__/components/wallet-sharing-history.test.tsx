@@ -5,7 +5,7 @@ vi.mock("@/lib/services/wallet-card-access-service", async (importOriginal) => (
   ...await importOriginal<typeof import("@/lib/services/wallet-card-access-service")>(), WalletCardAccessService: mocks,
 }));
 import { CardAccessUnavailableError } from "@/lib/services/wallet-card-access-service";
-vi.mock("@/components/wallet/wallet-saved-card-sharing", () => ({ WalletSavedCardSharing: () => null }));
+vi.mock("@/components/wallet/wallet-saved-card-sharing", () => ({ WalletSavedCardSharing: ({ card }: { card: { cardId: string } }) => <button>Share {card.cardId}</button> }));
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { promise: vi.fn() } }));
 import { WalletSharingHistory } from "@/components/wallet/wallet-sharing-history";
@@ -86,8 +86,10 @@ describe("Wallet's participant-scoped sharing ledger", () => {
     expect(screen.getByText("First")).toBeVisible();
   });
   it("keeps loaded history through refresh and rejects a late page after the owner changes", async () => {
+    mocks.profile.mockResolvedValue({ eligible: true, cardId: "profile_owner" });
     mocks.history.mockResolvedValueOnce(page(["First"], "payment:cursor")).mockResolvedValueOnce(page(["Second"]));
     const view = render(<WalletSharingHistory ownerId="owner" active getContext={getContext} />);
+    expect(await screen.findByRole("button", { name: "Share profile_owner" })).toBeVisible();
     fireEvent.click(await screen.findByRole("button", { name: "Load more shares" }));
     await screen.findByText("Second");
     mocks.history.mockResolvedValueOnce(page(["First"], "payment:cursor")).mockResolvedValueOnce(page(["Second"]));
@@ -103,6 +105,7 @@ describe("Wallet's participant-scoped sharing ledger", () => {
     view.rerender(<WalletSharingHistory ownerId="other" active getContext={getContext} />);
     await act(async () => finish(page(["Old owner reply"])));
     expect(screen.queryByText(/First|Second|Old owner reply/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Share profile_owner" })).toBeNull();
   });
   it("does not claim an empty ledger when loading fails, and uses the received direction", async () => {
     mocks.history.mockRejectedValueOnce(new Error("offline"));
@@ -118,19 +121,20 @@ describe("Wallet's participant-scoped sharing ledger", () => {
   });
 });
 
-it("pauses timer, focus and pagination reads while unavailable, retains history, and allows retry", async () => {
+it.each(["refresh", "pagination"])("pauses timer, focus and pagination after unavailable %s, retains history, and allows retry", async (source) => {
   const intervals = vi.spyOn(window, "setInterval");
   mocks.history.mockResolvedValueOnce(page(["Verified history"], "payment:cursor"));
   const view = render(<WalletSharingHistory ownerId="owner" active getContext={getContext} />);
   await screen.findByText("Verified history");
   mocks.history.mockRejectedValueOnce(new CardAccessUnavailableError("WALLET_CARD_ACCESS_DISABLED"));
-  await act(async () => window.dispatchEvent(new Event("focus")));
+  if (source === "pagination") fireEvent.click(screen.getByRole("button", { name: "Load more shares" }));
+  else await act(async () => window.dispatchEvent(new Event("focus")));
   await screen.findByText("Card sharing is unavailable. Automatic refresh is paused.");
   expect(screen.getByText("Verified history")).toBeVisible();
   const refresh = intervals.mock.calls.find(call => call[1] === 30_000)?.[0] as () => void;
   expect(refresh).toBeTypeOf("function");
   await act(async () => { refresh(); window.dispatchEvent(new Event("focus")); });
-  fireEvent.click(screen.getByRole("button", { name: "Load more shares" }));
+  fireEvent.click(screen.getByRole("button", { name: /(?:Load more|Retry loading) shares/ }));
   expect(mocks.history).toHaveBeenCalledTimes(2);
   fireEvent.click(screen.getByRole("button", { name: "Try again" }));
   await waitFor(() => expect(mocks.history).toHaveBeenCalledTimes(3));

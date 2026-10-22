@@ -7,7 +7,7 @@ Cloud Run deployment runbook.
 ## Release authority
 
 Use the canonical
-[Admin merge and release SOP](../.codex/skills/repo-operations/references/admin-release-sop.md)
+[Admin merge and release SOP](../.agents/skills/repo-operations/references/admin-release-sop.md)
 for merge queue, explicit Admin PR landing, exact-SHA UAT/production dispatch,
 monitoring, evidence, rollback, and branch restoration.
 
@@ -201,6 +201,77 @@ deployment. Actual over-budget capacity remains blocking in both phases.
 Manual Cloud Run changes outside governed releases require an explicit maintenance
 dispatch; the settled-receipt optimization does not claim to detect those changes.
 
+### Fixed production capacity bridge
+
+When the serving, latest-created and rollback-protected backend revisions consume
+the next release's admission budget, a governed operator may dispatch the existing
+maintenance workflow with `environment=production`, the verified healthy serving
+`healthy_release_run_id`, `apply=true` and `production_capacity_bridge=true`.
+Scheduled passes and UAT cannot create this bridge. Both source checks force a
+fresh inspection, and mutation still holds the production deployment lock.
+
+The fixed `serving_backend_clone_v2` profile creates one zero-traffic revision
+from the reviewed healthy image digest, preserving its runtime identity, bindings
+and service controls. It uses one instance, one explicit Gunicorn worker,
+asyncpg maximum four and SQLAlchemy pool two without overflow: six connections.
+The frozen image hardcodes two workers in its shell CMD, so `WEB_CONCURRENCY=1`
+alone is insufficient. The explicit direct launcher preserves `server:app`,
+Gunicorn configuration, Uvicorn worker class, 120-second timeout, eight-second
+graceful timeout and port 8080. An unreviewed image or source launcher is rejected.
+
+V1's two-slot async pool could not boot this frozen application: consent and
+referral listeners each retain one slot, leaving none for mandatory market-cache
+startup. V2 preserves the known healthy async ceiling and leaves two slots beyond
+those listeners. The failed v1 remains counted at eight; it is not called healthy.
+For three retained 80-connection backends, creation admission is
+`240 + failed-v1 8 + v2 6 + readiness 16 + reserve 30 = 300`.
+Only this fixed maintenance operation omits a hypothetical worker candidate,
+because it creates no worker revision. Every existing worker, revision and job
+still counts. Ordinary application release admission remains unchanged.
+
+The operation supports the verified source's `latest` secret selectors only.
+It pins enabled numeric versions after verifying that every version since source
+creation has the same value. Changed, disabled, missing or ambiguous history
+blocks creation. Payload comparisons happen only in memory; receipts contain
+numeric resource names and evidence flags, never payloads or payload digests.
+Source/service drift before mutation or configuration drift afterwards also blocks
+completion. The clone may execute the existing runtime's background work; zero
+traffic is not a promise of zero database writes.
+
+Before the provider request, `completed.json.capacity_bridge` records durable
+intent. A timeout never authorizes another create: a later pass observes only
+that exact deterministic revision. Explicit manual v2 recovery may supersede
+the unresolved v1 only after observing its exact deterministic revision and
+verifying its frozen image, pins, configuration, eight-connection bound, unchanged
+service controls and zero positive traffic. Enabled numeric pins are rechecked.
+The predecessor must remain latest-created, but may be unready while Cloud Run
+keeps the serving revision latest-ready. This observation does not establish
+health; the successor still requires provider readiness and HTTP verification.
+The complete original intent is retained as predecessor evidence, explicitly
+observed unhealthy. Durable successor intent records both identities before
+provider submission; an absent or mismatched predecessor cannot authorize creation.
+Until successor readiness, frozen configuration,
+unchanged positive traffic, HTTP health and connection admission are proven,
+the receipt blocks conflicting deployment. The temporary health tag is removed
+by ordinary retention. A verified rerun accepts its removal without recreating
+the revision. The former latest revision and failed v1 are deleted only through
+the existing 3,660-second drain and ordinary protection checks. Serving `00268`
+and recovery `00265` remain protected. After those deletions,
+`160 + v2 6 + backend candidate 80 + worker candidate 6 + readiness 16 + reserve 30 = 298`
+admits the ordinary backend release. A verified successor resolves creation
+uncertainty through the explicit link; it never relabels v1 healthy.
+
+If creation fails or its provider outcome is uncertain, preserve the checkpoint
+and all protected revisions. Reconcile via maintenance before another deployment;
+do not delete the bridge or a recovery anchor, shorten drainage, rewrite serving
+traffic, increase the connection limit, or retry creation blindly. A failed latest
+revision can require operator investigation before live readiness is provable.
+A failed v2 has no room for another automatic recovery candidate. Preserve its
+intent and stop creation attempts rather than broadening the profile or budget.
+This is maintenance evidence, not a healthy application release or permission
+to promote the clone. An ordinary release and its existing rollback contract
+remain responsible for application rollout.
+
 ## What lives here
 
 | Path | Purpose |
@@ -296,7 +367,7 @@ Read-only inspection is allowed when it does not mutate runtime state. Prefer
 workflow artifacts, then use repository helpers such as:
 
 ```bash
-python3 .codex/skills/uat-scoped-deploy/scripts/cloud_run_service_evidence.py \
+python3 .agents/skills/uat-scoped-deploy/scripts/cloud_run_service_evidence.py \
   --project hushh-pda-uat \
   --service hushh-webapp \
   --service consent-protocol \

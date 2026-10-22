@@ -984,10 +984,13 @@ async def test_wait_reauthorizes_and_releases_disconnected_subscriptions(chat_db
     service = CircleChatService(chat_db)
     circle = _seed(chat_db)
     queue = asyncio.Queue()
-    subscribed, removed = asyncio.Event(), []
+    subscribed, removed, subscriptions = asyncio.Event(), [], []
 
     async def subscribe(user, *, snapshot_resets=False):
+        nonlocal queue
         assert snapshot_resets
+        queue = asyncio.Queue()
+        subscriptions.append(queue)
         subscribed.set()
         return queue
 
@@ -1017,7 +1020,7 @@ async def test_wait_reauthorizes_and_releases_disconnected_subscriptions(chat_db
     with pytest.raises(HTTPException) as lost:
         await task
     assert lost.value.status_code == 404
-    assert removed == [queue] and "bob" not in chat_routes._waiting
+    assert removed == subscriptions and len(removed) == 1 and "bob" not in chat_routes._waiting
     with chat_db.engine.begin() as conn:
         conn.execute(
             text(
@@ -1033,7 +1036,7 @@ async def test_wait_reauthorizes_and_releases_disconnected_subscriptions(chat_db
     with pytest.raises(HTTPException) as closed:
         await asyncio.wait_for(task, timeout=2)
     assert closed.value.status_code == 499
-    assert removed == [queue, queue] and "bob" not in chat_routes._waiting
+    assert removed == subscriptions and len(removed) == 2 and "bob" not in chat_routes._waiting
     disconnected = False
     subscribed.clear()
     task = asyncio.create_task(
@@ -1050,7 +1053,7 @@ async def test_wait_reauthorizes_and_releases_disconnected_subscriptions(chat_db
         "membershipChanged": False,
         "reactionsChanged": False,
     }
-    assert removed == [queue, queue, queue] and "bob" not in chat_routes._waiting
+    assert removed == subscriptions and len(removed) == 3 and "bob" not in chat_routes._waiting
 
     subscribed.clear()
     task = asyncio.create_task(

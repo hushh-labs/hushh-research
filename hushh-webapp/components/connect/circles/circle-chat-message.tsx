@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { Check, CheckCheck, ChevronDown, Quote, Pencil, Trash2 } from "@/components/icons";
+import { ArrowBendUpLeft, Check, CheckCheck, ChevronDown, Pencil, Trash2 } from "@/components/icons";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { MessageReactionMenu } from "@/components/app-ui/message-reaction-menu";
@@ -141,7 +141,7 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
                 <MessageReactionMenu disabled={busy} onSelect={(emoji) => { void react(emoji); }} />
                 <DropdownMenuItem className="min-h-11" disabled={busy} onSelect={() => { selecting.current = true; setPickerOpen(true); }}>More reactions…</DropdownMenuItem>
               </> : null}
-              {!deleted && !message.failed ? <DropdownMenuItem className="min-h-11" disabled={replyDisabled} onSelect={() => { selecting.current = true; onReply?.(message); }}><Quote aria-hidden="true" />Reply</DropdownMenuItem> : null}
+              {!deleted && !message.failed ? <DropdownMenuItem className="min-h-11" disabled={replyDisabled} onSelect={() => { selecting.current = true; onReply?.(message); }}><ArrowBendUpLeft weight="fill" aria-hidden="true" />Reply</DropdownMenuItem> : null}
               {own && !deleted && !message.failed ? <DropdownMenuItem className="min-h-11" onSelect={() => { selecting.current = true; onAction(message, "edit"); }}><Pencil aria-hidden="true" />Edit</DropdownMenuItem> : null}
               <DropdownMenuItem className="min-h-11" variant="destructive" onSelect={() => { selecting.current = true; onAction(message, "me"); }}><Trash2 aria-hidden="true" />Delete for me</DropdownMenuItem>
               {own && !deleted ? <DropdownMenuItem className="min-h-11" variant="destructive" onSelect={() => { selecting.current = true; onAction(message, "everyone"); }} disabled={message.failed}><Trash2 aria-hidden="true" />Delete for everyone</DropdownMenuItem> : null}

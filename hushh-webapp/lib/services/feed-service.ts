@@ -9,15 +9,34 @@ import {
 } from "@/lib/services/cache-service";
 
 export type FeedSourceDomain =
-  | "consent"
-  | "location"
-  | "kai"
-  | "kyc"
-  | "connected_systems"
-  | "connections"
-  | "pwm";
+  "consent" | "location" | "kai" | "kyc" | "connected_systems" | "connections" | "profile_discovery" | "pwm";
+
+/**
+ * The private-agent lifecycle vocabulary, emitted by
+ * `personal_agent_provisioning_service.py`.
+ *
+ * Held as a value, not only a type, so a test can iterate it — and so the one
+ * check that matters can compare it against the backend's own constants at run
+ * time. None of these were in `FeedEventType` at all, which meant the union
+ * offered no protection whatsoever against a typo'd or unrendered event name:
+ * `FeedItem.event_type` widens to `| string`, so everything compiled either way.
+ */
+export const PERSONAL_AGENT_EVENT_TYPES = [
+  "personal_agent_reserved",
+  "personal_agent_provisioning",
+  "personal_agent_connecting",
+  "personal_agent_ready",
+  "personal_agent_failed",
+  "personal_agent_provisioning_capped",
+  "personal_agent_reaped",
+  "personal_agent_updated",
+] as const;
+
+export type PersonalAgentEventType = (typeof PERSONAL_AGENT_EVENT_TYPES)[number];
 
 export type FeedEventType =
+  | PersonalAgentEventType
+  | ProfileDiscoveryEventType
   | "pwm_research"
   | "consent_requested"
   | "consent_granted"
@@ -115,6 +134,15 @@ export type FeedEventType =
   | "circle_membership_ended"
   | "circle_deleted"
   | "connection_withdrawn";
+
+export type ProfileDiscoveryEventType =
+  | "profile_discovery_queued"
+  | "profile_discovery_scanning"
+  | "profile_discovery_needs_details"
+  | "profile_discovery_ready"
+  | "profile_discovery_failed"
+  | "profile_discovery_claimed"
+  | "profile_discovery_cancelled";
 
 export type FeedItem = {
   id: string;
@@ -259,9 +287,11 @@ export class FeedService {
   static async clearSosCards(options: {
     vaultOwnerToken: string;
     grantIds: string[];
+    isEffectCurrent?: () => boolean;
   }): Promise<string[]> {
     const response = await ApiService.apiFetch("/api/one/feed/sos-cards/clear", {
       method: "POST",
+      ...(options.isEffectCurrent ? { isEffectCurrent: options.isEffectCurrent } : {}),
       headers: {
         ...(await authHeader(options.vaultOwnerToken)),
         "Content-Type": "application/json",

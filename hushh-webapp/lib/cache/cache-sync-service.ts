@@ -1,3 +1,4 @@
+import { feedIdAtOrBefore } from "@/lib/cache/feed-read-watermark";
 import { advanceMailKycDisplayVersion } from "@/lib/gmail/mail-kyc-display-version";
 import type { PortfolioData } from "@/lib/cache/cache-context";
 import {
@@ -49,15 +50,6 @@ function toNumber(value: unknown): number | null {
   return null;
 }
 
-function feedIdAtOrBefore(id: string, watermark: string): boolean {
-  try {
-    return BigInt(id) <= BigInt(watermark);
-  } catch {
-    // Feed IDs are numeric today. Exact matching is the only safe fallback if
-    // that contract ever changes; lexical ordering would mark unrelated rows.
-    return id === watermark;
-  }
-}
 
 function deriveAttributeCount(
   domainSummary: DomainSummaryPatch | undefined,
@@ -599,6 +591,10 @@ export class CacheSyncService {
     this.onKaiMarketContextChanged(userId);
   }
 
+  static onTrustedDevicesMutated(userId: string): void {
+    CacheService.getInstance().invalidate(CACHE_KEYS.TRUSTED_DEVICES(userId));
+  }
+
   static onGoogleConnectionMutated(userId: string): void {
     advanceGoogleConnectionEpoch(userId);
     CacheService.getInstance().invalidatePattern(`google_connection_${userId}_`);
@@ -771,6 +767,7 @@ export class CacheSyncService {
    * letting each request UI guess which RIA/Market resources it owns.
    */
   static onConnectionCapabilityMutated(userId: string): void {
+    this.onDirectMessagesMutated(userId);
     this.onConsentMutated(userId);
     // Accepting or declining a request also settles the incoming-request list,
     // which is a connections cache rather than a consent one and so survives
@@ -963,6 +960,13 @@ export class CacheSyncService {
       advanceMailKycDisplayVersion(userId);
       CacheService.getInstance().invalidatePattern(`mail_kyc_display_${userId}_`);
     }
+  }
+
+  /** Message events invalidate inactive snapshots; the active view reconciles in place. */
+  static onDirectMessagesMutated(userId: string): void {
+    CacheService.getInstance().invalidateMany([
+      CACHE_KEYS.DIRECT_MESSAGE_THREADS(userId), CACHE_KEYS.DIRECT_MESSAGE_SESSION(userId),
+    ]);
   }
 
   static onAuthSignedOut(userId?: string | null): void {

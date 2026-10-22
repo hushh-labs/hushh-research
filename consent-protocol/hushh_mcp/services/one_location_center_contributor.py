@@ -88,10 +88,12 @@ class OneLocationCenterContributor:
         self,
         location_service: OneLocationAgentService | None = None,
         *,
+        read_only: bool = False,
         require_complete: bool = False,
     ) -> None:
         self._require_complete = require_complete
         self._location = location_service or OneLocationAgentService()
+        self._read_only = read_only
 
     # ----- public API ----------------------------------------------------
 
@@ -110,11 +112,18 @@ class OneLocationCenterContributor:
             return self._empty()
         try:
             if self._require_complete:
-                state = self._location.list_state(user_id=normalized_user, require_complete=True)
+                state = self._location.list_state(
+                    user_id=normalized_user,
+                    require_complete=True,
+                    **({"read_only": True} if self._read_only else {}),
+                )
             elif counts_only:
                 state = self._location.list_consent_state(user_id=normalized_user)
             else:
-                state = self._location.list_state(user_id=normalized_user)
+                state = self._location.list_state(
+                    user_id=normalized_user,
+                    **({"read_only": True} if self._read_only else {}),
+                )
         except Exception as exc:  # never let location break the consent surface
             if self._require_complete:
                 raise

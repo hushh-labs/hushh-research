@@ -16,7 +16,9 @@ def owner_chat_key(monkeypatch):
     from api.routes.one import agent_chat
 
     monkeypatch.setattr(
-        agent_chat._session_service, "is_legacy_session", AsyncMock(return_value=False)
+        agent_chat,
+        "_session_service",
+        SimpleNamespace(is_legacy_session=AsyncMock(return_value=False)),
     )
     with bound_request_chat_key("owner"):
         yield
@@ -139,10 +141,12 @@ async def test_chat_admission_scrubs_receipt_and_requires_vault_authority(
         vault.side_effect = HTTPException(status_code=403)
     monkeypatch.setattr(agent_chat, "require_vault_owner_token", vault)
     monkeypatch.setattr(agent_chat, "verify_firebase_bearer", lambda _: "owner")
+    monkeypatch.setattr(agent_chat, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
     request = Request(
         {
             "type": "http",
-            "headers": [(b"authorization", b"Bearer synthetic")],
+            "headers": [(b"authorization", b"Bearer synthetic")]
+            + ([(b"x-hushh-consent", b"HCT:synthetic")] if unlocked else []),
         }
     )
     run = _input()
@@ -175,7 +179,19 @@ async def test_chat_state_keeps_owner_name_as_an_expiring_reference(monkeypatch,
     monkeypatch.setattr(
         agent_chat, "_owner_display_name_for_turn", AsyncMock(return_value="Akshat Kumar")
     )
-    request = Request({"type": "http", "headers": [(b"authorization", b"Bearer synthetic")]})
+    # This branch admits the owner through Firebase identity plus the vault consent
+    # header on shared hosting, the same shape as the admission tests above.
+    monkeypatch.setattr(agent_chat, "verify_firebase_bearer", lambda _: "owner")
+    monkeypatch.setattr(agent_chat, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
+    request = Request(
+        {
+            "type": "http",
+            "headers": [
+                (b"authorization", b"Bearer synthetic"),
+                (b"x-hushh-consent", b"HCT:synthetic"),
+            ],
+        }
+    )
 
     state = await agent_chat._extract_state(request, _input())
 
@@ -203,7 +219,14 @@ async def test_chat_configuration_admission_requires_unlock_and_scrubs_input(
         vault.side_effect = HTTPException(status_code=403)
     monkeypatch.setattr(agent_chat, "require_vault_owner_token", vault)
     monkeypatch.setattr(agent_chat, "verify_firebase_bearer", lambda _: "owner")
-    request = Request({"type": "http", "headers": [(b"authorization", b"Bearer synthetic")]})
+    monkeypatch.setattr(agent_chat, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
+    request = Request(
+        {
+            "type": "http",
+            "headers": [(b"authorization", b"Bearer synthetic")]
+            + ([(b"x-hushh-consent", b"HCT:synthetic")] if unlocked else []),
+        }
+    )
     run = _input()
     run.forwarded_props = {"mcpConfigurations": []}
     if unlocked:
@@ -351,6 +374,89 @@ async def test_review_ledger_outage_is_reported_as_review_unavailable(monkeypatc
         await approval.review_or_resume_call(context, binding, "write", "revision", {})
 
 
+async def test_pod_port_keeps_arguments_private_and_refuses_changed_or_fenced_resume(monkeypatch):
+    import json
+    from dataclasses import replace
+    from datetime import UTC, datetime, timedelta
+
+    from hushh_mcp import runtime_settings
+    from hushh_mcp.one_adk.governed_mcp_toolset import McpConnectionBinding
+    from hushh_mcp.one_adk.mcp_pending_call import capture_pending_call, pending_resume_scope
+    from hushh_mcp.one_adk.request_secrets import store_request_secret
+    from hushh_mcp.services import pod_mcp_approval as port_module
+
+    monkeypatch.setenv("APP_SIGNING_KEY", "synthetic-pod-key-not-a-secret-32bytes")
+    runtime_settings.clear_runtime_settings_caches()
+    owner = SimpleNamespace(
+        owner="owner",
+        hushh_id="pod",
+        require_access=AsyncMock(),
+        authority=SimpleNamespace(
+            pod_key_id="key",
+            environment="dev",
+            epoch=1,
+            lease=SimpleNamespace(state=AsyncMock(return_value="held")),
+        ),
+    )
+    requests = []
+
+    def post(path, *, json):
+        requests.append((path, json))
+        if path.endswith("issue"):
+            return SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "directiveId": payload()["directiveId"],
+                    "expiresAt": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+                    "podReview": {**json["review"], "serviceUid": "uid"},
+                },
+            )
+        return SimpleNamespace(status_code=200, json=lambda: {"status": "consumed"})
+
+    port = port_module.PodMcpApprovalPort(owner, client=SimpleNamespace(post=post))
+    call = approval.McpCallApproval(
+        "owner",
+        "thread",
+        McpConnectionBinding("owner", "custom-1", 1, 1, "https://example.com/mcp"),
+        "search",
+        "rev1",
+        {"q": "PRIVATE_ARGUMENT"},
+        "call-1",
+    )
+    with approval.bind_mcp_approval_port(port):
+        issued = await call.issue(None)
+    assert "PRIVATE_ARGUMENT" not in json.dumps(requests)
+    with approval.bind_mcp_approval_port(port):
+        handle = await capture_pending_call(
+            SimpleNamespace(
+                user_id="owner",
+                function_call_id="call-1",
+                state={"hussh:user_id": "owner", "hussh:conversation_id": "thread"},
+            ),
+            tool_name=payload()["toolName"],
+            arguments=call.arguments,
+            review={"podReview": issued.private_review},
+        )
+        reference = store_request_secret(json.dumps({"pendingHandle": handle}))
+        async with pending_resume_scope(reference):
+            for changed in (
+                replace(call, arguments={"q": "changed"}),
+                replace(call, call_id="other"),
+                replace(call, catalog_revision="rev2"),
+                replace(call, binding=replace(call.binding, authority_revision=("changed",))),
+            ):
+                with pytest.raises(ActionDirectiveAuthorityError):
+                    await port.consume(changed, directive_id=issued.directive_id, receipt="r" * 43)
+            assert len(requests) == 1
+            await port.consume(call, directive_id=issued.directive_id, receipt="r" * 43)
+            owner.authority.lease.state.side_effect = ["held", "fenced"]
+            with pytest.raises(ActionDirectiveAuthorityError):
+                await port.consume(call, directive_id=issued.directive_id, receipt="r" * 43)
+    assert "PRIVATE_ARGUMENT" not in json.dumps(requests)
+    # No pod port can turn its assertion into browser confirmation.
+    assert not hasattr(port, "confirm")
+
+
 async def test_unstorable_review_shows_no_card_and_dispatches_nothing(monkeypatch):
     """A card that could never be confirmed is not shown (nothing was sent)."""
     from datetime import UTC, datetime, timedelta
@@ -439,3 +545,36 @@ async def test_supersede_is_never_abandoned_on_a_timeout():
         "owner", "thread", store=SimpleNamespace(cancel_unconfirmed_adk_chat=slow)
     )
     assert finished == [True]
+
+
+async def test_private_review_supersession_never_opens_shared_authority():
+    store = SimpleNamespace(cancel_unconfirmed_adk_chat=AsyncMock())
+    with approval.bind_mcp_approval_port(SimpleNamespace()):
+        await approval.supersede_unanswered_reviews("owner", "thread", store=store)
+    store.cancel_unconfirmed_adk_chat.assert_not_awaited()
+
+
+async def test_pod_without_approval_port_never_uses_shared_ledger(monkeypatch):
+    from hushh_mcp.one_adk.governed_mcp_toolset import McpConnectionBinding
+
+    monkeypatch.setattr(approval, "pod_mode", lambda: True)
+    store = SimpleNamespace(issue=AsyncMock(), consume=AsyncMock(), confirm=AsyncMock())
+    call = approval.McpCallApproval(
+        "owner",
+        "thread",
+        McpConnectionBinding("owner", "custom-1", 1, 1, "https://example.com/mcp"),
+        "search",
+        "rev1",
+        {},
+        "call-1",
+    )
+    for operation in (
+        call.issue(store),
+        call.consume(store, directive_id="dir_" + "a" * 32, receipt="r" * 43),
+        call.confirm(store, directive_id="dir_" + "a" * 32, confirmed=True),
+    ):
+        with pytest.raises(ActionDirectiveAuthorityError):
+            await operation
+    store.issue.assert_not_awaited()
+    store.consume.assert_not_awaited()
+    store.confirm.assert_not_awaited()

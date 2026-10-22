@@ -134,7 +134,7 @@ async def test_explicit_candidate_budget_never_silently_pages(reader, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_release_rechecks_remove_and_feature_disable(reader, monkeypatch):
+async def test_release_rechecks_remove_while_owner_reads_ignore_rollout_flag(reader, monkeypatch):
     await reader.search(query="read")
     # Chat reads are owner-available, so the env switch no longer gates them;
     # release must still re-ask admission and refuse when it says no.

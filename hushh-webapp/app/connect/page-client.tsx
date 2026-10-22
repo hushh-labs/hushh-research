@@ -2237,7 +2237,7 @@ export default function ConnectPageClient() {
       title: "Connect",
       purpose:
         "This screen finds people, sends connection requests, and manages who you are connected to.",
-      // The subjects here are people, by name and email. None of that is safe
+      // The subjects here are people, by name. None of that is safe
       // to say aloud, so this screen names only itself.
       primaryEntity: null,
       selectedEntity: null,
@@ -3162,10 +3162,10 @@ export default function ConnectPageClient() {
                     >
                       <Tabs value={connectionView} onValueChange={setConnectionView} className={styles.connectionViews}>
                         <TabsList variant="line" aria-label="Connection views" className={styles.viewTabs}>
-                          <TabsTrigger value="discover" data-voice-control-id="one-connect-discovery">Find people</TabsTrigger>
                           <TabsTrigger value="connections" data-voice-control-id="one-connect-connections">
-                            {connectionsHeadingLabel} {connectionsLoaded ? <span className={styles.count}>{connectionsTotalCount}</span> : null}
+                            <span>{connectionsHeadingLabel}</span>{connectionsLoaded ? <span className={styles.connectionTabCount}>{connectionsTotalCount}</span> : null}
                           </TabsTrigger>
+                          <TabsTrigger value="discover" data-voice-control-id="one-connect-discovery">Find people</TabsTrigger>
                         </TabsList>
                         <TabsContent forceMount value="discover" hidden={connectionView !== "discover"} aria-label="Find people">
                           {tab === "nearby" ? <div className="space-y-3"><div>{directorySelector}</div><NearbyDirectories getIdToken={getIdToken} /></div> : (
@@ -3825,14 +3825,14 @@ export default function ConnectPageClient() {
                                                 void navigateDirectMessage(router, { personRef: connection.publicPersonRef });
                                               }}
                                             >
-                                              <ProfilePaneMessageIcon size={22} strokeWidth={1.65} />
+                                              <ProfilePaneMessageIcon size={22} strokeWidth={1.65} className="translate-x-1.5" />
                                             </Button>
                                           ) : <span className="size-11 shrink-0" aria-hidden="true" />}
                                           <Popover>
                                             <PopoverTrigger asChild>
                                               <Button type="button" variant="none" effect="fade" size="compact"
                                                 aria-label={`Options for ${connectionName}`} className={CONNECT_ROW_ICON_ACTION_CLASSNAME}>
-                                                <MoreHorizontal aria-hidden="true" className="size-5" />
+                                                <MoreHorizontal aria-hidden="true" className="size-5 -translate-x-1.5" />
                                               </Button>
                                             </PopoverTrigger>
                                             <PopoverContent align="end" className="w-56 p-1">

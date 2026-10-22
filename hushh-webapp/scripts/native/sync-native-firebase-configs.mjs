@@ -59,6 +59,7 @@ export function syncNativeFirebaseConfigs({
   appRoot = resolveAppRoot(),
   monorepoRoot = path.resolve(appRoot, ".."),
   platform = "all",
+  expectedProjectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
 } = {}) {
   if (!["all", "ios", "android"].includes(platform)) {
     throw new Error(`Unsupported native Firebase platform: ${platform}`);
@@ -104,7 +105,7 @@ export function syncNativeFirebaseConfigs({
     );
   }
 
-  const expectedProject = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID?.trim();
+  const expectedProject = expectedProjectId?.trim();
   const expectedSender = process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID?.trim();
   const profile = process.env.APP_RUNTIME_PROFILE?.trim();
   if (["uat", "dev", "prod", "production"].includes(profile) && (!expectedProject || !expectedSender)) {

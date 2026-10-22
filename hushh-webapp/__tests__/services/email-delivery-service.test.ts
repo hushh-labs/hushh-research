@@ -1,8 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+const placement = vi.hoisted(() => vi.fn(async () => false));
+vi.mock('@/lib/services/private-agent-specialist-chat', () => ({ ownerContentIsPrivate: placement }));
+
 
 vi.mock("@/lib/services/api-service", () => ({
-  ApiService: { apiFetch: vi.fn() },
+  ApiService: { apiFetch: vi.fn(), ownerPodRequest: vi.fn() },
 }));
+
+vi.mock('@/lib/services/auth-service', () => ({ AuthService: { getCurrentUser: () => ({ uid: 'owner' }) } }));
 
 import {
   EmailDeliveryError,
@@ -34,9 +39,21 @@ function requestBody(call: number): Record<string, unknown> {
 }
 
 describe("EmailDeliveryService", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    sessionStorage.clear();
+  beforeEach(() => { vi.clearAllMocks(); placement.mockResolvedValue(false); sessionStorage.clear(); });
+
+  it('binds private sends to the exact reviewed proposal and refuses changed drafts or a hub fallback', async () => {
+    placement.mockResolvedValue(true);
+    const draft = { to: 'to@example.com', cc: '', bcc: '', subject: 'Hello', body: 'Body' };
+    const proposal = 'gmod_abcdefghijklmnop';
+    vi.mocked(ApiService.ownerPodRequest).mockResolvedValueOnce(new Response(JSON.stringify({ status: 'confirmation_required', action: 'send_email', proposal_id: proposal, expires_at: new Date(Date.now() + 60000).toISOString(), preview: { ...draft, to: ['to@example.com'], cc: [], bcc: [], html_body: '' } })));
+    const prepared = await EmailDeliveryService.prepare({ firebaseIdToken: 'token', vaultOwnerToken: 'owner-token', draft, idempotencyKey: 'review' });
+    await expect(EmailDeliveryService.send({ firebaseIdToken: 'token', vaultOwnerToken: 'owner-token', actionId: prepared.actionId, draft: { ...draft, body: 'changed after review' } })).rejects.toMatchObject({ code: 'PRIVATE_EMAIL_REVIEW_REQUIRED' });
+    expect(ApiService.ownerPodRequest).toHaveBeenCalledTimes(1);
+    vi.mocked(ApiService.ownerPodRequest).mockResolvedValueOnce(new Response(JSON.stringify({ proposalId: proposal, kind: 'gmail_mailbox', result: { status: 'sent', action: 'send_email', message_id: 'provider-receipt' } })));
+    await expect(EmailDeliveryService.send({ firebaseIdToken: 'token', vaultOwnerToken: 'owner-token', actionId: prepared.actionId, draft })).resolves.toEqual({ actionId: proposal, messageId: 'provider-receipt', threadId: null, outcomeUnknown: false });
+    expect(ApiService.ownerPodRequest).toHaveBeenLastCalledWith(`actions/${proposal}/confirm`, { method: 'POST' });
+    await expect(EmailDeliveryService.send({ firebaseIdToken: 'token', vaultOwnerToken: 'owner-token', actionId: prepared.actionId, draft })).rejects.toMatchObject({ code: 'PRIVATE_EMAIL_REVIEW_REQUIRED' });
+    expect(ApiService.apiFetch).not.toHaveBeenCalled();
   });
 
   it("reconciles a send status through both owner credentials without provider or mail content", async () => {
@@ -68,22 +85,26 @@ describe("EmailDeliveryService", () => {
     expect(pendingEmailSendActionIds("owner-1")).toEqual([]);
   });
 
-  it("does not turn partial or uncertain mailbox changes into completed actions", async () => {
-    vi.mocked(ApiService.apiFetch)
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        status: "partially_executed", action: "trash", count: 1, total: 3,
-      }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        status: "outcome_unknown", action: "trash", count: 0, total: 3,
-      }), { status: 200 }));
-    await expect(EmailDeliveryService.executeMailboxProposal({ ...AUTH, proposalId: "gmod_1" }))
+  it.each([false, true])("does not turn partial or uncertain mailbox changes into completed actions (private=%s)", async (privateOwner) => {
+    placement.mockResolvedValue(privateOwner);
+    const proposalId = "gmod_abcdefghijklmnop";
+    const transport = vi.mocked(privateOwner ? ApiService.ownerPodRequest : ApiService.apiFetch);
+    for (const result of [
+      { status: "partially_executed", action: "trash", count: 1, total: 3 },
+      { status: "outcome_unknown", action: "trash", count: 0, total: 3 },
+    ]) {
+      transport.mockResolvedValueOnce(new Response(JSON.stringify(privateOwner
+        ? { proposalId, kind: "gmail_mailbox", result } : result), { status: 200 }));
+    }
+    await expect(EmailDeliveryService.executeMailboxProposal({ ...AUTH, proposalId }))
       .rejects.toMatchObject({
         code: "GMAIL_MAILBOX_OUTCOME_UNKNOWN",
         message: "Gmail confirmed 1 of 3 changes. The remaining result is uncertain. Check Gmail before making this change again.",
       });
-    await expect(EmailDeliveryService.executeMailboxProposal({ ...AUTH, proposalId: "gmod_1" }))
+    await expect(EmailDeliveryService.executeMailboxProposal({ ...AUTH, proposalId }))
       .rejects.toMatchObject({ code: "GMAIL_MAILBOX_OUTCOME_UNKNOWN" });
-    expect(ApiService.apiFetch).toHaveBeenCalledTimes(2);
+    expect(transport).toHaveBeenCalledTimes(2);
+    expect(privateOwner ? ApiService.apiFetch : ApiService.ownerPodRequest).not.toHaveBeenCalled();
   });
 
   it("keeps explicit draft fields and both short-lived auth credentials at the delivery boundary", async () => {
@@ -379,5 +400,52 @@ describe("EmailDeliveryService", () => {
       cc: "cc@example.com",
       bcc: "",
     });
+  });
+  it.each(["network", "invalid-json", "invalid-receipt"])(
+    "does not invite a duplicate mailbox write after %s", async (failure) => {
+      if (failure === "network") {
+        vi.mocked(ApiService.apiFetch).mockRejectedValueOnce(new TypeError("Connection lost"));
+      } else {
+        vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response(
+          failure === "invalid-json" ? "not json" : JSON.stringify({ status: "executed", count: -1 }),
+          { status: 200 },
+        ));
+      }
+      await expect(EmailDeliveryService.executeMailboxProposal({
+        firebaseIdToken: "synthetic-id", vaultOwnerToken: "synthetic-owner", proposalId: "synthetic-proposal",
+      })).rejects.toMatchObject({ code: "GMAIL_MAILBOX_OUTCOME_UNKNOWN" });
+      expect(ApiService.apiFetch).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("preserves an explicit mailbox authorization refusal", async () => {
+    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response(JSON.stringify({
+      detail: { code: "GMAIL_MAILBOX_CONNECTION_CHANGED" },
+    }), { status: 409 }));
+    await expect(EmailDeliveryService.executeMailboxProposal({
+      firebaseIdToken: "synthetic-id", vaultOwnerToken: "synthetic-owner", proposalId: "synthetic-proposal",
+    })).rejects.toMatchObject({ code: "GMAIL_MAILBOX_CONNECTION_CHANGED", status: 409 });
+  });
+
+});
+
+
+describe("private send recovery", () => {
+  it("retains the opaque proposal and reads only pod settlement evidence", async () => {
+    vi.clearAllMocks(); sessionStorage.clear(); placement.mockResolvedValue(true);
+    const proposal = "gmod_abcdefghijklmnop";
+    rememberPendingEmailSendAction("owner", proposal);
+    expect(pendingEmailSendActionIds("owner")).toEqual([proposal]);
+    expect(pendingEmailSendActionIds("foreign")).toEqual([]);
+    vi.mocked(ApiService.ownerPodRequest).mockResolvedValueOnce(new Response(JSON.stringify({ proposalId: proposal, kind: "gmail_mailbox", state: "outcome_unknown" })));
+    await expect(EmailDeliveryService.sendStatus({ ...AUTH, actionId: proposal })).resolves.toEqual({ actionId: proposal, state: "outcome_unknown" });
+    expect(ApiService.ownerPodRequest).toHaveBeenCalledWith(`actions/${proposal}/status`, { method: "GET" });
+    vi.mocked(ApiService.ownerPodRequest).mockResolvedValueOnce(new Response(JSON.stringify({ proposalId: "gmod_wrongwrongwrong", kind: "gmail_mailbox", state: "sent" })));
+    await expect(EmailDeliveryService.sendStatus({ ...AUTH, actionId: proposal })).rejects.toMatchObject({ code: "EMAIL_ACTION_OUTCOME_UNKNOWN" });
+    vi.mocked(ApiService.ownerPodRequest).mockRejectedValueOnce(new Error("pod offline"));
+    await expect(EmailDeliveryService.sendStatus({ ...AUTH, actionId: proposal })).rejects.toThrow("pod offline");
+    placement.mockResolvedValue(false);
+    await expect(EmailDeliveryService.sendStatus({ ...AUTH, actionId: proposal })).rejects.toMatchObject({ code: "ACTION_NOT_FOUND" });
+    expect(ApiService.apiFetch).not.toHaveBeenCalled();
   });
 });

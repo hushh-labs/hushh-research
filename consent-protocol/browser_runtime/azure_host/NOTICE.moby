@@ -1,0 +1,7 @@
+Moby container profiles
+https://github.com/moby/profiles
+Revision: 4b8214fc4971e06172938a1f1554ccff6647ee80
+
+Includes the upstream default seccomp policy and generated AppArmor profile.
+Modified by Hushh: owner-pod profile name and boot-time proc-path replacement denials.
+Distributed under Apache-2.0; see LICENSE.moby.

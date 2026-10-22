@@ -108,6 +108,16 @@ function detailProps(
 }
 
 describe("named Circle flows", () => {
+  it.each([false, true])("uses the SMS text-style Add people entry for named circles (living=%s)", async (livingCircleExperience) => {
+    render(<CircleDetailFlow circleId="family" livingCircleExperience={livingCircleExperience} {...detailProps(async () => circle("family", "Family"))} />);
+    const add = await screen.findByRole("button", { name: "Add people", exact: true });
+    expect(add).toHaveClass("bg-transparent");
+    expect(add.querySelector("svg.profile-pane-icon .profile-pane-icon-accent")).toBeTruthy();
+    expect(add.querySelector('[data-slot="settings-row-chevron"]')).toBeNull();
+    fireEvent.click(add);
+    expect(await screen.findByRole("dialog", { name: "Add people" })).toBeVisible();
+  });
+
   it("retains the created ID if the server drops a custom type, then updates it on retry", async () => {
     const props = createProps();
     const saved = { ...circle("new-circle", "Investments"), kind: "other" as const };

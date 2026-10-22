@@ -36,10 +36,10 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
 
-from api.middlewares.chat_key import require_vault_owner_chat_key
 from api.middlewares.rate_limit import limiter
 from api.routes.one.profile_research import PrivateProfileRoute
 from api.routes.one.world_model import owner
+from hushh_mcp.services.owner_placement_guard import hub_content_chat_owner
 from hushh_mcp.services.world_model_service import world_model_jobs
 
 logger = logging.getLogger(__name__)
@@ -180,7 +180,7 @@ async def progress_events(
 
 @router.get("/jobs/stream")
 @limiter.limit("60/hour")
-async def stream(request: Request, token: dict = Depends(require_vault_owner_chat_key)):
+async def stream(request: Request, token: dict = Depends(hub_content_chat_owner)):
     user_id, consent_token = owner(token)
     if not acquire_stream(user_id):
         raise HTTPException(
@@ -191,6 +191,9 @@ async def stream(request: Request, token: dict = Depends(require_vault_owner_cha
     try:
         # Same refusal as GET /jobs before any frame is sent.
         first = await world_model_jobs.status(user_id, consent_token)
+    except HTTPException:
+        release_stream(user_id)
+        raise
     except PermissionError:
         release_stream(user_id)
         raise HTTPException(403, "Unlock your vault to continue.") from None

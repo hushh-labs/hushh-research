@@ -40,6 +40,7 @@ beforeEach(() => {
   native.enabled = false;
   vault.isVaultUnlocked = false;
   url.query = "profile_pane=1&profile_panel=preferences";
+  vault.isVaultUnlocked = false;
   pendingFrames = new Map();
   profilePage.renders = 0;
   vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
@@ -293,10 +294,7 @@ it("defers a URL-requested pane until unlock and removes it immediately on reloc
   // value changes. This test uses a plain mocked hook, so change a prop to
   // model that context-driven render without removing the production memo.
   view.rerender(
-    <ProfilePane
-      open
-      onOpenChange={(nextOpen) => onOpenChange(nextOpen)}
-    />,
+    <ProfilePane open onOpenChange={(nextOpen) => onOpenChange(nextOpen)} />,
   );
   paintFirstFrames();
   expect(screen.getByText("Preferences content")).toBeTruthy();
@@ -324,6 +322,16 @@ it("anchors the custom close button and keeps the nested back control separate",
   expect(onOpenChange).toHaveBeenCalledWith(false);
 
   vault.isVaultUnlocked = false;
+});
+
+it("names the software updates panel in the visible sheet header", () => {
+  url.query = "profile_pane=1&profile_panel=software-updates";
+  vault.isVaultUnlocked = true;
+  render(<ProfilePane open onOpenChange={vi.fn()} />);
+  expect(
+    screen.getByRole("heading", { name: "Software updates" }),
+  ).toBeTruthy();
+  url.query = "profile_pane=1&profile_panel=preferences";
 });
 
 it("focuses the Profile heading rather than pinning Close and returns only to the current owner's opener", async () => {
@@ -367,13 +375,13 @@ it("holds the open location while the pane closes, so the exit is one motion", (
   const onOpenChange = vi.fn();
   const view = render(<ProfilePane open onOpenChange={onOpenChange} />);
   paintFirstFrames();
-  expect(screen.getByText("Preferences", { exact: true })).toBeTruthy();
+  expect(screen.getByText("Appearance & preferences", { exact: true })).toBeTruthy();
 
   url.query = "";
   view.rerender(
     <ProfilePane open onOpenChange={(nextOpen) => onOpenChange(nextOpen)} />,
   );
-  expect(screen.getByText("Preferences", { exact: true })).toBeTruthy();
+  expect(screen.getByText("Appearance & preferences", { exact: true })).toBeTruthy();
   expect(screen.queryByText("Profile", { selector: "h2" })).toBeNull();
   expect(screen.getByTestId("pane-body").dataset.panel).toBe("preferences");
 

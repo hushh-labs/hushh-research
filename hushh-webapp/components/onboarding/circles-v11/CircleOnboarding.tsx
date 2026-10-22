@@ -2,6 +2,7 @@
 import React, {useCallback,useEffect,useId,useRef,useState} from 'react';
 import Image from 'next/image';
 import {BadgeCheck} from '@/components/icons';
+import {AddPeopleAction} from '@/components/app-ui/add-people-action';
 import {GoogleIcon} from '@/lib/morphy-ux/social-icons';
 import type {CircleOnboardingProps,OnboardingPerson,ViewName} from './types';
 import {Icon} from './Icons';
@@ -111,7 +112,7 @@ export function CircleOnboarding(props:CircleOnboardingProps){
       {!circleReady||props.membersLoading?<div className="oc-empty"><Icon name="loading" size={28}/><strong>{circleReady?'Loading people':'Preparing your circle'}</strong></div>:rosterMembers.some(person=>!person.isSelf)?<div className="oc-person-list">{rosterMembers.map(person=><div className="oc-person-row" key={person.userId}><PersonAvatar person={person}/><span className="oc-person-name" dir="auto">{person.displayName}</span>{person.isSelf?<span className="oc-muted-label">You</span>:props.canManageCircle&&(props.onRequestRemoveMember||props.onRemoveMember)?<button type="button" onClick={()=>props.onRequestRemoveMember?props.onRequestRemoveMember(person):setRemoveTarget(person)}>Remove</button>:null}</div>)}</div>:<div className="oc-empty"><span className="oc-empty-icon oc-empty-icon--blue"><Icon name="users" size={32}/></span><strong>No people here yet</strong><p>When you connect with people on One, you can see them here.</p></div>}
       {props.hasMoreMembers&&!props.membersLoading?<button className="oc-button oc-button--quiet" disabled={actionBusy} onClick={()=>void invoke(props.onLoadMoreMembers)}>Load more people</button>:null}
       <button className="oc-button oc-button--primary" type="button" onClick={()=>open('invite')} disabled={actionBusy}>Invite someone <Icon name="arrow" size={18}/></button>
-      {props.canInviteMembers?<button className="oc-text-action" type="button" onClick={()=>void invoke(props.onChooseContacts)} disabled={actionBusy||props.circleFull}>Add people already on One</button>:null}
+      {props.canInviteMembers?<AddPeopleAction onClick={()=>void invoke(props.onChooseContacts)} disabled={actionBusy||props.circleFull}>Add people already on One</AddPeopleAction>:null}
     </div>:null}
     {view==='trusted'?<div className="oc-sheet-body"><h2 id={sheetHeadingId}>Your trusted people</h2><p className="oc-panel-lede">Only you choose who joins Trusted.</p>
       {props.trustedLoading?<div className="oc-empty"><Icon name="loading" size={28}/><strong>Loading Trusted</strong></div>:trustedMembers.length?<div className="oc-person-list">{trustedMembers.map(person=><div className="oc-person-row" key={person.userId}><PersonAvatar person={person}/><span className="oc-person-name">{person.displayName}</span><span className="oc-muted-label">Trusted</span></div>)}</div>:<div className="oc-empty"><span className="oc-empty-icon oc-empty-icon--pink"><Icon name="trusted" size={32}/></span><strong>Keep your closest people here</strong><p>Start with people you already know on One.</p></div>}

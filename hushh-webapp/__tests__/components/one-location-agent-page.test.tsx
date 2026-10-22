@@ -1,5 +1,6 @@
 import {
   act,
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -1093,10 +1094,10 @@ async function openTemporaryLinkFlow() {
 
 describe("OneLocationAgentPage", () => {
   afterEach(() => {
-    // A test that installs fake timers and then fails leaves them installed,
-    // and every test after it hangs on a clock that never moves -- three
-    // unrelated failures from one. Cheap to make impossible.
+    // Restore clocks and injected browser globals even when a test fails.
+    cleanup();
     vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   beforeEach(async () => {
@@ -1106,6 +1107,11 @@ describe("OneLocationAgentPage", () => {
       state: "contacts" in navigator ? "prompt" : "unavailable",
     }));
     vi.clearAllMocks();
+    // Clear queued one-shot responses before reinstalling these defaults.
+    for (const mock of [
+      mockGetState, mockCaptureCurrentPosition, mockCreateGrant, mockRevokeGrant,
+      mockViewEnvelope, mockReverseGeocode, mockGetCircle, mockListRecipientsPage,
+    ]) mock.mockReset();
     // The shared store, holding a fix measured now — what a session with a
     // live movement watch looks like, and the precondition for the publisher.
     const busSnapshot = {
@@ -1856,13 +1862,14 @@ describe("OneLocationAgentPage", () => {
     }
   });
 
-  it("reconciles the SMS roster when a remote Circle membership changes", async () => {
+  it.each([false, true])("reconciles the SMS roster without ambient writes in bounded review=%s", async (bounded) => {
+    vi.stubGlobal("__HUSHH_NATIVE_TEST__", bounded ? { enabled: true, autoReviewerLogin: true, reviewerMutationPolicy: "bounded_mutation" } : undefined);
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    expect(mockEnsureSmsSystemCircle).toHaveBeenCalledTimes(Number(!bounded));
     mockGetSmsContacts.mockClear();
     mockGetSmsContacts.mockResolvedValue(["user_d"]);
-
     act(() => {
       dispatchOneLocationStateChanged(
         "user_a",
@@ -1874,7 +1881,6 @@ describe("OneLocationAgentPage", () => {
         },
       );
     });
-
     await waitFor(() => expect(mockGetSmsContacts).toHaveBeenCalledOnce());
   });
 
@@ -3973,6 +3979,7 @@ describe("OneLocationAgentPage", () => {
   }, 10_000);
 
   it("abandons a pending share capture when the Location page unmounts", async () => {
+    window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
     mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],
@@ -4071,57 +4078,71 @@ describe("OneLocationAgentPage", () => {
         }),
     );
 
-    const { rerender } = render(<OneLocationAgentPage />);
-    await skipLocationEntryFlow();
-    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await openShareConfirmStep();
-    mockStoreEnvelope.mockClear();
-    mockRevokeGrant.mockClear();
-    mockRevokeGrant
-      .mockRejectedValueOnce(new Error("Temporary revoke failure"))
-      .mockResolvedValueOnce({});
+    // This case owns a pending authority mutation, not onboarding.
+    const { rerender, unmount } = render(<OneLocationAgentPage />);
+    try {
+      await skipLocationEntryFlow();
+      await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+      await openShareConfirmStep();
+      mockStoreEnvelope.mockClear();
+      mockRevokeGrant.mockClear();
+      mockRevokeGrant
+        .mockRejectedValueOnce(new Error("Temporary revoke failure"))
+        .mockResolvedValueOnce({});
 
-    fireEvent.click(screen.getByRole("button", { name: "Start sharing" }));
-    await waitFor(() => expect(mockCreateGrant).toHaveBeenCalledTimes(1));
-    const concurrentShare = resolveLocalOnboardingHandler(
-      "location.share_selected",
-    );
-    expect(concurrentShare).toBeTruthy();
-    await expect(concurrentShare!({ duration_hours: "1" })).resolves.toEqual(
-      expect.objectContaining({
-        status: "blocked",
-        summary: "Your current location share is still being sent.",
-      }),
-    );
-    expect(mockCreateGrant).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole("button", { name: "Change who can see you" }));
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "Select the Delivery Circle Circle, 1 member",
-      }),
-    );
-    expect(
-      await screen.findByRole("button", { name: "Sharing…" }),
-    ).toBeDisabled();
+      fireEvent.click(screen.getByRole("button", { name: "Start sharing" }));
+      await waitFor(() => expect(mockCreateGrant).toHaveBeenCalledTimes(1));
+      const concurrentShare = resolveLocalOnboardingHandler(
+        "location.share_selected",
+      );
+      expect(concurrentShare).toBeTruthy();
+      await expect(concurrentShare!({ duration_hours: "1" })).resolves.toEqual(
+        expect.objectContaining({
+          status: "blocked",
+          summary: "Your current location share is still being sent.",
+        }),
+      );
+      expect(mockCreateGrant).toHaveBeenCalledTimes(1);
+      fireEvent.click(screen.getByRole("button", { name: "Change who can see you" }));
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Select the Delivery Circle Circle, 1 member",
+        }),
+      );
+      expect(
+        await screen.findByRole("button", { name: "Sharing…" }),
+      ).toBeDisabled();
 
-    // Simulate the app-chrome / OS back action that closes the focused flow.
-    mockUseSearchParams.mockReturnValue(new URLSearchParams("action=share"));
-    rerender(<OneLocationAgentPage />);
-    mockUseSearchParams.mockReturnValue(new URLSearchParams());
-    rerender(<OneLocationAgentPage />);
-    expect(
-      await screen.findByRole("heading", { name: "Location" }),
-    ).toBeTruthy();
-    await act(async () => {
-      resolveGrant?.(createdGrant);
-    });
+      // Simulate the app-chrome / OS back action that closes the focused flow.
+      mockUseSearchParams.mockReturnValue(new URLSearchParams("action=share"));
+      rerender(<OneLocationAgentPage />);
+      mockUseSearchParams.mockReturnValue(new URLSearchParams());
+      rerender(<OneLocationAgentPage />);
+      expect(
+        await screen.findByRole("heading", { name: "Location" }),
+      ).toBeTruthy();
+      await act(async () => {
+        resolveGrant?.(createdGrant);
+      });
 
-    await waitFor(() => expect(mockRevokeGrant).toHaveBeenCalledTimes(2));
-    expect(mockRevokeGrant).toHaveBeenLastCalledWith({
+      await waitFor(() => expect(mockRevokeGrant).toHaveBeenCalledTimes(2));
+      expect(mockRevokeGrant).toHaveBeenLastCalledWith({
         vaultOwnerToken: "vault-token",
         grantId: createdGrant.id,
-    });
-    expect(mockStoreEnvelope).not.toHaveBeenCalled();
+      });
+      expect(mockStoreEnvelope).not.toHaveBeenCalled();
+    } finally {
+      // Settle the deferred request and its bounded compensation even when an
+      // assertion fails, so neither a React act scope nor a retry leaks.
+      unmount();
+      mockUseSearchParams.mockReturnValue(mockSearchParams);
+      if (resolveGrant) {
+        await act(async () => {
+          resolveGrant?.(createdGrant);
+        });
+        await waitFor(() => expect(mockRevokeGrant).toHaveBeenCalledTimes(2));
+      }
+    }
   });
 
   it("opens a named People action directly in Ask details with that person selected", async () => {
@@ -4364,6 +4385,7 @@ describe("OneLocationAgentPage", () => {
   }, 10000);
 
   it("opens Circle member Share directly on the details step with that member selected", async () => {
+    window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
     const circle = {
       id: "circle-1",
       name: "Family",
@@ -4494,6 +4516,7 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("reconciles the live SOS roster after adding a person to SMS Circle", async () => {
+    window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
     const smsCircle = {
       id: "circle-sms",
       name: "SMS Circle",
@@ -5690,134 +5713,118 @@ describe("OneLocationAgentPage", () => {
       // cadence (30s), NOT the error backoff (10s after one failure) — the
       // difference proves the legacy branch is still classified correctly.
       vi.useFakeTimers({ shouldAdvanceTime: true });
-      try {
-        // Verbatim message from the pre-allow_empty backend. `apiErrorCode`
-        // only reads a real ApiError, so a legacy 404 surfaced through any
-        // other error shape is classified by this string — which is exactly the
-        // fallback path this test needs to hold.
-        mockViewEnvelope.mockRejectedValue(
-          new Error(
-            "The owner has not published an encrypted location envelope yet.",
-          ),
-        );
+      // Verbatim message from the pre-allow_empty backend. `apiErrorCode`
+      // only reads a real ApiError, so a legacy 404 surfaced through any
+      // other error shape is classified by this string — which is exactly the
+      // fallback path this test needs to hold.
+      mockViewEnvelope.mockRejectedValue(
+        new Error(
+          "The owner has not published an encrypted location envelope yet.",
+        ),
+      );
 
-        await renderAsRecipient();
-        const afterFirstRead = mockViewEnvelope.mock.calls.length;
+      await renderAsRecipient();
+      const afterFirstRead = mockViewEnvelope.mock.calls.length;
 
-        // An error-classified grant would have retried by now; a waiting one
-        // must not.
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(20_000);
-        });
-        expect(mockViewEnvelope).toHaveBeenCalledTimes(afterFirstRead);
-        expect(toast.error).not.toHaveBeenCalled();
-      } finally {
-        vi.useRealTimers();
-      }
+      // An error-classified grant would have retried by now; a waiting one
+      // must not.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      expect(mockViewEnvelope).toHaveBeenCalledTimes(afterFirstRead);
+      expect(toast.error).not.toHaveBeenCalled();
     });
 
     it("drops a waiting share off the live cadence instead of asking every tick", async () => {
       // The bug this fixes: 5s polling for an answer only the owner can change,
       // which produced a request (and a console line) every tick, forever.
       vi.useFakeTimers({ shouldAdvanceTime: true });
-      try {
-        mockViewEnvelope.mockResolvedValue({
-          grant: waitingGrant,
-          envelope: null,
-          status: "awaiting_first_publish",
-        });
+      mockViewEnvelope.mockResolvedValue({
+        grant: waitingGrant,
+        envelope: null,
+        status: "awaiting_first_publish",
+      });
 
-        await renderAsRecipient();
-        const afterFirstRead = mockViewEnvelope.mock.calls.length;
+      await renderAsRecipient();
+      const afterFirstRead = mockViewEnvelope.mock.calls.length;
 
-        // Four live ticks pass. A waiting share must not be re-read on any of
-        // them; it is parked on the 30s heartbeat.
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(20_000);
-        });
-        expect(mockViewEnvelope).toHaveBeenCalledTimes(afterFirstRead);
+      // Four live ticks pass. A waiting share must not be re-read on any of
+      // them; it is parked on the 30s heartbeat.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      expect(mockViewEnvelope).toHaveBeenCalledTimes(afterFirstRead);
 
-        // Past the slow heartbeat it is asked exactly once more.
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(15_000);
-        });
-        expect(mockViewEnvelope.mock.calls.length).toBe(afterFirstRead + 1);
-      } finally {
-        vi.useRealTimers();
-      }
+      // Past the slow heartbeat it is asked exactly once more.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+      expect(mockViewEnvelope.mock.calls.length).toBe(afterFirstRead + 1);
     });
 
     it("backs a repeatedly failing share off exponentially", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
-      try {
-        mockViewEnvelope.mockRejectedValue(new Error("backend unavailable"));
+      mockViewEnvelope.mockRejectedValue(new Error("backend unavailable"));
 
-        await renderAsRecipient();
-        const afterFirstRead = mockViewEnvelope.mock.calls.length;
+      await renderAsRecipient();
+      const afterFirstRead = mockViewEnvelope.mock.calls.length;
 
-        // First failure parks the grant for 10s (5s * 2^1), so the 5s tick in
-        // between is skipped rather than retried at full rate.
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(6_000);
-        });
-        expect(mockViewEnvelope).toHaveBeenCalledTimes(afterFirstRead);
+      // First failure parks the grant for 10s (5s * 2^1), so the 5s tick in
+      // between is skipped rather than retried at full rate.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6_000);
+      });
+      expect(mockViewEnvelope).toHaveBeenCalledTimes(afterFirstRead);
 
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(6_000);
-        });
-        expect(mockViewEnvelope.mock.calls.length).toBe(afterFirstRead + 1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6_000);
+      });
+      expect(mockViewEnvelope.mock.calls.length).toBe(afterFirstRead + 1);
 
-        // Second failure doubles again to 20s: 12s of ticks buys no retry.
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(12_000);
-        });
-        expect(mockViewEnvelope.mock.calls.length).toBe(afterFirstRead + 1);
-      } finally {
-        vi.useRealTimers();
-      }
+      // Second failure doubles again to 20s: 12s of ticks buys no retry.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(12_000);
+      });
+      expect(mockViewEnvelope.mock.calls.length).toBe(afterFirstRead + 1);
     });
 
     it("returns a recovered share to the live cadence", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
-      try {
-        mockViewEnvelope.mockRejectedValueOnce(new Error("transient"));
-        mockViewEnvelope.mockResolvedValue({
-          grant: waitingGrant,
-          envelope: {
-            recipientKeyId: "key_b",
-            algorithm: "ECDH-P256-AES256-GCM",
-            ciphertext: "ciphertext",
-            iv: "iv",
-            senderEphemeralPublicKeyJwk: {
-              kty: "EC",
-              crv: "P-256",
-              x: "x",
-              y: "y",
-            },
-            capturedAt: "2099-01-01T00:00:00.000Z",
-            sourcePlatform: "web",
+      mockViewEnvelope.mockRejectedValueOnce(new Error("transient"));
+      mockViewEnvelope.mockResolvedValue({
+        grant: waitingGrant,
+        envelope: {
+          recipientKeyId: "key_b",
+          algorithm: "ECDH-P256-AES256-GCM",
+          ciphertext: "ciphertext",
+          iv: "iv",
+          senderEphemeralPublicKeyJwk: {
+            kty: "EC",
+            crv: "P-256",
+            x: "x",
+            y: "y",
           },
-          status: "published",
-        });
+          capturedAt: "2099-01-01T00:00:00.000Z",
+          sourcePlatform: "web",
+        },
+        status: "published",
+      });
 
-        await renderAsRecipient();
+      await renderAsRecipient();
 
-        // Clear the one failure's backoff, then confirm the share is read on
-        // consecutive live ticks again — backoff must not be sticky.
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(11_000);
-        });
-        const afterRecovery = mockViewEnvelope.mock.calls.length;
+      // Clear the one failure's backoff, then confirm the share is read on
+      // consecutive live ticks again — backoff must not be sticky.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(11_000);
+      });
+      const afterRecovery = mockViewEnvelope.mock.calls.length;
 
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(5_500);
-        });
-        expect(mockViewEnvelope.mock.calls.length).toBeGreaterThan(
-          afterRecovery,
-        );
-      } finally {
-        vi.useRealTimers();
-      }
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_500);
+      });
+      expect(mockViewEnvelope.mock.calls.length).toBeGreaterThan(
+        afterRecovery,
+      );
     });
 
     it("recovers polling after a read that never settles", async () => {
@@ -5844,7 +5851,6 @@ describe("OneLocationAgentPage", () => {
         expect(mockViewEnvelope.mock.calls.length).toBeGreaterThan(wedged);
       } finally {
         warn.mockRestore();
-        vi.useRealTimers();
       }
     });
   });

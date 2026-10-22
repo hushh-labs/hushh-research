@@ -51,9 +51,9 @@ export function NativeReferralWorkspace({ model, fallback }: { model: ReferralDa
   }, [owner]);
   useEffect(() => {
     let current = true;
-    void nativeDrawerAcknowledged(nativeDrawers.getCapabilities()).then(value => {
+    void nativeDrawerAcknowledged(nativeDrawers().getCapabilities()).then(value => {
       if (current) setAdmitted(value.contractVersion === 1 && value.supported && value.wholePresentation && value.routeWorkspaces?.includes("referrals") === true &&
-        !!nativeDrawers.applyWorkspace && !!nativeDrawers.retireWorkspace && !!nativeDrawers.confirmWorkspaceChoice && !!nativeDrawers.settleWorkspaceChoice && !!nativeDrawers.getWorkspaceState);
+        !!nativeDrawers().applyWorkspace && !!nativeDrawers().retireWorkspace && !!nativeDrawers().confirmWorkspaceChoice && !!nativeDrawers().settleWorkspaceChoice && !!nativeDrawers().getWorkspaceState);
     }).catch(() => { if (current) setAdmitted(false); });
     return () => { current = false; };
   }, []);

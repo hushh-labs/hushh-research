@@ -18,16 +18,27 @@ async def _read(kind: str, **kwargs: Any) -> dict[str, Any]:
     # A bounded read may wait on a provider. Revalidate before revealing its
     # result if consent was revoked while that work was in flight.
     from hushh_mcp.hushh_adk.tools import validate_token_with_db
+    from hushh_mcp.runtime_settings import pod_mode
+
+    if pod_mode():
+        from hushh_mcp.services.pod_consent_client import require_owner_scope
+
+        await require_owner_scope(
+            context.consent_token,
+            expected_scope=ConsentScope.CAP_LOCATION_COMMAND_READ.value,
+            user_id=context.user_id,
+        )
+        return result
 
     valid, _, authority = await validate_token_with_db(
-        context.consent_token, expected_scope=ConsentScope.VAULT_OWNER
+        context.consent_token, expected_scope=ConsentScope.CAP_LOCATION_COMMAND_READ
     )
     if not valid or authority is None or authority.user_id != context.user_id:
         raise PermissionError("Location read authority changed before its result was available.")
     return result
 
 
-@hushh_tool(scope=ConsentScope.VAULT_OWNER)
+@hushh_tool(scope=ConsentScope.CAP_LOCATION_COMMAND_READ)
 async def find_people(
     query: str, directory: bool = False, page: int = 1, limit: int = 20
 ) -> dict[str, Any]:
@@ -37,7 +48,7 @@ async def find_people(
     )
 
 
-@hushh_tool(scope=ConsentScope.VAULT_OWNER)
+@hushh_tool(scope=ConsentScope.CAP_LOCATION_COMMAND_READ)
 async def read_circles(
     circle_reference: str = "", query: str = "", page: int = 1, limit: int = 20
 ) -> dict[str, Any]:
@@ -51,13 +62,13 @@ async def read_circles(
     )
 
 
-@hushh_tool(scope=ConsentScope.VAULT_OWNER)
+@hushh_tool(scope=ConsentScope.CAP_LOCATION_COMMAND_READ)
 async def read_location_settings() -> dict[str, Any]:
     """Read actual auto-approval and map Ghost Mode settings. These observations grant no authority to change a setting."""
     return await _read("settings")
 
 
-@hushh_tool(scope=ConsentScope.VAULT_OWNER)
+@hushh_tool(scope=ConsentScope.CAP_LOCATION_COMMAND_READ)
 async def read_location_status(
     requests: bool = False, public_links: bool = False, page: int = 1, limit: int = 20
 ) -> dict[str, Any]:
@@ -69,7 +80,7 @@ async def read_location_status(
     )
 
 
-@hushh_tool(scope=ConsentScope.VAULT_OWNER)
+@hushh_tool(scope=ConsentScope.CAP_LOCATION_COMMAND_READ)
 async def read_nearby_results() -> dict[str, Any]:
     """Read current device-observed Nearby provider candidates. If absent, propose the authored Nearby search; never guess a place or device origin."""
     return await _read("nearby")

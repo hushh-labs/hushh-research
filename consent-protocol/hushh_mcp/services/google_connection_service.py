@@ -24,12 +24,12 @@ from sqlalchemy import text
 
 from db.db_client import get_db
 from hushh_mcp.runtime_settings import get_app_runtime_settings, get_core_security_settings
+from hushh_mcp.services import oauth_redirect_policy
 from hushh_mcp.services.google_oauth_attempt import (
     connection_generation,
     decode_attempt,
     encode_attempt,
 )
-from hushh_mcp.services.oauth_redirect_policy import allowed_oauth_callback_uris
 
 GoogleService = Literal["gmail", "calendar", "contacts", "drive"]
 
@@ -122,16 +122,12 @@ class GoogleConnectionService:
         return self._env("GOOGLE_OAUTH_CLIENT_SECRET", "GMAIL_OAUTH_CLIENT_SECRET")
 
     def _configured_redirect(self) -> str:
-        # The generic setting wins. During the Gmail compatibility period,
-        # derive Calendar's distinct callback from the backend-owned origin
-        # rather than incorrectly reusing Gmail's callback secret.
         configured = _clean(os.getenv("GOOGLE_OAUTH_REDIRECT_URI"))
         if configured:
             return configured
         origin = get_app_runtime_settings().app_frontend_origin
-        if origin:
-            return f"{origin}{_RETURN_PATH}"
-        return _clean(os.getenv("GMAIL_OAUTH_REDIRECT_URI"))
+        legacy = _clean(os.getenv("GMAIL_OAUTH_REDIRECT_URI"))
+        return oauth_redirect_policy.google_compatibility_callback(origin, _RETURN_PATH, legacy)
 
     def _signing_key(self) -> bytes:
         try:
@@ -171,7 +167,9 @@ class GoogleConnectionService:
                 "Google OAuth redirect configuration is invalid", status_code=503
             )
         requested = _clean(supplied)
-        if requested and requested not in allowed_oauth_callback_uris(configured):
+        if requested and requested not in oauth_redirect_policy.allowed_oauth_callback_uris(
+            configured
+        ):
             raise GoogleConnectionError("Google OAuth redirect URI is not allowed", status_code=400)
         return requested or configured
 
@@ -279,6 +277,11 @@ class GoogleConnectionService:
         def persist_attempt() -> None:
             with self.db.engine.begin() as connection:
                 self._lock_google_owner(connection, user_id)
+                from hushh_mcp.services.google_connector_transition_store import (
+                    require_legacy_publication,  # noqa: PLC0415
+                )
+
+                require_legacy_publication(connection, user_id)
                 row = (
                     connection.execute(
                         text(
@@ -988,6 +991,11 @@ class GoogleConnectionService:
         try:
             with self.db.engine.begin() as connection:
                 self._lock_google_owner(connection, user_id)
+                from hushh_mcp.services.google_connector_transition_store import (
+                    require_legacy_publication,  # noqa: PLC0415
+                )
+
+                require_legacy_publication(connection, user_id)
                 row = (
                     connection.execute(
                         text(
@@ -1638,7 +1646,12 @@ class GoogleConnectionService:
                 user_id=user_id, account_id=account_id
             )
 
-        def disconnect() -> str:
+        from hushh_mcp.services.google_connector_transition_store import (  # noqa: PLC0415
+            begin_legacy_revocation,
+            finish_legacy_revocation,
+        )
+
+        def disconnect() -> tuple[str, dict | None]:
             with self.db.engine.begin() as connection:
                 self._lock_google_owner(connection, user_id)
                 row = (
@@ -1681,9 +1694,19 @@ class GoogleConnectionService:
                     params,
                 ).first()
                 if siblings:
-                    return ""
+                    return "", None
                 refresh_token = ""
-                if row and row.get("status") == "connected":
+                claim = (
+                    begin_legacy_revocation(
+                        connection,
+                        owner=user_id,
+                        family="google_provider_connections",
+                        row=dict(row),
+                    )
+                    if row
+                    else None
+                )
+                if claim and row is not None:
                     try:
                         refresh_token = self._decrypt(
                             {
@@ -1696,29 +1719,29 @@ class GoogleConnectionService:
                         pass  # Local erasure still succeeds for corrupt envelopes.
                 connection.execute(
                     text("""UPDATE google_provider_connections SET status = 'disconnected',
-                    refresh_token_ciphertext = NULL, refresh_token_iv = NULL, refresh_token_tag = NULL,
-                    access_token_ciphertext = NULL, access_token_iv = NULL, access_token_tag = NULL,
-                    access_token_expires_at = NULL, revoked_at = clock_timestamp(), updated_at = clock_timestamp()
+                    revoked_at = clock_timestamp(), updated_at = clock_timestamp()
                     WHERE user_id = :user_id AND provider = 'google'"""),
                     params,
                 )
-                return refresh_token
+                return refresh_token, claim
 
         try:
-            refresh_token = await asyncio.to_thread(disconnect)
+            refresh_token, claim = await asyncio.to_thread(disconnect)
         except Exception:
             raise GoogleConnectionError(
                 "Google connection could not be disconnected. Please try again.", status_code=503
             ) from None
-        if refresh_token:
-            try:
-                async with httpx.AsyncClient(timeout=5) as client:
-                    await client.post(_REVOKE_URL, data={"token": refresh_token})
-            except httpx.HTTPError:
-                # Provider revoke remains best effort, outside local locks. It
-                # can race a fresh provider grant; local atomicity is not proof
-                # of provider-side revocation/reauthorization ordering.
-                pass
+        from hushh_mcp.services.pod_google_oauth import revoke  # noqa: PLC0415
+
+        confirmed = bool(refresh_token) and await revoke(refresh_token)
+        await asyncio.to_thread(
+            finish_legacy_revocation,
+            self.db,
+            owner=user_id,
+            family="google_provider_connections",
+            claim=claim,
+            confirmed=confirmed,
+        )
         return (
             await self.calendar_accounts_status(user_id=user_id)
             if service == "calendar"

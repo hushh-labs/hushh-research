@@ -55,7 +55,7 @@ describe("native resumed-session privacy shield contract", () => {
     expect(recovery).toContain("autoReviewerLogin: false");
     expect(recovery).toContain('expectedAuth: "anonymous"');
     expect(recovery).toContain("XCTAssertFalse(app.secureTextFields");
-    expect(recovery).toContain("let resumeDeadline = Date().addingTimeInterval(15)");
+    expect(recovery).toContain("let resumeDeadline = Date().addingTimeInterval(30)");
     expect(recovery).toContain("loginButton.exists && loginButton.isHittable");
     expect(statusWait).toMatch(
       /if route\.autoReviewerLogin\s*\{\s*_ = attemptVaultPassphraseUnlock\(app: app\)/,
@@ -73,8 +73,13 @@ describe("native resumed-session privacy shield contract", () => {
   it("requires iOS success only after the native job can run", () => {
     const workflow = source("../.github/workflows/ci.yml");
     const preflight = between(workflow, "  preflight-gate:", "  web-core-check:");
+    const nativeJob = between(workflow, "  ios-native-check:", "  protocol-check:");
     const finalGate = workflow.slice(workflow.indexOf("  ci-status:"));
     expect(preflight).not.toContain("$IOS_NATIVE");
+    expect(nativeJob).toContain("needs: [preflight-gate]");
+    expect(nativeJob).toMatch(
+      /if: >-\s+!cancelled\(\) && needs\['preflight-gate'\]\.result == 'success' &&\s+\(needs\['preflight-gate'\]\.outputs\.ios == 'true'\)/,
+    );
     expect(finalGate).toContain('IOS_NATIVE="${{ needs[\'ios-native-check\'].result }}"');
     expect(finalGate).toContain('[ "$IOS_NATIVE" != "success" ]');
   });
@@ -162,7 +167,13 @@ describe("native resumed-session privacy shield contract", () => {
     expect(controller).toContain("requestedGeneration == generation");
     expect(controller).toContain("requestedGeneration > 0");
     expect(controller).toContain("appIsActive");
-    expect(controller).toContain("overlay.isOpaque = true");
+    // The input blocker stays full strength while its opaque visual child
+    // fades only after validated handback; renewed inactivity restores it.
+    expect(controller).toContain("visual.isOpaque = true");
+    expect(controller).toContain("visualCover?.alpha = 1");
+    for (const edge of ["leading", "trailing", "top", "bottom"]) {
+      expect(controller).toContain(`visual.${edge}Anchor.constraint(equalTo: overlay.${edge}Anchor)`);
+    }
     expect(controller).toContain(
       'accessibilityIdentifier = "session-privacy-shield"',
     );
@@ -193,7 +204,8 @@ describe("native resumed-session privacy shield contract", () => {
     expect(controller).toContain("title.numberOfLines = 0");
     expect(controller.indexOf("state.restartSession()")).toBeLessThan(controller.indexOf("reloadDocument?()"));
     expect(controller.indexOf("documents.restart()")).toBeLessThan(controller.indexOf("reloadDocument?()"));
-    expect(controller).toContain("guard documents.accepts(documentId)");
+    expect(controller).toContain("guard pendingRelease == nil, documents.accepts(documentId),");
+    expect(controller).toContain("self.documents.accepts(documentId), UIApplication.shared.applicationState == .active");
     expect(bridgeController).toContain("self?.webView?.reload()");
   });
 

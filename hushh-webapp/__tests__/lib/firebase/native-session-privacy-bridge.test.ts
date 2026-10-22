@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  getState: vi.fn(), completeSessionValidation: vi.fn(), addListener: vi.fn(),
+  getState: vi.fn(), prepareSessionValidation: vi.fn(), completeSessionValidation: vi.fn(), addListener: vi.fn(),
   getFeedbackCapabilities: vi.fn(), interactionFeedback: vi.fn(), platform: "ios",
 }));
 vi.mock("@capacitor/core", () => ({
@@ -10,12 +10,16 @@ vi.mock("@capacitor/core", () => ({
 }));
 import {
   completeNativeSessionPrivacyValidation,
+  prepareNativeSessionPrivacyValidation,
+  nativePrivacyCanInteract,
   getNativeSessionPrivacyState,
   subscribeNativeSessionPrivacy,
   nativePrivacyObservation,
   subscribeNativePrivacyObservation,
 } from "@/lib/capacitor/session-privacy";
 import { appHaptic, usesNativeHapticPreference } from "@/lib/capacitor/app-haptics";
+import { acknowledgeNativeProfilePreparation, nativeProfileSceneCanPrepare } from "@/lib/capacitor/native-profile-preparation";
+import type { NativeDrawerProjection } from "@/lib/capacitor/native-drawers";
 
 const active = { shielded: true, generation: 3, cause: "background", appIsActive: true };
 
@@ -60,6 +64,39 @@ describe("native privacy bridge state validation", () => {
     const documentId = mocks.getState.mock.calls[0][0].documentId;
     expect(documentId).toEqual(expect.any(String));
     expect(mocks.completeSessionValidation).toHaveBeenCalledWith({ generation: 3, documentId });
+  });
+
+  it("keeps preparation distinct from interaction and binds release to the current composition receipt", async () => {
+    const preparing = { ...active, profilePreparation: true, preparationAuthorized: true, preparationRevision: 4,
+      preparationVisitId: "public-account", preparationFormScene: "account-name", profilePreparationId: "public-ticket" };
+    mocks.getState.mockResolvedValue({ ...active, profilePreparation: true });
+    await getNativeSessionPrivacyState();
+    mocks.prepareSessionValidation.mockResolvedValue(preparing);
+    await prepareNativeSessionPrivacyValidation(3, 2, { visitId: "public-account", formScene: "account-name" }, 4);
+    expect(nativePrivacyCanInteract()).toBe(false);
+    expect(nativeProfileSceneCanPrepare(preparing, "account-name", "public-account")).toBe(false);
+    acknowledgeNativeProfilePreparation({ documentId: "public-document", ownerEpoch: "public-owner", ownerGeneration: 1,
+      revision: 1, updateSequence: 1, privacyGeneration: 3, family: "profile", appearance: "light", accentHex: "#007aff", foregroundHex: "#171717",
+      title: "Profile", sections: [], open: true, enabled: true, backEnabled: true, profileDestinationId: "public-account",
+      profilePreparation: { visitId: "public-account", formScene: "account-name" } } satisfies NativeDrawerProjection);
+    expect(nativeProfileSceneCanPrepare(preparing, "account-name", "public-account")).toBe(true);
+    expect(nativeProfileSceneCanPrepare(preparing, "phone", "public-account")).toBe(false);
+    expect(nativeProfileSceneCanPrepare({ ...preparing, presentationsRetiring: true }, "account-name", "public-account")).toBe(false);
+    expect(nativeProfileSceneCanPrepare({ ...preparing, preparationBody: "pane" }, "account-name", "public-account")).toBe(false);
+    mocks.completeSessionValidation.mockResolvedValue({ ...preparing, released: false });
+    await completeNativeSessionPrivacyValidation(3, 2, 4);
+    expect(mocks.completeSessionValidation).toHaveBeenLastCalledWith({ generation: 3, documentId: expect.any(String),
+      sessionRevision: 2, compositionRevision: 4, preparationId: "public-ticket" });
+    expect(nativePrivacyObservation().state?.shielded).toBe(true);
+    let finishRead!: (value: typeof preparing) => void;
+    mocks.getState.mockReturnValueOnce(new Promise(resolve => { finishRead = resolve; }));
+    const staleRead = getNativeSessionPrivacyState();
+    await subscribeNativeSessionPrivacy(vi.fn());
+    const current = { ...preparing, preparationRevision: 5, profilePreparationId: "public-new-ticket", action: "state" };
+    mocks.addListener.mock.calls.at(-1)![1](current);
+    finishRead(preparing);
+    expect(await staleRead).toEqual(current);
+    expect(nativePrivacyObservation().state?.profilePreparationId).toBe("public-new-ticket");
   });
 
   it("subscribes to the distinct native event", async () => {

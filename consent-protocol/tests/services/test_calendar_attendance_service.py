@@ -556,6 +556,8 @@ def test_plain_decline_sends_exact_reason_once_after_confirmation(monkeypatch):
         )
     )
     assert review["recipient"] == "organizer@example.com"
+    assert review["start"] == calendar.event["start"]
+    assert review["end"] == calendar.event["end"]
     assert review["message"] == "I have a family commitment."
     assert not mail.sends
     result = _confirm(service, review)

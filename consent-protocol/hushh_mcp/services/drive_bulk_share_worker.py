@@ -10,6 +10,7 @@ import asyncio
 import time
 from collections import Counter
 from collections.abc import Callable
+from functools import partial
 from typing import Any
 
 from hushh_mcp.services.drive_bulk_share_store import (
@@ -21,6 +22,7 @@ from hushh_mcp.services.drive_permission_executor import (
     SHARE_REFUSAL_CODES,
     attributable_reader,
     existing_individual_permission,
+    permission_request,
     require_recipient_identity,
     verified_issuer,
 )
@@ -36,6 +38,7 @@ from hushh_mcp.services.google_drive_permission_adapter import (
     DrivePermissionError,
     GoogleDrivePermissionAdapter,
 )
+from hushh_mcp.services.owner_placement_guard import admit_hub_content, hub_content_check
 from hushh_mcp.services.push_notifications import send_user_data_push
 
 MAX_EFFECTS_PER_SLICE = 400
@@ -122,6 +125,33 @@ def _failure_code(error: BaseException) -> str:
     )
 
 
+async def _current_bulk_credential(worker, job, *, reconcile=False):
+    # Parallel files share one owner credential. Losing the refresh lease
+    # is normal contention, not a failed file. Briefly join the committed
+    # refresh; prolonged contention returns to the durable retry schedule.
+    for attempt in range(len(_REFRESH_JOIN_DELAYS) + 1):
+        if attempt:
+            await asyncio.sleep(_REFRESH_JOIN_DELAYS[attempt - 1])
+            if reconcile:
+                await worker.store.require_reconciliation_current(job)
+            else:
+                await worker.store.require_current(job)
+        try:
+            row, credentials = await worker.oauth.current_credential(
+                user_id=job["user_id"],
+                required_profile="live",
+                **({"cleanup": True} if reconcile else {}),
+            )
+        except DriveOAuthError as error:
+            if not _refresh_pending(error) or attempt == len(_REFRESH_JOIN_DELAYS):
+                raise
+            continue
+        if row["connection_generation"] != job["generation"]:
+            raise DriveSharingError("connection_changed")
+        return credentials
+    raise AssertionError("unreachable refresh retry")
+
+
 class DriveBulkShareWorker:
     def __init__(
         self,
@@ -161,28 +191,7 @@ class DriveBulkShareWorker:
         self._interval = max(_START_INTERVAL, self._interval * 0.98)
 
     async def _credential(self, job, *, reconcile=False):
-        # Parallel files share one owner credential. Losing the refresh lease
-        # is normal contention, not a failed file. Briefly join the committed
-        # refresh; prolonged contention returns to the durable retry schedule.
-        for attempt in range(len(_REFRESH_JOIN_DELAYS) + 1):
-            if attempt:
-                await asyncio.sleep(_REFRESH_JOIN_DELAYS[attempt - 1])
-                if reconcile:
-                    await self.store.require_reconciliation_current(job)
-                else:
-                    await self.store.require_current(job)
-            try:
-                row, credentials = await self.oauth.current_credential(
-                    user_id=job["user_id"], required_profile="live"
-                )
-            except DriveOAuthError as error:
-                if not _refresh_pending(error) or attempt == len(_REFRESH_JOIN_DELAYS):
-                    raise
-                continue
-            if row["connection_generation"] != job["generation"]:
-                raise DriveSharingError("connection_changed")
-            return credentials
-        raise AssertionError("unreachable refresh retry")
+        return await _current_bulk_credential(self, job, reconcile=reconcile)
 
     async def _settle_receipt(self, job, *, state, receipt):
         # A known Google success must be durably recorded if a brief database
@@ -282,6 +291,10 @@ class DriveBulkShareWorker:
         return state
 
     async def _grant(self, job):
+        require_current = hub_content_check(
+            job["user_id"], partial(self.store.require_current, job)
+        )
+        await admit_hub_content(job["user_id"], "drive_permission_prepare")
         dispatched = False
         provider_succeeded = False
         stage = "recipient"
@@ -317,11 +330,7 @@ class DriveBulkShareWorker:
             await self.verify_recipient(recipient)
             stage = "credential"
             credentials = await self._credential(job)
-            args = {
-                "file_id": file["id"],
-                "access_token": credentials["accessToken"],
-                "require_current": lambda: self.store.require_current(job),
-            }
+            args = permission_request(file["id"], credentials, require_current)
             if file.get("resourceKey"):
                 args["resource_key"] = file["resourceKey"]
             stage = "inspect"

@@ -401,7 +401,7 @@ function shouldPrioritizeConsentHydration(pathname: string): boolean {
 class ConsentSseError extends Error {
   readonly status: number;
 
-  constructor(message: string, status: number, readonly disabled = false) {
+  constructor(message: string, status: number, readonly disabled = false, readonly retryAfterMs = 0) {
     super(message);
     this.name = "ConsentSseError";
     this.status = status;
@@ -1408,7 +1408,10 @@ export function ConsentNotificationProvider({
               disabled = body?.detail?.error_code === "CONSENT_SSE_DISABLED";
             } catch { /* An expired or unrecognized stream gets bounded recovery. */ }
           }
-          throw new ConsentSseError(`consent_sse_${response.status}`, response.status, disabled);
+          const retryAfter = response.status === 503 ? response.headers?.get("retry-after") : null;
+          const retryAfterMs = retryAfter && /^\d{1,4}$/.test(retryAfter)
+            ? Math.min(Number(retryAfter) * 1000, MAX_SSE_RECONNECT_DELAY_MS) : 0;
+          throw new ConsentSseError(`consent_sse_${response.status}`, response.status, disabled, retryAfterMs);
         }
 
         if (cancelled) return;
@@ -1526,9 +1529,9 @@ export function ConsentNotificationProvider({
           );
           return;
         }
-        const delay = Math.min(
-          3000 * 2 ** (reconnectAttempt - 1),
-          MAX_SSE_RECONNECT_DELAY_MS,
+        const delay = Math.max(
+          error instanceof ConsentSseError ? error.retryAfterMs : 0,
+          Math.min(3000 * 2 ** (reconnectAttempt - 1), MAX_SSE_RECONNECT_DELAY_MS),
         );
         reconnectTimer = globalThis.setTimeout(() => {
           void connect();

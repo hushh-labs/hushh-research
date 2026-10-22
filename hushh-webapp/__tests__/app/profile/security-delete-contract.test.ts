@@ -12,6 +12,9 @@ const topAppBarSource = readFileSync(
   join(process.cwd(), "components/app-ui/top-app-bar.tsx"),
   "utf8",
 );
+const onboardingSource = readFileSync(
+  join(process.cwd(), "components/onboarding/onboarding-route-actions.tsx"), "utf8",
+);
 const deleteFlowSource = readFileSync(
   join(process.cwd(), "lib/flows/delete-account.ts"),
   "utf8",
@@ -56,11 +59,17 @@ describe("profile security deletion contract", () => {
   });
 
   it("uses the same destructive settlement from Profile and setup chrome", () => {
+    expect(topAppBarSource).toContain('import { OnboardingRouteActions }');
+    expect(topAppBarSource).toContain('<OnboardingRouteActions key={user?.uid');
+    expect(onboardingSource).toContain("needsCloudReview = azureAccountCleanupRequired(error)");
+    expect(onboardingSource).toContain("if (!needsCloudReview) setDeleteConfirmOpen(false)");
+    expect(onboardingSource).toContain("<AccountCloudCleanup");
+    expect(onboardingSource).toContain("onFinish={handleDeleteAccount}");
     expect(profilePageSource).toContain("executeVerifiedAccountDeletion");
-    expect(topAppBarSource).toContain("executeVerifiedAccountDeletion");
-    expect(topAppBarSource).toContain("requestDeleteAccount");
-    expect(topAppBarSource).toContain("Unlock Vault to Delete Account");
-    expect(topAppBarSource).toContain("skipFcmCleanup: true");
+    expect(onboardingSource).toContain("executeVerifiedAccountDeletion");
+    expect(onboardingSource).toContain("requestDeleteAccount");
+    expect(onboardingSource).toContain("Unlock Vault to Delete Account");
+    expect(onboardingSource).toContain("skipFcmCleanup: true");
     expect(deleteFlowSource).toContain(
       "performDeletion: () => AccountService.deleteAccount(",
     );
@@ -79,11 +88,11 @@ describe("profile security deletion contract", () => {
       "Deletes your account, vault, memory, chats, and connections. This can’t be undone.",
     );
     expect(profilePageSource).toContain("DELETE_ACCOUNT_DIALOG_TITLE");
-    expect(topAppBarSource).toContain("DELETE_ACCOUNT_DIALOG_TITLE");
+    expect(onboardingSource).toContain("DELETE_ACCOUNT_DIALOG_TITLE");
     expect(profilePageSource).toContain(
       'buildLoginRouteWithAuthSessionNotice("account_deleted")',
     );
-    expect(topAppBarSource).toContain(
+    expect(onboardingSource).toContain(
       'buildLoginRouteWithAuthSessionNotice("account_deleted")',
     );
     expect(profilePageSource).not.toContain("Delete Investor, RIA");
@@ -91,6 +100,67 @@ describe("profile security deletion contract", () => {
     expect(profilePageSource).not.toContain('"Yes, Delete RIA"');
   });
 
+  it("keeps onboarding chrome canonical and shell-sized", () => {
+    const shell = topAppBarSource;
+    expect(shell).toContain('import { OnboardingRouteActions }');
+    expect(shell).toContain('<OnboardingRouteActions key={user?.uid');
+    const source = onboardingSource;
+    const signOutItemStart = source.indexOf(
+      "onClick={() => void handleSignOut()}",
+    );
+    const signOutItemSource = source.slice(
+      signOutItemStart,
+      source.indexOf("</DropdownMenuItem>", signOutItemStart),
+    );
+    const deleteItemStart = source.indexOf('variant="destructive"');
+    const deleteItemSource = source.slice(
+      deleteItemStart,
+      source.indexOf("</DropdownMenuItem>", deleteItemStart),
+    );
+
+    expect(source).not.toContain(
+      'return { label: "Set up One", interactive: false as const };',
+    );
+    expect(source).not.toContain("ThemeToggleCompact");
+    expect(source).toContain(
+      '<ShellActionSurface variant="icon" aria-label="Account actions">',
+    );
+    expect(deleteItemSource).toContain('variant="destructive"');
+    expect(source).toContain('className="overflow-hidden rounded-[14px] p-1"');
+    expect(signOutItemSource).toContain("cursor-pointer");
+    expect(signOutItemSource).toContain("rounded-[10px]");
+    expect(signOutItemSource).toContain("hover:!bg-[color:var(--app-accent)]");
+    expect(signOutItemSource).toContain(
+      "hover:!text-[color:var(--app-accent-fg)]",
+    );
+    expect(signOutItemSource).toContain(
+      "hover:[&_svg]:!stroke-[color:var(--app-accent-fg)]",
+    );
+    expect(deleteItemSource).toContain("cursor-pointer");
+    expect(deleteItemSource).toContain("rounded-[10px]");
+    expect(deleteItemSource).toContain(
+      "hover:!bg-[color:var(--app-destructive-tint)]",
+    );
+    expect(deleteItemSource).toContain(
+      "hover:!text-destructive",
+    );
+    expect(deleteItemSource).toContain(
+      "focus:!bg-[color:var(--app-destructive-tint)]",
+    );
+    expect(deleteItemSource).toContain(
+      "focus:!text-destructive",
+    );
+    expect(deleteItemSource).not.toContain(
+      "data-[variant=destructive]:focus:bg-popover",
+    );
+    expect(signOutItemSource).toContain("focus-visible:ring-inset");
+    expect(deleteItemSource).toContain("focus-visible:ring-inset");
+    expect(source).not.toContain('className="text-red-600 focus:text-red-600"');
+    expect(source).not.toContain(
+      'return { label: "Get started", interactive: false as const };',
+    );
+    expect(source).not.toContain('className="h-9 w-9 rounded-full"');
+  });
   it("offers a reset-account path that keeps the account and re-runs setup", () => {
     expect(profilePageSource).toContain("Reset account?");
     expect(profilePageSource).toContain(

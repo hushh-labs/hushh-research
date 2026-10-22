@@ -701,7 +701,7 @@ Rules:
    action below it on phone and desktop: Confirm pin, then Skip for now; Save
    location, then Skip for now. The surface or pinned footer owns the bottom
    safe-area padding once; action groups do not add another inset.
-   The Agent Chat history drawer (`AgentConnectionsDrawer`) uses this same scrim. Its panel and scrim portal to the body above the chat header and fixed bottom bar; opening it must not move the transcript or navigation. Chats and Profile share the bounded side-pane geometry: a safe-area-aware 12–18px outer inset, 430px maximum width, 820px maximum height, and 25px corners. Chats mirrors Profile at the left edge; its close control uses the same 44px target, 16px glyph, and 20px content inset. Screen gaps remain covered by the modal scrim. Both frames share an opaque light/dark theme canvas and Profile's border, sheen, and row hover/focus feedback. The canvas stays opaque so the dimmed page cannot wash through it. Chats' inner controls and portaled actions menu use the same material tokens; reduced transparency and motion retain the shared accessibility fallbacks. Native Android keeps the same theme canvas and solid card tokens under its existing blur-free policy. Conversation selection uses the existing Profile ripple without changing its navigation owner. The mounted Chats frame clips decoration without becoming a focus-scroll container and retires rendering after its exit; its gesture owner temporarily exposes the frame during a pull.
+   The Agent Chat history drawer (`AgentConnectionsDrawer`) uses this same scrim. Its panel and scrim portal to the body above the chat header and fixed bottom bar; opening it must not move the transcript or navigation. Chats and Profile share the bounded side-pane geometry: a safe-area-aware 12–18px outer inset, 430px maximum width, 820px maximum height, and 25px corners. Chats mirrors Profile at the left edge; its close control uses the same 44px target, 16px glyph, and 20px content inset. Profile Back and Close retain 44px hit targets with 34.32px painted circles (22% smaller) and proportionally reduced glyphs. Their slots only position controls; they do not paint a second background or rotate on hover. Ripples clip to the smaller circular surface. Screen gaps remain covered by the modal scrim. Both frames share an opaque light/dark theme canvas and Profile's border, sheen, and row hover/focus feedback. The canvas stays opaque so the dimmed page cannot wash through it. Chats' inner controls and portaled actions menu use the same material tokens; reduced transparency and motion retain the shared accessibility fallbacks. Native Android keeps the same theme canvas and solid card tokens under its existing blur-free policy. Conversation selection uses the existing Profile ripple without changing its navigation owner. The mounted Chats frame clips decoration without becoming a focus-scroll container and retires rendering after its exit; its gesture owner temporarily exposes the frame during a pull.
    `AppChatHistoryEdgeGesture` owns both directions: pull right on the Chat
    body to open, or left on the drawer/list or backdrop to close. The panel
    transform and scrim opacity follow the finger; release settles through the
@@ -901,7 +901,9 @@ Use the `Subtle Apple` depth model:
 
 ### Ripple Ownership and Clipping
 
-1. Every actionable shell should show Material ripple.
+1. Every actionable shell should show Material ripple. The animated private-agent
+   artwork is the narrow exception: `ShellActionSurface ripple={false}` preserves
+   its transparent no-halo surface; keyboard focus and the 44px target remain.
 2. The ripple host owns clipping.
 3. Rounded interactive shells must clip ripple to the exact visible radius.
 4. Outer cards remain `overflow-visible`; ripple, media, code panes, and chart plots clip inside their own inner boundaries.
@@ -979,8 +981,14 @@ Rules:
    - visually centered composition
    - similar optical weight across sibling headers and actions
 7. Refer to:
-   - `skills/hushh-icon-theme/SKILL.md`
-   - `docs/ui-migration/iconography-and-motion-audit.md`
+   - `.agents/skills/hushh-icon-theme/SKILL.md`
+
+Agent accents never override semantic interaction, error, success or warning colors.
+Use neutral icons for peer settings rows; service branding belongs only to actual
+service rows with approved bundled assets. Keep the registry as the source of truth;
+do not copy its configuration into page-local CSS or add another icon package.
+Motion follows the existing tiered timing and reduced-motion contracts, including
+the approved sheet entrance; there is no blanket 150 ms limit.
 
 ## Market-Specific Rules
 

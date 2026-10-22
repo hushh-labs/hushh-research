@@ -3380,6 +3380,154 @@
     },
     {
       "aliases": [
+        "Open Files",
+        "open my files",
+        "go to files",
+        "show my file library"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "route.one_files",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Navigates to the owner's private Files workspace. Setup and consent are verified by the workspace; navigation does not authorize library operations.",
+      "execution": {
+        "binding_ref": "route:/one/files",
+        "executor": {
+          "kind": "existing_route",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/files"
+        }
+      },
+      "goal_id": "goal.route.one_files",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Open Files",
+      "navigation": {
+        "fallback": "/one/files",
+        "routes": [
+          "/one/files"
+        ],
+        "screens": [
+          "one_files"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": false,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "files",
+        "folders",
+        "private file library"
+      ],
+      "settlement_proof": "validated_route_settlement",
+      "side_effect": {
+        "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Visit merchant",
         "visit merchant",
         "visit merchant website"
@@ -16099,7 +16247,9 @@
         "open my personal data",
         "go to personal data",
         "show personal data",
-        "open saved knowledge"
+        "open saved knowledge",
+        "open saved and add",
+        "open memory sharing and prices"
       ],
       "authorization": {
         "guard_ids": [],
@@ -16357,6 +16507,582 @@
       "settlement_proof": "validated_route_settlement",
       "side_effect": {
         "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Scheduled tasks",
+        "show scheduled tasks",
+        "show my agent tasks"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "one.scheduled_tasks.open",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Open owner scheduled tasks. Opening the panel grants no execution authority.",
+      "execution": {
+        "binding_ref": "semantic_action:one_scheduled_tasks",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "control",
+          "status": "wired",
+          "target": "one_scheduled_tasks"
+        }
+      },
+      "goal_id": "goal.one.scheduled_tasks.open",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Scheduled tasks",
+      "navigation": {
+        "fallback": "one_scheduled_tasks",
+        "routes": [
+          "/one"
+        ],
+        "screens": [
+          "one_agents"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "scheduled tasks",
+        "jobs",
+        "goals"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Review sharing price",
+        "review a sharing price",
+        "set a price for my information",
+        "list my information bundle",
+        "review bundle sharing and price"
+      ],
+      "authorization": {
+        "guard_ids": [],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "pkm.review_sharing_price",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens owner review of listing and prices for a saved information bundle or one exact sharing section. Set domain to review a whole saved area, including its available sections; section or scope_choice selects an exact tariff. A whole-bundle price is offered only when current owner discovery returns that exact eligible bundle. Proposed USD cents and base term only prefill review. Nothing is listed, saved, shared, purchased or paid until the person uses the visible controls. Never broaden a leaf or substitute sections for an unavailable whole-bundle price. Paid prices require eligible Stripe payouts; free sharing remains available without Stripe.",
+      "execution": {
+        "binding_ref": "semantic_action:pkm.review_sharing_price",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "pkm.review_sharing_price"
+        }
+      },
+      "goal_id": "goal.pkm.review_sharing_price",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "section": {
+            "description": "Which saved information bundle or section?",
+            "type": "string",
+            "x-hushh-resolver": "spoken_free_text"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "section": {
+            "description": "Which saved information bundle or section?",
+            "type": "string",
+            "x-hushh-resolver": "spoken_free_text"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Review sharing price",
+      "navigation": {
+        "fallback": "pkm.review_sharing_price",
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [],
+        "mounted_surface_required": true,
+        "requires_signed_in": false,
+        "requires_vault": false
+      },
+      "render_surface": "render.form",
+      "required_entities": [],
+      "search_keywords": [
+        "memory",
+        "sharing",
+        "price",
+        "section",
+        "bundle",
+        "list",
+        "monetize"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Close sharing price review",
+        "cancel sharing price review",
+        "close price review"
+      ],
+      "authorization": {
+        "guard_ids": [],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "pkm.close_sharing_price_review",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Closes the current price confirmation first, or closes its editor when no confirmation is open. Never saves, changes a tariff or confirms a purchase. Waits while a price operation is pending.",
+      "execution": {
+        "binding_ref": "semantic_action:pkm.close_sharing_price_review",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "pkm.close_sharing_price_review"
+        }
+      },
+      "goal_id": "goal.pkm.close_sharing_price_review",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Close sharing price review",
+      "navigation": {
+        "fallback": "pkm.close_sharing_price_review",
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [],
+        "mounted_surface_required": true,
+        "requires_signed_in": false,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "cancel",
+        "sharing",
+        "price",
+        "review"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Close bundle sharing review",
+        "close bundle review"
+      ],
+      "authorization": {
+        "guard_ids": [],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "pkm.close_sharing_bundle_review",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Closes the current bundle listing and price overview without changing information, sharing or prices. Waits while a listing change is pending.",
+      "execution": {
+        "binding_ref": "semantic_action:pkm.close_sharing_bundle_review",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "pkm.close_sharing_bundle_review"
+        }
+      },
+      "goal_id": "goal.pkm.close_sharing_bundle_review",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Close bundle sharing review",
+      "navigation": {
+        "fallback": "pkm.close_sharing_bundle_review",
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [],
+        "mounted_surface_required": true,
+        "requires_signed_in": false,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "bundle",
+        "sharing",
+        "close"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
       },
       "supported_entrypoints": [
         "voice",
@@ -17260,7 +17986,14 @@
         "Open Payouts",
         "link my bank",
         "set up payouts",
-        "document earnings"
+        "document earnings",
+        "payments",
+        "add funds",
+        "purchase balance",
+        "information-access earnings",
+        "wallet",
+        "open payouts",
+        "payments and earnings"
       ],
       "authorization": {
         "guard_ids": [
@@ -18721,7 +19454,7 @@
         "requires_trusted_tap": true,
         "surface": "render.confirmation_card"
       },
-      "description": "Deletes investor/ria persona or full account depending on selected target.",
+      "description": "Starts owner-confirmed account deletion. A private cloud requires exact resource and retention review, fresh owner cloud authorization, and verified cleanup before final deletion.",
       "execution": {
         "binding_ref": "semantic_action:profile.delete_account",
         "executor": {
@@ -22524,6 +23257,159 @@
     },
     {
       "aliases": [
+        "Finish agent setup",
+        "finish cloud setup",
+        "finish my cloud",
+        "use this project",
+        "continue with my cloud",
+        "finish agent setup"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "setup.finish_cloud",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Keeps the verified hosting and saved AI choice, then returns to the One setup hub.",
+      "execution": {
+        "binding_ref": "semantic_action:setup.finish_cloud",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "setup.finish_cloud"
+        }
+      },
+      "goal_id": "goal.setup.finish_cloud",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Finish agent setup",
+      "navigation": {
+        "fallback": "setup.finish_cloud",
+        "routes": [
+          "/one/setup/cloud"
+        ],
+        "screens": [
+          "one_setup_cloud"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "finish",
+        "cloud",
+        "project",
+        "subscription",
+        "byoc",
+        "AI"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Finish AI access setup",
         "finish AI access setup",
         "finish AI access",
@@ -22555,7 +23441,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Keeps the person's selected Gemini runtime and returns to the One setup hub.",
+      "description": "Keeps the person's selected AI connection and returns to the One setup hub.",
       "execution": {
         "binding_ref": "semantic_action:setup.finish_connections",
         "executor": {
@@ -32374,6 +33260,615 @@
     },
     {
       "aliases": [
+        "Email preferences",
+        "email preferences",
+        "email updates",
+        "unsubscribe from emails"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "route.profile_email_updates",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens Your account to review optional One email updates. Opening the form changes no email permission.",
+      "execution": {
+        "binding_ref": "route:/one/profile/account",
+        "executor": {
+          "kind": "existing_route",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/profile/account"
+        }
+      },
+      "goal_id": "goal.route.profile_email_updates",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Email preferences",
+      "navigation": {
+        "fallback": "/one/profile/account",
+        "routes": [
+          "/one/profile/account"
+        ],
+        "screens": [
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": false,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "email",
+        "updates",
+        "marketing",
+        "unsubscribe"
+      ],
+      "settlement_proof": "validated_route_settlement",
+      "side_effect": {
+        "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Choose optional email updates"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.email_updates.choose",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The person chooses an optional email preference and frequency on screen. Changing the draft does not subscribe or save it.",
+      "execution": {
+        "binding_ref": "render:profile.email_updates.choose",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.profile.email_updates.choose",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Choose optional email updates",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/setup",
+          "/one/profile/account"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "email preferences",
+        "product updates"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Save email preference"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.email_updates.save",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The person explicitly saves the email preference and frequency reviewed on screen. One may explain or open the form but cannot choose or submit marketing permission.",
+      "execution": {
+        "binding_ref": "render:profile.email_updates.save",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.profile.email_updates.save",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Save email preference",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/setup",
+          "/one/profile/account"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "email preferences",
+        "subscribe",
+        "unsubscribe"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Retry email preference"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.email_updates.retry",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The person retries reading their saved optional email preference. This changes no subscription.",
+      "execution": {
+        "binding_ref": "render:profile.email_updates.retry",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.profile.email_updates.retry",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Retry email preference",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/setup",
+          "/one/profile/account"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "email preferences",
+        "retry"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Ask Email",
         "what needs a reply today",
         "what needs a reply",
@@ -36984,6 +38479,158 @@
     },
     {
       "aliases": [
+        "Set up your private agent",
+        "set up my cloud",
+        "connect my cloud",
+        "open cloud setup",
+        "use my own google cloud"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "setup.open_cloud",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens one wizard to choose hosting, prove the cloud setup when required, and then select verified AI access.",
+      "execution": {
+        "binding_ref": "route:/one/setup/cloud",
+        "executor": {
+          "kind": "existing_route",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/setup/cloud"
+        }
+      },
+      "goal_id": "goal.setup.open_cloud",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Set up your private agent",
+      "navigation": {
+        "fallback": "/one/setup/cloud",
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": false,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "cloud",
+        "project",
+        "google cloud",
+        "byoc",
+        "own compute"
+      ],
+      "settlement_proof": "validated_route_settlement",
+      "side_effect": {
+        "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Choose your AI",
         "choose my ai",
         "set up AI access",
@@ -37017,7 +38664,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Opens the AI access choice so the person can use Hussh's Gemini or add their own Gemini key.",
+      "description": "Opens the supported AI connection choice for the selected hosting, preserving the verified cloud default and explicit owner-key choices.",
       "execution": {
         "binding_ref": "route:/one/setup/connections",
         "executor": {
@@ -43479,7 +45126,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "0c965539c4a9b73d0bcc60425957cc8d8ab6cfe9f5826b9afe88be64287c8dbc",
+      "projection_digest": "a1312c070cd5581ef72c58a76bf8521ce7552c9c60bbaf8c055549861ebc62af",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -43489,16 +45136,16 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "eab2b9019909f1f36006a6d4f3ccaa8754b85684eb0d78531031cfb21d6a9785",
-        "capability_runtime_compiler": "69638086287c46cf6f52c0e73a5e19dd3e427880de170572b97e2ebe4a8967fb",
+        "capability_graph_evolution": "e135f4becffa926478c893a9834b043c1351a3ba8443ac54ce12953c0e1231fa",
+        "capability_runtime_compiler": "c5858ad6661f786d4fd136a25fce3174cb25d95ac5279a2ac8b98fce1a8728ec",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-        "location_agent_manifest": "c09e8987cf11a0c73a23a2bb39fe93edeca9235ac3f1a9ddd1af8f0f42dd612e",
+        "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
         "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
         "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-        "service_knowledge_packages": "5a80a782231a34ec765bde7e8dbef1a4a09ebbcac3463cbb2e63ad9cc9be3a1c"
+        "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "f81cd566f223f92d",
+      "source_revision": "a638cd4ec38b0442",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -45016,7 +46663,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "f81cd566f223f92d",
+    "source_revision": "a638cd4ec38b0442",
     "web": {
       "actions": [
         {
@@ -45059,7 +46706,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "9ed088bec1b15c27712c3c6a18d14f4f8eeb44eb669da8245ec2a920b210d4d9",
+      "projection_digest": "d30aa9dc02e3d37961abd790348f767b669452c650ccaf78ba5954d109be9609",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -45069,16 +46716,16 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "eab2b9019909f1f36006a6d4f3ccaa8754b85684eb0d78531031cfb21d6a9785",
-        "capability_runtime_compiler": "69638086287c46cf6f52c0e73a5e19dd3e427880de170572b97e2ebe4a8967fb",
+        "capability_graph_evolution": "e135f4becffa926478c893a9834b043c1351a3ba8443ac54ce12953c0e1231fa",
+        "capability_runtime_compiler": "c5858ad6661f786d4fd136a25fce3174cb25d95ac5279a2ac8b98fce1a8728ec",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-        "location_agent_manifest": "c09e8987cf11a0c73a23a2bb39fe93edeca9235ac3f1a9ddd1af8f0f42dd612e",
+        "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
         "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
         "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-        "service_knowledge_packages": "5a80a782231a34ec765bde7e8dbef1a4a09ebbcac3463cbb2e63ad9cc9be3a1c"
+        "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "f81cd566f223f92d",
+      "source_revision": "a638cd4ec38b0442",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -46635,7 +48282,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "f81cd566f223f92d",
+  "revision": "a638cd4ec38b0442",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -46958,6 +48605,7 @@
         "calendar.read",
         "consent.chat.turn",
         "location.chat.turn",
+        "one.scheduled_tasks.open",
         "route.one_agents",
         "route.one_feed",
         "route.one_location",
@@ -47080,6 +48728,17 @@
       "kind": "screen",
       "label": "one_feed",
       "route_pattern": "/one/feed",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
+      "action_ids": [
+        "route.one_files"
+      ],
+      "capability_id": "screen:/one/files",
+      "kind": "screen",
+      "label": "one_files",
+      "route_pattern": "/one/files",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
     },
@@ -47526,6 +49185,9 @@
     },
     {
       "action_ids": [
+        "pkm.close_sharing_bundle_review",
+        "pkm.close_sharing_price_review",
+        "pkm.review_sharing_price",
         "route.one_pkm",
         "route.profile_pkm_agent_lab"
       ],
@@ -47727,6 +49389,15 @@
     },
     {
       "action_ids": [],
+      "capability_id": "screen:/one/profile/discovery",
+      "kind": "screen",
+      "label": "profile_discovery",
+      "route_pattern": "/one/profile/discovery",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
+      "action_ids": [],
       "capability_id": "screen:/one/profile/gmail",
       "kind": "screen",
       "label": "profile_gmail_panel",
@@ -47767,6 +49438,15 @@
       "kind": "screen",
       "label": "calendar",
       "route_pattern": "/one/profile/google/oauth/return",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
+      "action_ids": [],
+      "capability_id": "screen:/one/profile/hosting",
+      "kind": "screen",
+      "label": "profile_hosting",
+      "route_pattern": "/one/profile/hosting",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
     },
@@ -47997,6 +49677,15 @@
       "version": 1
     },
     {
+      "action_ids": [],
+      "capability_id": "screen:/one/profile/software-updates",
+      "kind": "screen",
+      "label": "profile_software-updates",
+      "route_pattern": "/one/profile/software-updates",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
       "action_ids": [
         "route.profile_support_panel"
       ],
@@ -48064,6 +49753,7 @@
       "action_ids": [
         "setup.hub_master_ack",
         "setup.open_calendar",
+        "setup.open_cloud",
         "setup.open_connected_systems",
         "setup.open_connections",
         "setup.open_email",
@@ -48098,6 +49788,28 @@
       "kind": "screen",
       "label": "one_setup_calendar",
       "route_pattern": "/one/setup/calendar",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
+      "action_ids": [
+        "setup.finish_cloud"
+      ],
+      "capability_id": "screen:/one/setup/cloud",
+      "kind": "screen",
+      "label": "one_setup_cloud",
+      "route_pattern": "/one/setup/cloud",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
+      "action_ids": [
+        "setup.finish_cloud"
+      ],
+      "capability_id": "screen:/one/setup/cloud/azure/return",
+      "kind": "screen",
+      "label": "one_setup_cloud",
+      "route_pattern": "/one/setup/cloud/azure/return",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
     },
@@ -48534,24 +50246,46 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:one.scheduled_tasks.open",
+      "actions:pkm.close_sharing_bundle_review",
+      "actions:pkm.close_sharing_price_review",
+      "actions:pkm.review_sharing_price",
+      "actions:route.one_files",
+      "actions:setup.finish_cloud",
+      "actions:setup.open_cloud",
+      "screens:screen:/one/files",
+      "screens:screen:/one/profile/discovery",
+      "screens:screen:/one/profile/hosting",
+      "screens:screen:/one/profile/software-updates",
+      "screens:screen:/one/setup/cloud",
+      "screens:screen:/one/setup/cloud/azure/return",
+      "services:service.cloud",
+      "workflows:workflow.setup.cloud"
+    ],
     "breaking": [],
     "changed": [
-      "actions:location.add_emergency_contact",
-      "actions:location.open_sms_contacts",
-      "actions:location.stop_sos",
-      "actions:location.trigger_sos",
-      "brains:location",
-      "services:service.location"
+      "actions:profile.delete_account",
+      "actions:route.one_pkm",
+      "actions:route.profile_payouts",
+      "actions:setup.finish_connections",
+      "actions:setup.open_connections",
+      "screens:screen:/one",
+      "screens:screen:/one/pkm",
+      "screens:screen:/one/setup",
+      "workflows:workflow.setup.connections"
     ],
-    "compatible": [],
+    "compatible": [
+      "actions:route.one_pkm",
+      "actions:route.profile_payouts"
+    ],
     "deprecated": [
-      "actions:location.add_emergency_contact",
-      "actions:location.open_sms_contacts",
-      "actions:location.stop_sos",
-      "actions:location.trigger_sos"
+      "actions:profile.delete_account",
+      "actions:setup.finish_connections",
+      "actions:setup.open_connections",
+      "workflows:workflow.setup.connections"
     ],
-    "from_revision": "65ab266e1b246630",
+    "from_revision": "a0cd8997edf6708d",
     "migrated": [],
     "removed": []
   },
@@ -48725,6 +50459,65 @@
       "schema_version": "one.dynamic_service_knowledge.v1",
       "service_id": "calendar",
       "specialist_agent_id": "agent_calendar",
+      "telemetry_event": "app_intelligence.service_discovery",
+      "version": 1
+    },
+    {
+      "action_ids": [
+        "setup.finish_cloud",
+        "setup.open_cloud"
+      ],
+      "api_endpoints": [],
+      "capability_id": "service.cloud",
+      "completion": {
+        "claim_policy": "verified_persisted_state_only",
+        "skip_is_success": false,
+        "success_state_capability_id": "cloud",
+        "visual_computer_use": "excluded_from_primary_path"
+      },
+      "executor_hierarchy": [
+        {
+          "action_ids": [],
+          "discovered_endpoint_count": 0,
+          "kind": "backend_api",
+          "reason": "Discovered endpoints are intentionally unbound until an audited action adapter registers one.",
+          "status": "adapter_required"
+        },
+        {
+          "actions": [],
+          "kind": "native_semantic_action",
+          "reason": "No generated native semantic prerequisite is registered for this setup flow.",
+          "status": "not_required_or_unregistered"
+        },
+        {
+          "action_ids": [
+            "setup.open_cloud",
+            "setup.finish_cloud"
+          ],
+          "kind": "existing_ui_semantic_action",
+          "route_pattern": "/one/setup/cloud",
+          "status": "registered"
+        },
+        {
+          "kind": "typed_render",
+          "render_surface": "existing_route_surface",
+          "route_pattern": "/one/setup/cloud",
+          "status": "approved_existing_surface"
+        }
+      ],
+      "kind": "service",
+      "knowledge_package": null,
+      "knowledge_projection": null,
+      "label": "Cloud",
+      "native_semantic_actions": [],
+      "onboarding_workflow_id": "workflow.setup.cloud",
+      "one_exposure": null,
+      "route_patterns": [
+        "/one/setup/cloud"
+      ],
+      "schema_version": "one.dynamic_service_knowledge.v1",
+      "service_id": "cloud",
+      "specialist_agent_id": null,
       "telemetry_event": "app_intelligence.service_discovery",
       "version": 1
     },
@@ -50798,21 +52591,21 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "eab2b9019909f1f36006a6d4f3ccaa8754b85684eb0d78531031cfb21d6a9785",
-    "capability_runtime_compiler": "69638086287c46cf6f52c0e73a5e19dd3e427880de170572b97e2ebe4a8967fb",
+    "capability_graph_evolution": "e135f4becffa926478c893a9834b043c1351a3ba8443ac54ce12953c0e1231fa",
+    "capability_runtime_compiler": "c5858ad6661f786d4fd136a25fce3174cb25d95ac5279a2ac8b98fce1a8728ec",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "82ae2e249bfc85f8a86ecab5a3349777ceb33be45148b50ec37fb14119ae5d1d",
-    "location_agent_manifest": "c09e8987cf11a0c73a23a2bb39fe93edeca9235ac3f1a9ddd1af8f0f42dd612e",
+    "kai_action_gateway": "ee1853326a6643ae87354813fd3b057d5a17206b2282660ec2a315fe99f4ca45",
+    "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "aaf6c3c24af5614778fe93a564c27a8506bbb233872ec3f814de3a5ab6b79996",
-    "route_orchestration_index": "06406725caa658a1c91e6b471ecf5004020b0994a4b3b5ac6a0a42b00dcd084c",
-    "service_knowledge_packages": "5a80a782231a34ec765bde7e8dbef1a4a09ebbcac3463cbb2e63ad9cc9be3a1c"
+    "product_agent_registry": "549eb761c7aa5c93d5d07d9b730e5449525dc824bf614b92534e186ec6a32746",
+    "route_orchestration_index": "096e13cb27356fd092a6cfaac1075fbdcc4e44ba9aca829ba4a3803bf3ee48ba",
+    "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "f81cd566f223f92d",
+  "source_revision": "a638cd4ec38b0442",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "f81cd566f223f92d",
+    "current_graph_revision": "a638cd4ec38b0442",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -50820,17 +52613,25 @@
           "00e49f65025341a1",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
+          "05b225bb370b6e59",
+          "05f5a43ac04150f7",
+          "06db6538bfac1f45",
+          "07974bdfcc821de5",
           "087fe0af56da1339",
+          "089dd4c9f391ecfd",
           "0b5a745ab3af9c5e",
           "0d62d7eee4a25fa1",
           "0e6a579ea26b2b2f",
           "0ed573b111c33adc",
           "0f847cb897c39c4a",
           "1016f2f0efc0cbd7",
+          "101c32b70ab14a4d",
           "114ef930def0cdbb",
           "12bc858aab243003",
           "12f82fc1dec40c31",
           "13eb411a1421dc9f",
+          "141da451575ab2fc",
+          "14b86b8e434fc15c",
           "14c6b22d359cc06b",
           "17feeafcddfeca14",
           "1805aa6d316a11c0",
@@ -50841,6 +52642,7 @@
           "1d676482f1105e19",
           "1de69a43f289bcd9",
           "22b91ec0916f167f",
+          "27a5c64caf11b36c",
           "27c9fbd5a1b01b65",
           "2978b8513e4b94e7",
           "2a7746fbb31459cf",
@@ -50853,6 +52655,7 @@
           "2e0b326d76bb9185",
           "2e988a955b99831d",
           "306cedaea444603c",
+          "3186f9f8f525e755",
           "32b235f681091788",
           "32eb22648d57ca04",
           "33155b599f7caa5f",
@@ -50860,6 +52663,7 @@
           "3618b09083db26c6",
           "37cb394043f0f125",
           "3993b73221f2be93",
+          "3b4a692078832301",
           "3c364d0a46aab416",
           "3d607a126bd8ddc2",
           "3f77e197ed47cf60",
@@ -50868,32 +52672,43 @@
           "412347810e5f697b",
           "41fcabe47a6c84ca",
           "4290bffc350511d9",
+          "43c428db7505bdee",
+          "43efe9fb3a1513f1",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "454780a997b07892",
           "463b7d0356056f19",
+          "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
           "4d1bf6b5a6a45c65",
           "4d6e699fcd39cfe3",
+          "4d911004af4b252b",
           "4fd986111b6fa432",
           "5009d0612016fd66",
           "511758965444c3bb",
           "514233a33ab8fa37",
           "525e1bea6e22f1da",
           "52aa88e60c0dd4a2",
+          "53c411e01494034b",
           "55a233b9b6e923ea",
+          "5909c4277d032171",
           "594add96607b6147",
           "5dd05b725c815199",
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
           "60f052ad508244d1",
+          "60f9c47270b215a8",
+          "62fecdf7944d63a5",
+          "6372c447ad7f5790",
           "6448b901792d40a4",
           "65ab266e1b246630",
           "66bd2c14003aab77",
           "67d1bf3603c35644",
+          "6889f5062bd36428",
           "6a0b757235ce00a0",
           "6a2a7c280f69e9e0",
+          "6a5e47527ae2308f",
           "6a987992e57a50e3",
           "6a9cae53fbedb8e9",
           "6ae4aaa57eb4e7fe",
@@ -50904,6 +52719,8 @@
           "6bee2815a8d940bf",
           "6c0edc9a3b3f7d92",
           "6c20fd33cd695f9c",
+          "6d4f353397278c4c",
+          "6e5f5a12b0a2f4ec",
           "6ef509dcda1fb0a3",
           "6fab1183e63a24c5",
           "70fa4b6189b9b76b",
@@ -50912,60 +52729,85 @@
           "71ed8af339174fae",
           "71f054528fd84ee6",
           "72155688eff9b624",
+          "764b9cd170a9b7b3",
           "771cbd282b3b3c1a",
           "793d7494bf839d4a",
+          "7d29dd99f31ad3ca",
           "7dfe20ea4e593ddb",
+          "7e725415993cda04",
+          "7fe68d8f752aa842",
           "804a8fd643783c90",
+          "8052e8fc866f98cd",
+          "8065981a6233598e",
           "807f7c1adc601995",
           "81a213ceb7f54de5",
           "81da1803f271bd92",
+          "82b0f2c85fa6d4da",
           "82e741080f6a22ff",
+          "83966cd4fefe54f6",
           "847b5d41cc16757e",
           "84be89d1ef3db994",
           "85499847624cc916",
           "8593556d6d3e23d4",
           "861314d5e7b95ff6",
+          "86a81ce5c2ff6a00",
+          "8745d0a365c9c536",
+          "8788bf4b6751557b",
           "8845cf8eae4a24fb",
           "88e824b5f2a3a37d",
+          "8a957610367a7fda",
+          "8afa7c0f35f622a7",
           "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8d723d6871b7b118",
           "8e37ce83397a3ac7",
           "8e7504c56c6fdfc8",
           "8eced9f041d6ab65",
+          "8ed4b64eb88ea5b3",
           "900ec7f1fc730bd8",
           "90de2a8d40819efe",
           "9195b95c1e25685f",
           "934f53f787f43981",
           "94e751d14ffa29a9",
           "9503b7156b53ae3c",
+          "9683f26dff3798f0",
           "9685a4f3c74e2591",
           "970a4b8802728663",
           "982f6c71300d5430",
           "985f269cad82aa7c",
+          "9901faaed410026a",
           "99f8c9ff56a09d49",
           "9ae223df4c27d20f",
+          "9b520324ac39c69f",
+          "9b9069c8c60c02f9",
+          "9c1f8b9bcf9e2d4b",
           "9c797354f3ce3b52",
           "9d5d8ccd75c7d202",
           "9d786fec1d5617bb",
           "9e0e176fc7891c1d",
+          "9e28477ae61ba4ef",
+          "9e76e7495565063d",
           "9e8a734a41be8c78",
           "9f73e84abaa708e0",
+          "a0cd8997edf6708d",
           "a165740521c96115",
           "a1d95f8fe1087d06",
           "a26ec99e74ba2208",
           "a3c80f8f58422628",
           "a470a69ce2ec2250",
+          "a4adf08da1a10229",
           "a4be6b9f6bd5e161",
           "a4e4c3976f85ab29",
           "a557b6e430688973",
           "a670375ba9af6300",
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
+          "a70ab77c9974866f",
           "a7f9652ad6898a0c",
           "a7faf3fd04605e90",
           "aaec9bce8ec29c93",
           "aba61480c43d7e56",
+          "ad3f61d47487e20e",
           "af06ae26b8943fb1",
           "af42538767aa6642",
           "af57e85f060b7a4e",
@@ -50982,6 +52824,7 @@
           "be22fe6e0fa3f322",
           "be499da2762f573e",
           "bec5fd5f0ffddc6c",
+          "bf818f0b3141079a",
           "bfea0bb3d07eca1f",
           "c055c42ec3fc7da8",
           "c118b9582508fec4",
@@ -50990,18 +52833,22 @@
           "c2e7e299b49c5228",
           "c2f60a0a18e23643",
           "c32bec5a75d64734",
+          "c39f0674bed1fca1",
           "c4365d405790f94d",
           "c58f84b46c451af7",
           "c610b2f9c5fc9385",
           "c846a385fad8df04",
           "ca45fcf41af6e723",
+          "cb10ee16c62231b2",
           "cb4b4f653c99fc16",
           "cccecbbc8438b3aa",
           "ce3d0f0b6b9d9199",
+          "ce5392b8bb1c6e80",
           "cf08fb61503832fb",
           "d01f9a7a5198c5c9",
           "d1893c1a136dc255",
           "d2fb4bf373169b8d",
+          "d3007ff6184e4f81",
           "d3412cfe7b8de515",
           "d35991b5b3028036",
           "d3e820220dacdce1",
@@ -51009,26 +52856,36 @@
           "d49a8c46e5581c02",
           "d4b2dd7b65a583c6",
           "d5b3ec7b095aadab",
+          "d71ad90b1264bb6c",
           "d82abfd03561cb0a",
           "d8d96408bbd419cb",
           "d96de7a17419d091",
           "d98448584de64472",
           "d9d2250f35c35733",
+          "db2187647b28df19",
           "db3cc261469c8291",
           "db9c1ca05979d69a",
           "dc84474d7b197bb0",
           "dc8f4bacebd2e0cf",
+          "dd0bf20a1ad852d3",
+          "de6d576a06f1dde6",
           "df37a235665ef89d",
+          "e06d27b000c77fa3",
           "e2bea9d9173fd56a",
           "e3a606aa87e944e4",
           "e59793b27ab57818",
           "e5ef67418f260a1f",
           "e5fc447004cb9ff6",
           "e64a0a56bd563562",
+          "e6cd5a9cfb4bf0a3",
+          "e72a95655f220acd",
+          "e746225912756998",
           "e80eda39021a5b07",
+          "e816c23283695a99",
           "e957417b1eacbe4b",
           "e9620aafd44c12ae",
           "ea183f0f5321f862",
+          "ebddcf5afa07b6bb",
           "ec434ef7854db523",
           "ec4de76bb707c51c",
           "ecca156af65fac1f",
@@ -51036,6 +52893,7 @@
           "edf0ef85a69b4938",
           "eea61b54dab81d44",
           "ef88720ce177a379",
+          "f0c409450ab444ad",
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
           "f159d8b097f5456c",
@@ -51045,9 +52903,11 @@
           "f5e5938138c09753",
           "f6044f1a0bbd43dd",
           "f7445aa56d82a9cf",
+          "f81cd566f223f92d",
           "f91ecbcca5e10b42",
           "fac4fe10478339eb",
           "fb7a6340d119acec",
+          "fb9a089556077ad3",
           "fbac9497545a7c39",
           "fe7124ad349b7300"
         ],
@@ -51059,6 +52919,92 @@
       },
       {
         "compatible_graph_revisions": [
+          "05b225bb370b6e59",
+          "06db6538bfac1f45",
+          "07974bdfcc821de5",
+          "089dd4c9f391ecfd",
+          "101c32b70ab14a4d",
+          "141da451575ab2fc",
+          "14b86b8e434fc15c",
+          "27a5c64caf11b36c",
+          "3b4a692078832301",
+          "43c428db7505bdee",
+          "43efe9fb3a1513f1",
+          "49f1882f17ca746a",
+          "4d911004af4b252b",
+          "53c411e01494034b",
+          "6372c447ad7f5790",
+          "6889f5062bd36428",
+          "6a5e47527ae2308f",
+          "6e5f5a12b0a2f4ec",
+          "764b9cd170a9b7b3",
+          "7e725415993cda04",
+          "7fe68d8f752aa842",
+          "8052e8fc866f98cd",
+          "86a81ce5c2ff6a00",
+          "8745d0a365c9c536",
+          "8788bf4b6751557b",
+          "8afa7c0f35f622a7",
+          "8ed4b64eb88ea5b3",
+          "9683f26dff3798f0",
+          "9b520324ac39c69f",
+          "9e28477ae61ba4ef",
+          "9e76e7495565063d",
+          "a70ab77c9974866f",
+          "ad3f61d47487e20e",
+          "bf818f0b3141079a",
+          "c39f0674bed1fca1",
+          "ce5392b8bb1c6e80",
+          "d3007ff6184e4f81",
+          "db2187647b28df19",
+          "dd0bf20a1ad852d3",
+          "de6d576a06f1dde6",
+          "e06d27b000c77fa3",
+          "e6cd5a9cfb4bf0a3",
+          "e72a95655f220acd",
+          "e746225912756998",
+          "ebddcf5afa07b6bb",
+          "f0c409450ab444ad",
+          "fb9a089556077ad3"
+        ],
+        "migration_required_graph_revisions": [],
+        "rejected_graph_revisions": [],
+        "workflow_digest": "3ee4bf0d6facead10360843527de50897a25f103d60998539d25515b281b0f26",
+        "workflow_id": "workflow.setup.cloud",
+        "workflow_version": 1
+      },
+      {
+        "compatible_graph_revisions": [
+          "06db6538bfac1f45",
+          "07974bdfcc821de5",
+          "089dd4c9f391ecfd",
+          "101c32b70ab14a4d",
+          "141da451575ab2fc",
+          "14b86b8e434fc15c",
+          "27a5c64caf11b36c",
+          "3b4a692078832301",
+          "43c428db7505bdee",
+          "4d911004af4b252b",
+          "53c411e01494034b",
+          "6889f5062bd36428",
+          "6a5e47527ae2308f",
+          "6e5f5a12b0a2f4ec",
+          "8052e8fc866f98cd",
+          "8afa7c0f35f622a7",
+          "8ed4b64eb88ea5b3",
+          "9e28477ae61ba4ef",
+          "a70ab77c9974866f",
+          "ad3f61d47487e20e",
+          "c39f0674bed1fca1",
+          "d3007ff6184e4f81",
+          "de6d576a06f1dde6",
+          "e72a95655f220acd",
+          "e746225912756998",
+          "f0c409450ab444ad",
+          "fb9a089556077ad3"
+        ],
+        "migration_required_graph_revisions": [],
+        "rejected_graph_revisions": [
           "00e49f65025341a1",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
@@ -51125,11 +53071,13 @@
           "525e1bea6e22f1da",
           "52aa88e60c0dd4a2",
           "55a233b9b6e923ea",
+          "5909c4277d032171",
           "594add96607b6147",
           "5dd05b725c815199",
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
           "60f052ad508244d1",
+          "62fecdf7944d63a5",
           "6448b901792d40a4",
           "65ab266e1b246630",
           "66bd2c14003aab77",
@@ -51193,6 +53141,7 @@
           "9e0e176fc7891c1d",
           "9e8a734a41be8c78",
           "9f73e84abaa708e0",
+          "a0cd8997edf6708d",
           "a165740521c96115",
           "a1d95f8fe1087d06",
           "a26ec99e74ba2208",
@@ -51287,33 +53236,40 @@
           "f5e5938138c09753",
           "f6044f1a0bbd43dd",
           "f7445aa56d82a9cf",
+          "f81cd566f223f92d",
           "f91ecbcca5e10b42",
           "fac4fe10478339eb",
           "fb7a6340d119acec",
           "fbac9497545a7c39",
           "fe7124ad349b7300"
         ],
-        "migration_required_graph_revisions": [],
-        "rejected_graph_revisions": [],
-        "workflow_digest": "736fdb278397b17bc8fe2f3f64ad5fa57ec8ab102006060cd67104eb89d4cf7f",
+        "workflow_digest": "a57e6d6053f930b2d585a5e583b194c63d3b8bb5f8a8a33aff7e2b0a22dbfeb4",
         "workflow_id": "workflow.setup.connections",
         "workflow_version": 1
       },
       {
         "compatible_graph_revisions": [
           "00e49f65025341a1",
+          "05b225bb370b6e59",
+          "06db6538bfac1f45",
+          "07974bdfcc821de5",
           "087fe0af56da1339",
+          "089dd4c9f391ecfd",
           "0b5a745ab3af9c5e",
           "0ed573b111c33adc",
           "0f847cb897c39c4a",
+          "101c32b70ab14a4d",
           "12bc858aab243003",
           "13eb411a1421dc9f",
+          "141da451575ab2fc",
+          "14b86b8e434fc15c",
           "14c6b22d359cc06b",
           "1805aa6d316a11c0",
           "18158cb514ca8a46",
           "1cd7d528295ec9d1",
           "1d676482f1105e19",
           "1de69a43f289bcd9",
+          "27a5c64caf11b36c",
           "27c9fbd5a1b01b65",
           "2978b8513e4b94e7",
           "2a7746fbb31459cf",
@@ -51326,11 +53282,13 @@
           "2e0b326d76bb9185",
           "2e988a955b99831d",
           "306cedaea444603c",
+          "3186f9f8f525e755",
           "32b235f681091788",
           "33155b599f7caa5f",
           "34ab4e29e27a1679",
           "3618b09083db26c6",
           "3993b73221f2be93",
+          "3b4a692078832301",
           "3c364d0a46aab416",
           "3d607a126bd8ddc2",
           "3f77e197ed47cf60",
@@ -51338,22 +53296,32 @@
           "40d5079952d7dc69",
           "412347810e5f697b",
           "4290bffc350511d9",
+          "43c428db7505bdee",
+          "43efe9fb3a1513f1",
           "4498aedb2e5e2aca",
           "454780a997b07892",
           "463b7d0356056f19",
+          "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
           "4d6e699fcd39cfe3",
+          "4d911004af4b252b",
           "4fd986111b6fa432",
           "5009d0612016fd66",
           "514233a33ab8fa37",
+          "53c411e01494034b",
+          "5909c4277d032171",
           "594add96607b6147",
           "5dd05b725c815199",
           "60f052ad508244d1",
+          "62fecdf7944d63a5",
+          "6372c447ad7f5790",
           "65ab266e1b246630",
           "66bd2c14003aab77",
           "67d1bf3603c35644",
+          "6889f5062bd36428",
           "6a0b757235ce00a0",
+          "6a5e47527ae2308f",
           "6a987992e57a50e3",
           "6a9cae53fbedb8e9",
           "6ae4aaa57eb4e7fe",
@@ -51363,14 +53331,21 @@
           "6bee2815a8d940bf",
           "6c0edc9a3b3f7d92",
           "6c20fd33cd695f9c",
+          "6d4f353397278c4c",
+          "6e5f5a12b0a2f4ec",
           "6ef509dcda1fb0a3",
           "6fab1183e63a24c5",
           "70fa4b6189b9b76b",
           "710bd535b7febc69",
           "71ed8af339174fae",
           "71f054528fd84ee6",
+          "764b9cd170a9b7b3",
           "793d7494bf839d4a",
+          "7d29dd99f31ad3ca",
           "7dfe20ea4e593ddb",
+          "7e725415993cda04",
+          "7fe68d8f752aa842",
+          "8052e8fc866f98cd",
           "807f7c1adc601995",
           "81a213ceb7f54de5",
           "81da1803f271bd92",
@@ -51379,24 +53354,37 @@
           "85499847624cc916",
           "8593556d6d3e23d4",
           "861314d5e7b95ff6",
+          "86a81ce5c2ff6a00",
+          "8745d0a365c9c536",
+          "8788bf4b6751557b",
           "8845cf8eae4a24fb",
           "88e824b5f2a3a37d",
+          "8a957610367a7fda",
+          "8afa7c0f35f622a7",
           "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8d723d6871b7b118",
           "8e7504c56c6fdfc8",
           "8eced9f041d6ab65",
+          "8ed4b64eb88ea5b3",
           "900ec7f1fc730bd8",
           "90de2a8d40819efe",
           "934f53f787f43981",
           "9503b7156b53ae3c",
+          "9683f26dff3798f0",
           "9685a4f3c74e2591",
           "970a4b8802728663",
           "985f269cad82aa7c",
+          "9901faaed410026a",
           "9ae223df4c27d20f",
+          "9b520324ac39c69f",
+          "9b9069c8c60c02f9",
           "9d5d8ccd75c7d202",
           "9d786fec1d5617bb",
+          "9e28477ae61ba4ef",
+          "9e76e7495565063d",
           "9e8a734a41be8c78",
+          "a0cd8997edf6708d",
           "a1d95f8fe1087d06",
           "a26ec99e74ba2208",
           "a3c80f8f58422628",
@@ -51405,9 +53393,11 @@
           "a670375ba9af6300",
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
+          "a70ab77c9974866f",
           "a7f9652ad6898a0c",
           "a7faf3fd04605e90",
           "aba61480c43d7e56",
+          "ad3f61d47487e20e",
           "af06ae26b8943fb1",
           "af6fca76390c1e24",
           "afa3f4237cc584d1",
@@ -51420,35 +53410,49 @@
           "bae648fb1e85fb89",
           "be499da2762f573e",
           "bec5fd5f0ffddc6c",
+          "bf818f0b3141079a",
           "c32bec5a75d64734",
+          "c39f0674bed1fca1",
           "c4365d405790f94d",
           "c58f84b46c451af7",
           "c610b2f9c5fc9385",
           "c846a385fad8df04",
           "ca45fcf41af6e723",
+          "ce5392b8bb1c6e80",
           "d01f9a7a5198c5c9",
           "d2fb4bf373169b8d",
+          "d3007ff6184e4f81",
           "d3412cfe7b8de515",
           "d35991b5b3028036",
           "d42b3ae73085154e",
           "d49a8c46e5581c02",
           "d5b3ec7b095aadab",
+          "d71ad90b1264bb6c",
           "d82abfd03561cb0a",
           "d8d96408bbd419cb",
           "d96de7a17419d091",
           "d98448584de64472",
           "d9d2250f35c35733",
+          "db2187647b28df19",
           "db3cc261469c8291",
           "db9c1ca05979d69a",
           "dc84474d7b197bb0",
           "dc8f4bacebd2e0cf",
+          "dd0bf20a1ad852d3",
+          "de6d576a06f1dde6",
           "df37a235665ef89d",
+          "e06d27b000c77fa3",
           "e3a606aa87e944e4",
           "e5ef67418f260a1f",
           "e5fc447004cb9ff6",
           "e64a0a56bd563562",
+          "e6cd5a9cfb4bf0a3",
+          "e72a95655f220acd",
+          "e746225912756998",
           "e80eda39021a5b07",
+          "e816c23283695a99",
           "e9620aafd44c12ae",
+          "ebddcf5afa07b6bb",
           "ec434ef7854db523",
           "ec4de76bb707c51c",
           "ecca156af65fac1f",
@@ -51456,12 +53460,15 @@
           "edf0ef85a69b4938",
           "eea61b54dab81d44",
           "ef88720ce177a379",
+          "f0c409450ab444ad",
           "f0dd083b1d2493ac",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
           "f5e5938138c09753",
           "f7445aa56d82a9cf",
+          "f81cd566f223f92d",
           "fac4fe10478339eb",
+          "fb9a089556077ad3",
           "fe7124ad349b7300"
         ],
         "migration_required_graph_revisions": [],
@@ -51546,17 +53553,25 @@
           "00e49f65025341a1",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
+          "05b225bb370b6e59",
+          "05f5a43ac04150f7",
+          "06db6538bfac1f45",
+          "07974bdfcc821de5",
           "087fe0af56da1339",
+          "089dd4c9f391ecfd",
           "0b5a745ab3af9c5e",
           "0d62d7eee4a25fa1",
           "0e6a579ea26b2b2f",
           "0ed573b111c33adc",
           "0f847cb897c39c4a",
           "1016f2f0efc0cbd7",
+          "101c32b70ab14a4d",
           "114ef930def0cdbb",
           "12bc858aab243003",
           "12f82fc1dec40c31",
           "13eb411a1421dc9f",
+          "141da451575ab2fc",
+          "14b86b8e434fc15c",
           "14c6b22d359cc06b",
           "17feeafcddfeca14",
           "1805aa6d316a11c0",
@@ -51567,6 +53582,7 @@
           "1d676482f1105e19",
           "1de69a43f289bcd9",
           "22b91ec0916f167f",
+          "27a5c64caf11b36c",
           "27c9fbd5a1b01b65",
           "2978b8513e4b94e7",
           "2a7746fbb31459cf",
@@ -51579,6 +53595,7 @@
           "2e0b326d76bb9185",
           "2e988a955b99831d",
           "306cedaea444603c",
+          "3186f9f8f525e755",
           "32b235f681091788",
           "32eb22648d57ca04",
           "33155b599f7caa5f",
@@ -51586,6 +53603,7 @@
           "3618b09083db26c6",
           "37cb394043f0f125",
           "3993b73221f2be93",
+          "3b4a692078832301",
           "3c364d0a46aab416",
           "3d607a126bd8ddc2",
           "3f77e197ed47cf60",
@@ -51594,32 +53612,43 @@
           "412347810e5f697b",
           "41fcabe47a6c84ca",
           "4290bffc350511d9",
+          "43c428db7505bdee",
+          "43efe9fb3a1513f1",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "454780a997b07892",
           "463b7d0356056f19",
+          "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
           "4d1bf6b5a6a45c65",
           "4d6e699fcd39cfe3",
+          "4d911004af4b252b",
           "4fd986111b6fa432",
           "5009d0612016fd66",
           "511758965444c3bb",
           "514233a33ab8fa37",
           "525e1bea6e22f1da",
           "52aa88e60c0dd4a2",
+          "53c411e01494034b",
           "55a233b9b6e923ea",
+          "5909c4277d032171",
           "594add96607b6147",
           "5dd05b725c815199",
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
           "60f052ad508244d1",
+          "60f9c47270b215a8",
+          "62fecdf7944d63a5",
+          "6372c447ad7f5790",
           "6448b901792d40a4",
           "65ab266e1b246630",
           "66bd2c14003aab77",
           "67d1bf3603c35644",
+          "6889f5062bd36428",
           "6a0b757235ce00a0",
           "6a2a7c280f69e9e0",
+          "6a5e47527ae2308f",
           "6a987992e57a50e3",
           "6a9cae53fbedb8e9",
           "6ae4aaa57eb4e7fe",
@@ -51630,6 +53659,8 @@
           "6bee2815a8d940bf",
           "6c0edc9a3b3f7d92",
           "6c20fd33cd695f9c",
+          "6d4f353397278c4c",
+          "6e5f5a12b0a2f4ec",
           "6ef509dcda1fb0a3",
           "6fab1183e63a24c5",
           "70fa4b6189b9b76b",
@@ -51638,60 +53669,85 @@
           "71ed8af339174fae",
           "71f054528fd84ee6",
           "72155688eff9b624",
+          "764b9cd170a9b7b3",
           "771cbd282b3b3c1a",
           "793d7494bf839d4a",
+          "7d29dd99f31ad3ca",
           "7dfe20ea4e593ddb",
+          "7e725415993cda04",
+          "7fe68d8f752aa842",
           "804a8fd643783c90",
+          "8052e8fc866f98cd",
+          "8065981a6233598e",
           "807f7c1adc601995",
           "81a213ceb7f54de5",
           "81da1803f271bd92",
+          "82b0f2c85fa6d4da",
           "82e741080f6a22ff",
+          "83966cd4fefe54f6",
           "847b5d41cc16757e",
           "84be89d1ef3db994",
           "85499847624cc916",
           "8593556d6d3e23d4",
           "861314d5e7b95ff6",
+          "86a81ce5c2ff6a00",
+          "8745d0a365c9c536",
+          "8788bf4b6751557b",
           "8845cf8eae4a24fb",
           "88e824b5f2a3a37d",
+          "8a957610367a7fda",
+          "8afa7c0f35f622a7",
           "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8d723d6871b7b118",
           "8e37ce83397a3ac7",
           "8e7504c56c6fdfc8",
           "8eced9f041d6ab65",
+          "8ed4b64eb88ea5b3",
           "900ec7f1fc730bd8",
           "90de2a8d40819efe",
           "9195b95c1e25685f",
           "934f53f787f43981",
           "94e751d14ffa29a9",
           "9503b7156b53ae3c",
+          "9683f26dff3798f0",
           "9685a4f3c74e2591",
           "970a4b8802728663",
           "982f6c71300d5430",
           "985f269cad82aa7c",
+          "9901faaed410026a",
           "99f8c9ff56a09d49",
           "9ae223df4c27d20f",
+          "9b520324ac39c69f",
+          "9b9069c8c60c02f9",
+          "9c1f8b9bcf9e2d4b",
           "9c797354f3ce3b52",
           "9d5d8ccd75c7d202",
           "9d786fec1d5617bb",
           "9e0e176fc7891c1d",
+          "9e28477ae61ba4ef",
+          "9e76e7495565063d",
           "9e8a734a41be8c78",
           "9f73e84abaa708e0",
+          "a0cd8997edf6708d",
           "a165740521c96115",
           "a1d95f8fe1087d06",
           "a26ec99e74ba2208",
           "a3c80f8f58422628",
           "a470a69ce2ec2250",
+          "a4adf08da1a10229",
           "a4be6b9f6bd5e161",
           "a4e4c3976f85ab29",
           "a557b6e430688973",
           "a670375ba9af6300",
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
+          "a70ab77c9974866f",
           "a7f9652ad6898a0c",
           "a7faf3fd04605e90",
           "aaec9bce8ec29c93",
           "aba61480c43d7e56",
+          "ad3f61d47487e20e",
           "af06ae26b8943fb1",
           "af42538767aa6642",
           "af57e85f060b7a4e",
@@ -51708,6 +53764,7 @@
           "be22fe6e0fa3f322",
           "be499da2762f573e",
           "bec5fd5f0ffddc6c",
+          "bf818f0b3141079a",
           "bfea0bb3d07eca1f",
           "c055c42ec3fc7da8",
           "c118b9582508fec4",
@@ -51716,18 +53773,22 @@
           "c2e7e299b49c5228",
           "c2f60a0a18e23643",
           "c32bec5a75d64734",
+          "c39f0674bed1fca1",
           "c4365d405790f94d",
           "c58f84b46c451af7",
           "c610b2f9c5fc9385",
           "c846a385fad8df04",
           "ca45fcf41af6e723",
+          "cb10ee16c62231b2",
           "cb4b4f653c99fc16",
           "cccecbbc8438b3aa",
           "ce3d0f0b6b9d9199",
+          "ce5392b8bb1c6e80",
           "cf08fb61503832fb",
           "d01f9a7a5198c5c9",
           "d1893c1a136dc255",
           "d2fb4bf373169b8d",
+          "d3007ff6184e4f81",
           "d3412cfe7b8de515",
           "d35991b5b3028036",
           "d3e820220dacdce1",
@@ -51735,26 +53796,36 @@
           "d49a8c46e5581c02",
           "d4b2dd7b65a583c6",
           "d5b3ec7b095aadab",
+          "d71ad90b1264bb6c",
           "d82abfd03561cb0a",
           "d8d96408bbd419cb",
           "d96de7a17419d091",
           "d98448584de64472",
           "d9d2250f35c35733",
+          "db2187647b28df19",
           "db3cc261469c8291",
           "db9c1ca05979d69a",
           "dc84474d7b197bb0",
           "dc8f4bacebd2e0cf",
+          "dd0bf20a1ad852d3",
+          "de6d576a06f1dde6",
           "df37a235665ef89d",
+          "e06d27b000c77fa3",
           "e2bea9d9173fd56a",
           "e3a606aa87e944e4",
           "e59793b27ab57818",
           "e5ef67418f260a1f",
           "e5fc447004cb9ff6",
           "e64a0a56bd563562",
+          "e6cd5a9cfb4bf0a3",
+          "e72a95655f220acd",
+          "e746225912756998",
           "e80eda39021a5b07",
+          "e816c23283695a99",
           "e957417b1eacbe4b",
           "e9620aafd44c12ae",
           "ea183f0f5321f862",
+          "ebddcf5afa07b6bb",
           "ec434ef7854db523",
           "ec4de76bb707c51c",
           "ecca156af65fac1f",
@@ -51762,6 +53833,7 @@
           "edf0ef85a69b4938",
           "eea61b54dab81d44",
           "ef88720ce177a379",
+          "f0c409450ab444ad",
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
           "f159d8b097f5456c",
@@ -51771,9 +53843,11 @@
           "f5e5938138c09753",
           "f6044f1a0bbd43dd",
           "f7445aa56d82a9cf",
+          "f81cd566f223f92d",
           "f91ecbcca5e10b42",
           "fac4fe10478339eb",
           "fb7a6340d119acec",
+          "fb9a089556077ad3",
           "fbac9497545a7c39",
           "fe7124ad349b7300"
         ],
@@ -51788,17 +53862,25 @@
           "00e49f65025341a1",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
+          "05b225bb370b6e59",
+          "05f5a43ac04150f7",
+          "06db6538bfac1f45",
+          "07974bdfcc821de5",
           "087fe0af56da1339",
+          "089dd4c9f391ecfd",
           "0b5a745ab3af9c5e",
           "0d62d7eee4a25fa1",
           "0e6a579ea26b2b2f",
           "0ed573b111c33adc",
           "0f847cb897c39c4a",
           "1016f2f0efc0cbd7",
+          "101c32b70ab14a4d",
           "114ef930def0cdbb",
           "12bc858aab243003",
           "12f82fc1dec40c31",
           "13eb411a1421dc9f",
+          "141da451575ab2fc",
+          "14b86b8e434fc15c",
           "14c6b22d359cc06b",
           "17feeafcddfeca14",
           "1805aa6d316a11c0",
@@ -51809,6 +53891,7 @@
           "1d676482f1105e19",
           "1de69a43f289bcd9",
           "22b91ec0916f167f",
+          "27a5c64caf11b36c",
           "27c9fbd5a1b01b65",
           "2978b8513e4b94e7",
           "2a7746fbb31459cf",
@@ -51821,6 +53904,7 @@
           "2e0b326d76bb9185",
           "2e988a955b99831d",
           "306cedaea444603c",
+          "3186f9f8f525e755",
           "32b235f681091788",
           "32eb22648d57ca04",
           "33155b599f7caa5f",
@@ -51828,6 +53912,7 @@
           "3618b09083db26c6",
           "37cb394043f0f125",
           "3993b73221f2be93",
+          "3b4a692078832301",
           "3c364d0a46aab416",
           "3d607a126bd8ddc2",
           "3f77e197ed47cf60",
@@ -51836,32 +53921,43 @@
           "412347810e5f697b",
           "41fcabe47a6c84ca",
           "4290bffc350511d9",
+          "43c428db7505bdee",
+          "43efe9fb3a1513f1",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "454780a997b07892",
           "463b7d0356056f19",
+          "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
           "4d1bf6b5a6a45c65",
           "4d6e699fcd39cfe3",
+          "4d911004af4b252b",
           "4fd986111b6fa432",
           "5009d0612016fd66",
           "511758965444c3bb",
           "514233a33ab8fa37",
           "525e1bea6e22f1da",
           "52aa88e60c0dd4a2",
+          "53c411e01494034b",
           "55a233b9b6e923ea",
+          "5909c4277d032171",
           "594add96607b6147",
           "5dd05b725c815199",
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
           "60f052ad508244d1",
+          "60f9c47270b215a8",
+          "62fecdf7944d63a5",
+          "6372c447ad7f5790",
           "6448b901792d40a4",
           "65ab266e1b246630",
           "66bd2c14003aab77",
           "67d1bf3603c35644",
+          "6889f5062bd36428",
           "6a0b757235ce00a0",
           "6a2a7c280f69e9e0",
+          "6a5e47527ae2308f",
           "6a987992e57a50e3",
           "6a9cae53fbedb8e9",
           "6ae4aaa57eb4e7fe",
@@ -51872,6 +53968,8 @@
           "6bee2815a8d940bf",
           "6c0edc9a3b3f7d92",
           "6c20fd33cd695f9c",
+          "6d4f353397278c4c",
+          "6e5f5a12b0a2f4ec",
           "6ef509dcda1fb0a3",
           "6fab1183e63a24c5",
           "70fa4b6189b9b76b",
@@ -51880,60 +53978,85 @@
           "71ed8af339174fae",
           "71f054528fd84ee6",
           "72155688eff9b624",
+          "764b9cd170a9b7b3",
           "771cbd282b3b3c1a",
           "793d7494bf839d4a",
+          "7d29dd99f31ad3ca",
           "7dfe20ea4e593ddb",
+          "7e725415993cda04",
+          "7fe68d8f752aa842",
           "804a8fd643783c90",
+          "8052e8fc866f98cd",
+          "8065981a6233598e",
           "807f7c1adc601995",
           "81a213ceb7f54de5",
           "81da1803f271bd92",
+          "82b0f2c85fa6d4da",
           "82e741080f6a22ff",
+          "83966cd4fefe54f6",
           "847b5d41cc16757e",
           "84be89d1ef3db994",
           "85499847624cc916",
           "8593556d6d3e23d4",
           "861314d5e7b95ff6",
+          "86a81ce5c2ff6a00",
+          "8745d0a365c9c536",
+          "8788bf4b6751557b",
           "8845cf8eae4a24fb",
           "88e824b5f2a3a37d",
+          "8a957610367a7fda",
+          "8afa7c0f35f622a7",
           "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8d723d6871b7b118",
           "8e37ce83397a3ac7",
           "8e7504c56c6fdfc8",
           "8eced9f041d6ab65",
+          "8ed4b64eb88ea5b3",
           "900ec7f1fc730bd8",
           "90de2a8d40819efe",
           "9195b95c1e25685f",
           "934f53f787f43981",
           "94e751d14ffa29a9",
           "9503b7156b53ae3c",
+          "9683f26dff3798f0",
           "9685a4f3c74e2591",
           "970a4b8802728663",
           "982f6c71300d5430",
           "985f269cad82aa7c",
+          "9901faaed410026a",
           "99f8c9ff56a09d49",
           "9ae223df4c27d20f",
+          "9b520324ac39c69f",
+          "9b9069c8c60c02f9",
+          "9c1f8b9bcf9e2d4b",
           "9c797354f3ce3b52",
           "9d5d8ccd75c7d202",
           "9d786fec1d5617bb",
           "9e0e176fc7891c1d",
+          "9e28477ae61ba4ef",
+          "9e76e7495565063d",
           "9e8a734a41be8c78",
           "9f73e84abaa708e0",
+          "a0cd8997edf6708d",
           "a165740521c96115",
           "a1d95f8fe1087d06",
           "a26ec99e74ba2208",
           "a3c80f8f58422628",
           "a470a69ce2ec2250",
+          "a4adf08da1a10229",
           "a4be6b9f6bd5e161",
           "a4e4c3976f85ab29",
           "a557b6e430688973",
           "a670375ba9af6300",
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
+          "a70ab77c9974866f",
           "a7f9652ad6898a0c",
           "a7faf3fd04605e90",
           "aaec9bce8ec29c93",
           "aba61480c43d7e56",
+          "ad3f61d47487e20e",
           "af06ae26b8943fb1",
           "af42538767aa6642",
           "af57e85f060b7a4e",
@@ -51950,6 +54073,7 @@
           "be22fe6e0fa3f322",
           "be499da2762f573e",
           "bec5fd5f0ffddc6c",
+          "bf818f0b3141079a",
           "bfea0bb3d07eca1f",
           "c055c42ec3fc7da8",
           "c118b9582508fec4",
@@ -51958,18 +54082,22 @@
           "c2e7e299b49c5228",
           "c2f60a0a18e23643",
           "c32bec5a75d64734",
+          "c39f0674bed1fca1",
           "c4365d405790f94d",
           "c58f84b46c451af7",
           "c610b2f9c5fc9385",
           "c846a385fad8df04",
           "ca45fcf41af6e723",
+          "cb10ee16c62231b2",
           "cb4b4f653c99fc16",
           "cccecbbc8438b3aa",
           "ce3d0f0b6b9d9199",
+          "ce5392b8bb1c6e80",
           "cf08fb61503832fb",
           "d01f9a7a5198c5c9",
           "d1893c1a136dc255",
           "d2fb4bf373169b8d",
+          "d3007ff6184e4f81",
           "d3412cfe7b8de515",
           "d35991b5b3028036",
           "d3e820220dacdce1",
@@ -51977,26 +54105,36 @@
           "d49a8c46e5581c02",
           "d4b2dd7b65a583c6",
           "d5b3ec7b095aadab",
+          "d71ad90b1264bb6c",
           "d82abfd03561cb0a",
           "d8d96408bbd419cb",
           "d96de7a17419d091",
           "d98448584de64472",
           "d9d2250f35c35733",
+          "db2187647b28df19",
           "db3cc261469c8291",
           "db9c1ca05979d69a",
           "dc84474d7b197bb0",
           "dc8f4bacebd2e0cf",
+          "dd0bf20a1ad852d3",
+          "de6d576a06f1dde6",
           "df37a235665ef89d",
+          "e06d27b000c77fa3",
           "e2bea9d9173fd56a",
           "e3a606aa87e944e4",
           "e59793b27ab57818",
           "e5ef67418f260a1f",
           "e5fc447004cb9ff6",
           "e64a0a56bd563562",
+          "e6cd5a9cfb4bf0a3",
+          "e72a95655f220acd",
+          "e746225912756998",
           "e80eda39021a5b07",
+          "e816c23283695a99",
           "e957417b1eacbe4b",
           "e9620aafd44c12ae",
           "ea183f0f5321f862",
+          "ebddcf5afa07b6bb",
           "ec434ef7854db523",
           "ec4de76bb707c51c",
           "ecca156af65fac1f",
@@ -52004,6 +54142,7 @@
           "edf0ef85a69b4938",
           "eea61b54dab81d44",
           "ef88720ce177a379",
+          "f0c409450ab444ad",
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
           "f159d8b097f5456c",
@@ -52013,9 +54152,11 @@
           "f5e5938138c09753",
           "f6044f1a0bbd43dd",
           "f7445aa56d82a9cf",
+          "f81cd566f223f92d",
           "f91ecbcca5e10b42",
           "fac4fe10478339eb",
           "fb7a6340d119acec",
+          "fb9a089556077ad3",
           "fbac9497545a7c39",
           "fe7124ad349b7300"
         ],
@@ -52030,17 +54171,25 @@
           "00e49f65025341a1",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
+          "05b225bb370b6e59",
+          "05f5a43ac04150f7",
+          "06db6538bfac1f45",
+          "07974bdfcc821de5",
           "087fe0af56da1339",
+          "089dd4c9f391ecfd",
           "0b5a745ab3af9c5e",
           "0d62d7eee4a25fa1",
           "0e6a579ea26b2b2f",
           "0ed573b111c33adc",
           "0f847cb897c39c4a",
           "1016f2f0efc0cbd7",
+          "101c32b70ab14a4d",
           "114ef930def0cdbb",
           "12bc858aab243003",
           "12f82fc1dec40c31",
           "13eb411a1421dc9f",
+          "141da451575ab2fc",
+          "14b86b8e434fc15c",
           "14c6b22d359cc06b",
           "17feeafcddfeca14",
           "1805aa6d316a11c0",
@@ -52051,6 +54200,7 @@
           "1d676482f1105e19",
           "1de69a43f289bcd9",
           "22b91ec0916f167f",
+          "27a5c64caf11b36c",
           "27c9fbd5a1b01b65",
           "2978b8513e4b94e7",
           "2a7746fbb31459cf",
@@ -52063,6 +54213,7 @@
           "2e0b326d76bb9185",
           "2e988a955b99831d",
           "306cedaea444603c",
+          "3186f9f8f525e755",
           "32b235f681091788",
           "32eb22648d57ca04",
           "33155b599f7caa5f",
@@ -52070,6 +54221,7 @@
           "3618b09083db26c6",
           "37cb394043f0f125",
           "3993b73221f2be93",
+          "3b4a692078832301",
           "3c364d0a46aab416",
           "3d607a126bd8ddc2",
           "3f77e197ed47cf60",
@@ -52078,32 +54230,43 @@
           "412347810e5f697b",
           "41fcabe47a6c84ca",
           "4290bffc350511d9",
+          "43c428db7505bdee",
+          "43efe9fb3a1513f1",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "454780a997b07892",
           "463b7d0356056f19",
+          "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
           "4d1bf6b5a6a45c65",
           "4d6e699fcd39cfe3",
+          "4d911004af4b252b",
           "4fd986111b6fa432",
           "5009d0612016fd66",
           "511758965444c3bb",
           "514233a33ab8fa37",
           "525e1bea6e22f1da",
           "52aa88e60c0dd4a2",
+          "53c411e01494034b",
           "55a233b9b6e923ea",
+          "5909c4277d032171",
           "594add96607b6147",
           "5dd05b725c815199",
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
           "60f052ad508244d1",
+          "60f9c47270b215a8",
+          "62fecdf7944d63a5",
+          "6372c447ad7f5790",
           "6448b901792d40a4",
           "65ab266e1b246630",
           "66bd2c14003aab77",
           "67d1bf3603c35644",
+          "6889f5062bd36428",
           "6a0b757235ce00a0",
           "6a2a7c280f69e9e0",
+          "6a5e47527ae2308f",
           "6a987992e57a50e3",
           "6a9cae53fbedb8e9",
           "6ae4aaa57eb4e7fe",
@@ -52114,6 +54277,8 @@
           "6bee2815a8d940bf",
           "6c0edc9a3b3f7d92",
           "6c20fd33cd695f9c",
+          "6d4f353397278c4c",
+          "6e5f5a12b0a2f4ec",
           "6ef509dcda1fb0a3",
           "6fab1183e63a24c5",
           "70fa4b6189b9b76b",
@@ -52122,60 +54287,85 @@
           "71ed8af339174fae",
           "71f054528fd84ee6",
           "72155688eff9b624",
+          "764b9cd170a9b7b3",
           "771cbd282b3b3c1a",
           "793d7494bf839d4a",
+          "7d29dd99f31ad3ca",
           "7dfe20ea4e593ddb",
+          "7e725415993cda04",
+          "7fe68d8f752aa842",
           "804a8fd643783c90",
+          "8052e8fc866f98cd",
+          "8065981a6233598e",
           "807f7c1adc601995",
           "81a213ceb7f54de5",
           "81da1803f271bd92",
+          "82b0f2c85fa6d4da",
           "82e741080f6a22ff",
+          "83966cd4fefe54f6",
           "847b5d41cc16757e",
           "84be89d1ef3db994",
           "85499847624cc916",
           "8593556d6d3e23d4",
           "861314d5e7b95ff6",
+          "86a81ce5c2ff6a00",
+          "8745d0a365c9c536",
+          "8788bf4b6751557b",
           "8845cf8eae4a24fb",
           "88e824b5f2a3a37d",
+          "8a957610367a7fda",
+          "8afa7c0f35f622a7",
           "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8d723d6871b7b118",
           "8e37ce83397a3ac7",
           "8e7504c56c6fdfc8",
           "8eced9f041d6ab65",
+          "8ed4b64eb88ea5b3",
           "900ec7f1fc730bd8",
           "90de2a8d40819efe",
           "9195b95c1e25685f",
           "934f53f787f43981",
           "94e751d14ffa29a9",
           "9503b7156b53ae3c",
+          "9683f26dff3798f0",
           "9685a4f3c74e2591",
           "970a4b8802728663",
           "982f6c71300d5430",
           "985f269cad82aa7c",
+          "9901faaed410026a",
           "99f8c9ff56a09d49",
           "9ae223df4c27d20f",
+          "9b520324ac39c69f",
+          "9b9069c8c60c02f9",
+          "9c1f8b9bcf9e2d4b",
           "9c797354f3ce3b52",
           "9d5d8ccd75c7d202",
           "9d786fec1d5617bb",
           "9e0e176fc7891c1d",
+          "9e28477ae61ba4ef",
+          "9e76e7495565063d",
           "9e8a734a41be8c78",
           "9f73e84abaa708e0",
+          "a0cd8997edf6708d",
           "a165740521c96115",
           "a1d95f8fe1087d06",
           "a26ec99e74ba2208",
           "a3c80f8f58422628",
           "a470a69ce2ec2250",
+          "a4adf08da1a10229",
           "a4be6b9f6bd5e161",
           "a4e4c3976f85ab29",
           "a557b6e430688973",
           "a670375ba9af6300",
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
+          "a70ab77c9974866f",
           "a7f9652ad6898a0c",
           "a7faf3fd04605e90",
           "aaec9bce8ec29c93",
           "aba61480c43d7e56",
+          "ad3f61d47487e20e",
           "af06ae26b8943fb1",
           "af42538767aa6642",
           "af57e85f060b7a4e",
@@ -52191,6 +54381,7 @@
           "be22fe6e0fa3f322",
           "be499da2762f573e",
           "bec5fd5f0ffddc6c",
+          "bf818f0b3141079a",
           "bfea0bb3d07eca1f",
           "c055c42ec3fc7da8",
           "c118b9582508fec4",
@@ -52199,17 +54390,21 @@
           "c2e7e299b49c5228",
           "c2f60a0a18e23643",
           "c32bec5a75d64734",
+          "c39f0674bed1fca1",
           "c4365d405790f94d",
           "c58f84b46c451af7",
           "c610b2f9c5fc9385",
           "c846a385fad8df04",
           "ca45fcf41af6e723",
+          "cb10ee16c62231b2",
           "cb4b4f653c99fc16",
           "cccecbbc8438b3aa",
           "ce3d0f0b6b9d9199",
+          "ce5392b8bb1c6e80",
           "cf08fb61503832fb",
           "d01f9a7a5198c5c9",
           "d1893c1a136dc255",
+          "d3007ff6184e4f81",
           "d3412cfe7b8de515",
           "d35991b5b3028036",
           "d3e820220dacdce1",
@@ -52217,26 +54412,36 @@
           "d49a8c46e5581c02",
           "d4b2dd7b65a583c6",
           "d5b3ec7b095aadab",
+          "d71ad90b1264bb6c",
           "d82abfd03561cb0a",
           "d8d96408bbd419cb",
           "d96de7a17419d091",
           "d98448584de64472",
           "d9d2250f35c35733",
+          "db2187647b28df19",
           "db3cc261469c8291",
           "db9c1ca05979d69a",
           "dc84474d7b197bb0",
           "dc8f4bacebd2e0cf",
+          "dd0bf20a1ad852d3",
+          "de6d576a06f1dde6",
           "df37a235665ef89d",
+          "e06d27b000c77fa3",
           "e2bea9d9173fd56a",
           "e3a606aa87e944e4",
           "e59793b27ab57818",
           "e5ef67418f260a1f",
           "e5fc447004cb9ff6",
           "e64a0a56bd563562",
+          "e6cd5a9cfb4bf0a3",
+          "e72a95655f220acd",
+          "e746225912756998",
           "e80eda39021a5b07",
+          "e816c23283695a99",
           "e957417b1eacbe4b",
           "e9620aafd44c12ae",
           "ea183f0f5321f862",
+          "ebddcf5afa07b6bb",
           "ec434ef7854db523",
           "ec4de76bb707c51c",
           "ecca156af65fac1f",
@@ -52244,6 +54449,7 @@
           "edf0ef85a69b4938",
           "eea61b54dab81d44",
           "ef88720ce177a379",
+          "f0c409450ab444ad",
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
           "f159d8b097f5456c",
@@ -52253,9 +54459,11 @@
           "f5e5938138c09753",
           "f6044f1a0bbd43dd",
           "f7445aa56d82a9cf",
+          "f81cd566f223f92d",
           "f91ecbcca5e10b42",
           "fac4fe10478339eb",
           "fb7a6340d119acec",
+          "fb9a089556077ad3",
           "fbac9497545a7c39",
           "fe7124ad349b7300"
         ],
@@ -52270,17 +54478,25 @@
           "00e49f65025341a1",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
+          "05b225bb370b6e59",
+          "05f5a43ac04150f7",
+          "06db6538bfac1f45",
+          "07974bdfcc821de5",
           "087fe0af56da1339",
+          "089dd4c9f391ecfd",
           "0b5a745ab3af9c5e",
           "0d62d7eee4a25fa1",
           "0e6a579ea26b2b2f",
           "0ed573b111c33adc",
           "0f847cb897c39c4a",
           "1016f2f0efc0cbd7",
+          "101c32b70ab14a4d",
           "114ef930def0cdbb",
           "12bc858aab243003",
           "12f82fc1dec40c31",
           "13eb411a1421dc9f",
+          "141da451575ab2fc",
+          "14b86b8e434fc15c",
           "14c6b22d359cc06b",
           "17feeafcddfeca14",
           "1805aa6d316a11c0",
@@ -52291,6 +54507,7 @@
           "1d676482f1105e19",
           "1de69a43f289bcd9",
           "22b91ec0916f167f",
+          "27a5c64caf11b36c",
           "27c9fbd5a1b01b65",
           "2978b8513e4b94e7",
           "2a7746fbb31459cf",
@@ -52303,6 +54520,7 @@
           "2e0b326d76bb9185",
           "2e988a955b99831d",
           "306cedaea444603c",
+          "3186f9f8f525e755",
           "32b235f681091788",
           "32eb22648d57ca04",
           "33155b599f7caa5f",
@@ -52310,6 +54528,7 @@
           "3618b09083db26c6",
           "37cb394043f0f125",
           "3993b73221f2be93",
+          "3b4a692078832301",
           "3c364d0a46aab416",
           "3d607a126bd8ddc2",
           "3f77e197ed47cf60",
@@ -52318,32 +54537,43 @@
           "412347810e5f697b",
           "41fcabe47a6c84ca",
           "4290bffc350511d9",
+          "43c428db7505bdee",
+          "43efe9fb3a1513f1",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "454780a997b07892",
           "463b7d0356056f19",
+          "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
           "4d1bf6b5a6a45c65",
           "4d6e699fcd39cfe3",
+          "4d911004af4b252b",
           "4fd986111b6fa432",
           "5009d0612016fd66",
           "511758965444c3bb",
           "514233a33ab8fa37",
           "525e1bea6e22f1da",
           "52aa88e60c0dd4a2",
+          "53c411e01494034b",
           "55a233b9b6e923ea",
+          "5909c4277d032171",
           "594add96607b6147",
           "5dd05b725c815199",
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
           "60f052ad508244d1",
+          "60f9c47270b215a8",
+          "62fecdf7944d63a5",
+          "6372c447ad7f5790",
           "6448b901792d40a4",
           "65ab266e1b246630",
           "66bd2c14003aab77",
           "67d1bf3603c35644",
+          "6889f5062bd36428",
           "6a0b757235ce00a0",
           "6a2a7c280f69e9e0",
+          "6a5e47527ae2308f",
           "6a987992e57a50e3",
           "6a9cae53fbedb8e9",
           "6ae4aaa57eb4e7fe",
@@ -52354,6 +54584,8 @@
           "6bee2815a8d940bf",
           "6c0edc9a3b3f7d92",
           "6c20fd33cd695f9c",
+          "6d4f353397278c4c",
+          "6e5f5a12b0a2f4ec",
           "6ef509dcda1fb0a3",
           "6fab1183e63a24c5",
           "70fa4b6189b9b76b",
@@ -52362,60 +54594,85 @@
           "71ed8af339174fae",
           "71f054528fd84ee6",
           "72155688eff9b624",
+          "764b9cd170a9b7b3",
           "771cbd282b3b3c1a",
           "793d7494bf839d4a",
+          "7d29dd99f31ad3ca",
           "7dfe20ea4e593ddb",
+          "7e725415993cda04",
+          "7fe68d8f752aa842",
           "804a8fd643783c90",
+          "8052e8fc866f98cd",
+          "8065981a6233598e",
           "807f7c1adc601995",
           "81a213ceb7f54de5",
           "81da1803f271bd92",
+          "82b0f2c85fa6d4da",
           "82e741080f6a22ff",
+          "83966cd4fefe54f6",
           "847b5d41cc16757e",
           "84be89d1ef3db994",
           "85499847624cc916",
           "8593556d6d3e23d4",
           "861314d5e7b95ff6",
+          "86a81ce5c2ff6a00",
+          "8745d0a365c9c536",
+          "8788bf4b6751557b",
           "8845cf8eae4a24fb",
           "88e824b5f2a3a37d",
+          "8a957610367a7fda",
+          "8afa7c0f35f622a7",
           "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8d723d6871b7b118",
           "8e37ce83397a3ac7",
           "8e7504c56c6fdfc8",
           "8eced9f041d6ab65",
+          "8ed4b64eb88ea5b3",
           "900ec7f1fc730bd8",
           "90de2a8d40819efe",
           "9195b95c1e25685f",
           "934f53f787f43981",
           "94e751d14ffa29a9",
           "9503b7156b53ae3c",
+          "9683f26dff3798f0",
           "9685a4f3c74e2591",
           "970a4b8802728663",
           "982f6c71300d5430",
           "985f269cad82aa7c",
+          "9901faaed410026a",
           "99f8c9ff56a09d49",
           "9ae223df4c27d20f",
+          "9b520324ac39c69f",
+          "9b9069c8c60c02f9",
+          "9c1f8b9bcf9e2d4b",
           "9c797354f3ce3b52",
           "9d5d8ccd75c7d202",
           "9d786fec1d5617bb",
           "9e0e176fc7891c1d",
+          "9e28477ae61ba4ef",
+          "9e76e7495565063d",
           "9e8a734a41be8c78",
           "9f73e84abaa708e0",
+          "a0cd8997edf6708d",
           "a165740521c96115",
           "a1d95f8fe1087d06",
           "a26ec99e74ba2208",
           "a3c80f8f58422628",
           "a470a69ce2ec2250",
+          "a4adf08da1a10229",
           "a4be6b9f6bd5e161",
           "a4e4c3976f85ab29",
           "a557b6e430688973",
           "a670375ba9af6300",
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
+          "a70ab77c9974866f",
           "a7f9652ad6898a0c",
           "a7faf3fd04605e90",
           "aaec9bce8ec29c93",
           "aba61480c43d7e56",
+          "ad3f61d47487e20e",
           "af06ae26b8943fb1",
           "af42538767aa6642",
           "af57e85f060b7a4e",
@@ -52432,6 +54689,7 @@
           "be22fe6e0fa3f322",
           "be499da2762f573e",
           "bec5fd5f0ffddc6c",
+          "bf818f0b3141079a",
           "bfea0bb3d07eca1f",
           "c055c42ec3fc7da8",
           "c118b9582508fec4",
@@ -52440,18 +54698,22 @@
           "c2e7e299b49c5228",
           "c2f60a0a18e23643",
           "c32bec5a75d64734",
+          "c39f0674bed1fca1",
           "c4365d405790f94d",
           "c58f84b46c451af7",
           "c610b2f9c5fc9385",
           "c846a385fad8df04",
           "ca45fcf41af6e723",
+          "cb10ee16c62231b2",
           "cb4b4f653c99fc16",
           "cccecbbc8438b3aa",
           "ce3d0f0b6b9d9199",
+          "ce5392b8bb1c6e80",
           "cf08fb61503832fb",
           "d01f9a7a5198c5c9",
           "d1893c1a136dc255",
           "d2fb4bf373169b8d",
+          "d3007ff6184e4f81",
           "d3412cfe7b8de515",
           "d35991b5b3028036",
           "d3e820220dacdce1",
@@ -52459,26 +54721,36 @@
           "d49a8c46e5581c02",
           "d4b2dd7b65a583c6",
           "d5b3ec7b095aadab",
+          "d71ad90b1264bb6c",
           "d82abfd03561cb0a",
           "d8d96408bbd419cb",
           "d96de7a17419d091",
           "d98448584de64472",
           "d9d2250f35c35733",
+          "db2187647b28df19",
           "db3cc261469c8291",
           "db9c1ca05979d69a",
           "dc84474d7b197bb0",
           "dc8f4bacebd2e0cf",
+          "dd0bf20a1ad852d3",
+          "de6d576a06f1dde6",
           "df37a235665ef89d",
+          "e06d27b000c77fa3",
           "e2bea9d9173fd56a",
           "e3a606aa87e944e4",
           "e59793b27ab57818",
           "e5ef67418f260a1f",
           "e5fc447004cb9ff6",
           "e64a0a56bd563562",
+          "e6cd5a9cfb4bf0a3",
+          "e72a95655f220acd",
+          "e746225912756998",
           "e80eda39021a5b07",
+          "e816c23283695a99",
           "e957417b1eacbe4b",
           "e9620aafd44c12ae",
           "ea183f0f5321f862",
+          "ebddcf5afa07b6bb",
           "ec434ef7854db523",
           "ec4de76bb707c51c",
           "ecca156af65fac1f",
@@ -52486,6 +54758,7 @@
           "edf0ef85a69b4938",
           "eea61b54dab81d44",
           "ef88720ce177a379",
+          "f0c409450ab444ad",
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
           "f159d8b097f5456c",
@@ -52495,9 +54768,11 @@
           "f5e5938138c09753",
           "f6044f1a0bbd43dd",
           "f7445aa56d82a9cf",
+          "f81cd566f223f92d",
           "f91ecbcca5e10b42",
           "fac4fe10478339eb",
           "fb7a6340d119acec",
+          "fb9a089556077ad3",
           "fbac9497545a7c39",
           "fe7124ad349b7300"
         ],
@@ -52766,6 +55041,151 @@
     },
     {
       "aliases": [
+        "set up my cloud",
+        "connect my cloud",
+        "open cloud setup",
+        "use my own google cloud",
+        "onboard me for Cloud",
+        "onboard me for cloud",
+        "onboard Cloud",
+        "start Cloud onboarding",
+        "resume Cloud onboarding",
+        "Cloud onboarding"
+      ],
+      "api_endpoints": [],
+      "authorization": {
+        "server_revalidation": "identity_and_persisted_onboarding_state"
+      },
+      "available_action_ids": [
+        "setup.finish_cloud"
+      ],
+      "capability_id": "workflow.setup.cloud",
+      "completion_action_ids": [
+        "setup.finish_cloud"
+      ],
+      "description": "Opens one wizard to choose hosting, prove the cloud setup when required, and then select verified AI access.",
+      "entry_action_id": "setup.open_cloud",
+      "execution": {
+        "mode": "generated_setup_workflow",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/setup/cloud"
+        }
+      },
+      "kind": "service_onboarding",
+      "label": "Onboard me for Cloud",
+      "native_semantic_actions": [],
+      "non_completion_action_ids": [],
+      "plan": {
+        "completion": {
+          "claim_policy": "verified_persisted_state_only",
+          "skip_is_success": false,
+          "success_state_capability_id": "cloud",
+          "visual_computer_use": "excluded_from_primary_path"
+        },
+        "durability": "derived_from_persisted_onboarding_state",
+        "executor_hierarchy": [
+          {
+            "action_ids": [],
+            "discovered_endpoint_count": 0,
+            "kind": "backend_api",
+            "reason": "Discovered endpoints are intentionally unbound until an audited action adapter registers one.",
+            "status": "adapter_required"
+          },
+          {
+            "actions": [],
+            "kind": "native_semantic_action",
+            "reason": "No generated native semantic prerequisite is registered for this setup flow.",
+            "status": "not_required_or_unregistered"
+          },
+          {
+            "action_ids": [
+              "setup.open_cloud",
+              "setup.finish_cloud"
+            ],
+            "kind": "existing_ui_semantic_action",
+            "route_pattern": "/one/setup/cloud",
+            "status": "registered"
+          },
+          {
+            "kind": "typed_render",
+            "render_surface": "existing_route_surface",
+            "route_pattern": "/one/setup/cloud",
+            "status": "approved_existing_surface"
+          }
+        ],
+        "resumable": true,
+        "schema_version": "one.service_onboarding_workflow.v1"
+      },
+      "resume": {
+        "active_capability": "cloud",
+        "expected_phase": "capability_setup",
+        "expected_route": "/one/setup/cloud",
+        "expected_screen": "one_setup_cloud",
+        "settlement": "persisted_onboarding_state",
+        "state_source": "vault_keys"
+      },
+      "route_pattern": "/one/setup/cloud",
+      "schema_version": "one.service_onboarding_workflow.v1",
+      "screen": "one_setup_cloud",
+      "search_keywords": [
+        "cloud",
+        "project",
+        "google cloud",
+        "byoc",
+        "own compute"
+      ],
+      "service_id": "cloud",
+      "state_capability_id": "cloud",
+      "steps": [
+        {
+          "action_id": "setup.open_cloud",
+          "executor": "existing_ui_semantic_action",
+          "outcome": "NAVIGATE",
+          "route_pattern": "/one/setup/cloud",
+          "step_id": "workflow.setup.cloud.navigate"
+        },
+        {
+          "description": "Finish returns to the hub only after verified hosting and a durable AI choice; it never acknowledges root onboarding.",
+          "directive": null,
+          "outcome": "RENDER",
+          "render_surface": "existing_route_surface",
+          "route_pattern": "/one/setup/cloud",
+          "screen": "one_setup_cloud",
+          "step_id": "workflow.setup.cloud.surface"
+        },
+        {
+          "action_ids": [
+            "setup.finish_cloud"
+          ],
+          "completion_action_ids": [
+            "setup.finish_cloud"
+          ],
+          "executor": "existing_ui_semantic_action",
+          "non_completion_action_ids": [],
+          "outcome": "EXECUTE",
+          "settlement": "persisted_onboarding_state",
+          "step_id": "workflow.setup.cloud.settle",
+          "success_requires": {
+            "condition": "setup_capability_ids_contains_service",
+            "source": "vault_keys",
+            "state_capability_id": "cloud"
+          }
+        }
+      ],
+      "telemetry_event": "app_intelligence.service_onboarding",
+      "terminal_action_ids": [
+        "setup.finish_cloud"
+      ],
+      "terminal_route_patterns": [
+        "/one/setup/cloud"
+      ],
+      "version": 1
+    },
+    {
+      "aliases": [
         "choose my ai",
         "set up AI access",
         "ai access",
@@ -52951,7 +55371,7 @@
       "completion_action_ids": [
         "setup.finish_connections"
       ],
-      "description": "Opens the AI access choice so the person can use Hussh's Gemini or add their own Gemini key.",
+      "description": "Opens the supported AI connection choice for the selected hosting, preserving the verified cloud default and explicit owner-key choices.",
       "entry_action_id": "setup.open_connections",
       "execution": {
         "mode": "generated_setup_workflow",

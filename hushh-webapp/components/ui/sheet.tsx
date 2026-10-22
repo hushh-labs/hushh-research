@@ -278,6 +278,7 @@ function SheetContent(
             onPointerUp={onHandlePointerEnd}
             onPointerCancel={onHandlePointerEnd}
             onKeyDown={(event) => {
+              if (event.defaultPrevented) return
               if (event.key === "Escape" || event.key === "Enter" || event.key === " ") {
                 event.preventDefault()
                 sheet?.onOpenChange(false)
@@ -312,7 +313,7 @@ function SheetContent(
           <SheetPrimitive.Close
             data-slot="sheet-close"
             className={cn(
-              "ring-offset-background focus:ring-ring absolute right-4 z-10 rounded-full border border-transparent bg-transparent p-2 text-[color:var(--app-secondary-label)] transition-colors after:absolute after:-inset-1.5 after:content-[''] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-label)] focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none",
+              "ring-offset-background focus-visible:ring-ring absolute right-4 z-10 rounded-full border border-transparent bg-transparent p-2 text-[color:var(--app-secondary-label)] transition-colors after:absolute after:-inset-1.5 after:content-[''] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-label)] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-hidden disabled:pointer-events-none",
               // Absolute against the sheet's box, so the padding above does
               // not move it: a sheet that reaches the top of the window keeps
               // its close control below the status bar (bottom sheets start
@@ -435,7 +436,8 @@ function useBottomSheetDragDismiss({
         surface.style.transform = "translate3d(0, 100%, 0)"
         schedule(() => {
           onOpenChange(false)
-          // A refused controlled close may recover only within this presentation.
+          // A controlled owner can refuse close while a decision is in flight.
+          // A newer gesture or lifecycle invalidates this recovery callback.
           schedule(() => {
             if (surface.isConnected && surface.getAttribute("data-state") === "open" && !dragRef.current) settle()
           }, Math.max(duration, 100))

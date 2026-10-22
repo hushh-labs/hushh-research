@@ -15,6 +15,10 @@
 import contract from "@/contracts/pkm/secret-patterns.v1.json";
 
 export type SecretKind = "credential" | "card_number" | "card_security_code" | "government_id" | "bank_account";
+export const OWNER_PREPARATION_IDENTIFIER_KINDS: ReadonlySet<SecretKind> = new Set(
+  contract.owner_preparation.allowed_identifier_kinds as SecretKind[],
+);
+
 export type SecretFileTo = "wallet" | "kyc_identity_documents" | "none";
 
 export type SecretPattern = {

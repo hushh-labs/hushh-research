@@ -41,6 +41,7 @@ import {
   type ReviewedProfile,
 } from "@/lib/agent/profile-research-review";
 import { useBackLayer } from "@/lib/navigation/back-layers";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import {
   PROFILE_SECTION_LABELS,
   ProfileResearchService,
@@ -89,7 +90,7 @@ export function useProfileResearchModel({
   ownerId,
   vaultKey,
   vaultOwnerToken,
-  enabled,
+  enabled: requestedEnabled,
   pathname,
   backQuery,
   embedded = false,
@@ -97,6 +98,8 @@ export function useProfileResearchModel({
   onAvailabilityChange,
   onBusinessAvailabilityChange,
 }: Props) {
+  const enabled =
+    requestedEnabled && !shouldSkipReviewerBackgroundWritesForAutomation();
   const [result, setResult] = useState<ProfileResearchResult | null>(null);
   const [phase, setPhase] = useState<Phase>("loading");
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());

@@ -31,7 +31,7 @@ export function WalletCardBrowser({ cards, cardholderNames = {}, artworks = {}, 
   busyCardId: string | null;
   disabled?: boolean;
   details: ReactNode;
-  dockHost?: HTMLElement | null;
+  dockHost: HTMLElement | null;
   ownerId?: string;
   active?: boolean;
   demoProfile?: WalletDemoProfile | null;
@@ -167,5 +167,6 @@ export function WalletCardBrowser({ cards, cardholderNames = {}, artworks = {}, 
       </div>}
     </div>}
     {active && dockHost ? createPortal(dock, dockHost) : null}
+
   </div>;
 }
