@@ -2632,7 +2632,7 @@ owner. A verified phone is not required for ordinary private location sharing.
 
 | Presentation/choice | Exact content and result |
 | --- | --- |
-| Phone `<640px` | Bottom Drawer with selected person's photo, name and same secondary line (fallback `Circle member`). Optional `View profile`, `Message`, `Share location`; destructive `Remove from Circle`; `Cancel`. Main Cancel/dismiss closes sheet and resets removal substep; no API call. Profile/message close sheet and navigate; Share closes sheet then resolves sharing audience. |
+| Phone `<640px` | Bottom Drawer with selected person's photo, name and same secondary line (fallback `Circle member`). Eligible Share is a 44×44px icon button beside that identity, with a 20px icon and accessible name `Share location with {displayName}`. Optional menu rows are `View profile` and `Message`; destructive `Remove from Circle`; `Cancel`. Main Cancel/dismiss closes sheet and resets removal substep; no API call. Profile/message close sheet and navigate; Share closes sheet then resolves sharing audience. |
 | Desktop `>=640px` | Anchored menu offers `Message`, `Share location`, `Remove from Circle` as eligible. **View profile is not rendered in this desktop branch**, despite profileHref prop. Outside/Escape closes menu without mutation. Remove explicitly closes menu before showing separate AlertDialog, preventing stacked focus owners. |
 | Remove review | `Remove {displayName}?`; `Circle shares with {displayName} will stop. Direct shares stay unchanged.`. Phone uses second pane of same sheet; desktop uses AlertDialog. |
 | Remove negative | `Cancel`: phone returns to initial person's action pane; desktop closes alert. No DELETE. Closing whole phone sheet clears confirmation; no membership mutation. |
