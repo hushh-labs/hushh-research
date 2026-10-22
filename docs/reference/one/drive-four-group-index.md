@@ -31,7 +31,7 @@ flowchart LR
 | Signal B, embedding | `drive_groups/embedding_model.py`, `embedding_model.json` | Cosine of the pinned `multilingual-e5-small` vector to five class centroids and to the four written group definitions, then a small learned layer. |
 | Signal C, metadata | `drive_groups/features.py`, `metadata_model.json` | Name words and grams, extension, MIME type, shared-with-me and owner flags. Folder path and size are not in the fenced listing mask (`LIST_FIELDS`), so they are not used. |
 | Fusion | `drive_groups/fusion.py`, `fusion.json` | Log-domain pooling with one learned weight per signal, a Platt map to a confidence, then a policy: confidence, margin over the runner-up, and agreement of the voting signals. A signal with weight 0 neither pools nor votes. |
-| Operon | `drive_groups/indexer.py`, `adapters.py` | `index_files(rows, heads=, embedder=)`: reads heads (2 at a time by default; an explicit caller may select 1–8), embeds in batches of 100, places each file. Parser children are separately capped at two per retained parser. A kept file keeps its text start and vector; a placed file keeps neither. Systemic failures end the run; only a few per-file outcomes read as "no text". |
+| Operon | `drive_groups/indexer.py`, `adapters.py` | `index_files(rows, heads=, embedder=)`: reads heads (2 at a time by default; an explicit caller may select 1–32), embeds in batches of 100, places each file. Parser children are separately capped at two per retained parser. A kept file keeps its text start and vector; placed files discard both by default. An explicit local export may retain evidence for both. Systemic failures end the run; only a few per-file outcomes read as "no text". |
 | Fit and measure | `consent-protocol/scripts/train_drive_groups.py`, `consent-protocol/scripts/eval_drive_groups.py`, `consent-protocol/scripts/build_drive_group_fixtures.py`, `tests/fixtures/drive_groups/synthetic.jsonl` | Offline. scikit-learn and scipy are used for fitting only; both already ship as dependencies of sentence-transformers and neither is imported at runtime. No new dependency was added. |
 
 The working group definitions, kept in `groups.json` and taken from the Drive lab, are: financial statements (bank, credit card, brokerage, loan, tax); non-financial statements (utilities, telecom, medical, education transcripts); insurance statements (policies, premium notices, claims); personal documents (passports, ID cards, certificates, resumes, letters, forms). Non-financial is the vaguest and needs the owner's confirmation.
@@ -173,11 +173,11 @@ The live and organizer switches and the exact owner cohort are scoped to that
 one local process. Existing owner credential refresh remains the OAuth service's
 responsibility; unrelated owners' lifecycle retention is never run by this CLI.
 
-The CSV contains file name, group, fiscal folder and quarter, date and its basis,
+The default metadata-only CSV contains file name, group, fiscal folder and quarter, date and its basis,
 confidence, model top class, candidate, reason, MIME type, original Drive link,
 organizer source, model version and index status. Confidence describes the model's top class,
 which can be `none`; kept files have no fiscal folder. Text starts, embeddings
-and credentials are excluded. Formula-leading text is escaped. JSON is available
+and credentials are excluded from that default mode. Formula-leading text is escaped. JSON is available
 as a local artifact intermediate.
 
 The inventory is published first with pending rows and blank decisions. Completed
@@ -189,7 +189,7 @@ Drive changes cursor before a fresh fenced listing and catches up its changes.
 Later resumes replay that cursor against the saved metadata inventory, reading
 content only for new or changed provider versions and removing deleted or
 trashed files. A different existing
-output is refused. Neither file contains text starts or vectors. Every retry checks
+output is refused. Without content persistence, neither file contains text starts or vectors. Every retry checks
 background authority again; credential refresh is single-flight in this process.
 
 The metadata snapshot and cursor share the checkpoint's owner, generation,
@@ -199,6 +199,91 @@ versions, so its changes replay on resume. Expired cursors and shared-drive
 membership changes trigger an authoritative inventory again. Incomplete or
 cyclic changes pages fail without replacing the last output. Changes requests
 use the existing fenced transport with the expected connection generation.
+
+### Reusable content export
+
+For a handoff containing actual extracted evidence, use both explicit options:
+
+```bash
+python scripts/export_drive_groups.py \
+  --email owner@example.com --env-file /absolute/path/to/backend.env \
+  --oauth-project backend --raw-prefix-kib 200 --read-concurrency 32 \
+  --persist-content --include-content --output ../tmp/drive-content.csv
+```
+
+`--persist-content` retains text starts and embeddings for both sorted and
+unsorted files in the encrypted `drive-content.csv.checkpoint.json`. It is a
+derived local snapshot, not a server-index opt-in or PKM write. It reuses
+`DriveGroupCipher` and the existing `DRIVE_DOCUMENT_KEY_V1`; no key is saved in
+either artifact. If absent from the existing configuration, `--oauth-project`
+also reads that one fixed processing secret into memory. Existing server-worker
+retention remains unchanged.
+
+`--include-content` additionally puts the actual `text_start` and JSON-array
+`embedding` in the private CSV. It requires persistence. This CSV is a plaintext
+document-content export and must stay out of Git. Its added columns include file
+ID, provider source version, evidence mode, opaque content reference, content
+status, head length, vector dimensions, and pinned embedding model and revision.
+The classifier and retained text start still use the first 400 cleaned
+characters. Downloading at most 200 KiB does not mean storing 200 KiB of text.
+Absent content is explicit: empty text/vector cells with `no_text`, plus the
+existing `prefix_unreadable`, `prefix_unavailable` or `metadata_only` index status.
+
+The checkpoint contains metadata and sealed evidence, never the plaintext CSV
+content columns. Each encrypted record binds owner, file, connection generation,
+source version and complete model/export context. A sealed manifest authenticates
+the entire inventory, membership, cursor and all row envelopes. Resume verifies
+these before trusting cached results. Old metadata-only checkpoints have a
+different context and cannot stand in for persisted evidence. Use a new output
+for the first content rebuild; later `--resume` reuses validated evidence for
+unchanged versions.
+
+The checkpoint is the committed snapshot; the CSV is its projection. If a write
+fails after checkpoint publication, a fresh invocation can recreate the CSV
+without downloading or embedding again. Encryption and serialization finish
+before the final fresh authority/revision check. Both files are published
+atomically individually; interruption may leave the older CSV until recovery.
+
+Validate the saved evidence, or regenerate a private CSV, in a fresh process:
+
+```bash
+python scripts/read_drive_group_export.py \
+  --checkpoint ../tmp/drive-content.csv.checkpoint.json \
+  --env-file /absolute/path/to/backend.env --key-project backend
+
+python scripts/read_drive_group_export.py \
+  --checkpoint ../tmp/drive-content.csv.checkpoint.json \
+  --env-file /absolute/path/to/backend.env --key-project backend \
+  --include-content --output ../tmp/recovered-drive-content.csv
+```
+
+The reader performs no provider download, embedding or server write. Without
+`--output` it emits counts only; `--include-content` must be repeated to write
+plaintext content. Share the private CSV separately from the source branch. The
+encrypted checkpoint additionally requires authorized access to the matching
+processing key; source code alone cannot decrypt it.
+
+On 2026-10-22 the corrected fresh run listed 4,940 files and retained **175 text
+starts and 175 normalized 384-dimensional embeddings**, including all five
+sorted files. The private CSV has 26 columns and zero pending rows. A separate
+process authenticated the checkpoint, reopened every evidence record, regenerated
+the CSV byte-for-byte and checked every source version, text cell and vector.
+The remaining rows explicitly show 391 unreadable prefixes, 106 unavailable
+Workspace exports and 4,268 metadata-only files. No document content is invented
+for those rows. Classification accuracy on the owner's real documents remains
+unevaluated.
+
+This rebuild took 323.075 seconds inside the CLI (264.477 seconds indexing,
+32.748 seconds inventory) and 330.670 seconds including the fresh helper process.
+The observed largest content prefix was exactly 204,800 bytes. This persistence
+fix does not establish the earlier two-minute performance target.
+
+The focused regressions cover opt-in sorted-file evidence retention, exact
+fresh-process decryption and private CSV reconstruction, provider-version and
+model/context substitution, authenticated inventory membership, revocation
+during manifest construction, and interrupted CSV publication followed by
+resume with no content reads. Default metadata exports and server retention
+remain unchanged.
 
 For a previously completed index, run the same command with `--resume`.
 On 2026-10-22 the one-time upgrade reconciled 83 changed versions, reused 4,858

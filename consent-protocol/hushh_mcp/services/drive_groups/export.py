@@ -111,9 +111,9 @@ def pending_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, object]]:
     ]
 
 
-def csv_text(rows: Sequence[Mapping[str, object]]) -> str:
+def csv_text(rows: Sequence[Mapping[str, object]], *, columns: Sequence[str] = COLUMNS) -> str:
     output = io.StringIO(newline="")
-    writer = csv.DictWriter(output, fieldnames=COLUMNS, lineterminator="\r\n")
+    writer = csv.DictWriter(output, fieldnames=columns, lineterminator="\r\n")
     writer.writeheader()
-    writer.writerows({key: _literal(row.get(key, "")) for key in COLUMNS} for row in rows)
+    writer.writerows({key: _literal(row.get(key, "")) for key in columns} for row in rows)
     return output.getvalue()

@@ -3,7 +3,8 @@
 
 No scheduler, migration, PKM write or server index opt-in is changed. The normal
 live grant/policy/generation checks remain in the transport. Private text and
-vectors stay in memory. The output contains file metadata and placements only.
+vectors remain in memory unless --persist-content saves them in an encrypted
+checkpoint. --include-content explicitly includes them in the private CSV.
 """
 
 from __future__ import annotations
@@ -35,6 +36,16 @@ def _arguments():
     )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--format", choices=("csv", "json"), default="csv")
+    parser.add_argument(
+        "--persist-content",
+        action="store_true",
+        help="Retain text starts and vectors in an encrypted local checkpoint.",
+    )
+    parser.add_argument(
+        "--include-content",
+        action="store_true",
+        help="Explicitly include private plaintext text starts and vectors in the export.",
+    )
     parser.add_argument("--time-zone", default="Asia/Kolkata")
     parser.add_argument("--deadline-seconds", type=int, default=1800)
     parser.add_argument(
@@ -60,17 +71,30 @@ def _arguments():
     return parser.parse_args()
 
 
-def _load_oauth(project: str):
+def _load_oauth(project: str, *, processing_key: bool = False):
+    names = ("GOOGLE_DRIVE_OAUTH_CLIENT_ID", "GOOGLE_DRIVE_OAUTH_CLIENT_SECRET")
+    if processing_key and not os.getenv("DRIVE_DOCUMENT_KEY_V1"):
+        names += ("DRIVE_DOCUMENT_KEY_V1",)
+    _load_secrets(project, names)
+
+
+def _load_secrets(project: str, names: tuple[str, ...]):
     """Use the current operator's gcloud access; never echo credential material."""
     import shutil
 
     if not re.fullmatch(r"[a-z][a-z0-9-]{4,61}[a-z0-9]", project):
         raise RuntimeError("oauth_project_mismatch")
+    if not set(names) <= {
+        "GOOGLE_DRIVE_OAUTH_CLIENT_ID",
+        "GOOGLE_DRIVE_OAUTH_CLIENT_SECRET",
+        "DRIVE_DOCUMENT_KEY_V1",
+    }:
+        raise RuntimeError("oauth_configuration_unavailable")
 
     executable = shutil.which("gcloud.cmd" if os.name == "nt" else "gcloud")
     if not executable:
         raise RuntimeError("oauth_configuration_unavailable")
-    for name in ("GOOGLE_DRIVE_OAUTH_CLIENT_ID", "GOOGLE_DRIVE_OAUTH_CLIENT_SECRET"):
+    for name in names:
         result = subprocess.run(  # noqa: S603 - fixed subcommand/secrets and validated project
             [
                 executable,
@@ -139,9 +163,19 @@ async def export(args):
         retry_read,
         windows_parser_process,
     )
+    from scripts.drive_group_local_content import (
+        CONTENT_COLUMNS,
+        LocalExportContent,
+        content_context,
+        open_checkpoint,
+    )
     from scripts.drive_group_local_inventory import load_inventory
 
     zone = ZoneInfo(args.time_zone)
+    persist_content = getattr(args, "persist_content", False)
+    include_content = getattr(args, "include_content", False)
+    if include_content and not persist_content:
+        raise RuntimeError("content_persistence_required")
     prefix_mode = getattr(args, "raw_prefix_kib", None) == 200
     source_types = (
         LIVE_EXTRACTABLE_ORIGINAL_TYPES - frozenset(LIVE_EXPORTS)
@@ -275,13 +309,19 @@ async def export(args):
             "zone": args.time_zone,
             "format": args.format,
             **({"evidence_mode": "raw_prefix_204800"} if prefix_mode else {}),
+            **(
+                {**content_context(), "include_content": include_content} if persist_content else {}
+            ),
         }
+        content = LocalExportContent(owner=user.uid, context=context) if persist_content else None
         checkpoint = args.output.with_name(args.output.name + ".checkpoint.json")
         cached, saved = {}, {}
         if getattr(args, "resume", False) and checkpoint.exists():
             saved = json.loads(checkpoint.read_text(encoding="utf-8-sig"))
             if saved.get("context") != context:
                 raise RuntimeError("checkpoint_context_changed")
+            if content:
+                open_checkpoint(saved)
             cached = saved["items"]
         elif checkpoint.exists():
             raise RuntimeError("output_exists")
@@ -321,28 +361,34 @@ async def export(args):
         async def publish():
             nonlocal published
             projected = [
-                cached[row["id"]]["item"] if row["id"] in cached else placeholder
+                content.project(row["id"], cached[row["id"]], include_content=include_content)
+                if content and row["id"] in cached
+                else cached[row["id"]]["item"]
+                if row["id"] in cached
+                else placeholder
                 for row, placeholder in zip(rows, placeholders, strict=True)
             ]
             value = (
-                csv_text(projected)
+                csv_text(projected, **({"columns": CONTENT_COLUMNS} if content else {}))
                 if args.format == "csv"
                 else json.dumps(projected, ensure_ascii=False)
             )
-            # Check canonical policy and exact revision immediately before each
-            # checkpoint/publication. No heads or vectors enter either file.
+            snapshot = {
+                "context": context,
+                "items": cached,
+                "inventory": inventory.checkpoint(completed=len(cached) == len(rows)),
+                **({"content_index": content.header} if content else {}),
+            }
+            if content:
+                snapshot["content_manifest"] = content.manifest(snapshot)
+            serialized = json.dumps(snapshot, ensure_ascii=False, allow_nan=False)
+            # Finish encryption and serialization before the final policy/revision
+            # check. Only the atomic file publications follow that fresh fence.
             if not await asyncio.to_thread(background_allowed):
                 raise DriveReadError("background_preparation_required")
             _write(
                 checkpoint,
-                json.dumps(
-                    {
-                        "context": context,
-                        "items": cached,
-                        "inventory": inventory.checkpoint(completed=len(cached) == len(rows)),
-                    },
-                    ensure_ascii=False,
-                ),
+                serialized,
                 replace=checkpoint.exists(),
             )
             _write(args.output, value, replace=published)
@@ -369,6 +415,7 @@ async def export(args):
                 bundle=bundle,
                 read_concurrency=getattr(args, "read_concurrency", 6),
                 **({"require_head": True} if prefix_mode else {}),
+                **({"retain_evidence": True} if content else {}),
             )
             index_seconds += time.perf_counter() - index_started
             projected = placement_rows(batch, indexed.files, zone=zone)
@@ -394,12 +441,17 @@ async def export(args):
                         ):
                             item[key] = ""
             versions = {row["id"]: row["version"] for row in batch}
+            by_id = {row["id"]: row for row in batch}
             for item, file in zip(projected, indexed.files, strict=True):
-                cached[file.file_id] = {
-                    "version": versions[file.file_id],
-                    "shelf": file.placement.shelf,
-                    "item": item,
-                }
+                cached[file.file_id] = (
+                    content.seal(by_id[file.file_id], file, item)
+                    if content
+                    else {
+                        "version": versions[file.file_id],
+                        "shelf": file.placement.shelf,
+                        "item": item,
+                    }
+                )
             skipped += indexed.skipped
             await publish()
             print(
@@ -424,6 +476,19 @@ async def export(args):
             "indexDurationSeconds": round(index_seconds, 3),
             "reusedFiles": reused,
             "changedFiles": len(pending),
+            **(
+                {
+                    "contentPersisted": True,
+                    "textStarts": sum(
+                        bool(item["item"]["text_start_chars"]) for item in cached.values()
+                    ),
+                    "embeddings": sum(
+                        bool(item["item"]["embedding_dimensions"]) for item in cached.values()
+                    ),
+                }
+                if content
+                else {}
+            ),
             "groups": dict(Counter(item["shelf"] for item in cached.values())),
         }
     finally:
@@ -461,7 +526,7 @@ def main():
             project = os.environ.get("CLOUDSQL_INSTANCE_CONNECTION_NAME", "").split(":", 1)[0]
             if not project or args.oauth_project not in {"backend", project}:
                 raise RuntimeError("oauth_project_mismatch")
-            _load_oauth(project)
+            _load_oauth(project, processing_key=args.persist_content)
         if not 1 <= args.deadline_seconds <= 7200:
             raise RuntimeError("invalid_deadline")
 
@@ -497,6 +562,10 @@ def main():
             "identity_not_verified",
             "unexpected_scope",
             "insufficient_scope",
+            "content_persistence_required",
+            "content_invalid",
+            "content_context_changed",
+            "document_storage_unavailable",
         }
         code = str(error) if str(error) in allowed else "export_unavailable"
         print(

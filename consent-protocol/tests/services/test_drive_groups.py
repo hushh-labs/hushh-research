@@ -141,14 +141,20 @@ async def test_the_aid_is_dark_unless_its_flag_is_on(monkeypatch):
     assert len(run.files) == 1 and heads.asked == ["f1"]
 
 
-async def test_a_placed_file_keeps_nothing_and_a_kept_file_keeps_its_head_and_vector(on):
+@pytest.mark.parametrize("retain_evidence", [False, True])
+async def test_a_placed_file_keeps_nothing_and_a_kept_file_keeps_its_head_and_vector(
+    on, retain_evidence
+):
     rows = [row("fin", "Statement Mar.pdf"), row("odd", "Statement Mar.pdf")]
     heads = Heads({"fin": "statement of account", "odd": "homework on utility"})
     vectors = Vectors({"statement of account": basis(0), "homework on utility": basis(2)})
-    run = await index_files(rows, heads=heads, embedder=vectors, bundle=tiny_bundle())
+    run = await index_files(
+        rows, heads=heads, embedder=vectors, bundle=tiny_bundle(), retain_evidence=retain_evidence
+    )
     placed, kept = run.files
     assert placed.placement.group == "financial_statements" and placed.placement.reason == "placed"
-    assert placed.head is None and placed.vector is None
+    assert placed.head == ("statement of account" if retain_evidence else None)
+    assert placed.vector == (basis(0) if retain_evidence else None)
     # Three signals point at three different classes, so the aid declines to guess.
     assert kept.placement.group is None and kept.placement.shelf == "kept"
     assert kept.placement.reason in {"low_confidence", "low_margin", "disagreement"}
@@ -775,18 +781,61 @@ def local_export_setup(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("change", ["preference_revision", "connection_validation"])
+@pytest.mark.parametrize(
+    ("change", "persist_content"),
+    [
+        ("preference_revision", False),
+        ("connection_validation", False),
+        ("preference_revision", True),
+        ("connection_validation", True),
+        ("manifest_revision", True),
+    ],
+)
 async def test_local_export_rechecks_canonical_authority_after_embedding(
-    tmp_path, change, local_export_setup
+    tmp_path, change, local_export_setup, persist_content, monkeypatch
 ):
     from scripts.export_drive_groups import export
+
+    if persist_content:
+        import base64
+
+        monkeypatch.setenv("DRIVE_DOCUMENT_KEY_V1", base64.b64encode(b"a" * 32).decode())
+        original = local_export_setup.indexer.index_files
+
+        async def evidence(*args, **kwargs):
+            result = await original(*args, **kwargs)
+            if change == "manifest_revision":
+                local_export_setup.state["changed"] = False
+            return SimpleNamespace(
+                files=(replace(result.files[0], head="PRIVATE-HEAD-REVOKED", vector=basis(0)),),
+                skipped=0,
+            )
+
+        monkeypatch.setattr(local_export_setup.indexer, "index_files", evidence)
+        if change == "manifest_revision":
+            from scripts.drive_group_local_content import LocalExportContent
+
+            original_manifest = LocalExportContent.manifest
+
+            def revoke_during_manifest(self, saved):
+                result = original_manifest(self, saved)
+                if saved["items"]:
+                    local_export_setup.state["changed"] = True
+                return result
+
+            monkeypatch.setattr(LocalExportContent, "manifest", revoke_during_manifest)
 
     local_export_setup.state["change"] = change
     output = tmp_path / "index.csv"
     with pytest.raises(DriveReadError, match="background_preparation_required|connection_changed"):
         await export(
             SimpleNamespace(
-                email="owner@example.com", time_zone="Asia/Kolkata", format="csv", output=output
+                email="owner@example.com",
+                time_zone="Asia/Kolkata",
+                format="csv",
+                output=output,
+                persist_content=persist_content,
+                include_content=persist_content,
             )
         )
     saved = list(csv.DictReader(io.StringIO(output.read_text(encoding="utf-8-sig"))))
@@ -794,6 +843,12 @@ async def test_local_export_rechecks_canonical_authority_after_embedding(
     assert saved[0]["confidence"] == ""
     assert local_export_setup.state["session_closed"]
     assert not local_export_setup.state["session_active"]
+    if persist_content:
+        checkpoint = output.with_name(output.name + ".checkpoint.json")
+        assert json.loads(checkpoint.read_text(encoding="utf-8-sig"))["items"] == {}
+        assert "PRIVATE-HEAD-REVOKED" not in checkpoint.read_text(encoding="utf-8-sig")
+        assert "PRIVATE-HEAD-REVOKED" not in output.read_text(encoding="utf-8-sig")
+        assert not list(tmp_path.glob(".drive-export-*"))
 
 
 @pytest.mark.asyncio
@@ -981,6 +1036,179 @@ async def test_local_prefix_export_labels_missing_content_and_cannot_resume_full
     args.resume, args.raw_prefix_kib = True, None
     with pytest.raises(RuntimeError, match="checkpoint_context_changed"):
         await export_drive_groups.export(args)
+
+
+async def test_persistent_export_recovers_committed_content_in_a_fresh_process_without_downloads(
+    monkeypatch, tmp_path, local_export_setup
+):
+    import base64
+    import os
+    import subprocess
+    import sys
+    from contextlib import nullcontext
+
+    from scripts import drive_group_local_adapters, drive_group_local_authority, export_drive_groups
+    from scripts.drive_group_local_content import open_checkpoint
+
+    monkeypatch.setenv("DRIVE_DOCUMENT_KEY_V1", base64.b64encode(b"a" * 32).decode())
+    setup = local_export_setup
+    inputs = [
+        row("placed", "statement.pdf", version="1"),
+        row("kept", "statement.pdf", version="1"),
+    ]
+    setup.listing.return_value = (inputs, True, False)
+    monkeypatch.setattr(models, "load_bundle", tiny_bundle)
+    monkeypatch.setattr(setup.indexer, "index_files", index_files)
+    table = {
+        "placed": "statement PRIVATE-PLACED-HEAD",
+        "kept": "homework utility PRIVATE-KEPT-HEAD",
+    }
+    head = Heads(table)
+    monkeypatch.setattr(
+        export_drive_groups,
+        "ProgressHeads",
+        lambda source, total: SimpleNamespace(head=head.head, text_files=set(table)),
+    )
+    monkeypatch.setattr(
+        drive_group_local_adapters,
+        "LocalHeadEmbedder",
+        lambda: Vectors({table["placed"]: basis(0), table["kept"]: basis(2)}),
+    )
+    monkeypatch.setattr(
+        drive_group_local_authority,
+        "FreshDriveReadAuthority",
+        lambda oauth, **kw: SimpleNamespace(oauth=oauth, operation=nullcontext, close=lambda: None),
+    )
+    args = SimpleNamespace(
+        email="owner@example.com",
+        time_zone="UTC",
+        format="csv",
+        output=tmp_path / "content.csv",
+        raw_prefix_kib=200,
+        persist_content=True,
+        include_content=True,
+    )
+    checkpoint = args.output.with_name(args.output.name + ".checkpoint.json")
+    write = export_drive_groups._write
+
+    def interrupted(path, value, **kwargs):
+        if (
+            path == args.output
+            and len(json.loads(checkpoint.read_text(encoding="utf-8-sig"))["items"]) == 2
+        ):
+            raise OSError("synthetic CSV interruption")
+        return write(path, value, **kwargs)
+
+    monkeypatch.setattr(export_drive_groups, "_write", interrupted)
+    with pytest.raises(OSError, match="synthetic CSV interruption"):
+        await export_drive_groups.export(args)
+    saved_text = checkpoint.read_text(encoding="utf-8-sig")
+    assert not any(value in saved_text for value in table.values())
+    saved = json.loads(saved_text)
+    content = open_checkpoint(saved)
+    for file_id in table:
+        assert content.open(file_id, saved["items"][file_id])["head"] == table[file_id]
+        assert "text_start" not in saved["items"][file_id]["item"]
+    assert saved["items"]["placed"]["shelf"] == "financial_statements"
+    assert saved["items"]["kept"]["shelf"] == "kept"
+    assert saved["inventory"]["cursor"] == "after-cursor"
+
+    # Reopen only persisted bytes in a new interpreter: no provider or embedder.
+    env_file = tmp_path / "empty.env"
+    env_file.write_text("DRIVE_DOCUMENT_KEY_V1=" + base64.b64encode(b"a" * 32).decode() + "\n")
+    reader_env = dict(os.environ)
+    reader_env.pop("DRIVE_DOCUMENT_KEY_V1", None)
+    recovered = tmp_path / "recovered.csv"
+    command = [
+        sys.executable,
+        str(Path(__file__).resolve().parents[2] / "scripts/read_drive_group_export.py"),
+        "--checkpoint",
+        str(checkpoint),
+        "--env-file",
+        str(env_file),
+        "--output",
+        str(recovered),
+        "--include-content",
+    ]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=30, env=reader_env)  # noqa: S603 - fixed repo reader, synthetic temporary files
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["textStarts"] == 2
+    assert not any(value in result.stdout + result.stderr for value in table.values())
+    exported = list(csv.DictReader(io.StringIO(recovered.read_text(encoding="utf-8-sig"))))
+    assert [item["text_start"] for item in exported] == list(table.values())
+    assert [json.loads(item["embedding"]) for item in exported] == [list(basis(0)), list(basis(2))]
+    assert all(item["embedding_dimensions"] == "384" for item in exported)
+
+    # The committed checkpoint can recreate a missing/stale CSV on resume.
+    monkeypatch.setattr(export_drive_groups, "_write", write)
+    args.resume = True
+    head.asked.clear()
+    result = await export_drive_groups.export(args)
+    assert result["reusedFiles"] == 2 and head.asked == []
+    assert args.output.read_bytes() == recovered.read_bytes()
+    assert not list(tmp_path.glob(".drive-export-*"))
+
+    # The old metadata-only mode cannot silently reuse the evidence checkpoint.
+    args.persist_content = args.include_content = False
+    with pytest.raises(RuntimeError, match="checkpoint_context_changed"):
+        await export_drive_groups.export(args)
+
+
+@pytest.mark.parametrize(
+    "change", ["version", "model", "mode", "revision", "file", "ciphertext", "membership"]
+)
+def test_persisted_evidence_refuses_substitution_and_inventory_tampering(monkeypatch, change):
+    import base64
+    import hashlib
+
+    from scripts.drive_group_local_content import (
+        LocalExportContent,
+        content_context,
+        open_checkpoint,
+    )
+
+    monkeypatch.setenv("DRIVE_DOCUMENT_KEY_V1", base64.b64encode(b"b" * 32).decode())
+    context = {
+        "owner": hashlib.sha256(b"owner").hexdigest(),
+        "generation": 1,
+        "model": "tiny",
+        "evidence_mode": "raw_prefix_204800",
+        "revision": 0,
+        **content_context(),
+    }
+    content = LocalExportContent(owner="owner", context=context)
+    source = row("file", "statement.pdf", version="1")
+    file = IndexedFile(
+        "file",
+        place(FileEvidence("statement", PDF), tiny_bundle()),
+        "PRIVATE-ROUNDTRIP-HEAD",
+        basis(0),
+    )
+    cached = content.seal(source, file, {"index_status": "indexed_raw_prefix"})
+    if change == "version":
+        cached["version"] = "2"
+    elif change == "ciphertext":
+        cached["content"]["ciphertext"] = "AAAA"
+    elif change == "file":
+        file = replace(file, file_id="different-file")
+    elif change in {"model", "mode", "revision"}:
+        key = {"model": "model", "mode": "evidence_mode", "revision": "revision"}[change]
+        content = LocalExportContent(owner="owner", context={**context, key: "changed"})
+    elif change == "membership":
+        saved = {
+            "context": context,
+            "content_index": content.header,
+            "items": {"file": cached},
+            "inventory": {"rows": [source], "cursor": "after", "complete": True},
+        }
+        saved["content_manifest"] = content.manifest(saved)
+        saved["items"].clear()
+        saved["inventory"]["rows"].clear()
+        with pytest.raises(RuntimeError, match="content_invalid"):
+            open_checkpoint(saved)
+        return
+    with pytest.raises(RuntimeError, match="content_invalid"):
+        content.open(file.file_id, cached)
 
 
 @pytest.mark.asyncio

@@ -6,6 +6,8 @@ batch is one call), then places every file. Both are ports, so this module
 holds no transport, credential or model. The flag is checked first: with it off
 the aid refuses to run. A file the aid will not place is kept, and keeps its
 text start and embedding for future indexing; a placed file keeps neither.
+An explicit derived-export caller may retain both files' evidence in memory
+until it seals or exports it; that option does not alter worker-store retention.
 Logs carry counts and closed labels only, never a name, a head or an ID.
 """
 
@@ -130,6 +132,7 @@ async def index_files(
     bundle: ModelBundle | None = None,
     read_concurrency: int = READ_CONCURRENCY,
     require_head: bool = False,
+    retain_evidence: bool = False,
 ) -> IndexRun:
     if not four_group_index_enabled():
         raise GroupIndexDisabled("the Drive four-group index is off")
@@ -137,6 +140,8 @@ async def index_files(
         raise ValueError("invalid read concurrency")
     if type(require_head) is not bool:
         raise ValueError("invalid head requirement")
+    if type(retain_evidence) is not bool:
+        raise ValueError("invalid evidence retention")
     started = time.perf_counter()
     bundle = bundle or load_bundle()
     listed = [
@@ -171,8 +176,8 @@ async def index_files(
             IndexedFile(
                 str(row.get("id", "")),
                 placement,
-                head if kept else None,
-                vector if kept else None,
+                head if kept or retain_evidence else None,
+                vector if kept or retain_evidence else None,
             )
         )
     reasons = Counter(file.placement.reason for file in files)
