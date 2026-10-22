@@ -44,6 +44,16 @@ retains its disclosed boundary.
 | Erasure / transitions | Earlier Shared erasure verified object/Firebase absence; retained fixture gets safe 409 on deployed source | Reconcile the uncertain write through the product path before erasure; cloud/external-grant cleanup and hosting transfers need their own receipts |
 | Security / economy | Authority negatives, explicit shared-owner compromise boundary and minimum-zero configuration have scoped evidence | Installed lifecycle and idle acceptance; dependency alerts, including companion alerts, remain independent clearance requirements |
 
+### Effective AI configuration
+
+Read-only serving evidence on 21 October: UAT Shared selects Azure OpenAI with
+the configured GPT-5 mini primary; dev Shared retains Gemini. The current personal
+Azure `one-chat` deployment is GPT-5.6 Luna, independently of the earlier temporary
+GPT-6 Luna probe. Browser qualification must use that actual connection; no model
+upgrade or provider fallback is implied. Shared Files analysis retains its separate
+Gemini processing disclosure. The provider-neutral **Use Hussh AI** picker fix is
+local and passes its 40 nearest checks; legacy API identifiers are preserved.
+
 ### Retained Shared deletion
 
 The synthetic account, vault and original library remain fenced after
@@ -68,21 +78,22 @@ publishing does not install it. Existing personal pod receipts remain unchanged.
 | Dev app | Source `5b8e03b12a04`; hub `consent-protocol-00187-lr7` / digest `418258fc4c7a`; web `hushh-webapp-00155-4hr` / digest `5d0b66c7f213`; both 100% | [Exact-SHA CI](https://github.com/hushh-labs/hushh-research/actions/runs/39675020035) and [governed dev rollout](https://github.com/hushh-labs/hushh-research/actions/runs/39679343440) succeeded, including preservation, schema, semantic and reviewer checks |
 | Personal Azure pod | `2026.10-dev.25+991a06ccbc01.4a3b29a7`; digest `sha256:4a3b29a74641d7eac470da43d18f01c5039f4c0327ed84811ce2f0bfa939ac9a`; revision `ca-hussh-one-pod--u36234007817f` | `op_b9a279571aaf47bcaffdbc4689c80d6c` verified 03:19:39 UTC; exact predecessor `250aea9e…fc69f1`; same identity and 1 vCPU / 2 GiB, min 0 / max 1 |
 | Schema / rollback | Dev migration and postdeploy schema gates passed without contract violations; history cleanup deferred | Rollback hub `00186-5zw`, web `00154-jzm`. Application rollback cannot restore deleted history |
-| Local integration | Browser `80731a80b3`; frozen ADK `914e7c044c`; newer main through `89516ab01d` reconciled locally after `aae090eedd` | Nine peer edits and the active ADK tree are preserved. Main's warm Messages cache and production-capacity maintenance retain private-owner admission and governed environment authority; this integration is not deployed |
+| Local integration | Browser `80731a80b3`; frozen ADK `914e7c044c`; newer main through `f7d80942ed` reconciled locally at `1aafc9f23d` | Nine peer edits and the active ADK tree are preserved. Main's warm Messages cache and production-capacity maintenance retain private-owner admission and governed environment authority; this integration is not deployed |
 | New pod image | `sha256:c95aaf4d705b0f16dc9812f59322b4f640588ca97686d2b7723e123e769edc4a`, source `5b8e03b12a04` | Four synthetic recovery fixtures passed using exact predecessor digests, including those installed on the personal GCP/Azure pods; identity, encrypted records and 245,763 file bytes preserved. Fixtures cleaned. Browser's generated-header mismatch requires the corrected Dev 27 image; no personal installation occurred |
 | GCP configuration | Named owner's revision `00018-jrz`, same predecessor `26bab163…61809`, 1 vCPU / 2 GiB / concurrency 8 | Authenticated maintenance handoff and recovery passed; identity, keys, image and on-demand settings unchanged. Task-owned maintenance job removed |
 | Browser component qualification | Image `sha256:b48f66b6…b32fbf24a4`: ordinary GCP frames/start 7.145 s, Azure frames/start 1.555 s; both confirmed Stop. Native ACA Luna research 19.460 s, five model round trips at capacity 50 | Synthetic grants, excludes owner HTTP acceptance and full-pod capacity. Capacity 1 returned 429; original failure retained. GCP native Gemini 3.8 research subsequently completed in 96.713 s through the approved bridge: three model round trips, two native actions and two screenshot continuations. This is one component sample, not a latency target pass. Disposable resources and temporary model/RBAC verified removed |
 
 ### Current local implementation
 
-Main through `89516ab01d` and frozen ADK `914e7c044c` are reconciled with the
+Main through `f7d80942ed` and frozen ADK `914e7c044c` are reconciled with the
 private-agent work. Streamed exports, dual-principal connector fencing, SOS,
 Azure playback, exact provider receipts and Profile controls are preserved.
 The final local core was run once. Original failures remain recorded; environment
 repairs and the corrected PLG route classification were checked in the affected
 stages. The backend manifest totals 24,408 distinct passes and 138 skips across
 that run and its replays; all 30,928 available cases collect. The newer main merge
-passes 98 Messages checks, typecheck, UI contracts and focused operations checks.
+passes 98 Messages, 182 affected frontend, 11 export and 31 operations checks,
+typecheck and regenerated UI contracts.
 The reviewed architecture ratchet has no regressions; its budgets are unchanged.
 A clean web-core check covers the newer frontend dependency before push.
 
@@ -100,7 +111,9 @@ language differing from its fixed public profile. The source correction passes
 81 nearest checks and the original-code negative. A synthetic source-patched
 probe passes native Gemini/Luna research in 24.563/17.073 seconds, takeover,
 resize, handback and Stop on both clouds. These component samples do not qualify
-the immutable image, owner journey or capacity. Dev 27 requires a new build.
+the immutable image, owner journey or capacity. Frozen image source `67a64533ac`
+passes [26-job CI](https://github.com/hushh-labs/hushh-research/actions/runs/39691219336)
+succeeded; its [governed build](https://github.com/hushh-labs/hushh-research/actions/runs/39694799698) is running. No personal installation has occurred.
 
 Browser source includes owner-bound ADK execution, durable identifier-only delivery,
 exact review, takeover, cancellation, encrypted continuation and remembered sessions.
