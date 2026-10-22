@@ -22,7 +22,6 @@ from hushh_mcp.operons.kai.calculators import (
     assess_fundamental_health,
     calculate_annualized_return,
     calculate_annualized_volatility,
-    calculate_financial_ratios,
     calculate_quant_metrics,
     calculate_return_and_risk_metrics,
     calculate_sentiment_score,
@@ -312,64 +311,6 @@ class TestExtractCatalystsFromNews:
 # ---------------------------------------------------------------------------
 # calculate_financial_ratios
 # ---------------------------------------------------------------------------
-
-
-class TestFinancialRatios:
-    def _minimal_filing(self, **overrides):
-        base = {
-            "latest_10k": {
-                "revenue": 1_000_000_000,
-                "net_income": 100_000_000,
-                "total_assets": 500_000_000,
-                "total_liabilities": 200_000_000,
-                "free_cash_flow": 80_000_000,
-                "long_term_debt": 50_000_000,
-                "research_and_development": 30_000_000,
-                "operating_cash_flow": 90_000_000,
-            }
-        }
-        base["latest_10k"].update(overrides)
-        return base
-
-    def test_profit_margin_calculated(self):
-        filing = self._minimal_filing()
-        result = calculate_financial_ratios(filing)
-        assert result["profit_margin"] == pytest.approx(0.1, rel=1e-6)
-
-    def test_zero_revenue_no_division_error(self):
-        filing = self._minimal_filing(revenue=0)
-        result = calculate_financial_ratios(filing)
-        assert result["profit_margin"] is None
-        assert result["fcf_margin"] is None
-        assert result["rnd_intensity"] is None
-
-    def test_zero_net_income_no_division_error(self):
-        filing = self._minimal_filing(net_income=0)
-        result = calculate_financial_ratios(filing)
-        assert result["earnings_quality"] is None
-
-    def test_revenue_billions_conversion(self):
-        filing = self._minimal_filing(revenue=2_000_000_000)
-        result = calculate_financial_ratios(filing)
-        assert result["revenue_billions"] == pytest.approx(2.0, rel=1e-6)
-
-    def test_all_required_keys_present(self):
-        result = calculate_financial_ratios(self._minimal_filing())
-        for key in (
-            "profit_margin",
-            "fcf_margin",
-            "debt_to_equity",
-            "return_on_equity",
-            "rnd_intensity",
-            "earnings_quality",
-            "revenue_billions",
-            "fcf_billions",
-        ):
-            assert key in result, f"Missing key: {key}"
-
-    def test_empty_filing_no_crash(self):
-        result = calculate_financial_ratios({})
-        assert isinstance(result, dict)
 
 
 # ---------------------------------------------------------------------------

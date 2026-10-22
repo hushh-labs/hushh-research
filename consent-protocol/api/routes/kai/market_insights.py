@@ -34,19 +34,22 @@ from hushh_mcp.services.market_insights_cache import market_insights_cache
 from hushh_mcp.services.market_news_images import article_image_url, enrich_market_news_images
 from hushh_mcp.services.market_provider_telemetry import record_provider_request
 from hushh_mcp.services.market_refresh_policy import (
-    MarketPriceRefreshPaused,
-    closed_price_snapshot_usable,
-    market_price_refresh_scope,
-    price_cache_retention_seconds,
     seconds_until_us_market_open,
     us_market_is_open,
-    us_market_session_opened_at,
 )
 from hushh_mcp.services.owner_placement_guard import hub_content_owner
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.renaissance_service import TIER_WEIGHTS, get_renaissance_service
 from hushh_mcp.services.ria_iam_service import RIAIAMService
 from hushh_mcp.services.symbol_master_service import get_symbol_master_service
+
+from ._market_presentation import (
+    market_home_response,
+    recommendation_from_target,
+    resolve_public_module,
+    stock_preview_quote,
+)
+from ._public_market_cache import PublicModuleCache
 
 logger = logging.getLogger(__name__)
 
@@ -1104,185 +1107,23 @@ async def _get_or_refresh_public_module(
     warm_source: str = "request",
     serve_stale_while_revalidate: bool = True,
 ) -> tuple[Any, bool, int, str, bool]:
-    """
-    Read order:
-    1) L1 memory cache (MarketInsightsCache)
-    2) L2 Postgres cache (kai_market_cache_entries)
-    3) Live fetch (external providers) + write-through to L1 + L2
-    """
-    now_ts = time()
-    moment = datetime.fromtimestamp(now_ts, tz=timezone.utc)
-    price_module = key.startswith(MARKET_PRICE_REFRESH_PREFIXES)
-    closed = price_module and not _us_market_is_open()
-    if key.startswith(MARKET_PRICE_SENSITIVE_PREFIXES):
-        stale_ttl_seconds = price_cache_retention_seconds(stale_ttl_seconds, moment)
-    # Tighten the fresh window during US market hours and relax it when closed,
-    # for price-sensitive modules. Stale TTL is preserved so degradation and
-    # serve-stale-while-revalidate behavior are unchanged.
-    fresh_ttl_seconds = _market_aware_fresh_ttl(key, fresh_ttl_seconds)
-    fresh_after_ts = (
-        us_market_session_opened_at(datetime.fromtimestamp(now_ts, tz=timezone.utc))
-        if key.startswith(MARKET_PRICE_SENSITIVE_PREFIXES)
-        else None
-    )
-
-    def has_recoverable_degradation(payload: Any) -> bool:
-        if not isinstance(payload, dict):
-            return False
-        provider_status = payload.get("provider_status")
-        applies_to_key = (
-            key.startswith("quotes:")
-            or key.startswith("home:")
-            or key.startswith("home:baseline:")
-            or key.startswith("home:personalized:")
-        )
-        if not applies_to_key:
-            return False
-        if isinstance(provider_status, dict) and any(
-            str(value or "partial") != "ok" for value in provider_status.values()
-        ):
-            return True
-        if key.startswith("home:"):
-            for row_key in ("pick_rows", "watchlist", "spotlights"):
-                rows = payload.get(row_key)
-                if not isinstance(rows, list):
-                    continue
-                for row in rows:
-                    if not isinstance(row, dict):
-                        continue
-                    if str(row.get("filtered_out_reason") or "").strip():
-                        continue
-                    if str(row.get("quote_status") or "").strip().lower() == "unsupported":
-                        continue
-                    if row.get("degraded") and _safe_float(row.get("price")) is None:
-                        return True
-        return False
-
-    existing_l1 = market_insights_cache.peek(key)
-    if (
-        not closed
-        and existing_l1
-        and (now_ts - existing_l1.fetched_at) <= fresh_ttl_seconds
-        and (fresh_after_ts is None or existing_l1.fetched_at >= fresh_after_ts)
-        and not has_recoverable_degradation(existing_l1.value)
-    ):
-        return (
-            existing_l1.value,
-            False,
-            max(0, int(now_ts - existing_l1.fetched_at)),
-            "memory",
-            True,
-        )
-
-    store = None
-    l2_entry = None
-    try:
-        store = get_market_cache_store_service()
-        l2_entry = await store.get_entry(key)
-    except Exception as exc:
-        # L2 is optional. Never fail the request path when Postgres cache is unavailable.
-        logger.warning("[Kai Market] L2 cache read skipped for %s: %s", key, type(exc).__name__)
-        store = None
-        l2_entry = None
-    if (
-        not closed
-        and l2_entry
-        and l2_entry.is_fresh(now_ts)
-        and now_ts - l2_entry.updated_at_ts <= fresh_ttl_seconds
-        and (fresh_after_ts is None or l2_entry.updated_at_ts >= fresh_after_ts)
-        and not has_recoverable_degradation(l2_entry.payload)
-    ):
-        market_insights_cache.seed_entry(key, l2_entry.payload, l2_entry.updated_at_ts)
-        return (l2_entry.payload, False, l2_entry.age_seconds(now_ts), "postgres", True)
-
-    # Seed stale L2 into L1 so L1 stale-on-error can serve fallback.
-    if (
-        l2_entry
-        and (
-            l2_entry.is_stale_servable(now_ts)
-            or (closed and closed_price_snapshot_usable(l2_entry.updated_at_ts, moment))
-        )
-        and (existing_l1 is None or l2_entry.updated_at_ts > existing_l1.fetched_at)
-    ):
-        market_insights_cache.seed_entry(key, l2_entry.payload, l2_entry.updated_at_ts)
-
-    if closed:
-        saved = market_insights_cache.peek(key)
-        if saved and closed_price_snapshot_usable(saved.fetched_at, moment):
-            tier = (
-                "postgres" if l2_entry and saved.fetched_at == l2_entry.updated_at_ts else "memory"
-            )
-            return (saved.value, True, max(0, int(now_ts - saved.fetched_at)), tier, True)
-        raise MarketPriceRefreshPaused("market_closed_no_cached_price")
-
-    async def wrapped_fetcher() -> Any:
-        requested_at = time()
-        if price_module:
-            with market_price_refresh_scope():
-                value = await fetcher()
-        else:
-            value = await fetcher()
-        completed_session = (
-            us_market_session_opened_at(datetime.fromtimestamp(time(), tz=timezone.utc))
-            if key.startswith(MARKET_PRICE_SENSITIVE_PREFIXES)
-            else None
-        )
-        if completed_session is not None and requested_at < completed_session:
-            # Nested caches may have been read before opening. Rebuild once
-            # under the new session before stamping this assembled snapshot.
-            if price_module:
-                with market_price_refresh_scope():
-                    value = await fetcher()
-            else:
-                value = await fetcher()
-        provider_status = {}
-        if isinstance(value, dict) and isinstance(value.get("provider_status"), dict):
-            provider_status = value.get("provider_status") or {}
-        if store is not None:
-            try:
-                await store.set_entry(
-                    cache_key=key,
-                    payload=value,
-                    fresh_ttl_seconds=fresh_ttl_seconds,
-                    stale_ttl_seconds=stale_ttl_seconds,
-                    provider_status=provider_status,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "[Kai Market] L2 cache write skipped for %s: %s", key, type(exc).__name__
-                )
-        return value
-
-    result = await market_insights_cache.get_or_refresh(
-        key,
+    return await PublicModuleCache(
+        cache=market_insights_cache,
+        get_store=get_market_cache_store_service,
+        clock=time,
+        is_open=_us_market_is_open,
+        fresh_ttl=_market_aware_fresh_ttl,
+        safe_float=_safe_float,
+        refresh_prefixes=MARKET_PRICE_REFRESH_PREFIXES,
+        sensitive_prefixes=MARKET_PRICE_SENSITIVE_PREFIXES,
+    ).read(
+        key=key,
         fresh_ttl_seconds=fresh_ttl_seconds,
         stale_ttl_seconds=stale_ttl_seconds,
-        fetcher=wrapped_fetcher,
-        # The client keeps the old view while awaiting this request. Return the
-        # refreshed prices during the session; retain stale-on-error fallback.
-        serve_stale_while_revalidate=serve_stale_while_revalidate and fresh_after_ts is None,
-        fresh_after_ts=fresh_after_ts,
-        should_refresh=has_recoverable_degradation,
+        fetcher=fetcher,
+        warm_source=warm_source,
+        serve_stale_while_revalidate=serve_stale_while_revalidate,
     )
-    tier = "live"
-    cache_hit = False
-    if result.stale:
-        if l2_entry and l2_entry.is_stale_servable(now_ts):
-            tier = "postgres"
-            cache_hit = True
-        else:
-            tier = "memory"
-            cache_hit = True
-    logger.debug(
-        "[Kai Market] module=%s warm_source=%s tier=%s hit=%s stale=%s age=%ss",
-        key,
-        warm_source,
-        tier,
-        cache_hit,
-        result.stale,
-        result.age_seconds,
-    )
-    return (result.value, result.stale, result.age_seconds, tier, cache_hit)
 
 
 def _recommendation_from_counts(payload: dict[str, Any]) -> tuple[str, str]:
@@ -1460,6 +1301,21 @@ async def _fetch_macro_bundle() -> dict[str, Any]:
 
 
 async def _legacy_fetch_recommendation(symbol: str, quote_price: float | None) -> dict[str, Any]:
+    result = await _finnhub_recommendation(symbol)
+    if result is not None:
+        return result
+    result = await _fmp_recommendation(symbol, quote_price)
+    if result is not None:
+        return result
+    return {
+        "signal": "HOLD",
+        "detail": "Using a neutral stance while analyst consensus refreshes.",
+        "source": "Fallback",
+        "degraded": True,
+    }
+
+
+async def _finnhub_recommendation(symbol):
     finnhub_key = _finnhub_api_key()
     if finnhub_key:
         finnhub_cooldown_key = f"finnhub:recommendation:{symbol.upper()}"
@@ -1507,6 +1363,8 @@ async def _legacy_fetch_recommendation(symbol: str, quote_price: float | None) -
                         cooldown_seconds,
                     )
 
+
+async def _fmp_recommendation(symbol, quote_price):
     pmp_key = _pmp_api_key()
     if market_insights_cache.is_provider_in_cooldown(FMP_GLOBAL_COOLDOWN_KEY):
         pmp_key = ""
@@ -1542,34 +1400,7 @@ async def _legacy_fetch_recommendation(symbol: str, quote_price: float | None) -
                 if res.is_success:
                     rows = res.json() or []
                     if isinstance(rows, list) and rows:
-                        target = _safe_float((rows[0] or {}).get("targetConsensus"))
-                        if target is None:
-                            return {
-                                "signal": "NEUTRAL",
-                                "detail": "Target consensus unavailable.",
-                                "source": "PMP/FMP",
-                                "degraded": True,
-                            }
-                        if target >= quote_price * 1.08:
-                            return {
-                                "signal": "BUY",
-                                "detail": "Target consensus is above current price range.",
-                                "source": "PMP/FMP",
-                                "degraded": False,
-                            }
-                        if target <= quote_price * 0.92:
-                            return {
-                                "signal": "REDUCE",
-                                "detail": "Target consensus is below current price range.",
-                                "source": "PMP/FMP",
-                                "degraded": False,
-                            }
-                        return {
-                            "signal": "HOLD",
-                            "detail": "Target consensus is near the current price range.",
-                            "source": "PMP/FMP",
-                            "degraded": False,
-                        }
+                        return recommendation_from_target(rows, quote_price, _safe_float)
         except Exception as exc:
             logger.warning(
                 "[Kai Market] recommendation(PMP/FMP) failed for %s: %r", symbol, type(exc).__name__
@@ -1593,13 +1424,6 @@ async def _legacy_fetch_recommendation(symbol: str, quote_price: float | None) -
                             FMP_GLOBAL_COOLDOWN_KEY,
                             cooldown_seconds,
                         )
-
-    return {
-        "signal": "HOLD",
-        "detail": "Using a neutral stance while analyst consensus refreshes.",
-        "source": "Fallback",
-        "degraded": True,
-    }
 
 
 async def _fetch_finnhub_candles(symbol: str) -> list[dict[str, float]]:
@@ -2638,24 +2462,10 @@ async def _get_market_insights_payload(
                 "generated_at": _now_iso(),
             }
 
-        def failed_module(value: Any) -> tuple[Any, bool, int, str, bool]:
-            return (value, True, 0, "live", False)
-
-        async def safe_public_module(
-            name: str,
-            task: Any,
-            fallback_factory: Any,
-        ) -> tuple[Any, bool, int, str, bool]:
-            try:
-                return await task
-            except Exception as exc:
-                status_value = _provider_status_from_exception(exc)
-                logger.warning(
-                    "[Kai Market] %s module failed during concurrent refresh: %s",
-                    name,
-                    type(exc).__name__,
-                )
-                return failed_module(fallback_factory(status_value))
+        async def safe_public_module(name, task, fallback_factory):
+            return await resolve_public_module(
+                name, task, fallback_factory, _provider_status_from_exception, logger
+            )
 
         (
             (quotes_value, quotes_stale, _quotes_age, quotes_cache_tier, quotes_cache_hit),
@@ -3350,58 +3160,19 @@ async def _get_market_insights_payload(
             empty["market_overview"] = [_scheduled_market_status_fallback(DEFAULT_EXCHANGE)]
         return empty
 
-    payload = dict(home_value) if isinstance(home_value, dict) else {}
-    if effective_exchange == DEFAULT_EXCHANGE and not _us_market_is_open():
-        market_overview = list(payload.get("market_overview") or [])
-        scheduled = _scheduled_market_status_fallback(DEFAULT_EXCHANGE)
-        market_overview = [row for row in market_overview if row.get("label") != "Market Status"]
-        payload["market_overview"] = [*market_overview, scheduled]
-    prices_paused = effective_exchange == DEFAULT_EXCHANGE and not _us_market_is_open()
-    payload["stale"] = bool(payload.get("stale")) or home_stale or prices_paused
-    if prices_paused:
-        payload["stale_reason"] = "market_closed"
-    elif home_stale:
-        payload["stale_reason"] = "served_stale_cache"
-    payload["cache_age_seconds"] = home_age_seconds
-
-    meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
-    meta["stale"] = bool(payload.get("stale"))
-    meta["cache_age_seconds"] = home_age_seconds
-    meta["cache_tier"] = str(meta.get("cache_tier") or home_cache_tier)
-    meta["cache_hit"] = bool(meta.get("cache_hit")) or home_cache_hit
-    meta["warm_source"] = str(meta.get("warm_source") or warm_source)
-    meta["market_mode"] = str(
-        meta.get("market_mode") or ("personalized" if personalized else "baseline")
-    )
-    meta["baseline_cache_tier"] = (
-        home_cache_tier if meta["market_mode"] == "baseline" else meta.get("baseline_cache_tier")
-    )
-    meta["personalized_cache_tier"] = (
-        home_cache_tier
-        if meta["market_mode"] == "personalized"
-        else meta.get("personalized_cache_tier")
-    )
-    cooldown_snapshot = market_insights_cache.provider_cooldown_snapshot()
-    if cooldown_snapshot:
-        meta["provider_cooldowns"] = cooldown_snapshot
-    if payload.get("stale_reason"):
-        meta["stale_reason"] = payload.get("stale_reason")
-    if payload.get("provider_status"):
-        meta["provider_status"] = payload.get("provider_status")
-    payload["meta"] = meta
-
-    logger.debug(
-        "[Kai Market] home tier=%s stale=%s age=%ss watchlist=%s picks=%s headlines=%s source=%s",
-        meta["cache_tier"],
-        meta["stale"],
+    return market_home_response(
+        home_value,
+        home_stale,
         home_age_seconds,
-        len(payload.get("watchlist") or []),
-        len(payload.get("pick_rows") or []),
-        len(payload.get("news_tape") or []),
-        payload.get("active_pick_source") or "default",
+        home_cache_tier,
+        home_cache_hit,
+        warm_source,
+        personalized,
+        effective_exchange == DEFAULT_EXCHANGE and not _us_market_is_open(),
+        lambda: _scheduled_market_status_fallback(DEFAULT_EXCHANGE),
+        market_insights_cache.provider_cooldown_snapshot,
+        logger,
     )
-
-    return payload
 
 
 @router.get("/market/company-facts/{user_id}")
@@ -3748,29 +3519,13 @@ async def get_stock_preview(
             "resolved_with_fallback": resolved_pick_source != active_pick_source,
         }
 
-    quote_price = _safe_float(quote_payload.get("price"))
-    quote_change_pct = _safe_float(quote_payload.get("change_percent"))
-    quote_as_of = (
-        quote_payload.get("fetched_at")
-        if isinstance(quote_payload.get("fetched_at"), str)
-        else _now_iso()
-    )
-
     return {
         "symbol": normalized_symbol,
         "active_pick_source": resolved_pick_source,
         "pick_sources": pick_sources,
-        "quote": {
-            "price": quote_price,
-            "change_pct": quote_change_pct,
-            "as_of": quote_as_of,
-            "company_name": str(quote_payload.get("company_name") or normalized_symbol),
-            "sector": str(quote_payload.get("sector") or "").strip() or None,
-            "market_cap": _safe_float(quote_payload.get("market_cap")),
-            "volume": _safe_int(quote_payload.get("volume")),
-            "source_tags": [str(quote_payload.get("source") or "Unknown")],
-            "degraded": quote_price is None,
-        },
+        "quote": stock_preview_quote(
+            quote_payload, normalized_symbol, _safe_float, _safe_int, _now_iso
+        ),
         "list_match": {
             "in_list": bool(matched_row),
             "source_id": resolved_pick_source,

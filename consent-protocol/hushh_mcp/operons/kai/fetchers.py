@@ -22,21 +22,29 @@ import urllib.parse
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from defusedxml import ElementTree as DefusedET
 
 from hushh_mcp.consent.token import validate_token
 from hushh_mcp.constants import ConsentScope
+from hushh_mcp.market_data.runtime import get_market_runtime
+from hushh_mcp.market_data.yahoo_chart import add_chart_history
+from hushh_mcp.observability.market_provider_calls import record_provider_url
 from hushh_mcp.services.fmp_call_budget import is_budget_critical, record_fmp_call
-from hushh_mcp.services.market_provider_telemetry import record_provider_request
 from hushh_mcp.services.market_refresh_policy import (
     US_MARKET_OPEN_CACHE_TTL_SECONDS,
+    ensure_market_price_request_allowed,
     provider_quote_cache_ttl_seconds,
     us_market_session_opened_at,
 )
 from hushh_mcp.types import UserID
+
+
+async def record_provider_request(request: httpx.Request) -> None:
+    ensure_market_price_request_allowed()
+    record_provider_url(str(request.url))
+
 
 logger = logging.getLogger(__name__)
 _PROVIDER_COOLDOWNS: dict[str, float] = {}
@@ -680,9 +688,8 @@ async def _fetch_yfinance_quote(ticker: str, *, timeout_seconds: float = 3.5) ->
 
     async def _get_info() -> Dict[str, Any]:
         def _blocking_fetch() -> Dict[str, Any]:
-            from hushh_mcp.services.market_provider_telemetry import yahoo_counted_session
 
-            stock = yf.Ticker(ticker, session=yahoo_counted_session())
+            stock = yf.Ticker(ticker, session=get_market_runtime().yahoo_session())
             return stock.info or {}
 
         return await asyncio.to_thread(_blocking_fetch)
@@ -914,45 +921,7 @@ async def _fetch_yahoo_quotes(
                 chart = results[0]
                 row = _parse_yahoo_chart_meta(chart.get("meta") or {})
                 if row and (symbol.startswith("^") or range_period != "1d"):
-                    quotes = (chart.get("indicators") or {}).get("quote") or [{}]
-                    closes = quotes[0].get("close") or []
-                    points = [
-                        {"t": timestamp, "p": float(close)}
-                        for timestamp, close in zip(
-                            chart.get("timestamp") or [], closes, strict=False
-                        )
-                        if isinstance(timestamp, (int, float))
-                        and math.isfinite(timestamp)
-                        and isinstance(close, (int, float))
-                        and not isinstance(close, bool)
-                        and math.isfinite(close)
-                        and close > 0
-                    ]
-                    points.sort(key=lambda point: point["t"])
-                    if range_period != "1d":
-                        # Yahoo can append a second live bar for the same daily
-                        # session. Count sessions, not rows, for 1D/1W returns.
-                        try:
-                            exchange_zone = ZoneInfo(
-                                (chart.get("meta") or {}).get("exchangeTimezoneName") or "UTC"
-                            )
-                        except (ZoneInfoNotFoundError, ValueError):
-                            exchange_zone = timezone.utc
-                        sessions = {}
-                        for point in points:
-                            session = datetime.fromtimestamp(point["t"], tz=exchange_zone).date()
-                            sessions[session] = point
-                        points = list(sessions.values())
-                    row["sparkline_points"] = points
-                    row["sparkline"] = [point["p"] for point in points]
-                    if range_period != "1d":
-                        # A multi-session chart's chartPreviousClose is the range
-                        # boundary, not yesterday. Keep its quote change honest too.
-                        row["change_percent"] = (
-                            (points[-1]["p"] / points[-2]["p"] - 1) * 100
-                            if len(points) >= 2
-                            else None
-                        )
+                    add_chart_history(row, chart, range_period)
                 return row
 
         settled = await asyncio.gather(
@@ -1009,6 +978,27 @@ async def _legacy_fetch_market_session_history(
     return {row["ticker"]: row.get("sparkline_points") or [] for row in rows}
 
 
+def _cache_batch_quotes(batch_rows, cached, *, finnhub_enabled, pmp_enabled, requested_at):
+    for payload in batch_rows:
+        symbol = str(payload.get("ticker") or "").strip().upper()
+        if not symbol or float(payload.get("price") or 0) <= 0:
+            continue
+        cache_key = _market_data_cache_key(
+            symbol,
+            finnhub_enabled=finnhub_enabled,
+            pmp_enabled=pmp_enabled,
+        )
+        ttl_seconds = provider_quote_cache_ttl_seconds(
+            max(int(payload.get("ttl_seconds") or 0), _MARKET_DATA_CACHE_TTL_SECONDS)
+        )
+        normalized_payload = dict(payload)
+        normalized_payload["ticker"] = symbol
+        normalized_payload["ttl_seconds"] = ttl_seconds
+        normalized_payload["source"] = str(payload.get("source") or "Yahoo Quote (Batch)")
+        _set_cached_market_data(cache_key, normalized_payload, ttl_seconds, requested_at)
+        cached[symbol] = normalized_payload
+
+
 async def _legacy_fetch_market_data_batch(
     tickers: List[str],
     user_id: UserID,
@@ -1016,17 +1006,7 @@ async def _legacy_fetch_market_data_batch(
 ) -> Dict[str, Dict[str, Any]]:
     """Fetch a batch of market quotes using one public Yahoo request before per-symbol fallbacks."""
     if consent_token:
-        valid, reason, token = validate_token(
-            consent_token,
-            ConsentScope("agent.kai.analyze"),
-        )
-
-        if not valid:
-            logger.error("[Market Data Batch Fetcher] consent_token_check_failed")
-            raise PermissionError(f"Market data access denied: {reason}")
-
-        if token.user_id != user_id:
-            raise PermissionError("Token user mismatch")
+        _validate_market_invocation(user_id, consent_token)
 
     normalized_symbols = list(
         dict.fromkeys(
@@ -1081,24 +1061,13 @@ async def _legacy_fetch_market_data_batch(
         )
         return cached
 
-    for payload in batch_rows:
-        symbol = str(payload.get("ticker") or "").strip().upper()
-        if not symbol or float(payload.get("price") or 0) <= 0:
-            continue
-        cache_key = _market_data_cache_key(
-            symbol,
-            finnhub_enabled=finnhub_enabled,
-            pmp_enabled=pmp_enabled,
-        )
-        ttl_seconds = provider_quote_cache_ttl_seconds(
-            max(int(payload.get("ttl_seconds") or 0), _MARKET_DATA_CACHE_TTL_SECONDS)
-        )
-        normalized_payload = dict(payload)
-        normalized_payload["ticker"] = symbol
-        normalized_payload["ttl_seconds"] = ttl_seconds
-        normalized_payload["source"] = str(payload.get("source") or "Yahoo Quote (Batch)")
-        _set_cached_market_data(cache_key, normalized_payload, ttl_seconds, requested_at)
-        cached[symbol] = normalized_payload
+    _cache_batch_quotes(
+        batch_rows,
+        cached,
+        finnhub_enabled=finnhub_enabled,
+        pmp_enabled=pmp_enabled,
+        requested_at=requested_at,
+    )
 
     _emit_realtime_telemetry(
         "market_data_batch_success",
@@ -1124,8 +1093,9 @@ async def fetch_sec_filings(
     _validate_market_invocation(user_id, consent_token)
     if not consent_token:
         raise PermissionError("SEC data access requires an invocation token")
-    from hushh_mcp.services.market_provider_cache import cached_public_information
-    from hushh_mcp.services.sec_financial_facts import extract_annual_facts
+    from hushh_mcp.market_data.sec_facts import extract_annual_facts
+
+    cached_public_information = get_market_runtime().public_information
 
     headers = {"User-Agent": "Hushh-Research/1.0 (eng@hush1one.com)", "Accept": "application/json"}
     async with httpx.AsyncClient(
@@ -1220,76 +1190,8 @@ async def fetch_sec_filings(
 # ============================================================================
 
 
-async def _legacy_fetch_market_news(
-    ticker: str,
-    user_id: UserID,
-    consent_token: str | None = None,
-    days_back: int = 7,
-) -> List[Dict[str, Any]]:
-    """
-    Operon: Fetch recent news articles.
-
-    Invocation scope: agent.kai.analyze. News is public provider data.
-
-    Provider priority:
-    - Finnhub (if FINNHUB_API_KEY is configured)
-    - PMP/FMP (if PMP_API_KEY or FMP_API_KEY is configured)
-    - NewsAPI (if NEWSAPI_KEY is configured)
-    - Google News RSS fallback
-
-    Args:
-        ticker: Stock ticker symbol
-        user_id: User ID for audit
-        consent_token: Valid consent token
-        days_back: How many days of news to fetch
-
-    Returns:
-        List of news article dicts with:
-        - title: Article headline
-        - description: Article summary
-        - url: Article URL
-        - publishedAt: Publication timestamp
-        - source: {"name": "Source Name"}
-
-    Raises:
-        PermissionError: If consent token validation fails
-    """
-    if consent_token:
-        # Validate consent token
-        valid, reason, token = validate_token(
-            consent_token,
-            ConsentScope.AGENT_KAI_ANALYZE,
-        )
-
-        if not valid:
-            logger.error("[News Fetcher] consent_token_check_failed")
-            raise PermissionError(f"News data access denied: {reason}")
-
-        if token.user_id != user_id:
-            raise PermissionError("Token user mismatch")
-
-    logger.info("[News Fetcher] Fetching news for %s (user=[redacted])", ticker)
-
+async def _fetch_priority_news(ticker, providers):
     errors: list[str] = []
-    providers: list[tuple[str, str, Any]] = [
-        (
-            "finnhub",
-            "finnhub_news",
-            lambda: _fetch_finnhub_company_news(ticker, days_back),
-        ),
-        ("pmp_fmp", "pmp_news", lambda: _fetch_pmp_news(ticker)),
-        (
-            "newsapi",
-            "newsapi",
-            lambda: _fetch_newsapi_articles(ticker, days_back),
-        ),
-        (
-            "google_news_rss",
-            "google_news_rss",
-            lambda: _fetch_google_news_rss(ticker, days_back),
-        ),
-    ]
-
     # This really is priority/fallback. A useful first source ends the request;
     # an all-provider aggregation multiplied cold-cache quota usage without
     # improving a paginated feed, whose pages are served from its server cache.
@@ -1346,9 +1248,190 @@ async def _legacy_fetch_market_news(
     )
 
 
+async def _legacy_fetch_market_news(
+    ticker: str,
+    user_id: UserID,
+    consent_token: str | None = None,
+    days_back: int = 7,
+) -> List[Dict[str, Any]]:
+    """Fetch recent public news in provider priority order after invocation validation."""
+    if consent_token:
+        # Validate consent token
+        valid, reason, token = validate_token(
+            consent_token,
+            ConsentScope.AGENT_KAI_ANALYZE,
+        )
+
+        if not valid:
+            logger.error("[News Fetcher] consent_token_check_failed")
+            raise PermissionError(f"News data access denied: {reason}")
+
+        if token.user_id != user_id:
+            raise PermissionError("Token user mismatch")
+
+    logger.info("[News Fetcher] Fetching news for %s (user=[redacted])", ticker)
+
+    providers: list[tuple[str, str, Any]] = [
+        (
+            "finnhub",
+            "finnhub_news",
+            lambda: _fetch_finnhub_company_news(ticker, days_back),
+        ),
+        ("pmp_fmp", "pmp_news", lambda: _fetch_pmp_news(ticker)),
+        (
+            "newsapi",
+            "newsapi",
+            lambda: _fetch_newsapi_articles(ticker, days_back),
+        ),
+        (
+            "google_news_rss",
+            "google_news_rss",
+            lambda: _fetch_google_news_rss(ticker, days_back),
+        ),
+    ]
+
+    return await _fetch_priority_news(ticker, providers)
+
+
 # ============================================================================
 # OPERON: fetch_market_data
 # ============================================================================
+
+
+def _quote_provider_plan(symbol, finnhub_enabled, pmp_enabled, allow_slow_fallbacks):
+    providers: list[tuple[str, Any]] = []
+
+    # Index symbols are not supported by the equity plans. A rejected index
+    # request must never put stock quotes into a global provider cooldown.
+    if finnhub_enabled and not symbol.startswith("^"):
+        providers.append(("finnhub", _fetch_finnhub_quote))
+    if pmp_enabled and not symbol.startswith("^"):
+        providers.append(("pmp", _fetch_pmp_quote))
+    # In fast-only mode we still use yfinance when rescue is explicitly requested
+    # or when no paid providers are configured at all.
+    should_include_yfinance = allow_slow_fallbacks or (not finnhub_enabled and not pmp_enabled)
+    if should_include_yfinance:
+        providers.append(("yfinance", _fetch_yfinance_quote))
+    providers.append(("yahoo_quote_fast", _fetch_yahoo_quote_fast))
+
+    return providers
+
+
+def _accept_quote(payload, symbol, cache_key, provider_name, requested_at, started_at):
+    fetched_at = payload.get("fetched_at")
+    ttl_seconds = int(payload.get("ttl_seconds") or 0)
+    cache_ttl_seconds = provider_quote_cache_ttl_seconds(
+        max(ttl_seconds, _MARKET_DATA_CACHE_TTL_SECONDS)
+    )
+    is_stale = bool(payload.get("is_stale", False))
+    normalized_payload = dict(payload)
+    normalized_payload["ticker"] = symbol
+    normalized_payload["ttl_seconds"] = cache_ttl_seconds
+    _set_cached_market_data(cache_key, normalized_payload, cache_ttl_seconds, requested_at)
+    _emit_realtime_telemetry(
+        "market_data_provider_success",
+        ticker=symbol,
+        provider=provider_name,
+        source=normalized_payload.get("source"),
+        fetched_at=fetched_at,
+        ttl_seconds=cache_ttl_seconds,
+        is_stale=is_stale,
+        duration_ms=int((time.perf_counter() - started_at) * 1000),
+    )
+    return normalized_payload
+
+
+def _quote_attempt_failed(
+    exc, provider_name, provider_cooldown_key, allow_slow_fallbacks, symbol, started_at, errors
+):
+    skip_yahoo_fast = False
+    if provider_name == "yfinance" and "yfinance_timeout" in str(exc) and provider_cooldown_key:
+        _mark_provider_cooldown_for_duration(
+            provider_cooldown_key,
+            _YFINANCE_TIMEOUT_COOLDOWN_SECONDS,
+        )
+        if not allow_slow_fallbacks:
+            # Fast-mode requests prefer failing quickly over spending
+            # another network round-trip on Yahoo after yfinance timeout.
+            skip_yahoo_fast = True
+    if isinstance(exc, httpx.HTTPStatusError) and provider_cooldown_key:
+        _mark_provider_cooldown(
+            provider_cooldown_key,
+            exc.response.status_code if exc.response is not None else None,
+        )
+    errors.append(_provider_error(provider_name, exc))
+    _emit_realtime_telemetry(
+        "market_data_provider_failure",
+        ticker=symbol,
+        provider=provider_name,
+        error=_provider_error("upstream", exc),
+        duration_ms=int((time.perf_counter() - started_at) * 1000),
+    )
+
+    return skip_yahoo_fast
+
+
+async def _fetch_priority_quote(symbol, cache_key, providers, allow_slow_fallbacks):
+    errors: list[str] = []
+    skip_yahoo_fast_for_symbol = False
+    for provider_name, provider_fetch in providers:
+        if provider_name == "yahoo_quote_fast" and skip_yahoo_fast_for_symbol:
+            errors.append("yahoo_quote_fast:skipped_after_yfinance_timeout")
+            _emit_realtime_telemetry(
+                "market_data_provider_skipped",
+                ticker=symbol,
+                provider=provider_name,
+                reason="yfinance_timeout_fast_mode",
+            )
+            continue
+        started_at = time.perf_counter()
+        provider_cooldown_key = _provider_cooldown_key(provider_name, symbol)
+        if provider_cooldown_key and _provider_in_cooldown(provider_cooldown_key):
+            errors.append(f"{provider_name}:provider_cooldown")
+            _emit_realtime_telemetry(
+                "market_data_provider_skipped_cooldown",
+                ticker=symbol,
+                provider=provider_name,
+            )
+            continue
+        try:
+            requested_at = time.time()
+            payload = await provider_fetch(symbol)
+            if payload and float(payload.get("price") or 0) > 0:
+                return _accept_quote(
+                    payload, symbol, cache_key, provider_name, requested_at, started_at
+                )
+            errors.append(f"{provider_name}:invalid_price")
+            _emit_realtime_telemetry(
+                "market_data_provider_invalid",
+                ticker=symbol,
+                provider=provider_name,
+                duration_ms=int((time.perf_counter() - started_at) * 1000),
+            )
+        except Exception as exc:
+            skip_yahoo_fast_for_symbol = (
+                _quote_attempt_failed(
+                    exc,
+                    provider_name,
+                    provider_cooldown_key,
+                    allow_slow_fallbacks,
+                    symbol,
+                    started_at,
+                    errors,
+                )
+                or skip_yahoo_fast_for_symbol
+            )
+
+    _emit_realtime_telemetry(
+        "market_data_all_providers_failed",
+        ticker=symbol,
+        errors=errors,
+    )
+    raise RealtimeDataUnavailable(
+        "market_data",
+        f"Realtime quote unavailable for {symbol}. providers={'; '.join(errors) or 'none'}",
+        retryable=True,
+    )
 
 
 async def _legacy_fetch_market_data(
@@ -1358,35 +1441,7 @@ async def _legacy_fetch_market_data(
     *,
     allow_slow_fallbacks: bool = True,
 ) -> Dict[str, Any]:
-    """
-    Operon: Fetch current market data (price, volume, metrics).
-
-    Invocation scope: agent.kai.analyze. Market quotes are public provider data.
-
-    Provider priority:
-    - Finnhub (if FINNHUB_API_KEY is configured)
-    - PMP/FMP (if PMP_API_KEY or FMP_API_KEY is configured)
-    - yfinance
-    - Yahoo quote fast fallback
-
-    Args:
-        ticker: Stock ticker symbol
-        user_id: User ID for audit
-        consent_token: Valid consent token
-
-    Returns:
-        Dict with market data:
-        - ticker: Stock symbol
-        - price: Current price
-        - change_percent: Daily change %
-        - volume: Trading volume
-        - market_cap: Market capitalization
-        - pe_ratio: P/E ratio
-        - source: Data source name
-
-    Raises:
-        PermissionError: If consent token validation fails
-    """
+    """Fetch current public quotes using provider fallback and a per-symbol cache lock."""
     if consent_token:
         # Validate consent token
         valid, reason, token = validate_token(
@@ -1404,7 +1459,6 @@ async def _legacy_fetch_market_data(
     symbol = ticker.upper().strip()
     finnhub_enabled = bool(_finnhub_api_key())
     pmp_enabled = bool(_pmp_api_key())
-    require_yfinance_rescue = not finnhub_enabled and not pmp_enabled
     cache_key = _market_data_cache_key(
         symbol, finnhub_enabled=finnhub_enabled, pmp_enabled=pmp_enabled
     )
@@ -1437,119 +1491,8 @@ async def _legacy_fetch_market_data(
             user_id,
         )
 
-        errors: list[str] = []
-        providers: list[tuple[str, Any]] = []
-        skip_yahoo_fast_for_symbol = False
-
-        # Index symbols are not supported by the equity plans. A rejected index
-        # request must never put stock quotes into a global provider cooldown.
-        if finnhub_enabled and not symbol.startswith("^"):
-            providers.append(("finnhub", _fetch_finnhub_quote))
-        if pmp_enabled and not symbol.startswith("^"):
-            providers.append(("pmp", _fetch_pmp_quote))
-        # In fast-only mode we still use yfinance when rescue is explicitly requested
-        # or when no paid providers are configured at all.
-        should_include_yfinance = (
-            allow_slow_fallbacks
-            or require_yfinance_rescue
-            or (not finnhub_enabled and not pmp_enabled)
-        )
-        if should_include_yfinance:
-            providers.append(("yfinance", _fetch_yfinance_quote))
-        providers.append(("yahoo_quote_fast", _fetch_yahoo_quote_fast))
-
-        for provider_name, provider_fetch in providers:
-            if provider_name == "yahoo_quote_fast" and skip_yahoo_fast_for_symbol:
-                errors.append("yahoo_quote_fast:skipped_after_yfinance_timeout")
-                _emit_realtime_telemetry(
-                    "market_data_provider_skipped",
-                    ticker=symbol,
-                    provider=provider_name,
-                    reason="yfinance_timeout_fast_mode",
-                )
-                continue
-            started_at = time.perf_counter()
-            provider_cooldown_key = _provider_cooldown_key(provider_name, symbol)
-            if provider_cooldown_key and _provider_in_cooldown(provider_cooldown_key):
-                errors.append(f"{provider_name}:provider_cooldown")
-                _emit_realtime_telemetry(
-                    "market_data_provider_skipped_cooldown",
-                    ticker=symbol,
-                    provider=provider_name,
-                )
-                continue
-            try:
-                requested_at = time.time()
-                payload = await provider_fetch(symbol)
-                if payload and float(payload.get("price") or 0) > 0:
-                    fetched_at = payload.get("fetched_at")
-                    ttl_seconds = int(payload.get("ttl_seconds") or 0)
-                    cache_ttl_seconds = provider_quote_cache_ttl_seconds(
-                        max(ttl_seconds, _MARKET_DATA_CACHE_TTL_SECONDS)
-                    )
-                    is_stale = bool(payload.get("is_stale", False))
-                    normalized_payload = dict(payload)
-                    normalized_payload["ticker"] = symbol
-                    normalized_payload["ttl_seconds"] = cache_ttl_seconds
-                    _set_cached_market_data(
-                        cache_key, normalized_payload, cache_ttl_seconds, requested_at
-                    )
-                    _emit_realtime_telemetry(
-                        "market_data_provider_success",
-                        ticker=symbol,
-                        provider=provider_name,
-                        source=normalized_payload.get("source"),
-                        fetched_at=fetched_at,
-                        ttl_seconds=cache_ttl_seconds,
-                        is_stale=is_stale,
-                        duration_ms=int((time.perf_counter() - started_at) * 1000),
-                    )
-                    return normalized_payload
-                errors.append(f"{provider_name}:invalid_price")
-                _emit_realtime_telemetry(
-                    "market_data_provider_invalid",
-                    ticker=symbol,
-                    provider=provider_name,
-                    duration_ms=int((time.perf_counter() - started_at) * 1000),
-                )
-            except Exception as exc:
-                if (
-                    provider_name == "yfinance"
-                    and "yfinance_timeout" in str(exc)
-                    and provider_cooldown_key
-                ):
-                    _mark_provider_cooldown_for_duration(
-                        provider_cooldown_key,
-                        _YFINANCE_TIMEOUT_COOLDOWN_SECONDS,
-                    )
-                    if not allow_slow_fallbacks:
-                        # Fast-mode requests prefer failing quickly over spending
-                        # another network round-trip on Yahoo after yfinance timeout.
-                        skip_yahoo_fast_for_symbol = True
-                if isinstance(exc, httpx.HTTPStatusError) and provider_cooldown_key:
-                    _mark_provider_cooldown(
-                        provider_cooldown_key,
-                        exc.response.status_code if exc.response is not None else None,
-                    )
-                errors.append(_provider_error(provider_name, exc))
-                _emit_realtime_telemetry(
-                    "market_data_provider_failure",
-                    ticker=symbol,
-                    provider=provider_name,
-                    error=_provider_error("upstream", exc),
-                    duration_ms=int((time.perf_counter() - started_at) * 1000),
-                )
-
-        _emit_realtime_telemetry(
-            "market_data_all_providers_failed",
-            ticker=symbol,
-            errors=errors,
-        )
-        raise RealtimeDataUnavailable(
-            "market_data",
-            f"Realtime quote unavailable for {symbol}. providers={'; '.join(errors) or 'none'}",
-            retryable=True,
-        )
+        providers = _quote_provider_plan(symbol, finnhub_enabled, pmp_enabled, allow_slow_fallbacks)
+        return await _fetch_priority_quote(symbol, cache_key, providers, allow_slow_fallbacks)
 
 
 # ============================================================================
@@ -1637,7 +1580,7 @@ async def fetch_peer_data(
 
     logger.info("[Peer Data Fetcher] Fetching peers for %s (user=[redacted])", ticker)
 
-    from hushh_mcp.services.market_data_provider import MarketDataRequest
+    from hushh_mcp.market_data.ports import MarketDataRequest
 
     peer_universe = await _fetch_through_market_port(
         MarketDataRequest("peers", (ticker.upper().strip(),)), cached=True
@@ -1677,21 +1620,7 @@ async def fetch_peer_data(
 
 
 async def _fetch_through_market_port(request, *, cached: bool = False):
-    from hushh_mcp.services.legacy_market_data_adapter import LegacyMarketDataAdapter
-    from hushh_mcp.services.market_data_provider import get_bound_market_data_provider
-    from hushh_mcp.services.market_refresh_policy import PRICE_MARKET_OPERATIONS
-
-    provider = get_bound_market_data_provider() or LegacyMarketDataAdapter()
-    if (cached or request.operation in PRICE_MARKET_OPERATIONS) and provider.name != "fixture":
-        from hushh_mcp.services.market_provider_cache import cached_market_provider_read
-
-        identity = provider.name
-        if identity == "legacy":
-            identity += f":fh{int(bool(_finnhub_api_key()))}:fmp{int(bool(_pmp_api_key()))}"
-        return await cached_market_provider_read(
-            request, provider_identity=identity, fetcher=lambda: provider.fetch(request)
-        )
-    return await provider.fetch(request)
+    return await get_market_runtime().fetch(request, cached=cached)
 
 
 def _validate_market_invocation(user_id: UserID, consent_token: str | None) -> None:
@@ -1711,7 +1640,7 @@ async def fetch_market_data(
     *,
     allow_slow_fallbacks: bool = True,
 ) -> Dict[str, Any]:
-    from hushh_mcp.services.market_data_provider import MarketDataRequest
+    from hushh_mcp.market_data.ports import MarketDataRequest
 
     _validate_market_invocation(user_id, consent_token)
     return await _fetch_through_market_port(
@@ -1729,7 +1658,7 @@ async def fetch_market_data_batch(
     user_id: UserID,
     consent_token: str | None = None,
 ) -> Dict[str, Dict[str, Any]]:
-    from hushh_mcp.services.market_data_provider import MarketDataRequest
+    from hushh_mcp.market_data.ports import MarketDataRequest
 
     _validate_market_invocation(user_id, consent_token)
     symbols = tuple(dict.fromkeys(str(s).strip().upper() for s in tickers if str(s).strip()))
@@ -1744,7 +1673,7 @@ async def fetch_market_news(
     consent_token: str | None = None,
     days_back: int = 7,
 ) -> List[Dict[str, Any]]:
-    from hushh_mcp.services.market_data_provider import MarketDataRequest
+    from hushh_mcp.market_data.ports import MarketDataRequest
 
     _validate_market_invocation(user_id, consent_token)
     return await _fetch_through_market_port(
@@ -1758,7 +1687,7 @@ async def fetch_market_news(
 
 
 async def fetch_market_company_facts(symbol: str) -> Dict[str, Any]:
-    from hushh_mcp.services.market_data_provider import MarketDataRequest
+    from hushh_mcp.market_data.ports import MarketDataRequest
 
     return await _fetch_through_market_port(MarketDataRequest("ratios", (symbol.upper().strip(),)))
 
@@ -1766,7 +1695,7 @@ async def fetch_market_company_facts(symbol: str) -> Dict[str, Any]:
 async def fetch_price_target_consensus(
     ticker: str, user_id: UserID, consent_token: str
 ) -> Dict[str, Any]:
-    from hushh_mcp.services.market_data_provider import MarketDataRequest
+    from hushh_mcp.market_data.ports import MarketDataRequest
 
     _validate_market_invocation(user_id, consent_token)
     return await _fetch_through_market_port(
@@ -1776,6 +1705,6 @@ async def fetch_price_target_consensus(
 
 
 async def fetch_market_session_history(symbols: List[str]) -> Dict[str, List[Dict[str, float]]]:
-    from hushh_mcp.services.market_data_provider import MarketDataRequest
+    from hushh_mcp.market_data.ports import MarketDataRequest
 
     return await _fetch_through_market_port(MarketDataRequest("session_history", tuple(symbols)))

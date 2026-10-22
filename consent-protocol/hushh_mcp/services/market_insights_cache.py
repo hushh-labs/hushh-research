@@ -292,41 +292,45 @@ class MarketInsightsCache:
                     age_seconds=max(0, int(now - existing.fetched_at)),
                 )
 
-            try:
-                value = await fetcher()
-                fetched_at = time.time()
-                self._set_entry(key, value, fetched_at)
-                _log_cache_resource_resolved(
-                    cache_tier="network",
-                    freshness="fresh",
-                    result="success",
-                    started_at=started_at,
-                )
-                return CacheResult(value=value, stale=False, age_seconds=0)
-            except Exception:
-                now = time.time()
-                fallback = self._get_entry(key)
-                if fallback and (now - fallback.fetched_at) <= stale_ttl_seconds:
-                    age = max(0, int(now - fallback.fetched_at))
-                    _log_cache_resource_resolved(
-                        cache_tier="network",
-                        freshness="stale",
-                        result="fallback",
-                        started_at=started_at,
-                    )
-                    return CacheResult(
-                        value=fallback.value,
-                        stale=True,
-                        age_seconds=age,
-                        stale_reason="refresh_failure",
-                    )
-                _log_cache_resource_resolved(
-                    cache_tier="network",
-                    freshness="missing",
-                    result="error",
-                    started_at=started_at,
-                )
-                raise
+            return await _refresh_or_stale(self, key, fetcher, stale_ttl_seconds, started_at)
+
+
+async def _refresh_or_stale(self, key, fetcher, stale_ttl_seconds, started_at):
+    try:
+        value = await fetcher()
+        fetched_at = time.time()
+        self._set_entry(key, value, fetched_at)
+        _log_cache_resource_resolved(
+            cache_tier="network",
+            freshness="fresh",
+            result="success",
+            started_at=started_at,
+        )
+        return CacheResult(value=value, stale=False, age_seconds=0)
+    except Exception:
+        now = time.time()
+        fallback = self._get_entry(key)
+        if fallback and (now - fallback.fetched_at) <= stale_ttl_seconds:
+            age = max(0, int(now - fallback.fetched_at))
+            _log_cache_resource_resolved(
+                cache_tier="network",
+                freshness="stale",
+                result="fallback",
+                started_at=started_at,
+            )
+            return CacheResult(
+                value=fallback.value,
+                stale=True,
+                age_seconds=age,
+                stale_reason="refresh_failure",
+            )
+        _log_cache_resource_resolved(
+            cache_tier="network",
+            freshness="missing",
+            result="error",
+            started_at=started_at,
+        )
+        raise
 
 
 market_insights_cache = MarketInsightsCache()

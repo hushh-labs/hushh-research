@@ -15,6 +15,14 @@ existing sources, index identifiers, quote observation/delay fields, index `^`
 guard, session-open cache fences and sector history. Explicit fixture bindings
 are task-local; a missing fixture raises unavailable and never uses the network.
 
+The import-safe `hushh_mcp.market_data` package owns provider requests and the
+`MarketRuntimePort`. Fetchers validate invocation authority before resolving that
+port. Its shared adapter composes provider selection, public-cache reads and the
+guarded Yahoo transport; an explicit task-local runtime binding can replace all
+three. The standalone default resolves the shared adapter lazily, so importing
+contracts does not load persistence or model providers. Historical service imports
+remain compatibility facades over the same bindings and telemetry counters.
+
 Analysis quote, news and peer discovery reads use the existing process-local
 MarketInsightsCache and Postgres `kai_market_cache_entries`. Keys include provider
 configuration and query dimensions, never owner credentials. Cached public

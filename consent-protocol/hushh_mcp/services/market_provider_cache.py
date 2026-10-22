@@ -54,6 +54,16 @@ async def cached_market_provider_read(
     )
 
 
+def _closed_public_price(key: str, moment: datetime) -> Any:
+    saved = market_insights_cache.peek(key)
+    if saved and closed_price_snapshot_usable(saved.fetched_at, moment):
+        value = saved.value
+        if isinstance(value, dict) and "price" in value:
+            return {**value, "is_stale": True, "stale_reason": "market_closed"}
+        return value
+    raise MarketPriceRefreshPaused("market_closed_no_cached_price")
+
+
 async def cached_public_information(
     key: str,
     *,
@@ -94,13 +104,7 @@ async def cached_public_information(
         logger.warning("market_provider_cache_read_failed operation=%s", key)
 
     if closed:
-        saved = market_insights_cache.peek(key)
-        if saved and closed_price_snapshot_usable(saved.fetched_at, moment):
-            value = saved.value
-            if isinstance(value, dict) and "price" in value:
-                return {**value, "is_stale": True, "stale_reason": "market_closed"}
-            return value
-        raise MarketPriceRefreshPaused("market_closed_no_cached_price")
+        return _closed_public_price(key, moment)
 
     async def refresh() -> Any:
         requested_at = time.time()

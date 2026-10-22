@@ -27,6 +27,7 @@ from hushh_mcp.operons.kai.calculators import (
     calculate_valuation_metrics,
     extract_catalysts_from_news,
 )
+from tests.helpers.financial_filing import _make_filing
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -35,86 +36,9 @@ from hushh_mcp.operons.kai.calculators import (
 _FLAT_PRICES = [100.0] * 253  # 252 intervals, flat — 0% return, 0 volatility
 
 
-def _make_filing(
-    *,
-    revenue=1_000_000_000,
-    net_income=150_000_000,
-    total_assets=2_000_000_000,
-    total_liabilities=800_000_000,
-    free_cash_flow=120_000_000,
-    long_term_debt=400_000_000,
-    equity=None,
-    research_and_development=50_000_000,
-    operating_cash_flow=200_000_000,
-    ticker="TEST",
-    cik="0001234567",
-) -> dict:
-    latest = {
-        "revenue": revenue,
-        "net_income": net_income,
-        "total_assets": total_assets,
-        "total_liabilities": total_liabilities,
-        "free_cash_flow": free_cash_flow,
-        "long_term_debt": long_term_debt,
-        "research_and_development": research_and_development,
-        "operating_cash_flow": operating_cash_flow,
-    }
-    if equity is not None:
-        latest["equity"] = equity
-    return {"ticker": ticker, "cik": cik, "entity_name": "Test Corp", "latest_10k": latest}
-
-
 # ---------------------------------------------------------------------------
 # calculate_financial_ratios
 # ---------------------------------------------------------------------------
-
-
-class TestCalculateFinancialRatios:
-    def test_typical_filing_produces_expected_ratios(self):
-        filing = _make_filing()
-        r = calculate_financial_ratios(filing)
-
-        assert r["profit_margin"] == pytest.approx(0.15)
-        assert r["fcf_margin"] == pytest.approx(0.12)
-        assert r["revenue_billions"] == pytest.approx(1.0)
-        assert r["return_on_equity"] > 0
-
-    def test_ticker_cik_entity_name_propagated(self):
-        r = calculate_financial_ratios(_make_filing(ticker="AAPL", cik="0000320193"))
-        assert r["ticker"] == "AAPL"
-        assert r["cik"] == "0000320193"
-        assert r["entity_name"] == "Test Corp"
-
-    def test_zero_revenue_yields_unavailable_margin_ratios(self):
-        r = calculate_financial_ratios(_make_filing(revenue=0))
-        assert r["profit_margin"] is None
-        assert r["fcf_margin"] is None
-        assert r["rnd_intensity"] is None
-
-    def test_zero_net_income_yields_unavailable_earnings_quality(self):
-        r = calculate_financial_ratios(_make_filing(net_income=0))
-        assert r["earnings_quality"] is None
-
-    def test_explicit_equity_takes_precedence(self):
-        filing = _make_filing(equity=500_000_000, net_income=50_000_000)
-        r = calculate_financial_ratios(filing)
-        assert r["return_on_equity"] == pytest.approx(0.1)
-
-    def test_debt_to_equity_correct(self):
-        filing = _make_filing(long_term_debt=600_000_000, equity=1_200_000_000)
-        r = calculate_financial_ratios(filing)
-        assert r["debt_to_equity"] == pytest.approx(0.5)
-
-    def test_negative_fcf_propagated(self):
-        r = calculate_financial_ratios(_make_filing(free_cash_flow=-50_000_000))
-        assert r["fcf_billions"] == pytest.approx(-0.05)
-        assert r["fcf_margin"] == pytest.approx(-0.05)
-
-    def test_empty_filing_uses_safe_defaults(self):
-        r = calculate_financial_ratios({})
-        assert isinstance(r, dict)
-        assert r["profit_margin"] is None
-        assert r["revenue_billions"] is None
 
 
 # ---------------------------------------------------------------------------

@@ -192,19 +192,23 @@ class SentimentAgent(HushhAgent):
                 consent_token=consent_token,
             )
 
-            return SentimentInsight(
-                summary=analysis.get("summary", f"Sentiment analysis for {ticker}"),
-                sentiment_score=analysis.get("sentiment_score", 0.0),
-                key_catalysts=analysis.get("key_catalysts", []),
-                news_highlights=analysis.get("news_highlights", []),
-                sources=analysis.get("sources", ["Deterministic Analysis"]),
-                confidence=analysis.get("confidence", 0.5),
-                recommendation=analysis.get("recommendation", "neutral"),
-                analysis_degraded=True,
-            )
+            return _deterministic_sentiment_insight(ticker, analysis)
         except Exception as e:
             logger.error(f"[Sentiment] Deterministic analysis failed: {e}")
             raise
+
+
+def _deterministic_sentiment_insight(ticker, analysis):
+    return SentimentInsight(
+        summary=analysis.get("summary", f"Sentiment analysis for {ticker}"),
+        sentiment_score=analysis.get("sentiment_score", 0.0),
+        key_catalysts=analysis.get("key_catalysts", []),
+        news_highlights=analysis.get("news_highlights", []),
+        sources=analysis.get("sources", ["Deterministic Analysis"]),
+        confidence=analysis.get("confidence", 0.5),
+        recommendation=analysis.get("recommendation", "neutral"),
+        analysis_degraded=True,
+    )
 
 
 # Export singleton for use in KaiAgent orchestration

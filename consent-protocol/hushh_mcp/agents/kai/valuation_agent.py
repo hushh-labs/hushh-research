@@ -95,18 +95,15 @@ class ValuationAgent(HushhAgent):
         )
 
         try:
-            market_data = await fetch_market_data(ticker, user_id, consent_token)
-            consensus = await fetch_price_target_consensus(ticker, user_id, consent_token)
-            market_data["target_consensus"] = consensus
-            peer_data = []
-            if (
-                isinstance(market_data.get("pe_ratio"), (int, float))
-                and market_data["pe_ratio"] > 0
-            ):
-                try:
-                    peer_data = await fetch_peer_data(ticker, user_id, consent_token)
-                except RealtimeDataUnavailable:
-                    market_data["peer_coverage"] = "unavailable"
+            market_data, consensus, peer_data = await _valuation_measurements(
+                ticker,
+                user_id,
+                consent_token,
+                fetch_market_data,
+                fetch_price_target_consensus,
+                fetch_peer_data,
+                RealtimeDataUnavailable,
+            )
         except PermissionError as e:
             logger.error(f"[Valuation] Market data access denied: {e}")
             raise
@@ -145,17 +142,7 @@ class ValuationAgent(HushhAgent):
                         peer_data=peer_data,
                         user_context=context,
                     )
-                    supplied_targets = {
-                        name: consensus[name]
-                        for name in ("conservative", "base_case", "optimistic")
-                        if consensus.get("status") == "available"
-                        and isinstance(consensus.get(name), (int, float))
-                        and consensus[name] > 0
-                    }
-                    if gemini_analysis.get("price_targets", {}) != supplied_targets:
-                        raise ValueError(
-                            "Valuation targets must exactly match supplied provider consensus"
-                        )
+                    _validate_consensus_targets(gemini_analysis, consensus)
                     break
                 except Exception as e:
                     gemini_analysis = None
@@ -170,20 +157,7 @@ class ValuationAgent(HushhAgent):
         # Use Gemini results if available
         if gemini_analysis and "error" not in gemini_analysis:
             logger.info(f"[Valuation] Using Gemini analysis for {ticker}")
-            return ValuationInsight(
-                summary=gemini_analysis.get("summary", f"Valuation analysis for {ticker}"),
-                valuation_metrics=gemini_analysis.get("valuation_metrics", {}),
-                peer_comparison=gemini_analysis.get("peer_comparison", {}),
-                peer_ranking=gemini_analysis.get("peer_ranking"),
-                price_targets=gemini_analysis.get("price_targets", {}),
-                sources=gemini_analysis.get("sources", ["Gemini Valuation Analysis"]),
-                confidence=gemini_analysis.get("confidence", 0.5),
-                recommendation=gemini_analysis.get("recommendation", "fair"),
-                market_snapshot=_provider_snapshot(market_data),
-                analysis_degraded=bool(
-                    market_data.get("is_stale") or market_data.get("peer_coverage") == "unavailable"
-                ),
-            )
+            return _deep_valuation_insight(ticker, gemini_analysis, market_data)
 
         # Fallback: Deterministic analysis
         logger.info(f"[Valuation] Using deterministic analysis for {ticker}")
@@ -199,17 +173,7 @@ class ValuationAgent(HushhAgent):
                 consent_token=consent_token,
             )
 
-            return ValuationInsight(
-                summary=analysis.get("summary", f"Valuation analysis for {ticker}"),
-                valuation_metrics=analysis.get("valuation_metrics", {}),
-                peer_comparison=analysis.get("peer_comparison", {}),
-                price_targets=analysis.get("price_targets", {}),
-                sources=analysis.get("sources", ["Deterministic Analysis"]),
-                confidence=analysis.get("confidence", 0.5),
-                recommendation=analysis.get("recommendation", "fair"),
-                market_snapshot=_provider_snapshot(market_data),
-                analysis_degraded=True,
-            )
+            return _deterministic_valuation_insight(ticker, analysis, market_data)
         except Exception as e:
             logger.error(f"[Valuation] Deterministic analysis failed: {e}")
             raise
@@ -246,3 +210,67 @@ def _provider_snapshot(quote: Dict[str, Any]) -> Dict[str, Any]:
 
 # Export singleton for use in KaiAgent orchestration
 valuation_agent = ValuationAgent()
+
+
+def _validate_consensus_targets(gemini_analysis, consensus):
+    supplied_targets = {
+        name: consensus[name]
+        for name in ("conservative", "base_case", "optimistic")
+        if consensus.get("status") == "available"
+        and isinstance(consensus.get(name), (int, float))
+        and consensus[name] > 0
+    }
+    if gemini_analysis.get("price_targets", {}) != supplied_targets:
+        raise ValueError("Valuation targets must exactly match supplied provider consensus")
+
+
+async def _valuation_measurements(
+    ticker,
+    user_id,
+    consent_token,
+    fetch_market_data,
+    fetch_price_target_consensus,
+    fetch_peer_data,
+    unavailable_error,
+):
+    market_data = await fetch_market_data(ticker, user_id, consent_token)
+    consensus = await fetch_price_target_consensus(ticker, user_id, consent_token)
+    market_data["target_consensus"] = consensus
+    peer_data = []
+    if isinstance(market_data.get("pe_ratio"), (int, float)) and market_data["pe_ratio"] > 0:
+        try:
+            peer_data = await fetch_peer_data(ticker, user_id, consent_token)
+        except unavailable_error:
+            market_data["peer_coverage"] = "unavailable"
+    return market_data, consensus, peer_data
+
+
+def _deep_valuation_insight(ticker, gemini_analysis, market_data):
+    return ValuationInsight(
+        summary=gemini_analysis.get("summary", f"Valuation analysis for {ticker}"),
+        valuation_metrics=gemini_analysis.get("valuation_metrics", {}),
+        peer_comparison=gemini_analysis.get("peer_comparison", {}),
+        peer_ranking=gemini_analysis.get("peer_ranking"),
+        price_targets=gemini_analysis.get("price_targets", {}),
+        sources=gemini_analysis.get("sources", ["Gemini Valuation Analysis"]),
+        confidence=gemini_analysis.get("confidence", 0.5),
+        recommendation=gemini_analysis.get("recommendation", "fair"),
+        market_snapshot=_provider_snapshot(market_data),
+        analysis_degraded=bool(
+            market_data.get("is_stale") or market_data.get("peer_coverage") == "unavailable"
+        ),
+    )
+
+
+def _deterministic_valuation_insight(ticker, analysis, market_data):
+    return ValuationInsight(
+        summary=analysis.get("summary", f"Valuation analysis for {ticker}"),
+        valuation_metrics=analysis.get("valuation_metrics", {}),
+        peer_comparison=analysis.get("peer_comparison", {}),
+        price_targets=analysis.get("price_targets", {}),
+        sources=analysis.get("sources", ["Deterministic Analysis"]),
+        confidence=analysis.get("confidence", 0.5),
+        recommendation=analysis.get("recommendation", "fair"),
+        market_snapshot=_provider_snapshot(market_data),
+        analysis_degraded=True,
+    )

@@ -44,6 +44,13 @@ from hushh_mcp.services.renaissance_service import get_renaissance_service
 from hushh_mcp.services.ria_iam_service import RIAIAMService
 from hushh_mcp.services.symbol_master_service import get_symbol_master_service
 
+from ._analysis_presentation import (
+    _analysis_measurements,
+    _collect_degraded_agents,
+    _market_snapshot,
+    _synthesis_recommendation,
+)
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Kai Streaming"])
@@ -2358,65 +2365,34 @@ async def analyze_stream_generator(
             ),
             timeout=min(remaining_timeout(), 30.0),
         )
-        for name, insight in (
-            ("fundamental", fundamental_insight),
-            ("sentiment", sentiment_insight),
-            ("valuation", valuation_insight),
-        ):
-            if getattr(insight, "analysis_degraded", False) and name not in degraded_agents:
-                degraded_agents.append(name)
-        from hushh_mcp.services.market_provider_telemetry import degraded_provider_resources
-
-        if degraded_provider_resources() and "market sources" not in degraded_agents:
-            degraded_agents.append("market sources")
+        _collect_degraded_agents(
+            degraded_agents, fundamental_insight, sentiment_insight, valuation_insight
+        )
         analysis_degraded = len(degraded_agents) > 0
         if analysis_degraded:
             analysis_mode = "degraded"
-        synthesis_short = ""
-        if isinstance(synthesis_payload, dict):
-            for key in ("short_recommendation", "thesis", "summary"):
-                value = synthesis_payload.get(key)
-                if isinstance(value, str) and value.strip():
-                    synthesis_short = value.strip()
-                    break
-        short_recommendation = (
-            synthesis_short
-            if synthesis_short
-            else _build_short_recommendation(
-                debate_result.decision,
-                debate_result.confidence,
-                debate_result.final_statement,
-                degraded_agents,
-            )
+        short_recommendation = _synthesis_recommendation(
+            synthesis_payload, debate_result, degraded_agents, _build_short_recommendation
         )
-        sentiment_score_value = _safe_float(sentiment_insight.sentiment_score)
-        market_trend_label, market_trend_score = _derive_market_trend(
-            sentiment_score_value,
-            debate_result.decision,
-        )
-        fair_value_label, fair_value_score, fair_value_gap_pct = _derive_fair_value(
-            price_targets=valuation_insight.price_targets,
-            valuation_metrics=valuation_insight.valuation_metrics,
-            valuation_recommendation=valuation_insight.recommendation,
-            provider_snapshot=valuation_insight.market_snapshot,
-        )
-        company_strength_score = _derive_company_strength_score(
-            fundamental_confidence=_safe_float(fundamental_insight.confidence),
-            valuation_confidence=_safe_float(valuation_insight.confidence),
-            debate_confidence=_safe_float(debate_result.confidence)
-            if _safe_float(debate_result.confidence) is not None
-            else 0.5,
-            sentiment_score=sentiment_score_value,
-            fair_value_score=fair_value_score if fair_value_score is not None else 5.0,
-            market_trend_score=market_trend_score,
+        (
+            market_trend_label,
+            market_trend_score,
+            fair_value_label,
+            fair_value_score,
+            fair_value_gap_pct,
+            company_strength_score,
+        ) = _analysis_measurements(
+            fundamental_insight,
+            sentiment_insight,
+            valuation_insight,
+            debate_result,
+            _safe_float,
+            _derive_market_trend,
+            _derive_fair_value,
+            _derive_company_strength_score,
         )
         analysis_updated_at = _now_utc_iso()
-        market_snapshot = valuation_insight.market_snapshot or {
-            "last_price": None,
-            "observed_at": None,
-            "source": "unavailable",
-            "currency": "USD",
-        }
+        market_snapshot = _market_snapshot(valuation_insight.market_snapshot)
 
         pkm_context = {
             "risk_profile": full_user_context.get("risk_profile"),
