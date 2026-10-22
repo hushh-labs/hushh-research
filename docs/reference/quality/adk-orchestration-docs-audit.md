@@ -52,7 +52,8 @@ Azure `one-chat` deployment is GPT-5.6 Luna, independently of the earlier tempor
 GPT-6 Luna probe. Browser qualification must use that actual connection; no model
 upgrade or provider fallback is implied. Shared Files analysis retains its separate
 Gemini processing disclosure. The provider-neutral **Use Hussh AI** picker fix is
-local and passes its 40 nearest checks; legacy API identifiers are preserved.
+committed and passes its 40 nearest checks; legacy API identifiers are preserved.
+Its publication candidate is not yet deployed.
 
 ### Retained Shared deletion
 
@@ -101,10 +102,18 @@ A clean web-core check covers the newer frontend dependency before push.
 exposed four backend failures: stale connector fixtures, a local-profile assumption
 and a missing transitive deployment helper. Their focused repairs pass 124 checks.
 An asynchronous Wallet cleanup assertion now waits for actual revocation; 17
-nearest cases pass. The corrected candidate's exact-SHA hosted CI and governed
+nearest cases pass. The executable candidate's exact-SHA hosted CI and governed
 dev application deployment have succeeded.
 Earlier core-mirror failures and targeted replays are retained; no full local suite
 is repeated for these bounded corrections.
+
+Metadata candidate `a27ccfd29b` stopped before deployment when
+[CI](https://github.com/hushh-labs/hushh-research/actions/runs/39699504652)
+found three stale fixtures: missing library state, the former Gemini-only Shared
+label, and a Calendar assertion tied to the wall-clock date. All failures reproduce
+locally. The bounded repairs pass 63 storage cases and 27 web cases in both UTC
+and Pacific time, without changing production guards or the qualified pod image.
+Exact-SHA validation of the repaired candidate remains required.
 
 The new-image Browser refusal was traced to Chromium-generated client hints and
 language differing from its fixed public profile. The source correction passes

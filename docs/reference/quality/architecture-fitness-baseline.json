@@ -30785,7 +30785,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_object_store_contract.py",
       "symbol": null,
-      "value": 532
+      "value": 542
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -83665,6 +83665,21 @@
         "source_sha256": "befa23aff3777e3b898db24330394c588978f5ea3558c50bcdccbb8044fd1fab",
         "reviewer": "agent_layout_audit + ci_delta_review",
         "review": "Frozen main f7d80942ed bounded account-export and Feed owner-retirement integration; branch deletion and consent guards retained. No pod API or dependency change; 500/250/80 budgets preserved."
+      }
+    ]
+  },
+  "ci_fixture_repair_review_20261022": {
+    "parent_revision": "a27ccfd29b4f89f53fe40215fb1ec58bee2e8bc4",
+    "policy": "One exact reviewed fixture-size replacement; all budgets and other findings unchanged.",
+    "entries": [
+      {
+        "key": "module_size|consent-protocol/tests/test_pod_object_store_contract.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 532,
+        "after": 542,
+        "source_sha256": "0a152b27430a0a720be1c160c977e6381ea1ff1ddc4147c87f5be89fb0b9a88f",
+        "reviewer": "agent_layout_audit",
+        "review": "Two existing synthetic library rows now declare active state required by authoritative recovery. Production guards and terminal-proof, cancellation, uncertainty and changed-bucket assertions are unchanged; 63 nearest cases pass."
       }
     ]
   }

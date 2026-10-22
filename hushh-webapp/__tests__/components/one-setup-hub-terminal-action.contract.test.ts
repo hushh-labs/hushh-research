@@ -378,7 +378,7 @@ describe("One setup hub terminal action contract", () => {
     const cloudChoice = readFileSync(join(process.cwd(), "components/connections/cloud-ai-choice.tsx"), "utf8");
     expect(cloudChoice).toContain('<Badge variant="outline">Recommended</Badge>');
     expect(card).toContain("title={defaultLabel}");
-    for (const label of ["Use existing cloud", "Use Hussh's Gemini"]) {
+    for (const label of ["Use existing cloud", "Use Hussh AI"]) {
       expect(card).toContain(label);
     }
     expect(cloudChoice).toContain("Azure AI ·");

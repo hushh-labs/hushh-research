@@ -90,7 +90,12 @@ async def test_shared_resumable_recovery_requires_provider_terminal_proof(monkey
         "expectedGeneration": "",
         "session": {"ciphertext": "sealed"},
     }
-    row = {"user_id": "alice", "library_id": str(uuid.uuid4()), "bucket": "synthetic-files"}
+    row = {
+        "user_id": "alice",
+        "library_id": str(uuid.uuid4()),
+        "bucket": "synthetic-files",
+        "state": "active",
+    }
     transitions = AsyncMock(return_value=True)
     monkeypatch.setattr(write_receipts, "transition", transitions)
     monkeypatch.setattr(write_receipts, "restore", lambda *args: "private-session-memory-only")
@@ -147,7 +152,12 @@ async def test_shared_upload_retains_cancel_proof_across_failed_verification(mon
         "expectedGeneration": "",
         "session": {"ciphertext": "sealed"},
     }
-    row = {"user_id": "alice", "library_id": str(uuid.uuid4()), "bucket": "synthetic-files"}
+    row = {
+        "user_id": "alice",
+        "library_id": str(uuid.uuid4()),
+        "bucket": "synthetic-files",
+        "state": "active",
+    }
     current = receipt
 
     async def transition(_row, _operation, previous, replacement, **kwargs):
