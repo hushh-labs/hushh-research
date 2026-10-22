@@ -91,6 +91,26 @@ afterEach(() => {
 });
 
 describe("Market owner opening refresh", () => {
+  it("revalidates warm personalized information for news while the market is closed", async () => {
+    vi.setSystemTime(new Date("2026-07-14T22:00:00Z"));
+    mocks.expiresAt = Date.now() + 3_600_000;
+    const updated = { ...payload, news: [{ title: "New after-hours headline" }] };
+    mocks.personalized.mockImplementation(async (options) => {
+      if (!options.forceRefresh) return payload;
+      // The production resource service publishes its successful refresh here.
+      CacheService.getInstance().set(
+        CACHE_KEYS.KAI_MARKET_HOME(mocks.owner!, "default", 7, "default"), updated, 300_000,
+      );
+      return updated;
+    });
+    const { result } = renderHook(useKaiMarketHome, { wrapper });
+    await act(async () => { await vi.advanceTimersByTimeAsync(600_020); });
+    expect(mocks.personalized).toHaveBeenLastCalledWith(expect.objectContaining({
+      forceRefresh: true, vaultOwnerToken: "fixture-token", backgroundRefresh: false,
+    }));
+    expect(result.current.payload).toEqual(updated);
+  });
+
   it("observes a lock immediately even before the provider rerenders", async () => {
     renderHook(useKaiMarketHome, { wrapper });
     mocks.key = null;

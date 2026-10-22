@@ -52,12 +52,47 @@ describe("US market refresh cadence", () => {
     expect(refresh).toHaveBeenLastCalledWith(true);
   });
 
-  it("does not poll after the regular session closes", async () => {
+  it("refreshes news at the slower closed cadence without keeping the open cadence", async () => {
     vi.setSystemTime(new Date("2026-07-14T19:59:59Z"));
     const refresh = vi.fn().mockResolvedValue(undefined);
     renderHook(() => useMarketLiveRefresh(refresh, "owner"));
     await vi.advanceTimersByTimeAsync(600_000);
     expect(refresh).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(120_020);
+    expect(refresh).toHaveBeenCalledTimes(2);
+    // Bypass client snapshots for news. The server keeps closed prices cache-only.
+    expect(refresh).toHaveBeenLastCalledWith(true);
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(refresh).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps closed news attempts paused while hidden or offline", async () => {
+    vi.setSystemTime(new Date("2026-07-14T22:00:00Z"));
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    renderHook(() => useMarketLiveRefresh(refresh, "owner"));
+    await vi.advanceTimersByTimeAsync(20);
+    visibility = "hidden";
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    visibility = "visible";
+    online = false;
+    window.dispatchEvent(new Event("focus"));
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    online = true;
+    await vi.advanceTimersByTimeAsync(120_020);
+    expect(refresh).toHaveBeenCalledTimes(2);
+    expect(refresh).toHaveBeenLastCalledWith(true);
+  });
+
+  it("does not let cache-first focus events postpone scheduled closed news reads", async () => {
+    vi.setSystemTime(new Date("2026-07-14T22:09:00Z"));
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    renderHook(() => useMarketLiveRefresh(refresh, "owner"));
+    await vi.advanceTimersByTimeAsync(600_000);
+    window.dispatchEvent(new Event("focus"));
+    await vi.advanceTimersByTimeAsync(60_020);
+    expect(refresh).toHaveBeenLastCalledWith(true);
   });
 
   it("catches an opening missed while hidden and coalesces resume events", async () => {

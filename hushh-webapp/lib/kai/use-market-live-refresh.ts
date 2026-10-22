@@ -4,6 +4,7 @@ import { useEffect, useId, useRef } from "react";
 import { registerPeriodicTask } from "@/lib/perf/idle-scheduler";
 
 export const MARKET_REFRESH_INTERVAL_MS = 120_000;
+const CLOSED_MARKET_REFRESH_INTERVAL_MS = 600_000;
 
 const easternClock = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/New_York",
@@ -45,19 +46,26 @@ export function useMarketLiveRefresh(
     let inFlight = false;
     let lastSession: string | null = null;
     let lastAttemptSlot: number | null = null;
+    let lastAttemptAt: number | null = null;
 
     const run = async (allowClosed = false): Promise<void> => {
       if (!active || inFlight || document.visibilityState !== "visible" || !navigator.onLine) return;
       const session = usMarketRefreshSession();
-      if (!session && !allowClosed) return;
-      const slot = Math.floor(Date.now() / MARKET_REFRESH_INTERVAL_MS);
-      if (lastSession === session && lastAttemptSlot === slot) return;
+      const now = Date.now();
+      const interval = session ? MARKET_REFRESH_INTERVAL_MS : CLOSED_MARKET_REFRESH_INTERVAL_MS;
+      if (!session && !allowClosed && lastAttemptAt !== null && now - lastAttemptAt < interval) return;
+      const slot = Math.floor(now / interval);
+      // A cache-first focus read must not suppress a scheduled closed news read.
+      if ((session || allowClosed) && lastSession === session && lastAttemptSlot === slot) return;
       // Count attempts, including failures, so resume signals cannot cause a retry storm.
       lastSession = session;
       lastAttemptSlot = slot;
+      if (session || !allowClosed || lastAttemptAt === null) lastAttemptAt = now;
       inFlight = true;
       try {
-        await refreshRef.current(session !== null);
+        // Scheduled closed reads must also bypass client snapshots for fresh news.
+        // The backend session policy keeps their price submodules cache-only.
+        await refreshRef.current(session !== null || !allowClosed);
       } catch {
         // The resource retains its last snapshot and owns error presentation.
       } finally {
@@ -71,6 +79,7 @@ export function useMarketLiveRefresh(
     const resume = () => { void run(true); };
     // Keep the session check registered before opening. 09:30 ET aligns with
     // this shared two-minute clock in both daylight-saving and standard time.
+    // While closed, news/filings reads use the slower ten-minute cadence.
     // The local in-flight guard also covers focus/online/visibility events.
     const unregister = registerPeriodicTask({
       id: taskId,
