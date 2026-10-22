@@ -59,7 +59,7 @@ class ResolveIOSBuildNumberTests(unittest.TestCase):
         self.assertEqual(asc_get.call_args_list[1].args[0], second_url)
 
 
-class AppStoreReleaseReadbackTests(unittest.TestCase):
+class IOSPackagingVersionTests(unittest.TestCase):
     def setUp(self):
         self.trains = patch.object(RELEASE, "prerelease_versions", return_value=[])
         self.trains.start()
@@ -289,6 +289,7 @@ class AppStoreReleaseReadbackTests(unittest.TestCase):
                         RELEASE.resolve_packaging_version("token", "app", "1.4.1", "IOS", defer_if_review=True)
                     self.assertEqual(deferred.exception.code, 75)
 
+class AppStoreReleaseReadbackTests(unittest.TestCase):
     def test_public_submission_requires_review_contact_and_sign_in_without_logging_them(self):
         values = {field: "synthetic" for field in ("contactFirstName", "contactLastName", "contactPhone", "contactEmail", "demoAccountName", "demoAccountPassword")}
         values["demoAccountRequired"] = True

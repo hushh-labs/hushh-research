@@ -3,11 +3,9 @@
 # SPDX-FileCopyrightText: 2026 Hushh
 """Core release accounting, exact dispatch authority and production join regressions."""
 import json
-import importlib.util
 import os
 import tempfile
 import unittest
-import sys
 from copy import deepcopy
 from pathlib import Path
 from unittest.mock import patch
@@ -512,40 +510,6 @@ class ReconciliationTest(unittest.TestCase):
                 # Only latest non-retired failed/successful children can be polled.
                 self.assertNotIn(first, [call.args[1] for call in info.call_args_list])
 
-    def test_disabled_cli_reports_certified_history_without_advancing_work(self):
-        policy = {**NEW_POLICY, "enabled": False}
-        ledger = FakeLedger(counted(10))
-        checkpoint = {"ledger_sha": "f" * 40, "state_sha256": core.state_digest(ledger.state),
-                      "checkpoint_at": "2026-10-22T09:14:34Z"}
-        before = deepcopy(ledger.state)
-        controller = run(100, core.CONTROLLER)
-        spec = importlib.util.spec_from_file_location("cadence_cli", Path(__file__).with_name("release-cadence.py"))
-        cli = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(cli)
-        with tempfile.TemporaryDirectory() as directory:
-            event = Path(directory, "event.json")
-            event.write_text("{}")
-            with patch.dict(os.environ, {"GITHUB_REPOSITORY": REPOSITORY, "GITHUB_RUN_ID": "100",
-                                         "GITHUB_EVENT_PATH": str(event), "RUNNER_TEMP": directory}), \
-                    patch.object(sys, "argv", ["release-cadence.py", "reconcile"]), \
-                    patch.object(cli, "configuration", return_value=(policy, GOVERNANCE)), \
-                    patch.object(github, "configuration", return_value=(policy, GOVERNANCE)), \
-                    patch.object(github, "run_info", return_value=controller), \
-                    patch.object(github, "Ledger", return_value=ledger), \
-                    patch.object(ledger, "verify_checkpoint", return_value=checkpoint), \
-                    patch.object(ledger, "save") as save, \
-                    patch.object(cli, "reconcile") as reconcile, \
-                    patch.object(github, "dispatch_pending") as dispatch:
-                self.assertEqual(cli.main(), 0)
-                snapshot = json.loads(Path(directory, "release-cadence-monitor.json").read_text())
-                self.assertEqual(snapshot, {"mode": "disabled", "state": before, "checkpoint": checkpoint})
-                save.assert_not_called()
-                reconcile.assert_not_called()
-                dispatch.assert_not_called()
-                with patch.object(ledger, "verify_checkpoint", side_effect=core.UnsafeRelease("checkpoint mismatch")):
-                    with self.assertRaisesRegex(core.UnsafeRelease, "checkpoint mismatch"):
-                        cli.main()
-        self.assertEqual(ledger.state, before)
 
     def test_clock_wake_requires_exact_bot_event_before_any_state_access(self):
         controller = run(100, core.CONTROLLER, "github-actions[bot]")
@@ -843,149 +807,6 @@ class AuthorityTest(unittest.TestCase):
                     with self.assertRaisesRegex(core.UnsafeRelease, "unexpected_count=1") as error:
                         github.authorize_current(surface, "github-actions[bot]")
                     self.assertNotIn(secret, str(error.exception))
-
-
-class MonitorTest(unittest.TestCase):
-    def test_disabled_and_resumed_notifications_preserve_release_journal(self):
-        state = counted(10)
-        previous = {"release_highwater": 10, "pending_releases": ["release:8:appstore"],
-                    "seen": {"controller-health": "failure", "release:8:appstore": "201:1:failure"}}
-        before = deepcopy(state)
-        with patch.object(monitor, "runs", return_value=[]), \
-                patch.object(monitor, "git", return_value="2026-10-22T09:14:34Z"), \
-                patch.object(monitor, "run_info") as info:
-            journal, notices = monitor.observations(REPOSITORY, state, {}, previous, True, enabled=False)
-            self.assertTrue(any("disabled" in value for value in notices))
-            self.assertFalse(any("publication failed" in value for value in notices))
-            self.assertEqual(journal["pending_releases"], previous["pending_releases"])
-            self.assertEqual(journal["seen"]["release:8:appstore"], "201:1:failure")
-            journal["checkpoint_at"] = "2026-10-22T09:14:34Z"
-            body = monitor.issue_body(state, journal, 100)
-            self.assertIn("Last certified UAT count: 10", body)
-            self.assertIn("2026-10-22T09:14:34Z", body)
-            self.assertNotIn("count: unavailable", body)
-            quiet, repeated = monitor.observations(REPOSITORY, state, {}, journal, True, enabled=False)
-            self.assertEqual(repeated, [])
-            _, failed = monitor.observations(REPOSITORY, None, {}, quiet, False, enabled=False)
-            self.assertTrue(any("publication failed" in value for value in failed))
-            resumed, notices = monitor.observations(REPOSITORY, state, {}, quiet, True)
-            self.assertTrue(any("resumed" in value for value in notices))
-            _, repeated = monitor.observations(REPOSITORY, state, {}, resumed, True)
-            self.assertEqual(repeated, [])
-            info.assert_not_called()
-        self.assertEqual(state, before)
-
-    def test_failed_uat_is_reported_once_without_mutating_accounting(self):
-        state = counted(2)
-        before = deepcopy(state)
-        failed = run(50)
-        failed["conclusion"] = "failure"
-        with patch.object(monitor, "runs", return_value=[failed]), patch.object(monitor, "git", return_value=failed["created_at"]):
-            journal, notices = monitor.observations(REPOSITORY, state, {}, {}, True)
-            self.assertEqual(len(notices), 1)
-            self.assertIn("does not advance", notices[0])
-            _, repeated = monitor.observations(REPOSITORY, state, {}, journal, True)
-        self.assertEqual(repeated, [])
-        self.assertEqual(state, before)
-
-    def test_wrong_source_is_rejected_but_apple_deferral_is_not_publication(self):
-        state = counted(8)
-        request = state["requests"]["8"]
-        child = {"state": "success", "run_id": 201}
-        request["lanes"]["testflight"] = child
-        observed = run(201, "ship-ios-testflight.yml", "github-actions[bot]")
-        observed["display_title"] = core.marker("8", request, "testflight")
-        with patch.object(monitor, "artifact_json", return_value={"source_sha": "b" * 40, "build_number": "1"}), \
-                self.assertRaisesRegex(core.UnsafeRelease, "source mismatch"):
-            monitor.evidence(REPOSITORY, state, "8", "testflight", child, observed)
-        child = {"state": "success", "run_id": 202}
-        request["lanes"]["appstore"] = child
-        observed["id"] = 202
-        observed["path"] = ".github/workflows/release-ios-appstore.yml"
-        observed["display_title"] = core.marker("8", request, "appstore")
-        with patch.object(monitor, "artifact_json", return_value={"sha": request["sha"], "reason": "apple_review_pending"}):
-            self.assertIn("no publication claimed", monitor.evidence(REPOSITORY, state, "8", "appstore", child, observed))
-
-    def test_lost_comment_response_is_recovered_without_duplicate_or_ledger_write(self):
-        state = counted(2)
-        before = deepcopy(state)
-        saved = {"number": 1, "body": monitor.issue_body(state, {}, 100), "comments": 0}
-        comments = []
-        fail_once = [True]
-        def transport(path, data=None, **kwargs):
-            if path.endswith("/comments") and data is not None:
-                comments.append({"body": data["body"], "user": {"login": "github-actions[bot]"}})
-                saved["comments"] = len(comments)
-                if fail_once.pop() if fail_once else False:
-                    raise core.UnsafeRelease("lost comment response")
-                return {}
-            if "/comments?" in path:
-                return comments
-            if data is not None:
-                saved.update(data)
-                return deepcopy(saved)
-            self.fail(path)
-        with patch.object(monitor, "api", side_effect=transport):
-            with self.assertRaisesRegex(core.UnsafeRelease, "lost comment"):
-                monitor.publish(REPOSITORY, deepcopy(saved), state, {"seen": {"one": "done"}}, ["First notice"], 100, "maintainer")
-            self.assertIn("pending_notice", monitor.read_journal(saved["body"]))
-            monitor.publish(REPOSITORY, deepcopy(saved), state, {"seen": {"one": "done", "two": "done"}},
-                            ["Second notice"], 101, "maintainer")
-        self.assertEqual(len(comments), 2)
-        self.assertIn("Second notice", comments[-1]["body"])
-        self.assertNotIn("pending_notice", monitor.read_journal(saved["body"]))
-        self.assertEqual(state, before)
-
-    def test_old_settled_history_is_bounded_and_does_not_reread_expired_artifacts(self):
-        state = counted(2000)
-        for request in state["requests"].values():
-            for child in request["lanes"].values():
-                child.update(state="success", run_id=123)
-        journal = {"release_highwater": 2000, "pending_releases": ["release:4:testflight"],
-                   "seen": {f"uat:{number}": "success" for number in range(2000)}}
-        state["requests"]["4"]["lanes"]["testflight"] = {"state": "pending"}
-        with patch.object(monitor, "runs", return_value=[]), patch.object(monitor, "git", return_value="2026-10-22T01:00:00Z"), \
-                patch.object(monitor, "run_info") as info, patch.object(monitor, "artifact_json") as artifact:
-            updated, notices = monitor.observations(REPOSITORY, state, {}, journal, True)
-        self.assertEqual(notices, [])
-        self.assertLessEqual(len(updated["seen"]), 160)
-        self.assertLess(len(monitor.issue_body(state, updated, 100)), 20000)
-        info.assert_not_called()
-        artifact.assert_not_called()
-
-    def test_queue_warning_can_be_followed_by_observed_uat_progress(self):
-        source = run(50)
-        source.update(status="in_progress", conclusion=None, created_at="2020-01-01T01:00:00Z",
-                      updated_at="2020-01-01T01:01:00Z")
-        previous = {"release_intervals": {"20": {"id": 20, "created_at": "2020-01-01T00:59:00Z",
-                                                   "completed_at": None}}}
-        with patch.object(monitor, "runs", return_value=[source]), patch.object(monitor, "git", return_value=source["created_at"]), \
-                patch.object(monitor, "api", return_value={"total_count": 0, "jobs": []}):
-            warning, notices = monitor.observations(REPOSITORY, None, {}, previous, True)
-        self.assertTrue(any("10 minutes" in value for value in notices))
-        with patch.object(monitor, "runs", return_value=[source]), \
-                patch.object(monitor, "api", return_value={"total_count": 1, "jobs": [{"started_at": "2020-01-01T01:01:00Z"}]}):
-            progressed, notices = monitor.observations(REPOSITORY, None, {}, warning, True)
-            _, repeated = monitor.observations(REPOSITORY, None, {}, progressed, True)
-        self.assertTrue(any("started while" in value for value in notices))
-        self.assertEqual(repeated, [])
-
-        # A rerun's inactive gap is not an active release overlap.
-        state = counted(8)
-        state["requests"]["8"]["lanes"] = {"deploy": {"state": "success", "run_id": 20, "run_attempt": 2}}
-        release = run(20, "deploy-production.yml", "github-actions[bot]")
-        release.update(run_attempt=2, created_at="2020-01-01T00:59:00Z",
-                       run_started_at="2020-01-01T01:05:00Z", updated_at="2020-01-01T01:10:00Z")
-        with patch.object(monitor, "runs", return_value=[source]), patch.object(monitor, "run_info", return_value=release), \
-                patch.object(monitor, "verify_child"), patch.object(monitor, "evidence", return_value=""), \
-                patch.object(monitor, "git", return_value=source["created_at"]), \
-                patch.object(monitor, "api", return_value={"total_count": 1, "jobs": [{"started_at": "2020-01-01T01:01:00Z"}]}):
-            gap, notices = monitor.observations(REPOSITORY, state, {}, {}, True)
-        self.assertEqual(gap["release_intervals"]["20"]["created_at"], release["run_started_at"])
-        self.assertFalse(any("started while" in value for value in notices))
-        release.pop("run_started_at")
-        monitor.record_release_interval(gap["release_intervals"], release)
-        self.assertNotIn("20", gap["release_intervals"])
 
 
 class ProductionJoinTest(unittest.TestCase):

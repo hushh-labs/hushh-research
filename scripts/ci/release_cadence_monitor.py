@@ -93,6 +93,21 @@ def record_release_interval(intervals: dict, run: dict) -> None:
                            "completed_at": run.get("updated_at") if run["status"] == "completed" else None}
 
 
+def observe_controller_health(observed: dict, healthy: bool, enabled: bool, note, notices: list[str]) -> None:
+    seen = observed["seen"]
+    if not healthy:
+        note("controller-health", "failure", "Cadence accounting or checkpoint publication failed. Inspect the controller run before recovery.")
+    else:
+        if seen.get("controller-health") == "failure":
+            notices.append("Cadence accounting authority verified; monitoring recovered.")
+        seen["controller-health"] = "healthy"
+        if not enabled:
+            note("automation-status", "disabled", "Automatic releases are disabled. Monitoring retains the last certified accounting; no releases are admitted.")
+        elif seen.get("automation-status") == "disabled":
+            note("automation-status", "enabled", "Automatic releases resumed with verified accounting: TestFlight every 2 and production every 4 successful UAT source commits.")
+        observed["automation_enabled"] = enabled
+
+
 def observations(repository: str, state: dict | None, event: dict, previous: dict, healthy: bool,
                  *, enabled: bool = True) -> tuple[dict, list[str]]:
     """Reuse certified accounting; bounded incremental reads supply observations."""
@@ -105,17 +120,7 @@ def observations(repository: str, state: dict | None, event: dict, previous: dic
             notices.append(message)
         seen[key] = signature
 
-    if not healthy:
-        note("controller-health", "failure", "Cadence accounting or checkpoint publication failed. Inspect the controller run before recovery.")
-    else:
-        if seen.get("controller-health") == "failure":
-            notices.append("Cadence accounting authority verified; monitoring recovered.")
-        seen["controller-health"] = "healthy"
-        if not enabled:
-            note("automation-status", "disabled", "Automatic releases are disabled. Monitoring retains the last certified accounting; no releases are admitted.")
-        elif seen.get("automation-status") == "disabled":
-            note("automation-status", "enabled", "Automatic releases resumed with verified accounting: TestFlight every 2 and production every 4 successful UAT source commits.")
-        observed["automation_enabled"] = enabled
+    observe_controller_health(observed, healthy, enabled, note, notices)
     trigger = event.get("workflow_run") or {}
     since = observed.get("scan_after") or git("log", "-1", "--format=%cI", "--", "scripts/ci/release_cadence_monitor.py")
     inventory = runs(repository, "deploy-uat.yml", since)
