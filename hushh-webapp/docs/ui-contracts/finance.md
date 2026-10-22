@@ -38,8 +38,10 @@ flowchart LR
 The existing `/one/kai?tab=portfolio` and `?tab=analysis` query panels retain
 one Finance header, registered tab rail, mounted pager and shared Back owner.
 Portfolio details remain finite `/one/kai/portfolio/{holdings,allocation,performance,sources}`
-routes. The shared shell owns the outer gutter; Finance scopes the 728px
-Connect reading measure and Plus Jakarta Sans roles. Rows use 14/21/550,
+routes. The shared shell owns the outer gutter and the canonical 880px header/tab
+column. The Portfolio and Stocks panels scope the centered 728px Connect
+reading measure and Plus Jakarta Sans roles. Market retains its panel typography;
+styles do not change on hidden mounted panels when the selected tab changes. Rows use 14/21/550,
 support 12/18/400, section labels 14/22/600, and compact actions 12/18/550.
 Financial totals retain their larger type. Cards keep natural content height.
 
@@ -70,6 +72,8 @@ time and source. Missing facts say `Unavailable`. `Analyze {symbol}` closes
 details and enters the existing preview; starting a debate retains confirmation
 and vault guards. Public browsing/facts/history require signed-in owner identity,
 but no decrypted portfolio or vault key is sent to the new history endpoint.
+The hub inventory classifies this endpoint as `SUPPORT`: its explicit public
+symbol read carries no owner-private content, matching public company facts.
 
 History reads once on stock selection through
 `ApiService.getKaiStockPriceHistory` → the Kai proxy →

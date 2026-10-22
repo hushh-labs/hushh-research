@@ -110,9 +110,9 @@ export function KaiMarketHubPage() {
     <AppPageShell
       as="div"
       fitContent
-      width={visibleTab === "market" ? "agent" : "reading"}
+      width="agent"
       headerContentSpacing="compact"
-      className={visibleTab === "market" ? `relative ${marketBriefingStyles.typography}` : `relative ${financeStyles.workspace}`}
+      className="relative"
       data-finance-workspace="true"
       nativeTest={{
         routeId: KAI_MARKET_PATH,
@@ -146,12 +146,12 @@ export function KaiMarketHubPage() {
         viewportMinHeight="fill"
         className="mt-[var(--page-header-section-gap)]"
       >
-        <div className="w-full">
+        <div className={`w-full ${marketBriefingStyles.typography}`}>
           <AppPageContentRegion>
             <KaiPreviewRouter />
           </AppPageContentRegion>
         </div>
-        <div className="w-full">
+        <div className={`mx-auto w-full ${financeStyles.workspace}`}>
           <AppPageContentRegion>
             <KaiFlow
               userId={user.uid}
@@ -161,7 +161,7 @@ export function KaiMarketHubPage() {
             />
           </AppPageContentRegion>
         </div>
-        <div className="w-full">
+        <div className={`mx-auto w-full ${financeStyles.workspace}`}>
           <AppPageContentRegion>
             <KaiAnalysisPageContent />
           </AppPageContentRegion>
