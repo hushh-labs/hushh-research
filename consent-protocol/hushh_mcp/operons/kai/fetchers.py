@@ -1083,286 +1083,96 @@ async def fetch_sec_filings(
     user_id: UserID,
     consent_token: str,
 ) -> Dict[str, Any]:
-    """
-    Operon: Fetch SEC filings from EDGAR (free, public API).
+    """Annual SEC facts; cache extracted public measurements, never owner context."""
+    _validate_market_invocation(user_id, consent_token)
+    if not consent_token:
+        raise PermissionError("SEC data access requires an invocation token")
+    from hushh_mcp.services.market_provider_cache import cached_public_information
+    from hushh_mcp.services.sec_financial_facts import extract_annual_facts
 
-    Invocation scope: agent.kai.analyze. SEC EDGAR data is public provider data.
+    headers = {"User-Agent": "Hushh-Research/1.0 (eng@hush1one.com)", "Accept": "application/json"}
+    async with httpx.AsyncClient(headers=headers) as client:
 
-    This requires EXPLICIT consent for external data access.
-    SEC EDGAR is 100% free and requires no API key.
+        async def read_json(url: str) -> dict[str, Any]:
+            response = await client.get(url, timeout=25.0)
+            response.raise_for_status()
+            return response.json()
 
-    Args:
-        ticker: Stock ticker symbol
-        user_id: User ID for audit
-        consent_token: Valid Kai analysis invocation token
-
-    Returns:
-        Dict with SEC filing data:
-        - ticker: Stock symbol
-        - cik: Central Index Key
-        - latest_10k: Parsed 10-K data
-        - latest_10q: Parsed 10-Q data
-        - filing_date: Date of latest filing
-        - source: "SEC EDGAR"
-
-    Raises:
-        PermissionError: If consent token validation fails
-    """
-    # Validate consent token for Kai analysis
-    # Note: agent.kai.analyze scope covers all data fetching needs for Kai
-    valid, reason, token = validate_token(
-        consent_token,
-        ConsentScope.AGENT_KAI_ANALYZE,
-    )
-
-    if not valid:
-        logger.error("[SEC Fetcher] consent_token_check_failed")
-        raise PermissionError(f"SEC data access denied: {reason}")
-
-    if token.user_id != user_id:
-        raise PermissionError("Token user mismatch")
-
-    logger.info("[SEC Fetcher] Fetching filings for %s (user=[redacted])", ticker)
-
-    # SEC EDGAR API Implementation
-    # Reference: https://www.sec.gov/edgar/sec-api-documentation
-    # Note: Different base URLs for different endpoints
-
-    EDGAR_DATA_URL = "https://data.sec.gov"  # For submissions
-    EDGAR_WWW_URL = "https://www.sec.gov"  # For company tickers
-    HEADERS = {
-        "User-Agent": "Hushh-Research/1.0 (eng@hush1one.com)",  # Required by SEC
-        "Accept": "application/json",
-    }
-
-    # Step 1: Get CIK from ticker
-    async with httpx.AsyncClient() as client:
-        # Get ticker-to-CIK mapping
-        logger.info(f"[SEC Fetcher] Looking up CIK for {ticker}...")
-        tickers_response = await client.get(
-            f"{EDGAR_WWW_URL}/files/company_tickers.json", headers=HEADERS, timeout=10.0
+        mapping = await cached_public_information(
+            "sec:tickers:v1",
+            fresh=86400,
+            stale=86400,
+            fetcher=lambda: read_json("https://www.sec.gov/files/company_tickers.json"),
         )
-        tickers_response.raise_for_status()
-        tickers_data = tickers_response.json()
-
-        # Find CIK for ticker
-        cik = None
-        for entry in tickers_data.values():
-            if entry.get("ticker", "").upper() == ticker.upper():
-                cik = str(entry["cik_str"]).zfill(10)
-                break
-
-        if not cik:
-            raise ValueError(f"CIK not found for ticker: {ticker}")
-
-        logger.info(f"[SEC Fetcher] Found CIK {cik} for {ticker}")
-
-        # Step 2: Get submissions (filings list)
-        logger.info(f"[SEC Fetcher] Fetching submissions for CIK {cik}...")
-        submissions_response = await client.get(
-            f"{EDGAR_DATA_URL}/submissions/CIK{cik}.json", headers=HEADERS, timeout=10.0
+        cik = next(
+            (
+                str(row["cik_str"]).zfill(10)
+                for row in mapping.values()
+                if str(row.get("ticker", "")).upper() == ticker.upper()
+            ),
+            None,
         )
-        submissions_response.raise_for_status()
-        submissions = submissions_response.json()
+        if cik is None:
+            raise ValueError(f"SEC-unavailable: CIK not found for {ticker}")
 
-        # Step 3: Find latest 10-K
-        filings = submissions.get("filings", {}).get("recent", {})
+        async def read_submissions() -> dict[str, Any]:
+            raw = await read_json(f"https://data.sec.gov/submissions/CIK{cik}.json")
+            return {"cik": raw.get("cik"), "filings": raw.get("filings", {}).get("recent", {})}
+
+        submissions = await cached_public_information(
+            f"sec:submissions:{cik}",
+            fresh=3600,
+            stale=86400,
+            fetcher=read_submissions,
+        )
+        filings = submissions["filings"]
         forms = filings.get("form", [])
-        accession_numbers = filings.get("accessionNumber", [])
-        filing_dates = filings.get("filingDate", [])
+        candidates = [i for i, form in enumerate(forms) if form in {"10-K", "10-K/A"}]
+        successor_cik = cik
+        # SEC Rule 12g-3 successor filing 0002115436-26-000003 documents this
+        # exact 1:1 lineage. Never infer lineage from similar company names.
+        predecessor = {"0002115436": "0000034088"}.get(cik)
+        if not candidates and predecessor:
+            cik = predecessor
+            submissions = await cached_public_information(
+                f"sec:submissions:{cik}",
+                fresh=3600,
+                stale=86400,
+                fetcher=read_submissions,
+            )
+            filings = submissions["filings"]
+            forms = filings.get("form", [])
+            candidates = [i for i, form in enumerate(forms) if form in {"10-K", "10-K/A"}]
+        if not candidates:
+            reason = (
+                "20-F filer; US-GAAP 10-K extraction unavailable" if "20-F" in forms else "no 10-K"
+            )
+            raise ValueError(f"SEC-unavailable: {ticker}: {reason}")
+        latest = max(candidates, key=lambda i: filings["filingDate"][i])
+        accession = filings["accessionNumber"][latest]
 
-        latest_10k_idx = None
-        for i, form in enumerate(forms):
-            if form == "10-K":
-                latest_10k_idx = i
-                break
+        async def extracted_facts() -> dict[str, Any]:
+            raw = await read_json(f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json")
+            return {"entity_name": raw.get("entityName"), "latest_10k": extract_annual_facts(raw)}
 
-        if latest_10k_idx is None:
-            raise ValueError(f"No 10-K filing found for ticker: {ticker} (CIK: {cik})")
-
-        logger.info(
-            f"[SEC Fetcher] Found 10-K: {accession_numbers[latest_10k_idx]} dated {filing_dates[latest_10k_idx]}"
+        result = await cached_public_information(
+            f"sec:facts:v2:{cik}:{accession}",
+            fresh=86400,
+            stale=604800,
+            fetcher=extracted_facts,
         )
-
-        # Step 4: Fetch Company Facts for actual financial data
-        logger.info(f"[SEC Fetcher] Fetching company facts (financial metrics) for CIK {cik}...")
-        try:
-            facts_url = f"{EDGAR_DATA_URL}/api/xbrl/companyfacts/CIK{cik}.json"
-            # NVDA and other large filers can have very large payloads; allow a bit more time + retry.
-            # We still keep a firm ceiling so the overall Kai analysis doesn't stall.
-            facts_response = None
-            for attempt in range(1, 3):
-                try:
-                    facts_response = await client.get(facts_url, headers=HEADERS, timeout=25.0)
-                    facts_response.raise_for_status()
-                    break
-                except Exception as e:
-                    if attempt >= 2:
-                        raise
-                    logger.warning(
-                        f"[SEC Fetcher] companyfacts attempt {attempt} failed: {e}; retrying once..."
-                    )
-                    await asyncio.sleep(0.5)
-
-            facts_data = (facts_response.json() if facts_response is not None else {}) or {}
-
-            # Extract financial metrics from US-GAAP taxonomy
-            us_gaap = facts_data.get("facts", {}).get("us-gaap", {})
-
-            def get_latest_annual_value(metric_names: List[str]) -> int:
-                """Extract the most recent annual (10-K) value from a prioritized list of tags."""
-                for metric_name in metric_names:
-                    if metric_name not in us_gaap:
-                        continue
-
-                    metric_data = us_gaap[metric_name]
-                    usd_data = metric_data.get("units", {}).get("USD", [])
-
-                    # Filter for 10-K filings only
-                    annual_data = [d for d in usd_data if d.get("form") == "10-K"]
-
-                    if not annual_data:
-                        continue
-
-                    # Get most recent by end date
-                    latest = sorted(annual_data, key=lambda x: x.get("end", ""), reverse=True)[0]
-                    return int(latest.get("val", 0))
-                return 0
-
-            def get_historical_annual_values(
-                metric_names: List[str], years: int = 4
-            ) -> List[Dict[str, Any]]:
-                """Extract historical annual values for a prioritized list of tags."""
-                for metric_name in metric_names:
-                    if metric_name not in us_gaap:
-                        continue
-
-                    metric_data = us_gaap[metric_name]
-                    usd_data = metric_data.get("units", {}).get("USD", [])
-
-                    # Filter for 10-K filings only
-                    annual_data = [d for d in usd_data if d.get("form") == "10-K"]
-
-                    if not annual_data:
-                        continue
-
-                    # Get most recent years by end date
-                    sorted_data = sorted(annual_data, key=lambda x: x.get("end", ""), reverse=True)
-
-                    # Dedup by year (sometimes multiple entries for same year)
-                    seen_years = set()
-                    historical = []
-                    for d in sorted_data:
-                        year = d.get("fy") or d.get("end", "")[:4]
-                        if year not in seen_years:
-                            historical.append(
-                                {"year": year, "value": int(d.get("val", 0)), "end": d.get("end")}
-                            )
-                            seen_years.add(year)
-                        if len(historical) >= years:
-                            break
-                    return historical[::-1]  # Chronological order
-                return []
-
-            # Extract key financial metrics using prioritized US-GAAP tags
-            revenue = get_latest_annual_value(
-                [
-                    "Revenues",
-                    "RevenueFromContractWithCustomerExcludingAssessedTax",
-                    "SalesRevenueNet",
-                ]
-            )
-            net_income = get_latest_annual_value(
-                ["NetIncomeLoss", "NetIncomeLossAvailableToCommonStockholdersBasic"]
-            )
-            total_assets = get_latest_annual_value(["Assets"])
-            total_liabilities = get_latest_annual_value(["Liabilities"])
-
-            # --- NEW: Expanded Fundamental Metrics ---
-            # Cash Flow tags
-            ocf = get_latest_annual_value(["NetCashProvidedByUsedInOperatingActivities"])
-            capex = get_latest_annual_value(
-                ["PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets"]
-            )
-            fcf = ocf - capex if ocf else 0
-
-            # Balance Sheet & Efficiency tags
-            long_term_debt = get_latest_annual_value(["LongTermDebtNoncurrent", "LongTermDebt"])
-            equity = get_latest_annual_value(
-                [
-                    "StockholdersEquity",
-                    "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
-                ]
-            )
-            op_income = get_latest_annual_value(["OperatingIncomeLoss"])
-            rnd = get_latest_annual_value(
-                [
-                    "ResearchAndDevelopmentExpense",
-                    "ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost",
-                ]
-            )
-
-            # --- NEW: Historical Trends for Quant Analysis ---
-            revenue_trend = get_historical_annual_values(
-                [
-                    "Revenues",
-                    "RevenueFromContractWithCustomerExcludingAssessedTax",
-                    "SalesRevenueNet",
-                ]
-            )
-            net_income_trend = get_historical_annual_values(
-                ["NetIncomeLoss", "NetIncomeLossAvailableToCommonStockholdersBasic"]
-            )
-            ocf_trend = get_historical_annual_values(["NetCashProvidedByUsedInOperatingActivities"])
-            rnd_trend = get_historical_annual_values(
-                [
-                    "ResearchAndDevelopmentExpense",
-                    "ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost",
-                ]
-            )
-
-            logger.info(
-                f"[SEC Fetcher] Extracted Deep Metrics for {ticker} - Trends for Revenue, Net Income, OCF, R&D available."
-            )
-
-        except Exception as facts_error:
-            logger.warning("[SEC Fetcher] company_facts_unavailable")
-            raise RealtimeDataUnavailable(
-                "sec_filings",
-                f"SEC companyfacts unavailable for {ticker}: {facts_error}",
-                retryable=True,
-            ) from facts_error
-
-        # Return structured filing data with EXPANDED financial metrics
         return {
+            **result,
             "ticker": ticker,
             "cik": cik,
-            "entity_name": facts_data.get("entityName", ticker)
-            if "facts_data" in locals()
-            else ticker,
+            "successor_cik": successor_cik if successor_cik != cik else None,
+            "source": "SEC EDGAR",
+            "filing_date": filings["filingDate"][latest],
             "latest_10k": {
-                "accession_number": accession_numbers[latest_10k_idx],
-                "filing_date": filing_dates[latest_10k_idx],
-                "revenue": revenue,
-                "net_income": net_income,
-                "total_assets": total_assets,
-                "total_liabilities": total_liabilities,
-                # Deep Metrics
-                "operating_cash_flow": ocf,
-                "free_cash_flow": fcf,
-                "long_term_debt": long_term_debt,
-                "equity": equity,
-                "operating_income": op_income,
-                "research_and_development": rnd,
-                # Trends
-                "revenue_trend": revenue_trend,
-                "net_income_trend": net_income_trend,
-                "ocf_trend": ocf_trend,
-                "rnd_trend": rnd_trend,
+                **result["latest_10k"],
+                "accession_number": accession,
+                "filing_date": filings["filingDate"][latest],
             },
-            "filing_date": filing_dates[latest_10k_idx],
-            "source": "SEC EDGAR (Institutional Trend Extract)",
-            "fetched_at": datetime.utcnow().isoformat(),
         }
 
 
