@@ -614,9 +614,11 @@ export type OneLocationActivityResponse = {
 export type OneLocationNearbyPlaceCategory =
   | "all"
   | "food_drink"
+  | "cafes"
   | "health"
   | "shopping_services"
   | "hotels_stays"
+  | "other_stays"
   | "education"
   | "outdoors_landmarks"
   | "transit"

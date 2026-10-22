@@ -1,117 +1,106 @@
 # One Location Place Taxonomy
 
-Status: v1 implementation contract
+Status: implementation contract
 Owner: One Location + Hussh maps integration
-Last updated: 2026-08-31
+Last updated: 2026-10-22
 
-The strict definition of what each category chip in the Check-in drawer means,
-and the rules that decide which chip a nearby place lands in.
+The Check-in picker discovers physical venues within 500 m of the current
+location and filters them using Google's explicit place types.
 
 ## Visual Map
 
 ```mermaid
 flowchart LR
-  Drawer[Check-in drawer] -->|one request per sweep bucket| Sweep[Sweep table: what we ASK Google for]
-  Sweep -->|places, with Google's own types| Classify[place_taxonomy.place_categories]
-  Classify -->|exactly one chip per Google type| Chips[Chip table: what a place IS]
-  Chips -->|categories array| Client[Client filters locally, no extra call]
-  Classify -->|nothing matched| More[More chip, never empty]
-  Sweep -.->|does NOT vote on the answer| Chips
+  Drawer[Check-in drawer] --> Sweep[Explicit types in chunks of 50]
+  Sweep --> Refine[Refine saturated 20-result searches]
+  Refine --> Normalize[Merge IDs and validate original 500 m circle]
+  Normalize --> Classify[Provider-type taxonomy]
+  Classify --> Client[All and local category filters]
+  Refine --> Partial[Report incomplete discovery and allow retry]
 ```
 
-## Current Truth
+## Discovery and radius
 
-Two tables, deliberately separate, both in
-[`consent-protocol/hushh_mcp/services/`](../../../consent-protocol/hushh_mcp/services/).
+`consent-protocol/hushh_mcp/services/google_maps_service.py` owns requests;
+`place_taxonomy.py` owns classification. Every requestable venue type in the
+chip table is requested explicitly, including `food_court`. An unfiltered search
+also discovers venues with unknown or generic types.
 
-| Table | Where | Job | Cost |
-| --- | --- | --- | --- |
-| `_NEARBY_SWEEP_TYPES` | `google_maps_service.py` | Recall. What we ask Google for. | **One provider call per bucket.** Nine of them. |
-| `CHIP_TYPES` | `place_taxonomy.py` | Meaning. What a place is shown as. | Free. Response-side only. |
+Google limits each Nearby Search response to 20 places. A saturated response
+triggers four overlapping smaller searches covering the original circle. Each
+response gets a fresh distance-ranking budget. Calls share a six-request
+concurrency limit and a 25-second total deadline, below the proxy timeout.
+Successful responses survive another query's failure or deadline.
 
-They used to be one table, which made a chip cost a provider call and kept the
-taxonomy at 52 hand-picked types out of Google's 478. Splitting them is what
-lets the classifier be exhaustive.
+Every returned record is validated against the **original** user position with
+unrounded spherical distance. Subdivision never expands the allowed 500 m.
+The distance check allows only one micrometre of floating-point error. Invalid
+coordinates, address-only records, permanently closed venues and service-area
+businesses without physical premises are excluded. Temporarily closed physical
+venues remain discoverable. Duplicate IDs merge provider types before classification.
+No application-wide 80-row cap or post-merge 20-row cap discards valid results.
 
-## The rules
+Finite queries cannot guarantee every real-world or Google-indexed venue is
+returned. A failed/timed-out query, or a refined response still at the provider
+cap, sets the optional `discoveryIncomplete` response field. The picker preserves
+available venues and offers retry/name-search guidance instead of presenting a
+partial list as complete. Name search remains a separate, radius-restricted mode.
 
-1. **Every Google Table A type belongs to exactly one chip.** Enforced at import
-   time — `_build_chip_index` raises when two chips claim a type — and asserted
-   against the full Table A list in `tests/test_place_taxonomy.py`.
-2. **A place is classified by what it is, never by which request found it.** The
-   sweep bucket that returned a place has no vote.
-3. **A precise type beats a vague one.** Google tags some venues with both a
-   specific type and an umbrella parent. `lounge_bar` + `lodging` is a lounge.
-   An umbrella decides a place only when nothing precise is known about it,
-   which is how a small guest house Google knows only as `lodging` still reaches
-   Hotels.
-4. **Nothing is skipped.** `place_categories` cannot return an empty list. What
-   matches nothing is `other` — the **More** chip, which is visible and real.
-5. **We do not overrule the provider without evidence.** If Google's only type
-   for a venue is `lodging`, it appears under Hotels. Matching on a name
-   ("contains Lounge") would break "Lounge Hotel" and is not a rule worth
-   shipping.
+## Category rules
 
-## The chips
+Each Google Table A type has exactly one owning chip. A venue with multiple
+precise provider types can legitimately match multiple chips. Precise types beat
+umbrella types such as `lodging` or `store`; request provenance and venue-name
+keywords never decide eligibility. Unknown venues remain available in More.
 
-| Chip | Label | Belongs | Does not |
-| --- | --- | --- | --- |
-| `food_drink` | Food | Somewhere food or drink is prepared for you, including bars, pubs and lounge bars | A grocery shop |
-| `health` | Health | Treatment or care by a health professional, plus pharmacies | A gym, a beauty salon |
-| `shopping_services` | Shops | Buying goods, or a service performed for you: retail, groceries, banks, salons, laundry, vehicle sales and repair, trades, agents | Somewhere you eat, sleep or spend leisure time. A car park or a petrol pump is Transit |
-| `hotels_stays` | Hotels | **Somewhere you can pay to sleep for the night** — hotels, motels, hostels, inns, guest houses, resorts, B&Bs, serviced stays | A lounge, a campsite, a mobile-home park, an estate agent |
-| `education` | Education | Somewhere people are taught or study | — |
-| `outdoors_landmarks` | Leisure | Somewhere you spend time rather than transact: parks, nature, landmarks, museums, sport, cinemas, nightclubs, event venues, campsites | — |
-| `transit` | Transit | Getting somewhere: catching, boarding, parking, fuelling or charging | Buying, renting or repairing a vehicle — that is Shops |
-| `worship` | Worship | A place of religious worship | — |
-| `civic` | Civic | A public, government or emergency building | — |
-| `other` | More | A real venue none of the above describes, plus every venue Google names but does not describe | — |
+| Chip | Label | Meaning |
+| --- | --- | --- |
+| `food_drink` | Food | Restaurants, food courts, cafeterias, bakeries, prepared food, bars and pubs |
+| `cafes` | Café | Cafes, coffee shops, tea houses, cat cafes and dog cafes |
+| `health` | Health | Provider health and wellness types, including clinics and pharmacies |
+| `shopping_services` | Shops | Retail, groceries, professional services, banking and vehicle repairs |
+| `hotels_stays` | Hotels | Explicit commercial accommodation: hotels, motels, hostels, inns, guest houses, B&Bs and resorts |
+| `other_stays` | Stays | Generic lodging, private rooms, cottages, farm stays and residential apartments |
+| `education` | Education | Schools, universities, libraries and educational institutions |
+| `outdoors_landmarks` | Leisure | Parks, landmarks, culture, entertainment, sports and camping |
+| `transit` | Transit | Boarding, parking, fuel and charging |
+| `worship` | Worship | Religious worship venues |
+| `civic` | Civic | Government and emergency services |
+| `other` | More | Other physical venues, including offices and unknown types |
 
-Worship, Civic and More are new. Before them a temple, a mosque, a police
-station, a cinema and a stadium matched **no** chip: they appeared under All and
-disappeared the moment anything was tapped.
+A listing named “Two-Bedroom Apartment” with only `lodging` is Stays, never
+Hotels. A genuine hotel carrying `hotel` and `lodging` is Hotels. A restaurant
+carrying `restaurant` and `lodging` is Food. If Google provides incorrect precise
+types, the provider record remains a limitation; this code does not invent a
+classification from the business name.
 
-## Why "Hotels" showed a lounge
+## Cache and clients
 
-Reported from Prayagraj with a screenshot. Three separate causes, only one of
-which was what it looked like:
+Check-in cache keys include the exact latitude, longitude and category. Reusing
+already filtered results across a roughly 100 m grid cell previously omitted
+newly nearby venues and retained stale distances. Directory caching keeps its
+separate keys. The `places-cache:v3:` namespace isolates this taxonomy from old
+rolling-deployment responses. Incomplete discovery is never cached as a complete
+answer. Successful complete sweeps retain the existing ten-minute TTL.
 
-1. **Every matching type voted equally.** A venue Google tags as both
-   `lounge_bar` and `lodging` was filed under Food *and* Hotels. Fixed by rule 3.
-2. **The subtitle was Google's own word.** A row reading "Lodging" proves Google
-   reports that primary type. Two of the five rows were correct and only worded
-   badly — in India a "Residency" and a "lodge" *are* places you pay to sleep in.
-   `DISPLAY_LABEL_OVERRIDES` says "Place to stay" instead.
-3. **A place that matched nothing was filed under whichever sweep found it.**
-   Written so an independent hotel Google knows only as `establishment` would
-   not vanish behind the Hotels chip; the same rule put anything else the hotels
-   sweep returned there too. Replaced by rule 4.
+The frontend fetches All once and switches chips locally. Categories share one
+backend/frontend type contract, used by web and native webviews through the
+existing authenticated, private/no-store proxy. Provider keys stay server-side.
 
-What remains, honestly: if a venue's only Google type is `lodging`, no strict
-rule can tell it from a real lodge. The Places API exposes no confidence or
-verification signal at any tier.
+## Verification and changes
 
-## Changing the taxonomy
+The nearest backend suites are `tests/test_place_taxonomy.py`,
+`tests/services/test_google_maps_service.py` and
+`tests/test_one_location_nearby_presence_routes.py`. They cover the type partition,
+food/cafe/hotel/stay membership, dense-area recovery, radius edges, moving inside
+the old cache cell, category contamination and failure recovery.
 
-- Adding a **chip** is free. Add it to `CHIP_TYPES`, the `NearbyPlaceCategory`
-  Literal, `OneLocationNearbyPlaceCategory` in the webapp, `PLACE_CATEGORIES` in
-  the sheet, and the `CATEGORY_LABELS` replica in
-  `e2e/one-location-check-in-panel.layout.spec.ts`. A vitest contract asserts the
-  replica matches, because a stale replica passes rather than fails.
-- Adding a **sweep bucket** costs a provider call on every drawer open. Types
-  inside a bucket are free to *request* — Google caps `includedTypes` at 50 —
-  but **not free to return**: the response is capped at 20 and ranked by
-  distance, so every type in a bucket competes for the same twenty slots. A
-  bucket must therefore only fetch types that classify to its own chip, or it
-  starves itself. `test_every_swept_type_belongs_to_the_bucket_that_fetches_it`
-  pins that, and it is a better guard than the bucket count: packing worship and
-  government into the landmarks bucket to save a call would let twenty nearby
-  temples take every slot and render Leisure empty in a pilgrimage city.
-- When Google adds place types, regenerate the families in `place_taxonomy.py`
-  from the [Place Types](https://developers.google.com/maps/documentation/places/web-service/place-types)
-  page. The exhaustiveness test fails rather than letting a new type go missing.
+Update the backend Literal, frontend category union, sheet chip table and browser
+layout labels together. The component suite verifies category switching against
+the returned evidence. The layout pack checks that all chips remain reachable
+on narrow phones and desktop. Regenerate Back/Search UI receipts after UI edits.
 
 ## Sources
 
-- [Google Maps Platform — Place Types (New), Table A and Table B](https://developers.google.com/maps/documentation/places/web-service/place-types)
-- [Google Maps Platform — Nearby Search (New)](https://developers.google.com/maps/documentation/places/web-service/nearby-search)
+- [Google Place Types](https://developers.google.com/maps/documentation/places/web-service/place-types)
+- [Google Nearby Search](https://developers.google.com/maps/documentation/places/web-service/nearby-search)

@@ -1878,9 +1878,10 @@ export class OneLocationService {
     lat: number;
     lng: number;
     category?: OneLocationNearbyPlaceCategory;
-  }): Promise<OneLocationNearbyPlaceSuggestion[]> {
+  }): Promise<OneLocationNearbyPlaceSuggestion[] & { discoveryIncomplete?: boolean }> {
     const response = await apiJson<{
       suggestions: OneLocationNearbyPlaceSuggestion[];
+      discoveryIncomplete?: boolean;
     }>("/api/one/location/maps/nearby-places", {
       method: "POST",
       headers: jsonAuthHeaders(params.vaultOwnerToken),
@@ -1890,7 +1891,9 @@ export class OneLocationService {
         category: params.category ?? "all",
       }),
     });
-    return response.suggestions ?? [];
+    return Object.assign(response.suggestions ?? [], {
+      discoveryIncomplete: response.discoveryIncomplete === true,
+    });
   }
 
   static async getNearbyPresence(params: {

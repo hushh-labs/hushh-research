@@ -152,9 +152,11 @@ const PLACE_CATEGORIES: Array<{
 }> = [
   { value: "all", label: "All" },
   { value: "food_drink", label: "Food" },
+  { value: "cafes", label: "Café" },
   { value: "health", label: "Health" },
   { value: "shopping_services", label: "Shops" },
   { value: "hotels_stays", label: "Hotels" },
+  { value: "other_stays", label: "Stays" },
   { value: "education", label: "Education" },
   // "Leisure", not "Outdoors": this chip owns cinemas, nightclubs, museums,
   // stadiums and event venues as well as parks, and half of those are indoors.
@@ -841,6 +843,7 @@ export function NearbyCheckInSheet({
     null,
   );
   const [placesError, setPlacesError] = useState<string | null>(null);
+  const [discoveryIncomplete, setDiscoveryIncomplete] = useState(false);
   const typedSearchActive = search.trim().length >= 2;
 
   /**
@@ -1031,7 +1034,8 @@ export function NearbyCheckInSheet({
         const boundedSuggestions = normalizeAutomaticPlaces(suggestions);
         automaticPlacesRef.current = boundedSuggestions;
         setAutomaticPlaces(boundedSuggestions);
-        if (boundedSuggestions.length === 0) {
+        setDiscoveryIncomplete(suggestions.discoveryIncomplete === true);
+        if (boundedSuggestions.length === 0 && !suggestions.discoveryIncomplete) {
           setPlacesError(
             "No places found. Search another place or update your location.",
           );
@@ -1045,6 +1049,7 @@ export function NearbyCheckInSheet({
           return;
         }
         setAutomaticPlaces([]);
+        setDiscoveryIncomplete(false);
         setPlacesError(OneLocationService.placesSearchErrorMessage(error));
       }
       return undefined;
@@ -1260,6 +1265,7 @@ export function NearbyCheckInSheet({
         if (await adoptLastKnownPoint(generation, expectedOwnerEpoch)) return;
         setPoint(null);
         setAutomaticPlaces([]);
+        setDiscoveryIncomplete(false);
         setSearchResults([]);
         setSelectedPlaceId("");
         setLocationError(
@@ -1312,6 +1318,7 @@ export function NearbyCheckInSheet({
     setPoint(null);
     setPointOrigin("fresh");
     setAutomaticPlaces([]);
+        setDiscoveryIncomplete(false);
     setSearchResults([]);
     setResolvedPlacePoints({});
     setSelectedPlaceId("");
@@ -1360,6 +1367,7 @@ export function NearbyCheckInSheet({
     setPoint(null);
     setPointOrigin("fresh");
     setAutomaticPlaces([]);
+        setDiscoveryIncomplete(false);
     setSearchResults([]);
     setResolvedPlacePoints({});
     setSelectedPlaceId("");
@@ -1833,6 +1841,7 @@ export function NearbyCheckInSheet({
       // tells the owner how far they have drifted from the place they anchored
       // to. It is not republished as a search area -- presence suppresses that.
       setAutomaticPlaces([]);
+        setDiscoveryIncomplete(false);
       setSearchResults([]);
       setSelectedPlaceId("");
       setSearch("");
@@ -1858,6 +1867,7 @@ export function NearbyCheckInSheet({
         );
       } else if (details.retryPlaces) {
         setAutomaticPlaces([]);
+        setDiscoveryIncomplete(false);
         setSearchResults([]);
         setSelectedPlaceId("");
         if (confirmationPoint && hasCheckInAccuracy(confirmationPoint)) {
@@ -2031,6 +2041,7 @@ export function NearbyCheckInSheet({
         setAddTimeOpen(false);
         setAddTimeBusy(null);
         setAutomaticPlaces([]);
+        setDiscoveryIncomplete(false);
         setSearchResults([]);
         setSelectedPlaceId("");
         setSearch("");
@@ -3382,6 +3393,11 @@ export function NearbyCheckInSheet({
                             See all {automaticPlaces.length}
                           </Button>
                         </div>
+                      ) : null}
+                      {!typedSearchActive && discoveryIncomplete ? (
+                        <p className="mt-2 text-sm text-muted-foreground" role="status">
+                          Some nearby places may be missing. Update your location to retry, or search by name.
+                        </p>
                       ) : null}
                       {placesError ? (
                         <p className="mt-2 text-sm text-muted-foreground">

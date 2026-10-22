@@ -35,9 +35,10 @@ _NEARBY_CHECK_IN_RADIUS_METERS = 500.0
 # request, not per area, which is why "All" alone can never be complete in a
 # dense block: 20 cafes within 40 m bury the hotel 120 m away.
 _NEARBY_CHECK_IN_RESULT_LIMIT = 20
-# Ceiling for the merged multi-request sweep. Each category bucket contributes
-# its own 20-result budget, so a hotel is never crowded out by restaurants.
-_NEARBY_CHECK_IN_MERGED_LIMIT = 80
+# Refine saturated searches, with bounded concurrency and a total deadline below
+# the proxy timeout. These are query budgets, never a limit on returned venues.
+_NEARBY_DISCOVERY_CONCURRENCY = 6
+_NEARBY_DISCOVERY_TIMEOUT_SECONDS = 25.0
 
 # Repeat opens at the same spot (home, office) are the dominant real-world
 # pattern for both the check-in picker and the directory, so a short cache
@@ -64,11 +65,9 @@ _NEARBY_CHECK_IN_MERGED_LIMIT = 80
 _PLACES_CACHE_TTL_SECONDS = 600.0
 _PLACES_CACHE_CELL_DECIMALS = 3
 _PLACES_CACHE_MAX_ENTRIES = 2_000
-# v2: the taxonomy rewrite changed both `categories` and the row subtitle, and a
-# cached row carries the fully shaped result. Without a new namespace the old
-# revision keeps writing old-taxonomy rows into the same keys through a rolling
-# deploy, and the fix reads as half-applied for the TTL.
-_PLACES_CACHE_KEY_PREFIX = "places-cache:v2:"
+# Version shaped results with the taxonomy and discovery strategy so a rolling
+# deployment cannot mix old category assignments with this revision.
+_PLACES_CACHE_KEY_PREFIX = "places-cache:v3:"
 _REDIS_OP_TIMEOUT_SECONDS = 0.5
 
 # A module-level indirection so a test can freeze/advance time deterministically
@@ -214,9 +213,11 @@ async def _places_cache_set(
 NearbyPlaceCategory = Literal[
     "all",
     "food_drink",
+    "cafes",
     "health",
     "shopping_services",
     "hotels_stays",
+    "other_stays",
     "education",
     "outdoors_landmarks",
     "transit",
@@ -225,121 +226,9 @@ NearbyPlaceCategory = Literal[
     "other",
 ]
 
-# THE REQUEST SIDE. Recall only -- this table decides what we ASK Google for,
-# never what a place is shown as. Classification lives in
-# `hushh_mcp.services.place_taxonomy`, and the two are deliberately separate:
-# a chip used to BE a request, so adding one cost a provider call on every
-# drawer open, and the taxonomy stayed at 52 hand-picked types out of Table A's
-# 478. Splitting them makes chips free and let the classifier become
-# exhaustive, which is what "no place is silently skipped" needs.
-#
-# Bucket COUNT is the cost -- one request per bucket. Nine, up from seven.
-#
-# The types inside a bucket are NOT free, which is the trap. Google caps
-# `includedTypes` at 50, so a wide bucket costs nothing to ASK; but the response
-# is capped at 20 and ranked by distance, so every type in a bucket competes for
-# the same twenty slots. Worship and government were briefly folded in alongside
-# landmarks to keep the count at seven, and in a pilgrimage city -- which is
-# where this was reported -- twenty nearby temples would take every slot and the
-# Leisure chip would render empty at a spot that has parks and museums in range.
-#
-# So the rule is: a bucket's types must classify to that bucket's own chip.
-# `test_every_swept_type_belongs_to_the_bucket_that_fetches_it` pins it, and it
-# is a better guard than the count -- it catches the starvation this comment is
-# about, which a count never would.
-#
-# "All" issues one request per bucket here, concurrently, and merges the
-# results. That costs more provider calls per drawer open than the single
-# unfiltered request it replaced, and buys the only thing that makes the picker
-# trustworthy: each category gets its own slice of the provider's 20-result cap,
-# so a hotel cannot be buried by twenty nearer cafes. The client filters chips
-# from that one merged sweep, so browsing categories now costs nothing extra.
-# These are broad Table A types from Places API (New): Google includes matching
-# specialized subtypes (for example an Indian restaurant when `restaurant` is
-# requested).
-_NEARBY_SWEEP_TYPES: dict[str, tuple[str, ...]] = {
-    "food_drink": ("restaurant", "cafe", "bakery", "bar", "meal_takeaway"),
-    "health": ("hospital", "medical_clinic", "doctor", "dentist", "pharmacy"),
-    "shopping_services": (
-        "store",
-        "shopping_mall",
-        "supermarket",
-        "convenience_store",
-        "beauty_salon",
-        "hair_salon",
-        "barber_shop",
-        "laundry",
-        # Vehicle service stops are somewhere a person genuinely waits, so they
-        # belong in the picker. They already surfaced under "All" (which sends no
-        # includedTypes filter) but were unreachable from every category chip.
-        "car_repair",
-        "car_wash",
-        "car_dealer",
-        # Everyday errands people wait at, same reasoning.
-        "bank",
-        "atm",
-    ),
-    # Every lodging leaf, not just the six we happened to name. A guest house,
-    # an inn or a resort is exactly what somebody standing outside one expects
-    # the Hotels chip to have found.
-    # The chip's own leaves, not the whole Lodging family: a campsite, a camping
-    # cabin and an RV park are Leisure, and a mobile-home park is somewhere
-    # people live, so fetching them here would spend this bucket's twenty
-    # distance-ranked slots on rows the Hotels chip will not show.
-    "hotels_stays": _taxonomy.CHIP_TYPES["hotels_stays"],
-    "education": (
-        "school",
-        "university",
-        "preschool",
-        "library",
-        "educational_institution",
-    ),
-    # Landmarks, plus the two families that had no way of being fetched at all:
-    # a temple, a mosque, a police station and a government office appeared in
-    # no bucket, so they surfaced only when Google happened to return them
-    # unfiltered -- and then matched no chip and vanished behind the first tap.
-    # Swept here, chipped as Worship and Civic.
-    "outdoors_landmarks": (
-        "park",
-        "tourist_attraction",
-        "museum",
-        "art_gallery",
-        "historical_landmark",
-        "beach",
-        "garden",
-        "plaza",
-        "stadium",
-        "gym",
-        "fitness_center",
-        "movie_theater",
-        "night_club",
-        "event_venue",
-        "community_center",
-        "zoo",
-        "campground",
-        "rv_park",
-    ),
-    # Their own buckets, and worth the two extra calls. Neither family was in any
-    # bucket before, so a temple, a mosque or a police station was only ever
-    # returned by the single unfiltered sweep -- which the note above explains is
-    # routinely saturated by the nearest cafes -- and then matched no chip and
-    # vanished behind the first tap.
-    "worship": _taxonomy.FAMILY_WORSHIP,
-    # `post_office` used to be fetched by the shops bucket; it is a government
-    # counter, so it is classified as Civic and is fetched here now. `gym` left
-    # the shops bucket for the same reason -- it is Leisure, and the landmarks
-    # bucket already reaches it.
-    "civic": _taxonomy.FAMILY_GOVERNMENT,
-    "transit": (
-        "transit_station",
-        "bus_stop",
-        "train_station",
-        "subway_station",
-        "airport",
-        "parking",
-        "gas_station",
-    ),
-}
+# Every requestable type is swept explicitly; classification is independent of
+# which query finds it. Each category is chunked at Google's 50-type limit.
+_NEARBY_SWEEP_TYPES: dict[str, tuple[str, ...]] = _taxonomy.CHIP_TYPES.copy()
 
 # Search Nearby can return geographical/address records when no category filter
 # is supplied. They are useful for geocoding but are not places a person can
@@ -520,6 +409,14 @@ class GoogleMapsError(RuntimeError):
         super().__init__(message)
 
 
+class NearbyPlaceSuggestions(list[dict[str, Any]]):
+    """List-compatible result with an explicit discovery completeness signal."""
+
+    def __init__(self, places: list[dict[str, Any]], *, incomplete: bool) -> None:
+        super().__init__(places)
+        self.discovery_incomplete = incomplete
+
+
 def is_configured() -> bool:
     return bool(GOOGLE_MAPS_API_KEY)
 
@@ -611,6 +508,31 @@ def _distance_meters(
     return radius * (2.0 * math.atan2(math.sqrt(clamped), math.sqrt(max(0.0, 1.0 - clamped))))
 
 
+def _offset_coordinates(
+    lat: float, lng: float, meters: float, bearing: float
+) -> tuple[float, float]:
+    """Destination on the same spherical model as the radius check."""
+    angular = meters / 6_371_000.0
+    latitude, longitude, heading = map(math.radians, (lat, lng, bearing))
+    # A tangent basis avoids the destination-longitude singularity at ±90°.
+    position = (
+        math.cos(latitude) * math.cos(longitude),
+        math.cos(latitude) * math.sin(longitude),
+        math.sin(latitude),
+    )
+    north = (
+        -math.sin(latitude) * math.cos(longitude),
+        -math.sin(latitude) * math.sin(longitude),
+        math.cos(latitude),
+    )
+    east = (-math.sin(longitude), math.cos(longitude), 0.0)
+    x, y, z = (
+        p * math.cos(angular) + (n * math.cos(heading) + e * math.sin(heading)) * math.sin(angular)
+        for p, n, e in zip(position, north, east, strict=True)
+    )
+    return math.degrees(math.atan2(z, math.hypot(x, y))), math.degrees(math.atan2(y, x))
+
+
 def _valid_coordinates(*, lat: float, lng: float) -> bool:
     return (
         math.isfinite(lat)
@@ -650,7 +572,7 @@ def _check_in_place_identity(
     """
 
     business_status = str(place.get("businessStatus") or "").strip().upper()
-    if business_status and business_status != "OPERATIONAL":
+    if business_status and business_status not in {"OPERATIONAL", "CLOSED_TEMPORARILY"}:
         return None
     pure_service_area = place.get("pureServiceAreaBusiness")
     if pure_service_area is True or (
@@ -897,6 +819,7 @@ class GoogleMapsService:
         lat: float,
         lng: float,
         included_types: tuple[str, ...] | None,
+        radius_meters: float = _NEARBY_CHECK_IN_RADIUS_METERS,
     ) -> list[dict[str, Any]]:
         """One Search Nearby call. Returns the raw provider place records."""
 
@@ -909,7 +832,7 @@ class GoogleMapsService:
                         "latitude": float(lat),
                         "longitude": float(lng),
                     },
-                    "radius": _NEARBY_CHECK_IN_RADIUS_METERS,
+                    "radius": radius_meters,
                 }
             },
         }
@@ -987,7 +910,7 @@ class GoogleMapsService:
         )
         if (
             not math.isfinite(raw_distance_meters)
-            or raw_distance_meters > _NEARBY_CHECK_IN_RADIUS_METERS
+            or raw_distance_meters > _NEARBY_CHECK_IN_RADIUS_METERS + 1e-6
         ):
             return None
         primary_type_display = place.get("primaryTypeDisplayName") or {}
@@ -1021,104 +944,146 @@ class GoogleMapsService:
         lng: float,
         category: NearbyPlaceCategory = "all",
     ) -> list[dict[str, Any]]:
-        """Return the nearest check-in-able places, complete rather than merely bounded.
+        """Discover check-in venues within 500 m, without application row caps.
 
-        A single Search Nearby response is capped at 20 records by the provider.
-        On "All" that cap is spent on whatever happens to be closest, so a hotel
-        one street back disappears behind twenty cafes -- and the drawer looked
-        like it had simply skipped it. "All" therefore sweeps every category
-        bucket concurrently and merges: each bucket brings its own 20-result
-        budget, so no category can crowd out another.
-
-        The request point is never logged or persisted by this service. It is
-        sent to Google for a foreground request, and briefly held in a
-        two-tier cache-aside cache (process memory, plus Redis when
-        configured -- see `_places_cache_get`/`_PLACES_CACHE_TTL_SECONDS`) so
-        a drawer reopened at a spot that has not moved is answered without
-        billing Google again. Exact distance helps the owner choose a place
-        but is never included in nearby-person responses.
+        Sweep explicit types and refine saturated areas. Google still bounds each
+        response, so finite queries cannot guarantee a complete real-world index.
+        Preserve successful results on failure; never cache a failed sweep.
         """
 
-        cache_key_parts = (category, *_geo_cell(lat, lng))
+        cache_key_parts = (category, float(lat), float(lng))
         cached = await _places_cache_get(_nearby_places_cache, "nearby", cache_key_parts)
         if cached is not None:
             return cached
 
         key = _require_key()
-        # (chip this request stands for, types it filters on). The leading
-        # (None, None) sweep is unfiltered and catches anything the buckets miss.
-        requests: list[tuple[str | None, tuple[str, ...] | None]]
         if category == "all":
-            requests = [
-                (None, None),
-                *((chip, types) for chip, types in _NEARBY_SWEEP_TYPES.items()),
-            ]
+            type_groups = [None, *_NEARBY_SWEEP_TYPES.values()]
+        elif category in _NEARBY_SWEEP_TYPES:
+            type_groups = [_NEARBY_SWEEP_TYPES[category]]
         else:
-            requests = [(category, _NEARBY_SWEEP_TYPES.get(category))]
+            raise GoogleMapsError("Unknown place category.", status_code=400)
+        chunks = [
+            chunk
+            for group in type_groups
+            for chunk in (
+                [None] if group is None else [group[i : i + 50] for i in range(0, len(group), 50)]
+            )
+        ]
+        semaphore = asyncio.Semaphore(_NEARBY_DISCOVERY_CONCURRENCY)
+        deadline = asyncio.get_running_loop().time() + _NEARBY_DISCOVERY_TIMEOUT_SECONDS
+        failures = 0
 
         async with _async_client() as client:
-            batches = await asyncio.gather(
-                *(
-                    self._search_nearby_once(
+
+            async def fetch(query):
+                query_lat, query_lng, radius, types = query
+                async with semaphore:
+                    return await self._search_nearby_once(
                         client,
                         key=key,
-                        lat=lat,
-                        lng=lng,
-                        included_types=included_types,
+                        lat=query_lat,
+                        lng=query_lng,
+                        included_types=types,
+                        radius_meters=radius,
                     )
-                    for _chip, included_types in requests
-                ),
-                return_exceptions=True,
+
+            async def run(queries):
+                nonlocal failures
+                tasks = [asyncio.create_task(fetch(query)) for query in queries]
+                try:
+                    done, pending = await asyncio.wait(
+                        tasks, timeout=max(0.0, deadline - asyncio.get_running_loop().time())
+                    )
+                    failures += len(pending)
+                    # Keep successful responses even when another query exhausts
+                    # the deadline. No pending request may outlive this client.
+                    return [
+                        (query, task.result())
+                        for query, task in zip(queries, tasks, strict=True)
+                        if task in done and not task.cancelled() and task.exception() is None
+                    ]
+                finally:
+                    for task in tasks:
+                        if task.done() and not task.cancelled() and task.exception() is not None:
+                            failures += 1
+                        if not task.done():
+                            task.cancel()
+                    await asyncio.gather(*tasks, return_exceptions=True)
+
+            initial = await run(
+                [(lat, lng, _NEARBY_CHECK_IN_RADIUS_METERS, types) for types in chunks]
             )
-
-        merged: dict[str, dict[str, Any]] = {}
-        order: dict[str, int] = {}
-        failures = 0
-        for (_request_chip, _types), batch in zip(requests, batches, strict=True):
-            if isinstance(batch, BaseException):
-                # One bucket failing must not empty the whole picker; the rest
-                # of the sweep is still a better list than no list.
-                failures += 1
-                continue
-            for source_index, place in enumerate(batch):
-                normalized = self._normalize_nearby_place(place, lat=lat, lng=lng)
-                if normalized is None:
+            refinements = []
+            for (_query_lat, _query_lng, radius, types), batch in initial:
+                if len(batch) < _NEARBY_CHECK_IN_RESULT_LIMIT:
                     continue
-                place_id = str(normalized["placeId"])
-                if place_id not in merged:
-                    merged[place_id] = normalized
-                    order[place_id] = source_index
-                else:
-                    order[place_id] = min(order[place_id], source_index)
+                # Four overlapping circles cover the original circle. Moving
+                # their centers gives farther venues a fresh distance-ranked
+                # result budget. Use spherical offsets, including at the poles.
+                child_radius = radius / math.sqrt(2)
+                for bearing in (45, 135, 225, 315):
+                    child_lat, child_lng = _offset_coordinates(lat, lng, child_radius, bearing)
+                    refinements.append((child_lat, child_lng, child_radius + 0.1, types))
+            refined = await run(refinements) if refinements else []
 
-        # A place is classified by WHAT IT IS, never by which request surfaced it.
-        #
-        # It used to be filed under whichever bucket's sweep returned it when its
-        # own types matched no chip -- written so an independent hotel Google
-        # knows only as `establishment` would not vanish behind the Hotels chip.
-        # The same rule filed a lounge under Hotels, because the hotels sweep is
-        # what happened to find it. `place_taxonomy` answers both halves now: it
-        # is exhaustive, so almost nothing is unclassifiable, and what remains
-        # lands in `other` -- a real chip, so the venue is still reachable
-        # rather than hidden.
-
-        if not merged and failures == len(batches):
+        if not initial:
             raise GoogleMapsError("Nearby places lookup failed.", status_code=502)
-
+        sources: dict[str, dict[str, Any]] = {}
+        for _query, batch in [*initial, *refined]:
+            for place in batch:
+                place_id = str(place.get("id") or "").strip()
+                existing = sources.get(place_id)
+                if existing is None:
+                    sources[place_id] = dict(place)
+                else:
+                    # Classify the combined provider evidence once. Unioning
+                    # already-classified chips would let vague lodging defeat
+                    # a precise restaurant type from a second response.
+                    types = list(dict.fromkeys([*_place_types(existing), *_place_types(place)]))
+                    if (
+                        self._normalize_nearby_place(existing, lat=lat, lng=lng) is None
+                        and self._normalize_nearby_place(place, lat=lat, lng=lng) is not None
+                    ):
+                        existing.update(place)
+                    for field, value in place.items():
+                        if not existing.get(field) and value is not None:
+                            existing[field] = value
+                    primary = place.get("primaryType")
+                    if (
+                        primary
+                        and primary not in _taxonomy.VAGUE_TYPES
+                        and (
+                            not existing.get("primaryType")
+                            or existing.get("primaryType") in _taxonomy.VAGUE_TYPES
+                        )
+                    ):
+                        existing["primaryType"] = primary
+                        existing["primaryTypeDisplayName"] = place.get("primaryTypeDisplayName")
+                    existing["types"] = types
+        merged = []
+        for place in sources.values():
+            normalized = self._normalize_nearby_place(place, lat=lat, lng=lng)
+            if normalized is not None and (
+                category == "all" or category in normalized["categories"]
+            ):
+                merged.append(normalized)
         results = sorted(
-            merged.values(),
+            merged,
             key=lambda item: (
-                int(item["distanceMeters"]),
-                order[str(item["placeId"])],
+                item["distanceMeters"],
                 str(item["name"]).casefold(),
+                item["placeId"],
             ),
         )
-        limit = (
-            _NEARBY_CHECK_IN_MERGED_LIMIT if category == "all" else _NEARBY_CHECK_IN_RESULT_LIMIT
+        incomplete = bool(failures) or any(
+            len(batch) >= _NEARBY_CHECK_IN_RESULT_LIMIT for _query, batch in refined
         )
-        bounded = results[:limit]
-        await _places_cache_set(_nearby_places_cache, "nearby", cache_key_parts, bounded)
-        return bounded
+        if incomplete:
+            logger.warning("maps.nearby_places.partial failures=%s", failures)
+        else:
+            await _places_cache_set(_nearby_places_cache, "nearby", cache_key_parts, results)
+        return NearbyPlaceSuggestions(results, incomplete=incomplete)
 
     async def search_directory_category(
         self,

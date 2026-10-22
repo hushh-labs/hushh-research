@@ -95,7 +95,7 @@ const MIN_CHIP_HEIGHT_PX = 36;
  * below is what actually guards reachability, and it is unchanged because the
  * three are appended after the leading ones.
  */
-const MAX_CATEGORY_SCROLL_EXTENT_PX = 880;
+const MAX_CATEGORY_SCROLL_EXTENT_PX = 1040;
 
 /**
  * How many chips must be reachable at each width without scrolling at all.
@@ -233,9 +233,11 @@ const HARNESS_CLASSES = [
 const CATEGORY_LABELS = [
   "All",
   "Food",
+  "Café",
   "Health",
   "Shops",
   "Hotels",
+  "Stays",
   "Education",
   "Leisure",
   "Transit",

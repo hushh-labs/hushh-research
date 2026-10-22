@@ -463,9 +463,13 @@ grants nearby or live-location visibility.
 
 1. The signed-in, phone-verified vault owner opens Check in on Your Map. One
    captures a foreground point and draws a transient 500-meter search boundary.
-   The drawer shows up to 20 operational, de-duplicated Google places ordered
+   The drawer merges explicit-type and dense-area searches without a total row cap,
+   showing de-duplicated Google places ordered
    by server-computed distance, with explicit category filters that reuse the
-   same boundary. Typed check-in search is restricted to that boundary. The
+   same boundary. Food, Café, Hotels and generic Stays have separate type rules.
+   Incomplete discovery is explained with retry guidance; see
+   [the place taxonomy contract](one-location-place-taxonomy.md).
+   Typed check-in search is restricted to that boundary. The
    owner then chooses the public place used for admission and display context;
    opening discovery never checks the owner in. The point and provider results
    are not persisted. There is no event code.

@@ -343,6 +343,39 @@ describe("NearbyCheckInSheet", () => {
     );
   });
 
+  it("keeps food courts, cafes and hotels in their matching chips without losing apartment stays", async () => {
+    const venues = [
+      { placeId: "court", name: "Madura Food Court", categories: ["food_drink"] },
+      { placeId: "cafe", name: "Tea Post", categories: ["cafes"] },
+      { placeId: "hotel", name: "Nearby Hotel", categories: ["hotels_stays"] },
+      { placeId: "apartment", name: "Aarsh Home Two-Bedroom Apartment", categories: ["other_stays"] },
+    ].map((place) => ({ ...place, text: place.name, distanceMeters: 145 }));
+    service.nearbyPlaces.mockResolvedValue(venues);
+    render(<NearbyCheckInSheet open ownerId="user-1" vaultOwnerToken="owner-token" captureCurrentPosition={vi.fn().mockResolvedValue(point)} onOpenChange={vi.fn()} />);
+    await screen.findByRole("radio", { name: /Madura Food Court/ });
+    expect(screen.getAllByRole("radio")).toHaveLength(4);
+    fireEvent.click(screen.getByRole("radio", { name: /Aarsh Home/ }));
+    for (const [chip, venue] of [["Food", "Madura Food Court"], ["Café", "Tea Post"], ["Hotels", "Nearby Hotel"], ["Stays", "Aarsh Home Two-Bedroom Apartment"]]) {
+      fireEvent.click(screen.getByRole("button", { name: chip, exact: true }));
+      expect(screen.getAllByRole("radio")).toHaveLength(1);
+      expect(screen.getByRole("radio", { name: new RegExp(venue) })).toBeInTheDocument();
+    }
+    fireEvent.click(screen.getByRole("button", { name: "All", exact: true }));
+    expect(screen.getAllByRole("radio")).toHaveLength(4);
+    expect(screen.getByRole("radio", { name: /Aarsh Home/ })).toHaveAttribute("aria-checked", "false");
+    expect(service.nearbyPlaces).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps available venues visible and explains an incomplete discovery", async () => {
+    service.nearbyPlaces.mockResolvedValue(Object.assign([
+      { placeId: "court", name: "Madura Food Court", text: "Madura Food Court", distanceMeters: 150, categories: ["food_drink"] },
+    ], { discoveryIncomplete: true }));
+    render(<NearbyCheckInSheet open ownerId="user-1" vaultOwnerToken="owner-token" captureCurrentPosition={vi.fn().mockResolvedValue(point)} onOpenChange={vi.fn()} />);
+    expect(await screen.findByRole("radio", { name: /Madura Food Court/ })).toBeInTheDocument();
+    expect(screen.getByText(/Some nearby places may be missing/)).toBeInTheDocument();
+    expect(screen.queryByText(/No places found/)).not.toBeInTheDocument();
+  });
+
   it("is a bottom sheet a phone can put away", async () => {
     render(
       <NearbyCheckInSheet
@@ -2947,9 +2980,11 @@ describe("the nearby place chips", () => {
     expect(values).toEqual([
       "all",
       "food_drink",
+      "cafes",
       "health",
       "shopping_services",
       "hotels_stays",
+      "other_stays",
       "education",
       "outdoors_landmarks",
       "transit",

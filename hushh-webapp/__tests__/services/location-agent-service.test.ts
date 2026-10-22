@@ -52,6 +52,18 @@ describe("OneLocationService", () => {
     expect(mockTrackCheckout).toHaveBeenCalledTimes(1);
   });
 
+  it.each([true, false, undefined])("preserves nearby discovery completeness=%s across the API boundary", async (discoveryIncomplete) => {
+    const suggestions = [{ placeId: "cafe", text: "Coffee Shop", categories: ["cafes"] }];
+    mockApiJson.mockResolvedValueOnce({ suggestions, discoveryIncomplete });
+    const places = await OneLocationService.nearbyPlaces({ vaultOwnerToken: "vault-token", lat: 18.579, lng: 73.738, category: "cafes" });
+    expect([...places]).toEqual(suggestions);
+    expect(places.discoveryIncomplete).toBe(discoveryIncomplete === true);
+    expect(mockApiJson).toHaveBeenCalledWith("/api/one/location/maps/nearby-places", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ lat: 18.579, lng: 73.738, category: "cafes" }),
+    }));
+  });
+
   it("registers recipient public key without private key material", async () => {
     mockApiJson.mockResolvedValueOnce({
       recipientKey: {
