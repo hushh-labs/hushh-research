@@ -848,6 +848,7 @@ tests/test_byoc_billing_refusals.py
 tests/test_byoc_bootstrap_and_custody.py
 tests/test_byoc_bootstrap_plan_matches_the_applier.py
 tests/test_byoc_cloud_parked_before_record.py
+tests/test_byoc_inventory_reconciliation.py
 tests/test_byoc_oauth_authorizer_state.py
 tests/test_byoc_one_click_authorize_routes.py
 tests/test_byoc_pod_image_copy.py

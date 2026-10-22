@@ -443,6 +443,25 @@ Current IAM alone does not prove creation ownership. Reconcile only the receipt
 through a full-snapshot conditional write; preserve approvals, leases and unrelated
 metadata. Missing creation evidence stops reconciliation.
 
+Use the internal `byoc_inventory_reconciliation.reconcile_legacy_gcp_inventory`
+operator boundary; it has no public route and performs no provider mutation.
+Qualify the original typed plan digest, exact owner/service incarnation, complete
+Admin Activity history covering the original provisioning window, current bucket
+generation/CMEK and KMS creation identity. Verify the read identities independently;
+keep credentials in memory. Retain the original receipt and bounded audit references
+separately from the two normalized creation observations. Other resources remain
+unqualified.
+
+Publication uses one read-committed transaction, owner locks 171 then 198, live
+provision/erasure/identity/custody guards and a full host-snapshot comparison.
+Unsettled authorization, setup, migration or update work refuses. An exact committed
+acknowledgement can be read back after its original evidence expires; changed terms
+cannot overwrite it. Preserve sanitized evidence in the restricted operator record
+before temporary-file cleanup, then read back inventory and unchanged identity,
+image, configuration and history. Never invent a `provisionAttempt` for an old pod.
+Legacy erasure qualification remains separate, including the current completion
+predicate and archive-retention boundary.
+
 If Files requires public-access prevention to be enforced, snapshot and read back
 the bucket's retention, encryption, IAM and object inventory around that precise
 change. Preserve recovery and PKM prefixes. Receipt correction grants no deletion
