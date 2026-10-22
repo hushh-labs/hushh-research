@@ -1,3 +1,4 @@
+import { expectProfileHeaderControl } from "./helpers/header-control-geometry";
 import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
@@ -156,36 +157,7 @@ for (const theme of ["light", "dark"] as const) for (const width of [390, 1440])
       const style = getComputedStyle(slot);
       return { background: style.backgroundColor, border: style.borderTopWidth, transform: style.transform };
     });
-    for (const control of [back, close]) {
-      const geometry = await control.evaluate(node => {
-        const rect = node.getBoundingClientRect();
-        const style = getComputedStyle(node);
-        const circle = getComputedStyle(node, "::before");
-        const ripple = node.querySelector('.morphy-ripple-host')!.getBoundingClientRect();
-        return { width: rect.width, height: rect.height, background: style.backgroundColor,
-          border: style.borderTopWidth, diameter: rect.width - parseFloat(circle.left) - parseFloat(circle.right),
-          radius: circle.borderRadius, rippleWidth: ripple.width };
-      });
-      expect(geometry.width).toBe(44);
-      expect(geometry.height).toBe(44);
-      expect(geometry.background).toBe("rgba(0, 0, 0, 0)");
-      expect(geometry.border).toBe("0px");
-      expect(geometry.diameter).toBeCloseTo(44 * 0.78, 1);
-      expect(geometry.rippleWidth).toBeCloseTo(44 * 0.78, 1);
-      expect(geometry.radius).toBe("50%");
-      const glyph = (await control.locator("svg").boundingBox())!;
-      expect(glyph.width).toBeCloseTo(22, 2);
-      expect(glyph.height).toBeCloseTo(22, 2);
-      const foreground = await page.evaluate(() => {
-        const probe = document.createElement("span");
-        probe.style.color = "var(--foreground)";
-        document.body.append(probe);
-        const color = getComputedStyle(probe).color;
-        probe.remove();
-        return color;
-      });
-      await expect(control).toHaveCSS("color", foreground);
-    }
+    for (const control of [back, close]) await expectProfileHeaderControl(control, page);
     await close.hover();
     await expect.poll(material).toEqual({ background: "rgba(0, 0, 0, 0)", border: "0px", transform: "none" });
     await pane(page).locator('.profile-pane-header').screenshot({ path: test.info().outputPath("profile-header.png") });

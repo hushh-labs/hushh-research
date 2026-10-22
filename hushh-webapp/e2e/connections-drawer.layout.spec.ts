@@ -1,3 +1,4 @@
+import { expectHeaderControl, verifyChatHeaderControls } from "./helpers/header-control-geometry";
 import { verifyHistoryMovement } from "./helpers/history-motion";
 import { expectPaneRestingAtFrame, mountAppChrome, hitAt, awaitClosedHistoryGeometry } from "./helpers/drawer-geometry";
 import { expect, test, type ElementHandle, type Locator } from "@playwright/test";
@@ -456,16 +457,8 @@ for (const width of [320, 1440]) for (const dark of [false, true])
       const style = getComputedStyle(element);
       return { background: style.backgroundColor, radius: style.borderTopLeftRadius, shadow: style.boxShadow };
     })).toEqual(reference.card);
-    for (const name of ["Back to Chats", "Close Drive sharing"]) {
-      const control = detail.getByRole("button", { name, exact: true });
-      const target = (await control.boundingBox())!;
-      const glyph = (await control.locator("svg").boundingBox())!;
-      for (const [actual, expected] of [[target.width, 44], [target.height, 44], [glyph.width, 22], [glyph.height, 22]])
-        expect(actual).toBeCloseTo(expected, 2);
-      await expect.poll(() => control.evaluate((node) => getComputedStyle(node).color)).toBe(
-        await detail.getByRole("heading", { name: "Drive sharing" }).evaluate((node) => getComputedStyle(node).color),
-      );
-    }
+    for (const name of ["Back to Chats", "Close Drive sharing"])
+      await expectHeaderControl(detail.getByRole("button", { name, exact: true }), detail.getByRole("heading", { name: "Drive sharing" }));
     const title = (await detail.getByRole("heading", { name: "Drive sharing" }).boundingBox())!;
     expect(Math.abs(title.x + title.width / 2 - box.x - box.width / 2)).toBeLessThan(2);
     expect(await detail.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
@@ -941,39 +934,9 @@ for (const width of [390, 768])
     await expect(page.getByRole("dialog", { name: "Connectors", exact: true })).toBeVisible();
   });
 
-for (const theme of ["light", "dark"])
+for (const theme of ["light", "dark"] as const)
   test(`chat sidebar closes from its own control and returns focus to the trigger in ${theme}`, async ({ page }) => {
-    await page.evaluate((theme) => document.documentElement.classList.toggle("dark", theme === "dark"), theme);
-    await page.setViewportSize({ width: 390, height: 720 });
-    const trigger = page.getByRole("button", { name: "Open drawer", exact: true });
-    await trigger.click();
-    const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
-    const close = chats.getByRole("button", { name: "Close chat history" });
-    await expect(close).toBeVisible();
-    const assertControl = async (control: Locator, heading: Locator, animated = false) => {
-      const target = (await control.boundingBox())!;
-      const glyph = (await control.locator("svg").last().boundingBox())!;
-      for (const [actual, expected] of [[target.width, 44], [target.height, 44], [glyph.width, 22], [glyph.height, 22]])
-        expect(actual).toBeCloseTo(expected, 2);
-      await expect.poll(() => control.evaluate((node) => getComputedStyle(node).color)).toBe(
-        await heading.evaluate((node) => getComputedStyle(node).color),
-      );
-      if (animated) await expect(control.locator("svg").last()).toHaveCSS("opacity", "1");
-    };
-    await assertControl(close, chats.locator("[data-agent-history-title]"), true);
-    await close.click({ position: { x: 8, y: 22 } });
-    await expect(chats).toHaveCount(0);
-    await expect(trigger).toBeFocused();
-    await trigger.click();
-    await page.getByRole("button", { name: "Open Connectors", exact: true }).click();
-    const connectors = page.getByRole("dialog", { name: "Connectors", exact: true });
-    await connectors.getByTestId("profile-connector-row-gmail").getByRole("button").first().click();
-    for (const label of ["Back to connectors", "Close connectors"])
-      await assertControl(connectors.getByRole("button", { name: label, exact: true }), connectors.locator("header h2"));
-    await connectors.getByRole("button", { name: "Back to connectors" }).click();
-    await expect(connectors.getByTestId("profile-connector-row-gmail").getByRole("button").first()).toBeFocused();
-    await connectors.getByRole("button", { name: "Close connectors" }).click();
-    await expect(trigger).toBeFocused();
+    await verifyChatHeaderControls(page, theme);
   });
 
 for (const width of [320, 390, 768, 1440])
