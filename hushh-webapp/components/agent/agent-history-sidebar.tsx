@@ -526,7 +526,7 @@ export function AgentHistorySidebar({
           <div data-stationary-panel-chrome data-agent-history-header data-agent-history-header-layout="aligned" className="flex h-[var(--agent-chat-header-row-height)] shrink-0 items-center gap-3 px-[var(--agent-chat-header-inline-gutter)]">
               {onClose && !hideCloseButton ? (
                 <span data-agent-history-close>{closeControl ?? <ShellActionSurface
-                  variant="icon" className="size-11" onClick={onClose}
+                  variant="icon" className="size-11 text-foreground" onClick={onClose}
                   aria-label="Close chat history" title="Close chat history"
                 ><AnimatedMenuCrossIcon isOpen /></ShellActionSurface>}</span>
               ) : null}

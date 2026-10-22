@@ -173,6 +173,18 @@ for (const theme of ["light", "dark"] as const) for (const width of [390, 1440])
       expect(geometry.diameter).toBeCloseTo(44 * 0.78, 1);
       expect(geometry.rippleWidth).toBeCloseTo(44 * 0.78, 1);
       expect(geometry.radius).toBe("50%");
+      const glyph = (await control.locator("svg").boundingBox())!;
+      expect(glyph.width).toBeCloseTo(22, 2);
+      expect(glyph.height).toBeCloseTo(22, 2);
+      const foreground = await page.evaluate(() => {
+        const probe = document.createElement("span");
+        probe.style.color = "var(--foreground)";
+        document.body.append(probe);
+        const color = getComputedStyle(probe).color;
+        probe.remove();
+        return color;
+      });
+      await expect(control).toHaveCSS("color", foreground);
     }
     await close.hover();
     await expect.poll(material).toEqual({ background: "rgba(0, 0, 0, 0)", border: "0px", transform: "none" });

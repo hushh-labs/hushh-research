@@ -300,9 +300,13 @@ async function assertContract(page: Page, viewportWidth: number) {
     if (isStarter) {
       for (const geometry of geometries) {
         expect(Math.abs(geometry.width - geometries[0].width)).toBeLessThanOrEqual(1);
-        expect(Math.abs(geometry.height - geometries[0].height)).toBeLessThanOrEqual(1);
+        if (viewportWidth >= 640) expect(Math.abs(geometry.height - geometries[0].height)).toBeLessThanOrEqual(1);
       }
       expect(Math.abs(geometries[0].x - bubble.x)).toBeLessThanOrEqual(6);
+      if (viewportWidth < 640) {
+        for (let index = 1; index < geometries.length; index++)
+          expect(geometries[index].y - geometries[index - 1].y - geometries[index - 1].height).toBeCloseTo(0, 1);
+      }
       if (viewportWidth >= 640) {
         expect(geometries.every((geometry) => geometry.y === geometries[0].y)).toBe(true);
         const firstGap = geometries[1].x - geometries[0].right;
