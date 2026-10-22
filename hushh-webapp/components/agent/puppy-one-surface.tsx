@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { HermesChatPanel } from "@/components/agent/hermes-chat-panel";
+import { PuppyComposer } from "@/components/agent/puppy-chat-controls";
 import { PrivatePuppyInferencePanel } from "@/components/agent/private-puppy-inference-panel";
 import { CHAT_WELCOME_COPY_CLASSNAME } from "@/components/agent/chat-message-styles";
 import { PuppyMachineSheet } from "@/components/agent/puppy-resource-monitor";
@@ -79,13 +80,17 @@ function PuppyPlacement({ ownerId, ...props }: PuppySurfaceProps & { ownerId?: s
     : status?.hostingMode === "pending" ? "Finish setting up your private agent to connect Puppy."
     : "Set up your own cloud to connect Puppy.";
   return (
-    <div className={cn("flex min-h-0 flex-1 flex-col items-center justify-center gap-4 p-4 text-center", props.className)}
+    <div className={cn("flex min-h-0 flex-1 flex-col p-4", props.className)}
       inert={!active} data-agent-surface="puppy">
-      <AgentDockPortal enabled={Boolean(props.sharedDock && active)} visible={false} suppressed>{null}</AgentDockPortal>
-      <p className="text-sm text-muted-foreground" role="status">{message}</p>
-      {ownerId && !checking && (failed
-        ? <Button variant="outline" onClick={() => setAttempt(value => value + 1)}>Try again</Button>
-        : <Button variant="outline" asChild><Link href={ROUTES.PROFILE_HOSTING}>Hosting</Link></Button>)}
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+        <p className="text-sm text-muted-foreground" role="status">{message}</p>
+        {ownerId && !checking && (failed
+          ? <Button variant="outline" onClick={() => setAttempt(value => value + 1)}>Try again</Button>
+          : <Button variant="outline" asChild><Link href={ROUTES.PROFILE_HOSTING}>Hosting</Link></Button>)}
+      </div>
+      <AgentDockPortal enabled={Boolean(props.sharedDock)} active={active} visible>
+        <PuppyComposer embedded={props.sharedDock} active={active} disabled busy={false} stopping={false} onSend={() => undefined} onStop={() => undefined} />
+      </AgentDockPortal>
     </div>
   );
 }
@@ -127,7 +132,7 @@ function PuppyChatSurface({
     localBridge === null ? null : localBridge ? (
       <HermesChatPanel active={activePanel} sharedDock={sharedDock} composerDisabled={composerDisabled || !activePanel} accessory={sheet} className={panelClassName} />
     ) : (
-      <PrivatePuppyInferencePanel className={panelClassName} accessory={sheet} composerDisabled={composerDisabled || !activePanel} />
+      <PrivatePuppyInferencePanel active={activePanel} sharedDock={sharedDock} className={panelClassName} accessory={sheet} composerDisabled={composerDisabled || !activePanel} />
     );
   return (
     <div
@@ -168,11 +173,11 @@ function PuppyChatSurface({
             surface, and a bordered box here read as a widget inside the page
             rather than the conversation itself. */}
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          {/* Remote Puppy retains its own admitted-pod composer. Suppress the
-              shared cloud launcher; local Hermes may claim the retained dock. */}
+          {/* Before a panel can claim its seat, suppress One's cloud launcher.
+              Both Puppy transports project their own editor into that seat. */}
           <AgentDockPortal
             enabled={sharedDock}
-            active={active && (localBridge !== true || (conversations !== undefined && !conversations.some(conversation => conversation.id === activeConversationId)))}
+            active={active && (localBridge === null || (conversations !== undefined && !conversations.some(conversation => conversation.id === activeConversationId)))}
             visible={false} suppressed
           >{null}</AgentDockPortal>
           {conversations === undefined ? panel(active) : (
@@ -195,6 +200,8 @@ function PuppyChatSurface({
                 <PrivatePuppyInferencePanel
                   key={conversation.id}
                   conversationId={conversation.id}
+                  active={active && activeConversationId === conversation.id}
+                  sharedDock={sharedDock}
                   composerDisabled={composerDisabled || !active || activeConversationId !== conversation.id}
                   accessory={activeConversationId === conversation.id ? sheet : undefined}
                   className={cn(activeConversationId !== conversation.id && "hidden")}

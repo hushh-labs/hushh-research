@@ -105,7 +105,7 @@ describe("agent chat header layout", () => {
     );
   });
 
-  it("keeps portrait sizing behind the ordinary One gate and preserves native compact sizing", () => {
+  it("shares portrait sizing between agents and preserves native compact sizing", () => {
     const header = headerBlock();
     expect(header).toContain("<OnePresenceAvatar");
     expect(header).toContain(
@@ -119,7 +119,7 @@ describe("agent chat header layout", () => {
     expect(trigger).toContain('variant="icon"');
     expect(trigger).toContain("ripple={false}");
     expect(trigger?.match(/className="([^"]*)"/)?.[1].split(/\s+/)).toContain("!size-[var(--one-header-artwork-size,44px)]");
-    expect(workspace).toContain('data-one-centered-header={!isPuppySurface && !customNativePresentationEnabled() ? "true" : undefined}');
+    expect(workspace).toContain('data-one-centered-header={!customNativePresentationEnabled() ? "true" : undefined}');
     expect(header).not.toContain("🤫");
   });
 

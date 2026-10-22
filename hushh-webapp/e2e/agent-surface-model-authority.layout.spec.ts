@@ -148,11 +148,13 @@ function decide(mode: Mode, variant: Variant, width = 1024) {
     canPickOneModel: variant.canPickOneModel,
     modelPreference: MODEL_PREFERENCE,
     hasInlineModelPicker: width >= 640,
+    nativeCompact: !variant.centeredHeader,
   };
   const showPicker = variant.applyShippedGate
     ? Boolean(evaluateShippedExpression(SRC.cloudPicker.gateExpression, scope))
     : MODEL_PREFERENCE.choices.length > 1;
   return {
+    centered: evaluateShippedExpression(SRC.header.centeredMarkerExpression, scope) === "true",
     name: String(evaluateShippedExpression(SRC.header.nameExpression, scope)),
     subtitle: String(
       evaluateShippedExpression(SRC.header.subtitleExpression, scope),
@@ -227,7 +229,7 @@ function renderScreen(mode: Mode, variant: Variant, width: number): string {
   const artworkMarkup = `<div class="${artwork.containerClass}"><img data-testid="one-artwork" alt="" width="64" height="64" class="${artwork.className}"></div>`;
   const brand = mode === "one"
     ? `<span class="relative inline-flex shrink-0 overflow-visible align-middle"><button data-agent-chat-one-profile-trigger data-testid="one-profile-button" aria-label="Open One profile" class="inline-flex items-center justify-center rounded-full ${SRC.header.centered.profileTriggerClass}"><span class="inline-flex items-center justify-center">${artworkMarkup}</span></button></span>`
-    : "";
+    : artworkMarkup;
   const subtitle = variant.workingSubtitle ?? plan.subtitle;
   // Rendered in the shipped source order, so the toggle's anchor is whatever
   // the product anchors it to.
@@ -236,7 +238,7 @@ function renderScreen(mode: Mode, variant: Variant, width: number): string {
     .join("");
 
   const header = `
-    <div data-testid="agent-header" data-agent-header-layout="${variant.centeredHeader ? "portrait" : "compact"}" ${variant.centeredHeader && mode === "one" ? 'data-one-centered-header="true"' : ""} class="${SRC.header.containerClass}">
+    <div data-testid="agent-header" data-agent-header-layout="${variant.centeredHeader ? "portrait" : "compact"}" ${plan.centered ? 'data-one-centered-header="true"' : ""} class="${SRC.header.containerClass}">
       <button type="button" data-testid="history-button" aria-label="Open chat history" class="${escapeHtml(SRC.header.historyClass)}"></button>
       <div data-agent-chat-header-region="identity" data-testid="agent-identity" class="${SRC.header.identityClass}">
         <div data-agent-chat-brand-tile data-testid="agent-brand-tile" class="${SRC.header.brandTileClass}">${brand}</div>
@@ -650,6 +652,9 @@ test.describe("Agent Chat: which agent is answering", () => {
       expect(tile.x + tile.width).toBeLessThanOrEqual(
         header.x + header.width + 0.5,
       );
+      await switchTo(page, "puppy");
+      await expect(page.getByTestId("one-artwork")).toBeVisible();
+      expect(await box(page, "agent-brand-tile")).toEqual(tile);
     });
 
     test(`the header cluster does not move when the mode changes at ${width}px`, async ({
@@ -709,7 +714,7 @@ test.describe("Agent Chat: which agent is answering", () => {
       // And the header does not grow a line on the longer name: "Puppy One"
       // is three times "One", and the identity block it sits in is the half
       // that is allowed to shrink.
-      expect(after.header.height).toBe(60);
+      expect(after.header.height).toBe(before.header.height);
       expect(before.header.height).toBeGreaterThan(60);
 
       // Nothing slides under a control: the identity region ends before the

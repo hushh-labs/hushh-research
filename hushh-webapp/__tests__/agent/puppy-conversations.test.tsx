@@ -1,8 +1,29 @@
 import { act, renderHook } from "@testing-library/react";
+import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { usePuppyConversations } from "@/lib/agent/puppy-conversations";
 
 describe("Puppy workspace conversation ownership", () => {
+  it("opens a single retained chat on activation and recovers after its last deletion", () => {
+    const { result, rerender } = renderHook(
+      ({ active, owner }) => usePuppyConversations(owner, active),
+      { initialProps: { active: false, owner: "owner-a" as string | null }, wrapper: StrictMode },
+    );
+    expect(result.current.conversations).toEqual([]);
+    rerender({ active: true, owner: "owner-a" });
+    const first = result.current.activeId!;
+    expect(result.current.conversations).toHaveLength(1);
+    rerender({ active: false, owner: "owner-a" });
+    rerender({ active: true, owner: "owner-a" });
+    expect(result.current.activeId).toBe(first);
+    expect(result.current.conversations).toHaveLength(1);
+    act(() => result.current.remove(first));
+    expect(result.current.activeId).not.toBe(first);
+    expect(result.current.conversations).toHaveLength(1);
+    rerender({ active: true, owner: null });
+    expect(result.current.conversations).toEqual([]);
+  });
+
   it("creates, selects, renames and deletes independently without browser persistence", () => {
     const write = vi.spyOn(Storage.prototype, "setItem");
     const { result } = renderHook(() => usePuppyConversations("owner-a"));
