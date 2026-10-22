@@ -248,8 +248,8 @@ def _generate_fundamental_summary(
     ticker: str, metrics: Dict[str, float], health_score: float
 ) -> str:
     """Generate human-readable fundamental summary."""
-    revenue_growth = metrics.get("revenue_growth_yoy", 0)
-    profit_margin = metrics.get("profit_margin", 0)
+    revenue_growth = metrics.get("revenue_growth_yoy")
+    profit_margin = metrics.get("profit_margin")
 
     if health_score > 0.75:
         tone = "Strong"
@@ -258,10 +258,9 @@ def _generate_fundamental_summary(
     else:
         tone = "Weak"
 
-    return (
-        f"{tone} fundamentals with {revenue_growth:.1%} YoY revenue growth "
-        f"and {profit_margin:.1%} profit margin."
-    )
+    growth_text = f"{revenue_growth:.1%}" if revenue_growth is not None else "unavailable"
+    margin_text = f"{profit_margin:.1%}" if profit_margin is not None else "unavailable"
+    return f"{tone} fundamentals. YoY revenue growth: {growth_text}; profit margin: {margin_text}."
 
 
 def _generate_sentiment_summary(ticker: str, sentiment_score: float, catalysts: List[str]) -> str:
@@ -282,7 +281,9 @@ def _generate_valuation_summary(
     ticker: str, metrics: Dict[str, float], peer_comparison: Dict[str, Any]
 ) -> str:
     """Generate human-readable valuation summary."""
-    pe_ratio = metrics.get("pe_ratio", 0)
+    pe_ratio = metrics.get("pe_ratio")
+    if pe_ratio is None or pe_ratio <= 0:
+        return "Valuation multiples unavailable; no peer valuation conclusion."
     vs_peers = peer_comparison.get("vs_peer_avg", "in_line")
 
     if vs_peers == "undervalued":
@@ -359,7 +360,9 @@ def _compare_to_peers(metrics: Dict[str, float], peer_data: List[Dict[str, Any]]
         return {"vs_peer_avg": "in_line", "peer_count": len(peer_data)}
 
     peer_avg_pe = sum(peer_pes) / len(peer_pes)
-    company_pe = metrics.get("pe_ratio", 0)
+    company_pe = metrics.get("pe_ratio")
+    if company_pe is None or company_pe <= 0:
+        return {"vs_peer_avg": "unavailable", "peer_count": len(peer_data)}
 
     # Determine if undervalued/overvalued
     if company_pe < peer_avg_pe * 0.8:

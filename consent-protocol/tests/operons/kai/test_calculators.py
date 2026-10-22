@@ -85,15 +85,15 @@ class TestCalculateFinancialRatios:
         assert r["cik"] == "0000320193"
         assert r["entity_name"] == "Test Corp"
 
-    def test_zero_revenue_yields_zero_margin_ratios(self):
+    def test_zero_revenue_yields_unavailable_margin_ratios(self):
         r = calculate_financial_ratios(_make_filing(revenue=0))
-        assert r["profit_margin"] == 0
-        assert r["fcf_margin"] == 0
-        assert r["rnd_intensity"] == 0
+        assert r["profit_margin"] is None
+        assert r["fcf_margin"] is None
+        assert r["rnd_intensity"] is None
 
-    def test_zero_net_income_yields_zero_earnings_quality(self):
+    def test_zero_net_income_yields_unavailable_earnings_quality(self):
         r = calculate_financial_ratios(_make_filing(net_income=0))
-        assert r["earnings_quality"] == 0
+        assert r["earnings_quality"] is None
 
     def test_explicit_equity_takes_precedence(self):
         filing = _make_filing(equity=500_000_000, net_income=50_000_000)
@@ -113,8 +113,8 @@ class TestCalculateFinancialRatios:
     def test_empty_filing_uses_safe_defaults(self):
         r = calculate_financial_ratios({})
         assert isinstance(r, dict)
-        assert r["profit_margin"] == 0
-        assert r["revenue_billions"] == 0
+        assert r["profit_margin"] is None
+        assert r["revenue_billions"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -143,19 +143,19 @@ class TestCalculateQuantMetrics:
         m = calculate_quant_metrics(self._filing_with_trends(trend))
         assert m["revenue_growth_yoy"] == pytest.approx(-0.2)
 
-    def test_single_data_point_growth_is_zero(self):
+    def test_single_data_point_growth_is_unavailable(self):
         trend = [{"year": 2024, "value": 1_000_000_000}]
         m = calculate_quant_metrics(self._filing_with_trends(trend))
-        assert m["revenue_growth_yoy"] == 0.0
+        assert m["revenue_growth_yoy"] is None
 
-    def test_empty_trend_growth_is_zero(self):
+    def test_empty_trend_growth_is_unavailable(self):
         m = calculate_quant_metrics(self._filing_with_trends([]))
-        assert m["revenue_growth_yoy"] == 0.0
+        assert m["revenue_growth_yoy"] is None
 
-    def test_previous_value_zero_growth_is_zero(self):
+    def test_previous_value_zero_growth_is_unavailable(self):
         trend = [{"year": 2023, "value": 0}, {"year": 2024, "value": 1_000_000_000}]
         m = calculate_quant_metrics(self._filing_with_trends(trend))
-        assert m["revenue_growth_yoy"] == 0.0
+        assert m["revenue_growth_yoy"] is None
 
     def test_cagr_3y_calculated_correctly(self):
         # 1B → 1.331B over 3 years == 10% CAGR
@@ -168,12 +168,12 @@ class TestCalculateQuantMetrics:
         m = calculate_quant_metrics(self._filing_with_trends(trend))
         assert m["revenue_cagr_3y"] == pytest.approx(0.10, rel=1e-3)
 
-    def test_cagr_3y_zero_when_fewer_than_3_points(self):
+    def test_cagr_3y_unavailable_when_fewer_than_3_points(self):
         trend = [{"year": 2023, "value": 1e9}, {"year": 2024, "value": 1.2e9}]
         m = calculate_quant_metrics(self._filing_with_trends(trend))
-        assert m["revenue_cagr_3y"] == 0
+        assert m["revenue_cagr_3y"] is None
 
-    def test_cagr_3y_zero_when_base_value_zero(self):
+    def test_cagr_3y_unavailable_when_base_value_zero(self):
         trend = [
             {"year": 2021, "value": 0},
             {"year": 2022, "value": 1e9},
@@ -181,17 +181,17 @@ class TestCalculateQuantMetrics:
             {"year": 2024, "value": 3e9},
         ]
         m = calculate_quant_metrics(self._filing_with_trends(trend))
-        assert m["revenue_cagr_3y"] == 0
+        assert m["revenue_cagr_3y"] is None
 
     def test_trend_data_converted_to_billions(self):
         trend = [{"year": 2024, "value": 2_000_000_000}]
         m = calculate_quant_metrics(self._filing_with_trends(trend))
         assert m["revenue_trend_data"][0]["value"] == pytest.approx(2.0)
 
-    def test_empty_filing_returns_zeros(self):
+    def test_empty_filing_returns_unavailable(self):
         m = calculate_quant_metrics({})
-        assert m["revenue_growth_yoy"] == 0.0
-        assert m["revenue_cagr_3y"] == 0
+        assert m["revenue_growth_yoy"] is None
+        assert m["revenue_cagr_3y"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -239,17 +239,31 @@ class TestAssessFundamentalHealth:
         _, _, score = assess_fundamental_health({})
         assert score >= 0.0
 
-    def test_empty_metrics_default_values_produce_known_classification(self):
-        # All metrics default to 0 via .get(..., 0):
-        #   debt_to_equity=0 < 0.5 → strength "Low debt levels"
-        #   profit_margin=0 < 0.05 → weakness "Low profit margins"
-        #   current_ratio=0 < 1.0 → weakness "Liquidity concerns"
-        s, w, score = assess_fundamental_health({})
-        assert "Low debt levels" in s
-        assert any("profit margin" in x.lower() for x in w)
-        assert any("liquidity" in x.lower() for x in w)
-        # 1 strength, 2 weaknesses → score clamps to 0
-        assert score == pytest.approx(0.0)
+    def test_missing_metrics_do_not_invent_strengths_or_weaknesses(self):
+        strengths, weaknesses, score = assess_fundamental_health({})
+        assert strengths == []
+        assert weaknesses == []
+        assert score == 0.0
+
+    def test_real_calculator_output_reaches_health_with_growth_and_liquidity(self):
+        filing = _make_filing(net_income=250_000_000)
+        filing["latest_10k"].update(
+            {
+                "current_assets": 400,
+                "current_liabilities": 200,
+                "revenue_trend": [
+                    {"year": 2024, "value": 800_000_000},
+                    {"year": 2025, "value": 1_000_000_000},
+                ],
+            }
+        )
+        metrics = calculate_financial_ratios(filing)
+        strengths, weaknesses, score = assess_fundamental_health(metrics)
+        assert metrics["current_ratio"] == 2.0
+        assert metrics["revenue_growth_yoy"] == 0.25
+        assert len(strengths) == 4
+        assert weaknesses == []
+        assert score == 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -353,20 +367,20 @@ class TestCalculateValuationMetrics:
         m = calculate_valuation_metrics(data)
         assert m["pe_ratio"] == 25.0
         assert m["pb_ratio"] == 4.5
-        assert m["enterprise_value_billions"] == pytest.approx(2000.0)
+        assert m["enterprise_value_billions"] is None
 
-    def test_zero_market_cap_yields_zero_ev(self):
+    def test_market_cap_does_not_invent_enterprise_value(self):
         m = calculate_valuation_metrics({"market_cap": 0})
-        assert m["enterprise_value_billions"] == 0
+        assert m["enterprise_value_billions"] is None
 
-    def test_empty_dict_returns_zero_metrics(self):
+    def test_empty_dict_returns_unavailable_metrics(self):
         m = calculate_valuation_metrics({})
-        assert m["pe_ratio"] == 0
-        assert m["enterprise_value_billions"] == 0
+        assert m["pe_ratio"] is None
+        assert m["enterprise_value_billions"] is None
 
-    def test_none_pe_ratio_coerced_to_zero(self):
+    def test_none_pe_ratio_stays_unavailable(self):
         m = calculate_valuation_metrics({"pe_ratio": None})
-        assert m["pe_ratio"] == 0
+        assert m["pe_ratio"] is None
 
 
 # ---------------------------------------------------------------------------

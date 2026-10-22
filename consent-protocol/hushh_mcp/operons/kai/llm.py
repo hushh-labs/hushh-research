@@ -414,12 +414,12 @@ async def analyze_stock_with_gemini(
     {personalization}
     
     [Current Fundamentals]
-    Revenue: ${latest_10k.get("revenue", 0):,}
-    Net Income: ${latest_10k.get("net_income", 0):,}
-    Operating Income: ${latest_10k.get("operating_income", 0):,}
-    Operating Cash Flow: ${latest_10k.get("operating_cash_flow", 0):,}
-    Free Cash Flow: ${latest_10k.get("free_cash_flow", 0):,}
-    R&D Investment: ${latest_10k.get("research_and_development", 0):,}
+    Revenue: ${format(latest_10k["revenue"], ",") if latest_10k.get("revenue") is not None else "unavailable"}
+    Net Income: ${format(latest_10k["net_income"], ",") if latest_10k.get("net_income") is not None else "unavailable"}
+    Operating Income: ${format(latest_10k["operating_income"], ",") if latest_10k.get("operating_income") is not None else "unavailable"}
+    Operating Cash Flow: ${format(latest_10k["operating_cash_flow"], ",") if latest_10k.get("operating_cash_flow") is not None else "unavailable"}
+    Free Cash Flow: ${format(latest_10k["free_cash_flow"], ",") if latest_10k.get("free_cash_flow") is not None else "unavailable"}
+    R&D Investment: ${format(latest_10k["research_and_development"], ",") if latest_10k.get("research_and_development") is not None else "unavailable"}
     
     [3-Year Quant Trends]
     Revenue Trend: {quant_metrics.get("revenue_trend_data") if quant_metrics else "N/A"}
@@ -428,9 +428,9 @@ async def analyze_stock_with_gemini(
     R&D Trend: {quant_metrics.get("rnd_trend_data") if quant_metrics else "N/A"}
     
     [Efficiency Ratios]
-    Revenue CAGR (3Y): {quant_metrics.get("revenue_cagr_3y", 0) * 100:.2f}%
-    Revenue Growth (YoY): {quant_metrics.get("revenue_growth_yoy", 0) * 100:.2f}%
-    Net Income Growth (YoY): {quant_metrics.get("net_income_growth_yoy", 0) * 100:.2f}%
+    Revenue CAGR (3Y): {format(quant_metrics["revenue_cagr_3y"] * 100, ".2f") if quant_metrics.get("revenue_cagr_3y") is not None else "unavailable"}%
+    Revenue Growth (YoY): {format(quant_metrics["revenue_growth_yoy"] * 100, ".2f") if quant_metrics.get("revenue_growth_yoy") is not None else "unavailable"}%
+    Net Income Growth (YoY): {format(quant_metrics["net_income_growth_yoy"] * 100, ".2f") if quant_metrics.get("net_income_growth_yoy") is not None else "unavailable"}%
     
     --- MARKET DATA ---
     Current Price: {market_data.get("price", "N/A") if market_data else "N/A"}
@@ -660,7 +660,7 @@ Perform a comprehensive valuation analysis with focus on relative and intrinsic 
 - `valuation_verdict`: (String) "undervalued", "fair", or "overvalued"
 - `valuation_metrics`: (Dict) Key metrics analyzed with values
 - `peer_ranking`: (String) How this stock ranks vs peers
-- `price_targets`: (Dict) {"conservative": X, "base_case": Y, "optimistic": Z}
+- `price_targets`: Copy only conservative/base_case/optimistic from the supplied provider consensus. Return {} when unavailable. Never estimate or invent targets.
 - `upside_downside`: (Dict) {"upside_pct": X, "downside_pct": Y}
 - `confidence`: (Float 0.0-1.0)
 - `recommendation`: (String: "undervalued", "fair", "overvalued")
@@ -1056,10 +1056,10 @@ async def analyze_fundamental_streaming(
     Risk Profile: {risk}
     
     [Current Fundamentals]
-    Revenue: ${latest_10k.get("revenue", 0):,}
-    Net Income: ${latest_10k.get("net_income", 0):,}
-    Operating Cash Flow: ${latest_10k.get("operating_cash_flow", 0):,}
-    Free Cash Flow: ${latest_10k.get("free_cash_flow", 0):,}
+    Revenue: ${format(latest_10k["revenue"], ",") if latest_10k.get("revenue") is not None else "unavailable"}
+    Net Income: ${format(latest_10k["net_income"], ",") if latest_10k.get("net_income") is not None else "unavailable"}
+    Operating Cash Flow: ${format(latest_10k["operating_cash_flow"], ",") if latest_10k.get("operating_cash_flow") is not None else "unavailable"}
+    Free Cash Flow: ${format(latest_10k["free_cash_flow"], ",") if latest_10k.get("free_cash_flow") is not None else "unavailable"}
     
     [3-Year Quant Trends]
     Revenue Trend: {quant_metrics.get("revenue_trend_data") if quant_metrics else "N/A"}
