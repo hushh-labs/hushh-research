@@ -202,6 +202,7 @@ def test_live_verifier_distinguishes_pending_activation_without_granting_authori
     import copy
     import os
     import subprocess
+    import sys
     import tempfile
 
     policy = _policy()
@@ -252,6 +253,10 @@ if isinstance(response, dict) and '_raw' in response: print(response['_raw'])
 else: print(json.dumps(response))
 """, encoding="utf-8")
         executable.chmod(0o700)
+        if os.name == "nt":
+            (directory / "gh.cmd").write_text(
+                f'@"{sys.executable}" "%~dp0gh" %*\n', encoding="utf-8", newline=""
+            )
         policy_file = directory / "policy.json"
         policy_file.write_text(json.dumps(policy), encoding="utf-8")
         environment = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_")}

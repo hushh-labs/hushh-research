@@ -28,11 +28,11 @@ export async function verifyUiContracts(root, started = performance.now(), { bac
   const ok = await runUiChecks([
     ['Back hierarchy, coverage and freshness', () => verifyBackNavigation(root, false, index)],
     ...(backOnly ? [] : [
-    ['Search coverage and freshness', () => syncSearchContracts(root, true, index)],
-    ['Surface map', () => checkScript(root, 'scripts/architecture/generate-surface-map.mjs')],
-    ['Action gateway', () => checkScript(root, 'scripts/voice/generate-kai-action-gateway.mjs')],
-    ['Siri action contract', () => checkScript(root, 'scripts/native/verify-siri-action-contract.mjs')],
-    ['Route orchestration', () => checkScript(root, 'scripts/voice/generate-route-orchestration-index.mjs')],
+      ['Search coverage and freshness', () => syncSearchContracts(root, true, index)],
+      ['Surface map', () => checkScript(root, 'scripts/architecture/generate-surface-map.mjs')],
+      ['Action gateway', () => checkScript(root, 'scripts/voice/generate-kai-action-gateway.mjs')],
+      ['Siri action contract', () => checkScript(root, 'scripts/native/verify-siri-action-contract.mjs')],
+      ['Route orchestration', () => checkScript(root, 'scripts/voice/generate-route-orchestration-index.mjs')],
     ]),
     ['Validator mutation regressions', () => checkScript(root, '--test', ['scripts/architecture/back-navigation.test.mjs', ...(backOnly ? [] : ['scripts/voice/search-contracts.test.mjs'])])],
   ]);
