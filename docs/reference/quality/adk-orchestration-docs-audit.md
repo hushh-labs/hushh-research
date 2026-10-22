@@ -100,8 +100,8 @@ installation remain separate; Azure has completed its approval, while GCP has no
 
 ### Current local implementation
 
-Main `d69c23ce45` includes fresh main and ADK `914e7c044c` without blanket file
-replacement. The completed MVP core recorded 24,519 backend/DB passes and 138 skips;
+The MVP landed as `d69c23ce45`. The local correction candidate also includes fresh
+main `08f13ad25d` and the reconciled ADK lineage without blanket file replacement. The completed MVP core recorded 24,519 backend/DB passes and 138 skips;
 frontend build, package and integration passed. Two hosted test-fixture corrections
 preserve runtime behavior and their original failure receipts. The final reviewed
 head `7e295ba408` passed all 26 checks before its main merge.
