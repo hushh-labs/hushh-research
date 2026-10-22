@@ -125,7 +125,7 @@ describe("profile security deletion contract", () => {
     expect(source).toContain(
       '<ShellActionSurface variant="icon" aria-label="Account actions">',
     );
-    expect(source).toContain('variant="destructive"');
+    expect(deleteItemSource).toContain('variant="destructive"');
     expect(source).toContain('className="overflow-hidden rounded-[14px] p-1"');
     expect(signOutItemSource).toContain("cursor-pointer");
     expect(signOutItemSource).toContain("rounded-[10px]");
@@ -139,16 +139,16 @@ describe("profile security deletion contract", () => {
     expect(deleteItemSource).toContain("cursor-pointer");
     expect(deleteItemSource).toContain("rounded-[10px]");
     expect(deleteItemSource).toContain(
-      "hover:!bg-[color:var(--app-destructive)]",
+      "hover:!bg-[color:var(--app-destructive-tint)]",
     );
     expect(deleteItemSource).toContain(
-      "hover:!text-[color:var(--app-destructive-fg)]",
+      "hover:!text-destructive",
     );
     expect(deleteItemSource).toContain(
-      "hover:[&_svg]:!stroke-[color:var(--app-destructive-fg)]",
+      "focus:!bg-[color:var(--app-destructive-tint)]",
     );
     expect(deleteItemSource).toContain(
-      "hover:[&_svg]:!text-[color:var(--app-destructive-fg)]",
+      "focus:!text-destructive",
     );
     expect(deleteItemSource).not.toContain(
       "data-[variant=destructive]:focus:bg-popover",
