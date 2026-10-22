@@ -58,7 +58,7 @@ import Link from "next/link";
  *   +--------------------------+
  */
 
-import { TaskDrawerContent, TaskAlertDialogContent, TaskSurfaceBody } from "@/lib/morphy-ux/ui/task-surfaces";
+import { TaskDrawerContent as UnscopedTaskDrawerContent, TaskAlertDialogContent as UnscopedTaskAlertDialogContent, TaskSurfaceBody } from "@/lib/morphy-ux/ui/task-surfaces";
 import { useState, useSyncExternalStore } from "react";
 import {
   MessageCircle,
@@ -88,7 +88,7 @@ import {
 } from "@/components/ui/drawer";
 import {
   DropdownMenu,
-  DropdownMenuContent,
+  DropdownMenuContent as UnscopedDropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -103,6 +103,11 @@ import {
 } from "@/components/one-location/redesign/circles/circle-member-row-layout";
 import { cn } from "@/lib/utils";
 import { LOCATION_ACTION_SHAPE } from "../location-action-styles";
+import { withLocationTypography } from "../location-typography";
+
+const TaskAlertDialogContent = withLocationTypography(UnscopedTaskAlertDialogContent);
+const TaskDrawerContent = withLocationTypography(UnscopedTaskDrawerContent);
+const DropdownMenuContent = withLocationTypography(UnscopedDropdownMenuContent, "circles");
 
 /* ------------------------------------------------------------------ */
 /* Presentation boundary                                              */

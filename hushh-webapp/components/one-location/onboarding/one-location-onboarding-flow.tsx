@@ -213,7 +213,7 @@ function PrimaryButton({
   className?: string;
 }) {
   return (
-    <Button
+    <Button data-location-type-role="primary-action"
       type="button"
       size="prominent"
       onClick={onClick}
@@ -250,7 +250,7 @@ function OnboardingSkipButton({
   plain?: boolean;
 }) {
   return (
-    <button
+    <button data-location-type-role="utility-action"
       type="button"
       onClick={onClick}
       disabled={disabled}
@@ -456,6 +456,7 @@ function FeatureTitle({
         className,
       )}
       data-one-feature-title
+      data-location-type-role="section-heading"
     >
       {lines.map((line) => (
         <span
@@ -482,7 +483,7 @@ function ShareLocationFeatureCard() {
       <MapBackdrop tone="share" />
       <span className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[color:var(--app-primary-surface)]/95 from-[25%] via-[color:var(--app-primary-surface)]/80 via-[51%] to-transparent" />
       <div className="relative z-20 w-[56%] px-5 pt-5 md:bg-[color:var(--app-primary-surface)]" data-one-feature-copy>
-        <span
+        <span data-location-type-role="row-description"
           className="inline-flex rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1 ui-text-eyebrow text-[color:var(--app-accent-deep)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)]"
           data-one-use-case-tag
         >
@@ -491,7 +492,7 @@ function ShareLocationFeatureCard() {
         <FeatureTitle
           lines={["Can’t explain", "where you are?"]}
         />
-        <p
+        <p data-location-type-role="row-description"
           className="ui-text-page-subtitle text-[#747b86] dark:text-[color:var(--app-secondary-label)]"
           data-one-feature-body
         >
@@ -557,7 +558,7 @@ function CheckInFeatureCard() {
         className="relative z-20 bg-[color:var(--app-primary-surface)]/90 px-4 pb-2 pt-4"
         data-one-feature-copy
       >
-        <span
+        <span data-location-type-role="row-description"
           className="inline-flex rounded-full bg-[#dff4e7] px-3 py-1 ui-text-eyebrow text-[#27884f] dark:bg-[color:var(--app-success-surface)] dark:text-[color:var(--app-success-bright)]"
           data-one-use-case-tag
         >
@@ -566,7 +567,7 @@ function CheckInFeatureCard() {
         <FeatureTitle
           lines={["At the venue, but", "can't find each other?"]}
         />
-        <p
+        <p data-location-type-role="row-description"
           className="ui-text-page-subtitle text-[#747b86] dark:text-[color:var(--app-secondary-label)]"
           data-one-feature-body
         >
@@ -616,7 +617,7 @@ function SaveMySoulFeatureCard() {
     >
       <MapBackdrop tone="sms" />
       <div className="relative z-20 bg-[color:var(--app-primary-surface)]/90 px-4 pb-2 pt-4" data-one-feature-copy>
-        <span
+        <span data-location-type-role="row-description"
           className="inline-flex rounded-full bg-[#ffe0df] px-3 py-1 ui-text-eyebrow text-[#d44442] dark:bg-[color:var(--app-destructive-surface)] dark:text-[color:var(--app-destructive-bright)]"
           data-one-use-case-tag
         >
@@ -625,7 +626,7 @@ function SaveMySoulFeatureCard() {
         <FeatureTitle
           lines={["Need help but", "can’t talk?"]}
         />
-        <p
+        <p data-location-type-role="row-description"
           className="ui-text-page-subtitle text-[#747b86] dark:text-[color:var(--app-secondary-label)]"
           data-one-feature-body
         >
@@ -659,7 +660,7 @@ function SaveMySoulFeatureCard() {
               data-one-sms-core
               className="relative z-10 flex h-14 w-14 items-center justify-center rounded-full bg-[#ff3b30] text-[15px] font-bold text-white shadow-[0_12px_22px_rgba(255,59,48,0.28)] dark:shadow-none"
             >
-              <span className="relative z-10" data-one-sms-label>
+              <span data-location-type-role="row-description" className="relative z-10" data-one-sms-label>
                 SMS
               </span>
             </span>
@@ -716,7 +717,7 @@ function FeaturesScreen({
           className="mx-auto mt-5 w-full max-w-[700px] shrink-0"
           data-one-feature-header
         >
-          <h1
+          <h1 data-location-type-role="flow-title"
             ref={headingRef}
             tabIndex={-1}
             className="ui-text-page-title text-[#111823] outline-none dark:!text-[color:var(--app-label)]"
@@ -947,12 +948,12 @@ function ContactsScreen({
               <span className="mt-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
                 <UserPlus className="h-7 w-7" strokeWidth={2} />
               </span>
-              <h1 className="ui-text-agent-title mt-4 text-[#151b26] dark:!text-[color:var(--app-label)]">
+              <h1 data-location-type-role="flow-title" className="ui-text-agent-title mt-4 text-[#151b26] dark:!text-[color:var(--app-label)]">
                 Find your people
               </h1>
             </>
           ) : null}
-          <p className="ui-text-page-subtitle mt-2 text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
+          <p data-location-type-role="row-description" className="ui-text-page-subtitle mt-2 text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
             {primed
               ? "Find people from your contacts already on One. Exact matches connect automatically."
               : state.kind === "matched"
@@ -969,16 +970,16 @@ function ContactsScreen({
                 )}
               >
                 {state.kind === "busy" ? (
-                  <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[color:var(--app-secondary-label)]">
+                  <div data-location-type-role="row-description" className="flex min-h-32 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[color:var(--app-secondary-label)]">
                     <Loader2 className="h-5 w-5 animate-spin" /> Checking your
                     contacts
                   </div>
                 ) : (
                   <div className="flex min-h-28 flex-col items-center justify-center gap-4 text-center">
-                    <p className="max-w-[320px] text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
+                    <p data-location-type-role="row-description" className="max-w-[320px] text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
                       Connect contacts to see who is already here.
                     </p>
-                    <button
+                    <button data-location-type-role="primary-action"
                       type="button"
                       className="min-h-11 px-2 text-[15px] font-semibold text-[color:var(--app-accent-deep)] disabled:opacity-50 dark:text-[color:var(--app-accent-bright)]"
                       onClick={onSync}
@@ -1011,13 +1012,13 @@ function ContactsScreen({
                     className="flex items-center justify-between gap-3 rounded-2xl border border-[#e4e6e9] bg-white px-4 py-3 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
                   >
                     <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[15px] font-medium text-[#151b26] dark:text-[color:var(--app-label)]">
-                      <span className="min-w-0 truncate">
+                      <span data-location-type-role="row-description" className="min-w-0 truncate">
                         {match.displayName}
                       </span>
                       {connected ? <ContactSourceBadge /> : null}
                     </span>
                     {requestRequired ? (
-                      <button
+                      <button data-location-type-role="compact-action"
                         type="button"
                         onClick={() => onAdd(match.userId)}
                         disabled={added || adding || leaving}
@@ -1031,7 +1032,7 @@ function ContactsScreen({
                         {added ? "Requested" : adding ? "Sending" : "Request"}
                       </button>
                     ) : (
-                      <span className="inline-flex shrink-0 items-center gap-1.5 text-[13px] font-semibold text-[#5c626c] dark:text-[#aeb8c7]">
+                      <span data-location-type-role="helper" className="inline-flex shrink-0 items-center gap-1.5 text-[13px] font-semibold text-[#5c626c] dark:text-[#aeb8c7]">
                         {connected ? (
                           <Check className="h-4 w-4 text-emerald-600" />
                         ) : null}
@@ -1047,10 +1048,10 @@ function ContactsScreen({
               })}
               {visibleMatches.length < matches.length ? (
                 <li className="flex flex-col items-center gap-2 pt-2">
-                  <span className="text-xs text-[#73777f]" aria-live="polite">
+                  <span data-location-type-role="helper" className="text-xs text-[#73777f]" aria-live="polite">
                     Showing {visibleMatches.length} of {matches.length}
                   </span>
-                  <button
+                  <button data-location-type-role="primary-action"
                     type="button"
                     onClick={() =>
                       setVisibleMatchCount((current) =>
@@ -1064,13 +1065,13 @@ function ContactsScreen({
                 </li>
               ) : null}
               {state.summary || state.partial ? (
-                <li className="rounded-2xl bg-amber-500/10 px-4 py-3 text-sm leading-5 text-foreground">
+                <li data-location-type-role="row-description" className="rounded-2xl bg-amber-500/10 px-4 py-3 text-sm leading-5 text-foreground">
                   {state.summary ||
                     "Only part of your contact list was checked."}
                 </li>
               ) : null}
               <li className="flex justify-center pt-2">
-                <button
+                <button data-location-type-role="utility-action"
                   type="button"
                   onClick={onSync}
                   disabled={leaving}
@@ -1084,10 +1085,10 @@ function ContactsScreen({
 
           {state.kind === "none" ? (
             <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
-              <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
+              <p data-location-type-role="row-description" className="text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
                 No eligible contacts matched.
               </p>
-              <p className="mt-2 text-[13px] leading-5 text-[#96999e] dark:text-[color:var(--app-secondary-label)]">
+              <p data-location-type-role="row-description" className="mt-2 text-[13px] leading-5 text-[#96999e] dark:text-[color:var(--app-secondary-label)]">
                 {state.partial
                   ? state.summary ||
                     "Only part of your contact list was checked. "
@@ -1096,7 +1097,7 @@ function ContactsScreen({
               </p>
               <div className="mt-4 flex flex-col items-center gap-2">
                 {showGoogleAccountSwitcher && onSyncDifferentGoogleAccount ? (
-                  <button
+                  <button data-location-type-role="primary-action"
                     type="button"
                     onClick={onSyncDifferentGoogleAccount}
                     disabled={leaving}
@@ -1106,7 +1107,7 @@ function ContactsScreen({
                     Use a different Google account
                   </button>
                 ) : null}
-                <button
+                <button data-location-type-role="utility-action"
                   type="button"
                   onClick={onSync}
                   disabled={leaving}
@@ -1120,11 +1121,11 @@ function ContactsScreen({
 
           {state.kind === "failed" ? (
             <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
-              <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
+              <p data-location-type-role="row-description" className="text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
                 {state.message}
               </p>
               {state.canOpenSettings ? (
-                <button
+                <button data-location-type-role="utility-action"
                   type="button"
                   onClick={onOpenSettings}
                   className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
@@ -1133,7 +1134,7 @@ function ContactsScreen({
                 </button>
               ) : null}
               {!state.canOpenSettings || source === "google" ? (
-                <button
+                <button data-location-type-role="utility-action"
                   type="button"
                   onClick={onSync}
                   disabled={leaving}
@@ -1345,7 +1346,7 @@ function ReadyScreen({
               Location setup is an ordinary outcome, and
               telling that person they are on a map, over a panel that says the
               map is unavailable, is the one thing this screen must not do. */}
-          <h1
+          <h1 data-location-type-role="flow-title"
             ref={headingRef}
             tabIndex={-1}
             className="ui-text-page-title pb-1 text-[#151b26] outline-none dark:!text-[color:var(--app-label)]"
@@ -1365,15 +1366,15 @@ function ReadyScreen({
             data-one-ready-code
           >
             {loading ? (
-              <div className="flex min-h-24 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[color:var(--app-secondary-label)]">
+              <div data-location-type-role="row-description" className="flex min-h-24 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[color:var(--app-secondary-label)]">
                 <Loader2 className="h-5 w-5 animate-spin" /> Getting your code
               </div>
             ) : error ? (
               <div className="flex min-h-24 flex-col items-center justify-center gap-3 text-center">
-                <p className="max-w-[260px] text-sm leading-5 text-[#6f7580] dark:text-[color:var(--app-secondary-label)]">
+                <p data-location-type-role="row-description" className="max-w-[260px] text-sm leading-5 text-[#6f7580] dark:text-[color:var(--app-secondary-label)]">
                   {error}
                 </p>
-                <Button
+                <Button data-location-type-role="compact-action"
                   type="button"
                   size="compact"
                   onClick={onRetry}
@@ -1388,10 +1389,10 @@ function ReadyScreen({
                   your people to Ankit's Circle" spent five words introducing
                   the two things directly under it -- a code and a Share
                   button -- which the card's own shape already introduces. */}
-                <p className="text-[13px] font-medium leading-[18px] text-[#6E6E73] dark:text-[color:var(--app-secondary-label)]">
+                <p data-location-type-role="row-title" className="text-[13px] font-medium leading-[18px] text-[#6E6E73] dark:text-[color:var(--app-secondary-label)]">
                   {invite.circleName}
                 </p>
-                <p
+                <p data-location-type-exception="invitation-code"
                   className={READY_CODE_CLASSNAME}
                   data-testid="one-location-onboarding-invite-code"
                   data-ui-contract="required-copy"
@@ -1403,11 +1404,11 @@ function ReadyScreen({
                 {/* Kept, shortened. The expiry changes what the person does with
                   the code, so it stays; "You can get a fresh one any time" is a
                   reassurance about a screen they have not reached yet. */}
-                <p className="mt-2 text-[12px] leading-[18px] text-[#96999e] dark:text-[color:var(--app-secondary-label)]">
+                <p data-location-type-role="row-description" className="mt-2 text-[12px] leading-[18px] text-[#96999e] dark:text-[color:var(--app-secondary-label)]">
                   Expires in 72 hours
                 </p>
                 <div className="mt-4 grid grid-cols-2 items-center gap-2.5">
-                  <Button
+                  <Button data-location-type-role="utility-action"
                     type="button"
                     variant="outline"
                     size="standard"
@@ -1422,7 +1423,7 @@ function ReadyScreen({
                     {copied ? "Copied" : "Copy"}
                   </Button>
 
-                  <Button
+                  <Button data-location-type-role="primary-action"
                     type="button"
                     size="standard"
                     onClick={onShare}
@@ -1434,7 +1435,7 @@ function ReadyScreen({
                 </div>
               </>
             ) : (
-              <p className="flex min-h-24 items-center justify-center px-2 text-center text-sm leading-5 text-[#6f7580] dark:text-[color:var(--app-secondary-label)]">
+              <p data-location-type-role="row-description" className="flex min-h-24 items-center justify-center px-2 text-center text-sm leading-5 text-[#6f7580] dark:text-[color:var(--app-secondary-label)]">
                 {/* Where to get it is the button at the bottom of this screen,
                   which already says "Open One Location". Saying it again here
                   is the paragraph this card used to be. */}
@@ -1456,7 +1457,7 @@ function ReadyScreen({
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)]">
                   <UserPlus className="h-4 w-4" aria-hidden />
                 </span>
-                <span className="min-w-0 flex-1">Join with a code</span>
+                <span data-location-type-role="utility-action" className="min-w-0 flex-1">Join with a code</span>
                 <ChevronDown
                   className={cn(
                     "h-5 w-5 shrink-0 text-muted-foreground transition-transform",
@@ -1472,7 +1473,7 @@ function ReadyScreen({
                   data-testid="onboarding-join-circle-panel"
                 >
                   {joinAccepted ? (
-                    <p
+                    <p data-location-type-role="status"
                       className="flex items-center gap-2 rounded-[18px] border border-[color:var(--app-accent)]/25 bg-[color:var(--app-accent-soft)] px-4 py-3 text-[14px] font-medium leading-5 text-[#1f2b3d] dark:bg-[color:var(--app-accent-tint)] dark:text-[color:var(--app-label)]"
                       role="status"
                     >
@@ -1489,16 +1490,16 @@ function ReadyScreen({
                       className="rounded-[18px] border border-[#e4e6e9] bg-[#f8f9fb] p-4 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
                       data-testid="onboarding-join-circle-preview"
                     >
-                      <p className="text-[15px] font-bold leading-5 text-[#151b26] dark:text-[color:var(--app-label)]">
+                      <p data-location-type-role="row-title" className="text-[15px] font-bold leading-5 text-[#151b26] dark:text-[color:var(--app-label)]">
                         {joinPreview.name}
                       </p>
-                      <p className="mt-1 text-[13px] leading-[18px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
+                      <p data-location-type-role="row-description" className="mt-1 text-[13px] leading-[18px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
                         {joinPreview.ownerDisplayName} &middot;{" "}
                         {joinPreview.memberCount}{" "}
                         {joinPreview.memberCount === 1 ? "person" : "people"}
                       </p>
                       {!joinPreview.alreadyMember ? (
-                        <button
+                        <button data-location-type-role="primary-action"
                           type="button"
                           onClick={onAcceptJoinCode}
                           disabled={joinBusy || leaving}
@@ -1513,11 +1514,11 @@ function ReadyScreen({
                           Join {joinPreview.name}
                         </button>
                       ) : (
-                        <p className="mt-3 text-[13px] text-muted-foreground">
+                        <p data-location-type-role="row-description" className="mt-3 text-[13px] text-muted-foreground">
                           Already in this circle.
                         </p>
                       )}
-                      <button
+                      <button data-location-type-role="primary-action"
                         type="button"
                         onClick={onClearJoinPreview}
                         disabled={joinBusy || leaving}
@@ -1529,7 +1530,7 @@ function ReadyScreen({
                     </div>
                   ) : (
                     <div className="flex gap-2">
-                      <input
+                      <input data-location-type-exception="invitation-code"
                         value={joinCode}
                         onChange={(event) =>
                           onJoinCodeChange(event.target.value)
@@ -1544,7 +1545,7 @@ function ReadyScreen({
                         }
                         className="h-11 min-w-0 flex-1 rounded-full border border-[#d5d9df] bg-white px-4 font-mono text-[15px] uppercase tracking-[0.08em] text-[#151b26] outline-none focus:border-[color:var(--app-accent)] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
                       />
-                      <button
+                      <button data-location-type-role="utility-action"
                         type="button"
                         onClick={onPreviewJoinCode}
                         disabled={joinBusy || !joinCode.trim() || leaving}
@@ -1561,7 +1562,7 @@ function ReadyScreen({
                     </div>
                   )}
                   {joinError ? (
-                    <p
+                    <p data-location-type-role="row-description"
                       id="onboarding-join-code-error"
                       className="mt-2 text-center text-[13px] leading-[18px] text-[color:var(--app-destructive)]"
                       role="alert"
@@ -1586,7 +1587,7 @@ function ReadyScreen({
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)]">
                   <UserPlus className="h-4 w-4" aria-hidden />
                 </span>
-                <span className="min-w-0 flex-1">Find contacts</span>
+                <span data-location-type-role="utility-action" className="min-w-0 flex-1">Find contacts</span>
                 <ChevronDown
                   className={cn(
                     "h-5 w-5 shrink-0 text-muted-foreground transition-transform",
@@ -1626,7 +1627,7 @@ function ReadyScreen({
             its own footer at #14171d -- one card with a seam across it. */}
         <footer className="relative z-10 shrink-0 bg-[color:var(--app-primary-surface)] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3 md:px-7 md:pb-7">
           {settlementRetryCount > 0 ? (
-            <p
+            <p data-location-type-role="status"
               className="mb-3 text-center text-[13px] leading-5 text-[#96999e] dark:text-[color:var(--app-secondary-label)]"
               role="status"
             >
@@ -2157,6 +2158,8 @@ export function OneLocationOnboardingFlow({
       // global controls.
       className="fixed inset-0 z-[9000] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[color:var(--app-grouped-background)] text-[#171d28] dark:text-[color:var(--app-label)]"
       data-one-onboarding-design="location-agent-v3"
+      data-location-type-scale="connect"
+      data-location-type-context="flow"
       data-no-route-swipe
       data-testid="one-location-onboarding"
       data-location-onboarding-screen={screen}

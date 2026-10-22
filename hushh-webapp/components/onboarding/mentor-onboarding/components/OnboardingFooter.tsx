@@ -55,7 +55,7 @@ export function OnboardingFooter({
         <span className="ao-progress-spacer" aria-hidden="true" />
       </div>
       <div className="ao-actions">
-        <button
+        <button data-location-type-role="compact-action"
           type="button"
           className="ao-skip"
           disabled={busy || completionDisabled}
@@ -72,12 +72,12 @@ export function OnboardingFooter({
           aria-busy={busy || undefined}
           data-voice-control-id={last ? "onboarding_claim_one" : undefined}
         >
-          <span>{busy ? "Continuing…" : last ? finalActionLabel : "Next"}</span>
+          <span data-location-type-role="primary-action">{busy ? "Continuing…" : last ? finalActionLabel : "Next"}</span>
           <Icon name="arrow" size={19} />
           <MaterialRipple variant="none" effect="fill" disabled={busy || (last && completionDisabled)} />
         </button>
       </div>
-      {error ? <p className="ao-error" role="alert">{error}</p> : null}
+      {error ? <p data-location-type-role="row-description" className="ao-error" role="alert">{error}</p> : null}
     </>
   );
 }

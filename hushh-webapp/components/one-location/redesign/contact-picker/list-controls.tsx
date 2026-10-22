@@ -94,7 +94,7 @@ export function ContactListControls({
         {CONTACT_SORT_MODES.map((mode) => {
           const active = mode.value === sortMode;
           return (
-            <button
+            <button data-location-type-role="compact-action"
               key={mode.value}
               type="button"
               aria-pressed={active}
@@ -113,7 +113,7 @@ export function ContactListControls({
       </div>
       {/* A filtered list that comes back empty has to say so out loud, or the
           only feedback for a typo is rows silently vanishing. */}
-      <p className="sr-only" role="status" aria-live="polite">
+      <p data-location-type-role="helper" className="sr-only" role="status" aria-live="polite">
         {queryActive
           ? `${resultCount} ${resultCount === 1 ? "result" : "results"}`
           : ""}

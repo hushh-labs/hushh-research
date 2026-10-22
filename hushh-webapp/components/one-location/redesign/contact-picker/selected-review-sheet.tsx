@@ -11,7 +11,7 @@ import { ContactListControls } from "@/components/one-location/redesign/contact-
 import { VirtualContactList } from "@/components/one-location/redesign/contact-picker/virtual-list";
 import {
   Drawer,
-  DrawerContent,
+  DrawerContent as UnscopedDrawerContent,
   DrawerDescription,
   DrawerHeader,
   DrawerTitle,
@@ -24,6 +24,9 @@ import {
 } from "@/lib/one-location/contact-picker-controls";
 import type { OneLocationRecipient } from "@/lib/one-location/types";
 import { cn } from "@/lib/utils";
+import { withLocationTypography } from "../location-typography";
+
+const DrawerContent = withLocationTypography(UnscopedDrawerContent);
 
 /**
  * The selection summary, and the sheet it opens.
@@ -55,7 +58,7 @@ export function SelectedContactsPill({
     // screen instead meant that on a list short enough not to scroll it came to
     // rest on top of the first contact row.
     <div className="mt-6 flex justify-center px-4">
-      <button
+      <button data-location-type-role="compact-action"
         type="button"
         onClick={onOpen}
         data-testid="sms-selected-pill"
@@ -107,10 +110,10 @@ export function SelectedContactsSheet({
         aria-describedby={undefined}
       >
         <DrawerHeader className="pb-2 text-left">
-          <DrawerTitle className="text-[20px] font-semibold leading-[25px]">
+          <DrawerTitle data-location-type-role="task-title" className="text-[20px] font-semibold leading-[25px]">
             {peoplePillLabel(recipients.length)}
           </DrawerTitle>
-          <DrawerDescription className="text-[15px] leading-5 text-[color:var(--app-secondary-label)]">
+          <DrawerDescription data-location-type-role="task-description" className="text-[15px] leading-5 text-[color:var(--app-secondary-label)]">
             They receive your SMS alerts. Remove anyone who should not.
           </DrawerDescription>
         </DrawerHeader>
@@ -152,17 +155,17 @@ export function SelectedContactsSheet({
                     />
                     <span className="min-w-0 flex-1">
                       <span className="flex min-w-0 items-start gap-1.5">
-                        <span className="min-w-0 truncate text-[17px] font-normal leading-[22px] text-foreground">
+                        <span data-location-type-role="row-title" className="min-w-0 truncate text-[17px] font-normal leading-[22px] text-foreground">
                           {label}
                         </span>
                       </span>
                       {subtitle ? (
-                        <span className="mt-0.5 block truncate text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+                        <span data-location-type-role="row-description" className="mt-0.5 block truncate text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
                           {subtitle}
                         </span>
                       ) : null}
                     </span>
-                    <button
+                    <button data-location-type-role="compact-action"
                       type="button"
                       onClick={() => onRemove(recipient.userId)}
                       disabled={busy}
