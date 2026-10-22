@@ -143,6 +143,13 @@ batch needs its own core mirror, exact-SHA hosted validation and governed dev ro
 The dev Gemini bridge is explicit; the owner configuration and serving checks are
 separate from Shared AI policy. No new model sweep is required.
 
+The first narrowed-MVP core attempt detected four missing exact-revision graph
+acknowledgements after the main merge. The existing evolution ledger now names
+main's `62fecdf7944d63a5` revision and rejects those stale action runs. Executable
+contracts are unchanged; canonical generation and all 20 nearest compatibility
+checks pass. The original failed core result is retained; final validation is
+still required before push.
+
 ## Performance and economics
 
 
