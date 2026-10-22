@@ -29,8 +29,10 @@ import {
   SurfaceCardContent,
   SurfaceInset,
 } from "@/components/app-ui/surfaces";
+import { PortfolioValueCard } from "@/components/kai/cards/portfolio-value-card";
 import { GainLossDistributionChart } from "@/components/kai/charts/gain-loss-distribution-chart";
 import { HoldingsConcentrationChart } from "@/components/kai/charts/holdings-concentration-chart";
+import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 import { PortfolioHistoryChart } from "@/components/kai/charts/portfolio-history-chart";
 import { PortfolioAllocationBar } from "@/components/kai/charts/portfolio-allocation-bar";
 import { SectorAllocationChart } from "@/components/kai/charts/sector-allocation-chart";
@@ -2112,7 +2114,7 @@ export function DashboardMasterView({
 
   if (isSourcesLoading && !displayedPortfolio) {
     return (
-      <div className="w-full min-w-0 max-w-full">
+      <div className={cn(financeStyles.detail, "w-full min-w-0 max-w-full")}>
         <KaiWorkspaceHeader
           workspace="portfolio"
           title="Portfolio"
@@ -2132,7 +2134,7 @@ export function DashboardMasterView({
 
   if (!displayedPortfolio) {
     return (
-      <div className="w-full min-w-0 max-w-full">
+      <div className={cn(financeStyles.detail, "w-full min-w-0 max-w-full")}>
         <KaiWorkspaceHeader
           workspace="portfolio"
           title="Portfolio"
@@ -2196,17 +2198,18 @@ export function DashboardMasterView({
         : "text-rose-600 dark:text-rose-400";
 
     return (
-      <div className="w-full min-w-0 max-w-full">
+      <div className={cn(financeStyles.detail, "w-full min-w-0 max-w-full")}>
         <KaiWorkspaceHeader
           workspace="portfolio"
           title="Portfolio"
           description="Value, holdings, and portfolio context."
         />
         <AppPageContentRegion className="min-w-0 max-w-full space-y-4">
-          <SurfaceCard tone="feature" data-testid="portfolio-value-card">
-            <SurfaceCardContent className="relative space-y-4 p-5 sm:p-6">
-              <div className="absolute right-4 top-4">
-                <ShellActionSurface
+          <PortfolioValueCard source={sourceDisplayLabel} value={model.hero.totalValue}
+            change={model.hero.netChange} changePct={model.hero.changePct}
+            period={model.hero.statementPeriod || (freshness?.lastSyncedAt ? `Updated ${new Date(freshness.lastSyncedAt).toLocaleString()}` : "Current portfolio snapshot")}
+            history={model.quality.historyReady ? model.history : []}
+            action={<ShellActionSurface
                   variant="icon"
                   onClick={() => void handleSharePortfolioPdf()}
                   disabled={!hasShareablePortfolioData || isSharingPortfolioPdf}
@@ -2218,29 +2221,7 @@ export function DashboardMasterView({
                   ) : (
                     <Share2 className="h-4 w-4" />
                   )}
-                </ShellActionSurface>
-              </div>
-              <div className="pr-12">
-                <p className="text-xs font-medium text-muted-foreground">
-                  {sourceDisplayLabel} portfolio value
-                </p>
-                <p className="mt-2 text-[2.25rem] font-semibold leading-none tracking-[-0.035em] text-foreground sm:text-[2.75rem]">
-                  {formatCurrency(model.hero.totalValue)}
-                </p>
-                <p className={cn("mt-3 text-sm font-medium", changeTone)}>
-                  {formatSignedCurrency(model.hero.netChange)} ·{" "}
-                  {model.hero.changePct >= 0 ? "+" : ""}
-                  {model.hero.changePct.toFixed(2)}%
-                </p>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {model.hero.statementPeriod ||
-                  (freshness?.lastSyncedAt
-                    ? `Updated ${new Date(freshness.lastSyncedAt).toLocaleString()}`
-                    : "Current portfolio snapshot")}
-              </p>
-            </SurfaceCardContent>
-          </SurfaceCard>
+                </ShellActionSurface>} />
 
           <SettingsGroup
             embedded
@@ -2335,7 +2316,7 @@ export function DashboardMasterView({
   }[section];
 
   return (
-    <div className="w-full min-w-0 max-w-full">
+    <div className={cn(financeStyles.detail, "w-full min-w-0 max-w-full")}>
       <KaiWorkspaceHeader
         workspace="portfolio"
         title={detailTitle}
@@ -2417,14 +2398,14 @@ export function DashboardMasterView({
         {section === "performance" ? (
           <SurfaceCard tone="feature">
             <SurfaceCardContent className="space-y-4 p-5 sm:p-6">
-              <div className="flex flex-col items-center gap-3 text-center">
+              <div className="flex flex-col items-start gap-3 text-left">
                 <p className="text-[13px] font-medium text-muted-foreground sm:text-sm">
                   {sourceDisplayLabel} portfolio value
                 </p>
-                <p className="text-[2rem] font-medium leading-none tracking-normal text-foreground sm:text-[2.5rem]">
+                <p className={financeStyles.value}>
                   {formatCurrency(model.hero.totalValue)}
                 </p>
-                <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
+                <div className="flex flex-wrap items-center gap-2 text-sm">
                   <span
                     className={cn(
                       "inline-flex items-center font-medium tracking-normal",

@@ -28,6 +28,7 @@ import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition
 import { resetKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
 import marketBriefingStyles from "@/components/kai/shared/market-briefing.module.css";
+import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 
 const FINANCE_TAB_DEFINITION = TOP_SHELL_TAB_REGISTRY.finance;
 type PortfolioTab = (typeof FINANCE_TAB_DEFINITION.tabs)[number]["value"];
@@ -111,7 +112,7 @@ export function KaiMarketHubPage() {
       fitContent
       width="agent"
       headerContentSpacing="compact"
-      className={visibleTab === "market" ? `relative ${marketBriefingStyles.typography}` : "relative"}
+      className="relative"
       data-finance-workspace="true"
       nativeTest={{
         routeId: KAI_MARKET_PATH,
@@ -145,12 +146,12 @@ export function KaiMarketHubPage() {
         viewportMinHeight="fill"
         className="mt-[var(--page-header-section-gap)]"
       >
-        <div className="w-full">
+        <div className={`w-full ${marketBriefingStyles.typography}`}>
           <AppPageContentRegion>
             <KaiPreviewRouter />
           </AppPageContentRegion>
         </div>
-        <div className="w-full">
+        <div className={`mx-auto w-full ${financeStyles.workspace}`}>
           <AppPageContentRegion>
             <KaiFlow
               userId={user.uid}
@@ -160,7 +161,7 @@ export function KaiMarketHubPage() {
             />
           </AppPageContentRegion>
         </div>
-        <div className="w-full">
+        <div className={`mx-auto w-full ${financeStyles.workspace}`}>
           <AppPageContentRegion>
             <KaiAnalysisPageContent />
           </AppPageContentRegion>
