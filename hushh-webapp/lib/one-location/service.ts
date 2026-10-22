@@ -1891,7 +1891,7 @@ export class OneLocationService {
         category: params.category ?? "all",
       }),
     });
-    return Object.assign(response.suggestions ?? [], {
+    return Object.assign([...(response.suggestions ?? [])], {
       discoveryIncomplete: response.discoveryIncomplete === true,
     });
   }

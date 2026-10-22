@@ -1318,7 +1318,7 @@ export function NearbyCheckInSheet({
     setPoint(null);
     setPointOrigin("fresh");
     setAutomaticPlaces([]);
-        setDiscoveryIncomplete(false);
+    setDiscoveryIncomplete(false);
     setSearchResults([]);
     setResolvedPlacePoints({});
     setSelectedPlaceId("");
@@ -1367,7 +1367,7 @@ export function NearbyCheckInSheet({
     setPoint(null);
     setPointOrigin("fresh");
     setAutomaticPlaces([]);
-        setDiscoveryIncomplete(false);
+    setDiscoveryIncomplete(false);
     setSearchResults([]);
     setResolvedPlacePoints({});
     setSelectedPlaceId("");
@@ -1841,7 +1841,7 @@ export function NearbyCheckInSheet({
       // tells the owner how far they have drifted from the place they anchored
       // to. It is not republished as a search area -- presence suppresses that.
       setAutomaticPlaces([]);
-        setDiscoveryIncomplete(false);
+      setDiscoveryIncomplete(false);
       setSearchResults([]);
       setSelectedPlaceId("");
       setSearch("");
@@ -3395,9 +3395,21 @@ export function NearbyCheckInSheet({
                         </div>
                       ) : null}
                       {!typedSearchActive && discoveryIncomplete ? (
-                        <p className="mt-2 text-sm text-muted-foreground" role="status">
-                          Some nearby places may be missing. Update your location to retry, or search by name.
-                        </p>
+                        <div className="mt-2 space-y-2" role="status">
+                          <p className="text-sm text-muted-foreground">
+                            Some nearby places may be missing. Retry or search by name.
+                          </p>
+                          <Button
+                            type="button"
+                            size="compact"
+                            variant="secondary"
+                            data-voice-control-id="one-location-check-in-retry-places"
+                            disabled={capturing}
+                            onClick={() => void captureAndLoadPlaces(category)}
+                          >
+                            Retry nearby places
+                          </Button>
+                        </div>
                       ) : null}
                       {placesError ? (
                         <p className="mt-2 text-sm text-muted-foreground">

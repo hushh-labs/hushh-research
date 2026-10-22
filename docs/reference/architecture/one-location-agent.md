@@ -471,8 +471,9 @@ grants nearby or live-location visibility.
    [the place taxonomy contract](one-location-place-taxonomy.md).
    Typed check-in search is restricted to that boundary. The
    owner then chooses the public place used for admission and display context;
-   opening discovery never checks the owner in. The point and provider results
-   are not persisted. There is no event code.
+   opening discovery never checks the owner in. Neither the point nor provider results are written to durable account storage;
+   provider results use the short-lived cache described in the taxonomy contract.
+   There is no event code.
 2. The owner chooses 30, 60, or 120 minutes and explicitly confirms showing
    their safe display label to other opted-in check-ins within the fixed
    500-meter radius. Allowing Connect requests is a separate switch and

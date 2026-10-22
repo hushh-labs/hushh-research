@@ -367,13 +367,21 @@ describe("NearbyCheckInSheet", () => {
   });
 
   it("keeps available venues visible and explains an incomplete discovery", async () => {
-    service.nearbyPlaces.mockResolvedValue(Object.assign([
+    service.nearbyPlaces.mockResolvedValueOnce(Object.assign([
       { placeId: "court", name: "Madura Food Court", text: "Madura Food Court", distanceMeters: 150, categories: ["food_drink"] },
-    ], { discoveryIncomplete: true }));
+    ], { discoveryIncomplete: true })).mockResolvedValueOnce([
+      { placeId: "recovered", name: "Recovered Food Court", text: "Recovered Food Court", distanceMeters: 151, categories: ["food_drink"] },
+    ]);
     render(<NearbyCheckInSheet open ownerId="user-1" vaultOwnerToken="owner-token" captureCurrentPosition={vi.fn().mockResolvedValue(point)} onOpenChange={vi.fn()} />);
     expect(await screen.findByRole("radio", { name: /Madura Food Court/ })).toBeInTheDocument();
     expect(screen.getByText(/Some nearby places may be missing/)).toBeInTheDocument();
     expect(screen.queryByText(/No places found/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Food", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Retry nearby places" }));
+    expect(await screen.findByRole("radio", { name: /Recovered Food Court/ })).toBeInTheDocument();
+    expect(screen.queryByText(/Some nearby places may be missing/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Food", exact: true })).toHaveAttribute("aria-pressed", "true");
+    expect(service.nearbyPlaces).toHaveBeenCalledTimes(2);
   });
 
   it("is a bottom sheet a phone can put away", async () => {

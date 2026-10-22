@@ -87,7 +87,8 @@ const MIN_CHIP_HEIGHT_PX = 36;
  * Viewport-independent on purpose: the set's width is a property of the
  * labels, not of the screen.
  *
- * Measured: eleven chips are 847px. Eight were 632px, and the two multi-word
+ * Measured: thirteen chips including Café and Stays are 949px.
+ * Previously eleven chips were 847px. Eight were 632px, and the two multi-word
  * labels they replaced were 765px. The set grew because Worship, Civic and More
  * were added -- three categories that previously matched no chip at all, so the
  * places in them were unreachable the moment any chip was tapped. A wider
@@ -95,7 +96,7 @@ const MIN_CHIP_HEIGHT_PX = 36;
  * below is what actually guards reachability, and it is unchanged because the
  * three are appended after the leading ones.
  */
-const MAX_CATEGORY_SCROLL_EXTENT_PX = 1040;
+const MAX_CATEGORY_SCROLL_EXTENT_PX = 980;
 
 /**
  * How many chips must be reachable at each width without scrolling at all.
@@ -491,7 +492,7 @@ test.describe("Check out is not painted as destruction", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. Eleven category chips, one scrollable row, no clipping
+// 3. Thirteen category chips, one scrollable row, no clipping
 // ---------------------------------------------------------------------------
 
 test.describe("Category chips stay on one usable row", () => {

@@ -37,15 +37,15 @@ _NEARBY_CHECK_IN_RADIUS_METERS = 500.0
 _NEARBY_CHECK_IN_RESULT_LIMIT = 20
 # Refine saturated searches, with bounded concurrency and a total deadline below
 # the proxy timeout. These are query budgets, never a limit on returned venues.
+_NEARBY_DISCOVERY_MAX_QUERIES = 96
+_NEARBY_DISCOVERY_MAX_DEPTH = 4
 _NEARBY_DISCOVERY_CONCURRENCY = 6
 _NEARBY_DISCOVERY_TIMEOUT_SECONDS = 25.0
 
-# Repeat opens at the same spot (home, office) are the dominant real-world
-# pattern for both the check-in picker and the directory, so a short cache
-# keyed on a coarse grid cell avoids re-billing Google for a location that
-# has not moved. 3 decimal places is ~110 m at the equator -- tighter than
-# the 500 m check-in radius, so a hit still means "the same immediate area",
-# not "somewhere down the block".
+# Repeat opens at the same spot reuse a short-lived response cache. Check-in
+# keys use the exact origin because shaped rows already carry distances and a
+# 500 m inclusion decision. The separate, wider-radius directory keeps its
+# existing coarse grid cache, at three decimal places (roughly 110 m).
 #
 # Google's Maps Platform terms permit exactly this: temporary caching for
 # Customer Application performance is allowed for under 30 consecutive
@@ -1014,18 +1014,46 @@ class GoogleMapsService:
             initial = await run(
                 [(lat, lng, _NEARBY_CHECK_IN_RADIUS_METERS, types) for types in chunks]
             )
-            refinements = []
-            for (_query_lat, _query_lng, radius, types), batch in initial:
-                if len(batch) < _NEARBY_CHECK_IN_RESULT_LIMIT:
-                    continue
-                # Four overlapping circles cover the original circle. Moving
-                # their centers gives farther venues a fresh distance-ranked
-                # result budget. Use spherical offsets, including at the poles.
-                child_radius = radius / math.sqrt(2)
-                for bearing in (45, 135, 225, 315):
-                    child_lat, child_lng = _offset_coordinates(lat, lng, child_radius, bearing)
-                    refinements.append((child_lat, child_lng, child_radius + 0.1, types))
-            refined = await run(refinements) if refinements else []
+            refined = []
+            frontier = initial
+            remaining = max(0, _NEARBY_DISCOVERY_MAX_QUERIES - len(chunks))
+            coverage_limited = False
+            for _depth in range(_NEARBY_DISCOVERY_MAX_DEPTH):
+                queries = []
+                for (query_lat, query_lng, radius, types), batch in frontier:
+                    if len(batch) < _NEARBY_CHECK_IN_RESULT_LIMIT:
+                        continue
+                    # Four overlapping circles cover their parent's circle.
+                    # Refine again when a dense child still saturates. Only
+                    # query children that intersect the original allowed area.
+                    child_radius = radius / math.sqrt(2) + 0.1
+                    for bearing in (45, 135, 225, 315):
+                        child_lat, child_lng = _offset_coordinates(
+                            query_lat, query_lng, radius / math.sqrt(2), bearing
+                        )
+                        separation = _distance_meters(
+                            origin_lat=lat,
+                            origin_lng=lng,
+                            destination_lat=child_lat,
+                            destination_lng=child_lng,
+                        )
+                        if separation <= _NEARBY_CHECK_IN_RADIUS_METERS + child_radius:
+                            queries.append((child_lat, child_lng, child_radius, types))
+                if not queries:
+                    frontier = []
+                    break
+                if len(queries) > remaining:
+                    coverage_limited = True
+                queries = queries[:remaining]
+                if not queries or asyncio.get_running_loop().time() >= deadline:
+                    coverage_limited = True
+                    break
+                frontier = await run(queries)
+                refined.extend(frontier)
+                remaining -= len(queries)
+            coverage_limited |= any(
+                len(batch) >= _NEARBY_CHECK_IN_RESULT_LIMIT for _query, batch in frontier
+            )
 
         if not initial:
             raise GoogleMapsError("Nearby places lookup failed.", status_code=502)
@@ -1076,9 +1104,7 @@ class GoogleMapsService:
                 item["placeId"],
             ),
         )
-        incomplete = bool(failures) or any(
-            len(batch) >= _NEARBY_CHECK_IN_RESULT_LIMIT for _query, batch in refined
-        )
+        incomplete = bool(failures) or coverage_limited
         if incomplete:
             logger.warning("maps.nearby_places.partial failures=%s", failures)
         else:

@@ -504,16 +504,20 @@ def test_presence_errors_keep_stable_code_and_message(client, monkeypatch):
 @pytest.mark.parametrize("category", ["health", "cafes", "other_stays"])
 def test_nearby_place_picker_is_bounded_and_authenticated(client, monkeypatch, category):
     requested_category = category
+
     async def nearby_places(self, *, lat, lng, category):
         assert (lat, lng) == (12.9716, 77.5946)
         assert category == requested_category
-        return gms.NearbyPlaceSuggestions([
-            {
-                "placeId": "place-a",
-                "text": "Spot A",
-                "distanceMeters": 42,
-            }
-        ], incomplete=True)
+        return gms.NearbyPlaceSuggestions(
+            [
+                {
+                    "placeId": "place-a",
+                    "text": "Spot A",
+                    "distanceMeters": 42,
+                }
+            ],
+            incomplete=True,
+        )
 
     monkeypatch.setattr(gms.GoogleMapsService, "nearby_places", nearby_places)
     response = client.post(

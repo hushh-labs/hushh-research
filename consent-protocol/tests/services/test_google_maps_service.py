@@ -132,6 +132,35 @@ async def test_saturated_food_search_finds_farther_food_court_without_expanding_
 
 
 @pytest.mark.asyncio
+async def test_dense_children_are_refined_again_with_a_hard_query_budget(monkeypatch):
+    calls = 0
+
+    def handler(request):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            200,
+            json={
+                "places": [
+                    _hotel(f"venue-{i}", name=f"School {i}", lat=37.4276, primaryType="school")
+                    for i in range(20)
+                ]
+            },
+        )
+
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(gms, "_NEARBY_DISCOVERY_MAX_QUERIES", 9)
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
+    rows = await gms.GoogleMapsService().nearby_places(
+        lat=37.4275, lng=-122.1697, category="education"
+    )
+    assert calls == 9  # One initial query, four children, then four grandchildren.
+    assert len(rows) == 20
+    assert rows.discovery_incomplete is True
+    assert not gms._nearby_places_cache
+
+
+@pytest.mark.asyncio
 async def test_movement_inside_old_cache_cell_rechecks_both_radius_edges(monkeypatch):
     calls = 0
 

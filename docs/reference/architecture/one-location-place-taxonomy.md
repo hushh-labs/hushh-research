@@ -27,9 +27,10 @@ chip table is requested explicitly, including `food_court`. An unfiltered search
 also discovers venues with unknown or generic types.
 
 Google limits each Nearby Search response to 20 places. A saturated response
-triggers four overlapping smaller searches covering the original circle. Each
-response gets a fresh distance-ranking budget. Calls share a six-request
-concurrency limit and a 25-second total deadline, below the proxy timeout.
+triggers four overlapping smaller searches. Saturated children are refined
+again, up to four levels. Every child that can intersect the original circle
+gets a fresh distance-ranking budget. Calls share a six-request concurrency
+limit, a 96-query budget and a 25-second total deadline below the proxy timeout.
 Successful responses survive another query's failure or deadline.
 
 Every returned record is validated against the **original** user position with
@@ -42,7 +43,7 @@ No application-wide 80-row cap or post-merge 20-row cap discards valid results.
 
 Finite queries cannot guarantee every real-world or Google-indexed venue is
 returned. A failed/timed-out query, or a refined response still at the provider
-cap, sets the optional `discoveryIncomplete` response field. The picker preserves
+cap, or a query/depth budget is exhausted, sets the optional `discoveryIncomplete` response field. The picker preserves
 available venues and offers retry/name-search guidance instead of presenting a
 partial list as complete. Name search remains a separate, radius-restricted mode.
 
