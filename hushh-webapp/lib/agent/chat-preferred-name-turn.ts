@@ -1,6 +1,7 @@
 "use client";
 
 import { PREFERRED_NAME_MAX, sanitizeStyleText } from "@/lib/agent/owner-style-settings";
+import { parseRecord, unwrapToolResult } from "./tool-result-envelope";
 import { containsSecretSpan } from "@/lib/pkm/secret-patterns";
 
 /** Live stream only: history rendering has no name-writing authority. */
@@ -18,10 +19,11 @@ export function beginChatPreferredNameTurn(host: {
       if (typeof raw === "string") {
         try { raw = JSON.parse(raw); } catch { invalid = true; return; }
       }
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
-      const result = raw as Record<string, unknown>;
+      const record = parseRecord(raw);
+      const result = record?.status ? record : unwrapToolResult(record);
+      if (!result) return;
       if (result.status !== "preferred_name_update_ready") return;
-      const fingerprint = JSON.stringify(raw);
+      const fingerprint = JSON.stringify(result);
       if (firstCall?.id === callId && firstCall.fingerprint === fingerprint) return;
       if (firstCall) { invalid = true; return; }
       firstCall = { id: callId, fingerprint };

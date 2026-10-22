@@ -285,8 +285,12 @@ async def test_chat_name_update_requires_the_unlocked_owner_typed_surface(overri
 
 
 @pytest.mark.parametrize("name", ["Roopmann", "Love", "李 小龍", "نور", "Zoë 🦋", "A" * 64])
-async def test_name_question_returns_only_the_semantic_answer_without_writing(name):
+@pytest.mark.parametrize("surface", ["shared", "pod"])
+async def test_name_question_returns_only_the_semantic_answer_without_writing(name, surface):
     context = _name_question_context()
+    if surface == "pod":
+        context.state["temp:hussh:workspace_chat_admission"] = False
+        context.state["temp:hussh:pod_style_owner"] = "owner"
     before = json.dumps(context.state, sort_keys=True)
     result = await propose_style_settings(
         context, preferred_name=name, onboarding_action="name", onboarding_request_id="a" * 32
@@ -337,6 +341,7 @@ async def test_invalid_name_assessment_never_falls_through_to_a_settings_offer(a
         {agent_tree.STATE_USER_ID: "anonymous:owner"},
         {STATE_EXECUTION_SURFACE: "voice"},
         {"temp:hussh:workspace_chat_admission": False},
+        {"temp:hussh:workspace_chat_admission": False, "temp:hussh:pod_style_owner": "other-owner"},
         {"hussh:voice_context": {}},
         {"hussh:voice_context": {"screen_state": []}},
         {"hussh:voice_context": {"screen_state": {"onboarding_name_request": "not-a-request"}}},
@@ -352,14 +357,19 @@ async def test_name_assessment_requires_owner_vault_typed_surface_and_pending_qu
     assert result["status"] == "unavailable"
 
 
-async def test_name_assessment_nonce_is_correlation_not_authority():
+@pytest.mark.parametrize("surface", ["shared", "pod"])
+async def test_name_assessment_nonce_is_correlation_not_authority(surface):
     from api.routes.one.agent_context import sanitize_screen_state
 
     assert sanitize_screen_state({"onboarding_name_request": "a" * 32}) == {
         "onboarding_name_request": "a" * 32
     }
+    context = _name_question_context()
+    if surface == "pod":
+        context.state["temp:hussh:workspace_chat_admission"] = False
+        context.state["temp:hussh:pod_style_owner"] = "owner"
     result = await propose_style_settings(
-        _name_question_context(),
+        context,
         preferred_name="Kay",
         onboarding_action="name",
         onboarding_request_id="b" * 32,
