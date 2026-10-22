@@ -1,9 +1,11 @@
 BEGIN;
 
 -- Parse the expected definition on this PostgreSQL version, without touching
--- live rows. Comparing only the name or indisvalid would accept a wrong index.
+-- live rows. Inherit the indexed columns' installed types and collations without
+-- creating a new persistent identity shape or copying rows, guards or indexes.
+-- Comparing only the name or indisvalid would accept a wrong index.
 CREATE TEMPORARY TABLE plg_memory_index_contract (
-  user_id TEXT, domain TEXT, metadata JSONB, operation_type TEXT
+  LIKE public.pkm_events
 ) ON COMMIT DROP;
 CREATE INDEX plg_memory_expected_index
   ON plg_memory_index_contract (user_id, domain, (metadata->>'data_version'))
