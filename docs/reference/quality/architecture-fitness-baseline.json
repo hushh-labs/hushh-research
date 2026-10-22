@@ -24676,7 +24676,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 2730
+      "value": 2737
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -84870,5 +84870,17 @@
     "reviewer": "registration_schema_review",
     "review": "Seven added lines separate drawable readiness from bounded presentation dwell. Existing artwork ordering, interruption, mounted-layer and painted-frame assertions remain. Global budgets, per-finding limits, scanner and exclusions are unchanged.",
     "validation": "All 10 focused Chromium/WebKit cases passed. The file-scoped scanner passes at2730 and rejects a2731 negative control."
+  },
+  "ci_native_resize_review_20261023": {
+    "parent_revision": "947197e097",
+    "source_revision": "0f3f38d2eb26451f5b48980423bb56852a181d46",
+    "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+    "rank": 0,
+    "before": 2730,
+    "after": 2737,
+    "source_sha256": "9810fa8caf4dd60539cbf2fe6a924f19df941f648232ae7446b5c66dd46aa835",
+    "reviewer": "packets_ui_evidence",
+    "review": "The same canvas traverses all eight resize states and both widths. Explicit5s per-resize and unchanged6.5s motion bounds retain bitmap, visibility, identity, buffer, feet, spacing and corner checks. A45s aggregate budget prevents truncating the final check; raw playback status and step diagnostics expose failures. Global budgets, limits, scanner and exclusions remain unchanged.",
+    "validation": "Six Chromium/WebKit resize cases passed at1x/2x/3x. Persistent hidden and blank native-canvas negative controls each failed the5s predicate; exact source restored."
   }
 }
