@@ -81,22 +81,25 @@ def test_enabled_feature_requires_a_cohort_or_all_users_mode(feature):
         _module()._validate_connector_rollout(_args(**{feature: "true"}))
 
 
-def test_four_group_preparation_is_explicitly_disabled_in_every_hosted_compiler():
+def test_four_group_hosted_compilers_default_off_and_require_explicit_uat_activation():
     for lane in ("dev", "uat", "production"):
         workflow = (ROOT / f".github/workflows/deploy-{lane}.yml").read_text(encoding="utf-8")
-        argument = '--drive-four-group-index "false"'
+        argument = (
+            "--drive-four-group-index \"${{ vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED || 'false' }}\""
+            if lane == "uat"
+            else '--drive-four-group-index "false"'
+        )
         assert argument in workflow
-        # A repository variable or the existing live-Drive mode cannot silently
-        # turn this separately reviewed capability on.
+        # UAT has its own explicit, default-off activation. Other lanes stay off.
         if lane != "production":
             assert '"${drive_group_args[@]}"' in workflow
             assert "if grep -q -- '--drive-four-group-index'" in workflow
 
 
-@pytest.mark.parametrize("lane", ["dev", "uat"])
+@pytest.mark.parametrize("lane,requested", [("dev", "false"), ("uat", "false"), ("uat", "true")])
 @pytest.mark.parametrize("supports_groups", [False, True])
-def test_selected_older_sha_compiler_still_runs_with_the_disabled_feature(
-    tmp_path, lane, supports_groups
+def test_selected_sha_compiler_preserves_flag_compatibility(
+    tmp_path, lane, requested, supports_groups
 ):
     # Execute the actual workflow guard against both parser generations. An
     # unconditional new CLI option used to make a supported old SHA undeployable.
@@ -122,8 +125,14 @@ def test_selected_older_sha_compiler_still_runs_with_the_disabled_feature(
         + "print(json.dumps(vars(p.parse_args())))\n",
         encoding="utf-8",
     )
+    # GitHub renders this expression before handing the step to Bash. Exercise
+    # both UAT values without accessing or changing any repository variable.
+    rendered_guard = guard[0].replace(
+        "${{ vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED || 'false' }}", requested
+    )
     command = (
-        guard[0]
+        "set -euo pipefail\n"
+        + rendered_guard
         + '\n"$COMPAT_PYTHON" scripts/ops/sync_backend_runtime_secrets.py "${drive_group_args[@]}"\n'
     )
     import os
@@ -138,7 +147,7 @@ def test_selected_older_sha_compiler_still_runs_with_the_disabled_feature(
         timeout=10,
     )
     assert json.loads(result.stdout) == (
-        {"drive_four_group_index": "false"} if supports_groups else {}
+        {"drive_four_group_index": requested} if supports_groups else {}
     )
 
 

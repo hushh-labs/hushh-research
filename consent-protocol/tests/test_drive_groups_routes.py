@@ -92,6 +92,28 @@ def test_flag_off_hides_every_endpoint_before_store_or_body_validation(
     assert all(not method.called for method in vars(store).values())
 
 
+@pytest.mark.parametrize("enabled", [False, True])
+def test_private_owner_is_hidden_when_disabled_and_refused_when_enabled(
+    setup, monkeypatch, enabled
+):
+    client, app, store, _ = setup
+    unlock(app)
+    monkeypatch.setenv(FLAG, str(enabled).lower())
+    placement = AsyncMock(return_value="byoc")
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", placement)
+    response = client.get(BASE)
+    assert response.status_code == (409 if enabled else 404)
+    assert response.json()["detail"]["code"] == (
+        "AGENT_PRIVATE_RUNTIME_REQUIRED" if enabled else "group_index_disabled"
+    )
+    assert response.headers["Cache-Control"] == "private, no-store"
+    assert all(not method.called for method in vars(store).values())
+    if enabled:
+        placement.assert_awaited_once_with("owner")
+    else:
+        placement.assert_not_awaited()
+
+
 def test_api_uses_only_authenticated_owner_and_existing_store_projection(setup):
     client, app, store, current = setup
     unlock(app)

@@ -41,6 +41,7 @@ from __future__ import annotations
 
 # ruff: noqa: S106 -- `consent_token="t"` is a test fixture for an argument that is
 # genuinely named consent_token; no real credential appears in this file.
+import re
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -755,7 +756,26 @@ async def test_revoke_and_status_open_for_an_owner_local_session_with_no_hub(
     )
     assert result["revoked"] == 1 and result["tombstones"] == 1
     assert {f["memory_id"] for f in await service.fact_index()} == {keep}
-    assert "4269" not in str(result) and "4269" not in str(status)
+    assert set(status) == {
+        "schema",
+        "records",
+        "live",
+        "facts",
+        "tombstones",
+        "lastSeq",
+        "reviewedThroughSeq",
+        "unreviewed",
+        "factIds",
+        "provider",
+    }
+    assert isinstance(status["factIds"], list) and len(status["factIds"]) == 2
+    assert set(status["factIds"]) == {keep, drop}
+    assert all(re.fullmatch(r"[0-9a-f]{24}", fact_id) for fact_id in status["factIds"])
+    assert set(status["provider"]) == {"consent", "bank", "lastRebuildSeq", "stale"}
+    assert result == {"revoked": 1, "tombstones": 1, "provider": status["provider"]}
+    # Only the validated opaque ID path may coincidentally contain these digits.
+    public_status = {**status, "factIds": []}
+    assert all(secret not in str((result, public_status)) for secret in ("4269", "meridian"))
 
 
 async def test_an_owner_local_session_withdraws_provider_consent_with_no_hub(
