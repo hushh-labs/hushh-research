@@ -182,6 +182,13 @@ selective ceilings to exact source hashes and parent provenance; the ratchet,
 exclusions and budgets remain unchanged. Existing integration chronology and original failed
 runs remain in Git. Scope-commerce qualification at `da6b4cdb8dec` retained all
 26 reviewed production deltas; it does not establish financial release acceptance.
+The Drive four-group integration record dated 2026-10-23 retains 39 independently
+reviewed size spans with exact source hashes and both integration parents. The
+original failed CI run remains linked in the record. Review found and corrected
+a partial-refresh readiness defect; scheduler CLI parsing and restoration were
+extracted rather than retained as size debt. Growth controls reject a subsequent
+increment for every recorded identity. This qualification grants no release or
+authenticated UAT acceptance; the 500/250/80 budgets and scanner remain unchanged.
 Independent review permits only the specialist test module's 568→575 line ceiling:
 the new owner-ADC case covers bridge dispatch plus consent rechecks; the 500-line
 budget and production limits are unchanged.

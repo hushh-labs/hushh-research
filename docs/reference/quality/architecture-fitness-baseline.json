@@ -5218,7 +5218,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/google_drive_adapter.py",
       "symbol": "GoogleDriveAdapter",
-      "value": 785
+      "value": 836
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5236,7 +5236,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/google_drive_rest_transport.py",
       "symbol": "GoogleDriveRestTransport",
-      "value": 486
+      "value": 550
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -10996,7 +10996,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/google_drive_adapter.py",
       "symbol": "_get_private",
-      "value": 250
+      "value": 284
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -16153,7 +16153,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_drive_work_drain_routes.py",
       "symbol": "test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status",
-      "value": 82
+      "value": 84
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -17251,7 +17251,7 @@
       "limit": 80,
       "path": "scripts/ops/sync_backend_runtime_secrets.py",
       "symbol": "_build_backend_runtime_config",
-      "value": 109
+      "value": 110
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -18709,7 +18709,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/runtime_settings.py",
       "symbol": null,
-      "value": 1433
+      "value": 1434
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19294,7 +19294,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/google_drive_adapter.py",
       "symbol": null,
-      "value": 1109
+      "value": 1161
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19312,7 +19312,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/google_drive_rest_transport.py",
       "symbol": null,
-      "value": 846
+      "value": 934
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20896,7 +20896,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_google_drive_rest_transport.py",
       "symbol": null,
-      "value": 1058
+      "value": 1114
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22066,7 +22066,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_memory_routes.py",
       "symbol": null,
-      "value": 1870
+      "value": 1887
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22444,7 +22444,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/capacitor/native-chrome.test.tsx",
       "symbol": null,
-      "value": 4466
+      "value": 4468
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24676,7 +24676,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 2688
+      "value": 2737
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -27548,7 +27548,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_document_processor.py",
       "symbol": null,
-      "value": 696
+      "value": 929
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -27557,7 +27557,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_google_drive_adapter.py",
       "symbol": null,
-      "value": 760
+      "value": 833
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -30209,7 +30209,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_metadata_index.py",
       "symbol": "OwnerMetadataIndexer",
-      "value": 415
+      "value": 416
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -30596,7 +30596,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_metadata_index.py",
       "symbol": "_refresh",
-      "value": 82
+      "value": 83
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -30668,7 +30668,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_metadata_index.py",
       "symbol": null,
-      "value": 1203
+      "value": 1204
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -30677,7 +30677,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_owner_metadata_index.py",
       "symbol": null,
-      "value": 826
+      "value": 843
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -31911,6 +31911,204 @@
       "path": "consent-protocol/hushh_mcp/services/marketing_preferences.py",
       "symbol": "pending_changes",
       "value": 113
+    },
+    {
+      "kind": "class_size",
+      "path": "consent-protocol/hushh_mcp/services/drive_group_index_store.py",
+      "detail": "class exceeds the advisory operon budget",
+      "value": 587,
+      "limit": 250,
+      "symbol": "DriveGroupIndexStore",
+      "key": "class_size|consent-protocol/hushh_mcp/services/drive_group_index_store.py|DriveGroupIndexStore|class exceeds the advisory operon budget"
+    },
+    {
+      "kind": "class_size",
+      "path": "consent-protocol/hushh_mcp/services/drive_group_index_job.py",
+      "detail": "class exceeds the advisory operon budget",
+      "value": 260,
+      "limit": 250,
+      "symbol": "DriveGroupIndexJob",
+      "key": "class_size|consent-protocol/hushh_mcp/services/drive_group_index_job.py|DriveGroupIndexJob|class exceeds the advisory operon budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/scripts/export_drive_groups.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 414,
+      "limit": 80,
+      "symbol": "export",
+      "key": "function_size|consent-protocol/scripts/export_drive_groups.py|export|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/hushh_mcp/services/drive_document_prefix.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 153,
+      "limit": 80,
+      "symbol": "_pdf",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_document_prefix.py|_pdf|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/hushh_mcp/services/drive_group_index_store.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 128,
+      "limit": 80,
+      "symbol": "commit",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_group_index_store.py|commit|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/hushh_mcp/services/drive_document_prefix.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 116,
+      "limit": 80,
+      "symbol": "_docx",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_document_prefix.py|_docx|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/tests/services/test_drive_groups.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 114,
+      "limit": 80,
+      "symbol": "local_export_setup",
+      "key": "function_size|consent-protocol/tests/services/test_drive_groups.py|local_export_setup|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/tests/services/test_drive_groups.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 114,
+      "limit": 80,
+      "symbol": "test_persistent_export_recovers_committed_content_in_a_fresh_process_without_downloads",
+      "key": "function_size|consent-protocol/tests/services/test_drive_groups.py|test_persistent_export_recovers_committed_content_in_a_fresh_process_without_downloads|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/hushh_mcp/services/drive_group_index_job.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 107,
+      "limit": 80,
+      "symbol": "_prepare_in_session",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_group_index_job.py|_prepare_in_session|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/scripts/eval_drive_groups.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 106,
+      "limit": 80,
+      "symbol": "main",
+      "key": "function_size|consent-protocol/scripts/eval_drive_groups.py|main|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/tests/services/test_drive_group_index_postgres.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 99,
+      "limit": 80,
+      "symbol": "test_local_fresh_read_port_rechecks_joined_authority_after_provider_io",
+      "key": "function_size|consent-protocol/tests/services/test_drive_group_index_postgres.py|test_local_fresh_read_port_rechecks_joined_authority_after_provider_io|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/hushh_mcp/services/drive_group_index_store.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 96,
+      "limit": 80,
+      "symbol": "files",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_group_index_store.py|files|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/hushh_mcp/services/drive_group_index_store.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 91,
+      "limit": 80,
+      "symbol": "operation",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_group_index_store.py|operation|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/scripts/train_drive_groups.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 91,
+      "limit": 80,
+      "symbol": "main",
+      "key": "function_size|consent-protocol/scripts/train_drive_groups.py|main|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "function_size",
+      "path": "consent-protocol/hushh_mcp/services/google_drive_rest_transport.py",
+      "detail": "function exceeds the advisory gene budget",
+      "value": 82,
+      "limit": 80,
+      "symbol": "_read_file_content",
+      "key": "function_size|consent-protocol/hushh_mcp/services/google_drive_rest_transport.py|_read_file_content|function exceeds the advisory gene budget"
+    },
+    {
+      "kind": "module_size",
+      "path": "consent-protocol/tests/services/test_drive_groups.py",
+      "detail": "module exceeds the advisory operon budget",
+      "value": 1466,
+      "limit": 500,
+      "symbol": null,
+      "key": "module_size|consent-protocol/tests/services/test_drive_groups.py||module exceeds the advisory operon budget"
+    },
+    {
+      "kind": "module_size",
+      "path": "consent-protocol/tests/services/test_drive_group_index_postgres.py",
+      "detail": "module exceeds the advisory operon budget",
+      "value": 796,
+      "limit": 500,
+      "symbol": null,
+      "key": "module_size|consent-protocol/tests/services/test_drive_group_index_postgres.py||module exceeds the advisory operon budget"
+    },
+    {
+      "kind": "module_size",
+      "path": "consent-protocol/hushh_mcp/services/drive_group_index_store.py",
+      "detail": "module exceeds the advisory operon budget",
+      "value": 719,
+      "limit": 500,
+      "symbol": null,
+      "key": "module_size|consent-protocol/hushh_mcp/services/drive_group_index_store.py||module exceeds the advisory operon budget"
+    },
+    {
+      "kind": "module_size",
+      "path": "consent-protocol/scripts/export_drive_groups.py",
+      "detail": "module exceeds the advisory operon budget",
+      "value": 655,
+      "limit": 500,
+      "symbol": null,
+      "key": "module_size|consent-protocol/scripts/export_drive_groups.py||module exceeds the advisory operon budget"
+    },
+    {
+      "kind": "module_size",
+      "path": "consent-protocol/scripts/build_drive_group_fixtures.py",
+      "detail": "module exceeds the advisory operon budget",
+      "value": 623,
+      "limit": 500,
+      "symbol": null,
+      "key": "module_size|consent-protocol/scripts/build_drive_group_fixtures.py||module exceeds the advisory operon budget"
+    },
+    {
+      "kind": "module_size",
+      "path": "consent-protocol/tests/test_drive_v1_worker_lane.py",
+      "detail": "module exceeds the advisory operon budget",
+      "value": 552,
+      "limit": 500,
+      "symbol": null,
+      "key": "module_size|consent-protocol/tests/test_drive_v1_worker_lane.py||module exceeds the advisory operon budget"
+    },
+    {
+      "kind": "module_size",
+      "path": "consent-protocol/tests/services/test_drive_work_drain.py",
+      "detail": "module exceeds the advisory operon budget",
+      "value": 505,
+      "limit": 500,
+      "symbol": null,
+      "key": "module_size|consent-protocol/tests/services/test_drive_work_drain.py||module exceeds the advisory operon budget"
     }
   ],
   "inspected_files": 6625,
@@ -84289,5 +84487,424 @@
         "review": "Two known sanitized recovery codes extend the existing error allowlist without changing redaction or no-store policy."
       }
     ]
+  },
+  "drive_four_group_integration_review_20261023": {
+    "source_revisions": [
+      "f6538ce2f1b144d74e141d06fc5a41427cf3a320",
+      "fc00eca0025575695a5298d83159eb13ee37e7bc",
+      "4da24d00ab79039422699209ffe473b0b532afb6"
+    ],
+    "reviewers": [
+      "branch_engine_comparison",
+      "main_engine_comparison",
+      "packets_ui_evidence",
+      "registration_schema_review"
+    ],
+    "original_failing_run": "https://github.com/hushh-labs/hushh-research/actions/runs/39833072114",
+    "scope": "Independent read-only source review of specific feature/integration size debt; no dependency/import exception, scanner change, exclusion or budget increase. Final hashes include the partial-refresh correctness fix. Scheduler parsing/restoration was extracted and needs no retained ceiling.",
+    "validation": "27 real PostgreSQL cases; partial-refresh negative control fails ready vs indexing; 12 pure scheduler cases; existing focused prefix/authority/browser evidence in PR8361. Every retained identity rejects a subsequent value increment. Linux CI and authenticated UAT remain required.",
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/google_drive_adapter.py|GoogleDriveAdapter|class exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 785,
+        "after": 836,
+        "source_sha256": "2aae57843f11f8b2ca66680af3bba71882e428db1c4ec0394dec61de3bf50f2f",
+        "reviewer": "main_engine_comparison",
+        "review": "Existing central provider request allowlist and bounded stream authority. Exact prefix additions reject redirects, compression, wider ranges and native export; retain a single HTTP authority."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_group_index_store.py|DriveGroupIndexStore|class exceeds the advisory operon budget",
+        "rank": 0,
+        "before": null,
+        "after": 587,
+        "source_sha256": "6aa09deb683d3982816a53b5df86305dcd0c5f557d5c255b4482431c23cacba3",
+        "reviewer": "main_engine_comparison",
+        "review": "One persistence organ: canonical live/background/cohort/placement fences, one lock order and AES owner/reference/generation domain. Atomic owner overrides, upsert, exhaustive-list prune and progress/lease release remain together. Reviewed work_remaining fix and real PostgreSQL regression preserve historical completion while partial refresh stays indexing."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/google_drive_rest_transport.py|GoogleDriveRestTransport|class exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 486,
+        "after": 550,
+        "source_sha256": "9284aefbb963be996b562921fcc003859c7abf1a976f350c4b84dd30f01099cd",
+        "reviewer": "branch_engine_comparison",
+        "review": "Closed group operations reuse the existing credential/generation fence and isolated parser; bounded prefix mode refuses full/native-export fallback. Preserve one provider authority."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_owner_metadata_index.py|OwnerMetadataIndexer|class exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 415,
+        "after": 416,
+        "source_sha256": "5274b2fcb562ca126329560038b78be958e64b5922be6e1babceb3c11e1b0a9d",
+        "reviewer": "branch_engine_comparison",
+        "review": "One owner/generation metadata cache with bounded paging and change replay. Exact one-line row-count telemetry growth; authority, TTL and pagination unchanged."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_group_index_job.py|DriveGroupIndexJob|class exceeds the advisory operon budget",
+        "rank": 0,
+        "before": null,
+        "after": 260,
+        "source_sha256": "493f601e011b06a5add0da1150efff0859d7169a37a87a39999bc35d98f9e267",
+        "reviewer": "main_engine_comparison",
+        "review": "One bounded orchestration organ with replaceable store/transport/embedder ports, policy fingerprint, lease renewal, two-read budget and cancellation cleanup. Timed capture/selection is future extraction debt; no new router or authority."
+      },
+      {
+        "key": "function_size|consent-protocol/scripts/export_drive_groups.py|export|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 414,
+        "source_sha256": "4d1d5358eae671e15a2422e2e99afb0e653bdc7d449a736e50a7acbc81422bc6",
+        "reviewer": "branch_engine_comparison",
+        "review": "One resumable operator export with canonical grant/revision fences before reads and checkpoint publication; preserves existing recovery and cleanup entrypoints. Future orchestration extraction remains debt."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/google_drive_adapter.py|_get_private|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 250,
+        "after": 284,
+        "source_sha256": "2aae57843f11f8b2ca66680af3bba71882e428db1c4ec0394dec61de3bf50f2f",
+        "reviewer": "main_engine_comparison",
+        "review": "Existing central provider request allowlist and bounded stream authority. Exact prefix additions reject redirects, compression, wider ranges and native export; retain a single HTTP authority."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_document_prefix.py|_pdf|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 153,
+        "source_sha256": "096649475f8e855aaa9296e535de5ba71e0583f39106611ff2a014cadc675fcd",
+        "reviewer": "main_engine_comparison",
+        "review": "Already format-specific credential-free parsing leaves: PDF catalog/page/stream/font validation and DOCX local headers/CRC/expansion/XML validation are coupled recovery invariants. Lazy imports and bounded isolated execution preserved."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_group_index_store.py|commit|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 128,
+        "source_sha256": "6aa09deb683d3982816a53b5df86305dcd0c5f557d5c255b4482431c23cacba3",
+        "reviewer": "main_engine_comparison",
+        "review": "One persistence organ: canonical live/background/cohort/placement fences, one lock order and AES owner/reference/generation domain. Atomic owner overrides, upsert, exhaustive-list prune and progress/lease release remain together. Reviewed work_remaining fix and real PostgreSQL regression preserve historical completion while partial refresh stays indexing."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_document_prefix.py|_docx|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 116,
+        "source_sha256": "096649475f8e855aaa9296e535de5ba71e0583f39106611ff2a014cadc675fcd",
+        "reviewer": "main_engine_comparison",
+        "review": "Already format-specific credential-free parsing leaves: PDF catalog/page/stream/font validation and DOCX local headers/CRC/expansion/XML validation are coupled recovery invariants. Lazy imports and bounded isolated execution preserved."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/services/test_drive_groups.py|local_export_setup|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 114,
+        "source_sha256": "1f8a593a84fe3485efb38ca53fb67bb6bbbb64c8fad6848c2cb020cd19ac715f",
+        "reviewer": "registration_schema_review",
+        "review": "One organizing/export capability covers abstention, fiscal folders, bounded inventory, authority and checkpoint recovery. Shared export fixture and fresh-interpreter interrupted recovery case protect one lifecycle; no trivial duplicate cluster found."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/services/test_drive_groups.py|test_persistent_export_recovers_committed_content_in_a_fresh_process_without_downloads|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 114,
+        "source_sha256": "1f8a593a84fe3485efb38ca53fb67bb6bbbb64c8fad6848c2cb020cd19ac715f",
+        "reviewer": "registration_schema_review",
+        "review": "One organizing/export capability covers abstention, fiscal folders, bounded inventory, authority and checkpoint recovery. Shared export fixture and fresh-interpreter interrupted recovery case protect one lifecycle; no trivial duplicate cluster found."
+      },
+      {
+        "key": "function_size|scripts/ops/sync_backend_runtime_secrets.py|_build_backend_runtime_config|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 109,
+        "after": 110,
+        "source_sha256": "32e139006a80a9b1957d29f710f2b4f8d25c97642428582209dd0298d03cd839",
+        "reviewer": "packets_ui_evidence",
+        "review": "One Drive flag value added to the canonical normalized backend runtime-config payload; no duplicate config authority or semantic decision."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_group_index_job.py|_prepare_in_session|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 107,
+        "source_sha256": "493f601e011b06a5add0da1150efff0859d7169a37a87a39999bc35d98f9e267",
+        "reviewer": "main_engine_comparison",
+        "review": "One bounded orchestration organ with replaceable store/transport/embedder ports, policy fingerprint, lease renewal, two-read budget and cancellation cleanup. Timed capture/selection is future extraction debt; no new router or authority."
+      },
+      {
+        "key": "function_size|consent-protocol/scripts/eval_drive_groups.py|main|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 106,
+        "source_sha256": "8d5415ef1eafd3cbe4e903c9250e69851138f146898e3c1801c3dff293221d63",
+        "reviewer": "branch_engine_comparison",
+        "review": "One offline aggregate evaluation and same-policy ablation report, reusing runtime placement contracts; no private document output."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/services/test_drive_group_index_postgres.py|test_local_fresh_read_port_rechecks_joined_authority_after_provider_io|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 99,
+        "source_sha256": "71940d58346c0fe672163f7c0dca33701e03059bdc96b9480f0ba62fb5d8c3b1",
+        "reviewer": "registration_schema_review",
+        "review": "One real PostgreSQL durable lifecycle suite covers sealed AAD substitution, invalidation, leases, owner overrides, pruning and rollback. Joined-authority test mutates a separate transaction with unchanged-authority positive control. Added completed-to-partial-refresh case protects readiness without resetting historical completion."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_group_index_store.py|files|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 96,
+        "source_sha256": "6aa09deb683d3982816a53b5df86305dcd0c5f557d5c255b4482431c23cacba3",
+        "reviewer": "main_engine_comparison",
+        "review": "One persistence organ: canonical live/background/cohort/placement fences, one lock order and AES owner/reference/generation domain. Atomic owner overrides, upsert, exhaustive-list prune and progress/lease release remain together. Reviewed work_remaining fix and real PostgreSQL regression preserve historical completion while partial refresh stays indexing."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_group_index_store.py|operation|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 91,
+        "source_sha256": "6aa09deb683d3982816a53b5df86305dcd0c5f557d5c255b4482431c23cacba3",
+        "reviewer": "main_engine_comparison",
+        "review": "One persistence organ: canonical live/background/cohort/placement fences, one lock order and AES owner/reference/generation domain. Atomic owner overrides, upsert, exhaustive-list prune and progress/lease release remain together. Reviewed work_remaining fix and real PostgreSQL regression preserve historical completion while partial refresh stays indexing."
+      },
+      {
+        "key": "function_size|consent-protocol/scripts/train_drive_groups.py|main|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 91,
+        "source_sha256": "00baa57451790e0eca75df03ad133da3210b2d2f13ff11bfd210b6d3204b8e24",
+        "reviewer": "branch_engine_comparison",
+        "review": "One offline train-only family-held-out fit and related artifact serialization command; no runtime provider or store authority."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_drive_work_drain_routes.py|test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 82,
+        "after": 84,
+        "source_sha256": "807351003313fc5783eb50d9d7e4d78a92febe10d21a2dec76b3fd7757c3826b",
+        "reviewer": "packets_ui_evidence",
+        "review": "Two groups input/output additions extend one request/response security case covering fixed invocation, no-store and private-information exclusion."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_metadata_index.py|_refresh|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 82,
+        "after": 83,
+        "source_sha256": "5274b2fcb562ca126329560038b78be958e64b5922be6e1babceb3c11e1b0a9d",
+        "reviewer": "branch_engine_comparison",
+        "review": "One owner/generation metadata cache with bounded paging and change replay. Exact one-line row-count telemetry growth; authority, TTL and pagination unchanged."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/google_drive_rest_transport.py|_read_file_content|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": null,
+        "after": 82,
+        "source_sha256": "9284aefbb963be996b562921fcc003859c7abf1a976f350c4b84dd30f01099cd",
+        "reviewer": "branch_engine_comparison",
+        "review": "Closed group operations reuse the existing credential/generation fence and isolated parser; bounded prefix mode refuses full/native-export fallback. Preserve one provider authority."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/capacitor/native-chrome.test.tsx||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 4466,
+        "after": 4468,
+        "source_sha256": "43bdfa11bbc3c7035e427a135fa0e03f9e137b47ed0f80ddb6a2825d09924aa3",
+        "reviewer": "packets_ui_evidence",
+        "review": "Two legal/illegal child-path assertions extend one existing connector navigation contract; separate placement would fragment the same native path case."
+      },
+      {
+        "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 2688,
+        "after": 2723,
+        "source_sha256": "e287a5f133c464d0a704379b50117275c566f7e83255a9f1574ae60c0cb4654b",
+        "reviewer": "packets_ui_evidence",
+        "review": "One parameterized folders case reuses existing production-derived drawer/CSS harness and proves below-trust placement, 44px targets, pagination, empty category and Back at three widths. Future shared-harness extraction remains debt."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_drive_groups.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": null,
+        "after": 1466,
+        "source_sha256": "1f8a593a84fe3485efb38ca53fb67bb6bbbb64c8fad6848c2cb020cd19ac715f",
+        "reviewer": "registration_schema_review",
+        "review": "One organizing/export capability covers abstention, fiscal folders, bounded inventory, authority and checkpoint recovery. Shared export fixture and fresh-interpreter interrupted recovery case protect one lifecycle; no trivial duplicate cluster found."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/runtime_settings.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1433,
+        "after": 1434,
+        "source_sha256": "e36532479a079057be34ea56f59d2c601f65c06b297026a9e62982a7919ac24d",
+        "reviewer": "packets_ui_evidence",
+        "review": "One Drive flag added to the canonical runtime environment map; unrelated integrated main private-hosting settings retain their owner and compatibility."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_owner_metadata_index.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1203,
+        "after": 1204,
+        "source_sha256": "5274b2fcb562ca126329560038b78be958e64b5922be6e1babceb3c11e1b0a9d",
+        "reviewer": "branch_engine_comparison",
+        "review": "One owner/generation metadata cache with bounded paging and change replay. Exact one-line row-count telemetry growth; authority, TTL and pagination unchanged."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/google_drive_adapter.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1109,
+        "after": 1161,
+        "source_sha256": "2aae57843f11f8b2ca66680af3bba71882e428db1c4ec0394dec61de3bf50f2f",
+        "reviewer": "main_engine_comparison",
+        "review": "Existing central provider request allowlist and bounded stream authority. Exact prefix additions reject redirects, compression, wider ranges and native export; retain a single HTTP authority."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_google_drive_rest_transport.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 1058,
+        "after": 1114,
+        "source_sha256": "1e6cb1270b12fcf4030189ca5d9e9b283fcb2e10bc739ddbea0beee92c4cd01d",
+        "reviewer": "registration_schema_review",
+        "review": "One REST authority boundary; before-provider generation rejection, no prefix fallback, post-I/O revocation and per-page credential cases protect distinct contracts."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/google_drive_rest_transport.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 846,
+        "after": 934,
+        "source_sha256": "9284aefbb963be996b562921fcc003859c7abf1a976f350c4b84dd30f01099cd",
+        "reviewer": "branch_engine_comparison",
+        "review": "Closed group operations reuse the existing credential/generation fence and isolated parser; bounded prefix mode refuses full/native-export fallback. Preserve one provider authority."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_drive_document_processor.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 696,
+        "after": 929,
+        "source_sha256": "c8941761e861b29ec3766cc9f54c36b03cd87544d95b01a01272789a6dc07385",
+        "reviewer": "registration_schema_review",
+        "review": "One untrusted-document boundary; valid prefix recovery has malformed/orphan/CRC/entity/expansion negative controls. Parser concurrency and sandbox resource cases protect distinct boundaries."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_drive_owner_metadata_index.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 826,
+        "after": 843,
+        "source_sha256": "4d064223586d1662c0df378c7553899fd4d91bc4c2b002018fa490666f1d62e3",
+        "reviewer": "registration_schema_review",
+        "review": "One resumable owner metadata cache/search suite; added bounded row-count telemetry assertions retain existing private-value exclusions and failed-fence preservation."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_google_drive_adapter.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 760,
+        "after": 833,
+        "source_sha256": "2fd22f30446df2a931b37061d73d5c9ddd70796dd93f992cadb995983779127c",
+        "reviewer": "registration_schema_review",
+        "review": "One HTTP boundary suite validates actual Range/media/encoding headers with a stream that fails if its tail is consumed; invalid partial ranges, compression, native export and wider limits are negative controls."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_drive_group_index_postgres.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": null,
+        "after": 796,
+        "source_sha256": "71940d58346c0fe672163f7c0dca33701e03059bdc96b9480f0ba62fb5d8c3b1",
+        "reviewer": "registration_schema_review",
+        "review": "One real PostgreSQL durable lifecycle suite covers sealed AAD substitution, invalidation, leases, owner overrides, pruning and rollback. Joined-authority test mutates a separate transaction with unchanged-authority positive control. Added completed-to-partial-refresh case protects readiness without resetting historical completion."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_group_index_store.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": null,
+        "after": 719,
+        "source_sha256": "6aa09deb683d3982816a53b5df86305dcd0c5f557d5c255b4482431c23cacba3",
+        "reviewer": "main_engine_comparison",
+        "review": "One persistence organ: canonical live/background/cohort/placement fences, one lock order and AES owner/reference/generation domain. Atomic owner overrides, upsert, exhaustive-list prune and progress/lease release remain together. Reviewed work_remaining fix and real PostgreSQL regression preserve historical completion while partial refresh stays indexing."
+      },
+      {
+        "key": "module_size|consent-protocol/scripts/export_drive_groups.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": null,
+        "after": 655,
+        "source_sha256": "4d1d5358eae671e15a2422e2e99afb0e653bdc7d449a736e50a7acbc81422bc6",
+        "reviewer": "branch_engine_comparison",
+        "review": "One resumable operator export with canonical grant/revision fences before reads and checkpoint publication; preserves existing recovery and cleanup entrypoints. Future orchestration extraction remains debt."
+      },
+      {
+        "key": "module_size|consent-protocol/scripts/build_drive_group_fixtures.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": null,
+        "after": 623,
+        "source_sha256": "f8d6c54b36c8596d492f8a017ceafe0e2cce3b0ba461fd64c613fdb674001559",
+        "reviewer": "branch_engine_comparison",
+        "review": "One synthetic catalog of small templates with local seeded RNG and disjoint train/eval families; splitting only by line count would fragment its schema."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_drive_v1_worker_lane.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": null,
+        "after": 552,
+        "source_sha256": "9fe12a54901ae2b5389bf84e1782f6f2e5ac961d0fb1f682ee358f812a7c1d4a",
+        "reviewer": "packets_ui_evidence",
+        "review": "Related fixed scheduler lifecycle cases share the existing job fixture and reset selected stage. They protect schema-separated rollback and malformed partial-target restoration; scheduler CLI/restore itself was extracted below all budgets."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_drive_work_drain.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": null,
+        "after": 505,
+        "source_sha256": "5317c3cb8712b5b66caeb3515afdbe53b50a928a75134b5ab159e21591b1cc32",
+        "reviewer": "packets_ui_evidence",
+        "review": "One coordinator fixture protects exclusive bounded groups dispatch and private-outcome redaction; related aggregate contract cases remain together."
+      }
+    ],
+    "follow_up_main_revision": "9e8905d1d7",
+    "follow_up_review": "Read-only schema/test review retains MCP409 and moves only unreleased Drive migration to410. Adapter prefix test bodies are unchanged after main metadata-fixture extraction and named Unicode cases. PostgreSQL registration bound follows the migration filename; no wider size ceiling is introduced."
+  },
+  "ci_browser_readiness_review_20261023": {
+    "parent_revision": "f210ed799817e3fa37dba38725ee47b61938862c",
+    "source_revision": "930bc08d3f94be5e2a42df816f6c2bb0168887d5",
+    "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+    "rank": 0,
+    "before": 2723,
+    "after": 2730,
+    "source_sha256": "03415912118861dd5529c42662f4f4754139cf148ce91270922d011edfe2f734",
+    "reviewer": "registration_schema_review",
+    "review": "Seven added lines separate drawable readiness from bounded presentation dwell. Existing artwork ordering, interruption, mounted-layer and painted-frame assertions remain. Global budgets, per-finding limits, scanner and exclusions are unchanged.",
+    "validation": "All 10 focused Chromium/WebKit cases passed. The file-scoped scanner passes at2730 and rejects a2731 negative control."
+  },
+  "ci_native_resize_review_20261023": {
+    "parent_revision": "947197e097",
+    "source_revision": "0f3f38d2eb26451f5b48980423bb56852a181d46",
+    "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+    "rank": 0,
+    "before": 2730,
+    "after": 2737,
+    "source_sha256": "9810fa8caf4dd60539cbf2fe6a924f19df941f648232ae7446b5c66dd46aa835",
+    "reviewer": "packets_ui_evidence",
+    "review": "The same canvas traverses all eight resize states and both widths. Explicit5s per-resize and unchanged6.5s motion bounds retain bitmap, visibility, identity, buffer, feet, spacing and corner checks. A45s aggregate budget prevents truncating the final check; raw playback status and step diagnostics expose failures. Global budgets, limits, scanner and exclusions remain unchanged.",
+    "validation": "Six Chromium/WebKit resize cases passed at1x/2x/3x. Persistent hidden and blank native-canvas negative controls each failed the5s predicate; exact source restored."
+  },
+  "ci_private_status_review_20261023": {
+    "parent_revision": "4f1a5a7ff194c5d2ad5623f3cf51994d38ddb82d",
+    "source_revision": "1428a62827dcab72d6130224245f1ea42c9e32fe",
+    "key": "module_size|consent-protocol/tests/test_pod_memory_routes.py||module exceeds the advisory operon budget",
+    "rank": 0,
+    "before": 1870,
+    "after": 1886,
+    "source_sha256": "8acae34e19288e4c3b9b5bcf7cb613e09f4847726555bf122f0f7439f40eefbd",
+    "reviewer": "store_boundary_review",
+    "review": "The existing owner-local status/revoke test validates closed response shapes, exactly two known opaque IDs and the existing short secret sentinels. Only the validated ID list is excluded from plaintext scanning. The module gains 20 lines from its actual parent source and 16 over its recorded ceiling. Global budgets, limits, scanner and exclusions remain unchanged.",
+    "validation": "The exact assertion block accepts a colliding opaque hash and rejects eight leakage or malformed-shape controls. Ninety focused route, rollout and account-erasure tests pass. Full POSIX-backed memory route execution remains a hosted Linux check."
+  },
+  "ci_revocation_status_review_20261023": {
+    "parent_revision": "bceec86114183396d1881dbc013b1b8b8d065231",
+    "source_revision": "af5850b2f88ad5bc878aac12b611969b901b5a47",
+    "key": "module_size|consent-protocol/tests/test_pod_memory_routes.py||module exceeds the advisory operon budget",
+    "rank": 0,
+    "before": 1886,
+    "after": 1887,
+    "source_sha256": "ca9c5e6f313029037c9d6fdbade6163fc948caf0c15b4bbb4becd9b9c863f753",
+    "reviewer": "store_boundary_review",
+    "review": "The same privacy case validates closed response shapes independently across revocation, allowing the legitimate provider stale-state transition. Counts, known opaque IDs and short secret checks remain. Only one source line is added; global budgets, limits, scanner and exclusions are unchanged.",
+    "validation": "The actual service in documented no-log mode changes stale from false to true after revocation. Its outputs pass the exact assertion block while the old equality fails. A legitimate colliding hash passes and ten leakage or malformed-shape controls fail. Hosted Linux remains responsible for durable replay and complete route execution."
   }
 }

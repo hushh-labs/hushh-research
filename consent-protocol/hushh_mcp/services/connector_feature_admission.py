@@ -15,6 +15,7 @@ FEATURES = {
     "google_drive_live": "GOOGLE_DRIVE_LIVE",
     "google_drive_picker": "GOOGLE_DRIVE_PICKER",
     "drive_document_indexing": "DRIVE_DOCUMENT_INDEXING",
+    "drive_four_group_index": "DRIVE_FOUR_GROUP_INDEX_ENABLED",
     "drive_document_sharing": "DRIVE_DOCUMENT_SHARING",
     "gmail_chat_reads": "GMAIL_CHAT_READS",
     "google_drive_chat_reads": "GOOGLE_DRIVE_CHAT_READS",
@@ -47,6 +48,7 @@ PRODUCTION_STAGED_DRIVE = frozenset(
         "connections_panel_v2",
         "google_drive_live",
         "drive_document_indexing",
+        "drive_four_group_index",
         "drive_document_sharing",
     }
 )

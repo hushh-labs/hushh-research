@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import os
+import shutil
 import subprocess
 import tempfile
 
@@ -103,6 +104,8 @@ def verify_public_schema_bound_keeps_secret_detection() -> None:
 
 def verify_alert_authentication_fails_closed() -> None:
     """Unavailable or malformed authority must not pass an explicitly strict gate."""
+    # Resolve before the missing-tool scenario deliberately replaces PATH.
+    bash = shutil.which("bash") or "/bin/bash"
     with tempfile.TemporaryDirectory(prefix="security-alert-auth-") as temporary:
         root = Path(temporary)
         gh = root / "gh"
@@ -127,7 +130,7 @@ case "$*" in
     esac ;;
   *) exit 1 ;;
 esac
-""")
+""", newline="\n")
         gh.chmod(0o700)
         base = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
                 "GITHUB_REPOSITORY": "example/security-fixture", "GITHUB_EVENT_NAME": "workflow_dispatch",
@@ -138,12 +141,12 @@ esac
             environment = {**base, "ALERT_CASE": scenario}
             if scenario == "missing":
                 environment["PATH"] = str(root / "absent")
-            result = subprocess.run(["/bin/bash", str(ROOT / "scripts/ci/github-security-alerts.sh")],
+            result = subprocess.run([bash, str(ROOT / "scripts/ci/github-security-alerts.sh")],
                                     env=environment, capture_output=True, text=True, timeout=10)
             if bool(result.returncode) != bool(expected):
                 raise AssertionError(f"security alert authority {scenario}: expected exit {expected}, got {result.returncode}")
         environment = {**base, "ALERT_CASE": "unauthenticated", "REQUIRE_GITHUB_ALERTS_CLEAN": "0"}
-        result = subprocess.run(["/bin/bash", str(ROOT / "scripts/ci/github-security-alerts.sh")],
+        result = subprocess.run([bash, str(ROOT / "scripts/ci/github-security-alerts.sh")],
                                 env=environment, capture_output=True, text=True, timeout=10)
         if not result.returncode:
             raise AssertionError("explicit strict secret policy must refuse unauthenticated CLI even without global strict mode")
@@ -152,7 +155,7 @@ esac
             environment = {**base, "ALERT_CASE": scenario, "REQUIRE_GITHUB_ALERTS_CLEAN": "0",
                            "REQUIRE_GITHUB_SECRET_ALERTS_CLEAN": secret,
                            "REQUIRE_GITHUB_DEPENDABOT_ALERTS_CLEAN": dependency}
-            result = subprocess.run(["/bin/bash", str(ROOT / "scripts/ci/github-security-alerts.sh")],
+            result = subprocess.run([bash, str(ROOT / "scripts/ci/github-security-alerts.sh")],
                                     env=environment, capture_output=True, text=True, timeout=10)
             if not result.returncode:
                 raise AssertionError("an optional read failure skipped required open-alert clearance")

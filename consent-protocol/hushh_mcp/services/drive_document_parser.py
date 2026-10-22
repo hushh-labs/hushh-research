@@ -47,6 +47,7 @@ class ParseError(ValueError):
 class ParsedText:
     pages: tuple[str, ...] = field(repr=False)
     truncated: bool = False
+    method: str | None = None
 
 
 def _bounded(pages) -> ParsedText:
@@ -372,15 +373,27 @@ def main() -> None:
     resource.setrlimit(resource.RLIMIT_CPU, (20, 20))
     if sys.platform == "linux":
         resource.setrlimit(resource.RLIMIT_AS, (512 * 1024 * 1024,) * 2)
+    parser_error = ParseError
     try:
         mime = sys.argv[1]
+        prefix = mime.startswith("prefix:")
         parser = parse_live_document if mime.startswith("live:") else parse_document
-        input_limit = (
-            MAX_XLSX_INPUT_BYTES if mime.removeprefix("live:") == XLSX else MAX_INPUT_BYTES
-        )
-        parsed = parser(sys.stdin.buffer.read(input_limit + 1), mime.removeprefix("live:"))
+        mime = mime.removeprefix("live:").removeprefix("prefix:")
+        input_limit = MAX_XLSX_INPUT_BYTES if mime == XLSX else MAX_INPUT_BYTES
+        if prefix:
+            if __package__:
+                from .drive_document_prefix import PREFIX_LIMIT, parse_prefix_document
+                from .drive_document_prefix import ParseError as parser_error
+            else:
+                from drive_document_prefix import PREFIX_LIMIT, parse_prefix_document
+                from drive_document_prefix import ParseError as parser_error
+
+            parser, input_limit = parse_prefix_document, PREFIX_LIMIT
+        parsed = parser(sys.stdin.buffer.read(input_limit + 1), mime)
         result = {"pages": parsed.pages, "truncated": parsed.truncated}
-    except ParseError as error:
+        if prefix:
+            result["method"] = parsed.method
+    except (ParseError, parser_error) as error:
         result = {"error": str(error)}
     except Exception:
         result = {"error": "invalid_document"}
