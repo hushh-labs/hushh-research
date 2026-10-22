@@ -107,6 +107,17 @@ async def fetch_with_market_provider(
 ) -> Any:
     """Transitional route seam: existing adapter remains until explicit cutover."""
     provider = get_bound_market_data_provider()
-    if provider is not None:
-        return await provider.fetch(request)
-    return await legacy_fetch()
+    from hushh_mcp.services.market_refresh_policy import (
+        PRICE_MARKET_OPERATIONS,
+        market_price_refresh_scope,
+    )
+
+    async def fetch():
+        return await provider.fetch(request) if provider is not None else await legacy_fetch()
+
+    if request.operation in PRICE_MARKET_OPERATIONS and (
+        provider is None or provider.name != "fixture"
+    ):
+        with market_price_refresh_scope(request.exchange):
+            return await fetch()
+    return await fetch()

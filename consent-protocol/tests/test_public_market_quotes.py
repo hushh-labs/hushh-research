@@ -9,6 +9,8 @@ free rung raised on every batch and the failure was invisible behind two keyed p
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import httpx
 import pytest
 
@@ -16,6 +18,14 @@ from api.routes import market_quotes
 from api.routes.kai import market_insights
 from hushh_mcp.operons.kai import fetchers
 from hushh_mcp.services.market_insights_cache import MarketInsightsCache
+
+
+@pytest.fixture(autouse=True)
+def regular_session_clock(monkeypatch):
+    now = datetime.fromisoformat("2026-07-14T14:00:00+00:00").timestamp()
+    monkeypatch.setattr(fetchers.time, "time", lambda: now)
+    monkeypatch.setattr(market_insights, "time", lambda: now)
+
 
 # ---------------------------------------------------------------------------
 # Symbol handling
@@ -316,7 +326,7 @@ async def test_company_facts_dont_inherit_price_cache_placeholders(monkeypatch):
     monkeypatch.setattr(
         yfinance,
         "Ticker",
-        lambda _symbol: SimpleNamespace(
+        lambda _symbol, **_kwargs: SimpleNamespace(
             info={
                 "currentPrice": 200,
                 "marketCap": 3_000_000_000,

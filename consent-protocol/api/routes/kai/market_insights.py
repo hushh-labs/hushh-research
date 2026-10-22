@@ -37,6 +37,10 @@ from hushh_mcp.services.market_insights_cache import market_insights_cache
 from hushh_mcp.services.market_news_images import article_image_url, enrich_market_news_images
 from hushh_mcp.services.market_provider_telemetry import record_provider_request
 from hushh_mcp.services.market_refresh_policy import (
+    MarketPriceRefreshPaused,
+    closed_price_snapshot_usable,
+    market_price_refresh_scope,
+    price_cache_retention_seconds,
     seconds_until_us_market_open,
     us_market_is_open,
     us_market_session_opened_at,
@@ -201,6 +205,8 @@ MARKET_PRICE_SENSITIVE_PREFIXES = (
     "market_status:",
     "market-status:",
 )
+# Home also contains news/filings, so only its price submodules are cache-only.
+MARKET_PRICE_REFRESH_PREFIXES = ("quotes:", "movers:", "sectors:", "macro:", "sparklines:")
 # Modules that should stay relatively static and never tighten on the open.
 MARKET_LOW_VOLATILITY_PREFIXES = (
     "news:",
@@ -217,12 +223,7 @@ MARKET_CLOSED_LOW_VOLATILITY_FRESH_TTL_SECONDS = 3600
 
 
 def _us_market_is_open(now: datetime | None = None) -> bool:
-    """Best-effort check for US regular trading hours (Mon-Fri 09:30-16:00 ET).
-
-    Intentionally conservative and schedule-based (no holiday calendar): it only
-    governs cache-refresh cadence, never displayed market status, so a holiday
-    treated as "open" just means a slightly tighter (harmless) refresh window.
-    """
+    """Offline XNYS regular session, including holidays and early closes."""
     return us_market_is_open(now)
 
 
@@ -1112,6 +1113,11 @@ async def _get_or_refresh_public_module(
     3) Live fetch (external providers) + write-through to L1 + L2
     """
     now_ts = time()
+    moment = datetime.fromtimestamp(now_ts, tz=timezone.utc)
+    price_module = key.startswith(MARKET_PRICE_REFRESH_PREFIXES)
+    closed = price_module and not _us_market_is_open()
+    if key.startswith(MARKET_PRICE_SENSITIVE_PREFIXES):
+        stale_ttl_seconds = price_cache_retention_seconds(stale_ttl_seconds, moment)
     # Tighten the fresh window during US market hours and relax it when closed,
     # for price-sensitive modules. Stale TTL is preserved so degradation and
     # serve-stale-while-revalidate behavior are unchanged.
@@ -1156,7 +1162,8 @@ async def _get_or_refresh_public_module(
 
     existing_l1 = market_insights_cache.peek(key)
     if (
-        existing_l1
+        not closed
+        and existing_l1
         and (now_ts - existing_l1.fetched_at) <= fresh_ttl_seconds
         and (fresh_after_ts is None or existing_l1.fetched_at >= fresh_after_ts)
         and not has_recoverable_degradation(existing_l1.value)
@@ -1180,7 +1187,8 @@ async def _get_or_refresh_public_module(
         store = None
         l2_entry = None
     if (
-        l2_entry
+        not closed
+        and l2_entry
         and l2_entry.is_fresh(now_ts)
         and now_ts - l2_entry.updated_at_ts <= fresh_ttl_seconds
         and (fresh_after_ts is None or l2_entry.updated_at_ts >= fresh_after_ts)
@@ -1192,14 +1200,30 @@ async def _get_or_refresh_public_module(
     # Seed stale L2 into L1 so L1 stale-on-error can serve fallback.
     if (
         l2_entry
-        and l2_entry.is_stale_servable(now_ts)
+        and (
+            l2_entry.is_stale_servable(now_ts)
+            or (closed and closed_price_snapshot_usable(l2_entry.updated_at_ts, moment))
+        )
         and (existing_l1 is None or l2_entry.updated_at_ts > existing_l1.fetched_at)
     ):
         market_insights_cache.seed_entry(key, l2_entry.payload, l2_entry.updated_at_ts)
 
+    if closed:
+        saved = market_insights_cache.peek(key)
+        if saved and closed_price_snapshot_usable(saved.fetched_at, moment):
+            tier = (
+                "postgres" if l2_entry and saved.fetched_at == l2_entry.updated_at_ts else "memory"
+            )
+            return (saved.value, True, max(0, int(now_ts - saved.fetched_at)), tier, True)
+        raise MarketPriceRefreshPaused("market_closed_no_cached_price")
+
     async def wrapped_fetcher() -> Any:
         requested_at = time()
-        value = await fetcher()
+        if price_module:
+            with market_price_refresh_scope():
+                value = await fetcher()
+        else:
+            value = await fetcher()
         completed_session = (
             us_market_session_opened_at(datetime.fromtimestamp(time(), tz=timezone.utc))
             if key.startswith(MARKET_PRICE_SENSITIVE_PREFIXES)
@@ -1208,7 +1232,11 @@ async def _get_or_refresh_public_module(
         if completed_session is not None and requested_at < completed_session:
             # Nested caches may have been read before opening. Rebuild once
             # under the new session before stamping this assembled snapshot.
-            value = await fetcher()
+            if price_module:
+                with market_price_refresh_scope():
+                    value = await fetcher()
+            else:
+                value = await fetcher()
         provider_status = {}
         if isinstance(value, dict) and isinstance(value.get("provider_status"), dict):
             provider_status = value.get("provider_status") or {}
@@ -2281,6 +2309,9 @@ def _market_startup_warm_timeout_seconds() -> float:
 async def _refresh_public_market_modules_once() -> None:
     refresh_summary: list[str] = []
 
+    if not _us_market_is_open():
+        return
+
     if is_budget_critical():
         # Preserve remaining daily FMP quota for real user requests: skip this
         # proactive background warm cycle entirely once we are down to the
@@ -2387,7 +2418,8 @@ async def _market_refresh_loop() -> None:
     logger.info("[Kai Market] background refresh loop started")
     while True:
         try:
-            await _run_refresh_with_advisory_lock()
+            if _us_market_is_open():
+                await _run_refresh_with_advisory_lock()
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -2398,7 +2430,10 @@ async def _market_refresh_loop() -> None:
         jitter_max = max(5.0, interval * 0.12)
         jitter_ms = int(jitter_max * 1000)
         cycle_jitter = (secrets.randbelow(jitter_ms + 1) / 1000.0) if jitter_ms > 0 else 0.0
-        await asyncio.sleep(min(interval + cycle_jitter, seconds_until_us_market_open()))
+        until_open = seconds_until_us_market_open()
+        await asyncio.sleep(
+            min(interval + cycle_jitter, until_open) if _us_market_is_open() else until_open
+        )
 
 
 def start_market_insights_background_refresh() -> None:
@@ -3305,7 +3340,7 @@ async def _get_market_insights_payload(
         logger.exception(
             "[Kai Market] home payload build failed for %s: %s", user_id, type(exc).__name__
         )
-        return _empty_market_home_payload(
+        empty = _empty_market_home_payload(
             user_id=user_id,
             requested_watchlist_symbols=requested_watchlist_symbols,
             filtered_symbols=filtered_symbols,
@@ -3313,10 +3348,21 @@ async def _get_market_insights_payload(
             provider_status={"home": _provider_status_from_exception(exc)},
             market_mode="personalized" if personalized else "baseline",
         )
+        if effective_exchange == DEFAULT_EXCHANGE and not _us_market_is_open():
+            empty["market_overview"] = [_scheduled_market_status_fallback(DEFAULT_EXCHANGE)]
+        return empty
 
-    payload = home_value if isinstance(home_value, dict) else {}
-    payload["stale"] = bool(payload.get("stale")) or home_stale
-    if home_stale:
+    payload = dict(home_value) if isinstance(home_value, dict) else {}
+    if effective_exchange == DEFAULT_EXCHANGE and not _us_market_is_open():
+        market_overview = list(payload.get("market_overview") or [])
+        scheduled = _scheduled_market_status_fallback(DEFAULT_EXCHANGE)
+        market_overview = [row for row in market_overview if row.get("label") != "Market Status"]
+        payload["market_overview"] = [*market_overview, scheduled]
+    prices_paused = effective_exchange == DEFAULT_EXCHANGE and not _us_market_is_open()
+    payload["stale"] = bool(payload.get("stale")) or home_stale or prices_paused
+    if prices_paused:
+        payload["stale_reason"] = "market_closed"
+    elif home_stale:
         payload["stale_reason"] = "served_stale_cache"
     payload["cache_age_seconds"] = home_age_seconds
 
@@ -3750,6 +3796,8 @@ async def _fetch_market_status(exchange: str = DEFAULT_EXCHANGE):
         fetch_with_market_provider,
     )
 
+    if _normalize_exchange(exchange) == DEFAULT_EXCHANGE and not _us_market_is_open():
+        return _scheduled_market_status_fallback(DEFAULT_EXCHANGE)
     return await fetch_with_market_provider(
         MarketDataRequest("market_status", exchange=exchange),
         lambda: _legacy_fetch_market_status(exchange=exchange),

@@ -66,6 +66,9 @@ def degraded_provider_resources() -> set[str]:
 
 
 async def record_provider_request(request: httpx.Request) -> None:
+    from hushh_mcp.services.market_refresh_policy import ensure_market_price_request_allowed
+
+    ensure_market_price_request_allowed()
     record_provider_url(str(request.url))
 
 
@@ -75,6 +78,9 @@ def yahoo_counted_session():
 
     class CountedSession(Session):
         def request(self, method, url, *args, **kwargs):
+            from hushh_mcp.services.market_refresh_policy import ensure_market_price_request_allowed
+
+            ensure_market_price_request_allowed()
             record_provider_url(str(url))
             return super().request(method, url, *args, **kwargs)
 
