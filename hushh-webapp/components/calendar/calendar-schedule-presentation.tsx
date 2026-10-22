@@ -95,7 +95,7 @@ export function eventTime(event: CalendarEventSummary, zone: string) {
   if (!start || !end) return "All day";
   return `${timeRangeLabel(start, end, zone)} · ${durationLabel(Math.round((Date.parse(end) - Date.parse(start)) / 60000))}`;
 }
-function meetingProvider(event: CalendarEventSummary) {
+export function meetingProvider(event: CalendarEventSummary) {
   const link = safeMeetingUrl(event.conference_url);
   if (!link) return null;
   const host = new URL(link).hostname;

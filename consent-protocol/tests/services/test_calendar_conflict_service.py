@@ -140,3 +140,49 @@ def test_compound_review_accepts_bounded_child_tokens_beyond_single_review_limit
     assert CalendarScheduleService._open(
         parent, "calendar-conflict-v1", max_length=MAX_CONFLICT_REVIEW_TOKEN_LENGTH
     )["children"] == [child, child]
+
+
+@pytest.mark.asyncio
+async def test_conflict_review_rejects_an_invitation_changed_during_mail_preparation(monkeypatch):
+    snapshot = _snapshot("accepted")
+    invitation = snapshot["accounts"][1]["events"][0]
+    invitation["can_decline"] = True
+    invitation["organizer"] = {"email": "organizer@example.com"}
+    invitation["attendees"] = [{"email": "two@example.com", "response_status": "needsAction"}]
+
+    class Schedule:
+        async def _read_binding(self, user_id):
+            return (user_id, "grant")
+
+        async def review(self, **kwargs):
+            return {
+                "title": invitation["title"],
+                "start": {"dateTime": "2026-10-21T12:30:00Z"},
+                "end": invitation["end"],
+                "recipient": "organizer@example.com",
+                "sender_label": "Connected Mail",
+            }
+
+    async def read_day(**kwargs):
+        return snapshot
+
+    monkeypatch.setattr(
+        conflict_module, "account_schedule", lambda account_id, connections: Schedule()
+    )
+    board = SimpleNamespace(connections=object(), day=read_day)
+    with pytest.raises(GoogleConnectionError, match="invitation changed") as error:
+        await CalendarConflictService(board).review(
+            user_id="owner",
+            date="2026-10-21",
+            time_zone="UTC",
+            keep={"account_id": "default", "calendar_id": "primary", "event_id": "keep"},
+            decline=[
+                {
+                    "account_id": "second",
+                    "calendar_id": "primary",
+                    "event_id": "decline",
+                    "message": "I cannot attend.",
+                }
+            ],
+        )
+    assert error.value.status_code == 409
