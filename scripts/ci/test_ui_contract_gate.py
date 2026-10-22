@@ -1,7 +1,10 @@
 """Protect the combined UI authority gate and its required regression owners."""
 from pathlib import Path
 import json
+import os
 import re
+import subprocess
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -16,8 +19,9 @@ def job_block(workflow, name):
 
 def validate(workflow):
     ui = job_block(workflow, "ui-contracts")
-    if "fetch-depth: 2" not in ui or "UI_CONTRACT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}" not in ui:
-        raise ValueError("UI review inheritance requires the pinned target base and its history")
+    if ("fetch-depth: 2" not in ui or "base=\"$(python3 scripts/ci/resolve-ui-contract-base.py)\"" not in ui
+            or "UI_CONTRACT_BASE_SHA: ${{ steps.ui-base.outputs.sha }}" not in ui):
+        raise ValueError("UI review inheritance requires the verified tested merge base and its history")
     if "fetch-depth: 2" not in job_block(workflow, "web-core-check"):
         raise ValueError("Web Core must retain the target base for the same UI check")
     if re.search(r"^\s+(if|needs|continue-on-error):", ui, re.M):
@@ -109,6 +113,49 @@ class UiGateTests(unittest.TestCase):
         for old, new in (("verifyBackNavigation(root, false, index)", "verifyBackNavigation(root, true, index)"), ("syncSearchContracts(root, true, index)", "syncSearchContracts(root, false, index)"), ("generate-kai-action-gateway.mjs", "missing.mjs")):
             with self.assertRaises(ValueError):
                 validate_runner(source.replace(old, new))
+
+    def test_review_base_uses_bound_merge_parent_and_rejects_wrong_head(self):
+        with tempfile.TemporaryDirectory() as directory:
+            def git(*args):
+                return subprocess.check_output(["git", *args], cwd=directory, text=True, stderr=subprocess.DEVNULL).strip()
+            git("init", "-b", "main")
+            git("config", "user.name", "Synthetic UI CI")
+            git("config", "user.email", "ui-ci@example.invalid")
+            git("commit", "--allow-empty", "-m", "old event base")
+            old = git("rev-parse", "HEAD")
+            git("checkout", "-b", "pr")
+            git("commit", "--allow-empty", "-m", "release change")
+            head = git("rev-parse", "HEAD")
+            git("checkout", "main")
+            git("commit", "--allow-empty", "-m", "new main UI")
+            base = git("rev-parse", "HEAD")
+            git("merge", "--no-ff", "-m", "tested PR merge", "pr")
+            merge = git("rev-parse", "HEAD")
+            event = Path(directory) / "event.json"
+            env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+            env.update(GITHUB_EVENT_NAME="pull_request", GITHUB_EVENT_PATH=str(event), GITHUB_SHA=merge)
+            def run(payload):
+                event.write_text(json.dumps(payload))
+                return subprocess.run(["python3", str(ROOT / "scripts/ci/resolve-ui-contract-base.py")], cwd=directory, env=env, text=True, capture_output=True)
+            payload = {"pull_request": {"base": {"sha": old}, "head": {"sha": head}}}
+            result = run(payload)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), base)
+            payload["pull_request"]["head"]["sha"] = old
+            self.assertNotEqual(run(payload).returncode, 0)
+            payload["pull_request"]["head"]["sha"] = head
+            env["GITHUB_SHA"] = old
+            self.assertNotEqual(run(payload).returncode, 0)
+            env["GITHUB_SHA"] = merge
+            git("checkout", "pr")
+            self.assertNotEqual(run(payload).returncode, 0)
+            env["GITHUB_EVENT_NAME"] = "workflow_dispatch"
+            self.assertEqual(run({}).stdout.strip(), "")
+
+    def test_web_core_uses_the_same_verified_review_base(self):
+        source = (ROOT / "scripts/ci/web-core-check.sh").read_text()
+        self.assertIn('UI_CONTRACT_BASE_SHA="$(python3 "$REPO_ROOT/scripts/ci/resolve-ui-contract-base.py")"', source)
+        self.assertIn("export UI_CONTRACT_BASE_SHA\n", source)
 
 
 if __name__ == "__main__":

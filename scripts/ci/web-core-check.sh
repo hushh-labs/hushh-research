@@ -18,6 +18,10 @@ web_ci_install
 )
 
 cd "$WEB_DIR"
+if [ "${GITHUB_ACTIONS:-}" = true ]; then
+  UI_CONTRACT_BASE_SHA="$(python3 "$REPO_ROOT/scripts/ci/resolve-ui-contract-base.py")"
+  export UI_CONTRACT_BASE_SHA
+fi
 npm run verify:design-system
 npm run verify:docs
 # Keep the local core mirror authoritative too; this costs only a few seconds.

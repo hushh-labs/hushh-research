@@ -119,6 +119,17 @@ schema requires the separately reviewed forward qualification before re-enableme
 
 ## Execution Modes
 
+Canonical 399 supplies the eight service-only public-profile tables required by
+the already-selected 403 bridge. Historical 240, 341 and 403 remain immutable.
+The additive foundation preserves current Feed constraints and PWM events; it
+does not enable profile discovery or its separately gated drain. Their later
+activation still requires the documented schema, provider, cohort and Feed
+compatibility verification. Existing public evidence and encrypted handoff
+receipts survive application rollback. Inserting a prerequisite changes the
+manifest checksum: a covered ledger baseline must refuse until its preservation
+contract is reconciled; never mark the missing dependency applied or change modes
+to avoid that refusal.
+
 - `replay` preserves the historical replay-all behavior. It remains the repo
   and production default until a separately approved production cutover.
 - `observe` acquires the migration advisory lock, creates/reads the additive

@@ -2104,7 +2104,10 @@
       "scan_request_key",
       "status",
       "updated_at",
-      "user_id"
+      "user_id",
+      "claim_batch",
+      "claim_batch_key",
+      "assessment_request"
     ],
     "one_public_profile_entities": [
       "city_hint",
@@ -2115,7 +2118,8 @@
       "revision",
       "search_document",
       "status",
-      "updated_at"
+      "updated_at",
+      "prepared_payload"
     ],
     "one_public_profile_findings": [
       "category",

@@ -349,6 +349,13 @@ rechecked before a grant. A search hit is not proof that current file contents
 remain unchanged. Content-period proof and account-relationship queries need
 clarification instead of silent scope widening under this mode.
 
+The frozen metadata period belongs only to the file inspection call. Permission
+listing and Reader creation receive their own unchanged credential, resource-key
+and current-authority arguments; inspection-only options never reach those
+methods. The worker regression uses the real adapter signatures and verifies
+both existing access without a new grant and one confirmed new grant, alongside
+changed-source and forged-evidence refusals.
+
 Version 1 requests, already queued checkpoints, packages and completed sharing
 history keep their frozen contracts. This rollout does not replay old requests,
 charge again, or reinterpret the historical 79-file candidate set. New requests
