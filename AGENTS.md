@@ -1,4 +1,10 @@
-# Hussh Coding Agent Operating Rules
+# Hussh · Agent Engineering
+
+**Precision. Discretion. Duty of care.**
+
+“An agent should work for the person whose life it touches.”
+Build One around that [personal-agent identity](docs/vision/agent-ontology.md#personal-data-agent-founder-identity):
+owner loyalty, explicit consent, verified outcomes and thoughtful restraint.
 
 Read [`.agents/instructions.md`](.agents/instructions.md) before routing, planning,
 delegating, or changing this repository. Its complete operating contract is binding
@@ -17,6 +23,8 @@ All development sources belong in **`.agents/`**:
 Create or evolve these through the existing governance workflow. Do not create
 another host-specific skill or subagent fleet. Native `.claude` and `.codex`
 entrypoints are checked compatibility links; they contain no authored policy.
+Claude startup loads this entrypoint through a small checked hook; there is no
+separate `CLAUDE.md` policy. Other AI tools inherit this same contract.
 
 Run independent work in bounded parallel lanes under the canonical
 [delegation contract](.agents/skills/agent-orchestration-governance/references/delegation-contract.md).

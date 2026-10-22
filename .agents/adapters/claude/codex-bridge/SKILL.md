@@ -7,7 +7,7 @@ allowed-tools: Read Grep Glob Bash(python3 *)
 
 # Codex Bridge
 
-Reads `.codex/` at invocation time and composes a briefing the way `./bin/hushh codex route-task` does: workflow → owner_skill + default_spoke → union of `required_reads`, `required_commands`, `handoff_chain`, `verification_bundle`, `risk_tags`.
+Reads `.agents/` at invocation time and composes a briefing the way `./bin/hushh codex route-task` does: workflow → owner_skill + default_spoke → union of `required_reads`, `required_commands`, `handoff_chain`, `verification_bundle`, `risk_tags`.
 
 ## Response rules
 
@@ -15,7 +15,7 @@ The repository routing contracts are the source of truth. The enforceable rules 
 
 Host invocation guidance:
 
-1. When you cannot reach `.codex/` to fetch the routing contracts, report that routing is unavailable and inherit the communication rules in root `AGENTS.md`. Do not substitute a channel-specific style or fabricate a routed lane.
+1. When you cannot reach `.agents/` to fetch the routing contracts, report that routing is unavailable and inherit the communication rules in root `AGENTS.md`. Do not substitute a channel-specific style or fabricate a routed lane.
 2. Pull the signature values (`<skill-id>`, `<workflow-id>`) from the routed briefing header (`# Routed workflow: ...` / `# Routed skill: ...`).
 3. If the briefing header shows a disambiguation table or a catalog, do not fabricate a signature, invoke the bridge again with the chosen name first.
 
@@ -73,7 +73,7 @@ Surface findings to the user. Don't auto-fix — `--check` is a health report, n
 /codex-bridge security-consent-audit          # compose workflow briefing (owner+spoke unioned)
 /codex-bridge governor                        # compose agent briefing (delegation lane)
 /codex-bridge "how does Kai maintain session continuity"  # free-text → token scoring
-/codex-bridge --check                         # structural lint of .codex tree
+/codex-bridge --check                         # structural lint of .agents tree
 ```
 
 ## Design
@@ -83,4 +83,4 @@ Surface findings to the user. Don't auto-fix — `--check` is a health report, n
 - **Agents are advisory lanes, not winners.** Exact agent name routes to an agent briefing. Free-text never elevates an agent above a matching skill or workflow. On explicit skill or workflow invocations, matching agents appear as a compact `Suggested delegation lanes` footer (suppressed on Q&A turns and on close-scoring ties).
 - **Progressive disclosure.** Only the routed briefing enters context, not the full corpus. The `--hook` path adds a second axis: silence below the gate, a compact pointer at medium confidence or when a rival lane scores within 2 points, and the full composed briefing only when the match is both strong and unambiguous.
 - **Rarity-weighted matching.** Token overlap is weighted by how rare the token is in the corpus, so shared words (`audit`, `review`, `contract`) stop deciding the route and a path the user actually typed outranks any amount of prose overlap. Fixtures in [fixtures/routing_cases.json](fixtures/routing_cases.json) pin the expected lane for representative prompts and cap total injected size; `scripts/test_route_hook.py` enforces both in CI.
-- **Path-aware auto-trigger.** `paths: .codex/**, consent-protocol/**, hushh-webapp/**, docs/**` covers the repo surfaces where a specialist applies.
+- **Path-aware auto-trigger.** `paths: .agents/**, consent-protocol/**, hushh-webapp/**, docs/**` covers the repo surfaces where a specialist applies.

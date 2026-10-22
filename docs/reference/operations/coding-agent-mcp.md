@@ -144,12 +144,12 @@ Rules:
 
 Repo-scoped exception:
 
-1. Project-scoped custom-agent defaults may live in `.codex/config.toml` and `agents/`.
+1. Project-scoped settings live in `.agents/adapters/codex/config.toml`; `.codex/config.toml` is its compatibility link. Authored agents live in `.agents/subagents/`.
 2. Keep that repo config non-secret. MCP credentials and user-local server config still belong in the machine-local Codex config, not the repo.
 
 ## Repo-scoped custom agents
 
-Codex supports project-scoped custom agents under `agents/`. In this repo, that surface is intentionally bounded:
+Codex discovers the authored `.agents/subagents/` fleet through the checked `.codex/agents` link. In this repo, that surface is intentionally bounded:
 
 1. Subagent use follows the root `AGENTS.md` delegation checkpoint: user-approved delegation, explicit workflow policy, or repo-global read-only evidence policy may authorize bounded lanes.
 2. Do not add uncontrolled fan-out. Every non-trivial task should run the checkpoint before choosing a local-only path.

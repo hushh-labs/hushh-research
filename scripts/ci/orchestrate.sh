@@ -45,7 +45,7 @@ cd "$REPO_ROOT"
 # never executed.
 #
 # It goes HERE because this script is the one thing that is run before every
-# push (CLAUDE.md makes it the standing pre-push gate), which is what breaks the
+# push (the canonical agent contract requires this gate), which breaks the
 # circularity -- a hook cannot install itself, and a document cannot install it
 # either.
 #

@@ -54,7 +54,7 @@ Non-owned surfaces:
 1. Classify each touched doc as `canonical`, `pointer/index`, `future-plan`, `planning-archive`, `historical-provenance`, `merge-then-delete`, or `delete`.
 2. Choose the correct docs home before editing content.
 3. For recursive restructures, run the folder inventory and split only when a bounded subtopic has its own owner, lifecycle, or workflow.
-4. Keep root docs thin and package-specific docs package-local.
+4. Keep root docs thin and package-specific docs package-local. Preserve the authored README hero and approved personal-agent identity when refreshing technical details; validate claims against the current runtime rather than replacing the persona with a generic project summary.
 5. Update diagrams, inbound links, and verification references in the same change when a canonical doc changes.
 6. Keep `docs/superpowers/` limited to active scoped agentic plans and design snapshots; promote durable implementation truth into `docs/reference/`, `consent-protocol/docs/`, or `hushh-webapp/docs/`, then delete superseded date-stamped artifacts.
 6. For contributor and setup docs, keep one blessed monorepo path and one aligned standalone upstream path; do not let legacy bootstrap instructions coexist.

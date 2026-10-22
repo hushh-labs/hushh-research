@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -177,3 +180,30 @@ def test_production_uses_its_own_opt_in_and_fails_before_deploy_on_missing_clien
     )
     assert '--curated-mcp-connectors "$PROD_CURATED_MCP_CONNECTORS"' in PROD_WORKFLOW
     assert "CURATED_MCP_CONNECTORS_UAT" not in PROD_WORKFLOW
+
+
+def test_registry_import_needs_no_runtime_keys_or_network() -> None:
+    """Deployment registry maintenance must not import runtime credential authority."""
+    program = """
+import socket
+
+def refuse(*args, **kwargs):
+    raise AssertionError('network access is forbidden during registry imports')
+socket.socket.connect = refuse
+from hushh_mcp.services.drive_uat_registry_provisioning import assert_google_drive_uat_registry_target
+from hushh_mcp.services.drive_prod_registry_provisioning import assert_google_drive_prod_registry_target
+assert_google_drive_uat_registry_target(environment={
+    'HUSSH_RELEASE_ENVIRONMENT': 'uat',
+    'GCP_PROJECT_ID': 'hushh-pda-uat',
+    'CLOUDSQL_INSTANCE_CONNECTION_NAME': 'hushh-pda-uat:us-central1:hushh-uat-pg',
+})
+"""
+    result = subprocess.run(  # noqa: S603 - fixed interpreter and repository-owned probe
+        [sys.executable, "-B", "-c", program],
+        cwd=REPO_ROOT / "consent-protocol",
+        env={"PATH": os.environ.get("PATH", ""), "PYTHON_DOTENV_DISABLED": "1"},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, "registry import requires runtime credentials or network"
