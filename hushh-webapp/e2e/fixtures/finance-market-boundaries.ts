@@ -5,6 +5,17 @@ import type { KaiMarketNewsPage } from "../../lib/services/api-service";
 // Only information, identity and transport are synthetic. The Market page,
 // cards, shared typography and controls render their production components.
 const payload = getLocalMarketPreviewPayload();
+// Deliberately uneven name lengths expose rank drift between the two columns.
+if (payload.movers) {
+  payload.movers.degraded = true;
+  for (const row of [...payload.movers.gainers, ...payload.movers.losers]) {
+    row.degraded = true;
+    row.as_of = "2026-10-21T14:00:00Z";
+  }
+  if (payload.movers.gainers[0]) payload.movers.gainers[0].company_name = "Tesla International Automotive and Energy Corporation";
+}
+
+
 
 payload.news_tape = [
   {

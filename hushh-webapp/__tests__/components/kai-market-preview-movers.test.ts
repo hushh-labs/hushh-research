@@ -31,7 +31,8 @@ describe("market period and image evidence", () => {
     render(createElement(SectorRotationChart, { rows }));
     fireEvent.click(screen.getByRole("tab", { name: "1 week" }));
     expect(screen.getByRole("tab", { name: "1 week" }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByText(/2026-10-13 to 2026-10-20/)).toBeTruthy();
+    expect(screen.getByTitle("2026-10-13 to 2026-10-20")).toHaveTextContent(/Oct.*13.*20.*2026/);
+    expect(screen.getByText("Sector ETF price return")).toBeVisible();
     expect(screen.getByText("Technology: -2.00%")).toBeTruthy();
     const dayAction = resolveLocalOnboardingHandler("market.sectors.show_day");
     expect(dayAction).toBeTruthy();
@@ -96,6 +97,7 @@ describe("market index quote evidence", () => {
     const metrics = [first, { ...first, id: "nasdaq", label: "NASDAQ Composite", quotedAt: "2026-10-20T20:50:00Z" }];
     const { container, rerender } = render(createElement(OneMarketIndexStrip, { metrics, onMetricSelect: () => {} }));
     expect(screen.getByText("Index levels in points")).toBeVisible();
+    expect(screen.getByRole("button", { name: /S&P 500/ })).toHaveTextContent("7,712.57");
     expect(screen.getByRole("button", { name: /S&P 500/ }).textContent).not.toMatch(/[$₹]/);
     expect(screen.getAllByText(/Delayed/)).toHaveLength(1);
     expect([...container.querySelectorAll("time")].map((time) => time.dateTime)).toEqual([quote.as_of, metrics[1].quotedAt]);
@@ -174,6 +176,28 @@ describe("toMoverGroups", () => {
     }
   });
 
+  it("shares cached status only for the displayed rows and retains exact common observation time", () => {
+    const groups = groupsFor([mover("A", 4), mover("B", 3), mover("C", 2), mover("FOURTH", 1, false)], [mover("D", -1)]);
+    const { container } = render(createElement(OneMarketMovers, { groups }));
+    expect(container.querySelectorAll("button")).toHaveLength(4);
+    expect(container.querySelectorAll("[data-market-mover-freshness]")).toHaveLength(1);
+    expect(screen.getByText(/^Cached quotes/)).not.toHaveTextContent(/unavailable/);
+    expect(screen.queryByText("Cached", { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByText("FOURTH", { exact: true })).not.toBeInTheDocument();
+    expect(container.querySelectorAll("[data-market-mover-pair]")).toHaveLength(3);
+  });
+
+  it("keeps mixed freshness and differing or missing observation times explicit", () => {
+    const { container, rerender } = render(createElement(OneMarketMovers, { groups: groupsFor([mover("A", 1)], [mover("B", -1, false)]) }));
+    expect(container.querySelector("[data-market-mover-freshness]")).toBeNull();
+    expect(screen.getByText("Cached", { exact: true })).toBeVisible();
+    rerender(createElement(OneMarketMovers, { groups: groupsFor([mover("A", 1)], [mover("B", -1, true, null)]) }));
+    expect(screen.getByText("Cached quotes", { exact: true })).toBeVisible();
+    expect(screen.getByText("Time unavailable", { exact: true })).toBeVisible();
+    expect(container.querySelectorAll("button > span[title]")).toHaveLength(2);
+    rerender(createElement(OneMarketMovers, { groups: groupsFor([mover("A", 1, false, null)], [mover("B", -1, false, null)], true) }));
+    expect(screen.getByText(/Cached quotes.*Timestamp unavailable/)).toBeVisible();
+  });
 
   it("rejects a directionally invalid provider bucket and orders valid movers by magnitude", () => {
     const payload = {
