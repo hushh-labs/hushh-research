@@ -1,5 +1,5 @@
 {
-  "enabled": false,
+  "enabled": true,
   "testflight_every": 2,
   "production_every": 4,
   "monitor_issue_assignee": "ankitkumarsingh1702",

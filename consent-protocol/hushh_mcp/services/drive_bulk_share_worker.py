@@ -334,14 +334,14 @@ class DriveBulkShareWorker:
             if file.get("resourceKey"):
                 args["resource_key"] = file["resourceKey"]
             stage = "inspect"
-            if "discoveryEvidence" in file:
-                evidence = file["discoveryEvidence"]
-                args["metadata_period"] = {
-                    **evidence["period"],
-                    "date_basis": evidence["date_basis"],
-                }
+            evidence = file.get("discoveryEvidence")
             await self.adapter.inspect_shareable(
                 **args,
+                metadata_period=(
+                    {**evidence["period"], "date_basis": evidence["date_basis"]}
+                    if evidence is not None
+                    else None
+                ),
                 expected_version=file.get("sourceVersion", "1"),
                 require_app_authorized=False,
                 require_genai_eligibility=False,
