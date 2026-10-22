@@ -843,6 +843,18 @@ Verify live environment governance with:
 python3 scripts/ci/verify-deployment-environment-governance.py
 ```
 
+### Qualified frontend lint toolchain
+
+The onboarding/security correction keeps patched Next.js 16.4.2 independently
+of the reviewed lint toolchain: `eslint-config-next` 16.2.4 and its supported
+`eslint-plugin-react-hooks` 7.0.1. ESLint remains 9.39.4. The newer analyzer
+reported 742 compiler findings across existing source (600 refs, 101 immutability,
+41 manual-memoization findings). Both analyzer versions enable these rules as
+errors; no rule or severity is disabled here. Qualify that analyzer migration
+separately instead of changing owner/session-ref behavior during a security fix.
+The lint package declares no Next runtime peer constraint. Existing dependency
+alerts remain independently reported.
+
 ### GitHub Alert Parity
 
 The secret gate is intentionally stricter than raw regex scanning:
