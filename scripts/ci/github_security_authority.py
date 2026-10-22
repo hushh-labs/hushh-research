@@ -185,7 +185,9 @@ def next_alert_page(
         ):
             raise Refused("Alert pagination left its repository inventory")
         try:
-            query = parse_qs(url.query, strict_parsing=True, max_num_fields=5)
+            query = parse_qs(
+                url.query, strict_parsing=True, max_num_fields=5, keep_blank_values=True
+            )
         except ValueError:
             raise Refused("Alert pagination query is malformed") from None
         allowed = {"state", "per_page", "after", "before"}
@@ -197,6 +199,10 @@ def next_alert_page(
             or query.get("per_page") != ["100"]
             or any(len(values) != 1 or not values[0] for values in query.values())
             or len(query.keys() & {"after", "before", "page"}) != 1
+            or any(
+                len(query[key][0]) > 2048 for key in ("after", "before") if key in query
+            )
+            or ("page" in query and not re.fullmatch(r"[1-9][0-9]*", query["page"][0]))
         ):
             raise Refused("Alert pagination changed its inventory filters")
         # GitHub may return its immutable numeric alias. Keep every request on

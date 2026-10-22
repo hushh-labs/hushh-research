@@ -121,11 +121,23 @@ class SecurityAuthorityTest(unittest.TestCase):
             root + query.replace("state=open", "state=closed"),
             root + query.replace("after=cursor", "page=2"),
             root + query + "&after=duplicate",
+            root + query + "&after=",
+            root + query + "&state=",
+            root + query.replace("after=cursor", "after="),
+            root + query.replace("after=cursor", "after=" + "x" * 2049),
             "https://api.github.com/repositories/11/dependabot/alerts" + query,
         ):
             with self.subTest(url=url), self.assertRaises(authority.Refused):
                 authority.next_alert_page(
                     f'<{url}>; rel="next"', REPOSITORY, "dependabot", 10
+                )
+        for page in ("0", "-1", "not-a-page"):
+            url = root.replace("dependabot", "secret-scanning") + query.replace(
+                "after=cursor", "page=" + page
+            )
+            with self.subTest(page=page), self.assertRaises(authority.Refused):
+                authority.next_alert_page(
+                    f'<{url}>; rel="next"', REPOSITORY, "secret-scanning", 10
                 )
 
     def test_manual_recovery_is_governed_and_exact(self):

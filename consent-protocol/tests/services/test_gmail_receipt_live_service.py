@@ -1791,3 +1791,213 @@ async def test_dedicated_capacity_refusal_is_busy_and_releases_owner_scan(monkey
     assert refused.value.status_code == 503
     monkeypatch.setattr(live_receipts_module, "dedicated_connection", admitted)
     assert (await _scan(service))["items"] == []
+
+
+async def test_incremental_baseline_and_intra_record_continuation():
+    calls, phase = [], ["bootstrap"]
+    messages = {
+        f"delta-{i}": _message(
+            f"delta-{i}",
+            subject=f"Receipt order #DELTA-{i:04d}",
+            sender="orders@amazon.com",
+            body="Amount paid: USD 10.00",
+        )
+        for i in range(8)
+    }
+    original = _message(
+        "original",
+        subject="Receipt order #ORIGINAL-100",
+        sender="orders@amazon.com",
+        body="Amount paid: USD 12.00",
+    )
+
+    def handler(request):
+        path = request.url.path
+        calls.append(path)
+        if path.endswith("/profile"):
+            return _response({"historyId": "100" if phase[0] == "bootstrap" else "200"})
+        if path.endswith("/history"):
+            return _response(
+                {
+                    "historyId": "200",
+                    "history": [
+                        {
+                            "id": "150",
+                            "messagesAdded": [
+                                {"message": {"id": identity}} for identity in messages
+                            ],
+                        }
+                    ],
+                }
+            )
+        if path.endswith("/messages"):
+            return _response({"messages": [{"id": "original"}]})
+        identity = path.rsplit("/", 1)[-1]
+        return _response(original if identity == "original" else messages[identity])
+
+    service = GmailLiveReceiptsService(
+        gmail=_Gmail(),
+        transport=httpx.MockTransport(handler),
+        source_secret=b"s" * 32,
+        extractor=_extractor,
+    )
+    initial = await _scan(service, incremental=True, expected_account="synthetic-account")
+    assert calls.index("/gmail/v1/users/me/profile") < calls.index("/gmail/v1/users/me/messages")
+    assert initial["checkpoint"] and not initial["has_more"]
+    phase[0] = "delta"
+    first = await _scan(service, incremental=True, checkpoint=initial["checkpoint"])
+    assert first["sync_mode"] == "delta" and len(first["items"]) == 6
+    assert first["has_more"] and first["checkpoint"] is None
+    second = await _scan(
+        service,
+        incremental=True,
+        checkpoint=initial["checkpoint"],
+        page=2,
+        cursor=first["next_cursor"],
+    )
+    assert len(second["items"]) == 2 and not second["has_more"] and second["checkpoint"]
+    assert len({item["event_id"] for item in first["items"] + second["items"]}) == 8
+    authority = await service._authority(user_id="owner", require_access=_allowed)
+    old_event, old_source = (
+        service._event_id(authority, "original"),
+        service._source_id(authority, "original"),
+    )
+    authority.connected_at = "2026-10-24T00:00:00Z"
+    assert service._event_id(authority, "original") == old_event
+    assert service._source_id(authority, "original") != old_source
+
+
+async def test_incremental_checkpoint_fences_account_and_tampering_before_provider_reads():
+    calls = []
+    service = _service([], calls)
+    with pytest.raises(GmailApiError) as changed:
+        await _scan(service, incremental=True, expected_account="other-account")
+    assert changed.value.code == "GMAIL_RECEIPT_ACCOUNT_CHANGED"
+    assert not calls
+    with pytest.raises(GmailApiError) as tampered:
+        await _scan(service, checkpoint="grc1_" + "a" * 64)
+    assert tampered.value.code == "GMAIL_RECEIPT_CHECKPOINT_EXPIRED"
+    assert not calls
+
+
+async def test_incremental_deletion_is_archived_and_history_expiry_is_distinct():
+    state, extractor = {"expired": False}, AsyncMock()
+
+    def handler(request):
+        if request.url.path.endswith("/profile"):
+            return _response({"historyId": "200"})
+        if state["expired"]:
+            return httpx.Response(404, json={"error": {"code": 404}})
+        return _response(
+            {
+                "historyId": "200",
+                "history": [
+                    {"id": "150", "messagesDeleted": [{"message": {"id": "deleted-source"}}]}
+                ],
+            }
+        )
+
+    service = GmailLiveReceiptsService(
+        gmail=_Gmail(),
+        transport=httpx.MockTransport(handler),
+        source_secret=b"s" * 32,
+        extractor=extractor,
+    )
+    authority = await service._authority(user_id="owner", require_access=_allowed)
+    from hushh_mcp.services.gmail_receipt_continuity import seal_state
+
+    checkpoint = seal_state(
+        service._secret(),
+        service._sync_binding(authority),
+        {"history": "100", "kind": "checkpoint"},
+    )
+    result = await _scan(service, checkpoint=checkpoint)
+    assert result["items"] == [] and result["checkpoint"]
+    assert result["unavailable_events"] == [service._event_id(authority, "deleted-source")]
+    extractor.assert_not_awaited()
+    state["expired"] = True
+    with pytest.raises(GmailApiError) as expired:
+        await _scan(service, checkpoint=checkpoint)
+    assert expired.value.code == "GMAIL_RECEIPT_CHECKPOINT_EXPIRED"
+
+
+async def test_incremental_batch_cap_preserves_forward_position_and_cursor_mode():
+    from hushh_mcp.services.gmail_receipt_continuity import seal_state
+
+    messages = [f"deleted-{i}" for i in range(305)]
+
+    def handler(request):
+        assert request.url.path.endswith("/history")
+        return _response(
+            {
+                "historyId": "200",
+                "history": [
+                    {
+                        "id": "150",
+                        "messagesDeleted": [{"message": {"id": identity}} for identity in messages],
+                    }
+                ],
+            }
+        )
+
+    service = GmailLiveReceiptsService(
+        gmail=_Gmail(),
+        transport=httpx.MockTransport(handler),
+        source_secret=b"s" * 32,
+        extractor=AsyncMock(),
+    )
+    authority = await service._authority(user_id="owner", require_access=_allowed)
+    state = {
+        "kind": "continuation",
+        "history": "100",
+        "target": "200",
+        "before": int(datetime.now(timezone.utc).timestamp()),
+        "page": 50,
+        "per_page": 6,
+        "token": None,
+        "offset": 294,
+    }
+    import hashlib
+
+    changes = [(identity, True) for identity in messages]
+    state["fingerprint"] = hashlib.sha256(json.dumps(changes).encode()).hexdigest()
+    cursor = seal_state(service._secret(), service._sync_binding(authority), state)
+    limited = await _scan(service, page=50, cursor=cursor, incremental=True)
+    assert limited["has_more"] and limited["next_cursor"] and limited["checkpoint"] is None
+    assert limited["coverage"]["reached_limit"] and len(limited["unavailable_events"]) == 6
+    resumed = await _scan(service, page=1, cursor=limited["next_cursor"], incremental=True)
+    assert not resumed["has_more"] and resumed["checkpoint"]
+    assert len(resumed["unavailable_events"]) == 5
+    assert not set(resumed["unavailable_events"]) & set(limited["unavailable_events"])
+
+
+@pytest.mark.parametrize(
+    "payload,provider_status,expected",
+    [({}, 200, "GMAIL_RECEIPT_CURSOR_EXPIRED"), ({}, 400, "GMAIL_RECEIPT_CURSOR_EXPIRED")],
+)
+async def test_history_continuation_rejects_malformed_or_expired_provider_page(
+    payload, provider_status, expected
+):
+    from hushh_mcp.services.gmail_receipt_continuity import seal_state
+
+    service = GmailLiveReceiptsService(
+        gmail=_Gmail(),
+        transport=httpx.MockTransport(lambda _: _response(payload, provider_status)),
+        source_secret=b"s" * 32,
+        extractor=AsyncMock(),
+    )
+    authority = await service._authority(user_id="owner", require_access=_allowed)
+    state = {
+        "kind": "continuation",
+        "history": "100",
+        "target": "200",
+        "before": int(datetime.now(timezone.utc).timestamp()),
+        "page": 2,
+        "per_page": 6,
+        "token": "expired",
+        "offset": 0,
+    }
+    cursor = seal_state(service._secret(), service._sync_binding(authority), state)
+    with pytest.raises(GmailApiError) as rejected:
+        await _scan(service, page=2, cursor=cursor, incremental=True)
+    assert rejected.value.code == expected

@@ -7,8 +7,9 @@ import { resolveSavedReceiptMerchantBrand, isVerifiedReceiptMerchantKey, type Ve
 
 export const RECEIPT_SNAPSHOT_MAX_BYTES = 2 * 1024 * 1024;
 export const RECEIPT_MEMORY_MAX_BYTES = 16 * 1024;
-export const RECEIPT_SNAPSHOT_PREFIX = "mail_receipts.v1:";
-type Event = {
+export const RECEIPT_SNAPSHOT_PREFIX = "mail_receipts.v2:";
+export const LEGACY_RECEIPT_SNAPSHOT_PREFIX = "mail_receipts.v1:";
+export type Event = {
   ref: string; locator: string | null; document_kind: ReceiptListItem["document_kind"];
   status: RecentReceiptRow["status"]; kind: NonNullable<ReceiptListItem["event_type"]>;
   date: string | null; amount: string | null; currency: string | null;
@@ -23,8 +24,10 @@ export type SnapshotRow = {
   attention_date: string | null; document_kind: ReceiptListItem["document_kind"];
   confidence: number | null; events: Event[];
 };
+export type ReceiptSyncRecord = { row: SnapshotRow; source_time: string | null; detail_ref: string | null };
 export type ReceiptSnapshot = {
-  schema: "mail_receipt_snapshot.v1"; account_binding: string; freshness: string;
+  schema: "mail_receipt_snapshot.v1" | "mail_receipt_snapshot.v2";
+  sync?: { checkpoint: string | null; aliases: Record<string, string>; unavailable: string[]; archive_refs: string[]; records: ReceiptSyncRecord[]; pending: { cursor: string; page: number; started_at: number; prior_partial: boolean } | null }; account_binding: string; freshness: string;
   coverage: { partial: boolean; truncated: boolean; source_count: number; window_from: string | null; window_to: string | null; source: "gmail_live" | "legacy_pkm" };
   rows: SnapshotRow[];
 };
@@ -52,9 +55,32 @@ function identifiers(v: unknown): boolean {
 /** Reject unknown nested fields, even in authenticated old envelopes. Never spread a live DTO. */
 export function validateReceiptSnapshot(v: unknown): ReceiptSnapshot {
   if (new TextEncoder().encode(JSON.stringify(v)).length > RECEIPT_SNAPSHOT_MAX_BYTES) throw new DurableResourceError("capacity_exceeded", "schema", "Receipt snapshot exceeds device capacity. Existing saved receipts were kept.");
-  record(v, ["schema", "account_binding", "freshness", "coverage", "rows"]);
+  const v2 = Boolean(v && typeof v === "object" && (v as Record<string, unknown>).schema === "mail_receipt_snapshot.v2");
+  record(v, ["schema", "account_binding", "freshness", "coverage", "rows", ...(v2 ? ["sync"] : [])]);
+  const normalizedRefs = new Set<string>();
+  if (v2) {
+    record(v.sync, ["checkpoint", "aliases", "unavailable", "archive_refs", "records", "pending"]);
+    const sync = v.sync;
+    if (!Array.isArray(sync.records) || sync.records.length > 10000) throw new DurableResourceError("schema_invalid", "schema", "Invalid receipt events.");
+    for (const event of sync.records) {
+      record(event, ["row", "source_time", "detail_ref"]);
+      if (!date(event.source_time) || (event.detail_ref !== null && (typeof event.detail_ref !== "string" || !REF.test(event.detail_ref)))) throw new DurableResourceError("schema_invalid", "schema", "Invalid receipt event chronology.");
+      const nested = validateReceiptSnapshot({ schema: "mail_receipt_snapshot.v1", account_binding: v.account_binding, freshness: v.freshness, coverage: v.coverage, rows: [event.row] });
+      if (nested.rows[0]?.events.length !== 1 || normalizedRefs.has(nested.rows[0]?.events[0]?.ref ?? "")) throw new DurableResourceError("schema_invalid", "schema", "Expected one normalized receipt event.");
+      normalizedRefs.add(nested.rows[0]!.events[0]!.ref);
+    }
+    if (sync.pending !== null) {
+      record(sync.pending, ["cursor", "page", "started_at", "prior_partial"]);
+      if (typeof sync.pending.prior_partial !== "boolean" || typeof sync.pending.cursor !== "string" || sync.pending.cursor.length > 8192 || !Number.isInteger(sync.pending.page) || Number(sync.pending.page) < 1 || Number(sync.pending.page) > 50 || !Number.isFinite(sync.pending.started_at)) throw new DurableResourceError("schema_invalid", "schema", "Invalid receipt continuation.");
+    }
+    if ((sync.checkpoint !== null && (typeof sync.checkpoint !== "string" || !/^grc1_[A-Za-z0-9_-]{39,8100}$/.test(sync.checkpoint))) ||
+        !sync.aliases || typeof sync.aliases !== "object" || Array.isArray(sync.aliases) || Object.entries(sync.aliases).length > 10000 ||
+        !Object.entries(sync.aliases).every(([key, value]) => REF.test(key) && typeof value === "string" && REF.test(value)) ||
+        ![sync.unavailable, sync.archive_refs].every(values => Array.isArray(values) && values.length <= 10000 && values.every(value => typeof value === "string" && REF.test(value))))
+      throw new DurableResourceError("schema_invalid", "schema", "Invalid receipt continuity.");
+  }
   record(v.coverage, ["partial", "truncated", "source_count", "window_from", "window_to", "source"]);
-  if (v.schema !== "mail_receipt_snapshot.v1" || (typeof v.account_binding !== "string" || !REF.test(v.account_binding)) || !date(v.freshness) || !v.freshness ||
+  if ((!v2 && v.schema !== "mail_receipt_snapshot.v1") || (typeof v.account_binding !== "string" || !REF.test(v.account_binding)) || !date(v.freshness) || !v.freshness ||
     typeof v.coverage.partial !== "boolean" || typeof v.coverage.truncated !== "boolean" || !Number.isSafeInteger(v.coverage.source_count) || Number(v.coverage.source_count) < 0 || Number(v.coverage.source_count) > 10000 ||
     !date(v.coverage.window_from) || !date(v.coverage.window_to) || !oneOf(v.coverage.source, ["gmail_live", "legacy_pkm"]) || !Array.isArray(v.rows) || v.rows.length > 10000) throw new DurableResourceError("schema_invalid", "schema", "Invalid receipt snapshot.");
   const rowRefs = new Set<string>(); const eventRefs = new Set<string>();
@@ -67,10 +93,18 @@ export function validateReceiptSnapshot(v: unknown): ReceiptSnapshot {
     rowRefs.add(String(r.ref));
     for (const e of r.events) {
       record(e, ["ref", "locator", "document_kind", "status", "kind", "date", "amount", "currency"]);
-      if ((typeof e.ref !== "string" || !REF.test(e.ref)) || eventRefs.has(String(e.ref)) || (e.locator !== null && (typeof e.locator !== "string" || !/^grs1_[A-Za-z0-9_-]{39,310}$/.test(e.locator))) || !member(e.document_kind, DOCS) || !member(e.status, STATUSES) || !oneOf(e.kind, ["purchase", "fulfillment", "refund", "cancellation", "unknown"]) || !documentDate(e.date) || (e.amount !== null && (typeof e.amount !== "string" || !DECIMAL.test(e.amount))) || !member(e.currency, ["USD", "INR", "EUR", "GBP", "$"])) throw new DurableResourceError("schema_invalid", "schema", "Invalid receipt event.");
-      eventRefs.add(String(e.ref));
+      if ((typeof e.ref !== "string" || !REF.test(e.ref)) || eventRefs.has(v2 && (v.sync as { archive_refs: string[] }).archive_refs.includes(String(r.ref)) ? `${r.ref}:${e.ref}` : String(e.ref)) || (e.locator !== null && (typeof e.locator !== "string" || !/^grs1_[A-Za-z0-9_-]{39,310}$/.test(e.locator))) || !member(e.document_kind, DOCS) || !member(e.status, STATUSES) || !oneOf(e.kind, ["purchase", "fulfillment", "refund", "cancellation", "unknown"]) || !documentDate(e.date) || (e.amount !== null && (typeof e.amount !== "string" || !DECIMAL.test(e.amount))) || !member(e.currency, ["USD", "INR", "EUR", "GBP", "$"])) throw new DurableResourceError("schema_invalid", "schema", "Invalid receipt event.");
+      eventRefs.add(v2 && (v.sync as { archive_refs: string[] }).archive_refs.includes(String(r.ref)) ? `${r.ref}:${e.ref}` : String(e.ref));
     }
     if (!r.events.some(e => e.ref === r.primary_event_ref)) throw new DurableResourceError("schema_invalid", "schema", "Receipt representative is missing.");
+  }
+  if (v2) {
+    const sync = (v as unknown as ReceiptSnapshot).sync!;
+    const archives = new Set(sync.archive_refs);
+    const active = new Set((v as unknown as ReceiptSnapshot).rows.filter(row => !archives.has(row.ref)).flatMap(row => row.events.map(event => event.ref)));
+    if (archives.size !== sync.archive_refs.length || [...archives].some(ref => !rowRefs.has(ref)) ||
+        [...active].some(ref => !normalizedRefs.has(ref)) || [...normalizedRefs].some(ref => !active.has(ref)))
+      throw new DurableResourceError("schema_invalid", "schema", "Receipt continuity identities do not match.");
   }
   return v as unknown as ReceiptSnapshot;
 }
@@ -84,7 +118,7 @@ const decimal = (item: ReceiptListItem) => item.amount_decimal && DECIMAL.test(i
 export async function captureReceiptSnapshot(items: readonly ReceiptListItem[], account: string, coverage: ReceiptSnapshot["coverage"], now = new Date()): Promise<ReceiptSnapshot> {
   const account_binding = await receiptAccountBinding(account);
   const refs = new Map<string, string>();
-  for (const i of items) refs.set(i.source_id || i.receipt_key || String(i.id), await receiptAccountBinding(`event:${i.source_id || i.receipt_key || i.id}`));
+  for (const i of items) refs.set(i.source_id || i.receipt_key || String(i.id), i.event_id ?? await receiptAccountBinding(`event:${i.source_id || i.receipt_key || i.id}`));
   const rows: SnapshotRow[] = [];
   for (const row of buildRecentReceiptRows(items, account)) {
     const members = row.sourceReceiptKeys.map(key => items.find(i => (i.source_id || i.receipt_key || String(i.id)) === key)!);
@@ -112,16 +146,16 @@ export function receiptSnapshotRows(snapshot: ReceiptSnapshot): RecentReceiptRow
     const secondaryText = [r.display_kind === "merchant" ? r.category === "Other" ? "Uncategorized" : r.category : r.category === "Other" || r.category === "Uncategorized" ? "Uncategorized" : null,
       receiptAttentionLabel(r.attention_state, r.attention_reason, r.attention_is_prediction) || receiptStatusLabel(r.status),
       formatLocalDateTime(r.transaction_date, { month: "short", day: "numeric" })].filter(Boolean).join(" · ");
-    return { id: r.display_id, primaryReceiptId: index, primaryReceiptKey: r.primary_event_ref,
+    return { id: r.display_id, archived: snapshot.sync?.archive_refs.includes(r.ref) ?? false, sourceUnavailable: r.events.every(e => snapshot.sync?.unavailable.includes(e.ref)), primaryReceiptId: index, primaryReceiptKey: r.primary_event_ref,
       merchantName: r.merchant, category: r.category, displayKind: r.display_kind, brandKey: brand?.merchantId ?? null, logoDomain: brand?.logoDomain ?? null,
       amount: r.amount === null ? null : Number(r.amount), currency: r.currency,
       searchText: [r.merchant, r.category, r.status, r.recurrence, r.document_kind, r.attention_state, r.attention_reason, ...r.events.flatMap(e => [e.status, e.document_kind]), ...r.identifiers.map(i => i.value)].filter(Boolean).join(" "),
-      secondaryText, secondaryDetail: r.display_kind === "merchant" && r.category !== "Other" && r.category !== "Uncategorized" ? r.category : null,
+      secondaryText: r.events.every(e => snapshot.sync?.unavailable.includes(e.ref)) ? "Source unavailable · " + secondaryText : secondaryText, secondaryDetail: r.display_kind === "merchant" && r.category !== "Other" && r.category !== "Uncategorized" ? r.category : null,
       secondaryMeta: secondaryText, sourceReceiptIds: r.events.map((_, j) => j), sourceReceiptKeys: r.events.map(e => e.ref), identifiers: r.identifiers,
       status: r.status, recurrence: r.recurrence, attentionState: r.attention_state, attentionReason: r.attention_reason,
       attentionIsPrediction: r.attention_is_prediction, attentionDate: r.attention_date, documentKind: r.document_kind,
       receiptDate: r.transaction_date, confidence: r.confidence,
-      eventTimeline: r.events.map(e => ({ sourceReceiptKey: e.ref, documentKind: e.document_kind, eventKind: e.kind,
+      eventTimeline: r.events.map(e => ({ sourceReceiptKey: e.ref, sourceUnavailable: snapshot.sync?.unavailable.includes(e.ref) ?? false, documentKind: e.document_kind, eventKind: e.kind,
         status: e.status, attentionState: "none", date: e.date, merchantName: r.merchant, subject: null, detail: receiptDocumentLabel(e.document_kind) })),
     };
   });

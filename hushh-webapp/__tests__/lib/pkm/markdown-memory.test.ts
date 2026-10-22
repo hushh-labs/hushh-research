@@ -332,7 +332,7 @@ describe("parallel local memory and encrypted sync", () => {
     expect(peekMarkdownMemory("user-1")?.markdown).not.toContain("Old receipt trend.");
   });
 
-  it("recovers a generated summary replacement with its encrypted checkpoint, not a historical append", async () => {
+  it.each(["v1", "v2"])("recovers a generated summary replacement with its %s encrypted checkpoint", async version => {
     publishValidatedAuthSessionOwner("user-1");
     vi.mocked(SecureDurableResourceService.version).mockResolvedValue({ generation: 0, revision: 1 });
     let cloud: Record<string, unknown> = { markdown: "# Soul.md\n\n## Facts\n- Prior receipt trend.\n",
@@ -340,7 +340,7 @@ describe("parallel local memory and encrypted sync", () => {
     getStaleFirst.mockResolvedValue({ data: cloud });
     await loadMarkdownMemory(syncParams);
     recoveryCache.listResourceKeys.mockResolvedValueOnce(["one_memory_pending:v1:radar"]);
-    recoveryCache.readRequired.mockResolvedValueOnce({ version: 1, userId: "user-1", receiptGeneration: 0, receiptSnapshotFence: snapshotFence, facts: ["New receipt trend."],
+    recoveryCache.readRequired.mockResolvedValueOnce({ version: 1, userId: "user-1", receiptGeneration: 0, receiptSnapshotFence: { ...snapshotFence, resourceKey: `mail_receipts.${version}:${"a".repeat(64)}` }, facts: ["New receipt trend."],
       confirmation: syncParams.confirmation, replaceSource: { key: radarKey, observedAt: "2026-10-12T00:00:00Z" } });
     savePreparedDomain.mockImplementation(async params => { const plan = await params.build({ currentDomainData: cloud }); cloud = plan.domainData; return { success: true }; });
     await recoverMarkdownMemorySync(syncParams);
