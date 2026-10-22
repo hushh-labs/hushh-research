@@ -193,6 +193,13 @@ The law, which holds for every signed-in route:
 `PkmSettingsShell` is not a second shell. It is a composition of exactly these
 primitives, and surfaces that use it are conformant.
 
+Memory uses the same compact agent header and controlled `TopShellTabs` strip
+as Location. Its grouped lists and document panel share the primary surface,
+16px corner radius, separator and row typography. The document has symmetric
+16px insets; its edit toolbar stacks on phones. Memory-specific document
+spacing and density stay inside the Memory workspace so Profile previews and
+other `PkmSettingsShell` consumers retain their own presentation.
+
 ## Shell Contract
 
 Agent workspace headings opt into `AppPageShell headerContentSpacing="compact"`.

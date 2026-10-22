@@ -100,6 +100,7 @@ export function TopShellTabs({
     tabSet.id === "wallet" ||
     tabSet.id === "calendar" ||
     tabSet.id === "location" ||
+    tabSet.id === "memory" ||
     tabSet.id === "connect" ||
     tabSet.id === "consent" ||
     tabSet.id === "finance" ||

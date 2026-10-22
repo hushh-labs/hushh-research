@@ -25,7 +25,13 @@ test.beforeAll(async () => {
           for (const candidate of scanner.scanFiles([{ content: source, extension: "tsx" }])) candidates.add(candidate);
       },
     }],
-    resolve: { alias: [{ find: "@", replacement: root }] },
+    resolve: { alias: [
+      { find: "next/navigation", replacement: path.join(root, "e2e/fixtures/memory-workspace-ports.ts") },
+      { find: "@/lib/pkm/use-live-mirror-view", replacement: path.join(root, "e2e/fixtures/memory-workspace-ports.ts") },
+      { find: "./use-soul-memory-model", replacement: path.join(root, "e2e/fixtures/memory-workspace-ports.ts") },
+      { find: "@/lib/pkm/markdown-memory", replacement: path.join(root, "e2e/fixtures/memory-workspace-ports.ts") },
+      { find: "@", replacement: root },
+    ] },
     define: { "process.env.NODE_ENV": JSON.stringify("production"), "process.env": "{}" },
     build: {
       outDir, emptyOutDir: false,
@@ -96,6 +102,69 @@ for (const width of [390, 1440]) for (const theme of ["light", "dark"]) {
     await page.getByRole("button", { name: /^Location details: Note/ }).click();
     await page.getByRole("button", { name: "Edit", exact: true }).click();
     await expect(page.getByRole("textbox", { name: "New value for Note" })).toHaveValue(corrected);
+    expect(errors).toEqual([]);
+  });
+}
+
+for (const width of [320, 390, 768, 1440]) for (const theme of ["light", "dark"]) {
+  test(`Memory uses Location's grouped reading rhythm at ${width}px, ${theme}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.route("http://localhost/one/pkm**", route => route.fulfill({ contentType: "text/html", body: `<!doctype html><html class="${theme === "dark" ? "dark" : ""}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body style="overflow:auto"><div id="root"></div></body></html>` }));
+    await page.goto("http://localhost/one/pkm?workspace=1");
+    await page.addScriptTag({ content: script });
+    await awaitProductFont(page);
+    expect(errors).toEqual([]);
+    const panel = page.getByRole("region", { name: "memory.md", exact: true });
+    const live = page.getByTestId("live-mirror-preview").locator('[data-slot="settings-group-shell"]');
+    const tabs = page.getByRole("tablist", { name: "Memory navigation" });
+    await expect(panel).toBeVisible();
+    const bounds = await Promise.all([panel, live, tabs].map(locator => locator.boundingBox()));
+    for (const item of bounds) expect(item).not.toBeNull();
+    for (const item of bounds.slice(1)) {
+      expect(Math.abs(item!.x - bounds[0]!.x)).toBeLessThan(1);
+      expect(Math.abs(item!.width - bounds[0]!.width)).toBeLessThan(1);
+    }
+    const styles = await panel.evaluate(element => {
+      const panelStyle = getComputedStyle(element);
+      const row = getComputedStyle(document.querySelector('[data-testid="live-mirror-fact"] [data-slot="settings-row-title"]')!);
+      const body = getComputedStyle(element.querySelector("li")!);
+      const section = getComputedStyle(element.querySelector("h2")!);
+      const liveStyle = getComputedStyle(document.querySelector('[data-testid="live-mirror-preview"] [data-slot="settings-group-shell"]')!);
+      const heading = document.querySelector('.app-page-header-region')!.getBoundingClientRect();
+      const content = document.querySelector('.app-page-content-region')!.getBoundingClientRect();
+      return {
+        padding: [panelStyle.paddingTop, panelStyle.paddingRight, panelStyle.paddingBottom, panelStyle.paddingLeft],
+        radius: [panelStyle.borderRadius, liveStyle.borderRadius],
+        surface: [panelStyle.backgroundColor, liveStyle.backgroundColor],
+        body: [body.fontFamily, body.fontSize, body.lineHeight, body.color],
+        row: [row.fontFamily, row.fontSize, row.lineHeight, row.color],
+        sectionSize: section.fontSize,
+        headerGap: content.top - heading.bottom,
+      };
+    });
+    expect(styles.padding).toEqual(["16px", "16px", "16px", "16px"]);
+    expect(styles.radius[0]).toBe(styles.radius[1]);
+    expect(styles.surface[0]).toBe(styles.surface[1]);
+    expect(styles.body).toEqual(styles.row);
+    expect(styles.sectionSize).toBe("15px");
+    expect(styles.headerGap).toBeLessThanOrEqual(width < 640 ? 1 : 7);
+    if (width < 640) {
+      const copy = await panel.getByText("The memory One uses in every conversation.").boundingBox();
+      const edit = await panel.getByRole("button", { name: "Edit memory.md" }).boundingBox();
+      expect(copy!.width).toBeGreaterThan(width * 0.65);
+      expect(Math.abs(copy!.x - edit!.x)).toBeLessThan(1);
+      expect(edit!.y).toBeGreaterThanOrEqual(copy!.y + copy!.height);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+    await page.screenshot({ path: testInfo.outputPath(`memory-${width}-${theme}.png`), fullPage: true });
+    await page.getByRole("button", { name: "Edit memory.md" }).click();
+    await expect(page.getByRole("textbox", { name: "memory.md Markdown" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Live memory preview" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(panel).toContainText("A second detail that stays aligned.");
     expect(errors).toEqual([]);
   });
 }

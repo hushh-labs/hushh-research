@@ -5594,12 +5594,16 @@ body:has([data-testid="one-location-onboarding"])
     letter-spacing: var(--type-section-label-tracking) !important;
   }
 
-  /* Give Memory's longer document label room on a phone without changing
-     the shared Location tab type or reducing its font size. */
-  @media (max-width: 639px) {
-    .app-page-shell [data-top-shell-tab-set="memory"] {
-      grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 0.7fr) minmax(0, 1fr) !important;
-    }
+  /* Match Location's grouped surfaces. Memory owns this composition; the
+     shared rows still own type, insets, separators and interaction states. */
+  .app-page-shell [data-pkm-workspace] :is([data-slot="settings-group-shell"], .memory-document-panel) {
+    --settings-group-radius: var(--app-radius-md);
+    border-radius: var(--app-radius-md) !important;
+    background-color: var(--app-primary-surface) !important;
+    box-shadow: inset 0 0 0 1px var(--app-separator), var(--app-card-shadow-standard) !important;
+  }
+  .dark .app-page-shell [data-pkm-workspace] :is([data-slot="settings-group-shell"], .memory-document-panel) {
+    box-shadow: inset 0 0 0 1px var(--app-separator) !important;
   }
 
   [data-pkm-location-view] [data-slot="settings-row-description"] {
@@ -5744,6 +5748,14 @@ body:has([data-testid="one-location-onboarding"])
   .soul-memory-document pre { overflow-x: auto; padding: 1rem; background: var(--muted); }
   .soul-memory-document code { font-family: var(--font-app-mono); }
   .soul-memory-document hr { margin-block: 2rem; }
+  .app-page-shell [data-pkm-workspace] .soul-memory-document { max-width: none; }
+  .app-page-shell [data-pkm-workspace] .soul-memory-document :is(h2, h3, h4, h5, h6) {
+    margin-block: var(--app-form-section-gap) var(--app-form-field-gap);
+  }
+  .app-page-shell [data-pkm-workspace] .soul-memory-document h2 {
+    font-size: var(--type-section-label-size) !important;
+    line-height: var(--type-section-label-line) !important;
+  }
   /* Live memory's preview borrows these reading styles, but its money tables
      must not inherit "anywhere" wrapping: on a phone the table would shrink and
      break amounts mid-number, and its swipe-scroll wrapper would never scroll.

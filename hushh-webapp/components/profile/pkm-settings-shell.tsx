@@ -10,6 +10,7 @@ import {
   type AppPageShellWidth,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { SettingsPresentationProvider } from "@/components/app-ui/settings-ui";
 import { SurfaceStack } from "@/components/app-ui/surfaces";
 import { usePageEnterAnimation } from "@/lib/morphy-ux/hooks/use-page-enter";
 import {
@@ -112,8 +113,9 @@ export function PkmSettingsShell({
     };
   }, [pathname]);
 
+  const content = <SurfaceStack compact>{children}</SurfaceStack>;
   return (
-    <AppPageShell as="div" width={shellWidth} headerContentSpacing={titleRole === "agent" && !isMemoryWorkspace ? "compact" : "standard"}>
+    <AppPageShell as="div" width={shellWidth} headerContentSpacing={titleRole === "agent" ? "compact" : "standard"}>
       <AppPageHeaderRegion>
         <div className={cn("w-full", innerClassName)}>
           <PageHeader
@@ -127,10 +129,12 @@ export function PkmSettingsShell({
         </div>
       </AppPageHeaderRegion>
 
-      <AppPageContentRegion className={isMemoryWorkspace ? "!mt-4" : undefined}>
+      <AppPageContentRegion>
         <div ref={shellRef} className={cn("w-full space-y-4", innerClassName)}>
           <div data-pkm-detail-panel="true" data-pkm-workspace={pathname === ROUTES.PKM || pathname?.startsWith(`${ROUTES.PKM}/`) ? "true" : undefined}>
-            <SurfaceStack compact>{children}</SurfaceStack>
+            {isMemoryWorkspace ? (
+              <SettingsPresentationProvider density="comfortable">{content}</SettingsPresentationProvider>
+            ) : content}
           </div>
         </div>
       </AppPageContentRegion>

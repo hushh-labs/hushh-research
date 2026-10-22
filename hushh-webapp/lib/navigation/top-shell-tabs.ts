@@ -22,8 +22,8 @@ export interface TopShellTabDefinition {
 }
 
 export interface TopShellTabSet {
-  /** Wallet and Calendar also use local controlled pagers. */
-  id: TopShellTabSetId | "wallet" | "calendar";
+  /** Wallet, Calendar and Memory also use local controlled pagers. */
+  id: TopShellTabSetId | "wallet" | "calendar" | "memory";
   label: string;
   queryParam: "view" | "tab" | null;
   activeValue: string;

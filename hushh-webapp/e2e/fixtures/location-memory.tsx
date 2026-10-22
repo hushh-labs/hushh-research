@@ -5,6 +5,34 @@ import { PkmMemoryDetail } from "../../components/profile/pkm-memory-detail";
 import { SettingsGroup, SettingsRow } from "../../components/app-ui/settings-ui";
 import { buildLocationMemoryPresentation, resolveLocationMemoryField } from "../../lib/profile/location-memory-presentation";
 import { ROUTES } from "../../lib/navigation/routes";
+import { PkmSettingsShell } from "../../components/profile/pkm-settings-shell";
+import { SoulMemoryPanelBody } from "../../components/profile/soul-memory-panel";
+import type { SoulMemoryModel } from "../../components/profile/use-soul-memory-model";
+import { TopShellTabs } from "../../components/app-ui/top-shell-tabs";
+
+const MEMORY = "# memory.md\n\n## Facts\n- Synthetic detail with a long reference: " + "reference".repeat(14)
+  + "\n- A second detail that stays aligned.\n\n## Preferences\n- Concise answers.\n\n## Commitments\n- Review next week.\n";
+
+function MemoryWorkspace() {
+  const [draft, changeDraft] = useState(MEMORY);
+  const [editing, setEditing] = useState(false);
+  const model: SoulMemoryModel = {
+    active: true, verified: true, current: { document: { markdown: MEMORY, persisted: true }, draft },
+    editing, loading: false, failed: false, saving: false, conflict: false, sync: undefined,
+    beginEdit: () => setEditing(true), cancelEdit: () => { changeDraft(MEMORY); setEditing(false); },
+    changeDraft, save: async () => { setEditing(false); }, retrySync: async () => undefined,
+    retryLoad() {}, reloadLatest() {},
+  };
+  return <PkmSettingsShell title="Memory" titleRole="agent" shellWidth="agent">
+    <div className="space-y-3.5">
+      <TopShellTabs tabSet={{ id: "memory", label: "Memory", queryParam: "tab", activeValue: "browse", tabs: [
+        { value: "browse", label: "Saved", href: "/one/pkm?tab=browse" },
+        { value: "add", label: "Add", href: "/one/pkm?tab=add" },
+      ] }} onValueChange={() => {}} />
+      <SoulMemoryPanelBody model={model} />
+    </div>
+  </PkmSettingsShell>;
+}
 
 // Synthetic records only. Uses the production projection, rows and detail UI;
 // auth/service and coordinator behavior are covered by the panel integration tests.
@@ -39,4 +67,6 @@ function Fixture() {
   </div></main>;
 }
 
-createRoot(document.getElementById("root")!).render(<Fixture />);
+createRoot(document.getElementById("root")!).render(
+  new URLSearchParams(window.location.search).has("workspace") ? <MemoryWorkspace /> : <Fixture />,
+);

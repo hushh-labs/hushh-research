@@ -46,7 +46,7 @@ export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
   // The same shared Live Mirror preview as Profile and One's sheet, above
   // the Soul view. It stays out of the way while memory.md is being edited.
   const livePreview =
-    active && !editing ? <LiveMirrorPreview showOpenMemory={false} /> : null;
+    active && !editing ? <LiveMirrorPreview showOpenMemory={false} headingClassName="mt-0" /> : null;
   if (failed && !editing)
     return (
       <div className="min-w-0 space-y-[var(--app-form-section-gap)]">
@@ -75,9 +75,9 @@ export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
       {livePreview}
       <section
         aria-label="memory.md"
-        className="min-w-0 space-y-[var(--app-form-section-gap)] pb-6"
+        className="memory-document-panel min-w-0 space-y-4 p-4"
       >
-        <div className="flex flex-col items-start gap-2 px-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+        <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
           <p className="ui-text-row-description min-w-0 flex-1">
             The memory One uses in every conversation.
           </p>
@@ -101,6 +101,7 @@ export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
           ) : (
             <Button
               variant="muted"
+              size="sm"
               className="min-h-11 shrink-0"
               disabled={loading}
               onClick={model.beginEdit}
