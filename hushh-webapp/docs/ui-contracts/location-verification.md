@@ -69,8 +69,8 @@ Production owners include the Location page, map/public route clients, onboardin
 - `hushh-webapp/components/one-location/redesign/sos-panel.tsx`
 - `hushh-webapp/components/one-location/saved-locations-section.tsx`
 - `hushh-webapp/components/one-location/saved-places-banner.tsx`
-- `hushh-webapp/contracts/ui-review/back/e5daa81c8ae301a15ef2d886c0de1bbb99bce91c4ca0015f2844f67aa82b8214.json`
-- `hushh-webapp/contracts/ui-review/search/caa2cdb9b1e3f7c2d656dc1163c9cf671d4f3fbf9eac809a81b5b2a7fe99d89a.json`
+- `hushh-webapp/contracts/ui-review/back/7c2cad38a70ad19f3cd5bb3de5e91a158755516bce0a74f1af29cf0a25f7c021.json`
+- `hushh-webapp/contracts/ui-review/search/5f0f9ae58b1f0b4227024cd90dfdc9f3f6bab9dc66e6e97a53eb978a9f5d3b75.json`
 - `hushh-webapp/docs/one-location-now-and-map.md`
 - `hushh-webapp/docs/ui-contracts/README.md`
 - `hushh-webapp/docs/ui-contracts/location-action-coverage.md`
@@ -123,7 +123,7 @@ The request-duration H1 now permits natural wrapping at28/36 instead of a local 
 
 ## Screen and state coverage
 
-The fresh ledger contains **1142 mounted text/a11y sites**, **163 composed CTA/state contracts**, and **104 explicitly excluded source sites**. Each in-scope text site has a disposition and an observation or exact evidence gap.
+The fresh ledger contains **1144 mounted text/a11y sites**, **163 composed CTA/state contracts**, and **104 explicitly excluded source sites**. Each in-scope text site has a disposition and an observation or exact evidence gap.
 
 | Family | Explicit source disposition |
 | --- | --- |
@@ -208,3 +208,5 @@ A later freshness merge incorporates main `0ea0f8fce3f3a871fd5009876fd8b9fa568d9
 The refreshed Node24 build emits the exact same global CSS bytes as the 12-capture build: chunk `0e0cky5cnncc0.css`, SHA-256 `3e0c670de960f9ae6570d5cb8f7d24bf47374035e865ebaad1a25b25ab4fffa3`. No Location, Back/Profile, font or global CSS source delta exists from the captured source; principal React/Radix/Vaul/Tailwind runtime packages also retain their prior locked versions. This bounds reuse of those screenshots while the new dependency/combined-head gates are verified separately.
 
 The final freshness review incorporates main `38082590d287830fef4dfdf7e3f25b6ab4ee9633`. Its inherited One profile sheet change removes the text-approval control and applies the existing activity-feed typography hook. This private-agent sheet is mounted by AgentChatWorkspace; it is separate from Location's top-bar Profile pane. Location, the captured shared header and Circle portal owners, fonts and global CSS remain unchanged. The combined Back/Search receipts are refreshed because the shared source graph changed; no Location functionality or backend dependency is added by this PR. Owner-specific profile checks and the final exact-head CI run are recorded separately from the reusable Location screenshots.
+
+The next freshness review incorporates main `4da24d00ab79039422699209ffe473b0b532afb6`, including upstream Nearby discovery, strict Café/Stays categories and incomplete-discovery recovery. The inherited API/service behavior remains unchanged relative to main. This PR adds only the matching row-description and compact-action typography hooks to the new warning and retry text. The ledger records 1144 text/a11y sites and extends the existing K.retry contract; the action count remains 163. Old Nearby captures do not cover the new branch; fresh owner verification and supplemental mounted captures are recorded separately. Root Now/Connect/header and Circle member screenshot owners remain unchanged.

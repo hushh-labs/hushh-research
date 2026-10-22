@@ -3311,10 +3311,10 @@ export function NearbyCheckInSheet({
                       ) : null}
                       {!typedSearchActive && discoveryIncomplete ? (
                         <div className="mt-2 space-y-2" role="status">
-                          <p className="text-sm text-muted-foreground">
+                          <p data-location-type-role="row-description" className="text-sm text-muted-foreground">
                             Some nearby places may be missing. Retry or search by name.
                           </p>
-                          <Button
+                          <Button data-location-type-role="compact-action"
                             type="button"
                             size="compact"
                             variant="secondary"
