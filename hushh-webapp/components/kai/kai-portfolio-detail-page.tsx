@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/firebase/auth-context";
 import { buildKaiPortfolioSectionRoute } from "@/lib/navigation/routes";
 import { useVault } from "@/lib/vault/vault-context";
 import { useState } from "react";
+import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 
 export function KaiPortfolioDetailPage({
   section,
@@ -23,7 +24,7 @@ export function KaiPortfolioDetailPage({
     <AppPageShell
       as="div"
       width="reading"
-      className="relative pb-32"
+      className={`relative pb-32 ${financeStyles.workspace}`}
       nativeTest={{
         routeId: buildKaiPortfolioSectionRoute(section),
         marker: `native-route-kai-portfolio-${section}`,

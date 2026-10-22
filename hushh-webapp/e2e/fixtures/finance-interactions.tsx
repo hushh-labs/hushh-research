@@ -8,8 +8,15 @@ import { OneMarketNewsBriefing } from "../../components/kai/cards/market-news-br
 import { SectorRotationChart } from "../../components/kai/cards/sector-rotation-chart";
 import { MarketIndexDetailSurface } from "../../components/kai/cards/market-index-detail";
 import type { MarketOverviewMetric } from "../../components/kai/cards/market-overview-grid";
+import { PortfolioValueCard } from "../../components/kai/cards/portfolio-value-card";
+import financeStyles from "../../components/kai/shared/finance-workspace.module.css";
 import { LineChart } from "../../components/icons";
 import marketStyles from "../../components/kai/shared/market-briefing.module.css";
+
+const observedFixture = Array.from({ length: 31 }, (_, index) => ({
+  date: new Date(Date.UTC(2026, 8, 20 + index)).toISOString(),
+  value: 440 + index / 2 + Math.sin(index) * 3,
+}));
 
 function Fixture() {
   const [updated, setUpdated] = useState(false);
@@ -35,8 +42,12 @@ function Fixture() {
         url: `https://publisher.test/story-${index}`, published_at: "2026-10-20T20:00:00Z", source_name: "Publisher", provider: "fixture", degraded: false,
         image_url: "https://images.example.test/large.png", image_thumbnail_url: "https://images.example.test/small.png" }))} />
     </section>
-    <section data-testid="market-iphone-fixture" className="mt-8">
-      <RiaPicksList controlMode="adaptive-surface" rows={[
+    <section data-testid="portfolio-chart-fixture" className={`${financeStyles.workspace} mx-auto mt-8 w-full`}>
+      <PortfolioValueCard source="Sample" value={24680.42} change={584.24} changePct={2.43} period="Sample portfolio · September 20 – October 20"
+        history={observedFixture.map(point => ({ ...point, value: point.value * 54 }))} />
+    </section>
+    <section data-testid="market-iphone-fixture" className={`${financeStyles.workspace} mx-auto mt-8 w-full`}>
+      <RiaPicksList controlMode="adaptive-surface" loadHistory={async () => ({ points: observedFixture, stale: true, retrievedAt: "2026-10-20T20:00:00Z" })} rows={[
         { symbol: "BRK-B", company_name: "Berkshire Hathaway Inc. Class B", sector: "Financials", tier: "KING", market_cap: 850_000_000_000,
           price: 456.78, change_pct: 1.2, volume: 1000, degraded: false, as_of: "2026-10-20T20:00:00Z", source_tags: ["layout fixture"] },
         { symbol: "AAPL", company_name: "Apple Inc", sector: "Technology", tier: "ACE", market_cap: 3_500_000_000_000,

@@ -63,6 +63,7 @@ test.beforeAll(async () => {
       lib: {
         entry: path.join(root, "e2e/fixtures/finance-interactions.tsx"),
         name: "Fixture",
+        cssFileName: "finance-interactions",
         formats: ["iife"],
         fileName: () => "fixture.js",
       },
@@ -101,6 +102,7 @@ test.beforeAll(async () => {
       lib: {
         entry: path.join(root, "e2e/fixtures/finance-market.tsx"),
         name: "MarketFixture",
+        cssFileName: "finance-market",
         formats: ["iife"],
         fileName: () => "market.js",
       },
@@ -244,13 +246,9 @@ for (const width of [375, 393, 430]) {
     expect(geometry.left).toBeGreaterThanOrEqual(0);
     expect(geometry.right).toBeGreaterThanOrEqual(0);
     expect(geometry.height).toBeGreaterThanOrEqual(44);
-    const search = stocks.getByRole("button", { name: "Search list" });
+    const search = stocks.getByRole("searchbox", { name: "Search stocks" });
     await expect(search).toBeVisible();
-    const bounds = await search.boundingBox();
-    expect(bounds!.width).toBeGreaterThanOrEqual(44);
-    expect(bounds!.height).toBeGreaterThanOrEqual(44);
-    await search.click();
-    await expect(stocks.getByPlaceholder("Search symbol, company, sector, or thesis")).toBeVisible();
+    expect((await search.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     const sectors = page.getByTestId("sector-iphone-fixture");
     await expect(sectors.locator("ul li")).toHaveCount(6);
     expect((await sectors.boundingBox())!.height).toBeLessThan(400);
@@ -374,4 +372,48 @@ for (const width of [320, 393, 768]) {
       }
     }
   });
+}
+
+
+for (const width of [360, 393, 430, 768, 1024, 1440]) {
+  for (const theme of ["light", "dark"]) {
+    test(`Finance chart review ${width}px ${theme}`, async ({ page }) => {
+      await mount(page, width);
+      await page.evaluate(mode => document.documentElement.classList.toggle("dark", mode === "dark"), theme);
+      const portfolio = page.getByTestId("portfolio-chart-fixture");
+      await portfolio.scrollIntoViewIfNeeded();
+      await expect(portfolio.locator("path.recharts-area-curve")).toHaveAttribute("d", /^M/);
+      expect(await portfolio.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+      const bounds = await portfolio.boundingBox();
+      expect(bounds!.width).toBeLessThanOrEqual(728);
+      await page.screenshot({ path: test.info().outputPath(`portfolio-${width}-${theme}.png`) });
+      const stocks = page.getByTestId("market-iphone-fixture");
+      const search = stocks.getByRole("searchbox", { name: "Search stocks" });
+      await search.fill("Berkshire");
+      await expect(stocks.getByTestId("market-pick-row")).toHaveCount(1);
+      const row = stocks.getByTestId("market-pick-row").first();
+      const typography = await row.locator("[data-stock-name]").evaluate(el => ({ family: getComputedStyle(el).fontFamily, size: getComputedStyle(el).fontSize, weight: getComputedStyle(el).fontWeight }));
+      expect(typography.family).toContain("Plus Jakarta Sans");
+      expect(typography.size).toBe("14px");
+      expect(typography.weight).toBe("550");
+      await row.click();
+      const detail = page.getByRole("dialog", { name: "BRK-B", exact: true });
+      await expect(detail.getByText("$456.78", { exact: true })).toBeVisible();
+      const chart = detail.getByRole("region", { name: "Price history", exact: true });
+      await expect(chart.locator("path.recharts-area-curve")).toHaveAttribute("d", /^M/);
+      const range = chart.getByRole("button", { name: "1W", exact: true });
+      await expect.poll(async () => (await range.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      await range.click();
+      await expect(range).toHaveAttribute("aria-pressed", "true");
+      await expect(chart.getByRole("button", { name: "1D", exact: true })).toHaveCount(0);
+      expect(await detail.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      const ids = await page.locator("linearGradient[id^='price-']").evaluateAll(nodes => nodes.map(node => node.id));
+      expect(new Set(ids).size).toBe(ids.length);
+      await page.screenshot({ path: test.info().outputPath(`stock-detail-${width}-${theme}.png`) });
+      await detail.getByRole("button", { name: /^Close(?: detail panel)?$/, exact: true }).click();
+      await expect(detail).toHaveCount(0);
+      await expect(search).toHaveValue("Berkshire");
+    });
+  }
 }

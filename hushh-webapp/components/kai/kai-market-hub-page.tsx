@@ -28,6 +28,7 @@ import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition
 import { resetKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
 import marketBriefingStyles from "@/components/kai/shared/market-briefing.module.css";
+import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 
 const FINANCE_TAB_DEFINITION = TOP_SHELL_TAB_REGISTRY.finance;
 type PortfolioTab = (typeof FINANCE_TAB_DEFINITION.tabs)[number]["value"];
@@ -109,9 +110,9 @@ export function KaiMarketHubPage() {
     <AppPageShell
       as="div"
       fitContent
-      width="agent"
+      width={visibleTab === "market" ? "agent" : "reading"}
       headerContentSpacing="compact"
-      className={visibleTab === "market" ? `relative ${marketBriefingStyles.typography}` : "relative"}
+      className={visibleTab === "market" ? `relative ${marketBriefingStyles.typography}` : `relative ${financeStyles.workspace}`}
       data-finance-workspace="true"
       nativeTest={{
         routeId: KAI_MARKET_PATH,

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { RiaPicksList, mergeMarketCompanyFacts } from "@/components/kai/cards/renaissance-market-list";
@@ -44,12 +44,12 @@ describe("RiaPicksList detail", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Nvidia/i }));
 
-    const dialog = await screen.findByRole("dialog", { name: "Nvidia" });
+    const dialog = await screen.findByRole("dialog", { name: "NVDA" });
     const detail = within(dialog);
 
     expect(dialog.querySelector('[data-symbol-avatar="true"]')).toBeTruthy();
-    expect(detail.getAllByText("Nvidia")).toHaveLength(1);
-    expect(detail.getByText(/NVDA • Semiconductors/i)).toBeTruthy();
+    expect(detail.getByText(/Nvidia • Semiconductors/i)).toBeTruthy();
+    expect(detail.getByText("USD · Quoted", { exact: false })).toBeTruthy();
     expect(detail.queryByText(/Advisor list detail/i)).toBeNull();
     expect(detail.queryByText(/Symbol repaired/i)).toBeNull();
     expect(detail.queryByText("Investment thesis")).toBeNull();
@@ -66,8 +66,21 @@ describe("RiaPicksList detail", () => {
     expect(selection).toHaveBeenLastCalledWith(null);
     rerender(<RiaPicksList rows={[row]} />);
     fireEvent.click(screen.getByRole("button", { name: /Nvidia/i }));
-    const publicDetail = await screen.findByRole("dialog", { name: "Nvidia" });
+    const publicDetail = await screen.findByRole("dialog", { name: "NVDA" });
     expect(within(publicDetail).queryByRole("button", { name: "Analyze NVDA" })).toBeNull();
+  });
+
+  it("loads observed history only after selection and cancels it when details close", async () => {
+    const loadHistory = vi.fn(async (_symbol: string, _signal: AbortSignal) => ({ points: [], stale: true, retrievedAt: null }));
+    render(<RiaPicksList rows={[row]} loadHistory={loadHistory} />);
+    expect(loadHistory).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /Nvidia/i }));
+    const dialog = await screen.findByRole("dialog", { name: "NVDA" });
+    await waitFor(() => expect(loadHistory).toHaveBeenCalledTimes(1));
+    const signal = loadHistory.mock.calls[0][1];
+    expect(loadHistory.mock.calls[0][0]).toBe("NVDA");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close detail panel" }));
+    await waitFor(() => expect(signal.aborted).toBe(true));
   });
 
   it("hides a source control that has no alternative and keeps empty-source recovery available", () => {
@@ -77,7 +90,7 @@ describe("RiaPicksList detail", () => {
       { id: "default", label: "Curated stocks", kind: "default", state: "ready", is_default: true },
       { id: "ria:one", label: "Advisor list", kind: "ria", state: "ready", is_default: false },
     ]} />);
-    expect(screen.getByText("List source")).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "List source" })).toBeTruthy();
     expect(screen.getAllByRole("combobox").length).toBeGreaterThan(0);
   });
 });
