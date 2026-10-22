@@ -16,6 +16,7 @@ import { usePuppyTurn, type PuppyChatModel, type PuppyChatTurn } from "@/lib/age
 import { podMemoryConsentPhrase, usePodMemoryConsentWord } from "@/lib/agent/use-pod-memory-consent-word";
 import { pendingRevocations, type PendingRevocation } from "@/lib/services/owner-pod-endpoint";
 import { cn } from "@/lib/utils";
+import { AgentDockPortal } from "@/components/agent/agent-dock";
 
 const SUGGESTIONS = ["What do you remember about me?", "Help me plan my day", "Draft a short thank-you note"];
 
@@ -118,12 +119,16 @@ export function PrivatePuppyInferencePanel({
   conversationId = "puppy-private-relay",
   accessory,
   composerDisabled = false,
+  active = true,
+  sharedDock = false,
 }: {
   className?: string;
   conversationId?: string;
   /** A control that shares the header row, such as the machine readings sheet. */
   accessory?: ReactNode;
   composerDisabled?: boolean;
+  active?: boolean;
+  sharedDock?: boolean;
 }) {
   const { user } = useAuth();
   const { vaultOwnerToken } = useVault();
@@ -192,7 +197,9 @@ export function PrivatePuppyInferencePanel({
           </p>
         ) : null}
       </div>
-      <PuppyComposer disabled={composerDisabled} busy={busy} stopping={stage === "stopping"} onSend={(message) => void send(message)} onStop={stop} />
+      <AgentDockPortal enabled={sharedDock} active={active} visible>
+        <PuppyComposer embedded={sharedDock} active={active} disabled={composerDisabled || !active} busy={busy} stopping={stage === "stopping"} onSend={(message) => void send(message)} onStop={stop} />
+      </AgentDockPortal>
     </div>
   );
 }

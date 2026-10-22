@@ -421,7 +421,10 @@ Rules:
     at 12px. Verify computed fonts, line heights and insets in Chromium and
     WebKit; class-name checks cannot prove visual parity. Conversations, device
     authority and streaming state remain owned by their existing runtimes.
-13. One's browser and recovery Chat header retains the portrait above its name:
+    Opening Puppy selects an empty owner-scoped chat without a second Start
+    step. Local and relay editors occupy the same retained footer seat as One;
+    blocked hosting states show a disabled Puppy composer, never One's voice.
+13. One and Puppy's browser and recovery Chat headers retain the portrait above their names:
     104px on desktop, 52–64px on phones. On the narrowest phones, shift it only
     enough to avoid the existing 44px action targets. Keep the mode toggle
     anchored across One/Puppy switches, the phone model picker in One's profile,

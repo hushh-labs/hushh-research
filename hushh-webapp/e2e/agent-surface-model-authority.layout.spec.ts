@@ -148,11 +148,13 @@ function decide(mode: Mode, variant: Variant, width = 1024) {
     canPickOneModel: variant.canPickOneModel,
     modelPreference: MODEL_PREFERENCE,
     hasInlineModelPicker: width >= 640,
+    nativeCompact: !variant.centeredHeader,
   };
   const showPicker = variant.applyShippedGate
     ? Boolean(evaluateShippedExpression(SRC.cloudPicker.gateExpression, scope))
     : MODEL_PREFERENCE.choices.length > 1;
   return {
+    centered: evaluateShippedExpression(SRC.header.centeredMarkerExpression, scope) === "true",
     name: String(evaluateShippedExpression(SRC.header.nameExpression, scope)),
     subtitle: String(
       evaluateShippedExpression(SRC.header.subtitleExpression, scope),
@@ -227,7 +229,7 @@ function renderScreen(mode: Mode, variant: Variant, width: number): string {
   const artworkMarkup = `<div class="${artwork.containerClass}"><img data-testid="one-artwork" alt="" width="64" height="64" class="${artwork.className}"></div>`;
   const brand = mode === "one"
     ? `<span class="relative inline-flex shrink-0 overflow-visible align-middle"><button data-agent-chat-one-profile-trigger data-testid="one-profile-button" aria-label="Open One profile" class="inline-flex items-center justify-center rounded-full ${SRC.header.centered.profileTriggerClass}"><span class="inline-flex items-center justify-center">${artworkMarkup}</span></button></span>`
-    : "";
+    : artworkMarkup;
   const subtitle = variant.workingSubtitle ?? plan.subtitle;
   // Rendered in the shipped source order, so the toggle's anchor is whatever
   // the product anchors it to.
@@ -236,7 +238,7 @@ function renderScreen(mode: Mode, variant: Variant, width: number): string {
     .join("");
 
   const header = `
-    <div data-testid="agent-header" data-agent-header-layout="${variant.centeredHeader ? "portrait" : "compact"}" ${variant.centeredHeader && mode === "one" ? 'data-one-centered-header="true"' : ""} class="${SRC.header.containerClass}">
+    <div data-testid="agent-header" data-agent-header-layout="${variant.centeredHeader ? "portrait" : "compact"}" ${plan.centered ? 'data-one-centered-header="true"' : ""} class="${SRC.header.containerClass}">
       <button type="button" data-testid="history-button" aria-label="Open chat history" class="${escapeHtml(SRC.header.historyClass)}"></button>
       <div data-agent-chat-header-region="identity" data-testid="agent-identity" class="${SRC.header.identityClass}">
         <div data-agent-chat-brand-tile data-testid="agent-brand-tile" class="${SRC.header.brandTileClass}">${brand}</div>
@@ -650,6 +652,9 @@ test.describe("Agent Chat: which agent is answering", () => {
       expect(tile.x + tile.width).toBeLessThanOrEqual(
         header.x + header.width + 0.5,
       );
+      await switchTo(page, "puppy");
+      await expect(page.getByTestId("one-artwork")).toBeVisible();
+      expect(await box(page, "agent-brand-tile")).toEqual(tile);
     });
 
     test(`the header cluster does not move when the mode changes at ${width}px`, async ({
@@ -678,10 +683,7 @@ test.describe("Agent Chat: which agent is answering", () => {
         header: await box(page, "agent-header"),
       };
 
-      // Order is why this holds: the picker leaves on the far side of the
-      // toggle, which is anchored to the profile button at the right edge. Put
-      // the picker between them and its exit drags the toggle sideways out
-      // from under the thumb that just pressed it.
+      // Keep the toggle beside Profile when One's picker leaves.
       expect(Math.abs(after.toggle.x - before.toggle.x)).toBeLessThanOrEqual(
         0.5,
       );
@@ -692,8 +694,7 @@ test.describe("Agent Chat: which agent is answering", () => {
         0.5,
       );
 
-      // The right-hand cluster keeps its right edge (it narrows by exactly the
-      // picker it lost), and stays on the page.
+      // The action cluster keeps its right edge and stays on the page.
       expect(
         Math.abs(
           after.cluster.x +
@@ -706,15 +707,11 @@ test.describe("Agent Chat: which agent is answering", () => {
       );
       expect(after.cluster.x).toBeGreaterThanOrEqual(-0.5);
 
-      // And the header does not grow a line on the longer name: "Puppy One"
-      // is three times "One", and the identity block it sits in is the half
-      // that is allowed to shrink.
-      expect(after.header.height).toBe(60);
+      // Both agents retain the same portrait reservation.
+      expect(after.header.height).toBe(before.header.height);
       expect(before.header.height).toBeGreaterThan(60);
 
-      // Nothing slides under a control: the identity region ends before the
-      // actions begin, in both modes. This is the 390px defect where the brand
-      // tile painted under the toggle and the name collapsed to zero width.
+      // Identity and actions remain disjoint in both modes.
       for (const mode of ["puppy", "one"] as const) {
         if (mode === "one") await switchTo(page, "one");
         const identity = await box(page, "agent-identity");
@@ -723,7 +720,6 @@ test.describe("Agent Chat: which agent is answering", () => {
         expect(disjoint, "Identity and actions must occupy separate tracks, never overlap").toBe(true);
 
         expect((await box(page, "agent-name")).width).toBeGreaterThan(0);
-        // Identity and controls are side by side, not two separate app-bar rows.
         expect((await box(page, "agent-header")).height).toBeGreaterThanOrEqual(60);
         const name = page.getByTestId("agent-name");
         expect(await name.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
