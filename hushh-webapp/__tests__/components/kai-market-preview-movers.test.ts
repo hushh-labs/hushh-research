@@ -10,6 +10,7 @@ import {
   toMoverGroups,
   toIndexStripItems,
   OneMarketIndexStrip,
+  OneMarketMovers,
   sectorRowsForPeriod,
   SectorRotationChart,
   OneMarketNewsCover,
@@ -30,7 +31,8 @@ describe("market period and image evidence", () => {
     render(createElement(SectorRotationChart, { rows }));
     fireEvent.click(screen.getByRole("tab", { name: "1 week" }));
     expect(screen.getByRole("tab", { name: "1 week" }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByText(/2026-10-13 to 2026-10-20/)).toBeTruthy();
+    expect(screen.getByTitle("2026-10-13 to 2026-10-20")).toHaveTextContent(/Oct.*13.*20.*2026/);
+    expect(screen.getByText("Sector ETF price return")).toBeVisible();
     expect(screen.getByText("Technology: -2.00%")).toBeTruthy();
     const dayAction = resolveLocalOnboardingHandler("market.sectors.show_day");
     expect(dayAction).toBeTruthy();
@@ -94,6 +96,9 @@ describe("market index quote evidence", () => {
     const [first] = toIndexStripItems({ market_overview: [quote] });
     const metrics = [first, { ...first, id: "nasdaq", label: "NASDAQ Composite", quotedAt: "2026-10-20T20:50:00Z" }];
     const { container, rerender } = render(createElement(OneMarketIndexStrip, { metrics, onMetricSelect: () => {} }));
+    expect(screen.getByText("Index levels in points")).toBeVisible();
+    expect(screen.getByRole("button", { name: /S&P 500/ })).toHaveTextContent("7,712.57");
+    expect(screen.getByRole("button", { name: /S&P 500/ }).textContent).not.toMatch(/[$₹]/);
     expect(screen.getAllByText(/Delayed/)).toHaveLength(1);
     expect([...container.querySelectorAll("time")].map((time) => time.dateTime)).toEqual([quote.as_of, metrics[1].quotedAt]);
     rerender(createElement(OneMarketIndexStrip, { metrics: [first, { ...metrics[1], quoteStatus: "Unavailable", quotedAt: null }], onMetricSelect: () => {} }));
@@ -149,6 +154,51 @@ describe("market index quote evidence", () => {
 });
 
 describe("toMoverGroups", () => {
+  const time = "2026-10-21T14:00:00Z";
+  const mover = (symbol: string, change_pct: number, degraded = true, as_of: string | null = time) => ({
+    symbol, company_name: `${symbol} Company`, price: 10, change_pct, volume: 1, degraded, as_of,
+  });
+  const groupsFor = (gainers: ReturnType<typeof mover>[], losers: ReturnType<typeof mover>[], degraded = false) => toMoverGroups({
+    movers: { gainers, losers, active: [mover("HIDDEN", 1, false)], degraded },
+  } as unknown as KaiHomeInsightsV2);
+
+  it("opens the clicked mover through the ticker preview contract", () => {
+    const navigate = vi.fn();
+    window.addEventListener("app-internal-navigation-requested", navigate);
+    try {
+      render(createElement(OneMarketMovers, { groups: groupsFor([mover("AAPL", 1)], []) }));
+      fireEvent.click(screen.getByRole("button", { name: /AAPL/ }));
+      expect(navigate).toHaveBeenCalledOnce();
+      const href = (navigate.mock.calls[0]![0] as CustomEvent<{ href: string }>).detail.href;
+      expect(href).toBe("/one/kai?tab=analysis&ticker=AAPL");
+    } finally {
+      window.removeEventListener("app-internal-navigation-requested", navigate);
+    }
+  });
+
+  it("shares cached status only for the displayed rows and retains exact common observation time", () => {
+    const groups = groupsFor([mover("A", 4), mover("B", 3), mover("C", 2), mover("FOURTH", 1, false)], [mover("D", -1)]);
+    const { container } = render(createElement(OneMarketMovers, { groups }));
+    expect(container.querySelectorAll("button")).toHaveLength(4);
+    expect(container.querySelectorAll("[data-market-mover-freshness]")).toHaveLength(1);
+    expect(screen.getByText(/^Cached quotes/)).not.toHaveTextContent(/unavailable/);
+    expect(screen.queryByText("Cached", { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByText("FOURTH", { exact: true })).not.toBeInTheDocument();
+    expect(container.querySelectorAll("[data-market-mover-pair]")).toHaveLength(3);
+  });
+
+  it("keeps mixed freshness and differing or missing observation times explicit", () => {
+    const { container, rerender } = render(createElement(OneMarketMovers, { groups: groupsFor([mover("A", 1)], [mover("B", -1, false)]) }));
+    expect(container.querySelector("[data-market-mover-freshness]")).toBeNull();
+    expect(screen.getByText("Cached", { exact: true })).toBeVisible();
+    rerender(createElement(OneMarketMovers, { groups: groupsFor([mover("A", 1)], [mover("B", -1, true, null)]) }));
+    expect(screen.getByText("Cached quotes", { exact: true })).toBeVisible();
+    expect(screen.getByText("Time unavailable", { exact: true })).toBeVisible();
+    expect(container.querySelectorAll("button > span[title]")).toHaveLength(2);
+    rerender(createElement(OneMarketMovers, { groups: groupsFor([mover("A", 1, false, null)], [mover("B", -1, false, null)], true) }));
+    expect(screen.getByText(/Cached quotes.*Timestamp unavailable/)).toBeVisible();
+  });
+
   it("rejects a directionally invalid provider bucket and orders valid movers by magnitude", () => {
     const payload = {
       movers: {

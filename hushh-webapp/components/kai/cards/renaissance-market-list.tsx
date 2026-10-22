@@ -31,9 +31,12 @@ import type {
 import { cn } from "@/lib/utils";
 import { formatCurrency, formatCompactNumber } from "@/lib/kai/market-value-format";
 
+
+
 const ALL_FILTER = "all";
 const MOBILE_PICKS_PAGE_SIZE_OPTIONS = [8, 12, 16] as const;
 const DESKTOP_PICKS_PAGE_SIZE_OPTIONS = [8, 16, 24] as const;
+
 
 function tierTone(tier: string | null | undefined): string {
   const normalized = String(tier || "")

@@ -15,6 +15,7 @@ import { toInvestorDecisionLabel } from "@/lib/copy/investor-language";
 import {
   fetchLatestMarketSnapshot,
   getLatestMarketSnapshotFromCache,
+  marketSnapshotForTicker,
   pickPreferredMarketSnapshot,
   type TickerMarketSnapshot,
 } from "@/lib/kai/market-snapshot";
@@ -104,73 +105,19 @@ function resolveOwnsPosition(entry: AnalysisHistoryEntry, userId?: string): bool
 }
 
 function resolveCurrentPrice(rawCard: Record<string, unknown>): number | null {
-  const marketSnapshotRaw =
-    rawCard.market_snapshot &&
-    typeof rawCard.market_snapshot === "object" &&
-    !Array.isArray(rawCard.market_snapshot)
-      ? (rawCard.market_snapshot as Record<string, unknown>)
-      : {};
-  const keyMetricsRaw =
-    rawCard.key_metrics &&
-    typeof rawCard.key_metrics === "object" &&
-    !Array.isArray(rawCard.key_metrics)
-      ? (rawCard.key_metrics as Record<string, unknown>)
-      : {};
-  const valuationRaw =
-    keyMetricsRaw.valuation &&
-    typeof keyMetricsRaw.valuation === "object" &&
-    !Array.isArray(keyMetricsRaw.valuation)
-      ? (keyMetricsRaw.valuation as Record<string, unknown>)
-      : {};
-  const priceTargetsRaw =
-    rawCard.price_targets &&
-    typeof rawCard.price_targets === "object" &&
-    !Array.isArray(rawCard.price_targets)
-      ? (rawCard.price_targets as Record<string, unknown>)
-      : {};
-
-  return (
-    readNumber(marketSnapshotRaw.last_price) ??
-    readNumber(rawCard.current_price) ??
-    readNumber(valuationRaw.current_price) ??
-    readNumber(valuationRaw.price) ??
-    readNumber(priceTargetsRaw.current_price) ??
-    readNumber(priceTargetsRaw.current) ??
-    readNumber(priceTargetsRaw.market_price)
-  );
+  const snapshot = rawCard.market_snapshot as Record<string, unknown> | undefined;
+  return snapshot && typeof snapshot === "object" ? readNumber(snapshot.last_price) : null;
 }
 
 function resolveDailyChangePct(rawCard: Record<string, unknown>): number | null {
-  const marketSnapshotRaw =
-    rawCard.market_snapshot &&
-    typeof rawCard.market_snapshot === "object" &&
-    !Array.isArray(rawCard.market_snapshot)
-      ? (rawCard.market_snapshot as Record<string, unknown>)
-      : {};
-  const keyMetricsRaw =
-    rawCard.key_metrics &&
-    typeof rawCard.key_metrics === "object" &&
-    !Array.isArray(rawCard.key_metrics)
-      ? (rawCard.key_metrics as Record<string, unknown>)
-      : {};
-  const sentimentRaw =
-    keyMetricsRaw.sentiment &&
-    typeof keyMetricsRaw.sentiment === "object" &&
-    !Array.isArray(keyMetricsRaw.sentiment)
-      ? (keyMetricsRaw.sentiment as Record<string, unknown>)
-      : {};
-
-  return (
-    readNumber(marketSnapshotRaw.change_pct) ??
-    readNumber(rawCard.day_change_pct) ??
-    readNumber(rawCard.todays_change_pct) ??
-    readNumber(sentimentRaw.day_change_pct)
-  );
+  const snapshot = rawCard.market_snapshot as Record<string, unknown> | undefined;
+  return snapshot && typeof snapshot === "object" ? readNumber(snapshot.change_pct) : null;
 }
 
 function resolveRawCardMarketSnapshot(
   rawCard: Record<string, unknown>,
-  fallbackObservedAt?: string
+  ticker: string,
+  _fallbackObservedAt?: string
 ): TickerMarketSnapshot | null {
   const marketSnapshotRaw =
     rawCard.market_snapshot &&
@@ -179,13 +126,13 @@ function resolveRawCardMarketSnapshot(
       ? (rawCard.market_snapshot as Record<string, unknown>)
       : {};
   const direct = readNumber(marketSnapshotRaw.last_price);
-  if (direct !== null && direct > 0) {
+  if (rawCard.market_snapshot && typeof rawCard.market_snapshot === "object") {
     return {
-      last_price: direct,
+      ticker: ticker.trim().toUpperCase(),
+      last_price: direct !== null && direct > 0 ? direct : null,
       change_pct: readNumber(marketSnapshotRaw.change_pct),
       observed_at:
         (typeof marketSnapshotRaw.observed_at === "string" && marketSnapshotRaw.observed_at) ||
-        fallbackObservedAt ||
         null,
       source:
         (typeof marketSnapshotRaw.source === "string" && marketSnapshotRaw.source) ||
@@ -196,9 +143,10 @@ function resolveRawCardMarketSnapshot(
   const fallback = resolveCurrentPrice(rawCard);
   if (fallback !== null && fallback > 0) {
     return {
+      ticker: ticker.trim().toUpperCase(),
       last_price: fallback,
       change_pct: resolveDailyChangePct(rawCard),
-      observed_at: fallbackObservedAt || null,
+      observed_at: null,
       source: "decision_payload.fallback",
     };
   }
@@ -266,13 +214,15 @@ export function AnalysisSummaryView({
     () =>
       resolveRawCardMarketSnapshot(
         rawCard,
+        entry.ticker,
         String(rawCard.analysis_updated_at || entry.timestamp || "")
       ),
-    [entry.timestamp, rawCard]
+    [entry.ticker, entry.timestamp, rawCard]
   );
-  const [marketSnapshot, setMarketSnapshot] = useState<TickerMarketSnapshot | null>(
+  const [marketSnapshotState, setMarketSnapshot] = useState<TickerMarketSnapshot | null>(
     rawCardSnapshot
   );
+  const marketSnapshot = marketSnapshotForTicker(marketSnapshotState, entry.ticker);
 
   useEffect(() => {
     setMarketSnapshot(rawCardSnapshot);
@@ -284,7 +234,7 @@ export function AnalysisSummaryView({
 
     const cached = getLatestMarketSnapshotFromCache(userId, entry.ticker);
     if (!cancelled) {
-      setMarketSnapshot((prev) => pickPreferredMarketSnapshot(prev, cached));
+      setMarketSnapshot((prev) => pickPreferredMarketSnapshot(prev, cached, entry.ticker));
     }
 
     if (!vaultOwnerToken) return () => {
@@ -300,7 +250,7 @@ export function AnalysisSummaryView({
           daysBack: 7,
         });
         if (!cancelled) {
-          setMarketSnapshot((prev) => pickPreferredMarketSnapshot(prev, live));
+          setMarketSnapshot((prev) => pickPreferredMarketSnapshot(prev, live, entry.ticker));
         }
       } catch {
         // Non-blocking: keep best known snapshot.
@@ -324,7 +274,7 @@ export function AnalysisSummaryView({
   const fairValueGapLabel =
     fairValueGapPct === null
       ? null
-      : `${fairValueGapPct >= 0 ? "+" : ""}${fairValueGapPct.toFixed(1)}% gap`;
+      : `${fairValueGapPct >= 0 ? "+" : ""}${fairValueGapPct.toFixed(1)}% gap at analysis`;
   const companyStrengthDetail = pickString(
     [
       (rawCard.fundamental_insight as Record<string, unknown> | undefined)?.summary,
@@ -417,9 +367,12 @@ export function AnalysisSummaryView({
         <CardContent className="space-y-5 p-6">
           <div className="flex items-center justify-between gap-3">
             <span className="text-xs font-bold uppercase tracking-widest text-primary">Analysis</span>
-            <span className="text-xs font-medium text-muted-foreground">{updatedAt}</span>
+            <span className="text-xs font-medium text-muted-foreground">At analysis · {updatedAt}</span>
           </div>
 
+          {rawCard.analysis_degraded ? <p role="status" className="text-sm text-muted-foreground">
+            Limited analysis{Array.isArray(rawCard.degraded_agents) && rawCard.degraded_agents.length ? ` · ${rawCard.degraded_agents.join(", ")}` : ""}
+          </p> : null}
           <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
             <div className="flex items-center justify-between gap-2">
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">

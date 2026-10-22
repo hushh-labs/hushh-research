@@ -38,6 +38,7 @@ class FundamentalInsight:
     sources: List[str]
     confidence: float
     recommendation: str  # "buy", "hold", "reduce"
+    analysis_degraded: bool = False
 
 
 class FundamentalAgent(HushhAgent):
@@ -198,22 +199,12 @@ class FundamentalAgent(HushhAgent):
         # Step 4: Merge results (Prefer Deep Gemini Report)
         if gemini_analysis and "error" not in gemini_analysis:
             logger.info(f"[Fundamental] Integrating Deep Gemini Report for {ticker}")
-            return FundamentalInsight(
-                summary=gemini_analysis.get("summary", analysis["summary"]),
-                key_metrics=analysis["key_metrics"],
-                quant_metrics=quant_metrics,
-                business_moat=gemini_analysis.get("business_moat", "No moat analysis available."),
-                financial_resilience=gemini_analysis.get(
-                    "financial_resilience", "No resilience analysis available."
-                ),
-                growth_efficiency=gemini_analysis.get(
-                    "growth_efficiency", "No efficiency analysis available."
-                ),
-                bull_case=gemini_analysis.get("bull_case", "No bull case provided."),
-                bear_case=gemini_analysis.get("bear_case", "No bear case provided."),
-                confidence=gemini_analysis.get("confidence", analysis["confidence"]),
-                recommendation=gemini_analysis.get("recommendation", analysis["recommendation"]),
-                sources=self._format_sources(sec_filings) + ["Gemini Senior Analyst Report"],
+            return _deep_fundamental_insight(
+                gemini_analysis,
+                analysis,
+                quant_metrics,
+                sec_filings,
+                self._format_sources(sec_filings),
             )
 
         # Step 5: Format as FundamentalInsight (Fallback)
@@ -229,6 +220,7 @@ class FundamentalAgent(HushhAgent):
             confidence=analysis["confidence"],
             recommendation=analysis["recommendation"],
             sources=analysis.get("sources", self._format_sources(sec_filings)),
+            analysis_degraded=True,
         )
 
     def _build_market_only_analysis(
@@ -238,10 +230,12 @@ class FundamentalAgent(HushhAgent):
         sec_unavailable_reason: str | None = None,
     ) -> Dict[str, Any]:
         """Fallback for symbols that do not have usable SEC operating-company filings."""
-        price = market_data.get("price") or 0
-        change_percent = market_data.get("change_percent") or market_data.get("change_pct") or 0
-        market_cap = market_data.get("market_cap") or 0
-        pe_ratio = market_data.get("pe_ratio") or 0
+        price = market_data.get("price")
+        change_percent = market_data.get("change_percent")
+        if change_percent is None:
+            change_percent = market_data.get("change_pct")
+        market_cap = market_data.get("market_cap")
+        pe_ratio = market_data.get("pe_ratio")
         source = market_data.get("source") or market_data.get("provider") or "Market data fallback"
         reason = sec_unavailable_reason or "SEC filing data unavailable for this symbol."
 
@@ -289,3 +283,28 @@ class FundamentalAgent(HushhAgent):
 
 # Export singleton for use in KaiAgent orchestration
 fundamental_agent = FundamentalAgent()
+
+
+def _deep_fundamental_insight(
+    gemini_analysis, analysis, quant_metrics, sec_filings, formatted_sources
+):
+    return FundamentalInsight(
+        summary=gemini_analysis.get("summary", analysis["summary"]),
+        key_metrics=analysis["key_metrics"],
+        quant_metrics=quant_metrics,
+        business_moat=gemini_analysis.get("business_moat", "No moat analysis available."),
+        financial_resilience=gemini_analysis.get(
+            "financial_resilience", "No resilience analysis available."
+        ),
+        growth_efficiency=gemini_analysis.get(
+            "growth_efficiency", "No efficiency analysis available."
+        ),
+        bull_case=gemini_analysis.get("bull_case", "No bull case provided."),
+        bear_case=gemini_analysis.get("bear_case", "No bear case provided."),
+        confidence=gemini_analysis.get("confidence", analysis["confidence"]),
+        recommendation=gemini_analysis.get("recommendation", analysis["recommendation"]),
+        sources=formatted_sources + ["Gemini Senior Analyst Report"],
+        analysis_degraded=bool(
+            sec_filings and sec_filings.get("latest_10k", {}).get("headline_stale")
+        ),
+    )

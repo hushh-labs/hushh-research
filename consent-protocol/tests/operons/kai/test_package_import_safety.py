@@ -61,3 +61,21 @@ print(json.dumps({
         "llm": False,
         "storage": False,
     }
+
+
+def test_market_contracts_and_runtime_binding_do_not_import_shared_adapters() -> None:
+    result = _run_probe(
+        """
+import json
+import sys
+import hushh_mcp.market_data.ports
+import hushh_mcp.market_data.runtime
+
+print(json.dumps({
+    "services": any(n.startswith("hushh_mcp.services") for n in sys.modules),
+    "database": any(n.startswith("hushh_mcp.db") for n in sys.modules),
+    "genai": "google.genai" in sys.modules,
+}))
+"""
+    )
+    assert result == {"services": False, "database": False, "genai": False}

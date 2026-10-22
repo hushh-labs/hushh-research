@@ -9,6 +9,33 @@ import pytest
 from api.routes.kai import stream as stream_routes
 
 
+def test_fair_value_requires_provider_price_and_consensus_instead_of_defaulting_fair():
+    assert stream_routes._derive_fair_value(
+        price_targets={},
+        valuation_metrics={},
+        valuation_recommendation="buy",
+    ) == ("Unavailable", None, None)
+    _, _, gap = stream_routes._derive_fair_value(
+        price_targets={"base_case": 110},
+        valuation_metrics={"current_price": 1},
+        valuation_recommendation="fair",
+        provider_snapshot={"last_price": 100},
+    )
+    assert gap == 10
+
+
+def test_company_strength_does_not_turn_zero_confidence_into_half_confidence():
+    result = stream_routes._derive_company_strength_score(
+        fundamental_confidence=0,
+        valuation_confidence=0,
+        debate_confidence=0,
+        sentiment_score=-1,
+        fair_value_score=5,
+        market_trend_score=0,
+    )
+    assert result == 0
+
+
 class _ConnectedRequest:
     async def is_disconnected(self) -> bool:
         return False
