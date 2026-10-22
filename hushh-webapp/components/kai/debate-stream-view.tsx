@@ -1211,7 +1211,6 @@ export function DebateStreamView({
       ticker,
       queueTokenPaint,
       updateAgentState,
-      userId,
     ]
   );
 
