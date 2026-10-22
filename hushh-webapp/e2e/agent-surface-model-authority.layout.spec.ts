@@ -683,10 +683,7 @@ test.describe("Agent Chat: which agent is answering", () => {
         header: await box(page, "agent-header"),
       };
 
-      // Order is why this holds: the picker leaves on the far side of the
-      // toggle, which is anchored to the profile button at the right edge. Put
-      // the picker between them and its exit drags the toggle sideways out
-      // from under the thumb that just pressed it.
+      // Keep the toggle beside Profile when One's picker leaves.
       expect(Math.abs(after.toggle.x - before.toggle.x)).toBeLessThanOrEqual(
         0.5,
       );
@@ -697,8 +694,7 @@ test.describe("Agent Chat: which agent is answering", () => {
         0.5,
       );
 
-      // The right-hand cluster keeps its right edge (it narrows by exactly the
-      // picker it lost), and stays on the page.
+      // The action cluster keeps its right edge and stays on the page.
       expect(
         Math.abs(
           after.cluster.x +
@@ -711,15 +707,11 @@ test.describe("Agent Chat: which agent is answering", () => {
       );
       expect(after.cluster.x).toBeGreaterThanOrEqual(-0.5);
 
-      // And the header does not grow a line on the longer name: "Puppy One"
-      // is three times "One", and the identity block it sits in is the half
-      // that is allowed to shrink.
+      // Both agents retain the same portrait reservation.
       expect(after.header.height).toBe(before.header.height);
       expect(before.header.height).toBeGreaterThan(60);
 
-      // Nothing slides under a control: the identity region ends before the
-      // actions begin, in both modes. This is the 390px defect where the brand
-      // tile painted under the toggle and the name collapsed to zero width.
+      // Identity and actions remain disjoint in both modes.
       for (const mode of ["puppy", "one"] as const) {
         if (mode === "one") await switchTo(page, "one");
         const identity = await box(page, "agent-identity");
@@ -728,7 +720,6 @@ test.describe("Agent Chat: which agent is answering", () => {
         expect(disjoint, "Identity and actions must occupy separate tracks, never overlap").toBe(true);
 
         expect((await box(page, "agent-name")).width).toBeGreaterThan(0);
-        // Identity and controls are side by side, not two separate app-bar rows.
         expect((await box(page, "agent-header")).height).toBeGreaterThanOrEqual(60);
         const name = page.getByTestId("agent-name");
         expect(await name.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
