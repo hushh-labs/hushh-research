@@ -148,6 +148,34 @@ describe("proxyConsentStream forwards the upstream error discriminator", () => {
     expect(body.detail).toBeUndefined();
   });
 
+  it("preserves the Feed admission code and retry delay without exposing upstream details", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
+      detail: { code: "FEED_STREAM_BUSY", message: "private-worker-diagnostic" },
+    }, { status: 503, headers: { "Retry-After": "60" } })));
+
+    const response = await proxyConsentStream(new Request(
+      "https://app.example.test/api/consent/document-feed/user-1?v=2",
+      { headers: { authorization: "Bearer test-token" } },
+    ), "user-1", "document-feed");
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("60");
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(await response.json()).toEqual({
+      error: "Could not connect to consent events stream",
+      detail: { error_code: "FEED_STREAM_BUSY" },
+    });
+  });
+
+  it("does not reflect arbitrary upstream detail.code values", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
+      detail: { code: "private-diagnostic", message: "private-message" },
+    }, { status: 503 })));
+
+    const response = await proxyConsentStream(request(), "user-1", "events");
+    expect(await response.json()).toEqual({ error: "Could not connect to consent events stream" });
+  });
+
   it("degrades without throwing when the upstream error body is not JSON", async () => {
     vi.stubGlobal(
       "fetch",
