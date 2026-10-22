@@ -215,11 +215,16 @@ class MarketInsightsCache:
         stale_ttl_seconds: int,
         fetcher: Callable[[], Awaitable[Any]],
         serve_stale_while_revalidate: bool = False,
+        fresh_after_ts: float | None = None,
     ) -> CacheResult:
         started_at = time.perf_counter()
         now = time.time()
         existing = self._get_entry(key)
-        if existing and (now - existing.fetched_at) <= fresh_ttl_seconds:
+        if (
+            existing
+            and (now - existing.fetched_at) <= fresh_ttl_seconds
+            and (fresh_after_ts is None or existing.fetched_at >= fresh_after_ts)
+        ):
             age = max(0, int(now - existing.fetched_at))
             _log_cache_resource_resolved(
                 cache_tier="memory",
@@ -256,7 +261,11 @@ class MarketInsightsCache:
         async with lock:
             now = time.time()
             existing = self._get_entry(key)
-            if existing and (now - existing.fetched_at) <= fresh_ttl_seconds:
+            if (
+                existing
+                and (now - existing.fetched_at) <= fresh_ttl_seconds
+                and (fresh_after_ts is None or existing.fetched_at >= fresh_after_ts)
+            ):
                 _log_cache_resource_resolved(
                     cache_tier="memory",
                     freshness="fresh",

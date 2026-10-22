@@ -8,11 +8,34 @@ person.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 US_MARKET_OPEN_CACHE_TTL_SECONDS = 120
 US_MARKET_CLOSED_CACHE_TTL_SECONDS = 1_800
+
+
+def us_market_session_opened_at(now: datetime | None = None) -> float | None:
+    """Old-session snapshots must revalidate once the regular session opens."""
+    if not us_market_is_open(now):
+        return None
+    eastern_now = (now or datetime.now(ZoneInfo("America/New_York"))).astimezone(
+        ZoneInfo("America/New_York")
+    )
+    return eastern_now.replace(hour=9, minute=30, second=0, microsecond=0).timestamp()
+
+
+def seconds_until_us_market_open(now: datetime | None = None) -> float:
+    """Bound a closed-session sleep so a warmer wakes at the next opening."""
+    eastern_now = (now or datetime.now(ZoneInfo("America/New_York"))).astimezone(
+        ZoneInfo("America/New_York")
+    )
+    opening = eastern_now.replace(hour=9, minute=30, second=0, microsecond=0)
+    if opening <= eastern_now:
+        opening += timedelta(days=1)
+    while opening.weekday() >= 5:
+        opening += timedelta(days=1)
+    return opening.timestamp() - eastern_now.timestamp()
 
 
 def us_market_is_open(now: datetime | None = None) -> bool:

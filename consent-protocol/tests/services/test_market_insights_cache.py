@@ -212,6 +212,53 @@ def test_second_caller_under_lock_skips_fetcher():
     _run(_inner())
 
 
+def test_opening_invalidation_preserves_concurrent_deduplication():
+    async def _inner():
+        cache = _cache()
+        opening = time.time()
+        cache.seed_entry("quotes", "preopen", opening - 1)
+        calls = []
+
+        async def fetch():
+            calls.append(True)
+            await asyncio.sleep(0.01)
+            return "open"
+
+        results = await asyncio.gather(
+            *[
+                cache.get_or_refresh(
+                    "quotes",
+                    fresh_ttl_seconds=120,
+                    stale_ttl_seconds=1800,
+                    fresh_after_ts=opening,
+                    fetcher=fetch,
+                )
+                for _ in range(3)
+            ]
+        )
+        assert calls == [True]
+        assert all(result.value == "open" and not result.stale for result in results)
+
+    _run(_inner())
+
+
+def test_opening_refresh_failure_keeps_preopen_stale_fallback():
+    cache = _cache()
+    opening = time.time()
+    cache.seed_entry("quotes", "preopen", opening - 1)
+    result = _run(
+        cache.get_or_refresh(
+            "quotes",
+            fresh_ttl_seconds=120,
+            stale_ttl_seconds=1800,
+            fresh_after_ts=opening,
+            fetcher=_fail_fetcher,
+        )
+    )
+    assert result.value == "preopen"
+    assert result.stale and result.stale_reason == "refresh_failure"
+
+
 # ---------------------------------------------------------------------------
 # Series points
 # ---------------------------------------------------------------------------

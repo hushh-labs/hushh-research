@@ -19,6 +19,7 @@ import os
 import threading
 import time
 import urllib.parse
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -29,7 +30,11 @@ from defusedxml import ElementTree as DefusedET
 from hushh_mcp.consent.token import validate_token
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.fmp_call_budget import is_budget_critical, record_fmp_call
-from hushh_mcp.services.market_refresh_policy import provider_quote_cache_ttl_seconds
+from hushh_mcp.services.market_refresh_policy import (
+    US_MARKET_OPEN_CACHE_TTL_SECONDS,
+    provider_quote_cache_ttl_seconds,
+    us_market_session_opened_at,
+)
 from hushh_mcp.types import UserID
 
 logger = logging.getLogger(__name__)
@@ -46,7 +51,16 @@ _PROVIDER_COOLDOWN_BY_STATUS: dict[int, int] = {
     404: 20 * 60,
     429: 5 * 60,
 }
-_MARKET_DATA_CACHE: dict[str, tuple[float, Dict[str, Any]]] = {}
+
+
+@dataclass(frozen=True)
+class _MarketDataCacheEntry:
+    expires_at: float
+    fetched_at: float
+    payload: Dict[str, Any]
+
+
+_MARKET_DATA_CACHE: dict[str, _MarketDataCacheEntry] = {}
 _MARKET_DATA_LOCKS: dict[str, asyncio.Lock] = {}
 _MARKET_DATA_CACHE_LOCK = threading.RLock()
 _MARKET_DATA_CACHE_MAX = max(
@@ -148,13 +162,13 @@ def _get_market_data_lock(cache_key: str) -> asyncio.Lock:
             stale_keys = []
             for key, existing_lock in _MARKET_DATA_LOCKS.items():
                 cached = _MARKET_DATA_CACHE.get(key)
-                expired = cached is not None and cached[0] <= now
+                expired = cached is not None and cached.expires_at <= now
                 if not existing_lock.locked() and (cached is None or expired):
                     stale_keys.append(key)
             for key in stale_keys:
                 _MARKET_DATA_LOCKS.pop(key, None)
                 cached = _MARKET_DATA_CACHE.get(key)
-                if cached is not None and cached[0] <= now:
+                if cached is not None and cached.expires_at <= now:
                     _MARKET_DATA_CACHE.pop(key, None)
             while len(_MARKET_DATA_LOCKS) >= _MARKET_DATA_LOCKS_MAX:
                 evicted = False
@@ -172,26 +186,32 @@ def _get_market_data_lock(cache_key: str) -> asyncio.Lock:
 
 def _get_cached_market_data(cache_key: str) -> Dict[str, Any] | None:
     now = time.time()
+    opened_at = us_market_session_opened_at(datetime.fromtimestamp(now, tz=timezone.utc))
     with _MARKET_DATA_CACHE_LOCK:
         cached = _MARKET_DATA_CACHE.get(cache_key)
         if not cached:
             return None
-        expires_at, payload = cached
-        if expires_at <= now:
+        if cached.expires_at <= now or (
+            opened_at is not None
+            and (
+                cached.fetched_at < opened_at
+                or now - cached.fetched_at >= US_MARKET_OPEN_CACHE_TTL_SECONDS
+            )
+        ):
             _MARKET_DATA_CACHE.pop(cache_key, None)
             return None
-        return dict(payload)
+        return dict(cached.payload)
 
 
 def _drop_expired_market_data_locked(now: float) -> None:
-    expired_keys = [
-        key for key, (expires_at, _payload) in _MARKET_DATA_CACHE.items() if expires_at <= now
-    ]
+    expired_keys = [key for key, cached in _MARKET_DATA_CACHE.items() if cached.expires_at <= now]
     for key in expired_keys:
         _MARKET_DATA_CACHE.pop(key, None)
 
 
-def _set_cached_market_data(cache_key: str, payload: Dict[str, Any], ttl_seconds: int) -> None:
+def _set_cached_market_data(
+    cache_key: str, payload: Dict[str, Any], ttl_seconds: int, requested_at: float | None = None
+) -> None:
     ttl = max(60, int(ttl_seconds))
     with _MARKET_DATA_CACHE_LOCK:
         now = time.time()
@@ -199,7 +219,11 @@ def _set_cached_market_data(cache_key: str, payload: Dict[str, Any], ttl_seconds
             _drop_expired_market_data_locked(now)
             while len(_MARKET_DATA_CACHE) >= _MARKET_DATA_CACHE_MAX:
                 _MARKET_DATA_CACHE.pop(next(iter(_MARKET_DATA_CACHE)), None)
-        _MARKET_DATA_CACHE[cache_key] = (now + ttl, dict(payload))
+        # A request spanning the opening must not make a pre-open quote look
+        # newly fetched merely because its response arrived after 09:30.
+        _MARKET_DATA_CACHE[cache_key] = _MarketDataCacheEntry(
+            now + ttl, now if requested_at is None else requested_at, dict(payload)
+        )
 
 
 class RealtimeDataUnavailable(RuntimeError):
@@ -993,6 +1017,7 @@ async def fetch_market_data_batch(
         return cached
 
     started_at = time.perf_counter()
+    requested_at = time.time()
     try:
         batch_rows = await _fetch_yahoo_quotes(missing)
     except Exception as exc:
@@ -1025,7 +1050,7 @@ async def fetch_market_data_batch(
         normalized_payload["ticker"] = symbol
         normalized_payload["ttl_seconds"] = ttl_seconds
         normalized_payload["source"] = str(payload.get("source") or "Yahoo Quote (Batch)")
-        _set_cached_market_data(cache_key, normalized_payload, ttl_seconds)
+        _set_cached_market_data(cache_key, normalized_payload, ttl_seconds, requested_at)
         cached[symbol] = normalized_payload
 
     _emit_realtime_telemetry(
@@ -1595,6 +1620,7 @@ async def fetch_market_data(
                 )
                 continue
             try:
+                requested_at = time.time()
                 payload = await provider_fetch(symbol)
                 if payload and float(payload.get("price") or 0) > 0:
                     fetched_at = payload.get("fetched_at")
@@ -1606,7 +1632,9 @@ async def fetch_market_data(
                     normalized_payload = dict(payload)
                     normalized_payload["ticker"] = symbol
                     normalized_payload["ttl_seconds"] = cache_ttl_seconds
-                    _set_cached_market_data(cache_key, normalized_payload, cache_ttl_seconds)
+                    _set_cached_market_data(
+                        cache_key, normalized_payload, cache_ttl_seconds, requested_at
+                    )
                     _emit_realtime_telemetry(
                         "market_data_provider_success",
                         ticker=symbol,
