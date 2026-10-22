@@ -387,6 +387,8 @@ async def test_stock_history_auth_currency_and_closed_session_boundary(monkeypat
     from api.routes.kai import price_history
 
     called = []
+    saved = None
+    degraded = False
     supported = {"exchange": "Nasdaq"}
     monkeypatch.setattr(
         price_history,
@@ -395,11 +397,22 @@ async def test_stock_history_auth_currency_and_closed_session_boundary(monkeypat
     )
 
     async def public_module(**kwargs):
+        nonlocal saved
         called.append(kwargs["key"])
-        return await kwargs["fetcher"](), False, 0, "live", False
+        try:
+            saved = await kwargs["fetcher"]()
+        except RuntimeError:
+            if saved is None:
+                raise
+            return saved, True, 10, "stale", True
+        return saved, False, 0, "live", False
 
     async def observed(symbols):
         called.append("provider")
+        if degraded:
+            from hushh_mcp.services.market_provider_telemetry import record_provider_degradation
+
+            record_provider_degradation("fixture:session_history")
         return {
             symbols[0]: [
                 {"t": 1792000000, "p": 230.0},
@@ -430,3 +443,13 @@ async def test_stock_history_auth_currency_and_closed_session_boundary(monkeypat
     assert opened["points"] == [{"t": 1792000000.0, "p": 230.0}, {"t": 1792086400.0, "p": 232.0}]
     assert opened["stale"] is False and opened["unavailable"] is False
     assert called.count("provider") == 1
+
+    degraded = True
+    fallback = await price_history.get_stock_price_history("owner", "AAPL", "owner")
+    assert fallback["stale"] is True
+    assert fallback["retrieved_at"] == opened["retrieved_at"]
+    assert fallback["points"] == opened["points"]
+    saved = None
+    cold = await price_history.get_stock_price_history("owner", "AAPL", "owner")
+    assert cold["stale"] is True and cold["unavailable"] is True
+    assert cold["retrieved_at"] is None

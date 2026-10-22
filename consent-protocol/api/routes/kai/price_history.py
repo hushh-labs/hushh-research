@@ -8,6 +8,11 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
 from api.middleware import require_firebase_auth, verify_user_id_match
 from hushh_mcp.operons.kai.fetchers import fetch_market_session_history
+from hushh_mcp.services.market_provider_telemetry import (
+    degraded_provider_resources,
+    finish_provider_call_counts,
+    start_provider_call_counts,
+)
 from hushh_mcp.services.market_refresh_policy import us_market_is_open
 from hushh_mcp.services.symbol_master_service import get_symbol_master_service
 
@@ -40,7 +45,13 @@ async def get_stock_price_history(
         # This also guards closed-market cold misses and background revalidations.
         if not us_market_is_open():
             raise RuntimeError("Prices are paused outside the regular session")
-        history = await fetch_market_session_history([symbol])
+        token = start_provider_call_counts()
+        try:
+            history = await fetch_market_session_history([symbol])
+            if degraded_provider_resources():
+                raise RuntimeError("Provider history is cached after a failed refresh")
+        finally:
+            finish_provider_call_counts(token)
         points = [
             {"t": float(point["t"]), "p": float(point["p"])}
             for point in history.get(symbol, [])

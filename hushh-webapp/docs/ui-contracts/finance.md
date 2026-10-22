@@ -98,3 +98,17 @@ required. The signed-in route sweep also requires the canonical reviewer UID
 and vault passphrase. Neither limitation was bypassed. Physical devices, live
 provider acceptance and UAT remain unverified. A later documentation-only CI
 correction does not change the production UI revision described here.
+
+The branch subsequently integrated main at
+`6fa2ace8f38527b988834725c0a2defd6498f174` (functional PR #8357).
+Combined verification passes 119 frontend/API cases and 33 backend cache/session
+cases. The new history read consumes the provider port's existing degradation
+signal: a failed provider refresh retains the outer cache's original timestamp
+and stale flag; without prior history it remains unavailable. This avoids
+reclassifying stale provider observations as a successful fresh history read.
+
+After that integration, eight focused chart layout cases also pass at 393px
+and 1440px in Chromium/WebKit and both themes. TypeScript, scoped lint and
+regenerated Back/Search verification pass on the combined source. The history
+transport case lives in the existing authentication recovery suite (five cases
+pass), keeping the large generic API test module within its ratchet.
