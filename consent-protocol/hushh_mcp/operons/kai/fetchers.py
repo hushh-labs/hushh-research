@@ -1724,3 +1724,15 @@ async def fetch_market_session_history(symbols: List[str]) -> Dict[str, List[Dic
     from hushh_mcp.services.market_data_provider import MarketDataRequest
 
     return await _fetch_through_market_port(MarketDataRequest("session_history", tuple(symbols)))
+
+
+async def fetch_price_target_consensus(
+    ticker: str, user_id: UserID, consent_token: str
+) -> Dict[str, Any]:
+    from hushh_mcp.services.market_data_provider import MarketDataRequest
+
+    _validate_market_invocation(user_id, consent_token)
+    return await _fetch_through_market_port(
+        MarketDataRequest("price_targets", (ticker.upper().strip(),)),
+        cached=True,
+    )

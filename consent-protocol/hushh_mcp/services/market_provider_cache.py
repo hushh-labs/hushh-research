@@ -42,6 +42,7 @@ async def cached_market_provider_read(
         fence=fence,
         fetcher=fetcher,
         provider_identity=provider_identity,
+        session_sensitive=price_sensitive,
     )
 
 
@@ -53,6 +54,7 @@ async def cached_public_information(
     fetcher: Callable[[], Awaitable[Any]],
     fence: float | None = None,
     provider_identity: str = "SEC EDGAR",
+    session_sensitive: bool = False,
 ) -> Any:
     now = time.time()
     l1 = market_insights_cache.peek(key)
@@ -72,7 +74,11 @@ async def cached_public_information(
         logger.warning("market_provider_cache_read_failed operation=%s", key)
 
     async def refresh() -> Any:
+        requested_at = time.time()
         value = await fetcher()
+        opening = us_market_session_opened_at() if session_sensitive else None
+        if opening is not None and requested_at < opening:
+            value = await fetcher()
         try:
             await store.set_entry(
                 cache_key=key,
@@ -93,6 +99,10 @@ async def cached_public_information(
         serve_stale_while_revalidate=False,
         fresh_after_ts=fence,
     )
-    if result.stale and isinstance(result.value, dict):
-        return {**result.value, "is_stale": True, "stale_reason": result.stale_reason}
+    if result.stale:
+        from hushh_mcp.services.market_provider_telemetry import record_provider_degradation
+
+        record_provider_degradation(key)
+        if isinstance(result.value, dict) and "price" in result.value:
+            return {**result.value, "is_stale": True, "stale_reason": result.stale_reason}
     return result.value
