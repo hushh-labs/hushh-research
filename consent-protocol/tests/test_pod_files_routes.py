@@ -297,7 +297,19 @@ def test_worker_refuses_unverified_queue_identity(monkeypatch, authorization):
     run.assert_not_awaited()
 
 
-def test_files_offer_checks_bucket_privacy_before_approval(monkeypatch):
+@pytest.mark.parametrize(
+    "case,accepted",
+    [
+        ("owner", True),
+        ("central", True),
+        ("named", True),
+        ("wrong_identity", False),
+        ("unapproved_project", False),
+        ("conflicting_policy", False),
+        ("non_dev", False),
+    ],
+)
+def test_files_offer_checks_bucket_privacy_before_approval(monkeypatch, case, accepted):
     import asyncio
     from unittest.mock import AsyncMock, Mock
 
@@ -305,8 +317,14 @@ def test_files_offer_checks_bucket_privacy_before_approval(monkeypatch):
 
     from hushh_mcp.services import user_gcp_bootstrap
     from hushh_mcp.services.pod_files import update_offer
+    from hushh_mcp.services.pod_inference_bridge import BRIDGE_ENV, BRIDGE_PROJECT
+    from tests.helpers.pod_files_offer import configure_files_offer_bridge
     from tests.test_pod_files_provisioning import legacy_files_fixture
 
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://dev.one.hussh.ai")
+    monkeypatch.delenv("BACKEND_RUNTIME_CONFIG_JSON", raising=False)
+    monkeypatch.delenv(BRIDGE_ENV, raising=False)
     row, image, service = legacy_files_fixture()
     row.update(
         status="provisioned", user_cloud_authorized_at="2026-09-01", phone_e164_hash="opaque"
@@ -316,8 +334,7 @@ def test_files_offer_checks_bucket_privacy_before_approval(monkeypatch):
     repo = Mock(
         files_upgrade_admission_ready=AsyncMock(return_value=True), get=AsyncMock(return_value=row)
     )
-    monkeypatch.setenv("HUSSH_POD_FILES_ENABLED", "true")
-    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+    configure_files_offer_bridge(monkeypatch, service, plan.runtimeAccount, case)
     monkeypatch.setattr(update_offer, "resolve_compute_backend_for_spec", lambda _: backend)
     monkeypatch.setattr(user_gcp_bootstrap, "mint_bootstrap_token", lambda **_: "synthetic")
     bucket = {
@@ -342,6 +359,21 @@ def test_files_offer_checks_bucket_privacy_before_approval(monkeypatch):
     session.get.side_effect = get
     monkeypatch.setattr("requests.get", session.get)
     monkeypatch.setattr("requests.request", session.request)
+    if not accepted:
+        with pytest.raises(ValueError):
+            asyncio.run(update_offer.inspect_files_offer(repo, row, image))
+        session.get.assert_not_called()
+        session.request.assert_not_called()
+        repo.approve_upgrade.assert_not_called()
+        return
+    plan = update_offer.plan_from_observation(
+        row,
+        image,
+        service,
+        dev_model_project=None
+        if case == "owner"
+        else (BRIDGE_PROJECT if case == "named" else "central-model-project"),
+    )
     with pytest.raises(update_offer.FilesStoragePrerequisite, match="No setup has started"):
         asyncio.run(update_offer.inspect_files_offer(repo, row, image))
     bucket["iamConfiguration"]["publicAccessPrevention"] = "enforced"

@@ -79,7 +79,7 @@ describe("owner hosting and software settings", () => {
     mocks.browserPlan.mockResolvedValue({
       releaseId: "rel_browser", browserPlanDigest: "b".repeat(64), summary: "Public research only.",
       changes: ["Screens are processed by your selected model."], model: "Owner model",
-      publicPolicy: { page_urls: ["https://example.com/research"], static_prefixes: [] }, resources: {},
+      publicPolicy: { page_urls: ["https://example.com/research"], static_prefixes: [], interactive_origins: ["https://account.example.com"] }, resources: {},
     });
     mocks.approve.mockRejectedValueOnce(new Error("response lost")).mockResolvedValueOnce({ status: "scheduled" });
     render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
@@ -87,6 +87,8 @@ describe("owner hosting and software settings", () => {
     await screen.findByText("Public research only.");
     expect(mocks.approve).not.toHaveBeenCalled();
     expect(screen.getByText("https://example.com/research")).toBeTruthy();
+    expect(screen.getByRole("list", { name: "Interactive websites" }).textContent).toContain("https://account.example.com");
+    expect(screen.getByText("You handle sign-in. One asks before sharing information or submitting changes.")).toBeTruthy();
     await act(async () => {});
     act(() => expect(unwindBackLayer(ROUTES.PROFILE_SOFTWARE_UPDATES)).toBe(true));
     await waitFor(() => expect(screen.queryByText("Public research only.")).toBeNull());

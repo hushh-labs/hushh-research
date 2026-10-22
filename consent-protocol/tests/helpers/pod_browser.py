@@ -466,7 +466,7 @@ def task_runtime_fixture(monkeypatch, *, ready=None, model=None, log=None):
     )
 
 
-async def approved_task(fixture):
+async def approved_task(fixture, *, started=None):
     snapshot = await fixture.runtime.start(fixture.owner, fixture.request)
     await fixture.runtime._tasks[snapshot.binding.task_id].worker
     snapshot = await fixture.runtime.read(fixture.owner, snapshot.binding.task_id)
@@ -478,7 +478,7 @@ async def approved_task(fixture):
         snapshot.review.review_id,
         "synthetic-owner-receipt-" + "x" * 32,
     )
-    await asyncio.wait_for(fixture.model.entered.wait(), 2)
+    await asyncio.wait_for((started or fixture.model.entered).wait(), 2)
     return await fixture.runtime.read(fixture.owner, snapshot.binding.task_id)
 
 

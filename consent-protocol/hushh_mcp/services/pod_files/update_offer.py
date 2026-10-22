@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 
 from hushh_mcp.services.compute_backend import PodSpec, resolve_compute_backend_for_spec
 from hushh_mcp.services.personal_agent_registry_repo import upgrade_host_snapshot
-from hushh_mcp.services.pod_files.capability_update import plan_from_observation
+from hushh_mcp.services.pod_files.capability_update import (
+    _literal_environment,
+    plan_from_observation,
+)
 from hushh_mcp.services.pod_update_identity import release_identity
 from hushh_mcp.services.user_cloud_service import spec_coordinates_from_row
 
@@ -31,6 +35,31 @@ async def verify_storage_prerequisite(plan) -> None:
         await asyncio.to_thread(bootstrap.verify_existing_bucket)
     except BootstrapError:
         raise FilesStoragePrerequisite(FilesStoragePrerequisite.public_message) from None
+
+
+def _approved_dev_model_project(observation: dict) -> str | None:
+    """Recognize existing deployment authority without changing the pod's AI."""
+    if os.getenv("HUSHH_DEPLOY_ENV") != "dev":
+        return None
+    from hushh_mcp.runtime_providers import ManagedGeminiRuntimeBinding
+    from hushh_mcp.services.pod_inference_bridge import BRIDGE_ENV, render_inference_bridge
+
+    spec = observation["spec"]["template"]["spec"]
+    env = _literal_environment(observation)
+    rendered = render_inference_bridge(service_account=spec["serviceAccountName"])
+    approved = json.loads(rendered[0]["value"]) if rendered else None
+    for entry in spec["containers"][0].get("env", []):
+        if entry["name"] == BRIDGE_ENV and (
+            approved is None or json.loads(entry.get("value", "null")) != approved
+        ):
+            raise ValueError("Files installed inference policy needs reconciliation")
+    observed_project = env.get("GENAI_GOOGLE_CLOUD_PROJECT") or env.get("GOOGLE_CLOUD_PROJECT")
+    if approved is not None and observed_project == approved["project"]:
+        project = approved["project"]
+        if not isinstance(project, str):
+            raise ValueError("Files inference policy project is invalid")
+        return project
+    return ManagedGeminiRuntimeBinding.from_environment().project
 
 
 async def inspect_files_offer(repo, row: dict, target_image: str):
@@ -65,13 +94,6 @@ async def inspect_files_offer(repo, row: dict, target_image: str):
     if inspect is None:
         raise ValueError("Files capability inspection is unavailable")
     observation = await inspect(spec)
-    # Only the existing approved dev bridge may be offered outside the owner
-    # project. The exact choice is disclosed and included in the approval hash.
-    bridge = None
-    if os.getenv("HUSHH_DEPLOY_ENV") == "dev":
-        from hushh_mcp.runtime_providers import ManagedGeminiRuntimeBinding
-
-        bridge = ManagedGeminiRuntimeBinding.from_environment().project
     if provider == "user_azure":
         from .azure_capability import plan_from_observation as azure_plan
 
@@ -79,6 +101,9 @@ async def inspect_files_offer(repo, row: dict, target_image: str):
         # custody preflight uses fresh owner authorization before any mutation.
         plan = azure_plan(row, target_image, observation)
     else:
+        # Freeze the already selected, explicitly approved project; storage and
+        # workload custody stay in the owner's project.
+        bridge = _approved_dev_model_project(observation)
         plan = plan_from_observation(row, target_image, observation, dev_model_project=bridge)
         await verify_storage_prerequisite(plan)
     current = await repo.get(row["user_id"])

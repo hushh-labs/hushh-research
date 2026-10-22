@@ -12,10 +12,30 @@ from hushh_mcp.services.compute_backend import (
 )
 from hushh_mcp.services.personal_agent_registry_repo import upgrade_host_snapshot
 from hushh_mcp.services.pod_release import image_digest, upgrade_is_supported
-from hushh_mcp.services.pod_update_identity import release_identity
+from hushh_mcp.services.pod_update_identity import approved_browser_plan, release_identity
 from hushh_mcp.services.user_cloud_service import spec_coordinates_from_row
 
-from .capability_update import GcpBrowserCapabilityPlan, plan_from_observation
+from .capability_update import GcpBrowserCapabilityPlan, commitment, plan_from_observation
+
+
+def _configured_qualification_matches(row: dict, target: str, qualification: dict) -> bool:
+    """A verified plan can suppress identical review; an image alone cannot."""
+    metadata = row.get("backend_metadata") or {}
+    approval = metadata.get("upgradeApproval")
+    if not isinstance(approval, dict) or approval.get("status") != "succeeded":
+        return False
+    try:
+        plan = approved_browser_plan(approval)
+        if plan is None:
+            return False
+        plan.require_owner(row, target)
+        return bool(
+            (metadata.get("browserCapability") or {}).get("planDigest") == plan.digest
+            and plan.qualificationDigest == commitment(qualification)
+        )
+    except (TypeError, ValueError):
+        # Discovery grants no authority. Live inspection still refuses stale terms.
+        return False
 
 
 def browser_review_available(row: dict | None, target: str, release: dict | None) -> bool:
@@ -26,6 +46,19 @@ def browser_review_available(row: dict | None, target: str, release: dict | None
     installed = (
         metadata.get("image_digest") or metadata.get("image") or metadata.get("source_image")
     )
+    host_kind = (
+        "azure_container_apps" if row.get("deployment_target") == "user_azure" else "gcp_cloud_run"
+    )
+    qualification = next(
+        (
+            item
+            for item in release.get("browserQualifications", [])
+            if item.get("host_kind") == host_kind and "public_policy" in item
+        ),
+        None,
+    )
+    if qualification is None:
+        return False
     return bool(
         os.getenv("HUSSH_POD_BROWSER_ENABLED", "").lower() in {"1", "true"}
         and row.get("deployment_target") in {"user_gcp", "user_azure"}
@@ -47,16 +80,7 @@ def browser_review_available(row: dict | None, target: str, release: dict | None
         and not (
             (metadata.get("browserCapability") or {}).get("status") == "configured"
             and image_digest(installed) == image_digest(target)
-        )
-        and any(
-            item.get("host_kind")
-            == (
-                "azure_container_apps"
-                if row.get("deployment_target") == "user_azure"
-                else "gcp_cloud_run"
-            )
-            and "public_policy" in item
-            for item in release.get("browserQualifications", [])
+            and _configured_qualification_matches(row, target, qualification)
         )
     )
 

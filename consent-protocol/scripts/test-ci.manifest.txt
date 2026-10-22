@@ -661,10 +661,12 @@ tests/test_plaid_server_custody_retire.py
 tests/test_hosting_mode_resolution.py
 tests/test_pod_binding_service.py
 tests/test_pod_browser_boundary.py
+tests/test_pod_browser_startup.py
 tests/test_pod_browser_interactive_review.py
 tests/test_pod_browser_delivery.py
 tests/test_pod_browser_downloads.py
 tests/test_pod_browser_capability.py
+tests/test_pod_browser_update_offer.py
 tests/test_pod_browser_routes.py
 tests/test_pod_browser_connected_transport.py
 tests/test_pod_browser_inpod_launcher.py

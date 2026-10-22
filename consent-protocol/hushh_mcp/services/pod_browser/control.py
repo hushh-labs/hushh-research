@@ -182,6 +182,7 @@ class BrowserControl:
                 # Fence old coordinates and decoded frames before any layout effect.
                 self._epoch += 1
                 self._frame = None
+                self._viewport = expected
                 self._revision += 1
                 # The reviewed owner command used the previous viewport epoch.
                 # Its private execution/network scope must use the newly fenced
@@ -241,6 +242,10 @@ class BrowserControl:
         self._mode = "owner"
         self._epoch += 1
         self._revision += 1
+        # Join startup before cancelling the model worker: cancellation closes a
+        # partially initialized executor. The owner fence already blocks screens.
+        if not self._initialized:
+            await self.initialize()
         # Join the model only after the epoch fence, but before waiting for its
         # action lock. A blocked network/review action must be interruptible.
         if interrupt is not None:

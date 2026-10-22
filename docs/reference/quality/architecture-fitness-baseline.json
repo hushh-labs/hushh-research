@@ -5650,7 +5650,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/pod_browser/control.py",
       "symbol": "BrowserControl",
-      "value": 317
+      "value": 322
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -12787,7 +12787,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/pod_browser/control.py",
       "symbol": "execute",
-      "value": 110
+      "value": 111
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -83781,5 +83781,25 @@
       }
     ],
     "policy": "Four exact rank-0 size ceilings only; all historical annotations and 500/250/80 budgets preserved."
+  },
+  "browser_startup_takeover_review_20261022": {
+    "reviewer": "agent_layout_audit",
+    "candidate_parent": "02a7aec016b679fa6142d1e6dd875b2dcb31c27c",
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/pod_browser/control.py|BrowserControl|class exceeds the advisory operon budget",
+        "before": 317,
+        "after": 322,
+        "source_sha256": "d045a4de10ba20f2ec6ba9829786d29c368ed5968412151ef93d0838854bd795",
+        "review": "Read-only architecture and Browser security review: installed early takeover interrupted Chromium initialization; join startup after the observation fence and before worker cancellation. Publish pending resize geometry with its epoch, preserving failed-effect fencing. Three negative controls fail the installed source; nearest lifecycle checks include startup failure, concurrent Stop and permit release. Exact active ceilings only; no authority, fallback or global budget change."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/pod_browser/control.py|execute|function exceeds the advisory gene budget",
+        "before": 110,
+        "after": 111,
+        "source_sha256": "d045a4de10ba20f2ec6ba9829786d29c368ed5968412151ef93d0838854bd795",
+        "review": "Read-only architecture and Browser security review: installed early takeover interrupted Chromium initialization; join startup after the observation fence and before worker cancellation. Publish pending resize geometry with its epoch, preserving failed-effect fencing. Three negative controls fail the installed source; nearest lifecycle checks include startup failure, concurrent Stop and permit release. Exact active ceilings only; no authority, fallback or global budget change."
+      }
+    ]
   }
 }

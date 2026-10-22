@@ -96,6 +96,13 @@ export function BrowserActivationPanel({ userId, disabled, onScheduled }: {
         {review.offer.changes.map(change => <li key={change}>{change}</li>)}
       </ul>
       <p className="text-muted-foreground">Screen processing: {review.offer.model}</p>
+      {!!review.offer.publicPolicy.interactive_origins?.length && <div className="space-y-2">
+        <p className="font-medium">Sign-in and website actions</p>
+        <ul className="space-y-1 break-all text-muted-foreground" aria-label="Interactive websites">
+          {review.offer.publicPolicy.interactive_origins.map(origin => <li key={origin}>{origin}</li>)}
+        </ul>
+        <p className="text-muted-foreground">You handle sign-in. One asks before sharing information or submitting changes.</p>
+      </div>}
       <details>
         <summary className="cursor-pointer font-medium">Allowed pages and assets</summary>
         <ul className="mt-2 space-y-1 break-all text-muted-foreground">

@@ -3897,7 +3897,7 @@ export class ApiService {
 
   static async getPersonalAgentBrowserPlan(): Promise<{
     releaseId: string; browserPlanDigest: string; summary: string; changes: string[];
-    publicPolicy: { page_urls: string[]; static_prefixes: string[] };
+    publicPolicy: { page_urls: string[]; static_prefixes: string[]; interactive_origins?: string[] };
     model: string; resources: Record<string, string>;
   }> {
     const token = await ApiService.getFirebaseToken();
