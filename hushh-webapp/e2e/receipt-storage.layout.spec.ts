@@ -48,6 +48,7 @@ test.beforeAll(async () => {
     define: {
       "process.env.NODE_ENV": JSON.stringify("production"),
       "process.env": "{}",
+      "process.env.NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE": JSON.stringify("https://receipt-logo.test/{domain}.svg"),
     },
     build: {
       outDir,
@@ -88,6 +89,11 @@ test.beforeAll(async () => {
     .map(file => fs.readFileSync(path.join(outDir, file), "utf8")).join("\n");
 });
 
+test.beforeEach(async ({ page }) => {
+  const synthetic = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jfT8AAAAASUVORK5CYII=", "base64");
+  await page.route("https://receipt-logo.test/**", route => route.fulfill({ contentType: "image/png", body: synthetic, headers: { "access-control-allow-origin": "*" } }));
+});
+
 for (const width of [390, 1000]) {
   test(`encrypted receipts restore unchanged after full reload at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 1000 });
@@ -96,7 +102,7 @@ for (const width of [390, 1000]) {
       ["udemy.com", process.env.RECEIPT_QA_UDEMY_LOGO_PATH],
     ] as const;
     for (const [domain, file] of officialAssets) {
-      if (file) await page.route(`https://icons.duckduckgo.com/ip3/${domain}.ico`, route => route.fulfill({ contentType: "image/png", body: fs.readFileSync(file) }));
+      if (file) await page.route(`https://receipt-logo.test/${domain}.svg`, route => route.fulfill({ contentType: "image/png", body: fs.readFileSync(file) }));
     }
     await page.route("http://localhost/brand/email-domains/*.png", route => route.fulfill({ contentType: "image/png", body: fs.readFileSync(path.join(process.cwd(), "public", new URL(route.request().url()).pathname)) }));
     await page.route("http://localhost/receipt-storage.js", route => route.fulfill({ contentType: "application/javascript", body: script }));
@@ -194,7 +200,7 @@ for (const width of [390, 1000]) {
     // Local evidence uses downloaded official assets; CI proves decoding and the
     // reviewed domain contract with a synthetic image, without external requests.
     const synthetic = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jfT8AAAAASUVORK5CYII=", "base64");
-    for (const [, domain, file] of assets) await page.route(`https://icons.duckduckgo.com/ip3/${domain}.ico`, route => route.fulfill({ contentType: "image/png", body: file ? fs.readFileSync(file) : synthetic }));
+    for (const [, domain, file] of assets) await page.route(`https://receipt-logo.test/${domain}.svg`, route => route.fulfill({ contentType: "image/png", body: file ? fs.readFileSync(file) : synthetic }));
     await page.route("http://localhost/receipt-storage.js", route => route.fulfill({ contentType: "application/javascript", body: script }));
     await page.route("http://localhost/receipt-storage-fixture?brands=true", route => route.fulfill({ contentType: "text/html", body: `<!doctype html><html><head><meta charset="utf-8"><title>Reviewed training receipt logos</title><style>${css}</style></head><body><div id="root"></div><script src="/receipt-storage.js"></script></body></html>` }));
     await page.goto("http://localhost/receipt-storage-fixture?brands=true");
@@ -205,7 +211,7 @@ for (const width of [390, 1000]) {
     const dimensions: Record<string, { width: number; height: number }> = {};
     for (const [merchant, domain] of assets) {
       const row = list.getByRole("button", { name: new RegExp(merchant) });
-      await expect(row.locator('[data-logo-kind="brand"] img')).toHaveAttribute("src", `https://icons.duckduckgo.com/ip3/${domain}.ico`);
+      await expect(row.locator('[data-logo-kind="brand"] img')).toHaveAttribute("src", `https://receipt-logo.test/${domain}.svg`);
       const box = (await row.boundingBox())!; dimensions[merchant] = { width: box.width, height: box.height };
     }
     await page.getByRole("button", { name: "Persist synthetic receipts" }).click();
@@ -215,13 +221,13 @@ for (const width of [390, 1000]) {
     expect(await list.innerText()).toBe(beforeText);
     for (const [merchant, domain] of assets) {
       const row = list.getByRole("button", { name: new RegExp(merchant) });
-      await expect(row.locator('[data-logo-kind="brand"] img')).toHaveAttribute("src", `https://icons.duckduckgo.com/ip3/${domain}.ico`);
+      await expect(row.locator('[data-logo-kind="brand"] img')).toHaveAttribute("src", `https://receipt-logo.test/${domain}.svg`);
       const box = (await row.boundingBox())!;
       expect({ width: box.width, height: box.height }).toEqual(dimensions[merchant]);
       await row.click();
       const dialog = page.getByRole("dialog");
       await expect(dialog).toContainText(merchant);
-      await expect(dialog.locator('[data-logo-kind="brand"] img')).toHaveAttribute("src", `https://icons.duckduckgo.com/ip3/${domain}.ico`);
+      await expect(dialog.locator('[data-logo-kind="brand"] img')).toHaveAttribute("src", `https://receipt-logo.test/${domain}.svg`);
       await page.keyboard.press("Escape");
     }
     await list.screenshot({ animations: "disabled", path: testInfo.outputPath(`reviewed-training-logos-${width}.png`) });

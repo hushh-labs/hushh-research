@@ -84275,7 +84275,7 @@
         "rank": 0,
         "before": 608,
         "after": 659,
-        "source_sha256": "b8a0e6146289840fdc6125205a399dddc4dd6ec4ef02f35cbef609dc7e9fc43d",
+        "source_sha256": "654799848f1ec1a19c6ae453d79190d2168b9b6d0669dc3d3a8f8ebb65c36405",
         "reviewer": "mail_ui_kt",
         "review": "Existing production-component fixture gains app/document scroll, row identity, focus and prepend-to-Previous continuity assertions. No duplicate fixture build or browser script handler."
       },

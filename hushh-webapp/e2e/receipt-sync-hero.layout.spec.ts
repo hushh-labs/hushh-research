@@ -200,14 +200,11 @@ for (const width of [320, 390, 1440]) {
         heroBounds.x + heroBounds.width + 1,
       );
     }
-    // "Your receipts" is defined as 0.8x the page title's own
-    // --foundation-title1-size token (clamp(28px, 23.36px + 1.2vw, 40px)), so
-    // it stays smaller than "Mail" at every width by construction.
+    // Match the governed Mail compact section and action roles.
     const pageTitleFontSize = Math.min(40, Math.max(28, 23.36 + 0.012 * width));
-    const expectedTitleFontSize = pageTitleFontSize * 0.8;
-    expect(titleFontSize).toBeCloseTo(expectedTitleFontSize, 1);
+    expect(titleFontSize).toBe(14);
     expect(titleFontSize).toBeLessThan(pageTitleFontSize);
-    expect(ctaBounds.height).toBe(50);
+    expect(ctaBounds.height).toBe(44);
     expect(ctaBounds.width).toBeLessThanOrEqual(244);
     expect(ctaLabelBounds.x).toBeGreaterThanOrEqual(ctaBounds.x);
     expect(ctaLabelBounds.x + ctaLabelBounds.width).toBeLessThanOrEqual(
@@ -355,7 +352,8 @@ for (const width of [320, 390, 1440]) {
 
     await cta.click();
     await expect(status).toHaveText("receipt sync started");
-    const scanningCta = hero.getByRole("button", { name: "Scanning" });
+    const scanningCta = hero.getByRole("button", { name: "Start sync", exact: true });
+    await expect(scanningCta).toHaveAttribute("aria-busy", "true");
     await expect(scanningCta).toBeDisabled();
     await expect(hero.getByText("Looking through your recent purchases…")).toBeVisible();
     await expect(hero).not.toContainText(/page \d|\d of \d|candidate|request count/i);
