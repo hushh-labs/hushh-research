@@ -69,7 +69,7 @@ import {
   type CuratedPopupAttempt,
 } from "@/lib/profile/curated-connector-popup";
 import { connectCalendarInPlace } from "@/lib/connections/google-connect-in-place";
-import { assertOAuthReturnOrigin, OAUTH_WINDOW_BLOCKED_COPY } from "@/lib/connections/oauth-window";
+import { OAUTH_WINDOW_BLOCKED_COPY } from "@/lib/connections/oauth-window";
 import {
   ExternalConnectorService,
   type ConnectorOverview,
@@ -1268,46 +1268,8 @@ function OwnerConnectorsPanel({
     }
     const popup = openDriveOAuthPopup();
     if (!popup) {
-      void runDrive(async (token, signal) => {
-        const start = await ExternalConnectorService.startOAuthConnect({
-          vaultOwnerToken: token,
-          connectorId: "google_drive",
-          redirectUri: `${window.location.origin}${ROUTES.PROFILE_CONNECTOR_OAUTH_RETURN}`,
-          flow: "web",
-          profile,
-          signal,
-        });
-        if (signal.aborted || !start.attemptId || start.connectorId !== "google_drive") return;
-        const authorizeUrl = new URL(start.authorizeUrl);
-        if (
-          authorizeUrl.protocol !== "https:" ||
-          authorizeUrl.hostname !== "accounts.google.com" ||
-          authorizeUrl.pathname !== "/o/oauth2/v2/auth"
-        ) throw new Error("invalid_drive_authorize_url");
-        assertOAuthReturnOrigin(authorizeUrl.href);
-        const readiness = onPrepareRecovery
-          ? await onPrepareRecovery({
-              attemptId: start.attemptId,
-              reason: "web_full_page",
-            })
-          : "ready";
-        if (readiness !== "ready") {
-          setDriveMessage(readiness === "busy"
-            ? "Finish the current chat action or allow popups before connecting Drive."
-            : "Your draft could not be saved safely. Allow popups or try again.");
-          return;
-        }
-        if (signal.aborted) {
-          await onClearRecovery?.();
-          return;
-        }
-        try {
-          window.location.assign(authorizeUrl.href);
-        } catch {
-          await onClearRecovery?.();
-          throw new Error("drive_navigation_failed");
-        }
-      });
+      // Keep the vault-bearing document alive when both auxiliary windows fail.
+      setDriveMessage(OAUTH_WINDOW_BLOCKED_COPY);
       return;
     }
     const attemptCancel = new AbortController();

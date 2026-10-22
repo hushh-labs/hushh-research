@@ -52,10 +52,8 @@ function tryOpen(name: string, features?: string): Window | null {
  * policy severs the opener). Either way this window never navigates, so the
  * memory-only vault key, the chat and the open drawer survive.
  *
- * Returns null only when both are refused. Navigating this window away is
- * then the caller's explicit, last-resort decision (Drive does so only after
- * its encrypted chat-recovery capsule is saved); Connectors Mail and Calendar
- * keep the person in place instead.
+ * Returns null only when both are refused. Callers keep the original document
+ * mounted and ask the person to allow popups before retrying.
  */
 export function openOAuthWindow(name: string): OpenedOAuthWindow | null {
   if (typeof window === "undefined") return null;

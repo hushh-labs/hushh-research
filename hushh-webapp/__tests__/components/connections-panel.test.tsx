@@ -255,8 +255,8 @@ describe("Connectors owner and mutation fences", () => {
     expect(state.disconnectMail).not.toHaveBeenCalled();
   });
   it.each([
-    ["busy", "Finish the current chat action or allow popups before connecting Drive."],
-    ["unavailable", "Your draft could not be saved safely. Allow popups or try again."],
+    ["busy", "Allow pop-ups for One, then try again. Your chat and draft stay here."],
+    ["unavailable", "Allow pop-ups for One, then try again. Your chat and draft stay here."],
   ])("keeps chat mounted when popup is blocked and recovery is %s", async (readiness, message) => {
     state.overview.mockResolvedValue({
       ...overview(),
@@ -278,10 +278,9 @@ describe("Connectors owner and mutation fences", () => {
     await openDriveDetail();
     fireEvent.click(await screen.findByRole("button", { name: "Connect Drive" }));
     await screen.findByText(message);
-    expect(state.nativeStart).toHaveBeenCalledWith(expect.objectContaining({ profile: "live" }));
-    expect(p.onPrepareRecovery).toHaveBeenCalledWith({
-      attemptId: "attempt_123456789012", reason: "web_full_page",
-    });
+    expect(window.open).toHaveBeenCalledTimes(2);
+    expect(state.nativeStart).not.toHaveBeenCalled();
+    expect(p.onPrepareRecovery).not.toHaveBeenCalled();
     expect(p.onClearRecovery).not.toHaveBeenCalled();
   });
   it("starts selected-file OAuth when live Drive access is not admitted", async () => {
@@ -299,7 +298,12 @@ describe("Connectors owner and mutation fences", () => {
       authorizeUrl: `https://accounts.google.com/o/oauth2/v2/auth?state=test&redirect_uri=${encodeURIComponent(`${window.location.origin}/one/profile/connectors/oauth/return`)}`,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
-    vi.spyOn(window, "open").mockReturnValue(null);
+    const popup = {
+      closed: false, close: vi.fn(),
+      document: { title: "", body: { textContent: "" } },
+      location: { replace: vi.fn() },
+    } as unknown as Window;
+    vi.spyOn(window, "open").mockReturnValue(popup);
     const p = props();
     p.onPrepareRecovery.mockResolvedValue("busy");
     render(<ConnectorsPanel {...p} />);
@@ -308,6 +312,7 @@ describe("Connectors owner and mutation fences", () => {
     await waitFor(() => expect(state.nativeStart).toHaveBeenCalledWith(
       expect.objectContaining({ profile: "selected" }),
     ));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel sign-in" }));
   });
   it("cannot resurrect a removed document from an earlier same-owner read", async () => {
     let stale!: (value: unknown) => void;

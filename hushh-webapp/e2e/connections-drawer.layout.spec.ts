@@ -1241,7 +1241,7 @@ test("background processing needs explicit consent and can be paused without rem
 });
 
 for (const readiness of ["busy", "unavailable"] as const)
-test(`blocked Drive popup fails closed when chat recovery is ${readiness}`, async ({ page }) => {
+test(`blocked Drive popup stays mounted when chat recovery is ${readiness}`, async ({ page }) => {
   const attemptId = "synthetic-blocked-popup-attempt";
   let starts = 0;
   page.on("request", (request) => {
@@ -1273,13 +1273,11 @@ test(`blocked Drive popup fails closed when chat recovery is ${readiness}`, asyn
   await page
     .getByRole("button", { name: "Connect Drive", exact: true })
     .click();
-  await expect(page.getByText(readiness === "busy"
-    ? "Finish the current chat action or allow popups before connecting Drive."
-    : "Your draft could not be saved safely. Allow popups or try again.")).toBeVisible();
-  expect(starts).toBe(1);
+  await expect(page.getByText("Allow pop-ups for One, then try again. Your chat and draft stay here.")).toBeVisible();
+  expect(starts).toBe(0);
   expect(await page.evaluate(() =>
-    (window as Window & { __driveRecoveryRequests?: unknown[] }).__driveRecoveryRequests,
-  )).toEqual([{ attemptId, reason: "web_full_page" }]);
+    (window as Window & { __driveRecoveryRequests?: unknown[] }).__driveRecoveryRequests ?? [],
+  )).toEqual([]);
   expect(page.url()).toBe("http://localhost/connections-fixture");
   await page.getByRole("button", { name: "Close connectors", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Chat draft" })).toHaveValue(

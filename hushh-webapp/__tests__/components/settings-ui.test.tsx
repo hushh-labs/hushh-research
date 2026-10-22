@@ -577,7 +577,9 @@ describe("SegmentedTabs", () => {
     expect(root).toHaveAttribute("data-ui-variant", "subordinate");
     expect(root?.className).toContain("bg-transparent");
     expect(root?.className).toContain("border-b");
-    expect(active.className).toContain("border-[color:var(--app-accent)]");
+    expect(active.className).toContain("border-b-[color:var(--app-accent)]");
+    expect(active.className).toContain("border-x-0");
+    expect(active.className).toContain("border-t-0");
     expect(active.className).not.toContain(
       "bg-[color:var(--app-segmented-active-surface)]",
     );

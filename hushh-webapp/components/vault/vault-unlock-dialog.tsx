@@ -1,6 +1,8 @@
 "use client";
 
-import { type CSSProperties, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { VaultContext } from "@/lib/vault/vault-context";
+import { recordVaultDiagnostic } from "@/lib/vault/session-diagnostics";
 import type { User } from "firebase/auth";
 import { Dialog as DialogPrimitive } from "radix-ui";
 
@@ -85,6 +87,7 @@ export function VaultUnlockDialog({
   onSignOut,
 }: VaultUnlockDialogProps) {
   const surfaceId = useId();
+  const vault = useContext(VaultContext);
   const [recoveryKeyDisclosureActive, setRecoveryKeyDisclosureActive] =
     useState(false);
   const [suppressedByHardGate, setSuppressedByHardGate] = useState(false);
@@ -106,6 +109,13 @@ export function VaultUnlockDialog({
   const onOpenChangeRef = useRef(onOpenChange);
   const effectiveDismissible =
     dismissible && !recoveryKeyDisclosureActive;
+
+  useEffect(() => {
+    if (!open || suppressedByHardGate) return;
+    recordVaultDiagnostic({ kind: "prompt_visible", surface: surfaceVariant,
+      unlocked: vault?.isVaultUnlocked ?? false,
+      authority: vault?.ownerTokenStatus ?? "unknown" });
+  }, [open, suppressedByHardGate, surfaceVariant, vault?.isVaultUnlocked, vault?.ownerTokenStatus]);
 
   useEffect(() => {
     onOpenChangeRef.current = onOpenChange;

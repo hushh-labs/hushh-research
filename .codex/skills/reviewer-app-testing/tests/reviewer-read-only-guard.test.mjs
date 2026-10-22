@@ -4,11 +4,38 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import vm from "node:vm";
+import { EventEmitter } from "node:events";
+import { fileURLToPath } from "node:url";
 
-import { installReadOnlyMutationGuard, installReviewerBridge } from "../scripts/reviewer-session-harness.mjs";
+import { createReviewerSessionHarness, installReadOnlyMutationGuard, installReviewerBridge } from "../scripts/reviewer-session-harness.mjs";
 import { secretManagerValue } from "../scripts/reviewer-rehearsal-preflight.mjs";
+import { acceptsLifecycleTransport } from "../scripts/lifecycle-browser.mjs";
 
 const APP_ORIGIN = "https://uat.one.hushh.ai";
+
+test("lifecycle inspector transport rejects web origins and non-loopback clients", () => {
+  const local = { req: { socket: { remoteAddress: "127.0.0.1" } } };
+  assert.equal(acceptsLifecycleTransport(local), true);
+  assert.equal(acceptsLifecycleTransport({ ...local, origin: "https://untrusted.example" }), false);
+  assert.equal(acceptsLifecycleTransport({ req: { socket: { remoteAddress: "192.0.2.1" } } }), false);
+});
+
+test("context capture retains a replacement page API failure and redacts its owner", async () => {
+  const reviewer = await createReviewerSessionHarness({
+    repoRoot: fileURLToPath(new URL("../../../../", import.meta.url)), appOrigin: APP_ORIGIN,
+    reviewerIdentity: { reviewerUid: "fixture-owner", reviewerVaultPassphrase: "fixture-only" },
+  });
+  const context = new EventEmitter();
+  const capture = reviewer.captureContext(context);
+  context.emit("response", {
+    url: () => `${APP_ORIGIN}/api/pkm/metadata/private-owner-fixture`, status: () => 503,
+  });
+  assert.throws(() => capture.assertNoCriticalApiFailures("replacement"), (error) => {
+    assert.match(error.message, /\/api\/pkm\/metadata\/\{owner\}:503/);
+    assert.doesNotMatch(error.message, /private-owner-fixture/);
+    return true;
+  });
+});
 
 test("canonical secret reads resolve host command shims without printing their contents", () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "hushh-reviewer-cli-"));

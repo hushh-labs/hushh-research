@@ -9791,63 +9791,20 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           `${ROUTES.CONSENTS}?tab=active&requestId=${encodeURIComponent(item.id)}&from=${pathname || ROUTES.ONE_HOME}`,
                         );
                       }}
-                      onPendingConsentApprove={async (item) => {
-                        // The hook returns without throwing when the vault is
-                        // locked, which would mark the card approved for an
-                        // approval that never went out. Refuse here instead.
-                        if (!user?.uid || !isVaultUnlocked || !vaultKey) {
-                          addErrorMessage(
-                            "Unlock your vault to approve this request.",
-                          );
-                          return;
-                        }
-                        setSpecialistBusyItemId(item.id);
-                        try {
-                          // A folded card answers every request in it. Each
-                          // member is looked up again so Approve wraps the key
-                          // in that request's own metadata.
-                          const targets = await resolvePendingConsentCardTargets({
-                            userId: user.uid,
-                            vaultOwnerToken: getVaultOwnerToken(),
-                            item,
-                          });
-                          if (!targets.length) {
-                            addErrorMessage(
-                              "That request is no longer waiting on you.",
-                            );
-                            return;
-                          }
-                          // Quiet so the outcome lands in the transcript, not
-                          // a toast over it. The shared bundle path decides
-                          // every item (a few at a time) and rejects unless
-                          // every one went through, so the card is only marked
-                          // approved when every request in it was.
-                          await consentActions.handleApproveBundle(targets, {
-                            quiet: true,
-                            bundleId: item.bundleId || item.id,
-                          });
-                          updateMessage(message.id, (current) => ({
-                            ...current,
-                            specialistDirective:
-                              markPendingConsentRequestDirectiveStatus(
-                                current.specialistDirective,
-                                item.id,
-                                "approved",
-                              ),
-                          }));
-                        } catch (error) {
-                          addErrorMessage(
-                            error instanceof Error && error.message.startsWith("This request")
-                              ? error.message
-                              : "Could not approve that request. Try again.",
-                          );
-                        } finally {
-                          setSpecialistBusyItemId(null);
-                        }
+                      onPendingConsentApprove={(item) => {
+                        // Review the complete live request before granting access.
+                        // Chat notifications may contain only part of a bundle.
+                        const query = new URLSearchParams({
+                          tab: "pending",
+                          requestId: item.id,
+                          from: pathname || ROUTES.ONE_HOME,
+                        });
+                        if (item.bundleId) query.set("bundleId", item.bundleId);
+                        router.push(`${ROUTES.CONSENTS}?${query.toString()}`);
                       }}
                       onPendingConsentDeny={async (item) => {
-                        // Same guard as approve: the hook returns silently
-                        // without a signed-in owner or an unlocked vault.
+                        // The decision hook returns silently without a signed-in
+                        // owner or an unlocked vault.
                         if (!user?.uid || !isVaultUnlocked) {
                           addErrorMessage(
                             "Unlock your vault to decline this request.",

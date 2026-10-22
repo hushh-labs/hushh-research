@@ -1,6 +1,7 @@
 "use client";
 
 import { clearMemoryDocument } from "@/lib/pkm/memory-refresh";
+import { recordVaultDiagnostic, type VaultLockReason } from "@/lib/vault/session-diagnostics";
 /**
  * Vault Context - Memory-Only Vault Key & Token Storage
  * =====================================================
@@ -243,7 +244,8 @@ export function VaultProvider({ children }: VaultProviderProps) {
   useEffect(() => {
     storedVaultOwnerTokenRef.current = storedVaultOwnerToken;
   }, [storedVaultOwnerToken]);
-  const lockVault = useCallback(() => {
+  const lockVault = useCallback((reason: VaultLockReason = "explicit_or_unspecified") => {
+    recordVaultDiagnostic({ kind: "locked", reason, hadKey: Boolean(storedVaultKeyRef.current) });
     // Read from refs so event-listeners registered at mount time always see
     // the latest values — never stale closure captures.
     const lockedUserId = vaultUserIdRef.current;
@@ -314,12 +316,14 @@ export function VaultProvider({ children }: VaultProviderProps) {
 
   useEffect(() => {
     mountedRef.current = true;
+    recordVaultDiagnostic({ kind: "provider_mounted" });
     clearNativeSession();
     return () => {
       mountedRef.current = false;
+      recordVaultDiagnostic({ kind: "provider_disposed" });
       // Clear decrypted consumers on disposal too. StrictMode's empty initial
       // cleanup does not invalidate the first rendered unlock callback.
-      if (storedVaultKeyRef.current) lockVault();
+      if (storedVaultKeyRef.current) lockVault("provider_disposed");
       else {
         advanceVaultSessionEpoch();
         clearNativeSession();
@@ -339,7 +343,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
       console.log(
         "🔒 [VaultProvider] Auth identity changed - clearing vault memory...",
       );
-      lockVault();
+      lockVault("identity_changed");
     }
   }, [
     currentUserId,
@@ -474,9 +478,9 @@ export function VaultProvider({ children }: VaultProviderProps) {
             userId: owner.uid,
             path: "vault_owner_renewal",
           });
-          lockVault();
+          lockVault("terminal_auth");
         } else if (backendCode === "AUTH_VAULT_OWNER_INVALID") {
-          lockVault();
+          lockVault("owner_invalid");
         } else {
           setRenewalState("unavailable");
           setRenewalFailures((count) => count + 1);
@@ -588,7 +592,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
       console.log(
         `🔒 [VaultProvider] Lock requested: ${customEvent.detail?.reason}`,
       );
-      lockVault();
+      lockVault(typeof customEvent.detail?.path === "string" ? "api_validation" : "lock_requested");
     };
 
     window.addEventListener("vault-lock-requested", handleLockRequest);
@@ -611,7 +615,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
       ) {
         return;
       }
-      lockVault();
+      lockVault("terminal_auth");
     };
 
     window.addEventListener(
@@ -645,7 +649,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
       console.log(
         `[VaultProvider] Vault rekeyed; invalidating PKM session state: ${customEvent.detail?.reason ?? "vault_rekeyed"}`,
       );
-      lockVault();
+      lockVault("vault_rekeyed");
     };
 
     window.addEventListener("vault-rekeyed", handleVaultRekeyed);
@@ -903,6 +907,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
       renewalRef.current = null;
       setRenewalState("idle");
       setVaultKey(key);
+      recordVaultDiagnostic({ kind: "unlocked" });
       setVaultOwnerToken(token);
       setTokenExpiresAt(expiresAt);
       setVaultUserId(unlockingUserId);
@@ -1041,6 +1046,10 @@ export function VaultProvider({ children }: VaultProviderProps) {
       getVaultOwnerToken,
     ],
   );
+
+  useEffect(() => {
+    recordVaultDiagnostic({ kind: "state", unlocked: value.isVaultUnlocked, authority: value.ownerTokenStatus });
+  }, [value.isVaultUnlocked, value.ownerTokenStatus]);
 
   return (
     <VaultContext.Provider value={value}>{children}</VaultContext.Provider>

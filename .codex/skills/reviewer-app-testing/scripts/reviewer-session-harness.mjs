@@ -317,7 +317,9 @@ export async function createReviewerSessionHarness({
         const summary = criticalApiFailures
           .map(({ pathname, status }) => `${pathname}:${status}`)
           .join(",");
-        throw new Error(`${label} observed critical first-party API failures: ${summary}`);
+        // Metadata routes contain the private owner's Firebase subject.
+        const safeSummary = summary.replace(/(\/api\/pkm\/metadata\/)[^:,\s/]+/g, "$1{owner}");
+        throw new Error(`${label} observed critical first-party API failures: ${safeSummary}`);
       },
     };
   }
@@ -548,6 +550,7 @@ export async function createReviewerSessionHarness({
     chromium,
     endpointPath,
     fetchOwnerJson,
+    captureContext: attachMemoryOnlyCapture,
     navigateInApp,
     openSession,
     reviewerUid,
