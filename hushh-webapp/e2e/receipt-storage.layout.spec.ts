@@ -161,7 +161,7 @@ for (const width of [390, 1000]) {
     expect(changedPixels, "Only subpixel repaint differences may survive reload").toBeLessThanOrEqual(allowedPixels);
     expect(maxChannelDelta, "Reload must not change any visible color or glyph").toBeLessThanOrEqual(24);
     const stored = await page.evaluate(async () => {
-      const db = await new Promise<IDBDatabase>((resolve, reject) => { const request = indexedDB.open("hushh-secure-resource-cache", 2); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+      const db = await new Promise<IDBDatabase>((resolve, reject) => { const request = indexedDB.open("hushh-secure-resource-cache"); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
       const records = await new Promise(resolve => { const request = db.transaction("durable_resources").objectStore("durable_resources").getAll(); request.onsuccess = () => resolve(request.result); });
       db.close(); return JSON.stringify(records);
     });

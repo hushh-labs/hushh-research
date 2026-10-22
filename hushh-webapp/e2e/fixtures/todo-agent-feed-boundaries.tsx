@@ -83,6 +83,12 @@ export function useCalendarConnectionStatus() {
 export function useGmailConnectorStatus() {
   return { status: null };
 }
+export function getCachedGmailReceipts() {
+  return null;
+}
+export function cachedGmailReceiptDisplayItems() {
+  return [];
+}
 export function useCalendarUpcomingEvents() {
   return { events: [], loaded: false, loading: false, error: null, refresh: () => {} };
 }
