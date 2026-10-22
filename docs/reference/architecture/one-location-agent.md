@@ -468,7 +468,7 @@ grants nearby or live-location visibility.
    by server-computed distance, with explicit category filters that reuse the
    same boundary. Food, Café, Hotels and generic Stays have separate type rules.
    Incomplete discovery is explained with retry guidance; see
-   [the place taxonomy contract](one-location-place-taxonomy.md).
+   [the place taxonomy contract](./one-location-place-taxonomy.md).
    Typed check-in search is restricted to that boundary. The
    owner then chooses the public place used for admission and display context;
    opening discovery never checks the owner in. Neither the point nor provider results are written to durable account storage;
