@@ -31,7 +31,7 @@ require_contains() {
   local needle="$1"
   local haystack="$2"
   local label="$3"
-  if printf '%s' "$haystack" | grep -Fq "$needle"; then
+  if grep -Fq "$needle" <<< "$haystack"; then
     ok "$label"
   else
     error "$label"
@@ -44,7 +44,7 @@ require_contains_any() {
   shift 2
   local found=0
   for needle in "$@"; do
-    if printf '%s' "$haystack" | grep -Fq "$needle"; then
+    if grep -Fq "$needle" <<< "$haystack"; then
       found=1
       break
     fi
@@ -66,6 +66,21 @@ extract_block() {
     in_block && $0 ~ end_regex { exit }
   ' "$file"
 }
+
+if [[ "${1:-}" == "--self-test" ]]; then
+  # grep -q may close a pipe early. Under pipefail, a large printf writer then
+  # exits with SIGPIPE and turns a valid match into a false parity failure.
+  printf -v padding '%262144s' ' '
+  fixture=$'TESTING: true\n'"${padding}"
+  require_contains 'TESTING:' "$fixture" 'large matching workflow block'
+  require_contains_any "$fixture" 'large alternative matching block' 'missing:' 'TESTING:'
+  [[ "$FAILURES" == 0 ]] || exit 1
+  require_contains 'ABSENT:' "$fixture" 'expected missing literal rejection'
+  require_contains_any "$fixture" 'expected missing alternatives rejection' 'ABSENT:' 'ALSO_ABSENT:'
+  [[ "$FAILURES" == 2 ]] || exit 1
+  echo 'Protocol CI parity transport regression passed.'
+  exit 0
+fi
 
 require_file "$MONO_WORKFLOW"
 require_file "$UPSTREAM_WORKFLOW"
@@ -91,13 +106,13 @@ for env_key in TESTING APP_SIGNING_KEY VAULT_DATA_KEY HUSHH_DEVELOPER_TOKEN; do
     "Upstream backend-check exports ${env_key}"
 done
 
-if printf '%s' "$MONO_PROTOCOL_BLOCK" | grep -Eq 'PROTOCOL_VERIFY_DOCKER|docker|buildx'; then
+if grep -Eq 'PROTOCOL_VERIFY_DOCKER|docker|buildx' <<< "$MONO_PROTOCOL_BLOCK"; then
   error "Monorepo protocol-check includes docker-specific checks (should be backend-check parity only)"
 else
   ok "Monorepo protocol-check has no docker-specific checks"
 fi
 
-if printf '%s' "$UPSTREAM_BACKEND_BLOCK" | grep -Eq 'docker|buildx'; then
+if grep -Eq 'docker|buildx' <<< "$UPSTREAM_BACKEND_BLOCK"; then
   error "Upstream backend-check includes docker-specific checks (should be backend-check parity only)"
 else
   ok "Upstream backend-check has no docker-specific checks"

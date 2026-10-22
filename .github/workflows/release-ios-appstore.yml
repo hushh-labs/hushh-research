@@ -262,7 +262,7 @@ jobs:
       - name: Preserve current native release controls for historical source releases
         run: |
           set -euo pipefail
-          for file in scripts/ci/materialize-ios-asc-key.sh scripts/ci/release-cadence.py scripts/ci/release_cadence.py scripts/ci/release_cadence_github.py scripts/ci/submit-appstore-version.py config/release-cadence.json config/ci-governance.json; do
+          for file in scripts/ci/materialize-ios-asc-key.sh scripts/ci/release-cadence.py scripts/ci/release_cadence.py scripts/ci/release_cadence_github.py scripts/ci/release_cadence_maintenance.py scripts/ci/submit-appstore-version.py scripts/ci/ios_packaging_version.py config/release-cadence.json config/ci-governance.json; do
             mkdir -p "$RUNNER_TEMP/native-release-tools/$(dirname "$file")"
             git show "origin/main:$file" > "$RUNNER_TEMP/native-release-tools/$file"
           done
