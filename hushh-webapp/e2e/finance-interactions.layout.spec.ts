@@ -89,6 +89,7 @@ test.beforeAll(async () => {
           "next/navigation", "@/hooks/use-auth", "@/lib/firebase/auth-context",
           "@/lib/vault/vault-context", "@/lib/cache/use-stale-resource",
           "@/lib/kai/kai-financial-resource", "@/lib/kai/kai-market-home-resource",
+          "@/lib/kai/kai-market-news-resource", "@/lib/services/api-service",
           "@/lib/services/kai-token-guard", "@/lib/kai/actions/voice-surface-metadata",
         ].map(find => ({ find: new RegExp(`^${find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`), replacement: boundary })),
         { find: "@", replacement: root },
@@ -130,7 +131,7 @@ test.beforeAll(async () => {
   css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle() + featureCss;
 });
 
-for (const width of [320, 375, 393, 430, 768, 1440]) {
+for (const width of [320, 360, 375, 393, 430, 768, 1024, 1440]) {
   for (const theme of ["light", "dark"]) {
     test(`Market briefing stays readable and fits at ${width}px in ${theme}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 932 });
@@ -179,12 +180,78 @@ for (const width of [320, 375, 393, 430, 768, 1440]) {
       expect(measurements.cardOverflow).toBe(false);
       expect(measurements.pageOverflow).toBe(false);
       expect(measurements.railOverflow).toBe(false);
+      const movers = page.getByRole("region", { name: "Market movers", exact: true });
+      await movers.scrollIntoViewIfNeeded();
+      if (width >= 1024) {
+        const sectorCard = page.getByRole("region", { name: "Sector rotation", exact: true }).locator(":scope > [data-surface-tone]");
+        const moverCard = movers.locator(":scope > [data-surface-tone]");
+        const sectorBounds = await sectorCard.boundingBox();
+        const moverBounds = await moverCard.boundingBox();
+        expect(Math.abs(sectorBounds!.y - moverBounds!.y)).toBeLessThanOrEqual(1);
+        expect(Math.abs(sectorBounds!.height - moverBounds!.height)).toBeLessThanOrEqual(1);
+      }
+      const gainers = await movers.getByRole("heading", { name: "Movers", exact: true }).boundingBox();
+      const decliners = await movers.getByRole("heading", { name: "Losers", exact: true }).boundingBox();
+      expect(Math.abs(gainers!.y - decliners!.y)).toBeLessThanOrEqual(1);
+      expect(gainers!.x + gainers!.width).toBeLessThanOrEqual(decliners!.x);
+      expect(await movers.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+      await expect(movers.locator("[data-market-mover-freshness]")).toHaveCount(1);
+      await expect(movers.getByText("Cached", { exact: true })).toHaveCount(0);
+      for (const pair of await movers.locator("[data-market-mover-pair]").all()) {
+        const cells = pair.getByRole("button");
+        if (await cells.count() === 2) {
+          const first = await cells.nth(0).boundingBox();
+          const second = await cells.nth(1).boundingBox();
+          expect(Math.abs(first!.y - second!.y)).toBeLessThanOrEqual(1);
+          expect(Math.abs(first!.height - second!.height)).toBeLessThanOrEqual(1);
+        }
+      }
+
+      for (const mover of await movers.getByRole("button").all()) {
+        await expect(mover).toBeVisible();
+        expect(await mover.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+        const quote = mover.locator(":scope > span").first();
+        const ticker = await quote.locator(":scope > span").first().boundingBox();
+        const percentage = await quote.locator(":scope > span").last().boundingBox();
+        expect(Math.abs(ticker!.y - percentage!.y)).toBeLessThanOrEqual(1);
+        expect(ticker!.x + ticker!.width).toBeLessThanOrEqual(percentage!.x);
+        expect(await quote.locator(":scope > span").last().evaluate(element => getComputedStyle(element).fontSize)).toBe("14px");
+        const company = mover.locator(":scope > span").nth(1);
+        expect(await company.evaluate(element => {
+          const style = getComputedStyle(element);
+          return [style.fontSize, style.lineHeight, style.webkitLineClamp, element.scrollHeight <= element.clientHeight];
+        })).toEqual(["13px", "18px", "none", true]);
+
+      }
+      await movers.screenshot({ path: test.info().outputPath(`finance-movers-${width}-${theme}.png`) });
       await action.click();
       await expect(page.locator("body")).toHaveAttribute("data-navigation-href", "/one/kai/news");
       await card.scrollIntoViewIfNeeded();
       await page.screenshot({ path: test.info().outputPath(`finance-${width}-${theme}.png`) });
     });
   }
+}
+
+for (const result of ["success", "error"]) {
+  test(`All news ignores an obsolete page ${result} after its snapshot changes`, async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 932 });
+    await page.route("http://localhost/finance-market-news-fixture", route => route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body data-defer-news="true"><div id="root"></div></body></html>`,
+    }));
+    await page.goto("http://localhost/finance-market-news-fixture");
+    await page.addScriptTag({ content: marketScript });
+    await page.getByRole("button", { name: "Load more", exact: true }).click();
+    await expect(page.locator("body")).toHaveAttribute("data-news-pending", "true");
+    await page.evaluate(() => window.dispatchEvent(new Event("finance-fixture-replace-news")));
+    await expect(page.getByText("Latest replacement headlines", { exact: true })).toBeVisible();
+    await page.evaluate(outcome => window.dispatchEvent(new CustomEvent("finance-fixture-complete-news", { detail: outcome })), result);
+    await expect(page.locator("body")).toHaveAttribute("data-news-pending", "false");
+    await expect(page.locator("article")).toHaveCount(1);
+    await expect(page.getByText("More headlines from the same snapshot", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("status")).toHaveCount(0);
+    await expect(page.locator("body")).not.toHaveAttribute("data-news-refreshed", "true");
+  });
 }
 
 test.afterAll(() => {

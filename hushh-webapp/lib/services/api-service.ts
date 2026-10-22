@@ -1,3 +1,4 @@
+import { marketInsightsQuery } from "@/lib/kai/market-insights-query";
 /**
  * Platform-aware API routing. Web hub requests use Next.js proxies; native hub
  * requests use Cloud Run. Admitted owner-pod requests use their signed endpoint
@@ -5169,21 +5170,7 @@ export class ApiService {
     signal?: AbortSignal;
   }): Promise<KaiHomeInsightsV2> {
     const startedAt = Date.now();
-    const query = new URLSearchParams();
-    if (Array.isArray(data.symbols) && data.symbols.length > 0) {
-      query.set("symbols", data.symbols.join(","));
-    }
-    if (typeof data.daysBack === "number" && Number.isFinite(data.daysBack)) {
-      query.set("days_back", String(data.daysBack));
-    }
-    if (typeof data.pickSource === "string" && data.pickSource.trim()) {
-      query.set("pick_source", data.pickSource.trim());
-    }
-    const clientTimezone = resolveClientTimezone();
-    if (clientTimezone) {
-      query.set("tz", clientTimezone);
-    }
-    const suffix = query.toString() ? `?${query.toString()}` : "";
+    const suffix = marketInsightsQuery(data, resolveClientTimezone());
     const path = `/api/kai/market/insights/${data.userId}${suffix}`;
 
     const response = await apiFetch(path, {

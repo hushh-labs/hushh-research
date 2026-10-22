@@ -43,6 +43,8 @@ import type {
 } from "@/lib/services/api-service";
 import { cn } from "@/lib/utils";
 
+import { formatCurrency, formatCompactNumber } from "@/lib/kai/market-value-format";
+
 const ALL_FILTER = "all";
 const MOBILE_PICKS_PAGE_SIZE_OPTIONS = [8, 12, 16] as const;
 const DESKTOP_PICKS_PAGE_SIZE_OPTIONS = [8, 16, 24] as const;
@@ -54,24 +56,6 @@ function parsePageSize(
 ): number {
   const parsed = Number(value);
   return options.includes(parsed) ? parsed : fallback;
-}
-
-function formatCurrency(value: number | null | undefined): string {
-  if (typeof value !== "number" || !Number.isFinite(value))
-    return "Price unavailable";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
-function formatCompactNumber(value: number | null | undefined): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "N/A";
-  return new Intl.NumberFormat("en-US", {
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(value);
 }
 
 function formatRatio(value: number | null | undefined): string {
@@ -692,7 +676,7 @@ export function RiaPicksList({
                   ? row.change_pct
                   : null;
               const cap = factsBySymbol[row.quote_symbol || row.symbol]?.market_cap ?? row.company_facts?.market_cap ?? row.market_cap;
-              const capLabel = typeof cap === "number" && cap > 0 ? `$${formatCompactNumber(cap)} cap` : "Cap unavailable";
+              const capLabel = typeof cap === "number" && cap > 0 ? `${formatCompactNumber(cap)} cap` : "Cap unavailable";
 
               return (
                 <button

@@ -184,7 +184,11 @@ export function toInvestorDecisionLabel(
     return {
       label: "REDUCE",
       tone: "negative",
-      guidance: "Trim exposure to align with your risk limits.",
+      guidance: ownsPosition === true
+        ? "Trim exposure to align with your risk limits."
+        : ownsPosition === false
+          ? "Review the risks before opening a position."
+          : "If you hold this stock, review your exposure and risk limits.",
     };
   }
   if (normalized === "hold") {
