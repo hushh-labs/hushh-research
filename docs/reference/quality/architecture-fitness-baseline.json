@@ -31784,7 +31784,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/services/test_account_service_export.py",
       "symbol": "test_large_history_stream_uses_named_cursors_snapshot_and_bounded_memory",
-      "value": 189
+      "value": 215
     },
     {
       "kind": "function_size",
@@ -31883,7 +31883,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_account_service_export.py",
       "symbol": null,
-      "value": 507
+      "value": 636
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -83713,6 +83713,30 @@
         "source_sha256": "83417721cab00ac66f85e977fa23769ee8ef2e423ed42929274555e60386ede7",
         "reviewer": "agent_layout_audit",
         "review": "Opt-in effective-provider disclosure and old-client response compatibility; historical pilot receipt, SQL/CAS and BYOC routing unchanged. Nearest existing tests extended; no global budget change."
+      }
+    ]
+  },
+  "main_c241_export_performance_review_20261022": {
+    "frozen_main": "c241cfe55425a7e5ce3d7bd1859a7a69ca26fd44",
+    "integration_parent": "2bbbec2f5215484dda8648d029ecb2d75a7d40cd",
+    "entries": [
+      {
+        "key": "module_size|consent-protocol/tests/services/test_account_service_export.py||module exceeds the advisory operon budget",
+        "rank": 0,
+        "before": 507,
+        "after": 636,
+        "source_sha256": "8a50aed4e058df307cbab050ab8cb2237fc77365417e46b221e652674d658921",
+        "reviewer": "agent_layout_audit",
+        "review": "Byte-identical main PR8328 export tests preserve wire equivalence, bounded memory, actual driver types, cursor ownership and post-encoding deadlines; no global budget change."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/services/test_account_service_export.py|test_large_history_stream_uses_named_cursors_snapshot_and_bounded_memory|function exceeds the advisory gene budget",
+        "rank": 0,
+        "before": 189,
+        "after": 215,
+        "source_sha256": "8a50aed4e058df307cbab050ab8cb2237fc77365417e46b221e652674d658921",
+        "reviewer": "agent_layout_audit",
+        "review": "Byte-identical main PR8328 export tests preserve wire equivalence, bounded memory, actual driver types, cursor ownership and post-encoding deadlines; no global budget change."
       }
     ]
   }

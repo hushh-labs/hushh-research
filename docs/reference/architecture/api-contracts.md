@@ -3036,7 +3036,12 @@ this is the existing account bundle scope, not every table in the system.
 
 The backend uses actual server-side cursors fetching one row at a time. Memory
 scales with the largest row and its JSON encoding, rather than total history.
-The encoder coalesces small JSON tokens into 16 KiB buffers, and the transport
+Native JSON containers use an export-only normalization path preserving the
+existing recursive `_sa*` key filtering. Unusual types, container subclasses and
+non-string-keyed mappings retain canonical FastAPI normalization. The standard
+JSON C encoder then materializes one encoded row and yields 16 KiB ASCII slices;
+this adds a row-sized allocation, never a complete-history allocation. Deadline
+checks bracket normalization and encoding and guard every slice. The transport
 coalesces across rows and punctuation into buffers no larger than 256 KiB before
 the threadpool/ASGI boundary. The prepared first prefix is sent immediately.
 Rich metadata must not incur a transport send for every punctuation mark or scalar.
@@ -3049,7 +3054,9 @@ can finish its bounded statement before cancellation cleanup. Saturation returns
 Disconnect, stalled sends, and header failures close the cursor and connection.
 No data rows or prompts enter export telemetry: only outcome, row/byte counts,
 chunk counts, maximum chunk size, elapsed time, database fetch/decoding time,
-document-production time and yield-to-resume wait time are recorded. The latter
+document-production time, row normalization/encoding time and yield-to-resume
+wait time are recorded. Production time includes the fetch and encoding phases;
+those counters must not be added as independent costs. The yield wait
 includes middleware, scheduling and backpressure; it is not pure network time.
 `producer_complete` requires source exhaustion and the final route-local ASGI send.
 That send may hand bytes to outer middleware; it does not attest network delivery
