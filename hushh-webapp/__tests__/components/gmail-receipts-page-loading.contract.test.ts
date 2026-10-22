@@ -32,7 +32,7 @@ function expectOwnerScopedReceiptProjection(pageSource: string) {
     "const visibleReceipts = useMemo(() => receiptDisplayScopeCurrent ? receipts : [], [receiptDisplayScopeCurrent, receipts]);",
   );
   expect(pageSource).toContain(
-    "const visibleTotal = receiptDisplayScopeCurrent ? total : 0;",
+    "const visibleTotal = currentSavedSnapshot?.coverage.source_count ?? (receiptDisplayScopeCurrent ? total : 0);",
   );
   expect(pageSource).toContain("receipts={visibleReceipts}");
   expect(pageSource).toContain("receipt_count: visibleTotal");
@@ -59,11 +59,9 @@ describe("Gmail workspace background loading contract", () => {
   });
 
 
-  it("renders the owner/account memory cache on open without starting a scan", () => {
-    expect(source).toContain(
-      "getCachedGmailReceipts(user.uid, receiptAccountKey)",
-    );
-    expect(source).toContain("cachedGmailReceiptDisplayItems(cached)");
+  it("hydrates saved receipts before automatic connected catch-up", () => {
+    expect(source).toContain("MailReceiptResourceService.hydrate");
+    expect(source).toContain("MailReceiptResourceService.isStale(owner, receiptAccountKey)");
     expect(source).toContain("setReceiptListReady(true)");
     expect(source).not.toContain("every mount still performs");
     expect(source).toContain("setLoadingReceipts(true)");
@@ -96,7 +94,7 @@ describe("Gmail workspace background loading contract", () => {
     expect(() =>
       expectOwnerScopedReceiptProjection(
         source.replace(
-          "const visibleTotal = receiptDisplayScopeCurrent ? total : 0;",
+          "const visibleTotal = currentSavedSnapshot?.coverage.source_count ?? (receiptDisplayScopeCurrent ? total : 0);",
           "const visibleTotal = total;",
         ),
       ),
@@ -126,7 +124,8 @@ describe("Gmail workspace background loading contract", () => {
   });
 
   it("uses only the backend live scan as the receipt refresh authority", () => {
-    expect(source).toContain("GmailReceiptsService.scanReceipts");
+    expect(source).toContain("MailReceiptResourceService.refresh");
+    expect(readFileSync(join(process.cwd(), "lib/services/mail-receipt-resource-service.ts"), "utf8")).toContain("GmailReceiptsService.scanReceipts");
     expect(source).toContain(
       "receiptSyncAvailable && (receiptScanInProgress || loadingReceipts)",
     );

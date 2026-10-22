@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import {
@@ -8,10 +8,10 @@ import {
 } from "../../components/app-ui/app-page-shell";
 import {
   PageHeader,
-  SectionHeader,
 } from "../../components/app-ui/page-sections";
 import { SurfaceStack } from "../../components/app-ui/surfaces";
 import { GmailReceiptOnboardingHero } from "../../components/gmail/gmail-receipt-onboarding-hero";
+import { ReceiptSyncToolbar } from "../../components/gmail/receipt-sync-toolbar";
 import { GmailRecentReceipts } from "../../components/gmail/gmail-recent-receipts";
 import { GmailWorkspaceNavigation } from "../../components/gmail/gmail-workspace-navigation";
 import type { ReceiptListItem } from "../../lib/services/gmail-receipts-service";
@@ -118,8 +118,16 @@ const brandingReceipts: ReceiptListItem[] = [
 function Fixture() {
   const branding = new URLSearchParams(location.search).get("branding") === "true";
   const reference = new URLSearchParams(location.search).get("reference") === "true";
-  const visibleReceipts = branding ? (reference ? [brandingReceipts[0]!] : brandingReceipts) : receipts;
+  const returning = new URLSearchParams(location.search).get("returning") === "true";
+  const [added, setAdded] = useState(false);
+  const originalReceipts = branding ? (reference ? [brandingReceipts[0]!] : brandingReceipts) : receipts;
+  const visibleReceipts = added ? [...Array.from({ length: 10 }, (_, index) => ({ ...receipts[0]!, id: 99 + index, source_id: `synthetic-new-${index}`, receipt_key: `synthetic-new-${index}`, order_id: `NEW-${index}`, merchant_name: "New merchant", receipt_date: "2026-10-24T12:00:00Z" })), ...originalReceipts] : originalReceipts;
   const [syncStarted, setSyncStarted] = useState(false);
+  useEffect(() => {
+    if (!returning) return;
+    setSyncStarted(true);
+    (window as unknown as { finishReceiptRefresh: () => void }).finishReceiptRefresh = () => { setAdded(true); setSyncStarted(false); };
+  }, [returning]);
 
   return (
     <AppPageShell
@@ -137,23 +145,22 @@ function Fixture() {
       <AppPageContentRegion className="mx-auto !mt-0 max-w-[820px]">
         <SurfaceStack compact>
           <GmailWorkspaceNavigation onValueChange={() => {}} value="receipts" />
-          <GmailReceiptOnboardingHero
+          {returning ? <ReceiptSyncToolbar snapshot={{ schema: "mail_receipt_snapshot.v1", account_binding: "a".repeat(64), freshness: "2026-10-22T12:00:00Z",
+            coverage: { partial: false, truncated: false, source_count: visibleReceipts.length, window_from: null, window_to: null, source: "gmail_live" }, rows: [] }}
+            refreshing={syncStarted} error={null} disabled={false} /> : <GmailReceiptOnboardingHero
             onStartReceiptSync={() => setSyncStarted(true)}
             syncing={syncStarted}
             statusMessage={syncStarted ? "Looking through your recent purchases…" : null}
             progressPercent={syncStarted ? 4 : null}
             syncAvailable
-          />
+          />}
           <section
             aria-labelledby="fixture-recent-receipts-title"
             className="space-y-3"
             data-testid="recent-receipts"
           >
-            <SectionHeader
-              id="fixture-recent-receipts-title"
-              title="Recent receipts"
-            />
             <GmailRecentReceipts
+              headingId="fixture-recent-receipts-title"
               accountKey="reviewer@example.com"
               loadReceiptDetail={async (sourceId) => {
                 const item = visibleReceipts.find(

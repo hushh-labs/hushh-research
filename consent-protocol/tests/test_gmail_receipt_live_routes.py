@@ -38,7 +38,12 @@ def test_captured_live_uat_scan_passes_actual_response_model():
     )
     payload = json.loads(path.read_text())
     response = gmail.GmailLiveReceiptScanResponse.model_validate(payload).model_dump()
-    assert response == payload
+    assert response == {
+        "sync_mode": "bootstrap",
+        "checkpoint": None,
+        "unavailable_events": [],
+        **payload,
+    }
 
 
 def _item(source_id: str = "gmail_live_source.sig") -> dict:
@@ -360,3 +365,21 @@ def test_live_receipt_errors_do_not_echo_provider_or_mailbox_values(monkeypatch,
         "private-body",
     ):
         assert private_value not in rendered
+
+
+@pytest.mark.parametrize(
+    "code", ["GMAIL_RECEIPT_CHECKPOINT_EXPIRED", "GMAIL_RECEIPT_ACCOUNT_CHANGED"]
+)
+def test_scan_preserves_safe_continuity_recovery_codes(monkeypatch, code):
+    service = MagicMock()
+    service.scan = AsyncMock(
+        side_effect=GmailApiError("private provider detail", status_code=409, code=code)
+    )
+    monkeypatch.setattr(gmail, "_live_receipts_service", lambda: service)
+    response = TestClient(_app()).post(
+        "/gmail/receipts/scan",
+        json={"user_id": "owner", "incremental": True, "account_key": "account"},
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == code
+    assert "private provider detail" not in response.text

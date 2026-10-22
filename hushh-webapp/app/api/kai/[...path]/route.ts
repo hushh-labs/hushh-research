@@ -94,6 +94,8 @@ const LIVE_RECEIPT_ERROR_MESSAGES: Readonly<Record<string, string>> = {
     "The bounded Gmail receipt response was too large.",
   GMAIL_RECEIPT_INVALID_RESPONSE:
     "Gmail returned an invalid receipt response.",
+  GMAIL_RECEIPT_CHECKPOINT_EXPIRED: "Saved Mail progress expired. Saved receipts are safe.",
+  GMAIL_RECEIPT_ACCOUNT_CHANGED: "The Mail account changed. Reopen Mail to continue.",
   GMAIL_RECEIPT_CURSOR_EXPIRED:
     "Receipt continuation expired. Start a new scan.",
   GMAIL_RECEIPT_CONTRACT_MISMATCH:

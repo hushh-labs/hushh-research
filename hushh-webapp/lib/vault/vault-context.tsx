@@ -1,5 +1,7 @@
 "use client";
 
+import { clearCachedGmailReceipts } from "@/lib/profile/gmail-receipts-cache";
+
 import { clearMemoryDocument } from "@/lib/pkm/memory-refresh";
 /**
  * Vault Context - Memory-Only Vault Key & Token Storage
@@ -277,6 +279,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
       // The Agent's decrypted working set is strictly session-memory-only.
       // Clear it synchronously with the vault credentials, rather than waiting
       // for an Agent workspace to remain mounted and notice the lock.
+      clearCachedGmailReceipts(lockedUserId);
       clearMemoryDocument(lockedUserId);
       clearAgentPkmContext(lockedUserId);
       clearAgentChatHistoryCache(lockedUserId);

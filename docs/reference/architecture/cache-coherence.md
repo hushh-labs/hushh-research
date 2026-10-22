@@ -98,14 +98,53 @@ Printed transaction and attention dates remain bounded verbatim document evidenc
 only snapshot freshness and coverage timestamps require ISO dates. Capture does
 not infer a year, change grouping, or normalize the displayed date.
 
-A sync completes only after the encrypted candidate has committed to IndexedDB,
-been read back, decrypted with its owner/account/generation/revision binding, and
-passed snapshot validation. Atomic promotion rechecks Reset generation and prior
-revision before replacing the authoritative ciphertext. Failed capture, encryption,
-quota, transactions, or read-back retain the previous verified snapshot. In-memory
-rows do not count as saved, and an unsuccessful empty replacement retains visible
-rows and their counts. The failure diagnostic exposes only a typed code and stage.
-Owner Reset removes both authoritative and pending ciphertext and fences old scans.
+`MailReceiptResourceService` owns an owner/account-scoped, session-memory read
+model. A successful local restore precedes provider work. Connected and unlocked
+Mail Receipts updates automatically on entry; a fresh collection skips provider
+work for five minutes. A stale return, foreground or online wake renders the
+existing collection immediately and quietly reconciles it. Failed local restore,
+locked vaults and unknown accounts never initiate mailbox reads. Credential renewal
+fences obsolete requests while preserving authorized display continuity.
+
+The current closed `mail_receipt_snapshot.v2` adds normalized per-event facts,
+opaque continuity, source availability and verified partial-page progress in the
+same encrypted resource as v1. V1 groups remain readable and are retained as
+unresolved archive entries until their events can be reconciled. Those archive
+entries are excluded from exact analytical totals. They are never reconstructed
+as provider facts. Only encrypted ciphertext persists; owner sign-out, vault lock,
+key changes and Reset clear decrypted session projections.
+
+Bootstrap captures a Gmail history baseline before its bounded listing. Later
+returns use authenticated `history.list` deltas and stable owner/account event
+identities. Missing items do not delete receipts. An explicit source deletion or
+source 404 marks that source unavailable; saved receipts remain. Expired history
+allows one bounded bootstrap recovery which also retains existing rows. Each
+verified page saves its continuation atomically with receipt facts; only completed
+reconciliation advances the completed checkpoint. Fifty-page batches retain a
+rollover continuation rather than repeating their first 300 changes. Continuations
+remain subject to the existing two-hour lifetime and provider token validity;
+expired continuations recover through the bounded bootstrap path.
+
+Each candidate is encrypted, committed, read back, decrypted with its
+owner/account/generation/revision binding, and validated before atomic promotion.
+Reset generation, prior revision and current authority are checked again at
+promotion. Cancellation aborts an active staging/promotion transaction. Failed
+capture, encryption, quota, transactions, or read-back preserve the last verified
+snapshot. Provisional page rows are display-only and never claim saved completion.
+An empty successful delta retains saved receipts. Owner Reset removes authoritative
+and pending ciphertext and fences old scans.
+
+Concurrent consumers share one restore/refresh. A force burst queues at most one
+follow-up inside the same 120-second operation budget, including authentication,
+provider retries, cryptography, read-back and saves. Restore has a 15-second budget;
+retryable page errors get at most two retries. Normal UI requires no Start sync or
+refresh control. A fixed-height status line reports background activity; settled
+failures offer Retry. Existing list identity, focus and reading position survive
+refreshes, and refreshed rows do not repeat entrance motion. Display snapshots and
+opaque routing locators never authorize live reads or submissions.
+
+Provider semantics: [Gmail synchronization](https://developers.google.com/workspace/gmail/api/guides/sync)
+and [history.list](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.history/list).
 
 ## Feed and payout updates
 
