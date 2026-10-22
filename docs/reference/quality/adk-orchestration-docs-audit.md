@@ -92,7 +92,7 @@ installation remain separate; Azure has completed its approval, while GCP has no
 | --- | --- | --- |
 | Dev app | `d69c23ce45`; hub `consent-protocol-00191-49k` / `29654faa3669`; web `hushh-webapp-00159-jx8` / `8ca61f393c75`; both 100% | [Exact-head CI](https://github.com/hushh-labs/hushh-research/actions/runs/39757320775), landed smoke and [dev rollout](https://github.com/hushh-labs/hushh-research/actions/runs/39762071957) passed. Immutable exact-SHA acceptance read back 22 October |
 | Azure owner pod | Dev 28; digest `8b846022…68ac07`; revision `ca-hussh-one-pod--u31257e45d565` | Normal approval `op_13e165d0d1bf4a6788ae230cc7e2a93f`, verified 02:22:22 UTC. Same service identity, 1 vCPU / 2 GiB, min 0 / max 1. Active-work drain overlap is not established |
-| Schema / rollback | 69 dev checksums match; all three private-review CHECK definitions and both 971 lineage markers verified at 05:28 UTC | No historical SQL changed. Ready rollback targets: hub `00189-j24`, web `00157-9sx`. History cleanup remains separate |
+| Schema / rollback | 69 dev checksums match; all three private-review CHECK definitions and both 971 lineage markers verified at 05:28 UTC | No historical SQL changed. Latest dev rollout records rollback targets hub `00190-b4p`, web `00158-tds`. History cleanup remains separate |
 | Integration | Main `d69c23ce45` includes the reconciled ADK `914e7c044c` and current main contracts | PR7555 merged after exact-head CI; the original infrastructure branch is synchronized without force-push. Nine unrelated peer edits remain uncommitted and excluded |
 | Published pod offer | Dev 28 reuses image `sha256:8b846022947bca939fba48cddf1101f3c26dddfb043ab41e20bd7407e068ac07`, source `67a64533ac6a` | Both exact personal predecessors recovered identity, six sealed records, consent/PKM state and 245,763 exact file bytes. Temporary resources cleaned; GCP seven-day soft-delete retention preserved |
 | GCP configuration / inventory | Revision `00019-p6z`, unchanged predecessor `26bab163…61809`, 1 vCPU / 2 GiB / concurrency 8, min 0 / max 1 | Guarded inventory reconciliation committed locally as `02a7aec016` and applied. Storage protection enforced; all 39 objects preserved. Authenticated domain repair recovered identical keys, permits both exact dev domains and refuses unrelated origins; temporary job absence verified |
@@ -101,15 +101,18 @@ installation remain separate; Azure has completed its approval, while GCP has no
 ### Current local implementation
 
 The MVP landed as `d69c23ce45`. The local correction candidate also includes fresh
-main `08f13ad25d` and the reconciled ADK lineage without blanket file replacement. The completed MVP core recorded 24,519 backend/DB passes and 138 skips;
+main `08861bc8e1`, including its Puppy and Messages work, and the reconciled ADK lineage without blanket file replacement. The completed MVP core recorded 24,519 backend/DB passes and 138 skips;
 frontend build, package and integration passed. Two hosted test-fixture corrections
 preserve runtime behavior and their original failure receipts. The final reviewed
 head `7e295ba408` passed all 26 checks before its main merge.
 
 The new local batch updates the four dependency owners, restores the approved
-README identity, removes redundant host policy and validates Claude's canonical
-startup loader. It needs its own completed-candidate core and exact-SHA hosted CI;
-prior proof does not cover changed dependencies. Dependency audits retain the
+README identity and makes `.agents` the sole authored home: 67 canonical skills,
+19 engineering lanes and one necessary host bridge. Its core recorded 24,519
+backend/DB passes and 138 skips; the web build passed with CI's synthetic
+configuration after rejecting a mismatched local credential. MCP and integration
+passed. Combined main/UI review and exact-SHA hosted CI remain separate checks.
+Dependency audits retain the
 unpatched development-tool family without suppression. Trusted CI alert-credential
 isolation needs separate credential provisioning and main-owned authority.
 

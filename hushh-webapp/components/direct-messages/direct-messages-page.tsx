@@ -2477,7 +2477,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
         onOpenChange={open => { if (!open && !deletingChat) setChatDeleteRequest(null); }}>
         <AlertDialogContent size="sm">
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete chat with {chatDeleteRequest ? conversationLabel(chatDeleteRequest.conversation) : "this person"}?</AlertDialogTitle>
+            <AlertDialogTitle>Delete chat with {chatDeleteRequest ? conversationLabel(chatDeleteRequest.conversation) : "this person"} for you only?</AlertDialogTitle>
             <AlertDialogDescription className="sr-only">Deletes this chat for you only.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
