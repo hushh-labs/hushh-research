@@ -52,9 +52,11 @@
     "node": ">=18.18"
   },
   "devDependencies": {
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.12"
   },
   "overrides": {
-    "postcss": "8.5.23"
+    "postcss": "8.5.23",
+    "source-map-js": "1.2.2",
+    "vite": "8.1.6"
   }
 }

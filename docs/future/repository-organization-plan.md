@@ -65,8 +65,9 @@ documentation and host discovery: a directory rename alone is insufficient.
 ```
 
 Root `AGENTS.md` remains the required repository entrypoint and explicitly loads
-`.agents/instructions.md`. `CLAUDE.md` and host discovery files point to the same
-contract. Do not assume a host automatically reads a nested instructions file.
+`.agents/instructions.md`. Claude's SessionStart loader delivers this entrypoint
+and its canonical contract path; root `CLAUDE.md` and the stale Qwen policy copy
+are removed. Do not assume a host automatically reads nested instructions.
 Verify loading and scoped package instructions before moving the root kernel.
 Existing policy validators must inspect both the root pointer and canonical body;
 a missing target must fail. Preserve package-level instruction precedence.

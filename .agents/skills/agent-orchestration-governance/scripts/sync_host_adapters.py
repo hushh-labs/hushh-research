@@ -89,8 +89,47 @@ def write_links(root: Path) -> None:
         target.symlink_to(relative, target_is_directory=source.is_dir())
 
 
+
+def startup_self_test() -> None:
+    """Exercise the configured command, including a project path with spaces."""
+    import subprocess
+    import tempfile
+    settings = json.loads((REPO_ROOT / '.agents/adapters/claude/settings.json').read_text())
+    assert settings.get('includeCoAuthoredBy') is False
+    entries = settings.get('hooks', {}).get('SessionStart', [])
+    commands = [hook.get('command', '') for entry in entries for hook in entry.get('hooks', [])]
+    assert len(commands) == 1 and '.agents/adapters/claude/session_start.py' in commands[0]
+    with tempfile.TemporaryDirectory(prefix='agent startup ') as temporary:
+        root = Path(temporary)
+        hook = root / '.agents/adapters/claude/session_start.py'
+        hook.parent.mkdir(parents=True)
+        hook.symlink_to(REPO_ROOT / '.agents/adapters/claude/session_start.py')
+        entry = root / 'AGENTS.md'
+        entry.write_text('Read `.agents/instructions.md` before acting.\n')
+        source = root / '.agents/instructions.md'
+        source.write_text('Binding fixture contract.\n')
+        environment = {**os.environ, 'CLAUDE_PROJECT_DIR': str(root)}
+        def invoke():
+            return subprocess.run(['/bin/sh', '-c', commands[0]], env=environment,
+                                  capture_output=True, text=True, timeout=5)
+        result = invoke()
+        assert result.returncode == 0
+        context = json.loads(result.stdout)['hookSpecificOutput']
+        assert context['hookEventName'] == 'SessionStart'
+        assert entry.read_text() in context['additionalContext']
+        assert str(source) in context['additionalContext'] and len(context['additionalContext']) < 10_000
+        source.unlink()
+        result = invoke()
+        assert result.returncode and not result.stdout
+        source.write_text('Binding fixture contract.\n')
+        entry.write_text('A different instruction set.\n')
+        result = invoke()
+        assert result.returncode and not result.stdout
+
+
 def self_test() -> list[str]:
     """Core boundary: no lost settings, duplicate discovery or local-link overwrite."""
+    startup_self_test()
     import tempfile
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)

@@ -7,20 +7,18 @@ STRICT_DEPENDABOT_ALERTS="${REQUIRE_GITHUB_DEPENDABOT_ALERTS_CLEAN:-0}"
 
 strict_fail() {
   echo "$1"
-  if [ "$STRICT_MODE" = "1" ]; then
+  if [ "$STRICT_MODE" = "1" ] || [ "$STRICT_SECRET_ALERTS" = "1" ] || [ "$STRICT_DEPENDABOT_ALERTS" = "1" ]; then
     exit 1
   fi
   exit 0
 }
 
 if ! command -v gh >/dev/null 2>&1; then
-  echo "GitHub security alert parity check unavailable: gh CLI not installed."
-  exit 0
+  strict_fail "GitHub security alert parity check unavailable: gh CLI not installed."
 fi
 
 if ! gh auth status >/dev/null 2>&1; then
-  echo "GitHub security alert parity check unavailable: gh CLI not authenticated."
-  exit 0
+  strict_fail "GitHub security alert parity check unavailable: gh CLI not authenticated."
 fi
 
 resolve_repo() {
@@ -64,36 +62,36 @@ PR_EVENT_CUTOFF=""
 
 if ! gh api -H 'Accept: application/vnd.github+json' \
   "/repos/${REPO}/secret-scanning/alerts?state=open&per_page=100" >"$SECRET_ALERTS_JSON" 2>"$TMPDIR/secret-errors.log"; then
-  if [ "$STRICT_MODE" = "1" ]; then
+  if [ "$STRICT_MODE" = "1" ] || [ "$STRICT_SECRET_ALERTS" = "1" ]; then
     echo "GitHub security alert parity check failed: unable to read secret-scanning alerts."
   else
     echo "GitHub security alert parity advisory: unable to read secret-scanning alerts."
   fi
   sed 's/^/  /' "$TMPDIR/secret-errors.log" || true
   if grep -q "Resource not accessible by integration" "$TMPDIR/secret-errors.log"; then
-    echo "  Hint: set a repo secret like GH_SECURITY_ALERTS_TOKEN with a PAT that can read secret-scanning and Dependabot alerts."
+    echo "  Use the trusted security-check authority; never expose an alert credential to PR-controlled code."
   fi
-  if [ "$STRICT_MODE" = "1" ]; then
+  if [ "$STRICT_MODE" = "1" ] || [ "$STRICT_SECRET_ALERTS" = "1" ]; then
     exit 1
   fi
-  exit 0
+  printf '%s\n' '[]' >"$SECRET_ALERTS_JSON"
 fi
 
 if ! gh api -H 'Accept: application/vnd.github+json' \
   "/repos/${REPO}/dependabot/alerts?state=open&per_page=100" >"$DEPENDABOT_ALERTS_JSON" 2>"$TMPDIR/dependabot-errors.log"; then
-  if [ "$STRICT_MODE" = "1" ]; then
+  if [ "$STRICT_MODE" = "1" ] || [ "$STRICT_DEPENDABOT_ALERTS" = "1" ]; then
     echo "GitHub security alert parity check failed: unable to read dependabot alerts."
   else
     echo "GitHub security alert parity advisory: unable to read dependabot alerts."
   fi
   sed 's/^/  /' "$TMPDIR/dependabot-errors.log" || true
   if grep -q "Resource not accessible by integration" "$TMPDIR/dependabot-errors.log"; then
-    echo "  Hint: set a repo secret like GH_SECURITY_ALERTS_TOKEN with a PAT that can read secret-scanning and Dependabot alerts."
+    echo "  Use the trusted security-check authority; never expose an alert credential to PR-controlled code."
   fi
-  if [ "$STRICT_MODE" = "1" ]; then
+  if [ "$STRICT_MODE" = "1" ] || [ "$STRICT_DEPENDABOT_ALERTS" = "1" ]; then
     exit 1
   fi
-  exit 0
+  printf '%s\n' '[]' >"$DEPENDABOT_ALERTS_JSON"
 fi
 
 if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] && [ -n "${GITHUB_EVENT_PATH:-}" ] && [ -f "${GITHUB_EVENT_PATH:-}" ]; then
@@ -147,6 +145,9 @@ def filter_alerts(alerts: list[dict], cutoff: Optional[datetime]) -> list[dict]:
 
 secret_alerts = json.loads(Path(sys.argv[1]).read_text())
 dependabot_alerts = json.loads(Path(sys.argv[2]).read_text())
+for alerts in (secret_alerts, dependabot_alerts):
+    if not isinstance(alerts, list) or any(not isinstance(alert, dict) for alert in alerts):
+        raise ValueError("GitHub alert response must be an array of alert objects")
 filtered_secret_path = Path(sys.argv[3])
 filtered_dependabot_path = Path(sys.argv[4])
 cutoff = parse_iso8601(sys.argv[5])

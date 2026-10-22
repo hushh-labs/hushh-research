@@ -12,11 +12,15 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.22.1",
-    "nodemailer": "^6.9.16"
+    "nodemailer": "10.0.9"
   },
   "engines": {
     "node": ">=20.0.0"
   },
   "author": "Hushh Technologies",
-  "license": "MIT"
+  "license": "MIT",
+  "overrides": {
+    "proxy-addr": "2.0.8",
+    "qs": "6.16.0"
+  }
 }
