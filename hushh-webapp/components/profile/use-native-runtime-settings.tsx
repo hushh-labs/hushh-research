@@ -54,7 +54,7 @@ export function useNativeRuntimeSettings(model: GeminiRuntimeSettingsModel, owne
     { id: "runtime-coming-soon", title: "Coming soon", rows: RUNTIME_PROVIDER_CATALOG.filter(p => p.availability === "coming_soon")
       .map(p => ({ id: `runtime-provider-${p.id}`, label: p.name, detail: p.description, enabled: true, readOnly: true })) }] };
   const closeEditor = () => { model.cancelEdit(); setEditorOpen(false); };
-  return { page, rows, failed, pending: () => model.operationPending(),
+  return { page, rows, failed, pending: () => model.operationPending(), formScene: active && editorOpen ? "runtime-provider" as const : null,
     editor: (destinationId?: string) => active && editorOpen && destinationId ? <NativeRuntimeEditor model={model} owner={owner} destinationId={destinationId}
       onClose={closeEditor} onFallback={() => { setEditorOpen(false); setFailed(true); }} /> : null };
 }

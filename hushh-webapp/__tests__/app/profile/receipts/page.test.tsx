@@ -1863,7 +1863,7 @@ describe("ProfileReceiptsPage", () => {
     ).toBeTruthy();
     expect(
       within(screen.getByRole("tabpanel", { name: "Receipts" })).getByText(
-        /syncs receipts to build your private shopping memory/i,
+        /syncs receipts into a private shopping summary/i,
       ),
     ).toBeTruthy();
     expect(screen.queryByText("0 receipts")).toBeNull();

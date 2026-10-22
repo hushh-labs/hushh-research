@@ -256,6 +256,7 @@ jobs:
               - '!scripts/ci/web-full-suite-check.sh'
               - '!scripts/ci/web-targeted-check.sh'
             ios:
+              - 'scripts/ci/resolve-ios-packages.sh'
               - 'hushh-webapp/ios/**'
               - 'hushh-webapp/lib/capacitor/**'
               - 'hushh-webapp/scripts/native/**'
@@ -291,11 +292,10 @@ jobs:
               - 'hushh-webapp/package.json'
               - 'hushh-webapp/package-lock.json'
               - '.github/workflows/ci.yml'
-            # The macOS editor latency lane (web-editor-performance-check):
-            # npm run test:layout-editor-performance: editor latency and the
-            # shared History motion contract. Their focused fixtures compile
-            # app/globals.css with Tailwind. These are their transitive imports,
-            # the files they read from disk, and
+            # The macOS editor and drawer latency lane (web-editor-performance-check):
+            # npm run test:layout-editor-performance: the editor and History specs whose
+            # beforeAll hooks bundle their fixtures with Vite and compile
+            # app/globals.css with Tailwind. These are their transitive imports, the files they read from disk, and
             # the configs and lockfile that build and run them. components/icons
             # (12 of its 14 files, reached through index barrels) and
             # lib/morphy-ux (13 primitives that import one another) are listed
@@ -310,9 +310,7 @@ jobs:
             # and .github/workflows/editor-performance-nightly.yml runs the lane
             # on main every night.
             editor:
-              - 'hushh-webapp/e2e/agent-history-motion.layout.spec.ts'
-              - 'hushh-webapp/e2e/fixtures/agent-history-motion.tsx'
-              - 'hushh-webapp/e2e/fixtures/app-chrome-layer.ts'
+
               - 'hushh-webapp/components/agent/agent-connections-drawer.tsx'
               - 'hushh-webapp/components/agent/agent-history-sidebar.tsx'
               - 'hushh-webapp/components/app-ui/app-chat-history-edge-gesture.tsx'
@@ -321,7 +319,29 @@ jobs:
               - 'hushh-webapp/components/app-ui/side-panel-motion.tsx'
               - 'hushh-webapp/components/ui/alert-dialog.tsx'
               - 'hushh-webapp/components/ui/dropdown-menu.tsx'
+              - 'hushh-webapp/e2e/fixtures/history-motion.tsx'
+              - 'hushh-webapp/e2e/helpers/drawer-geometry.ts'
+              - 'hushh-webapp/e2e/helpers/history-motion.ts'
+              - 'hushh-webapp/e2e/history-motion.layout.spec.ts'
               - 'hushh-webapp/lib/agent/chat-time-separators.ts'
+              - 'hushh-webapp/components/agent/animated-menu-cross-icon.tsx'
+              - 'hushh-webapp/components/app-ui/native-chat-chrome.tsx'
+              - 'hushh-webapp/components/app-ui/native-feature-page.tsx'
+              - 'hushh-webapp/components/app-ui/shell-action-surface.tsx'
+              - 'hushh-webapp/components/ui/dialog.tsx'
+              - 'hushh-webapp/lib/auth/session-owner.ts'
+              - 'hushh-webapp/lib/auth/use-session-chrome-suppression.ts'
+              - 'hushh-webapp/lib/capacitor/app-haptics.ts'
+              - 'hushh-webapp/lib/capacitor/native-base-apertures.ts'
+              - 'hushh-webapp/lib/capacitor/native-chrome.ts'
+              - 'hushh-webapp/lib/capacitor/native-drawers.ts'
+              - 'hushh-webapp/lib/capacitor/native-panel-presentation.ts'
+              - 'hushh-webapp/lib/capacitor/native-presentation-policy.ts'
+              - 'hushh-webapp/lib/capacitor/native-presentation-regions.ts'
+              - 'hushh-webapp/lib/capacitor/use-native-content-pane.ts'
+              - 'hushh-webapp/lib/kai/actions/voice-surface-activity.tsx'
+              - 'hushh-webapp/lib/kai/actions/voice-surface-metadata.ts'
+              - 'hushh-webapp/lib/vault/session-epoch.ts'
               - 'hushh-webapp/e2e/text-attachment-viewer.layout.spec.ts'
               - 'hushh-webapp/e2e/fixtures/text-attachment-viewer.tsx'
               - 'hushh-webapp/e2e/fixtures/product-font.ts'
@@ -360,6 +380,7 @@ jobs:
               - 'hushh-webapp/lib/capacitor/native-presentation-policy.ts'
               - 'hushh-webapp/lib/capacitor/native-presentation-regions.ts'
               - 'hushh-webapp/lib/capacitor/native-profile-legal.ts'
+              - 'hushh-webapp/lib/capacitor/native-profile-preparation.ts'
               - 'hushh-webapp/lib/capacitor/native-workspace.ts'
               - 'hushh-webapp/lib/capacitor/session-privacy.ts'
               - 'hushh-webapp/lib/capacitor/use-native-content-pane.ts'
@@ -368,6 +389,7 @@ jobs:
               - 'hushh-webapp/lib/legal/legal-documents.ts'
               - 'hushh-webapp/lib/legal/private-text-disclosure.ts'
               - 'hushh-webapp/lib/morphy-ux/**'
+              - 'hushh-webapp/lib/navigation/back-layers.ts'
               - 'hushh-webapp/lib/navigation/kai-bottom-chrome-visibility.ts'
               - 'hushh-webapp/lib/theme/accent.ts'
               - 'hushh-webapp/lib/ui/button-variants.ts'
@@ -563,8 +585,8 @@ jobs:
       (needs['preflight-gate'].outputs.frontend == 'true')
     runs-on: ubuntu-latest
     # Keep node packs once; native Playwright sharding partitions each matched
-    # browser command across three runners. The aggregate succeeds only when all
-    # four jobs pass, and fail-fast leaves every verdict visible.
+    # browser command across four runners. The aggregate succeeds only when all
+    # five jobs pass, and fail-fast leaves every verdict visible.
     strategy:
       fail-fast: false
       matrix:
@@ -573,14 +595,19 @@ jobs:
             label: node
             shard: ""
           - part: browser
-            label: browser-1-of-3
-            shard: "1/3"
+            label: browser-1-of-4
+            shard: "1/4"
           - part: browser
-            label: browser-2-of-3
-            shard: "2/3"
+            label: browser-2-of-4
+            shard: "2/4"
           - part: browser
-            label: browser-3-of-3
-            shard: "3/3"
+            label: browser-3-of-4
+            shard: "3/4"
+          - part: browser
+            label: browser-4-of-4
+            shard: "4/4"
+    # Run 39649422912 exhausted the 30m budget twice after its 13m WebKit
+    # group passed. Retain every test and worker limit; partition more evenly.
     # Preserve the job limit; split work instead of extending the timeout.
     timeout-minutes: 30
     steps:
@@ -640,6 +667,13 @@ jobs:
           # Playwright CLI must exist first; the check step below is told
           # (WEB_CI_DEPS_INSTALLED) not to repeat it.
           bash -c 'source scripts/ci/web-common.sh && web_ci_install'
+          # Run 37836804949 spent 23m9s downloading 116 MB from the runner's
+          # preferred Azure apt mirror, then timed out during browser tests.
+          # Keep its existing official archive/security fallbacks and signed
+          # package verification; remove only that slow mirror preference.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/[[:space:]]|d' /etc/apt/apt-mirrors.txt
+          fi
           # `--with-deps` installs the browsers AND the apt libraries they link
           # against. The apt half is not covered by the cache (it writes outside
           # ~/.cache/ms-playwright), so on a cache hit install only the system
@@ -668,6 +702,7 @@ jobs:
       - name: Run targeted web contract checks
         run: bash scripts/ci/orchestrate.sh web-targeted
         env:
+          WEB_TARGETED_FULL_SUITE_OWNED: "1"
           WEB_TARGETED_PART: ${{ matrix.part }}
           # Only the browser leg ran npm ci in the step above; the node leg
           # installs inside the script.
@@ -736,7 +771,7 @@ jobs:
           npm ci
           npx playwright install chromium webkit
 
-      - name: Verify editor latency and drawer motion on macOS
+      - name: Verify editor and History motion latency on macOS
         working-directory: hushh-webapp
         run: npm run test:layout-editor-performance
 
@@ -959,14 +994,9 @@ jobs:
           SPM_CACHE_HIT: ${{ steps.spm-cache.outputs.cache-hit }}
         run: |
           set -euo pipefail
-          # actions/cache reports a restore that fails partway (a full disk, a
-          # corrupt archive) as a miss but leaves what it extracted. A miss
-          # resolves from an empty directory, as every PR did before the cache.
+          # A partial cache restore is a miss; retain the bounded collision retry.
           if [ "${SPM_CACHE_HIT}" != true ]; then rm -rf "${RUNNER_TEMP}/spm"; fi
-          xcodebuild -resolvePackageDependencies \
-            -project "${XCODE_PROJECT}" \
-            -scheme "${XCODE_SCHEME}" \
-            -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm"
+          bash scripts/ci/resolve-ios-packages.sh
 
       - name: Compile app and run native iOS unit tests
         shell: bash
@@ -980,6 +1010,7 @@ jobs:
             -configuration Debug \
             -destination "platform=iOS Simulator,id=${SIMULATOR_ID}" \
             -derivedDataPath "${RUNNER_TEMP}/derived-data" \
+            -packageCachePath "${RUNNER_TEMP}/spm-cache" \
             -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm" \
             -resultBundlePath "${RUNNER_TEMP}/AppTests.xcresult" \
             -skipMacroValidation \
@@ -1054,6 +1085,7 @@ jobs:
             ${{ runner.temp }}/AppTests.xcresult
             ${{ runner.temp }}/xcodebuild-ios-tests.log
             ${{ runner.temp }}/simulator-boot.log
+            ${{ runner.temp }}/xcodebuild-package-resolution-*.log
           if-no-files-found: ignore
           retention-days: 7
 
@@ -1132,10 +1164,12 @@ jobs:
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.backend == 'true')
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     services:
       command-postgres:
-        image: pgvector/pgvector:0.8.6-pg17-bookworm
+        # PostgreSQL 17 / pgvector 0.8.6: identical upstream OCI index via Google's public cache.
+        # Digest pin avoids tag drift and shared-runner Docker Hub pull throttling.
+        image: mirror.gcr.io/pgvector/pgvector@sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f
         env:
           POSTGRES_USER: command_test
           POSTGRES_PASSWORD: command_test
@@ -1171,7 +1205,10 @@ jobs:
           key: ${{ runner.os }}-mypy-py${{ env.PYTHON_VERSION }}-${{ hashFiles('consent-protocol/uv.lock', 'consent-protocol/pyproject.toml') }}
 
       - name: Run protocol check script (single source of truth)
-        timeout-minutes: 22
+        # Hosted core took 630s vs 419s on the previous green run; the serial
+        # database stage reached 93% at the old 22-minute cap. Preserve its
+        # isolation and leave room for terminal collection and artifact cleanup.
+        timeout-minutes: 32
         run: bash scripts/ci/orchestrate.sh protocol
         env:
           CAPABILITY_GRAPH_BASE_REF: origin/${{ github.base_ref || 'main' }}

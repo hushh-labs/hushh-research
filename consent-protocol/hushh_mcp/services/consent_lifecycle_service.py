@@ -311,23 +311,12 @@ class ConsentLifecycleService:
         *,
         export_cache: MutableMapping[str, Any] | None = None,
     ) -> int:
-        """Revoke every live grant this owner holds, one row at a time.
-
-        Same per-token behavior as ``revoke_active_grant`` (token revoked, export
-        deleted, REVOKED event written); only the selection differs. Returns how
-        many grants were revoked. Used when the owner's enterprise identity is
-        deprovisioned, so no previously issued grant outlives the session.
-        """
-        owned = await self._owned_identifiers(user_id)
-        active_tokens = await self._db.get_active_tokens(
-            user_id, **identifier_filter_kwargs(user_id, owned)
+        return await _revoke_owner_grants(
+            self._db,
+            user_id,
+            identifiers_resolver=self._owned_identifiers,
+            export_cache=export_cache,
         )
-        internal_tokens = await self._db.get_active_internal_tokens(user_id)
-        revoked = 0
-        for token in [*internal_tokens, *active_tokens]:
-            await self._revoke_token_row(user_id, token, scope=None, export_cache=export_cache)
-            revoked += 1
-        return revoked
 
     async def _revoke_token_row(
         self,
@@ -337,41 +326,102 @@ class ConsentLifecycleService:
         scope: str | None,
         export_cache: MutableMapping[str, Any] | None,
     ) -> dict[str, Any]:
-        resolved_scope = _clean(token_to_revoke.get("scope")) or scope or ""
-
-        original_token = token_to_revoke.get("token_id")
-        if original_token and not str(original_token).startswith("REVOKED_"):
-            consent_token.revoke_token(original_token)
-            await self._db.delete_consent_export(original_token)
-            if export_cache is not None and original_token in export_cache:
-                del export_cache[original_token]
-
-        revoke_token_id = f"REVOKED_{int(time.time() * 1000)}_{resolved_scope}"
-        agent_id = token_to_revoke.get("agent_id") or token_to_revoke.get("developer") or "Unknown"
-        subject_user_id = _clean(token_to_revoke.get("user_id")) or user_id
-        metadata = token_to_revoke.get("metadata")
-        metadata = metadata if isinstance(metadata, dict) else {}
-        bundle_id = _clean(metadata.get("bundle_id"))
-        revoked_metadata = {
-            **requester_identity_metadata(metadata),
-            **({"bundle_id": bundle_id} if bundle_id else {}),
-        }
-        await self._db.insert_event(
-            user_id=subject_user_id,
-            agent_id=agent_id,
-            scope=resolved_scope,
-            action="REVOKED",
-            token_id=revoke_token_id,
-            request_id=token_to_revoke.get("request_id"),
-            scope_description="Vault owner session" if agent_id == "self" else None,
-            metadata=revoked_metadata or None,
+        return await _revoke_grant_row(
+            self._db,
+            user_id,
+            token_to_revoke,
+            scope=scope,
+            export_cache=export_cache,
         )
-        logger.info("consent.revoked_event_saved scope=%s", resolved_scope)
-        is_vault_owner = resolved_scope in ("vault.owner", "VAULT_OWNER")
+
+
+async def _revoke_owner_grants(
+    db: ConsentDBService,
+    user_id: str,
+    *,
+    identifiers_resolver: Callable[[str], Awaitable[list[str]]],
+    export_cache: MutableMapping[str, Any] | None,
+) -> int:
+    """Revoke every live grant this owner holds, one row at a time.
+
+    Paid terms end through canonical consent/accounting first, including
+    reserved and pre-activation terms absent from active-token discovery.
+    Free and internal grants retain their per-token path. Returns how many
+    terms/grants ended. This never erases funds or refunds the owner's buys.
+    """
+    from hushh_mcp.consent.paid_admission import end_owner_paid_purchases
+
+    revoked = await end_owner_paid_purchases(user_id)
+    owned = await identifiers_resolver(user_id)
+    active_tokens = await db.get_active_tokens(user_id, **identifier_filter_kwargs(user_id, owned))
+    internal_tokens = await db.get_active_internal_tokens(user_id)
+    for token in [*internal_tokens, *active_tokens]:
+        await _revoke_grant_row(db, user_id, token, scope=None, export_cache=export_cache)
+        revoked += 1
+    return revoked
+
+
+async def _revoke_grant_row(
+    db: ConsentDBService,
+    user_id: str,
+    token_to_revoke: dict[str, Any],
+    *,
+    scope: str | None,
+    export_cache: MutableMapping[str, Any] | None,
+) -> dict[str, Any]:
+    resolved_scope = _clean(token_to_revoke.get("scope")) or scope or ""
+    from hushh_mcp.consent.paid_admission import _metadata, end_paid_purchase, is_paid_grant
+
+    paid_metadata = _metadata(token_to_revoke.get("metadata"))
+    paid = is_paid_grant(paid_metadata)
+    if paid:
+        await end_paid_purchase(
+            user_id, str(paid_metadata.get("commerce_purchase_id") or ""), as_owner=True
+        )
+
+    original_token = token_to_revoke.get("token_id")
+    if original_token and not str(original_token).startswith("REVOKED_"):
+        consent_token.revoke_token(original_token)
+        await db.delete_consent_export(original_token)
+        if export_cache is not None and original_token in export_cache:
+            del export_cache[original_token]
+
+    if paid:
         return {
             "status": "revoked",
             "message": f"Consent for {resolved_scope} has been revoked",
-            "lockVault": is_vault_owner,
+            "lockVault": False,
             "scope": resolved_scope,
-            "agentId": agent_id,
+            "agentId": token_to_revoke.get("agent_id")
+            or token_to_revoke.get("developer")
+            or "Unknown",
         }
+    revoke_token_id = f"REVOKED_{int(time.time() * 1000)}_{resolved_scope}"
+    agent_id = token_to_revoke.get("agent_id") or token_to_revoke.get("developer") or "Unknown"
+    subject_user_id = _clean(token_to_revoke.get("user_id")) or user_id
+    metadata = token_to_revoke.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    bundle_id = _clean(metadata.get("bundle_id"))
+    revoked_metadata = {
+        **requester_identity_metadata(metadata),
+        **({"bundle_id": bundle_id} if bundle_id else {}),
+    }
+    await db.insert_event(
+        user_id=subject_user_id,
+        agent_id=agent_id,
+        scope=resolved_scope,
+        action="REVOKED",
+        token_id=revoke_token_id,
+        request_id=token_to_revoke.get("request_id"),
+        scope_description="Vault owner session" if agent_id == "self" else None,
+        metadata=revoked_metadata or None,
+    )
+    logger.info("consent.revoked_event_saved scope=%s", resolved_scope)
+    is_vault_owner = resolved_scope in ("vault.owner", "VAULT_OWNER")
+    return {
+        "status": "revoked",
+        "message": f"Consent for {resolved_scope} has been revoked",
+        "lockVault": is_vault_owner,
+        "scope": resolved_scope,
+        "agentId": agent_id,
+    }

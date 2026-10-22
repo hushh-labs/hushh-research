@@ -496,6 +496,15 @@ try {
     { id: "payout-warning", icon: payoutInnerIcons.ProfileInnerWarningIcon },
     { id: "payout-progress", icon: payoutInnerIcons.ProfileInnerProgressIcon },
     { id: "payout-review", icon: payoutInnerIcons.ProfileInnerReviewIcon },
+    { id: "referral-link", icon: rows.LinkRowIcon },
+    { id: "referral-join", icon: rows.JoinRowIcon },
+    { id: "referral-agent", icon: rows.UseAgentRowIcon },
+    { id: "referral-qualified", icon: rows.QualifiedRowIcon },
+    { id: "referral-success", icon: rows.SuccessRowIcon },
+    { id: "referral-people", icon: rows.PeopleRowIcon },
+    { id: "referral-progress", icon: rows.ProgressRowIcon },
+    { id: "referral-review", icon: rows.ReviewRowIcon },
+    { id: "referral-warning", icon: rows.WarningRowIcon },
     { id: "gemini", icon: GeminiLogo, original: true, size: 32 },
   ];
   for (const entry of [...PROFILE_MENU_GROUPS.flatMap(group => group.entries), ...formIcons]) {

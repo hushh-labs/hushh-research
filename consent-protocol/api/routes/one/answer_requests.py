@@ -1,23 +1,9 @@
-"""Paid answers between two connected people.
+"""Owner-approved paid answers between connected people.
 
-  POST /api/one/answer-requests                        ask a question
-  GET  /api/one/answer-requests/inbox                  owner's queue to review
-  POST /api/one/answer-requests/{id}/approve           owner: exact scopes + price
-  POST /api/one/answer-requests/{id}/decline           owner: refuse (refunds if paid)
-  POST /api/one/answer-requests/{id}/cancel            requester: withdraw (refunds)
-  GET  /api/one/answer-requests/{id}/payment           state + the wait, before checkout
-  POST /api/one/answer-requests/{id}/payment/checkout  hosted Stripe Checkout
-  GET  /api/one/answer-requests/answerable             owner device: preparation and paid recovery
-  POST /api/one/answer-requests/{id}/deliver           owner device: sealed answer
-  GET  /api/one/answer-requests/{id}/answer            requester: sealed envelope
-
-Firebase-authenticated on both sides. No `app/api` proxy for the money path:
-the Stripe webhook needs the exact signed bytes and the status/checkout
-endpoints stay on the same origin as it, matching the Drive lane.
-
-Delivery storage never receives an answer in the clear. The separately gated
-composer receives the approved plaintext projection transiently; it decrypts no PKM. `/deliver` accepts ciphertext
-sealed to the requester's key and refuses anything shaped like plaintext.
+Firebase authorizes the declared financial routes; it grants no information access.
+Delivery accepts recipient-bound ciphertext. Separately authorized composition
+uses an approved transient projection and decrypts no stored PKM. Signed settlement
+and answer fulfillment remain separate from time-limited scope purchases.
 """
 
 from __future__ import annotations
@@ -26,15 +12,17 @@ import asyncio
 import logging
 import time
 from datetime import date, datetime
-from typing import Any, cast
+from typing import Annotated, Any, cast
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Response
 
 from api.middleware import require_firebase_auth, require_firebase_auth_read_only
+from api.models.hosted_payouts import OnboardBody
 from hushh_mcp.services.answer_composer import AnswerComposer, AnswerComposerError
 from hushh_mcp.services.answer_composition_receipt import issue_composition_receipt
 from hushh_mcp.services.answer_scope_resolver import AnswerScopeResolver
+from hushh_mcp.services.owner_placement_guard import admit_hub_content, hub_content_firebase
 from hushh_mcp.services.person_profile_service import (
     PersonProfileNotFoundError,
     PersonProfileService,
@@ -348,7 +336,10 @@ async def answer_payout_account(
 
 @router.post("/payout-account/{action}")
 async def answer_payout_link(
-    action: str, response: Response, user_id: str = Depends(require_firebase_auth)
+    action: str,
+    response: Response,
+    user_id: str = Depends(require_firebase_auth),
+    body: Annotated[OnboardBody | None, Body()] = None,
 ) -> dict[str, Any]:
     _require_payout_mode()
     response.headers["Cache-Control"] = "private, no-store"
@@ -358,7 +349,13 @@ async def answer_payout_link(
         service = _payouts()
         if action == "onboarding":
             return cast(
-                dict[str, Any], await service.onboarding_link(user_id=user_id, surface="answers")
+                dict[str, Any],
+                await service.onboarding_link(
+                    user_id=user_id,
+                    surface="answers",
+                    purpose="verify" if body and body.purpose == "verify" else "onboarding",
+                    **({"attempt_id": str(body.attempt_id)} if body and body.attempt_id else {}),
+                ),
             )
         return cast(dict[str, Any], await service.management_link(user_id=user_id))
     except (PacketOrderError, ValueError):
@@ -588,17 +585,13 @@ async def compose_answer(
     request_id: UUID,
     response: Response,
     body: dict[str, Any] = Body(...),
-    owner_user_id: str = Depends(require_firebase_auth),
+    owner_user_id: str = Depends(hub_content_firebase),
 ) -> dict[str, Any]:
-    """Write the answer from the projection the owner's device just built.
+    """Prepare an owner-approved answer or recover a historical paid answer.
 
-    Owner-only, and bound to approved preparation or historical paid recovery:
-    the gate runs first, so this cannot be used as a free model endpoint.
-
-    Nothing is persisted. The projection exists for this request only and the
-    written answer goes straight back to the device, which seals it. The
-    backend decrypts nothing here -- the device had already decrypted its own
-    PKM and chose what to send.
+    Current owner placement, exact scope and model-processing consent gate
+    provider work. The device supplies its selected projection and seals the
+    returned answer; this endpoint persists nothing and decrypts nothing.
     """
     _require_preparation_enabled()
     response.headers["Cache-Control"] = "private, no-store"
@@ -638,6 +631,7 @@ async def compose_answer(
         raise HTTPException(status_code=422, detail="Check the approved information.")
     started = time.monotonic()
     try:
+        await admit_hub_content(owner_user_id, "paid_answer_writer")
         written = await AnswerComposer().compose(
             question=work["question"],
             projection=projection,

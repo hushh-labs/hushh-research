@@ -33,12 +33,15 @@ async function proxiedError(backend: Response) {
 }
 
 describe("account delete proxy", () => {
-  it("forwards the backend's typed error object so the client can read its code", async () => {
+  it.each([
+    "ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING",
+    "FILES_ERASURE_IN_PROGRESS",
+  ])("forwards the backend's typed error %s so the client can read its code", async (code) => {
     const { response, error } = await proxiedError(
       Response.json(
         {
           detail: {
-            code: "ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING",
+            code,
             message: "Remove your private agent first.",
           },
         },
@@ -47,9 +50,7 @@ describe("account delete proxy", () => {
     );
 
     expect(response.status).toBe(409);
-    expect(apiErrorCode(error)).toBe(
-      "ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING",
-    );
+    expect(apiErrorCode(error)).toBe(code);
   });
 
   it("keeps the rolled-back failure code on a backend 500", async () => {

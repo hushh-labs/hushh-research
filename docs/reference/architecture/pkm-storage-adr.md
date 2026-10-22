@@ -76,8 +76,9 @@ Wallet cards (the `wallet` domain) are a reserved owner-managed PKM domain, not 
 
 - One `pkm_blobs` row holds the whole domain; the plaintext inside has exactly
   two top-level branches, `summary` (nickname, brand, last4, expiry, issuing
-  region per card id) and `secrets` (PAN, CVV, PIN, cardholder name per card
-  id). Branch names line up 1:1 with the two consent-requestable scopes
+  region per card id) and `secrets` (PAN and cardholder name per card
+  id). CVV and PIN are no longer collected or persisted; consent exports omit
+  legacy security codes, artwork and receipt fields. Branch names line up 1:1 with the two consent-requestable scopes
   (`attr.wallet.summary.*`, `attr.wallet.secrets.*`) and the
   `secrets` key matches the client memory-context prune pattern, so card data
   can never ride into model context even if the domain-level guard regressed.

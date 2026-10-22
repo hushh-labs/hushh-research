@@ -69,20 +69,24 @@ vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
 }));
 vi.mock("@/lib/pkm/use-pkm-domain-change-revision", () => ({ usePkmDomainChangeRevision: () => mocks.revision }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }), usePathname: () => "/one" }));
-vi.mock("@/lib/services/private-text-approval-service", () => ({ PrivateTextApprovalService: { get: async () => null } }));
 vi.mock("@/lib/services/feed-service", () => ({
   FeedService: { list: mocks.list, markRead: mocks.markRead },
 }));
 vi.mock("@/lib/connected-systems/crm-product-availability", () => ({
   isLocalCrmBuildEnabled: () => false,
 }));
+
 vi.mock("@/lib/services/todo-list-pkm-service", async original => {
-  const actual = await original<typeof import("@/lib/services/todo-list-pkm-service")>();
-  return { ...actual, TodoListPkmService: { ...actual.TodoListPkmService, load: mocks.loadTasks } };
+  const actual = await original();
+  return { ...actual, TodoListPkmService: { ...actual.TodoListPkmService, load: mocks.loadTasks,
+    setStatus: vi.fn().mockResolvedValue({ success: true }), remove: vi.fn().mockResolvedValue({ success: true }) } };
 });
 vi.mock("@/lib/profile/gmail-connector-store", () => ({
-  useGmailConnectorStatus: () => ({ status: null }),
+  useGmailConnectorStatus: () => ({
+    status: { connected: true, google_email: "test@example.com" },
+  }),
 }));
+vi.mock("@/lib/services/private-text-approval-service", () => ({ PrivateTextApprovalService: { get: async () => null } }));
 
 const item = (id: string, event_type: string) => ({
   id,
@@ -380,22 +384,6 @@ describe("One agent profile feed preview", () => {
     expect(mocks.close).toHaveBeenCalledWith(false);
   });
 
-  it("loads the shared To-do preview only when selected without a duplicate workspace link", async () => {
-    const view = render(<OneAgentProfileSheet open={false} onOpenChange={mocks.close} />);
-    expect(mocks.loadTasks).not.toHaveBeenCalled();
-    view.rerender(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
-    expect(mocks.loadTasks).not.toHaveBeenCalled();
-    expect(screen.getAllByRole("tab").map(tab => tab.textContent?.trim())).toEqual(["Feed", "To-do", "Profile"]);
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "To-do" }), { button: 0, ctrlKey: false });
-    expect(await screen.findByText("Anytime task")).toBeInTheDocument();
-    expect(screen.getByText("Tomorrow task")).toBeInTheDocument();
-    expect(mocks.loadTasks).toHaveBeenCalledWith({ userId: "viewer", vaultKey: "fixture-key", vaultOwnerToken: "fixture-token" });
-    expect(screen.queryByRole("button", { name: /Open To-do List/i })).toBeNull();
-    expect(screen.queryByRole("link", { name: /Open To-do List/i })).toBeNull();
-    expect(mocks.close).not.toHaveBeenCalled();
-    expect(mocks.push).not.toHaveBeenCalled();
-  });
-
   it("shows the shared live memory preview instead of static file cards, and closes before navigating", async () => {
     mocks.peekLiveMirror.mockImplementation((uid: string) => mirrorView(uid));
     render(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
@@ -590,4 +578,33 @@ describe("One agent profile feed preview", () => {
     expect(screen.queryByTestId("live-mirror-fix-at-source")).toBeNull();
     expect(document.body.textContent).not.toMatch(/PERSON_REF_[XY]/);
   });
+  it("loads the shared To-do preview only when selected without a duplicate workspace link", async () => {
+    const view = render(<OneAgentProfileSheet open={false} onOpenChange={mocks.close} />);
+    expect(mocks.loadTasks).not.toHaveBeenCalled();
+    view.rerender(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
+    expect(mocks.loadTasks).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("tab").map(tab => tab.textContent?.trim())).toEqual(["Feed", "To-do", "Profile"]);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "To-do" }), { button: 0, ctrlKey: false });
+    expect(await screen.findByText("Anytime task")).toBeInTheDocument();
+    expect(screen.getByText("Tomorrow task")).toBeInTheDocument();
+    expect(mocks.loadTasks).toHaveBeenCalledWith({ userId: "viewer", vaultKey: "fixture-key", vaultOwnerToken: "fixture-token" });
+    expect(screen.queryByRole("button", { name: /Open To-do List/i })).toBeNull();
+    expect(screen.queryByRole("link", { name: /Open To-do List/i })).toBeNull();
+    expect(mocks.close).not.toHaveBeenCalled();
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 });

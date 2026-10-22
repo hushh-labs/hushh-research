@@ -4,6 +4,8 @@ import { ROUTES } from "@/lib/navigation/routes";
 
 export type ProfilePanel =
   | "account"
+  | "hosting"
+  | "software-updates"
   | "my-data"
   | "payouts"
   | "world-model"
@@ -65,6 +67,8 @@ export function normalizeProfilePanel(
   value: string | null,
 ): ProfilePanel | null {
   if (
+    value === "hosting" ||
+    value === "software-updates" ||
     value === "account" ||
     value === "my-data" ||
     value === "payouts" ||
@@ -267,6 +271,9 @@ export function buildProfileRoute(params?: {
     return appendQuery(ROUTES.PROFILE, {}, params?.searchParams);
   }
 
+  if (panel === "hosting" || panel === "software-updates") {
+    return appendQuery(panel === "hosting" ? ROUTES.PROFILE_HOSTING : ROUTES.PROFILE_SOFTWARE_UPDATES, {}, params?.searchParams);
+  }
   if (panel === "payouts" || panel === "request-pricing") {
     return appendQuery(
       panel === "payouts" ? ROUTES.PROFILE_PAYOUTS : ROUTES.PROFILE_REQUEST_PRICING,
@@ -439,6 +446,8 @@ export function resolveProfileRouteState(
       ? new URLSearchParams(rawQuery)
       : toSearchParams(searchParams);
   const normalizedPath = normalizePathname(rawPathname);
+  if (normalizedPath === ROUTES.PROFILE_HOSTING) return { panel: "hosting", detail: null };
+  if (normalizedPath === ROUTES.PROFILE_SOFTWARE_UPDATES) return { panel: "software-updates", detail: null };
 
   if (normalizedPath === ROUTES.PROFILE) {
     return resolveProfileRouteStateFromSearchParams(query);

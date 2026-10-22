@@ -33,6 +33,7 @@ export function InformationRequestReviewFields({
       </div>
     </SectionCard>
     {scopes.length > 50 ? <p role="alert" className="text-sm text-destructive">Choose up to 50 fields for one request.</p> : null}
+    <p className="text-sm text-muted-foreground">The owner reviews this request. If sharing has a paid price, you will separately review and confirm the exact amount before access starts. Sending this request does not spend your balance.</p>
     <label className="block space-y-2 text-sm font-medium">
       Access duration
       <select className="block min-h-11 w-full cursor-pointer rounded-md border border-input bg-background px-3 text-sm font-normal"

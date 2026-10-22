@@ -1147,6 +1147,8 @@ describe("top shell title slot", () => {
     ["/one/gmail", "", ["Mail"]],
     ["/one/feed", "", ["Feed"]],
     ["/one/connect", "", ["Connect"]],
+    ["/one/connect/settings", "", ["Connect", "AI connection"]],
+    ["/one/profile/preferences/gemini", "", ["Preferences", "AI connection"]],
     // Profile > Memory swapped its trail for a "Profile" chip.
     ["/one/profile/my-data", "", ["Profile", "Memory"]],
     ["/one/pkm/recent", "", ["Memory", "Recently learned"]],

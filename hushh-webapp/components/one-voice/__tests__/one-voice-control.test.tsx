@@ -36,7 +36,11 @@ const harness = vi.hoisted(() => ({
   live: false,
 }));
 
-vi.mock("@/lib/one-voice/readiness", () => ({ useOneVoiceLiveEnabled: () => harness.live }));
+vi.mock("@/lib/one-voice/readiness", () => ({
+  useOneVoiceLiveEnabled: () => harness.live,
+  useOneVoiceCommandsEnabled: () => true,
+  useOneVoiceReadiness: () => ({ status: "ready", microphoneOwner: "command" }),
+}));
 vi.mock("@/components/agent/command-agent-bar", () => ({
   CommandAgentBar: () => <AgentBarSurface><button>Command capture</button></AgentBarSurface>,
 }));

@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 from types import SimpleNamespace
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -47,7 +48,9 @@ def _export_row(**overrides):
     return row
 
 
-def _client(monkeypatch, *, row=None, principal=None) -> TestClient:
+def _client(
+    monkeypatch, *, row=None, principal=None, signed_scope="attr.financial.portfolio.*"
+) -> TestClient:
     export_row = _export_row() if row is None else row
 
     class _FakeConsentDBService:
@@ -66,8 +69,8 @@ def _client(monkeypatch, *, row=None, principal=None) -> TestClient:
             SimpleNamespace(
                 user_id="user_123",
                 agent_id="developer:app_demo",
-                scope_str="attr.financial.portfolio.*",
-                scope=SimpleNamespace(value="attr.financial.portfolio.*"),
+                scope_str=signed_scope,
+                scope=SimpleNamespace(value=signed_scope),
             ),
         )
 
@@ -94,6 +97,18 @@ def test_resource_returns_full_ciphertext_with_integrity_headers(monkeypatch):
     assert response.headers["x-export-revision"] == str(_REVISION)
     assert response.headers["etag"] == f'"{digest_bytes(_CIPHERTEXT)}"'
     assert response.headers["cache-control"] == "private, no-store"
+
+
+@pytest.mark.parametrize("token_private", [False, True])
+def test_private_agent_memory_refuses_historical_token_or_export_row(monkeypatch, token_private):
+    private_scope = "attr.one_memory.markdown"
+    response = _client(
+        monkeypatch,
+        signed_scope=private_scope if token_private else "attr.financial.portfolio.*",
+        row=_export_row(scope="attr.financial.portfolio.*" if token_private else private_scope),
+    ).get(_url(), headers={"Authorization": "Bearer developer"})
+    assert response.status_code == 410
+    assert _CIPHERTEXT not in response.content
 
 
 def test_resource_supports_resumable_byte_ranges(monkeypatch):

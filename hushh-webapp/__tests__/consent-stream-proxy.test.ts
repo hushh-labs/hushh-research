@@ -35,7 +35,10 @@ describe("proxyConsentStream forwards the upstream error discriminator", () => {
     );
     expect(fetchMock).toHaveBeenCalledWith(
       "https://backend.example.test/api/consent/events/user-1?capabilities=1",
-      expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer test-token" }) }),
+      expect.objectContaining({ headers: expect.objectContaining({
+        Authorization: "Bearer test-token",
+        "X-Hussh-Stream-Via": "next-proxy",
+      }) }),
     );
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ enabled: false });
@@ -64,10 +67,12 @@ describe("proxyConsentStream forwards the upstream error discriminator", () => {
   });
 
   it("preserves detail.error_code from a disabled-lane 410 instead of discarding it", async () => {
+    let upstreamSignal!: AbortSignal;
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(
+      vi.fn().mockImplementation(async (_url: string, options: RequestInit) => {
+        upstreamSignal = options.signal!;
+        const upstream = new Response(
           JSON.stringify({
             detail: {
               error_code: "CONSENT_SSE_DISABLED",
@@ -75,14 +80,21 @@ describe("proxyConsentStream forwards the upstream error discriminator", () => {
             },
           }),
           { status: 410 },
-        ),
-      ),
+        );
+        const read = upstream.text.bind(upstream);
+        vi.spyOn(upstream, "text").mockImplementation(() => {
+          if (upstreamSignal.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"));
+          return read();
+        });
+        return upstream;
+      }),
     );
 
     const response = await proxyConsentStream(request(), "user-1", "events");
     expect(response.status).toBe(410);
     const body = await response.json();
     expect(body.detail?.error_code).toBe("CONSENT_SSE_DISABLED");
+    expect(upstreamSignal.aborted).toBe(true);
   });
 
   it("preserves a different 410 code so an expired stream isn't mistaken for a permanent refusal", async () => {

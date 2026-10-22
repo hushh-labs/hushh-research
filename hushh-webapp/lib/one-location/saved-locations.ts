@@ -99,6 +99,7 @@ export type SavedLocationVaultContext = {
   userId: string;
   vaultKey: string | null;
   vaultOwnerToken: string | null;
+  beforeEffect?: () => Promise<void>;
 };
 
 export class DuplicateSavedLocationError extends Error {
@@ -258,6 +259,7 @@ async function mutateSavedLocations(params: {
       surface: "web",
       source: params.source,
     },
+    beforeEffect: params.context.beforeEffect,
     build: (writeContext) => {
       const updatedAt = new Date().toISOString();
       persistedLocations = params.mutate(

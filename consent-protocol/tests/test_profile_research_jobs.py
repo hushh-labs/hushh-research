@@ -19,6 +19,7 @@ from hushh_mcp.services.chat_key import (
     RequestChatKey,
     bind_request_chat_key,
 )
+from tests.fixtures.profile_research_store import FakePool, MemoryStore
 
 RESULT = {
     "status": "offered",
@@ -33,29 +34,15 @@ RESULT = {
 }
 
 
-class MemoryStore:
-    def __init__(self):
-        self.rows = {}
-        self.generation = 0
-
-    async def get(self, owner):
-        return copy.deepcopy(self.rows.get(owner))
-
-    async def write(self, owner, state, expected):
-        row = self.rows.get(owner)
-        if (expected is None and row is not None) or (
-            expected is not None
-            and (row is None or any(row[k] != expected[k] for k in ("revision", "fence")))
-        ):
-            return None
-        self.generation += 1
-        receipt = {"revision": (row["revision"] if row else 0) + 1, "fence": str(self.generation)}
-        self.rows[owner] = {**copy.deepcopy(state), **receipt}
-        return receipt
-
-
 @pytest.fixture(autouse=True)
 def authority(monkeypatch):
+    from hushh_mcp.services import owner_placement_guard
+
+    monkeypatch.setattr(owner_placement_guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(
+        owner_placement_guard, "get_owner_hosting_mode", AsyncMock(return_value="shared")
+    )
+    monkeypatch.setattr(jobs, "admit_hub_content", AsyncMock())
     from hushh_mcp.services import world_model_service
 
     monkeypatch.setattr(
@@ -402,6 +389,53 @@ async def test_research_policy_change_refreshes_draft_without_resetting_paid_bud
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("change_during_identity", [False, True])
+async def test_cached_draft_cannot_cross_private_placement(monkeypatch, change_during_identity):
+    from fastapi import HTTPException
+
+    private = False
+
+    async def placement(*args):
+        if private:
+            raise HTTPException(409, "Use your private agent")
+
+    async def identity(*args):
+        nonlocal private
+        if change_during_identity:
+            private = True
+        return {"full_name": "Example"}
+
+    monkeypatch.setattr(jobs, "admit_hub_content", placement)
+    monkeypatch.setattr(jobs, "owner_setup_resolved", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        jobs,
+        "lookup_fresh_owner_identity",
+        lambda owner: SimpleNamespace(uid=owner, disabled=False),
+    )
+    monkeypatch.setattr(jobs, "magic_intelligence_owner_admitted", lambda *args: True)
+    monkeypatch.setattr(jobs, "magic_intelligence_saved", AsyncMock(return_value=False))
+    monkeypatch.setattr(
+        jobs, "resolve_profile_research_identity", AsyncMock(return_value={"full_name": "Example"})
+    )
+    monkeypatch.setattr(jobs, "profile_research_policy_fingerprint", lambda: "test-policy")
+    instance = manager(check=jobs.admission)
+    holder = RequestChatKey(os.urandom(32))
+    holder.bind_owner("owner")
+    with bind_request_chat_key(holder):
+        await instance.start("owner", "fixture-token")
+        await settle(instance)
+        assert await instance.status("owner", "fixture-token") == RESULT
+        if change_during_identity:
+            monkeypatch.setattr(jobs, "resolve_profile_research_identity", identity)
+        else:
+            private = True
+        with pytest.raises(HTTPException) as error:
+            await instance.status("owner", "fixture-token")
+        assert error.value.status_code == 409
+        assert instance.offer.await_count == 1
+
+
+@pytest.mark.asyncio
 async def test_new_owner_cannot_read_old_owner_job():
     async def offer(**kwargs):
         return {**RESULT, "report": {**RESULT["report"], "name": kwargs["user_id"]}}
@@ -520,62 +554,6 @@ async def test_finite_job_budget_is_not_an_http_deadline(monkeypatch):
     assert (await instance.status("owner", "fixture-token"))["status"] == "pending"
 
 
-class FakeConnection:
-    def __init__(self):
-        self.rows = {}
-        self.queries = []
-
-    async def fetchrow(self, sql, *params, **kwargs):
-        self.queries.append((sql, params))
-        key = params[:3]
-        row = self.rows.get(key)
-        if sql.strip().startswith("SELECT"):
-            return (
-                copy.deepcopy(row)
-                if row and row["payload_ciphertext"].startswith(params[3].removesuffix("%"))
-                else None
-            )
-        if sql.strip().startswith("INSERT"):
-            if row:
-                return None
-            revision = 1
-        else:
-            if (
-                not row
-                or row["revision"] != params[7]
-                or row["payload_ciphertext"] != params[8]
-                or not row["payload_ciphertext"].startswith(params[9].removesuffix("%"))
-            ):
-                return None
-            revision = row["revision"] + 1
-        self.rows[key] = dict(
-            zip(
-                ("payload_ciphertext", "payload_iv", "payload_tag", "payload_algorithm"),
-                params[3:7],
-                strict=True,
-            )
-        )
-        self.rows[key]["revision"] = revision
-        return {"revision": revision}
-
-    async def execute(self, sql, *params, **kwargs):
-        self.queries.append((sql, params))
-
-
-class FakePool:
-    def __init__(self):
-        self.conn = FakeConnection()
-
-    def acquire(self, **kwargs):
-        return self
-
-    async def __aenter__(self):
-        return self.conn
-
-    async def __aexit__(self, *args):
-        pass
-
-
 @pytest.mark.asyncio
 async def test_real_store_ciphertext_cas_reload_wrong_key_and_namespace_retention():
     from hushh_mcp.one_adk.encrypted_session_service import EncryptedSessionCheckpointStore
@@ -644,7 +622,7 @@ def test_job_routes_are_private_and_owner_only(monkeypatch, method):
 
     app = FastAPI()
     app.include_router(route.router)
-    app.dependency_overrides[route.require_vault_owner_chat_key] = lambda: {
+    app.dependency_overrides[route.hub_content_chat_owner] = lambda: {
         "user_id": "owner",
         "token": "fixture-token",
     }
@@ -761,6 +739,41 @@ async def test_revoked_owner_during_final_checkpoint_read_is_denied(monkeypatch,
         await getattr(instance, "status" if operation == "pending_status" else operation)(
             "owner", "token"
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["start", "status"])
+@pytest.mark.parametrize("transition", ["shared", "private", "during_read"])
+async def test_pwm_checkpoint_admission_and_release(monkeypatch, operation, transition):
+    from fastapi import HTTPException
+
+    from hushh_mcp.services import owner_placement_guard as placement
+
+    instance = pwm_manager(monkeypatch)
+    await instance.start("owner", "token")
+    await settle(instance)
+    original = instance.store.get
+    reads = 0
+
+    async def read(owner):
+        nonlocal reads
+        reads += 1
+        result = await original(owner)
+        if transition == "during_read" and reads == 2:
+            placement.get_owner_hosting_mode.return_value = "byoc"
+        return result
+
+    instance.store.get = read
+    if transition == "private":
+        placement.get_owner_hosting_mode.return_value = "byoc"
+    if transition == "shared":
+        assert "report" in await getattr(instance, operation)("owner", "token")
+    else:
+        with pytest.raises(HTTPException) as error:
+            await getattr(instance, operation)("owner", "token")
+        assert error.value.status_code == 409
+        assert reads == (0 if transition == "private" else 2)
+    assert instance.offer.await_count == 1
 
 
 @pytest.mark.asyncio
@@ -922,7 +935,7 @@ async def test_public_profile_scope_carries_coalesces_and_refreshes_without_reus
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("existing", ["missing", "opted_out", "setup_pending"])
+@pytest.mark.parametrize("existing", ["missing", "opted_out", "setup_pending", "private"])
 async def test_ensure_enrolls_default_research_but_never_overrides_opt_out(monkeypatch, existing):
     from hushh_mcp.services import world_model_service as pwm
 
@@ -965,13 +978,27 @@ async def test_ensure_enrolls_default_research_but_never_overrides_opt_out(monke
         pwm, "get_chat_key_provider", lambda: SimpleNamespace(current_key=lambda _: b"k" * 32)
     )
     instance = pwm_manager(monkeypatch)
-    result = await instance.ensure("owner", "token")
+    owner_decisions = {"confirmed": ["Synthetic owner declaration"], "rejected": []}
+    if existing == "private":
+        from fastapi import HTTPException
+
+        from hushh_mcp.services import owner_placement_guard as placement
+
+        placement.get_owner_hosting_mode.return_value = "byoc"
+        with pytest.raises(HTTPException) as error:
+            await instance.ensure("owner", "token", owner_decisions=owner_decisions)
+        assert error.value.status_code == 409
+        enroll_default.assert_not_awaited()
+        instance.offer.assert_not_awaited()
+        return
+    result = await instance.ensure("owner", "token", owner_decisions=owner_decisions)
     await settle(instance)
     if existing == "missing":
         assert result["status"] == "pending"
         enroll_default.assert_awaited_once_with("owner", "token")
         assert rows["owner"]["enabled"] and rows["owner"]["email_enabled"]
         instance.offer.assert_awaited_once()
+        assert instance.offer.await_args.kwargs["inputs"] == {"owner_decisions": owner_decisions}
         return
     # Negative control: an explicit opt-out stays off, and nothing is enrolled
     # before setup resolves. No research state is written either way.

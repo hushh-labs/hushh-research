@@ -879,29 +879,27 @@ async def test_mutation_sharing_impact_reports_only_matching_active_recipients(m
 
 
 @pytest.mark.asyncio
-async def test_source_library_mutation_has_no_external_sharing_impact(monkeypatch):
-    service = PersonalKnowledgeModelService()
-
+async def test_private_mutations_have_no_external_sharing_impact(monkeypatch):
     class _UnexpectedConsentDBService:
         def __init__(self):
-            raise AssertionError("private Source Library mutations must not inspect grants")
+            raise AssertionError("private mutations must not inspect external grants")
 
     monkeypatch.setattr(consent_db_module, "ConsentDBService", _UnexpectedConsentDBService)
-
-    impact = await service.get_mutation_sharing_impact(
-        user_id="user-source",
-        domain="source_library",
-        scope_path="knowledge",
-    )
-
-    assert impact == {
-        "active_recipient_count": 0,
-        "recipient_labels": [],
-        "enters_next_export_revision": False,
-        "summary": "No active recipients are affected.",
-        "affected_grant_ids": [],
-        "affected_export_ids": [],
-    }
+    for domain, scope_path in (
+        ("source_library", "knowledge"),
+        ("runtime_secrets", "connectors"),
+    ):
+        impact = await PersonalKnowledgeModelService().get_mutation_sharing_impact(
+            user_id="user-private", domain=domain, scope_path=scope_path
+        )
+        assert impact == {
+            "active_recipient_count": 0,
+            "recipient_labels": [],
+            "enters_next_export_revision": False,
+            "summary": "No active recipients are affected.",
+            "affected_grant_ids": [],
+            "affected_export_ids": [],
+        }
 
 
 @pytest.mark.asyncio
@@ -1455,3 +1453,50 @@ async def test_get_domain_manifest_normalizes_duplicate_scope_registry_rows(monk
             "manifest_version": 7,
         },
     ]
+
+
+@pytest.mark.asyncio
+async def test_atomic_receipt_fingerprint_ignores_attempt_clock_but_binds_ciphertext():
+    from copy import deepcopy
+    from datetime import timedelta
+
+    from hushh_mcp.services.personal_knowledge_model_service import PkmMutationPlanV2
+
+    service = PersonalKnowledgeModelService()
+    service._continuous_refresh_tokens_for_domain_write = AsyncMock(return_value=[])
+    service._run_rpc = AsyncMock(return_value=SimpleNamespace(data=[{"success": True}]))
+    manifest = service._normalize_manifest_payload(
+        "owner-fixture",
+        "professional",
+        {"manifest_version": 1},
+        {"action": "create_domain", "target_domain": "professional"},
+    )
+    plan = PkmMutationPlanV2.model_validate(
+        _confirmed_create_plan(user_id="owner-fixture", domain="professional")
+    )
+    args = dict(
+        user_id="owner-fixture",
+        domain="professional",
+        normalized_segments={
+            "root": {"ciphertext": "YQ==", "iv": "aXY=", "tag": "dGFn", "algorithm": "aes-256-gcm"}
+        },
+        normalized_manifest=manifest,
+        normalized_mutation_plan=plan,
+        upgrade_claim=None,
+        preservation_receipt=None,
+        summary={},
+        write_projections=None,
+        current_version=0,
+        prior_manifest=None,
+        legacy_blob_present=False,
+    )
+    await service._commit_confirmed_domain_mutation_v2(**args)
+    first = service._run_rpc.await_args.args[1]["p_request_fingerprint"]
+    manifest.last_content_at += timedelta(seconds=1)
+    manifest.last_structured_at += timedelta(seconds=1)
+    await service._commit_confirmed_domain_mutation_v2(**args)
+    assert service._run_rpc.await_args.args[1]["p_request_fingerprint"] == first
+    changed = deepcopy(args)
+    changed["normalized_segments"]["root"]["ciphertext"] = "Yg=="
+    await service._commit_confirmed_domain_mutation_v2(**changed)
+    assert service._run_rpc.await_args.args[1]["p_request_fingerprint"] != first

@@ -70,3 +70,49 @@ export function oneLocationErrorMessage(
   const raw = error instanceof Error ? error.message : "";
   return isSafeUserFacingMessage(raw) ? raw : fallback;
 }
+
+/**
+ * Exported for the unit test that guards the ordering below. The ordering is
+ * the whole point of this function and is easy to undo by accident.
+ */
+export function oneLocationFailureClass(error: unknown): string {
+  if (isTransientOneApiError(error)) return "one_api_unavailable";
+  const name =
+    error && typeof error === "object" && "name" in error
+      ? String((error as { name?: unknown }).name || "").toLowerCase()
+      : "";
+  const message =
+    error instanceof Error
+      ? error.message.toLowerCase()
+      : String(
+          (error as { message?: unknown })?.message || error || "",
+        ).toLowerCase();
+  if (name === "aborterror" || message.includes("abort")) return "aborted";
+  if (message.includes("network") || message.includes("fetch"))
+    return "network";
+  // Encryption before permission. "location" is a substring of almost every
+  // message this surface produces — "could not decrypt location envelope"
+  // included — so matching it first labelled key and envelope failures as
+  // permission problems. In production, `permission` is 965 of 1,248 retry
+  // events on iOS, and an unknown share of those are really something else;
+  // the point of a failure class is to send you to the right cause.
+  if (
+    message.includes("key") ||
+    message.includes("encrypt") ||
+    message.includes("decrypt")
+  ) {
+    return "encryption";
+  }
+  // Matched on the vocabulary the platforms actually use for a denial, not on
+  // the word "location" — which appears in nearly every message this surface
+  // produces and was therefore labelling unrelated failures as permission
+  // problems.
+  if (
+    message.includes("permission") ||
+    message.includes("denied") ||
+    message.includes("authoriz")
+  ) {
+    return "permission";
+  }
+  return "unknown";
+}

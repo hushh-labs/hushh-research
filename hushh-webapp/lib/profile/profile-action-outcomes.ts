@@ -184,7 +184,7 @@ export function lifecycleOutcomeToVoice(
           "Your private agent or cloud setup has to be removed before the account can be deleted. Nothing was deleted.",
       };
     case "failed":
-      return { status: "failed", summary: "Account deletion failed. Nothing was deleted." };
+      return { status: "failed", summary: "Your account has not been deleted. Try again." };
     case "unknown":
       return {
         status: "failed",

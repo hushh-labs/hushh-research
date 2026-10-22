@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { render, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, render, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   authState,
@@ -54,6 +54,7 @@ vi.mock("@/lib/services/post-unlock-sync-service", () => ({
 import { PostAuthOnboardingSyncBridge } from "@/components/onboarding/PostAuthOnboardingSyncBridge";
 
 describe("PostAuthOnboardingSyncBridge", () => {
+  afterEach(() => { delete window.__HUSHH_NATIVE_TEST__; vi.useRealTimers(); });
   beforeEach(() => {
     vi.clearAllMocks();
     authState.current = { user: { uid: "user-a" }, loading: false };
@@ -85,6 +86,42 @@ describe("PostAuthOnboardingSyncBridge", () => {
     await Promise.resolve();
 
     expect(finalizeForVaultMock).not.toHaveBeenCalled();
+    expect(postUnlockRunMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["read_only", "preparation_only", "bounded_mutation"] as const)("does not finalize or sync background drafts during %s review", async reviewerMutationPolicy => {
+    vi.useFakeTimers();
+    window.__HUSHH_NATIVE_TEST__ = { enabled: true, autoReviewerLogin: true, reviewerMutationPolicy };
+    const view = render(<PostAuthOnboardingSyncBridge />);
+    pathnameState.current = "/one/pkm";
+    view.rerender(<PostAuthOnboardingSyncBridge />);
+    await act(() => vi.advanceTimersByTimeAsync(5_000));
+    expect(finalizeForVaultMock).not.toHaveBeenCalled();
+    expect(postUnlockRunMock).not.toHaveBeenCalled();
+  });
+
+  it("cancels a queued retry when reviewer policy becomes restricted", async () => {
+    vi.useFakeTimers();
+    finalizeForVaultMock.mockRejectedValueOnce(new Error("PKM_WRITE_FAILED"));
+    render(<PostAuthOnboardingSyncBridge />);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(finalizeForVaultMock).toHaveBeenCalledOnce();
+    window.__HUSHH_NATIVE_TEST__ = { enabled: true, autoReviewerLogin: true, reviewerMutationPolicy: "read_only" };
+    await act(() => vi.advanceTimersByTimeAsync(5_000));
+    expect(finalizeForVaultMock).toHaveBeenCalledOnce();
+    expect(postUnlockRunMock).not.toHaveBeenCalled();
+  });
+
+  it("withdraws the finalizer's effect fence and skips sync after restriction during an await", async () => {
+    let finish!: () => void;
+    finalizeForVaultMock.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+    render(<PostAuthOnboardingSyncBridge />);
+    await waitFor(() => expect(finish).toBeDefined());
+    const { beforeEffect } = finalizeForVaultMock.mock.calls[0]![0];
+    await expect(beforeEffect()).resolves.toBeUndefined();
+    window.__HUSHH_NATIVE_TEST__ = { enabled: true, autoReviewerLogin: true, reviewerMutationPolicy: "read_only" };
+    await expect(beforeEffect()).rejects.toThrow("Background onboarding sync cancelled");
+    await act(async () => finish());
     expect(postUnlockRunMock).not.toHaveBeenCalled();
   });
 

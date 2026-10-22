@@ -1,5 +1,7 @@
 "use client";
 
+import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
+
 import { SessionExpiryRecovery } from "@/components/system/session-expiry-recovery";
 import { StaleCacheTimestamp } from "@/components/system/stale-cache-timestamp";
 import Link from "next/link";
@@ -15,6 +17,9 @@ import {
 } from "react";
 import type { ReadonlyURLSearchParams } from "next/navigation";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { scopeCommerceStatusCopy } from "@/lib/services/scope-commerce-service";
+import { ConsentSharingRevokeDialog } from "@/components/consent/consent-sharing-revoke-dialog";
+import { ScopeCommerceRequestPanel } from "@/components/consent/scope-commerce-request-panel";
 import { ExternalLink, RefreshCcw, Search } from "@/components/icons";
 import { toast } from "sonner";
 import {
@@ -33,16 +38,6 @@ import {
 } from "@/components/app-ui/settings-ui";
 import { AccessibilityStatusAnnouncer } from "@/components/system/accessibility-status-announcer";
 import { ApiRetryState } from "@/components/system/api-retry-state";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -476,6 +471,7 @@ function entrySummary(entry: ConsentCenterEntry) {
       );
     return `${eventCount} event${eventCount === 1 ? "" : "s"} across ${trailCount} request${trailCount === 1 ? "" : "s"}.`;
   }
+  if (entry.metadata?.commercial_required === true) return scopeCommerceStatusCopy(entry.metadata.commerce_status);
   if (isEmailHelperConsent(entry.metadata)) {
     return emailHelperConsentSummary(entry.metadata);
   }
@@ -1159,6 +1155,7 @@ function ConsentEntryDetail({
   onApproveBundle?: (
     members: ConsentCenterEntry[],
     durationHours?: number,
+    modelProcessingAllowed?: boolean,
   ) => void;
   onDenyBundle?: (members: ConsentCenterEntry[]) => void;
   /**
@@ -1169,6 +1166,7 @@ function ConsentEntryDetail({
     allow: ConsentCenterEntry[],
     decline: ConsentCenterEntry[],
     durationHours?: number,
+    modelProcessingAllowed?: boolean,
   ) => void;
   onApprove: (
     entry: ConsentCenterEntry,
@@ -1177,6 +1175,7 @@ function ConsentEntryDetail({
       requestedScopeHandles: string[];
       offeredScopeHandles: string[];
     },
+    modelProcessingAllowed?: boolean,
   ) => void;
   onDeny: (entry: ConsentCenterEntry) => void;
   onRevoke: (entry: ConsentCenterEntry) => void;
@@ -1220,6 +1219,8 @@ function ConsentEntryDetail({
     parsedRequestedDuration || (isLocationEntry ? 1 : ""),
   );
   const [selectedDuration, setSelectedDuration] = useState(defaultDuration);
+  const [modelApproval, setModelApproval] = useState<{ review: string; epoch: number } | null>(null);
+  useEffect(() => subscribeVaultSessionEpoch(() => setModelApproval(null)), []);
   useEffect(() => {
     setSelectedDuration(defaultDuration);
   }, [defaultDuration, entry?.id]);
@@ -1434,6 +1435,10 @@ function ConsentEntryDetail({
     isLocationEntry || parsedRequestedDuration
       ? parseDurationHours(selectedDuration)
       : undefined;
+  const modelReviewBinding = JSON.stringify([entry?.id, entry?.scope, entry?.reason, entry?.counterpart_label, effectiveDurationHours,
+    bundleMembers.map((member) => [member.id, member.scope, member.reason]), [...chosenRefs].sort()]);
+  const modelProcessingApproved = () => modelApproval?.review === modelReviewBinding && isVaultSessionEpochCurrent(modelApproval.epoch);
+
   const requestedDurationDays =
     typeof entry.metadata?.duration_days === "number" ||
     typeof entry.metadata?.duration_days === "string"
@@ -1638,6 +1643,13 @@ function ConsentEntryDetail({
           className="flex flex-wrap items-center justify-end gap-2 pt-1"
           aria-label="Consent decision"
         >
+          {!isConnectionDecision && !isLocationEntry && !isMarketplaceDecision && entry?.scope?.startsWith("attr.") ? (
+            <label className="flex w-full items-start gap-3 pb-2 text-sm text-muted-foreground">
+              <Checkbox checked={modelProcessingApproved()} disabled={requestBusy}
+                onCheckedChange={(checked) => setModelApproval(checked === true ? { review: modelReviewBinding, epoch: snapshotVaultSessionEpoch() } : null)} />
+              <span>Allow this recipient’s private agent and selected model to use these approved details for the stated purpose, including personal identifiers. This does not allow further sharing.</span>
+            </label>
+          ) : null}
           {showDurationChoice ? (
             <div className="min-w-[150px]">
               <Select
@@ -1682,11 +1694,11 @@ function ConsentEntryDetail({
                   bundleMemberRef,
                   chosenRefs,
                 );
-                onDecideBundle!(allow, decline, effectiveDurationHours);
+                onDecideBundle!(allow, decline, effectiveDurationHours, modelProcessingApproved());
                 return;
               }
               return isBundleDecision
-                ? onApproveBundle!(bundleMembers, effectiveDurationHours)
+                ? onApproveBundle!(bundleMembers, effectiveDurationHours, modelProcessingApproved())
                 : onApprove(
                     entry,
                     isConnectionDecision || isMarketplaceDecision
@@ -1698,6 +1710,7 @@ function ConsentEntryDetail({
                           offeredScopeHandles: selectedOfferedScopes,
                         }
                       : undefined,
+                    modelProcessingApproved(),
                   );
             }}
             data-voice-control-id="consent_approve"
@@ -1759,32 +1772,15 @@ function ConsentEntryDetail({
           >
             {revokeBusy ? "Stopping..." : "Stop sharing"}
           </Button>
-          <AlertDialog
-            open={revokeDialogOpen}
-            onOpenChange={setRevokeDialogOpen}
-          >
-            <AlertDialogContent size="sm">
-              <AlertDialogHeader>
-                <AlertDialogTitle>
-                  Stop sharing with {resolveCounterpartLabel(entry)}?
-                </AlertDialogTitle>
-                <AlertDialogDescription>
-                  They lose this access right away. The change stays visible in
-                  History.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Keep sharing</AlertDialogCancel>
-                <AlertDialogAction
-                  variant="destructive"
-                  onClick={() => onRevoke(entry)}
-                  className="h-11 w-full sm:w-auto"
-                >
-                  Stop sharing
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          <ConsentSharingRevokeDialog open={revokeDialogOpen} onOpenChange={setRevokeDialogOpen} counterpartLabel={resolveCounterpartLabel(entry)} onConfirm={() => onRevoke(entry)} />
+        </SettingsGroup>
+      ) : null}
+
+      {entry.metadata?.commercial_required === true && (entry.request_id || entry.metadata?.request_id) ? (
+        <SettingsGroup embedded title="Paid sharing" description="Review payment and prepare approved encrypted information.">
+          <SettingsRow title="Sharing payment" description="Payment and export preparation have separate statuses." trailing={
+            <Button asChild variant="none" effect="fade" size="sm"><Link href={`/one/consent?commerceRequestId=${encodeURIComponent(String(entry.metadata?.request_id || entry.request_id))}`}>Review payment</Link></Button>
+          } />
         </SettingsGroup>
       ) : null}
 
@@ -2288,6 +2284,7 @@ export function ConsentCenterPage() {
       const approved = approvalsInFlightRef.current.get(detail.requestId);
       if (!approved) return;
       approvalsInFlightRef.current.delete(detail.requestId);
+      if (detail.accessPending) return;
       const granted = toLocallyGrantedEntry(
         approved.entry,
         approved.durationHours,
@@ -2450,6 +2447,7 @@ export function ConsentCenterPage() {
         requestedScopeHandles: string[];
         offeredScopeHandles: string[];
       },
+      modelProcessingAllowed = false,
     ) => {
       // A document request or Drive question is not a PKM grant or a
       // voice-approvable action; only its own card can decide it.
@@ -2484,11 +2482,11 @@ export function ConsentCenterPage() {
         return;
       }
       if (isMarketplaceEntry(entry)) {
-        void handleMarketplaceApprove(entry);
+        void handleMarketplaceApprove(entry, durationHours);
         return;
       }
       recordApprovalInFlight(entry, durationHours);
-      void handleApprove(toPendingConsent(entry, durationHours));
+      void handleApprove(toPendingConsent(entry, durationHours), { modelProcessingAllowed });
     },
     [
       recordApprovalInFlight,
@@ -2573,7 +2571,7 @@ export function ConsentCenterPage() {
     ],
   );
   const approveBundleEntries = useCallback(
-    (members: ConsentCenterEntry[], durationHours?: number) => {
+    (members: ConsentCenterEntry[], durationHours?: number, modelProcessingAllowed = false) => {
       const head = members[0];
       if (!head) return;
       const name = requesterShortName(
@@ -2589,6 +2587,7 @@ export function ConsentCenterPage() {
         members.map((member) => toPendingConsent(member, durationHours)),
         {
           bundleId: String(head.metadata?.bundle_id || "") || undefined,
+          modelProcessingAllowed,
           successMessage: `${name} can now see your ${joinInformationLabels(labels)}.`,
         },
       ).catch((error: unknown) => {
@@ -2619,6 +2618,7 @@ export function ConsentCenterPage() {
       allow: ConsentCenterEntry[],
       decline: ConsentCenterEntry[],
       durationHours?: number,
+      modelProcessingAllowed = false,
     ) => {
       const head = allow[0] ?? decline[0];
       if (!head) return;
@@ -2638,6 +2638,7 @@ export function ConsentCenterPage() {
         decline.map((member) => member.request_id || member.id),
         {
           bundleId: String(head.metadata?.bundle_id || "") || undefined,
+          modelProcessingAllowed,
           successMessage: `${name} can now see your ${shared}. ${held} ${decline.length === 1 ? "wasn't" : "weren't"} shared.`,
         },
       ).catch((error: unknown) => {
@@ -3794,6 +3795,10 @@ export function ConsentCenterPage() {
                   message={accessibilityStatusMessage}
                 />
 
+                {/^[A-Za-z0-9_-]{1,128}$/.test(searchParams.get("commerceRequestId") || "") ? (
+                  <ScopeCommerceRequestPanel key={`${user?.uid}:${searchParams.get("commerceRequestId")}`} requestId={searchParams.get("commerceRequestId")!} />
+                ) : null}
+
                 {showSessionRecovery ? <SessionExpiryRecovery /> : null}
 
                 {showCompactRetryState ? (
@@ -4175,23 +4180,23 @@ export function ConsentCenterPage() {
               actor={actor}
               entry={selectedEntry}
               bundleMembers={selectedBundleMembers}
-              onApproveBundle={(members, durationHours) => {
+              onApproveBundle={(members, durationHours, modelProcessingAllowed) => {
                 closeDetailPanel();
-                approveBundleEntries(members, durationHours);
+                approveBundleEntries(members, durationHours, modelProcessingAllowed);
               }}
               onDenyBundle={(members) => {
                 closeDetailPanel();
                 denyBundleEntries(members);
               }}
-              onDecideBundle={(allow, decline, durationHours) => {
+              onDecideBundle={(allow, decline, durationHours, modelProcessingAllowed) => {
                 closeDetailPanel();
-                decideBundleEntries(allow, decline, durationHours);
+                decideBundleEntries(allow, decline, durationHours, modelProcessingAllowed);
               }}
-              onApprove={(entry, durationHours, scopeSelection) => {
+              onApprove={(entry, durationHours, scopeSelection, modelProcessingAllowed) => {
                 // Dismiss the panel immediately; the list already optimistically
                 // removes the row and any failure surfaces via toast.
                 closeDetailPanel();
-                approveEntry(entry, durationHours, scopeSelection);
+                approveEntry(entry, durationHours, scopeSelection, modelProcessingAllowed);
               }}
               onDeny={(entry) => {
                 closeDetailPanel();

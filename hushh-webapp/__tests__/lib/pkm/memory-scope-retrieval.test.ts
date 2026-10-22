@@ -137,6 +137,28 @@ describe("shared encrypted memory.md stable scope retrieval", () => {
     expect(unreadable).toMatchObject({ complete: false, unavailableScopes: [AGE] });
   });
 
+  it("keeps a failed readable canonical export unavailable even when Soul has the same fact", async () => {
+    identity = { revision: 7, manifestRevision: 1, paths: ["identity_profile.sex"], value: { identity_profile: { sex: "canonical value" } } };
+    soul = { revision: 9, markdown: "- Sex: Soul value\n", deletedFactLabels: [] };
+    transport.export.mockRejectedValueOnce(new Error("canonical decrypt failed"));
+    const refused = await retrieveApprovedMemoryScopes({ ...SESSION, approvedScopes: [SEX] });
+    expect(refused).toMatchObject({ complete: false, unavailableScopes: [SEX], projections: [] });
+    expect(transport.write).not.toHaveBeenCalled();
+    const available = await retrieveApprovedMemoryScopes({ ...SESSION, approvedScopes: [SEX] });
+    expect(available.complete).toBe(true);
+    expect(resultValue(available, SEX, "identity_profile.sex")).toBe("Soul value");
+  });
+
+  it.each(["denied", "revision_changed"])("does not replace a failed materialized export with Soul: %s", async failure => {
+    identity = { revision: 7, manifestRevision: 1, paths: ["identity_profile.sex"], value: { identity_profile: { sex: "canonical fact" } } };
+    soul = { revision: 10, markdown: "- Sex: matching private fact\n", deletedFactLabels: [] };
+    if (failure === "denied") transport.export.mockRejectedValue(new Error("Exact export denied"));
+    else transport.export.mockResolvedValue({ payload: { identity_profile: { sex: "old fact" } }, sourceContentRevision: 6, sourceManifestRevision: 1 });
+    const result = await retrieveApprovedMemoryScopes({ ...SESSION, approvedScopes: [SEX] });
+    expect(result).toMatchObject({ complete: false, unavailableScopes: [SEX], projections: [] });
+    expect(transport.write).not.toHaveBeenCalled();
+  });
+
   it("keeps pending local edits and vault changes unavailable", async () => {
     await retrieveApprovedMemoryScopes({ ...SESSION, approvedScopes: [NAME], ownerIdentity: { displayName: "Ava" } });
     transport.peek.mockReturnValue({ syncStatus: "saving" });
@@ -157,6 +179,44 @@ describe("shared encrypted memory.md stable scope retrieval", () => {
     const changed = await retrieveApprovedMemoryScopes({ ...SESSION, approvedScopes: [SEX] });
     expect(changed).toMatchObject({ complete: false, unavailableScopes: [SEX], projections: [] });
     expect(transport.export).not.toHaveBeenCalled();
+  });
+
+  it("retains an eligible wildcard sibling without restoring blocked facts or reusing unqualified slices", async () => {
+    const scope = "attr.identity.identity_profile.*";
+    identity = { revision: 7, manifestRevision: 1, paths: ["identity_profile.full_name", "identity_profile.sex", "identity_profile.declared_age"],
+      blocked: ["identity_profile.sex", "identity_profile.declared_age"], value: {} };
+    soul = { revision: 9, markdown: "- Legal name: Current Ava\n- Sex: private fact\n- Date of birth: 1998-10-13\n", deletedFactLabels: [] };
+    transport.export.mockResolvedValue({ payload: { identity: { identity_profile: { full_name: "Saved Ava" } } }, sourceContentRevision: 7, sourceManifestRevision: 1 });
+    const first = await retrieveApprovedMemoryScopes({ ...SESSION, approvedScopes: [scope] });
+    expect(first.complete).toBe(true);
+    expect(resultValue(first, scope, "identity_profile.full_name")).toBe("Current Ava");
+    expect(resultValue(first, scope, "identity_profile.sex")).toBeUndefined();
+    expect(resultValue(first, scope, "identity_profile.declared_age")).toBeUndefined();
+    const document = (projection._private as { memory_document: { scopeSlices: Record<string, { admissionVersion?: number; payload: Record<string, unknown> }> } }).memory_document;
+    delete document.scopeSlices[scope]!.admissionVersion;
+    document.scopeSlices[scope]!.payload = { identity_profile: { full_name: "Stale Ava", sex: "previously leaked fact" } };
+    transport.export.mockClear();
+    const rebuilt = await retrieveApprovedMemoryScopes({ ...SESSION, approvedScopes: [scope] });
+    expect(rebuilt.complete).toBe(true);
+    expect(resultValue(rebuilt, scope, "identity_profile.full_name")).toBe("Current Ava");
+    expect(resultValue(rebuilt, scope, "identity_profile.sex")).toBeUndefined();
+    expect(transport.export).toHaveBeenCalledTimes(1);
+    expect(transport.write).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["missing_manifest", "nonexternalizable_leaf"])("does not treat unverifiable or excluded metadata as an absent optional fact: %s", async failure => {
+    identity = { revision: 7, manifestRevision: 1, paths: ["identity_profile.sex"], value: {} };
+    soul = { revision: 9, markdown: "- Sex: private fact\n", deletedFactLabels: [] };
+    const original = transport.snapshot.getMockImplementation()!;
+    transport.snapshot.mockImplementation(async params => {
+      const source = await original(params);
+      if (params.domain !== "identity") return source;
+      return failure === "missing_manifest" ? { ...source, manifest: null } : { ...source, manifest: { ...source.manifest, externalizable_paths: [] } };
+    });
+    const result = await retrieveApprovedMemoryScopes({ ...SESSION, approvedScopes: [SEX] });
+    expect(result).toMatchObject({ complete: false, unavailableScopes: [SEX], projections: [] });
+    expect(transport.export).not.toHaveBeenCalled();
+    expect(transport.write).not.toHaveBeenCalled();
   });
 
   it("does not mistake a concurrent authoritative mutation for its own derived projection write", async () => {

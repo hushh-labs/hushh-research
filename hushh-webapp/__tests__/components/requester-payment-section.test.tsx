@@ -11,12 +11,11 @@ const state = vi.hoisted(() => ({
   assign: vi.fn(),
   token: "vault-token" as string | null,
   epoch: 1,
-  userId: "buyer",
-  idToken: vi.fn(),
+  user: { uid: "reviewer", getIdToken: vi.fn(async () => "firebase-token") },
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: { uid: state.userId, getIdToken: state.idToken } }),
+  useAuth: () => ({ user: state.user }),
 }));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ getVaultOwnerToken: () => state.token }),
@@ -110,8 +109,7 @@ beforeEach(() => {
   vi.setSystemTime(NOW);
   state.token = "vault-token";
   state.epoch = 1;
-  state.userId = "buyer";
-  state.idToken.mockReset().mockResolvedValue("firebase-token");
+  state.user = { uid: "reviewer", getIdToken: vi.fn(async () => "firebase-token") };
   vi.stubGlobal("location", { ...window.location, assign: state.assign });
 });
 afterEach(() => {
@@ -172,7 +170,7 @@ describe("RequesterPaymentSection", () => {
     fireEvent.click(screen.getByRole("button", { name: "Pay $25" }));
     await waitFor(() => expect(state.checkout).toHaveBeenCalledOnce());
     if (boundary === "account") {
-      state.userId = "another-buyer";
+      state.user = { ...state.user, uid: "another-buyer" };
       mounted.rerender(<RequesterPaymentSection {...props} />);
     } else if (boundary === "session") state.epoch += 1;
     else if (boundary === "request") mounted.rerender(<RequesterPaymentSection {...props} requestId="22222222-2222-4222-8222-222222222222" />);
@@ -184,11 +182,11 @@ describe("RequesterPaymentSection", () => {
 
   it("does not send checkout when the account changes while its token is loading", async () => {
     let finish!: (token: string) => void;
-    state.idToken.mockReturnValueOnce(new Promise<string>(resolve => { finish = resolve; }));
+    state.user.getIdToken.mockReturnValueOnce(new Promise<string>(resolve => { finish = resolve; }));
     const props = { requestId, revision: 3, payment: payment(), price: null, onChanged: vi.fn() };
     const mounted = render(<RequesterPaymentSection {...props} />);
     fireEvent.click(screen.getByRole("button", { name: "Pay $25" }));
-    state.userId = "another-buyer";
+    state.user = { ...state.user, uid: "another-buyer" };
     mounted.rerender(<RequesterPaymentSection {...props} />);
     await act(async () => { finish("old-user-token"); });
     expect(state.checkout).not.toHaveBeenCalled();
@@ -224,6 +222,46 @@ describe("RequesterPaymentSection", () => {
     fireEvent.click(screen.getByRole("button", { name: "Pay $25" }));
     await waitFor(() => expect(state.assign).toHaveBeenCalledWith("https://checkout.stripe.com/c/pay/cs_test"));
     expect(state.checkout).toHaveBeenCalledWith("firebase-token", requestId);
+  });
+
+  it.each([
+    ["identity", "owner"], ["identity", "request"], ["identity", "vault"], ["identity", "unmount"],
+    ["checkout", "owner"], ["checkout", "request"], ["checkout", "vault"], ["checkout", "unmount"],
+  ] as const)("retires pending %s when %s changes", async (stage, retirement) => {
+    let settle!: (value: string) => void;
+    const pending = new Promise<string>((resolve) => { settle = resolve; });
+    if (stage === "identity") state.user.getIdToken.mockReturnValueOnce(pending);
+    else state.checkout.mockReturnValueOnce(pending);
+    const onChanged = vi.fn();
+    const props = { requestId, revision: 3, payment: payment(), price: null, onChanged };
+    const view = render(<RequesterPaymentSection {...props} />);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Pay $25" })); });
+    if (stage === "checkout") expect(state.checkout).toHaveBeenCalledOnce();
+    if (retirement === "unmount") view.unmount();
+    else {
+      if (retirement === "owner") state.user = { uid: "replacement", getIdToken: vi.fn(async () => "other-token") };
+      if (retirement === "vault") state.epoch += 1;
+      view.rerender(<RequesterPaymentSection {...props} requestId={retirement === "request" ? "replacement-request" : requestId} />);
+    }
+    await act(async () => { settle(stage === "identity" ? "firebase-token" : "https://checkout.stripe.com/c/pay/cs_test"); });
+    if (stage === "identity") expect(state.checkout).not.toHaveBeenCalled();
+    expect(state.assign).not.toHaveBeenCalled();
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+
+  it("does not refresh or show a retired Checkout failure in the replacement session", async () => {
+    let fail!: (cause: Error) => void;
+    state.checkout.mockReturnValueOnce(new Promise<string>((_, reject) => { fail = reject; }));
+    const onChanged = vi.fn();
+    const props = { requestId, revision: 3, payment: payment(), price: null, onChanged };
+    const view = render(<RequesterPaymentSection {...props} />);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Pay $25" })); });
+    state.user = { uid: "replacement", getIdToken: vi.fn(async () => "other-token") };
+    view.rerender(<RequesterPaymentSection {...props} />);
+    await act(async () => { fail(new Error("Checkout failed")); });
+    expect(onChanged).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(state.assign).not.toHaveBeenCalled();
   });
 
   it("explains a closed payment window without offering Pay", () => {
@@ -300,6 +338,25 @@ describe("RequesterPaymentSection", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Request withdrawn");
     expect(screen.queryByRole("button", { name: /Withdraw request/ })).toBeNull();
     expect(onChanged).toHaveBeenCalledOnce();
+  });
+
+  it.each(["owner", "unmount"])("retires a withdrawal reply after %s changes", async (retirement) => {
+    let settle!: (value: { requestId: string; status: string; payment: RequesterPaymentView }) => void;
+    state.decide.mockReturnValueOnce(new Promise((resolve) => { settle = resolve; }));
+    const onChanged = vi.fn();
+    const props = { requestId, revision: 3, payment: payment(), price: null, onChanged };
+    const view = render(<RequesterPaymentSection {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: /Withdraw request/ }));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Withdraw request/ })); });
+    expect(state.decide).toHaveBeenCalledOnce();
+    if (retirement === "unmount") view.unmount();
+    else {
+      state.user = { uid: "replacement", getIdToken: vi.fn(async () => "other-token") };
+      view.rerender(<RequesterPaymentSection {...props} />);
+    }
+    await act(async () => { settle({ requestId, status: "cancelled", payment: payment({ state: "closed", withdrawn: true }) }); });
+    expect(onChanged).not.toHaveBeenCalled();
+    expect(screen.queryByText("Request withdrawn")).toBeNull();
   });
 
   it("says a refund is coming when the payment won the race", async () => {

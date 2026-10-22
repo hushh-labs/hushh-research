@@ -7,6 +7,7 @@ import io
 import json
 import os
 import re
+from runpy import run_path
 import subprocess
 import time
 import zipfile
@@ -433,6 +434,23 @@ def defer_release(message: str) -> None:
             handle.write(summary)
 
 
+def release_admitted(repository: str) -> bool:
+    if uat_busy(repository):
+        defer_release("UAT is queued or running")
+        return False
+    return True
+
+
+def production_predecessor_accepted(sha: str) -> bool:
+    """Defer missing accepted coverage; propagate other resolver errors."""
+    predecessor = run_path(str(ROOT / "scripts/ci/verify-predecessor-acceptance.py"))
+    try:
+        predecessor["GitHub"]().find("uat", sha, "all")
+    except predecessor["MissingAcceptance"]:
+        return False
+    return True
+
+
 def dispatch_pending(ledger: Ledger) -> None:
     from datetime import datetime, timezone
     requests = ledger.state["requests"]
@@ -460,11 +478,6 @@ def dispatch_pending(ledger: Ledger) -> None:
               for ordinal, request in requests.items() for lane, child in request["lanes"].items()
               if child["state"] in {"running", "dispatching"}}
 
-    def admit() -> bool:
-        if uat_busy(ledger.repository):
-            defer_release("UAT is queued or running")
-            return False
-        return True
 
     # Recover the second half even if the controller stopped immediately after
     # recording the production deployment. It yields to UAT and other active
@@ -480,7 +493,7 @@ def dispatch_pending(ledger: Ledger) -> None:
                 if active - {(ordinal, "production")}:
                     defer_release("another release bundle is active")
                     return
-                if not admit():
+                if not release_admitted(ledger.repository):
                     return
                 dispatch_child(ledger, ordinal, request, "appstore")
                 return
@@ -503,10 +516,16 @@ def dispatch_pending(ledger: Ledger) -> None:
         if not pending:
             continue
         ordinal, request = max(pending, key=lambda pair: int(pair[0]))
+        if lanes[0] == "deploy":
+            if not release_admitted(ledger.repository):
+                return
+            if not production_predecessor_accepted(request["sha"]):
+                defer_release("production requires complete exact-SHA UAT acceptance")
+                return
         for lane in lanes:
             # UAT can arrive between the two dispatches. Persist the half-pair
             # and resume later rather than posting another competing workflow.
-            if not admit():
+            if not release_admitted(ledger.repository):
                 return
             dispatch_child(ledger, ordinal, request, lane)
         return

@@ -3,10 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const apiFetchMock = vi.fn();
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
-    apiFetch: (...args: unknown[]) => apiFetchMock(...args),
+    apiFetch: (...args: unknown[]) => apiFetchMock(...args), getPersonalAgentStatus: async () => ({ hostingMode: "shared" }),
   },
 }));
-
+vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getCurrentUser: () => ({ uid: "user_1" }) } }));
 const pkmGetMetadataMock = vi.fn();
 const prepareNaturalLanguageMock = vi.fn();
 vi.mock("@/lib/pkm/pkm-natural-language-ingestion", async (original) => ({
@@ -24,10 +24,12 @@ vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
 
 const pkmGetManyStaleFirstMock = vi.fn();
 const pkmGetStaleFirstMock = vi.fn();
+const pkmPeekMock = vi.fn();
 vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
   PkmDomainResourceService: {
     getStaleFirst: (...args: unknown[]) => pkmGetStaleFirstMock(...args),
     getManyStaleFirst: (...args: unknown[]) => pkmGetManyStaleFirstMock(...args),
+    peek: (...args: unknown[]) => pkmPeekMock(...args),
   },
 }));
 
@@ -68,6 +70,7 @@ import type { LiveMirrorFact, LiveMirrorView } from "@/lib/pkm/live-mirror-contr
 import { createAgentPkmCaptureGuard, isAgentPkmProcessingReady } from "@/lib/agent/agent-pkm-capture-runtime";
 import { planSecretCaptures, UnguardedSecretError } from "@/lib/pkm/secret-span-guard";
 import { peekMarkdownMemory, replaceMarkdownMemoryDocument } from "@/lib/pkm/markdown-memory";
+import * as markdownMemory from "@/lib/pkm/markdown-memory";
 
 // Structured-PKM specialist contracts stay covered independently of One's
 // Soul-only context loader. These tests must not reintroduce a chat fallback.
@@ -228,6 +231,7 @@ describe("agent PKM memory helpers", () => {
     vi.clearAllMocks();
     clearAgentPkmContext();
     peekLiveMirrorMock.mockReset().mockReturnValue(null);
+    pkmPeekMock.mockReset().mockReturnValue(null);
     pkmGetStaleFirstMock.mockReset().mockResolvedValue({ data: { markdown: "# Soul.md\n\n## Preferences\n- concise summaries\n" } });
     pkmGetMetadataMock.mockResolvedValue(METADATA);
     pkmBlob = {
@@ -891,6 +895,29 @@ describe("agent PKM memory helpers", () => {
     expect(context.text).toContain("Transactions V1");
   });
 
+  it("reads only closed communication settings beside Soul, excluding identity records from prompts", async () => {
+    pkmGetStaleFirstMock.mockImplementation(async ({ domain }) => domain === "identity"
+      ? { data: { communication_preferences: { tone: "direct", length: "short", unexpected: "discard" }, identity_profile: { legal_name: "private identity" } } }
+      : { data: { markdown: "# Soul.md\n- A synthetic preference.\n" } });
+    const context = await loadAgentPkmContext({ userId: "user_1", vaultKey: "key", vaultOwnerToken: "token", requireDecrypted: true });
+    expect(context.communicationPreferences).toEqual({ tone: "direct", length: "short" });
+    expect(context.text).not.toContain("private identity");
+    expect(context.text).not.toContain("short");
+    expect(context.domains).toEqual(["one_memory"]);
+    expect(pkmGetManyStaleFirstMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["read_only", "preparation_only", "bounded_mutation", "mutation_authorized"] as const)("retains Soul reads and admits recovery only for authorized mutations: %s", async reviewerMutationPolicy => {
+    window.__HUSHH_NATIVE_TEST__ = { enabled: true, autoReviewerLogin: true, reviewerMutationPolicy };
+    const recovery = vi.spyOn(markdownMemory, "recoverMarkdownMemorySync").mockResolvedValue(undefined);
+    try {
+      const context = await loadAgentPkmContext({ userId: "user_1", vaultKey: "key", vaultOwnerToken: "token", requireDecrypted: true });
+      expect(context.domains).toEqual(["one_memory"]);
+      expect(context.text).toContain("concise summaries");
+      expect(recovery).toHaveBeenCalledTimes(reviewerMutationPolicy === "mutation_authorized" ? 1 : 0);
+    } finally { recovery.mockRestore(); delete window.__HUSHH_NATIVE_TEST__; }
+  });
+
   it("warms only Soul.md into browser RAM after unlock", async () => {
     await warmAgentPkmContext({
       userId: "user_1",
@@ -900,7 +927,7 @@ describe("agent PKM memory helpers", () => {
 
     expect(pkmGetMetadataMock).not.toHaveBeenCalled();
     expect(pkmGetManyStaleFirstMock).not.toHaveBeenCalled();
-    expect(pkmGetStaleFirstMock).toHaveBeenCalledOnce();
+    expect(pkmGetStaleFirstMock.mock.calls.filter(([params]) => params.domain === "one_memory")).toHaveLength(1);
     const packet = peekAgentPkmContext({ userId: "user_1", message: "unrelated request" });
     expect(packet?.text).not.toContain("agent-safe-pkm/v1");
     expect(packet?.text).toContain("concise summaries");
@@ -937,10 +964,16 @@ describe("agent PKM memory helpers", () => {
     expect(pkmGetMetadataMock).not.toHaveBeenCalled();
     await expect(Promise.all([firstRefresh, secondRefresh])).resolves.toHaveLength(2);
     expect(pkmGetManyStaleFirstMock).not.toHaveBeenCalled();
-    expect(pkmGetStaleFirstMock).toHaveBeenCalledOnce();
+    expect(pkmGetStaleFirstMock.mock.calls.filter(([params]) => params.domain === "one_memory")).toHaveLength(1);
   });
 
   it("supplies Soul, then only the owner's allowlisted Live Mirror packet, on the peek and load paths", async () => {
+    const settings = { preferred_name: "STYLE_ONLY_CANARY", tone: "executive" };
+    const read = pkmGetStaleFirstMock.getMockImplementation()!;
+    pkmGetStaleFirstMock.mockImplementation((params) => params.domain === "identity"
+      ? Promise.resolve({ data: { communication_preferences: settings } }) : read(params));
+    pkmPeekMock.mockImplementation(({ domain }) => domain === "identity"
+      ? { data: { data: { communication_preferences: settings } } } : null);
     // Without a mirror the context is exactly Soul, as before.
     const soul = (await loadAgentPkmContext({ userId: "user_1", vaultOwnerToken: "vault_token", vaultKey: "vault_key" })).text;
     expect(soul).toContain("- concise summaries");
@@ -949,6 +982,8 @@ describe("agent PKM memory helpers", () => {
     const peeked = peekAgentPkmContext({ userId: "user_1" });
 
     for (const context of [loaded, peeked]) {
+      expect(context?.communicationPreferences).toEqual(settings);
+      expect(context?.text).not.toContain("STYLE_ONLY_CANARY");
       expect(context?.text.startsWith(`${soul}\n\nLIVE MIRROR FACTS v1 (`)).toBe(true);
       expect(context?.text).toContain('name="Synthetic Owner"');
       expect(context?.text.endsWith("\nEND LIVE MIRROR FACTS")).toBe(true);

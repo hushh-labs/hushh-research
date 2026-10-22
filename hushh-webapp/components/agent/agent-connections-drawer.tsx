@@ -11,9 +11,14 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
+import { usePathname } from "next/navigation";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { cn } from "@/lib/utils";
 import { useNativeNavigationBlockedUntilSettled } from "@/lib/capacitor/native-navigation";
 import { useNativeFullWindowOverlayReady } from "@/lib/capacitor/native-presentation-regions";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { AppChatHistoryEdgeGesture } from "@/components/app-ui/app-chat-history-edge-gesture";
 import { useNativePanelPresentation } from "@/lib/capacitor/native-panel-presentation";
 
@@ -36,7 +41,7 @@ export function transitionConnectionsDrawer(
   return { open: action.open, mode: action.open ? state.mode : "chats" };
 }
 
-/** History and its connector child stay in the same leading pane.
+/** History stays mounted on the left; connectors use the shared modal/sheet.
  * Neither surface replaces the transcript or its unsent draft. */
 export function AgentConnectionsDrawer({
   open,
@@ -70,8 +75,10 @@ export function AgentConnectionsDrawer({
   onRestoreHistoryFocus?: () => void;
   historyRenderer?: "web" | "preparing" | "native" | "blocked";
 }) {
+  const pathname = usePathname();
   const drawer = useRef<HTMLDivElement>(null);
   const scrim = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
   const [presentationReady, setPresentationReady] = useState(false);
   const [connectorHost, setConnectorHost] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -87,11 +94,18 @@ export function AgentConnectionsDrawer({
   const attachConnectorHost = useCallback((node: HTMLDivElement | null) => {
     if (node && connectorHost) node.appendChild(connectorHost);
   }, [connectorHost]);
-  const historyOpen = open && historyRenderer === "web";
+  const historyOpen = open && historyRenderer === "web" && mode === "chats";
   const historyReady = useNativeFullWindowOverlayReady(historyOpen);
   const historyDisplayed = historyOpen && historyReady;
   const attachNativePanel = useNativePanelPresentation("history", presentationKey ?? null, drawer, historyOpen);
+  const historyActive = useRef(historyOpen);
+  useLayoutEffect(() => { historyActive.current = historyOpen; }, [historyOpen]);
   useNativeNavigationBlockedUntilSettled(historyOpen, "chat-history", drawer);
+  const connectorsOpen = open && historyRenderer === "web" && mode === "connections";
+  const connectorActive = useRef(connectorsOpen);
+  useLayoutEffect(() => { connectorActive.current = connectorsOpen; }, [connectorsOpen]);
+  const rendererOwner = useRef(historyRenderer);
+  useLayoutEffect(() => { rendererOwner.current = historyRenderer; }, [historyRenderer]);
   const returnFocus = useRef<HTMLElement | null>(null);
   const modalActive = useRef(externalModalOpen);
   const restoreFocus = useCallback(() => {
@@ -121,9 +135,8 @@ export function AgentConnectionsDrawer({
     // WebKit pointer activation doesn't focus buttons; an explicit trigger
     // reference restores focus reliably for both pointer and keyboard users.
     returnFocus.current = triggerRef.current;
-    // The transcript becomes inert in this commit. Move focus now so an
-    // immediate Escape cannot land on the old, inert trigger before a RAF.
-    if (modeAtOpen.current === "chats") focused()[0]?.focus({ preventScroll: true });
+    // Entry completion owns autofocus. Avoid forcing layout during the opening
+    // commit; the existing keyboard gap handler admits Escape and Tab meanwhile.
   }, [open, triggerRef, historyRenderer]);
   useLayoutEffect(() => {
     if (!historyDisplayed || mode !== "chats" || externalModalOpen) return;
@@ -175,16 +188,17 @@ export function AgentConnectionsDrawer({
       // engines retain the authored trigger until the body's entry completes.
       // An Escape originating in a provider/Radix portal must not also close
       // this drawer when that portal disposes itself during the same event.
-      if (
-        event.key === "Escape" &&
-        !event.defaultPrevented &&
-        !modalActive.current &&
-        (event.target === document.body ||
-          event.target === document.documentElement ||
-          event.target === triggerRef.current ||
-          event.target === returnFocus.current)
-      )
-        onOpenChange(false);
+      if (!historyActive.current || event.defaultPrevented || modalActive.current) return;
+      const inFocusGap = event.target === document.body ||
+        event.target === document.documentElement ||
+        event.target === triggerRef.current || event.target === returnFocus.current;
+      if (!inFocusGap) return;
+      if (event.key === "Escape") onOpenChange(false);
+      if (event.key === "Tab") {
+        event.preventDefault();
+        const elements = focused();
+        (event.shiftKey ? elements.at(-1) : elements[0])?.focus({ preventScroll: true });
+      }
     };
     window.addEventListener("keydown", escape);
     return () => window.removeEventListener("keydown", escape);
@@ -215,6 +229,38 @@ export function AgentConnectionsDrawer({
       first.focus();
     }
   };
+  const connectorContentProps = {
+    showCloseButton: false,
+    onOpenAutoFocus: (event: Event) => {
+      if (modalActive.current) event.preventDefault();
+    },
+    onCloseAutoFocus: (event: Event) => {
+      event.preventDefault();
+      // Radix may finish closing after History has already reopened. The old
+      // presentation must not steal focus from that newer interaction layer.
+      if (rendererOwner.current !== "web" || connectorActive.current || modalActive.current) return;
+      if (historyActive.current) {
+        const active = document.activeElement;
+        // A bottom sheet's grabber may retain focus through exit. Complete the
+        // handoff after Radix releases its trap, preserving newer History input.
+        if (active === document.body || active instanceof HTMLElement && active.closest('[data-connector-host], [data-slot="sheet-content"], [data-slot="dialog-content"]')) {
+          drawer.current?.querySelector<HTMLElement>('[aria-label="Open Connectors"]')?.focus({ preventScroll: true });
+        }
+        return;
+      }
+      restoreFocus();
+    },
+    onInteractOutside: (event: Event) => {
+      if (externalModalOpen) event.preventDefault();
+    },
+    onEscapeKeyDown: (event: Event) => {
+      if (event.defaultPrevented) return;
+      if (modalActive.current) { event.preventDefault(); return; }
+      // Radix observes Escape before the child React handler. Let the existing
+      // route-scoped Back owner unwind Connectors before dismissing History.
+      if (rendererOwner.current === "web" && connectorActive.current && unwindBackLayer(pathname)) event.preventDefault();
+    },
+  };
   return (
     <>
       {gestureSurfaceRef ? <AppChatHistoryEdgeGesture
@@ -225,6 +271,21 @@ export function AgentConnectionsDrawer({
         onOpen={onGestureOpen ?? (() => onOpenChange(true))}
         onClose={() => onOpenChange(false)} /> : null}
       {connectorHost && createPortal(connections, connectorHost)}
+      {historyRenderer === "web" && presentationReady && (isMobile ? (
+        <Sheet open={connectorsOpen} onOpenChange={onOpenChange} modal={!externalModalOpen}>
+          <SheetContent {...connectorContentProps} side="bottom" contentDragDismiss={false} className="h-[85dvh] gap-0 overflow-hidden p-0">
+            <SheetTitle className="sr-only">Connectors</SheetTitle>
+            <div ref={attachConnectorHost} data-connector-host className="min-h-0 flex-1 overflow-hidden" inert={externalModalOpen} />
+          </SheetContent>
+        </Sheet>
+      ) : (
+        <Dialog open={connectorsOpen} onOpenChange={onOpenChange} modal={!externalModalOpen}>
+          <DialogContent {...connectorContentProps} className="agent-connections-dialog h-[min(42rem,calc(100dvh-2rem))] gap-0 overflow-hidden p-0 sm:max-w-md" srDescription="Manage your connected apps.">
+            <DialogTitle className="sr-only">Connectors</DialogTitle>
+            <div ref={attachConnectorHost} data-connector-host className="min-h-0 flex-1 overflow-hidden" inert={externalModalOpen} />
+          </DialogContent>
+        </Dialog>
+      ))}
       {presentationReady && createPortal(
         <>
           <div
@@ -260,10 +321,10 @@ export function AgentConnectionsDrawer({
             role="dialog"
             data-agent-history-drawer
             data-native-panel-group="history"
-            data-state={historyOpen ? "open" : "closed"}
+            data-state={historyDisplayed ? "open" : "closed"}
             data-app-side-pane
             aria-modal={externalModalOpen ? undefined : true}
-            aria-label={mode === "connections" ? "Chat connectors" : "Agent chat history"}
+            aria-label="Agent chat history"
             aria-hidden={!historyDisplayed || externalModalOpen}
             inert={!historyDisplayed || externalModalOpen}
             onKeyDown={keyDown}
@@ -283,9 +344,6 @@ export function AgentConnectionsDrawer({
             >
               {historyRenderer === "web" ? chats : null}
             </div>
-            <div ref={attachConnectorHost} data-connector-host hidden={mode !== "connections" || historyRenderer !== "web"}
-              inert={mode !== "connections" || externalModalOpen || historyRenderer !== "web"}
-              className="pointer-events-auto h-full min-h-0 overflow-hidden" />
           </div>
         </>,
         document.body,

@@ -15,8 +15,10 @@ export function MorphyGlassIcon({ tone, children, className, ...props }: MorphyG
   // Determine if it should map to Blue or Emerald internal styling
   const isBlue = tone === "finance" || tone === "ria" || tone === "gmail";
 
-  // Ambient radial glow that hides strictly behind the glass
-  const glowColorClass = isBlue ? "bg-[#0071e3]" : "bg-[#10b981]";
+  // Ambient radial glow that hides strictly behind the glass. The blue tone follows the
+  // switchable accent (--app-accent) rather than a frozen legacy hex, so it tracks the
+  // iOS-Blue/Molten-Gold preference like every other accent-bearing surface.
+  const glowColorClass = isBlue ? "bg-[var(--app-accent)]" : "bg-[#10b981]";
 
   // The translucent geometric background box matching the static generated logic
   const glassClasses = cn(

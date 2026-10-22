@@ -7,7 +7,7 @@ import { NativeProfileSceneFence } from "./native-profile-scene-fence";
  * persistent storage, diagnostics or a provider transport. */
 export type NativeProfileNameIdentity = NativeDrawerIdentity & {
   family: "profile";
-  scene: "account-name";
+  scene: "account-name" | "referral-handle";
   destinationId?: string;
 };
 export type NativeProfileNameProjection = NativeProfileNameIdentity & NativeControlAppearance & {
@@ -56,7 +56,8 @@ function closed(value: object, keys: readonly string[]): boolean {
 }
 const identityKeys = ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "scene", "destinationId"];
 function validIdentity(value: NativeProfileNameIdentity): boolean {
-  return !!value && value.family === "profile" && value.scene === "account-name" &&
+  return !!value && value.family === "profile" && ["account-name", "referral-handle"].includes(value.scene) &&
+    (value.scene !== "referral-handle" || value.destinationId !== undefined) &&
     [value.documentId, value.ownerEpoch].every(id => typeof id === "string" && id.length > 0 && id.length <= 128) &&
     count(value.ownerGeneration, 1) && count(value.revision, 1) &&
     (value.destinationId === undefined || typeof value.destinationId === "string" && value.destinationId.length > 0 && value.destinationId.length <= 128);
@@ -68,7 +69,7 @@ export function validNativeProfileNameProjection(value: NativeProfileNameProject
   return validIdentity(value) && closed(value, [...identityKeys, "appearance", "accentHex", "foregroundHex",
     "updateSequence", "privacyGeneration", "draftRevision", "acknowledgedEditRevision", "draft", "canSave", "busy", "error"]) &&
     count(value.updateSequence, 1) && count(value.privacyGeneration) && count(value.draftRevision) &&
-    count(value.acknowledgedEditRevision) && typeof value.draft === "string" && value.draft.length <= 4096 &&
+    count(value.acknowledgedEditRevision) && typeof value.draft === "string" && value.draft.length <= (value.scene === "referral-handle" ? 32 : 4096) &&
     typeof value.canSave === "boolean" && typeof value.busy === "boolean" &&
     (value.error === null || typeof value.error === "string" && value.error.length <= 1024) &&
     ["light", "dark"].includes(value.appearance) &&
@@ -83,7 +84,7 @@ export class NativeProfileNameFence extends NativeProfileSceneFence<NativeProfil
       state: state => validNativeProfileNameProjection(state) && sameScene(state, identity),
       edit: edit => !!edit && sameScene(edit, identity) &&
         closed(edit, [...identityKeys, "updateSequence", "privacyGeneration", "editRevision", "text", "composing"]) &&
-        typeof edit.text === "string" && edit.text.length <= 4096 && typeof edit.composing === "boolean",
+        typeof edit.text === "string" && edit.text.length <= (identity.scene === "referral-handle" ? 32 : 4096) && typeof edit.composing === "boolean",
       action: action => !!action && sameScene(action, identity) &&
         closed(action, [...identityKeys, "updateSequence", "privacyGeneration", "editRevision", "sequence", "action"]) &&
         ["save", "cancel"].includes(action.action),

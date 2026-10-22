@@ -10,7 +10,7 @@ import { expect, test, type Page } from "@playwright/test";
  * specs gate on, but drives it directly instead of hunting for a "Continue as
  * reviewer" button -- that control does not exist in this repository (see
  * e2e/location-agent-shell-consistency.spec.ts). Driving the bridge here is
- * the same mechanism `.codex/skills/reviewer-app-testing` already proves out.
+ * the same mechanism `.agents/skills/reviewer-app-testing` already proves out.
  */
 
 const REQUIRED_VALUES = ["REVIEWER_UID", "REVIEWER_VAULT_PASSPHRASE"] as const;

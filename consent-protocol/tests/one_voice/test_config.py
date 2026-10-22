@@ -41,6 +41,7 @@ def test_flag_on_uses_profile_model_when_no_local_override(monkeypatch):
 
 @pytest.mark.parametrize("location", ["global", "us", "eu", "US-CENTRAL1!"])
 def test_flag_on_rejects_non_regional_locations(monkeypatch, location):
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "local")
     monkeypatch.setenv(ONE_VOICE_LIVE_ENABLED_ENV, "true")
     monkeypatch.setenv(VERTEX_LIVE_MODEL_ID_ENV, "gemini-live-2.5-flash-native-audio")
     monkeypatch.setenv(VERTEX_LIVE_LOCATION_ENV, location)
@@ -68,7 +69,7 @@ def test_voice_uses_shared_uat_project_ignoring_retired_override(monkeypatch):
     monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "vertex")
     monkeypatch.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", "vertex")
     monkeypatch.setenv(ONE_VOICE_LIVE_ENABLED_ENV, "true")
-    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
     monkeypatch.setenv(HUSHH_ONE_VOICE_VERTEX_PROJECT_ENV, "retired-project")
     assert OneVoiceLiveConfig.from_environment().vertex_project == "hushh-gemini-bridge"
 

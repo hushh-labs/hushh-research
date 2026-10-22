@@ -20,7 +20,8 @@ export function hasNativeProfileNameScene(plugin: HushhNativeDrawersPlugin): plu
 export class NativeProfileNamePresentation<T> {
   private readonly presentation: NativeProfileScenePresentation<NativeProfileNameProjection, NativeProfileNameEdit, NativeProfileNameAction, T>;
   constructor(readonly identity: NativeProfileNameIdentity, plugin: Plugin,
-    ownerIsCurrent: () => boolean, onPhase: (phase: "active" | "blocked" | "fallback") => void) {
+    ownerIsCurrent: () => boolean, onPhase: (phase: "active" | "blocked" | "fallback") => void,
+    interactionIsCurrent: () => boolean = ownerIsCurrent) {
     this.presentation = new NativeProfileScenePresentation<NativeProfileNameProjection, NativeProfileNameEdit, NativeProfileNameAction, T>(identity, {
       source: plugin,
       apply: state => plugin.applyProfileNameScene(state),
@@ -29,7 +30,8 @@ export class NativeProfileNamePresentation<T> {
       retire: () => plugin.retireProfileNameScene(identity),
       edits: listener => plugin.addListener("profileNameEdit", listener),
       choices: listener => plugin.addListener("profileNameAction", listener),
-    }, new NativeProfileNameFence(identity), validNativeProfileNameProjection, ownerIsCurrent, onPhase);
+    }, new NativeProfileNameFence(identity), validNativeProfileNameProjection, ownerIsCurrent, onPhase,
+    true, state => ({ ...state }), interactionIsCurrent);
   }
   private actions(value: NativeProfileNameActions<T>): NativeProfileSceneActions<NativeProfileNameEdit, NativeProfileNameAction, T> {
     return { edit: event => value.edit(event.text, event.composing, event.editRevision),

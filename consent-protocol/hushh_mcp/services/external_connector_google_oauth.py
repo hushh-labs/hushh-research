@@ -36,6 +36,7 @@ from hushh_mcp.services.google_drive_adapter import (
     LIVE_POLICY_HASH,
     GoogleDriveAdapter,
 )
+from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
 CONNECTOR_ID = "google_drive"
 AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -311,9 +312,11 @@ class ExternalConnectorGoogleOAuth:
         attempt = await self.lifecycle.claim_attempt(attempt_id=attempt_id, user_id=owner)
         if attempt is None or attempt["connector_id"] != CONNECTOR_ID:
             raise DriveOAuthError("attempt_unavailable", status_code=409)
+        await admit_hub_content(attempt["user_id"], "drive_oauth_exchange")
         if not connector_feature_enabled("google_drive_connection", attempt["user_id"]):
             raise DriveOAuthError("connector_unavailable", status_code=403)
         connector, client_id, client_secret = await self._configuration()
+        await admit_hub_content(attempt["user_id"], "drive_oauth_dispatch")
         if attempt["oauth_client_id"] != client_id or attempt[
             "redirect_uri"
         ] not in registered_redirect_uris(connector):
@@ -360,6 +363,7 @@ class ExternalConnectorGoogleOAuth:
             client_id=client_id,
             nonce=proof["nonce"],
         )
+        await admit_hub_content(attempt["user_id"], "drive_oauth_activation")
         credential.update(identity, oauthClientId=client_id, profile=profile)
         return attempt, credential
 
@@ -400,6 +404,7 @@ class ExternalConnectorGoogleOAuth:
         if attempt["flow"] != "web":
             raise DriveOAuthError("attempt_flow_mismatch", status_code=409)
         connector, client_id, _ = await self._configuration()
+        await admit_hub_content(expected_user_id, "drive_oauth_activation")
         if attempt["oauth_client_id"] != client_id or attempt[
             "redirect_uri"
         ] not in registered_redirect_uris(connector):
@@ -445,7 +450,9 @@ class ExternalConnectorGoogleOAuth:
         return {"attemptId": attempt["attempt_id"], "expiresAt": attempt["expires_at"].isoformat()}
 
     async def finalize_native(self, *, attempt_id: str, user_id: str) -> dict[str, str]:
+        await admit_hub_content(user_id, "drive_oauth_finalize")
         connector, client_id, _ = await self._configuration()
+        await admit_hub_content(user_id, "drive_native_activation")
 
         def seal(attempt, current):
             if attempt["flow"] != "native" or attempt["connector_id"] != CONNECTOR_ID:
@@ -480,98 +487,21 @@ class ExternalConnectorGoogleOAuth:
         return {"connectorId": CONNECTOR_ID, "status": status}
 
     async def current_credential(
-        self, *, user_id: str, required_profile: DriveProfile | None = None, refresh: bool = True
+        self,
+        *,
+        user_id: str,
+        required_profile: DriveProfile | None = None,
+        cleanup: bool = False,
+        refresh: bool = True,
     ) -> tuple[dict, dict]:
-        """Internal only. Execution additionally enforces policy before/after I/O."""
-        row = await self.lifecycle.read(
-            user_id=user_id, connector_id=CONNECTOR_ID, **({"purge": False} if not refresh else {})
-        )
-        if (
-            not row
-            or row["status"] not in {"connected", "verifying"}
-            or row["envelope_version"] != 2
-        ):
-            raise DriveOAuthError("reconnect_required", status_code=401)
-        credential = self.credentials.open_credential(
-            user_id=user_id, connector_id=CONNECTOR_ID, row=row
-        )
-        profile = credential.get("profile", "selected")
-        if profile not in {"selected", "live"} or (
-            required_profile is not None and profile != required_profile
-        ):
-            raise DriveOAuthError("reconnect_required", status_code=401)
-        expected = set(LIVE_SCOPES if profile == "live" else SCOPES)
-        scopes = set(credential.get("grantedScopes", []))
-        allowed = (expected, expected | {DRIVE_FILE_SCOPE}) if profile == "live" else (expected,)
-        if scopes not in allowed:
-            raise DriveOAuthError("reconnect_required", status_code=401)
-        connector, client_id, client_secret = await self._configuration()
-        if profile == "live" and (
-            connector.capability_policy != DRIVE_POLICY
-            or set(connector.oauth_scopes) != set(REGISTRY_SCOPES)
-        ):
-            raise DriveOAuthError("connector_configuration_invalid", status_code=503)
-        if credential.get("oauthClientId") != client_id:
-            raise DriveOAuthError("reconnect_required", status_code=401)
-        if not refresh or row["credential_expires_at"] > datetime.now(UTC) + timedelta(seconds=90):
-            return row, credential
-        common = dict(
+        from hushh_mcp.services.google_connector_credential_execution import current_credential
+
+        return await current_credential(
+            self,
             user_id=user_id,
-            connector_id=CONNECTOR_ID,
-            generation=row["connection_generation"],
-            version=row["credential_version"],
-        )
-        lease_id = secrets.token_urlsafe(24)
-        if not await self.lifecycle.claim_refresh(**common, lease_id=lease_id):
-            raise DriveOAuthError("refresh_in_progress", status_code=409)
-        try:
-            token = await self._post(
-                TOKEN_URL,
-                dict(
-                    grant_type="refresh_token",
-                    refresh_token=credential["refreshToken"],
-                    client_id=client_id,
-                    client_secret=client_secret,
-                ),
-            )
-            refreshed = {
-                **credential,
-                **self._token_fields(token, previous=credential, profile=profile),
-            }
-            refreshed["refreshToken"] = refreshed.get("refreshToken") or credential["refreshToken"]
-            if token.get("id_token"):
-                identity = await asyncio.to_thread(
-                    self._verify_identity, token["id_token"], client_id=client_id, nonce=None
-                )
-                if identity["subject"] != credential["subject"]:
-                    raise DriveOAuthError("identity_not_verified", status_code=401)
-                refreshed.update(identity)
-            encrypted = self.credentials.seal_credential(
-                user_id=user_id,
-                connector_id=CONNECTOR_ID,
-                generation=common["generation"],
-                version=common["version"] + 1,
-                secret=refreshed,
-                expires_at=datetime.fromisoformat(refreshed["expiresAt"]),
-            )
-            if not await self.lifecycle.settle_refresh(
-                **common, lease_id=lease_id, envelope=encrypted
-            ):
-                raise DriveOAuthError("connection_changed", status_code=409)
-        except DriveOAuthError as error:
-            await self.lifecycle.settle_refresh(
-                **common, lease_id=lease_id, rejected=str(error) == "grant_rejected"
-            )
-            raise
-        updated = await self.lifecycle.read(user_id=user_id, connector_id=CONNECTOR_ID)
-        if (
-            not updated
-            or updated["connection_generation"] != common["generation"]
-            or updated["status"] not in {"connected", "verifying"}
-        ):
-            raise DriveOAuthError("connection_changed", status_code=409)
-        return updated, self.credentials.open_credential(
-            user_id=user_id, connector_id=CONNECTOR_ID, row=updated
+            required_profile=required_profile,
+            cleanup=cleanup,
+            refresh=refresh,
         )
 
     async def verify_live(self, *, user_id: str) -> bool:

@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from runpy import run_path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -16,8 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 UPSERT_SECRET_SCRIPT = REPO_ROOT / "scripts" / "ops" / "upsert_gcp_secret.py"
 GMAIL_OAUTH_RETURN_PATH = "/one/profile/gmail/oauth/return"
 CALENDAR_OAUTH_RETURN_PATH = "/one/profile/google/oauth/return"
-LOCAL_PASSKEY_RP_IDS = ("localhost", "127.0.0.1")
-PASSKEY_DOMAIN_ALIASES = REPO_ROOT / "hushh-webapp/lib/vault/passkey-domain-aliases.json"
+AZURE_OAUTH_RETURN_PATH = "/one/setup/cloud/azure/return"
 CONNECTOR_ROLLOUT_FLAGS = (
     "connections_panel_v2",
     "google_drive_connection",
@@ -30,6 +30,12 @@ CONNECTOR_ROLLOUT_FLAGS = (
     "google_drive_chat_reads",
     "curated_mcp_connectors",
 )
+
+
+def _scope_commerce_runtime_policy() -> dict[str, Any]:
+    # File-relative loading supports both direct CLI execution and importlib test harnesses.
+    return run_path(str(Path(__file__).with_name("scope_commerce_runtime_policy.py")))
+
 
 LEGACY_SECRET_FALLBACKS: dict[str, tuple[str, ...]] = {
     "APP_SIGNING_KEY": ("APP_SIGNING_KEY", "SECRET_KEY"),
@@ -49,6 +55,13 @@ LEGACY_SECRET_FALLBACKS: dict[str, tuple[str, ...]] = {
         "KAI_TEST_PASSPHRASE",
         "HUSHH_REVIEWER_PASSPHRASE",
     ),
+    # Pod durability roots. Both existed on dev ONLY because someone created them
+    # by hand, and `append_optional_secret` skips a missing secret silently -- so
+    # an environment rebuild would lose pod memory durability with no signal.
+    # Syncing them here makes the durable-memory substrate part of the
+    # reproducible environment, not tribal memory.
+    "HUSSH_POD_KEY_MASTER": ("HUSSH_POD_KEY_MASTER",),
+    "HUSSH_POD_DEV_SIGNING_KEY": ("HUSSH_POD_DEV_SIGNING_KEY",),
 }
 
 
@@ -131,35 +144,35 @@ def _drop_empty(value: dict[str, Any]) -> dict[str, Any]:
     return {key: item for key, item in value.items() if item not in ("", None, [], {})}
 
 
-def _oauth_redirect_uri(app_frontend_origin: str, return_path: str) -> str:
+def _canonical_frontend_origin(app_frontend_origin: str) -> str:
     parsed = urlsplit(app_frontend_origin.strip())
     if (
         parsed.scheme not in {"http", "https"}
         or not parsed.netloc
-        or parsed.username
-        or parsed.password
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
         or parsed.query
         or parsed.fragment
         or parsed.path not in {"", "/"}
     ):
         raise ValueError("--app-frontend-origin must be a canonical HTTP(S) origin")
-    origin = urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
-    return f"{origin}{return_path}"
+    return urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
 
 
 def _gmail_oauth_redirect_uri(app_frontend_origin: str) -> str:
-    return _oauth_redirect_uri(app_frontend_origin, GMAIL_OAUTH_RETURN_PATH)
+    return f"{_canonical_frontend_origin(app_frontend_origin)}{GMAIL_OAUTH_RETURN_PATH}"
 
 
 def _sync_oauth_redirects(project: str, app_frontend_origin: str) -> list[str]:
-    names: list[str] = []
-    for name, path in (
-        ("GMAIL_OAUTH_REDIRECT_URI", GMAIL_OAUTH_RETURN_PATH),
-        ("GOOGLE_OAUTH_REDIRECT_URI", CALENDAR_OAUTH_RETURN_PATH),
-    ):
-        _upsert_secret(project, name, _oauth_redirect_uri(app_frontend_origin, path))
-        names.append(name)
-    return names
+    origin = _canonical_frontend_origin(app_frontend_origin)
+    callbacks = {
+        "GMAIL_OAUTH_REDIRECT_URI": GMAIL_OAUTH_RETURN_PATH,
+        "GOOGLE_OAUTH_REDIRECT_URI": CALENDAR_OAUTH_RETURN_PATH,
+    }
+    for name, path in callbacks.items():
+        _upsert_secret(project, name, f"{origin}{path}")
+    return list(callbacks)
 
 
 def _frontend_origin_host(app_frontend_origin: str) -> str:
@@ -179,29 +192,13 @@ def _frontend_origin_host(app_frontend_origin: str) -> str:
 
 
 def _canonical_passkey_allowed_rp_ids(app_frontend_origin: str) -> str:
-    """Build the exact RP allowlist for the current frontend origin.
-
-    Hosted lanes allow only their declared old/new spelling pair. Localhost remains
-    available for contributor tooling, but a hosted lane must not inherit
-    another lane's parent-domain RP as a silent compatibility fallback.
-    """
-
-    hosts = _frontend_passkey_hosts(app_frontend_origin)
-    return ",".join(dict.fromkeys((*LOCAL_PASSKEY_RP_IDS, *hosts)))
-
-
-def _frontend_passkey_hosts(app_frontend_origin: str) -> tuple[str, ...]:
-    host = _frontend_origin_host(app_frontend_origin)
-    aliases = json.loads(PASSKEY_DOMAIN_ALIASES.read_text())
-    return next((tuple(pair) for pair in aliases.values() if host in pair), (host,))
+    policy = run_path(str(Path(__file__).with_name("passkey_domain_policy.py")))
+    return policy["allowed_rp_ids"](_frontend_origin_host(app_frontend_origin))
 
 
 def _cors_with_frontend_aliases(app_frontend_origin: str, configured: str) -> str:
-    origins = [origin.strip() for origin in configured.split(",") if origin.strip()]
-    host = _frontend_origin_host(app_frontend_origin)
-    if f"https://{host}" in origins:
-        origins.extend(f"https://{alias}" for alias in _frontend_passkey_hosts(app_frontend_origin))
-    return ",".join(dict.fromkeys(origins))
+    policy = run_path(str(Path(__file__).with_name("passkey_domain_policy.py")))
+    return policy["cors_with_aliases"](_frontend_origin_host(app_frontend_origin), configured)
 
 
 def _normalize_passkey_rp_ids(value: str) -> tuple[str, ...]:
@@ -272,80 +269,11 @@ def _validate_connector_rollout(args: argparse.Namespace) -> None:
         raise ValueError("Connector cohort must contain at most 25 distinct exact Firebase UIDs")
 
 
-def _retained_referral_config(
-    existing: dict[str, Any], *, project: str, environment: str
-) -> dict[str, Any]:
-    """Retain only an explicitly activated, environment-pinned operator setting."""
-    prefix = "referral_scoring_drain_"
-    keys = (
-        prefix + "enabled",
-        prefix + "scheduler_audience",
-        prefix + "scheduler_project_id",
-        prefix + "scheduler_service_account_email",
-    )
-    if not any(key in existing for key in keys):
-        return {}
-    enabled = str(existing.get(keys[0], "")).lower()
-    if enabled not in {"true", "false"}:
-        raise ValueError("Referral drain activation must be an explicit boolean")
-    if enabled == "false":
-        return {keys[0]: False}
-    lanes = {
-        "uat": ("hushh-pda-uat", "https://api.uat.hushh.ai"),
-        "production": ("hushh-pda", "https://api.hushh.ai"),
-    }
-    expected = lanes.get(environment)
-    if (
-        expected is None
-        or project != expected[0]
-        or existing.get("environment") != environment
-    ):
-        raise ValueError(
-            "Referral drain configuration belongs to a different environment"
-        )
-    expected_values = (
-        expected[1],
-        project,
-        f"referral-scoring-sched@{project}.iam.gserviceaccount.com",
-    )
-    if tuple(existing.get(key) for key in keys[1:]) != expected_values:
-        raise ValueError(
-            "Referral drain scheduler identity does not match its environment"
-        )
-    return {keys[0]: True, **dict(zip(keys[1:], expected_values, strict=True))}
-
-
-def _retained_plg_config(
-    existing: dict[str, Any], *, project: str, environment: str
-) -> dict[str, bool]:
-    """Preserve explicit pilot settings without importing another lane's activation."""
-    retained: dict[str, bool] = {}
-    for key in (
-        "one_plg_export_enabled",
-        "one_plg_activity_enabled",
-        "one_plg_activity_all_registered",
-        "one_plg_audience_enabled",
-        "one_plg_subscription_enabled",
-    ):
-        if key not in existing:
-            continue
-        value = existing[key]
-        if isinstance(value, bool):
-            retained[key] = value
-        elif isinstance(value, str) and value in {"true", "false"}:
-            retained[key] = value == "true"
-        else:
-            raise ValueError("PLG activation must be an explicit boolean")
-    if any(retained.values()) and (
-        environment != "production"
-        or project != "hushh-pda"
-        or existing.get("environment") != "production"
-        or existing.get("google_cloud_project") != "hushh-pda"
-    ):
-        raise ValueError(
-            "PLG activation belongs only to the production environment and project"
-        )
-    return retained
+_runtime_config_retention = run_path(str(Path(__file__).with_name("runtime_config_retention.py")))
+# Existing operator tests/callers retain their file-relative entrypoints.
+_retained_referral_config = _runtime_config_retention["_retained_referral_config"]
+_retained_plg_config = _runtime_config_retention["_retained_plg_config"]
+_retained_dev_inference_bridge = _runtime_config_retention["_retained_dev_inference_bridge"]
 
 
 def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
@@ -442,6 +370,7 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         # mismatch — which reads like an outage, not a config error.
         "nws_nearby_v4_project_id": args.project,
         "one_places_directory_enabled": args.one_places_directory_enabled,
+        **_azure_owner_cloud_config(args.project, getattr(args, "app_frontend_origin", "")),
         "one_business_directory_enabled": getattr(args, "one_business_directory_enabled", "false"),
         "one_profile_research_enabled": getattr(args, "one_profile_research_enabled", "false"),
         "one_magic_intelligence_phase": getattr(args, "one_magic_intelligence_phase", "0"),
@@ -453,7 +382,9 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         ),
         "one_magic_intelligence_qa_emails": getattr(args, "one_magic_intelligence_qa_emails", ""),
     }
-    return _drop_empty(config)
+    return _scope_commerce_runtime_policy()["apply_policy"](
+        _drop_empty(config), getattr(args, "scope_commerce_policy", {})
+    )
 
 
 def _split_production_drive_candidate_config(
@@ -476,6 +407,26 @@ _NWS_V4_KEY_SOURCE_BY_PROJECT: dict[str, str] = {
     "hushh-pda-uat": "nws-hushh-research-v4-api-key-uat",
     "hushh-pda": "nws-hushh-research-v4-api-key-prod",
 }
+
+
+# Connect Azure, per lane: dev only until byoc-azure.md's admission bar has live
+# evidence. Public identifiers, not secrets; the sign-in return follows the origin.
+_AZURE_OWNER_CLOUD_BY_PROJECT: dict[str, dict[str, str]] = {
+    "hushh-pda-dev": {
+        "hussh_azure_app_client_id": "4c6a5fc7-d4da-4061-ad27-b95fb125237b",
+        "hussh_azure_broker_sa": "hussh-azure-broker@hushh-pda-dev.iam.gserviceaccount.com",
+        "hussh_pod_image_reader_sa": "hussh-pod-image-reader@hushh-pda-dev.iam.gserviceaccount.com",
+        "hussh_azure_pod_image_repository": "us-central1-docker.pkg.dev/hushh-pda-dev/one-pod-release/consent-protocol-pod",
+    },
+}
+
+
+def _azure_owner_cloud_config(project: str, app_frontend_origin: str) -> dict[str, str]:
+    lane = _AZURE_OWNER_CLOUD_BY_PROJECT.get(project)
+    if not lane:
+        return {}
+    origin = _canonical_frontend_origin(app_frontend_origin)
+    return {**lane, "hussh_azure_oauth_redirect_uri": f"{origin}{AZURE_OAUTH_RETURN_PATH}"}
 
 
 def _mirror_directory_key(
@@ -586,6 +537,7 @@ def main() -> int:
         "--connector-production-all-users", default="false", choices=["true", "false"]
     )
     parser.add_argument("--production-drive-candidate-secret", default="")
+    _scope_commerce_runtime_policy()["register_arguments"](parser)
     # Nearby check-in admission. Blank leaves the flow closed in production and
     # unchanged everywhere else; `_drop_empty` keeps an unset flag out of the
     # config entirely rather than writing an empty string the gate would have to
@@ -679,18 +631,22 @@ def main() -> int:
     args = parser.parse_args()
     try:
         _validate_connector_rollout(args)
+        retained_runtime_config = _scope_commerce_runtime_policy()["_read_existing_runtime_config"](
+            args.project, _run, _secret_exists
+        )
+        retained_settings = _runtime_config_retention["retained_settings"](
+            retained_runtime_config, project=args.project, environment=args.environment
+        )
+        args.scope_commerce_policy = _scope_commerce_runtime_policy()["policy_for_args"](
+            args, _run, _secret_exists, _canonical_frontend_origin,
+            existing_runtime_config=retained_runtime_config,
+        )
     except ValueError as exc:
         parser.error(str(exc))
 
-    canonical_passkey_rp_ids = _canonical_passkey_allowed_rp_ids(args.app_frontend_origin)
-    if args.passkey_allowed_rp_ids and _normalize_passkey_rp_ids(
-        args.passkey_allowed_rp_ids
-    ) != _normalize_passkey_rp_ids(canonical_passkey_rp_ids):
-        parser.error(
-            "--passkey-allowed-rp-ids must contain only localhost, 127.0.0.1, "
-            "and the APP_FRONTEND_ORIGIN host with its declared same-environment alias"
-        )
-    args.passkey_allowed_rp_ids = canonical_passkey_rp_ids
+    _scope_commerce_runtime_policy()["validate_passkey_origin"](
+        args, parser, _canonical_passkey_allowed_rp_ids, _normalize_passkey_rp_ids
+    )
     args.cors_allowed_origins = _cors_with_frontend_aliases(
         args.app_frontend_origin, args.cors_allowed_origins
     )
@@ -750,28 +706,13 @@ def main() -> int:
 
     sync_summary.extend(_sync_oauth_redirects(args.project, args.app_frontend_origin))
 
-    backend_runtime_config = _build_backend_runtime_config(args)
-    existing_runtime_json = _read_secret(args.project, "BACKEND_RUNTIME_CONFIG_JSON")
-    if existing_runtime_json:
-        existing_runtime_config = json.loads(existing_runtime_json)
-        if not isinstance(existing_runtime_config, dict):
-            raise ValueError("Backend runtime config must be a JSON object")
-        backend_runtime_config.update(
-            _retained_referral_config(
-                existing_runtime_config,
-                project=args.project,
-                environment=args.environment,
-            )
-        )
-        backend_runtime_config.update(
-            _retained_plg_config(
-                existing_runtime_config,
-                project=args.project,
-                environment=args.environment,
-            )
-        )
-    backend_runtime_config, candidate_runtime_config = (
-        _split_production_drive_candidate_config(args, backend_runtime_config)
+    config = _build_backend_runtime_config(args)
+    config.update(retained_settings)
+    config = run_path(str(Path(__file__).with_name("shared_files_runtime_policy.py")))[
+        "apply_policy"
+    ](config, retained_runtime_config if args.environment == "dev" else {})
+    backend_runtime_config, candidate_runtime_config = _split_production_drive_candidate_config(
+        args, config
     )
     if candidate_runtime_config is None:
         _upsert_secret(

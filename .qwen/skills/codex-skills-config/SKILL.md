@@ -30,7 +30,7 @@ This skill activates automatically when the user's prompt or changed paths touch
 ```
 User Prompt
     ↓
-Token-score against .codex/skills/* + .codex/workflows/* + .codex/agents/*
+Token-score against .agents/skills/* + .agents/workflows/* + .agents/subagents/*
     ↓
 Exact match wins → score wins → catalog
     ↓
@@ -68,9 +68,9 @@ When `.codex/` is unreachable (tests, isolated invocations):
 ### Step 1 — Check for exact match
 
 ```bash
-# Walk .codex/skills/*/SKILL.md frontmatter (name field)
-# Walk .codex/workflows/*/workflow.json (id field)
-# Walk .codex/agents/*.toml (name field)
+# Walk .agents/skills/*/SKILL.md frontmatter (name field)
+# Walk .agents/workflows/*/workflow.json (id field)
+# Walk .agents/subagents/*.toml (name field)
 # Case-insensitive exact match against user prompt (trimmed)
 # If prefix match yields exactly one → use it
 ```
@@ -163,7 +163,7 @@ New evidence surfaces: trust boundary, schema migration, generated contract, dep
 ### Delegation command:
 
 ```bash
-python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.py \
+python3 .agents/skills/agent-orchestration-governance/scripts/delegation_router.py \
   --workflow <workflow-id> --phase start|mid \
   --prompt "<user request>" --paths "<comma-separated paths>" --text
 ```
@@ -207,7 +207,7 @@ No strong match (top score < 10). Surface the catalog. Pick by description, re-i
 
 ### An agent briefing (NOT instructions to execute)
 
-The matched entry is a repo-scoped custom agent (under `.codex/agents/`). Treat it as a **delegation lane**, not instructions to execute directly:
+The matched entry is a repo-scoped custom agent (under `agents/`). Treat it as a **delegation lane**, not instructions to execute directly:
 
 1. Run the project delegation checkpoint from `AGENTS.md` before deciding.
 2. If a repo workflow or global policy authorizes read-only evidence lanes and the checkpoint passes, invoke the relevant agent lane without a separate user confirmation.
@@ -224,14 +224,14 @@ Surface findings to the user. Don't auto-fix — `--check` is a health report, n
 
 ```
 # For routing (read-only):
-Read   → .codex/skills/*/SKILL.md, .codex/workflows/*/workflow.json, .codex/agents/*.toml
+Read   → .agents/skills/*/SKILL.md, .agents/workflows/*/workflow.json, .agents/subagents/*.toml
 Grep   → Search for skill names, workflow IDs, agent names in prompts
 Glob   → Discover .codex/ tree structure
 
 # For execution (after routing):
 Bash   → python3 .codex/scripts/route.py <args>
-Bash   → python3 .codex/skills/*/scripts/*.py (skill-specific checks)
-Bash   → python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.py
+Bash   → python3 .agents/skills/*/scripts/*.py (skill-specific checks)
+Bash   → python3 .agents/skills/agent-orchestration-governance/scripts/delegation_router.py
 ```
 
 ### Vision capabilities
@@ -323,8 +323,8 @@ Dual-label terminology contract — lead with founder terms for architecture mea
 
 ### Agent Fleet
 ```bash
-python3 .codex/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py --text
-python3 .codex/skills/agent-orchestration-governance/scripts/agent_router_smoke.py
+python3 .agents/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py --text
+python3 .agents/skills/agent-orchestration-governance/scripts/agent_router_smoke.py
 ```
 
 ### Documentation
@@ -345,17 +345,17 @@ python3 .codex/skills/agent-orchestration-governance/scripts/agent_router_smoke.
 | `AGENTS.md` | Project-wide delegation checkpoint + authority boundary |
 | `.claude/skills/codex-bridge/SKILL.md` | Codex Bridge skill (routing entry point) |
 | `.codex/config.toml` | Global agent limits |
-| `.codex/agents/governor.toml` | Top-level orchestration agent |
-| `.codex/agents/reviewer.toml` | Correctness/risk reviewer |
-| `.codex/agents/security_consent_auditor.toml` | Trust-boundary auditor |
-| `.codex/skills/agent-orchestration-governance/SKILL.md` | Agent orchestration governance |
-| `.codex/skills/agent-orchestration-governance/scripts/delegation_router.py` | Delegation decision engine |
-| `.codex/skills/repo-context/SKILL.md` | Repo orientation + routing |
-| `.codex/skills/codex-skill-authoring/SKILL.md` | Skill creation/retrofitting |
-| `.codex/skills/codex-skill-authoring/references/skill-contract.md` | Skill contract specification |
-| `.codex/skills/agent-orchestration-governance/references/delegation-contract.md` | Delegation policy |
-| `.codex/skills/repo-context/references/ownership-map.md` | Owner/spoke routing map |
-| `.codex/skills/repo-context/references/index-contract.md` | Repo context index contract |
+| `.agents/subagents/governor.toml` | Top-level orchestration agent |
+| `.agents/subagents/reviewer.toml` | Correctness/risk reviewer |
+| `.agents/subagents/security_consent_auditor.toml` | Trust-boundary auditor |
+| `.agents/skills/agent-orchestration-governance/SKILL.md` | Agent orchestration governance |
+| `.agents/skills/agent-orchestration-governance/scripts/delegation_router.py` | Delegation decision engine |
+| `.agents/skills/repo-context/SKILL.md` | Repo orientation + routing |
+| `.agents/skills/codex-skill-authoring/SKILL.md` | Skill creation/retrofitting |
+| `.agents/skills/codex-skill-authoring/references/skill-contract.md` | Skill contract specification |
+| `.agents/skills/agent-orchestration-governance/references/delegation-contract.md` | Delegation policy |
+| `.agents/skills/repo-context/references/ownership-map.md` | Owner/spoke routing map |
+| `.agents/skills/repo-context/references/index-contract.md` | Repo context index contract |
 | `docs/reference/architecture/architecture.md` | Seven-layer platform architecture |
 | `docs/reference/architecture/founder-language-matrix.md` | Terminology contract |
 | `docs/reference/operations/branch-governance.md` | Branch + deploy governance |
@@ -371,7 +371,7 @@ python3 .codex/skills/agent-orchestration-governance/scripts/agent_router_smoke.
 
 To adapt this system to another repo:
 
-1. **Copy the structure:** `.codex/skills/`, `.codex/workflows/`, `.codex/agents/`, `.codex/config.toml`
+1. **Copy the structure:** `.agents/skills/`, `.agents/workflows/`, `agents/`, `.codex/config.toml`
 2. **Define your owner skills:** One per major domain in your project
 3. **Define your spoke skills:** Narrow paths within each owner
 4. **Define your workflows:** Recurring execution shapes as `workflow.json` + `PLAYBOOK.md`

@@ -481,3 +481,70 @@ async def test_connections_ambiguity_preserves_choices_without_legacy_mutation_r
     }
     assert "alex-1" not in result.text and "alex-2" not in result.text
     assert "selected" not in result.directive.payload and "op" not in result.directive.payload
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("revoke_during_read", [False, True])
+async def test_private_nav_uses_scoped_port_and_rechecks_owner_before_answer(
+    monkeypatch, revoke_during_read
+):
+    from dataclasses import replace
+
+    from hushh_mcp.services import pod_consent_client
+
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
+    monkeypatch.setattr(
+        "hushh_mcp.adk_bridge.nav_agent.validate_a2a_consent_token_with_db",
+        lambda *args: pytest.fail("private invocation reached hub token database"),
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.agents.nav.tools.ConsentCenterService",
+        lambda: pytest.fail("private tool constructed shared information service"),
+    )
+    active = True
+    reads = []
+
+    async def admit(owner, token):
+        if not active or owner != "user_nav" or token != "synthetic-local-session":
+            raise PermissionError("Private Nav owner unavailable")
+        return 9999999999999
+
+    async def require_read(request):
+        await admit(request.user_id, request.consent_token)
+
+    async def scope(token, *, expected_scope, user_id, **kwargs):
+        assert token == "synthetic-nav-grant"
+        assert expected_scope == "agent.nav.review" and user_id == "user_nav"
+
+    class ReadPort:
+        async def list_center(self, owner, **kwargs):
+            nonlocal active
+            assert owner == "user_nav"
+            reads.append(kwargs["surface"])
+            if revoke_during_read:
+                active = False
+            return {"items": [], "total": 0}
+
+    monkeypatch.setattr(pod_consent_client, "require_owner_scope", scope)
+    request = replace(
+        _connections_task(),
+        specialist_target="consent",
+        consent_token="synthetic-local-session",  # noqa: S106 - synthetic local session
+    )
+    agent = NavAgent(
+        model=scripted("list_active_consent_grants", "No active sharing."),
+        consent_service=ReadPort(),
+        admit_owner=admit,
+        require_read=require_read,
+        scope_tokens={"agent.nav.review": "synthetic-nav-grant"},
+    )
+    if revoke_during_read:
+        with pytest.raises(PermissionError, match="owner unavailable"):
+            await agent.handle(request)
+    else:
+        result = await agent.handle(request)
+        assert result.text == "No active sharing."
+    assert reads == ["active"]
+    with pytest.raises(PermissionError):
+        await agent.handle(replace(request, user_id="foreign"))
+    assert reads == ["active"]

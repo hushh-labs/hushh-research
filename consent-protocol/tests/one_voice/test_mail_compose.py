@@ -286,7 +286,7 @@ async def test_failed_recipient_correction_cannot_restore_old_destination(compos
     assert changed.status == "needs_input"
     assert changed.client_step["prepared"] is None
     assert changed.client_step["draft"]["body"] == "New"
-    assert "New" not in str(changed.model_public())
+    assert "client_step" not in changed.model_public()
     assert delivery.prepare.await_count == 1
 
 

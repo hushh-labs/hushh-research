@@ -9,7 +9,7 @@
 // on this branch. Change the code and this text together. When the text
 // changes, bump `version` and `lastUpdated`.
 
-import { DRIVE_AZURE_DEFAULT_DISCLOSURE } from "./private-text-disclosure";
+import { UAT_MANAGED_TEXT_DISCLOSURE } from "./private-text-disclosure";
 
 export type LegalDocumentType = "privacy" | "terms";
 
@@ -50,9 +50,9 @@ const GOOGLE_PERMISSIONS_URL = "https://myaccount.google.com/permissions";
 const LAST_UPDATED = "2026-10-16";
 const LAST_UPDATED_LABEL = "October 16, 2026";
 const VERSION = "2.4";
-const PRIVACY_LAST_UPDATED = "2026-10-21";
-const PRIVACY_LAST_UPDATED_LABEL = "October 21, 2026";
-const PRIVACY_VERSION = "2.10";
+const PRIVACY_LAST_UPDATED = "2026-10-22";
+const PRIVACY_LAST_UPDATED_LABEL = "October 22, 2026";
+const PRIVACY_VERSION = "2.11";
 
 const p = (...text: LegalInline[]): LegalBlock => ({ kind: "p", text });
 const h = (text: string): LegalBlock => ({ kind: "h", text });
@@ -60,7 +60,10 @@ const list = (...items: (string | LegalInline[])[]): LegalBlock => ({
   kind: "list",
   items: items.map((item) => (typeof item === "string" ? [item] : item)),
 });
-const mail = { text: LEGAL_CONTACT_EMAIL, href: `mailto:${LEGAL_CONTACT_EMAIL}` };
+const mail = {
+  text: LEGAL_CONTACT_EMAIL,
+  href: `mailto:${LEGAL_CONTACT_EMAIL}`,
+};
 const privacyMail = {
   text: LEGAL_PRIVACY_EMAIL,
   href: `mailto:${LEGAL_PRIVACY_EMAIL}`,
@@ -169,18 +172,19 @@ const PRIVACY_SECTIONS: LegalSection[] = [
     title: "How One uses AI models",
     blocks: [
       p(
-        "Outside UAT managed text processing, One normally answers you with Google Gemini, running on Google Cloud Vertex AI. For each request, the model receives what that request needs: your message, relevant parts of your conversation, and, when relevant or when you ask, your memories and information from connected services or from people who shared with you. That can include sensitive information. During background Drive preparation, the model also receives document text or page images to extract facts, check coverage and prepare private packets.",
+        "Outside UAT managed text processing, Shared uses Google Gemini. A private agent uses the AI connection you select, including the supported Google or Microsoft Azure connection. For each request, the model receives what that request needs: your message, relevant parts of your conversation, and, when relevant or when you ask, your memories and information from connected services or from people who shared with you. That can include sensitive information you asked One to use. During background Drive preparation, the model also receives document text or page images to extract facts, check coverage and prepare private packets.",
       ),
       list(
-        "Google processes these requests as our service provider under Google Cloud’s terms. Requests may be processed in any Google Cloud location, including the United States and the European Union.",
-        "For One's regular web searches and Personal World Model research outside UAT, it uses Google Search through Vertex AI. A regular web search can include your approximate location if you shared it with that request.",
+        "Google processes Gemini requests as our service provider under Google Cloud’s terms. Those requests may be processed in any Google Cloud location, including the United States and the European Union.",
+        "Where your selected AI connection supports Google Search, One uses it when searching the web for you. The search can include your approximate location if you shared it with that request.",
         "In Settings you can instead connect One to Gemini with your own key or your own Google Cloud project. Requests then go to Google under your own account, in the location you choose. Your key is stored in your vault.",
+        "If you run your private agent in your own Microsoft Azure subscription, it can answer you with an Azure OpenAI model deployed in that subscription. Requests then go to Microsoft under your own Azure account and Microsoft’s terms, and Microsoft may process them in other Azure locations, depending on how the model is deployed.",
         "Where voice mode is available, your speech is streamed to Google’s Gemini Live model on Google Cloud Vertex AI in the United States, which transcribes it to understand and answer you. We do not store your audio or a transcript; we keep a short-lived session record, without your words, for up to two hours.",
         "If you use Siri to ask One something or to send an alert, Apple processes that request under Apple’s own terms before handing it to One.",
         "Hussh does not use your information, your memories, or your connected services’ information to train AI models.",
       ),
       h("Managed text processing in UAT"),
-      ...DRIVE_AZURE_DEFAULT_DISCLOSURE.map(text => p(text)),
+      ...UAT_MANAGED_TEXT_DISCLOSURE.map(text => p(text)),
       p("The earlier optional Azure pilot has been replaced by this administrator policy in UAT. Historical personal approval records remain historical; the administrator rollout does not create or alter them."),
       h("Personal World Model public research in UAT"),
       p(
@@ -267,13 +271,19 @@ const PRIVACY_SECTIONS: LegalSection[] = [
       h("Disconnecting"),
       p(
         "You can disconnect in Profile, Connectors. Disconnecting Gmail deletes its tokens and stored receipts and revokes One’s access at Google. Disconnecting a single Google service stops One using it; to revoke all of One’s Google access, disconnect your Google account in One or at ",
-        { text: "myaccount.google.com/permissions", href: GOOGLE_PERMISSIONS_URL },
+        {
+          text: "myaccount.google.com/permissions",
+          href: GOOGLE_PERMISSIONS_URL,
+        },
         ". If One shared a Drive file for you, deleting your account does not undo that sharing in Drive.",
       ),
       h("Google API Services User Data Policy: Limited Use"),
       p(
         "Hussh One’s use and transfer to any other app of information received from Google APIs will adhere to the ",
-        { text: "Google API Services User Data Policy", href: LIMITED_USE_POLICY_URL },
+        {
+          text: "Google API Services User Data Policy",
+          href: LIMITED_USE_POLICY_URL,
+        },
         ", including the Limited Use requirements. In particular:",
       ),
       list(
@@ -354,10 +364,10 @@ const PRIVACY_SECTIONS: LegalSection[] = [
         "We do not sell your information or share it for advertising. We share it only in these cases:",
       ),
       list(
-        "Service providers that run One for us, under contracts that limit their use of it: Google Cloud (hosting, database, logging, and Vertex AI, including Gemini and Google Search), Microsoft Azure AI (managed One text chat and document-request planning, plus older document-assessment flows under the UAT administrator policy, and Personal World Model research you turn on in UAT), Google Firebase (sign-in, text-message codes, notifications, and app analytics), Google Analytics and Google Tag Manager, Google Maps Platform (places, addresses, and travel times), Apple (Sign in with Apple, notifications, Siri, and Apple Wallet cards you choose to add), and Plaid (bank connections you make). Email we send for you or to you, such as emergency alerts, goes through our own mail service using Google.",
+        "Service providers that run One for us, under contracts that limit their use of it: Google Cloud (hosting, database, logging, and Vertex AI, including Gemini and Google Search), Microsoft Azure AI (owner-authorized sign-in and resource management for your private agent in Azure, managed One text chat and document-request planning, plus older document-assessment flows under the UAT administrator policy, and Personal World Model research you turn on in UAT), Google Firebase (sign-in, text-message codes, notifications, and app analytics), Google Analytics and Google Tag Manager, Google Maps Platform (places, addresses, and travel times), Apple (Sign in with Apple, notifications, Siri, and Apple Wallet cards you choose to add), and Plaid (bank connections you make). Email we send for you or to you, such as emergency alerts, goes through our own mail service using Google.",
         "Bing web search, only when you turn on UAT Personal World Model research. It is governed by Microsoft's separate terms and Privacy Statement; the Azure Data Protection Addendum does not apply to Bing search data.",
         "Market-information providers, which receive only the company or ticker you ask Kai about, as described above.",
-        "Providers you choose. When you connect a service, add your own tool, or use your own model key, information goes to that provider to do what you asked.",
+        "Providers you choose. When you connect a service, add your own tool, use your own model key, or run your private agent in your own cloud (your own Google Cloud project or Microsoft Azure subscription), information goes to that provider to do what you asked.",
         "People and businesses you approve, as described above.",
         "Legal reasons. If we reasonably believe disclosure is needed to comply with law, legal process, or an enforceable government request, to protect the safety or rights of any person, or to detect and prevent fraud or security problems. Information encrypted with your vault key cannot be read by us, so we cannot disclose it in readable form.",
         "Business transfers. If Hussh is involved in a merger, acquisition, or sale of assets, information may be transferred, and this policy will continue to apply to it. We will tell you before that happens.",
@@ -459,7 +469,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
     title: "Where information is processed",
     blocks: [
       p(
-        "Hussh is based in the United States, and One runs on Google Cloud in the United States. Google AI requests may be processed in any Google Cloud location, including the United States and the European Union. Microsoft Azure AI processes managed One text chat and document requests in UAT under the administrator policy; Google Gemini is a bounded fallback for classified temporary Azure model-service failures. Where you separately turn on UAT Personal World Model research, Microsoft Azure AI processes model requests and Bing processes web searches separately; Bing search is outside Azure's compliance and data residency boundary. If you use One from elsewhere, your information may be transferred to and processed in other countries, where privacy laws may differ from those where you live.",
+        "Hussh is based in the United States, and One runs on Google Cloud in the United States. Google AI requests may be processed in any Google Cloud location, including the United States and the European Union. If you run your private agent in your own Google Cloud project or Microsoft Azure subscription, it runs in the location selected there; its AI provider may process requests in other locations depending on your connection. Microsoft Azure AI processes managed One text chat and document requests in UAT under the administrator policy; Google Gemini is a bounded fallback for classified temporary Azure model-service failures. Where you separately turn on UAT Personal World Model research, Microsoft Azure AI processes model requests and Bing processes web searches separately; Bing search is outside Azure's compliance and data residency boundary. If you use One from elsewhere, your information may be transferred to and processed in other countries, where privacy laws may differ from those where you live.",
       ),
     ],
   },
@@ -522,9 +532,7 @@ const TERMS_SECTIONS: LegalSection[] = [
       p(
         "Your vault is encrypted with a key that is created on your device and unlocked with your password, passkey, device biometrics, or recovery key. We never see that key. That is what keeps your vault private, and it also means we cannot reset your password or recover your recovery key. If you lose every way to unlock your vault, the information encrypted with it cannot be recovered by you or by us.",
       ),
-      p(
-        "Do not use anyone else’s account without their permission.",
-      ),
+      p("Do not use anyone else’s account without their permission."),
     ],
   },
   {

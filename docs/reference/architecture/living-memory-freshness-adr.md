@@ -25,7 +25,12 @@ Solid arrows describe the implemented unlocked flow. The dotted journal and devi
 
 For One chat, `one_memory.markdown` is the V1 memory authority. It is one Markdown document inside one client-encrypted PKM domain. The backend stores ciphertext and never receives the vault key. Unlock decrypts the document into process memory, every One turn receives the whole document as private context, and chat memory capture rewrites the encrypted document through the existing conflict-aware coordinator. Vault teardown clears the plaintext session copy and fences late publication.
 
-Existing structured PKM domains remain compatibility sources for Finance, KYC, Consent, and other specialist workflows. When an owner has no `one_memory` document yet, the client starts an empty Markdown document. It does not import specialist inventories into chat memory; those workflows retain their current stores until separately migrated.
+Existing structured PKM domains remain authorities for Finance, KYC, Consent
+and explicit Saved-information workflows. One's conversation recall remains
+Soul-only: a missing document begins with an empty session document, and legacy
+records never seed it. An explicit `pkm.add` retains its resumable structured
+save/review contract for sharing and pricing. Its acknowledgement counts remain
+separate from private-agent memory; no whole PKM packet enters One's prompt.
 
 Chat facts are selected by the existing semantic preparation stage using `soul_markdown_v1`, then silently applied to the RAM document and encrypted through the existing writer. The model supplies a plain attributed bullet and section; corrections/extensions replace an exact offered bullet, and deletions remove it rather than saving the request. No legacy domains are imported. This V1 path has no per-fact confirmation card or automatic-memory switch: while the vault is unlocked, usable durable facts use the product-default authorization record and no capture status is added to chat. Owner identifiers may be retained; passwords, passphrases, API keys, tokens, private keys, PINs and card security codes are omitted. The whole document is bounded to 18,000 characters; reconciliation offers at most 256 bullets without silent truncation.
 
@@ -55,8 +60,8 @@ Profile Live Mirror, the Memory workspace, the private agent's profile sheet and
 | Document earnings | Existing owner-vault document payout earnings endpoint | Live and test partitions, bounded keyset pages and two matching complete scans; request ID, status, gross/refund/net cents and timestamps without description, bank data or provider references. This is owner earnings, not all transactions or requester payments. |
 | Saved Location and visit notes | Existing encrypted Location PKM writers | Stable source IDs, original creation time when known, revision receipts and deletion tombstones; every persisted note retained |
 | To-Do | Existing encrypted one_todos private tasks | Creation/edit/completion/deletion, source ID and record revision; stale completion cannot overwrite an edit or revive a deletion |
-| Memory and eligible specialist sources | Specialist stores remain compatibility inputs to their owning workflows | Chat reads `one_memory.markdown`; an absent document starts empty, without importing specialist inventories |
-| Chat with One | Semantic fact selection plus the encrypted Markdown writer | Explicit and eligible automatic facts create/update/delete flat bullets in one document; credentials are omitted, while owner identifiers may be retained |
+| Memory and eligible specialist sources | Existing encrypted domains remain compatibility inputs | One prompts use private Soul; specialized records remain separate and never seed it |
+| Chat with One | Semantic fact selection plus the encrypted Markdown writer | Background and KYC facts update private Soul; explicit Saved actions retain reviewed scoped jobs; credentials are omitted |
 
 The Consent inventory uses a bounded owner-scoped MVCC equality fence before and after two complete scans. It detects row changes, delete/recreate and effective expiry while paging; it is not a durable owner revision. Reads never settle expiry or modify grants. UI flags and presentation grouping cannot silently remove source records. Authority tokens and provider payloads are excluded from the source projection. Exact private PKM keys survive segmented encrypted storage/readback; neither storage-ID normalization nor a summary may replace the authored complete records.
 

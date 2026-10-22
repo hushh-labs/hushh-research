@@ -20,6 +20,8 @@ export const useChatOnboarding = () => onboarding;
 export const useGmailConnectorStatus = () => ({ status: null, loadingStatus: false, presentation: {} });
 export const useRootChatDeferredReady = () => true;
 export const useOneVoiceLiveEnabled = () => false;
+export const useOneVoiceCommandsEnabled = () => false;
+export const useOneVoiceReadiness = () => ({ status: "unknown", liveEnabled: false, model: null, location: null, wsPath: null, microphoneOwner: "none" } as const);
 export const useEffectiveAvatarUrl = () => null;
 export const useOneDisplayName = () => "One";
 export const useEntryWelcome = () => null;
@@ -28,7 +30,10 @@ const search = new URLSearchParams();
 export const usePathname = () => "/";
 export const useSearchParams = () => search;
 export const useRouter = () => ({ push: () => {}, replace: () => {}, prefetch: () => {} });
-export const AuthService = { getIdToken: user.getIdToken, getCurrentUser: () => user };
+export const AuthService = {
+  getIdToken: async () => location.search.includes("anonymous=1") ? null : user.getIdToken(),
+  getCurrentUser: () => location.search.includes("anonymous=1") ? null : user,
+};
 export const auth = null;
 export const app = null;
 export const prepareRecaptchaVerifier = () => { throw new Error("No authentication mutation in this fixture"); };

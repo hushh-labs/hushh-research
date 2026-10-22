@@ -89,6 +89,9 @@ import { TrustedDocumentRulesView, useTrustedDocumentRules, type TrustedDocument
 import { DriveCollectionView, useDriveCollectionModel, type DriveCollectionModel } from "@/components/agent/drive-collection-panel";
 import { DrivePacketCatalogView, useDrivePacketCatalogModel, useOwnerPacketPageModel, type DrivePacketCatalogModel, type OwnerPacketPageModel } from "@/components/consent/drive-packet-catalog";
 import { CustomConnectorsSettings, type CustomConnectorSettingsModel } from "@/components/agent/custom-connectors-settings";
+import { PrivateOwnerConnectorsPanel } from "@/components/connections/private-owner-connectors-panel";
+import { CatalogConnectorDetails } from "@/components/agent/catalog-connector-details";
+import { ownerContentIsPrivate } from "@/lib/services/private-agent-specialist-chat";
 
 type Props = {
   open: boolean;
@@ -421,6 +424,22 @@ export function ConnectorsPanel(props: Props) {
   const { vaultOwnerToken, vaultKey, getVaultKey, getVaultOwnerToken } = useVault();
   const customAccessIsCurrent = useCallback(() => Boolean(vaultKey && typeof getVaultKey === "function" && typeof getVaultOwnerToken === "function" &&
     getVaultKey() === vaultKey && getVaultOwnerToken()), [getVaultKey, getVaultOwnerToken, vaultKey]);
+  const [resolvedPlacement, setPlacement] = useState<{ owner: string; mode: 'shared' | 'private' | 'unavailable' } | null>(null);
+  const placement = resolvedPlacement?.owner === user?.uid ? resolvedPlacement?.mode : null;
+  useEffect(() => {
+    let active = true;
+    if (!props.open || !user?.uid) return;
+    void ownerContentIsPrivate().then((privateAgent) => {
+      if (active) setPlacement({ owner: user.uid, mode: privateAgent ? 'private' : 'shared' });
+    }, () => { if (active) setPlacement({ owner: user.uid, mode: 'unavailable' }); });
+    return () => { active = false; };
+  }, [props.open, user?.uid]);
+  if (placement !== 'shared') {
+    if (!props.open) return null;
+    if (placement === null) return <p role="status" className="p-4 text-sm">Checking where your agent runs…</p>;
+    if (placement === 'unavailable') return <p role="status" className="p-4 text-sm">Your agent's hosting could not be verified. Try again.</p>;
+    return <PrivateOwnerConnectorsPanel key={`${user?.uid}:${Boolean(vaultOwnerToken)}`} {...props} />;
+  }
   const ownerKey = `${user?.uid ?? "signed-out"}:${Boolean(vaultOwnerToken)}`;
   if (props.render && props.surface === "profile") {
     return <CustomConnectorsSettings key={ownerKey}
@@ -831,7 +850,7 @@ function OwnerConnectorsPanel({
     // A question asked about one connector never follows the person to
     // another: Profile's Back and a native return both move the open
     // connector without passing through the dialog's own Cancel.
-    setConfirm(null);
+    if (confirm !== `curated:${activeConnector}`) setConfirm(null);
     // Picker review owns focus when a native return restores a pending choice.
     if (activeConnector === "google_drive" && pendingSelection.current) return;
     const frame = requestAnimationFrame(() => {
@@ -854,7 +873,7 @@ function OwnerConnectorsPanel({
       else searchRef.current?.focus();
     });
     return () => cancelAnimationFrame(frame);
-  }, [activeConnector, open, surface]);
+  }, [activeConnector, confirm, open, surface]);
   const drive = overview?.connectors.find(
     (item) => item.connectorId === "google_drive",
   );
@@ -1579,15 +1598,11 @@ function OwnerConnectorsPanel({
             throw error;
           }
           if (signal.aborted) {
-            GmailReceiptsService.recordConsentFailure({
-              code: "USER_CANCELLED",
-            }, user.uid);
+            GmailReceiptsService.recordConsentFailure({ code: "USER_CANCELLED" }, user.uid);
             return;
           }
           if (!result.serverAuthCode?.trim()) {
-            const error = new Error(
-              "Google did not return a Mail authorization code.",
-            );
+            const error = new Error("Google did not return a Mail authorization code.");
             GmailReceiptsService.recordConsentFailure(error, user.uid);
             throw error;
           }
@@ -1721,7 +1736,11 @@ function OwnerConnectorsPanel({
       setCalendarBusy(false);
       if (outcome === "connected") calendar.refresh();
       setCalendarMessage(
-        outcome === "connected"
+        outcome === "window_blocked"
+          ? OAUTH_WINDOW_BLOCKED_COPY
+          : outcome === "phone_handoff"
+            ? "Finish connecting Calendar on your phone, then check its connection here."
+            : outcome === "connected"
           ? "Calendar connected."
           : outcome === "failed"
             ? "Could not finish Calendar connection. Try again."
@@ -2272,7 +2291,7 @@ function OwnerConnectorsPanel({
                 ? "Unavailable"
                 : undefined),
           connected: curated ? item.status === "connected" : storedGrant,
-          onOpen: storedGrant || canStartCurated ? () => showConnector(item.connectorId) : undefined,
+          onOpen: storedGrant || canStartCurated || item.stripeReadiness ? () => showConnector(item.connectorId) : undefined,
           pending: disconnecting[item.connectorId] ? "disconnect" : undefined,
           failure: disconnectFailures[item.connectorId],
           action: !curated
@@ -3085,55 +3104,17 @@ function OwnerConnectorsPanel({
               </section>
             )}
             {selectedCatalog && !["google_drive", "gmail", "calendar", "plaid", ...(inProfile ? ["instagram", "linkedin"] : [])].includes(activeConnector ?? "") && (
-              <section className="space-y-3 rounded-xl border border-border p-3" aria-label={`${selectedCatalog.displayName} details`}>
-                <h3 className="font-semibold">{selectedCatalog.displayName}</h3>
-                <p className="text-sm text-muted-foreground">{selectedCatalog.description}</p>
-                {selectedCatalog.accountLabel ? <p className="break-all text-sm">{selectedCatalog.accountLabel}</p> : null}
-                <p role="status" className="text-sm">
-                  {selectedCatalog.curatedOAuth === true &&
-                  !canStartSelectedCurated &&
-                  !["not_connected", "revoked"].includes(selectedCatalog.status)
-                    ? "Unavailable"
-                    : selectedCatalog.curatedOAuth === true &&
-                        selectedCatalog.status === "verifying"
-                      ? "Sign-in needed"
-                    : (labels[selectedCatalog.status] ?? "Status unavailable")}
-                </p>
-                {selectedCatalog.curatedOAuth === true ? (
-                  <>
-                    <div className="flex flex-wrap gap-2">
-                      {canStartSelectedCurated &&
-                      ["not_connected", "revoked", "needs_reauth", "verifying"].includes(selectedCatalog.status) ? (
-                        <Button
-                          className={touch}
-                          disabled={curatedBusy || loading}
-                          onClick={() => connectCurated(selectedCatalog.connectorId, selectedCatalog.displayName)}
-                        >
-                          {["needs_reauth", "verifying"].includes(selectedCatalog.status) ? "Reconnect" : "Connect"}
-                        </Button>
-                      ) : null}
-                      {curatedPopupPending && curatedPopupFor === selectedCatalog.connectorId ? (
-                        <Button className={touch} variant="outline" onClick={() => curatedPopupCancel.current?.abort()}>
-                          Cancel sign-in
-                        </Button>
-                      ) : null}
-                      {!["not_connected", "revoked"].includes(selectedCatalog.status) ? (
-                        <Button
-                          className={touch}
-                          variant="outline"
-                          disabled={curatedBusy}
-                          onClick={() => setConfirm(`curated:${selectedCatalog.connectorId}`)}
-                        >
-                          Disconnect
-                        </Button>
-                      ) : null}
-                    </div>
-                    <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
-                      {curatedBusy ? "Working…" : curatedMessage}
-                    </p>
-                  </>
-                ) : null}
-              </section>
+              <CatalogConnectorDetails connector={selectedCatalog}
+                canStartCurated={canStartSelectedCurated} loading={loading}
+                busy={curatedBusy} message={curatedMessage}
+                popupPending={curatedPopupPending && curatedPopupFor === selectedCatalog.connectorId}
+                onCancelSignIn={() => curatedPopupCancel.current?.abort()}
+                onConnect={() => void connectCurated(selectedCatalog.connectorId, selectedCatalog.displayName)}
+                onDisconnect={() => setConfirm(`curated:${selectedCatalog.connectorId}`)}
+                statusLabel={labels[selectedCatalog.status] ?? "Status unavailable"}
+                access={user?.uid && vaultKey && vaultOwnerToken ? { userId: user.uid, vaultKey, vaultOwnerToken } : null}
+                onPrepareRecovery={onPrepareRecovery}
+              />
             )}
           </div>
         )}

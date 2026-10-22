@@ -19,7 +19,7 @@ from hushh_mcp.services import external_connector_google_oauth as oauth
 
 
 @pytest.fixture
-def service():
+def service(shared_hub_owner):
     return oauth.ExternalConnectorGoogleOAuth(
         db=None, registry=None, credentials=None, state_codec=None, lifecycle=SimpleNamespace()
     )

@@ -44,8 +44,8 @@ describe("Puppy One chat layout", () => {
       "focus-within:pb-[var(--agent-chat-composer-focused-bottom,",
     );
     expect(surface).not.toMatch(/"flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-3/);
-    // One's current reading measure, and no card frame around the conversation.
-    expect(surface).toContain("max-w-3xl");
+    // Match the shell's authored column rather than retaining a second width.
+    expect(surface).toContain("max-w-[var(--app-bottom-shell-max-width)]");
     expect(surface).not.toContain("rounded-2xl border border-border/60 bg-background");
   });
 
@@ -60,11 +60,15 @@ describe("Puppy One chat layout", () => {
 
   it("uses One's compact composer size and type scale", () => {
     const panel = read("components/agent/hermes-chat-panel.tsx");
-    // The shared retained bar owns radius and height for both agents.
-    expect(panel).toContain("<AgentBarSurface");
-    expect(panel).toContain("agent-chat-composer-compact");
+    // Geometry now belongs to One's shared composer classes, not duplicated
+    // Puppy utility values that drift as the retained dock evolves.
+    expect(panel).toContain("<AgentBarSurface embedded={sharedDock}");
+    expect(panel).toContain("agent-chat-composer-surface agent-chat-composer-compact");
     expect(panel).toContain("agent-chat-composer-field");
     expect(panel).toContain("text-[16px]");
+    const styles = read("app/globals.css");
+    expect(styles).toMatch(/\.agent-chat-composer-field\s*\{[^}]*min-height: 2\.75rem;/);
+    expect(styles).toMatch(/\.agent-chat-composer-surface\s*\{[^}]*border-radius: 1\.5rem;/);
     expect(panel).toContain('aria-label="Message Puppy One"');
     // The old 40px bordered field.
     expect(panel).not.toContain("min-h-[2.5rem]");

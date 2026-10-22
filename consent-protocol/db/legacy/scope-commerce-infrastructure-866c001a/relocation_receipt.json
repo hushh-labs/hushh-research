@@ -1,0 +1,106 @@
+{
+  "source_head": "866c001ab80f285969b8895501706a662abbfe0e",
+  "main_head": "60a73734ac79a225ec69595482dace154e44f6d7",
+  "historical_only": true,
+  "database_mutations": false,
+  "ledger_receipt_sha256": "b863e57364b836a6675d2ccaed6fb561d24194eb6726febf14560220f0f8cea1",
+  "observations": [
+    {
+      "lane": "dev",
+      "verified_at": "2026-10-15T19:50:15.164958+00:00",
+      "status": "verified",
+      "read_only": true,
+      "affected_rows": 0,
+      "baseline_count": 0
+    },
+    {
+      "lane": "uat",
+      "verified_at": "2026-10-15T19:50:18.352145+00:00",
+      "status": "verified",
+      "read_only": true,
+      "affected_rows": 0,
+      "baseline_count": 0
+    },
+    {
+      "lane": "production",
+      "verified_at": "2026-10-15T19:50:21.202979+00:00",
+      "status": "verified",
+      "read_only": true,
+      "affected_rows": 0,
+      "baseline_count": 0
+    }
+  ],
+  "active_head": 406,
+  "relocation": [
+    {
+      "source": "350_vault_environment_enrollment.sql",
+      "active": "400_vault_environment_enrollment.sql",
+      "sha256": "9f1fe45a135fe21b591288e6101bd8731d853a51f856d9bc96c4267d617785aa"
+    },
+    {
+      "source": "rollback/350_vault_environment_enrollment.rollback.sql",
+      "active": "rollback/400_vault_environment_enrollment.rollback.sql",
+      "sha256": "2cf4895d3c3562e7e52f9741bbc5c0c968fd61fb832695f29398118becdd2130"
+    },
+    {
+      "source": "351_consumer_scope_commerce.sql",
+      "active": "401_consumer_scope_commerce.sql",
+      "sha256": "153b30ae338b61fac9e9db361dd2eb5b6c5e73bef53a11c7ede3e917e980cb05"
+    },
+    {
+      "source": "rollback/351_consumer_scope_commerce.rollback.sql",
+      "active": "rollback/401_consumer_scope_commerce.rollback.sql",
+      "sha256": "69961cc7573cdb22bac6258335e5aae05ae4df75c3448e9243947d4fd20dead6"
+    },
+    {
+      "source": "352_one_shared_hosting_choice.sql",
+      "active": "402_one_shared_hosting_choice.sql",
+      "sha256": "1c92b4957ba8b8684e09c5e0d36fca1c6635f94a7e51184024c5e21bbac8e1d6"
+    },
+    {
+      "source": "rollback/352_one_shared_hosting_choice.rollback.sql",
+      "active": "rollback/402_one_shared_hosting_choice.rollback.sql",
+      "sha256": "6f5bee22d11d452ce5dc607cb2a01c219977a54e8729bde92f8a61c94b3ed115"
+    },
+    {
+      "source": "353_public_profile_bridge.sql",
+      "active": "403_public_profile_bridge.sql",
+      "sha256": "495609d6e515da292a5ec52915ceb7ec090b474a9b28edfcfa6a3c4230120db4"
+    },
+    {
+      "source": "rollback/353_public_profile_bridge.rollback.sql",
+      "active": "rollback/403_public_profile_bridge.rollback.sql",
+      "sha256": "0e61c43e175ed02765491f7bd0c4350b49ca644fd5359b5ba860b8652b6a76fd"
+    },
+    {
+      "source": "354_one_placement_reader_foundation.sql",
+      "active": "404_one_placement_reader_foundation.sql",
+      "sha256": "aad7ce3d059077339eaa5630bf7a916f7fb4460336142c31aac967a00e6f3d6b"
+    },
+    {
+      "source": "rollback/354_one_placement_reader_foundation.rollback.sql",
+      "active": "rollback/404_one_placement_reader_foundation.rollback.sql",
+      "sha256": "74d0bb3284087d333d46f9d6436634ad665d270d8986d8764228d60b78675ecf"
+    },
+    {
+      "source": "355_one_legacy_shared_continuity.sql",
+      "active": "405_one_legacy_shared_continuity.sql",
+      "sha256": "5ef3f5d680e8c9ed07ca96d967be09eea2b6d33410cb0162574ee00d0f26f5f8"
+    },
+    {
+      "source": "rollback/355_one_legacy_shared_continuity.rollback.sql",
+      "active": "rollback/405_one_legacy_shared_continuity.rollback.sql",
+      "sha256": "74d0bb3284087d333d46f9d6436634ad665d270d8986d8764228d60b78675ecf"
+    },
+    {
+      "source": "356_stripe_payout_source_binding.sql",
+      "active": "406_stripe_payout_source_binding.sql",
+      "sha256": "7b0d595ee29b15f854647c23b82ec5b59f0a3a60903bae4afdf947db3d3e33d0"
+    },
+    {
+      "source": "rollback/356_stripe_payout_source_binding.rollback.sql",
+      "active": "rollback/406_stripe_payout_source_binding.rollback.sql",
+      "sha256": "f7f259688b66bac11654aaf573c56d522bd51ebdb6458c1f8918a8da7b994f55"
+    }
+  ]
+}

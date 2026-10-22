@@ -229,8 +229,8 @@ Terminology review gate:
 
 1. Sweep changed docs for founder terms and implementation terms with `rg`.
 2. Confirm the page still contains exact runtime labels where the reader must act on them.
-3. Run `python3 .codex/skills/docs-governance/scripts/doc_inventory.py stale-candidates` before claiming stale docs are cleaned up.
-4. Run `python3 .codex/skills/docs-governance/scripts/doc_inventory.py folders` before claiming a recursive folder restructure is complete.
+3. Run `python3 .agents/skills/docs-governance/scripts/doc_inventory.py stale-candidates` before claiming stale docs are cleaned up.
+4. Run `python3 .agents/skills/docs-governance/scripts/doc_inventory.py folders` before claiming a recursive folder restructure is complete.
 
 Brand review gate:
 

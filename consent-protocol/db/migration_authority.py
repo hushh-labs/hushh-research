@@ -679,6 +679,13 @@ def _replay_drive_cent_prices_sql(entry: MigrationManifestEntryV2) -> str:
 
 
 def _replay_sql(entry: MigrationManifestEntryV2) -> str:
+    from db.private_action_replay import SOURCES, private_action_replay_sql
+
+    if (entry.migration_id, entry.filename) in SOURCES:
+        try:
+            return private_action_replay_sql(entry)
+        except ValueError as exc:
+            raise MigrationAuthorityError(str(exc)) from None
     if entry.migration_id == "329" and entry.filename == "329_drive_request_cent_prices.sql":
         return _replay_drive_cent_prices_sql(entry)
     if entry.migration_id == "361" and entry.filename == "361_system_push_outbox.sql":
@@ -1124,7 +1131,7 @@ async def establish_baseline(
     )
     if environment not in _ALLOWED_BASELINE_ENVIRONMENTS:
         raise MigrationAuthorityError(
-            "Baseline establishment is prohibited outside local/test/UAT environments"
+            "Baseline establishment is prohibited outside local/test/Dev/UAT environments"
         )
     versions = [entry.numeric_version for entry in entries if entry.numeric_version is not None]
     if not versions:

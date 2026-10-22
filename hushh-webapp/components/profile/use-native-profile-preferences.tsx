@@ -73,8 +73,9 @@ export function useNativeProfilePreferences({ enabled, retainDraft, onGemini, on
     ["haptics-on", () => changeHaptics(true)], ["haptics-off", () => changeHaptics(false)],
     ["preferences-gemini", onGemini], ["preferences-voice", onVoice], ["preferences-style", () => setStyleOpen(true)],
   ]);
-  return { page, rows, editor: (destinationId?: string) => enabled && styleOpen && destinationId ?
-    <NativeStyleSheet model={style} plugin={nativeDrawers as typeof nativeDrawers & NativeProfileStyleScenePort}
+  return { page, rows, formScene: enabled && styleOpen ? "writing-style" as const : null,
+    editor: (destinationId?: string) => enabled && styleOpen && destinationId ?
+    <NativeStyleSheet model={style} plugin={nativeDrawers() as ReturnType<typeof nativeDrawers> & NativeProfileStyleScenePort}
       destinationId={destinationId} onClose={() => setStyleOpen(false)} onFallback={() => {
         setStyleOpen(false); toast.error("Writing style couldn’t open. Please try again.");
       }} /> : null };

@@ -2237,7 +2237,7 @@ export default function ConnectPageClient() {
       title: "Connect",
       purpose:
         "This screen finds people, sends connection requests, and manages who you are connected to.",
-      // The subjects here are people, by name and email. None of that is safe
+      // The subjects here are people, by name. None of that is safe
       // to say aloud, so this screen names only itself.
       primaryEntity: null,
       selectedEntity: null,

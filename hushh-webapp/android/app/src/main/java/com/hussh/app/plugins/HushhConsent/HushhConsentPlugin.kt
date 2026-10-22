@@ -651,6 +651,7 @@ class HushhConsentPlugin : Plugin() {
         val sourceContentRevision = call.getInt("sourceContentRevision")
         val sourceManifestRevision = call.getInt("sourceManifestRevision")
         val durationHours = call.getInt("durationHours")
+        val modelProcessingAllowed = call.getBoolean("modelProcessingAllowed", false) ?: false
         val exportEnvelope = call.getObject("exportEnvelope")
         val userId = call.getString("userId") // Optional, but good context
 
@@ -680,6 +681,7 @@ class HushhConsentPlugin : Plugin() {
                     if (sourceContentRevision != null) put("sourceContentRevision", sourceContentRevision)
                     if (sourceManifestRevision != null) put("sourceManifestRevision", sourceManifestRevision)
                     if (durationHours != null) put("durationHours", durationHours)
+                    put("modelProcessingAllowed", modelProcessingAllowed)
                     if (exportEnvelope != null) put("exportEnvelope", exportEnvelope)
                 }
                 

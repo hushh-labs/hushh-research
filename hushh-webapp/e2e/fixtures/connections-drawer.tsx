@@ -19,6 +19,7 @@ import type { AgentChatConversation } from "../../lib/services/agent-chat-client
 import { HistoryConnectorsPage } from "../../components/agent/history-connectors-page";
 import { registerChatConnectorRecoveryHost } from "../../lib/agent/drive-oauth-chat-recovery";
 import { ProfileConnectorsSection } from "../../components/profile/profile-connectors-section";
+import { ShellActionSurface } from "../../components/app-ui/shell-action-surface";
 import { AppPageShell } from "../../components/app-ui/app-page-shell";
 import { NativeHistoryClose, NativeHistoryOpener } from "../../components/app-ui/native-chat-chrome";
 import { SettingsPresentationProvider } from "../../components/profile/settings-ui";
@@ -286,13 +287,15 @@ function Fixture() {
       >
         Open drawer
       </button> : null}
-      {new URLSearchParams(window.location.search).has("one-profile") ? <div
-        data-agent-chat-header-region="identity" className={__ONE_HEADER_IDENTITY_CLASS__}>
-        <div data-agent-chat-brand-tile className="grid h-11 w-11 shrink-0 place-items-center"><button
-        type="button" data-testid="one-presence-header" data-agent-chat-one-profile-trigger aria-label="Open One profile"
-        ref={oneProfileTrigger} className={__ONE_PROFILE_TRIGGER_CLASS__} onClick={() => setOneProfileOpen(true)}>
-        <OnePresenceAvatar state={onePresenceState} className="size-8 shrink-0" />
-      </button></div><div className="min-w-0"><div data-one-presence-name className={__ONE_HEADER_NAME_CLASS__}>One</div></div>
+      {new URLSearchParams(window.location.search).has("one-profile") ? <div className="agent-chat-header" data-one-centered-header="true">
+        <div data-agent-chat-header-region="identity" className={__ONE_HEADER_IDENTITY_CLASS__}><div data-agent-chat-brand-tile>
+          <ShellActionSurface variant="icon" data-testid="one-presence-header" data-agent-chat-one-profile-trigger
+            ripple={false}
+            aria-label="Open One profile" ref={oneProfileTrigger} className={__ONE_PROFILE_TRIGGER_CLASS__}
+            onClick={() => setOneProfileOpen(true)}>
+            <OnePresenceAvatar state={onePresenceState} className="size-8 shrink-0" />
+          </ShellActionSurface>
+        </div><div className="min-w-0"><div data-one-presence-name className={__ONE_HEADER_NAME_CLASS__}>One</div></div></div>
       </div> : null}
       </header>
       <OneAgentProfileSheet presenceState={onePresenceState} open={oneProfileOpen} onOpenChange={setOneProfileOpen} triggerRef={oneProfileTrigger} />
@@ -308,7 +311,7 @@ function Fixture() {
           <AgentHistorySidebar
             driveActivity={location.search.includes("drive-sharing") ? <DriveRecentSharing presentation="sidebar" active={open} /> : undefined}
             conversations={historyRows}
-            activeConversationId={historyRows[0]?.id ?? null}
+            activeConversationId={historyRows[0]?.id === "history-one" ? "history-one" : null}
             onCreateNew={() => { newChatRequests.current += 1; }}
             onSelectConversation={id => { historySelections.current.push(id); changeOpen(false); }}
             onRenameConversation={() => {}}

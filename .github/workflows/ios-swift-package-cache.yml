@@ -1,4 +1,4 @@
-name: "iOS Swift Package Cache"
+name: "Warm iOS Dependency Cache"
 
 # Saves the Swift package clone directory that PR Validation's iOS Native
 # (Xcode) lane restores before `xcodebuild -resolvePackageDependencies`.

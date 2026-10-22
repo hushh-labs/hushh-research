@@ -1,5 +1,6 @@
 "use client";
 
+import { consentSummary } from "@/lib/feed/feed-consent-summary";
 import { isAnswerRequestEntry } from "@/lib/consent/answer-request-consent";
 import { AnswerRequestService } from "@/lib/services/answer-request-service";
 import { AuthService } from "@/lib/services/auth-service";
@@ -70,6 +71,7 @@ import {
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { feedDeviceOnlySosClearStorageKey } from "@/lib/feed/feed-clear-watermark";
 import { FeedService } from "@/lib/services/feed-service";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { periodConflictNote } from "@/lib/consent/document-request-flow";
 import {
@@ -117,10 +119,6 @@ import {
   useOwnerConsentDecision,
   type OwnerConsentUnlockPrompt,
 } from "@/lib/consent/use-owner-consent-decision";
-import {
-  isLocationConsent,
-  locationConsentSummary,
-} from "@/lib/consent/location-consent";
 import { OneLocationService } from "@/lib/one-location/service";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { isAndroid } from "@/lib/capacitor/platform";
@@ -139,6 +137,9 @@ import {
   type ConnectionRequest,
 } from "@/lib/services/connections-service";
 import { buildKaiMarketRoute } from "@/lib/navigation/routes";
+import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
+import { useAgentUpdateFeedCard } from "@/lib/feed/agent-update-feed-card";
+import type { AgentUpdateStatus } from "@/lib/feed/agent-update-status";
 import type { AgentTodo } from "@/lib/services/todo-list-pkm-service";
 
 /**
@@ -199,6 +200,7 @@ export interface FeedActionable {
   spinning?: boolean;
   title: string;
   description: string;
+  updateProgress?: AgentUpdateStatus;
   /** Whole-row link (e.g. consent Review deep-link). */
   href?: string | null;
   /** Whole-row imperative action (e.g. resume a running debate). */
@@ -459,20 +461,6 @@ function toDisplayTimestamp(value?: string | number | null): number | null {
   return ts > 0 ? ts : null;
 }
 
-function consentSummary(entry: ConsentCenterEntry): string {
-  if (entry.kind === "invite") return "Invitation waiting for your approval.";
-  if (isLocationConsent(entry.metadata, entry.scope)) {
-    return locationConsentSummary(entry.metadata);
-  }
-  return (
-    entry.additional_access_summary ||
-    entry.scope_description ||
-    entry.reason ||
-    entry.scope ||
-    "A new consent request needs your review."
-  );
-}
-
 /**
  * A pending location access request is actionable in the viewer's "Needs you"
  * feed only when the viewer OWNS the request (location is being asked for)
@@ -598,6 +586,14 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
   const { vaultOwnerToken: ownerToken, getVaultOwnerToken } = useVault();
   const vaultOwnerToken = enabled ? ownerToken : null;
   const userId = enabled ? user?.uid ?? null : null;
+  const agentFollow = useAgentDeploymentFollow({ enabled: Boolean(userId), userId });
+  const agentUpdateCard = useAgentUpdateFeedCard({
+    userId,
+    update: agentFollow.update,
+    deploymentTarget: agentFollow.deploymentTarget,
+    availableVersion: agentFollow.status?.availableRelease?.version ?? null,
+    onResolved: notifyFeedActionResolved,
+  });
   const authGeneration = getAuthSessionGeneration();
   const consentReadLifecycle = {
     requestScope: `consent:${authGeneration}`,
@@ -1501,8 +1497,13 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
   // Copy device-only clears to the server, then forget the copied ids here.
   // If the copy fails, the list stays hidden and is retried on a later visit.
   useEffect(() => {
-    if (!userId || !vaultOwnerToken || !receivedGrants) return;
-    if (deviceOnlySmsCopyRef.current === userId) return;
+    if (!userId || !vaultOwnerToken || !receivedGrants || shouldSkipReviewerBackgroundWritesForAutomation()) return;
+    const scope = checkoutScope.current;
+    const epoch = snapshotVaultSessionEpoch();
+    const isEffectCurrent = () => scope !== null && scope.userId === userId && checkoutScope.current === scope &&
+      isVaultSessionEpochCurrent(epoch) && getVaultOwnerToken() === vaultOwnerToken &&
+      !shouldSkipReviewerBackgroundWritesForAutomation();
+    if (!isEffectCurrent() || deviceOnlySmsCopyRef.current === userId) return;
     const deviceOnly = readDeviceOnlySmsClearIds(userId);
     if (deviceOnly.size === 0) return;
     deviceOnlySmsCopyRef.current = userId;
@@ -1517,24 +1518,28 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
       .map((grant) => grant.id);
     void (async () => {
       try {
+        if (!isEffectCurrent()) return;
         if (grantIds.length > 0) {
           const cleared = await FeedService.clearSosCards({
             vaultOwnerToken,
             grantIds,
+            isEffectCurrent,
           });
+          if (!isEffectCurrent()) return;
           setServerClearedSmsIds((current) => new Set([...current, ...cleared]));
         }
-        forgetDeviceOnlySmsClearIds(userId, deviceOnly);
+        if (isEffectCurrent()) forgetDeviceOnlySmsClearIds(userId, deviceOnly);
       } catch {
         // The device list stays hidden here until a later visit copies it.
       }
     })();
-  }, [userId, vaultOwnerToken, receivedGrants]);
+  }, [userId, vaultOwnerToken, receivedGrants, getVaultOwnerToken]);
 
   const actionables = useMemo<FeedActionable[]>(() => {
     if (!userId) return [];
     const items: FeedActionable[] = [];
 
+    if (agentUpdateCard) items.push({ ...agentUpdateCard, sortAt: firstSeenAt(agentUpdateCard.id) });
     // One current setup action per request. SSE refreshes this same projection
     // after bank setup or price save; no independent account-state cache can
     // keep an obsolete CTA alive.
@@ -2444,6 +2449,7 @@ export function useFeedActionables({ enabled = true }: { enabled?: boolean } = {
     // streaming debate's frequent ticks would rebuild every row each render.
   }, [
     appTaskState.tasks,
+    agentUpdateCard,
     currentCheckout,
     refreshDocumentRequests,
     sentProgressRefresh,

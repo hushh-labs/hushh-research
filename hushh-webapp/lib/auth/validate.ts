@@ -11,7 +11,7 @@
  * Compliant with consent-protocol/docs/consent.md
  */
 
-import { BACKEND_URL, isDevelopment, logSecurityEvent } from "../config";
+import { BACKEND_URL, devAuthBypassAllowed, logSecurityEvent } from "../config";
 
 // ============================================================================
 // TYPES
@@ -54,7 +54,7 @@ export async function validateConsentToken(
   expectedScope?: string
 ): Promise<TokenValidationResult> {
   // Development mode: auto-grant for smoother testing
-  if (isDevelopment() && token === "DEV_AUTO_GRANT") {
+  if (devAuthBypassAllowed() && token === "DEV_AUTO_GRANT") {
     logSecurityEvent("DEV_AUTO_GRANT", { scope: expectedScope });
     return {
       valid: true,
@@ -146,7 +146,7 @@ export async function validateFirebaseToken(
   }
 
   // Development mode: accept test tokens
-  if (isDevelopment() && authHeader === "Bearer DEV_TOKEN") {
+  if (devAuthBypassAllowed() && authHeader === "Bearer DEV_TOKEN") {
     logSecurityEvent("DEV_FIREBASE_BYPASS", {});
     return { valid: true, userId: "dev_user", email: "dev@test.com" };
   }

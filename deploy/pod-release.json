@@ -1,0 +1,23 @@
+{
+  "version": "2026.10-dev.28",
+  "channel": "dev",
+  "summary": "Browser preview and owner control for qualified private agents.",
+  "notes": {
+    "improvements": [
+      "View your private browser, take control, and hand it back to One.",
+      "Browser shares your agent\u2019s selected cloud and on-demand lifecycle."
+    ],
+    "fixes": [
+      "Public research uses consistent browser settings and verified native model connections.",
+      "Reconnecting discovers existing tasks without starting them again."
+    ],
+    "security": [
+      "Enabling Browser requires your approval for this exact release and configuration.",
+      "Encrypted recovery was verified from the two eligible personal-pod images."
+    ]
+  },
+  "supportedUpgradeDigests": [
+    "sha256:26bab16354b2eeded3c3688db7421226c27f82adab95b1f0ca3c8dd60c061809",
+    "sha256:4a3b29a74641d7eac470da43d18f01c5039f4c0327ed84811ce2f0bfa939ac9a"
+  ]
+}

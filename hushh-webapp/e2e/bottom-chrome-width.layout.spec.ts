@@ -51,7 +51,7 @@ const VARIANTS: Variant[] = [
   },
   { name: "command bar working", html: { command: "working" } },
   { name: "location route", html: { path: "/one/location" } },
-  { name: "native ios", html: {}, htmlClass: "native-ios" },
+  { name: "native ios DOM fallback", html: {}, htmlClass: "native-ios" },
   {
     // The native shell keeps the chrome while the keyboard is up (it simply
     // covers it); the mobile-web fade is a separate, opacity-only rule.
@@ -189,7 +189,29 @@ async function open(page: Page, width: number, dark: boolean, variant: Variant, 
     await page.locator("[data-testid='one-voice-panel']").waitFor();
 }
 
-test("shared dock retains material and input identity with aligned edges and keyboard clearance", async ({ page }) => {
+for (const width of [320, 393, 768]) {
+  test(`color value and dropdown share one bounded control at ${width}px`, async ({ page }) => {
+    const errors: string[] = [];
+    await open(page, width, false, { name: "public preferences fallback", html: { preferences: "true" } }, errors);
+    const trigger = page.getByRole("combobox", { name: "App accent color" });
+    await expect(trigger).toHaveText("Blue");
+    const before = await trigger.boundingBox();
+    expect(before!.height).toBeGreaterThanOrEqual(44);
+    await trigger.click();
+    await page.getByRole("option", { name: "Molten Gold" }).click();
+    await expect(trigger).toHaveText("Molten Gold");
+    const frame = await trigger.boundingBox();
+    const label = await trigger.getByText("Molten Gold").boundingBox();
+    expect(label!.x).toBeGreaterThanOrEqual(frame!.x);
+    expect(label!.x + label!.width).toBeLessThanOrEqual(frame!.x + frame!.width + 0.5);
+    expect(frame!.x).toBeGreaterThanOrEqual(0);
+    expect(frame!.x + frame!.width).toBeLessThanOrEqual(width);
+    expect(frame!.width).toBe(before!.width);
+    expect(errors).toEqual([]);
+  });
+}
+
+test("shared dock retains mode materials and input identity with aligned edges and keyboard clearance", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   for (const width of [320, 393, 768]) {
@@ -314,20 +336,36 @@ test("Messages dock remains above the keyboard when the transcript reserves the 
   page.on("pageerror", error => errors.push(error.message));
   for (const width of [320, 393, 768]) {
     await open(page, width, false, { name: "Messages dock", html: { composer: "true", reserveFullDock: "true" } }, errors);
-    await expect(page.getByRole("textbox", { name: "Message One" })).toBeVisible();
+    const input = page.getByRole("textbox", { name: "Message One" });
+    await expect(input).toBeVisible();
+    const agentSlot = page.locator("[data-bottom-shell-agent-slot]");
+    expect(await agentSlot.evaluate(node => getComputedStyle(node).translate)).toBe("0px");
+    for (const mode of ["native-inset", "mobile-web", "resized-viewport"]) {
+      const resized = mode === "resized-viewport";
+      await page.setViewportSize({ width, height: resized ? 564 : 844 });
+      await page.evaluate(({ mode, resized }) => {
+        document.documentElement.classList.remove("native-keyboard-inset", "kb-resizes");
+        document.documentElement.classList.add("kb-open");
+        if (mode === "native-inset") document.documentElement.classList.add("native-keyboard-inset");
+        if (resized) document.documentElement.classList.add("kb-resizes");
+        document.documentElement.style.setProperty("--kb-height", resized ? "0px" : "280px");
+      }, { mode, resized });
+      await expect(input).toBeVisible();
+      await expect(page.locator("[data-bottom-shell-navigation-slot]")).toBeHidden();
+      const clearance = async () => {
+        const frame = await page.locator("[data-agent-dock-surface]").boundingBox();
+        return frame ? Math.round(564 - frame.y - frame.height) : -1;
+      };
+      await expect.poll(clearance).toBeGreaterThanOrEqual(7);
+      await expect.poll(clearance).toBeLessThanOrEqual(9);
+    }
+    await page.locator("[data-messages-dock]").evaluate(node => node.setAttribute("data-native-agent-dock", "true"));
     await page.evaluate(() => {
-      document.documentElement.classList.add("native-keyboard-inset", "kb-open");
+      document.documentElement.classList.remove("kb-resizes");
+      document.documentElement.classList.add("native-keyboard-inset");
       document.documentElement.style.setProperty("--kb-height", "280px");
     });
-    await expect(page.locator("[data-bottom-shell-navigation-slot]")).toBeHidden();
-    await expect.poll(async () => {
-      const frame = await page.locator("[data-agent-dock-surface]").boundingBox();
-      return frame ? Math.round(844 - 280 - frame.y - frame.height) : -1;
-    }).toBeGreaterThanOrEqual(7);
-    await expect.poll(async () => {
-      const frame = await page.locator("[data-agent-dock-surface]").boundingBox();
-      return frame ? Math.round(844 - 280 - frame.y - frame.height) : -1;
-    }).toBeLessThanOrEqual(9);
+    expect(await agentSlot.evaluate(node => getComputedStyle(node).translate)).toBe("none");
     expect(errors).toEqual([]);
   }
 });
@@ -345,9 +383,9 @@ test("Messages inbox hides its idle launcher while the search keyboard is open",
   await expect(agentSlot).toBeHidden();
   // Live voice and command surfaces publish engagement on their own shell.
   // Their cancellation controls remain accessible during inbox search.
-  await agentSlot.locator("[data-agent-bar-shell]").evaluate(node => node.setAttribute("data-command-active", "true"));
+  await agentSlot.locator('[data-ui-role="talk-to-one"]').evaluate(node => node.setAttribute("data-command-active", "true"));
   await expect(agentSlot).toBeVisible();
-  await agentSlot.locator("[data-agent-bar-shell]").evaluate(node => node.removeAttribute("data-command-active"));
+  await agentSlot.locator('[data-ui-role="talk-to-one"]').evaluate(node => node.removeAttribute("data-command-active"));
   await expect(agentSlot).toBeHidden();
   await page.evaluate(() => document.documentElement.classList.remove("kb-open"));
   await expect(agentSlot).toBeVisible();

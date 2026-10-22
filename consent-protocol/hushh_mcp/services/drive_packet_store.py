@@ -411,9 +411,9 @@ class DrivePacketStore(DriveDocumentFactsStore):
                     # Google files). The Ready gates use it to spot one file
                     # selected twice; it is not persisted in the manifest.
                     "content_digest": metadata.get("checksum"),
-                    # The file's creation time: the Ready gates use it only to
-                    # tell two undated originals of one record apart. It is never
-                    # shown to the model nor persisted in the manifest.
+                    # Retain source metadata in the host evidence projection.
+                    # Creation time neither dates coverage nor proves duplicate
+                    # records; it stays outside model context and manifests.
                     "created_time": metadata.get("created_time"),
                 }
             )

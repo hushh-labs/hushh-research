@@ -20,6 +20,7 @@ from hushh_mcp.services.drive_request_payment_service import DriveRequestPayment
 from hushh_mcp.services.drive_sharing_store import OWNER_SETUP_CODES, DriveSharingStore
 from hushh_mcp.services.drive_work_wake import wake_drive_work
 from hushh_mcp.services.google_drive_adapter import DriveReadError
+from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
 
 def _defer_code(error: BaseException) -> str:
@@ -135,6 +136,7 @@ class DriveTrustedAutoService:
 
     def _authority(self, user_id: str, request_id: str):
         async def require_current():
+            await admit_hub_content(user_id, "drive_trusted_preparation")
             await self.sharing.trusted_request_authority(user_id=user_id, request_id=request_id)
 
         return require_current

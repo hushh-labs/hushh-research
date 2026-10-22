@@ -751,9 +751,11 @@ def test_deploy_binds_exactly_the_variables_the_runtime_reads(monkeypatch):
     """A rename on either side would leave a deployed lane with SSO silently off."""
     script = Path(__file__).resolve().parents[2] / "deploy" / "sso" / "bind_workos.sh"
     text = script.read_text(encoding="utf-8")
-    secrets = re.findall(r"(?m)^add_secret (WORKOS_[A-Z_]+) (WORKOS_[A-Z_]+)\s*$", text)
-    flags = re.findall(r"(?m)^add_env (WORKOS_[A-Z_]+) ", text)
+    secrets = re.findall(r"(?m)^append_optional_secret (WORKOS_[A-Z_]+) (WORKOS_[A-Z_]+)\s*$", text)
+    flags = re.findall(r"(?m)^append_optional_env (WORKOS_[A-Z_]+) ", text)
     assert secrets and flags, "the deploy script must bind the WorkOS variables"
+    deploy = script.parents[2] / "scripts" / "deploy" / "backend-deploy.sh"
+    assert "source deploy/sso/bind_workos.sh" in deploy.read_text(encoding="utf-8")
     # The secret is created under exactly the name the runtime reads.
     assert all(secret == variable for secret, variable in secrets)
     bound = [variable for _, variable in secrets] + flags
@@ -982,8 +984,8 @@ def test_deploy_refuses_to_enable_sso_with_missing_required_configuration(
     script = Path(__file__).resolve().parents[2] / "deploy" / "sso" / "bind_workos.sh"
     stubs = (
         "secrets=BASE=x:latest; PROJECT_ID=p\n"
-        'add_secret() { case " $BOUND " in *" $1 "*) secrets="${secrets},$2=$1:latest";; esac; }\n'
-        "add_env() { :; }\n"
+        'append_optional_secret() { case " $BOUND " in *" $1 "*) secrets="${secrets},$2=$1:latest";; esac; }\n'
+        "append_optional_env() { :; }\n"
     )
     # Cloud Build packs these three substitutions into one step env entry.
     env = {

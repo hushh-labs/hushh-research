@@ -1285,7 +1285,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     WHERE job_id=:job RETURNING *""",
                     {"job": identity},
                 )
-            return self._view(row)
+            return view(row)
 
         return await self._transaction(operation)
 

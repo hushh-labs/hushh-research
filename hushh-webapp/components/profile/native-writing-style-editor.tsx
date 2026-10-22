@@ -1,5 +1,7 @@
 "use client";
 
+import { nativeProfileSceneCanPrepare, nativeProfileActionsAllowed } from "@/lib/capacitor/native-profile-preparation";
+
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
@@ -28,8 +30,8 @@ export function NativeWritingStyleEditor({ model, eligible }: { model: Model; el
   useEffect(() => {
     if (!eligible || !nativeDrawersPlatformEligible()) return;
     let active = true;
-    void nativeDrawerAcknowledged(nativeDrawers.getCapabilities()).then(value => {
-      const enabled = value.contractVersion === 1 && value.supported && value.profileStyleScene === true && supported(nativeDrawers);
+    void nativeDrawerAcknowledged(nativeDrawers().getCapabilities()).then(value => {
+      const enabled = value.contractVersion === 1 && value.supported && value.profileStyleScene === true && supported(nativeDrawers());
       if (active) setRenderer(enabled ? "native" : "web");
     }).catch(() => { if (active) setRenderer("web"); });
     return () => { active = false; };
@@ -39,12 +41,13 @@ export function NativeWritingStyleEditor({ model, eligible }: { model: Model; el
   if (renderer === "web") return <CommunicationPreferencesGroup value={model.draft} onChange={model.changeDraft}
     dirty={model.dirty} saving={model.saving} loading={model.loading} unavailable={model.unavailable} suggested={model.suggested}
     onSave={() => { void model.save(); }} />;
+  const plugin = open ? nativeDrawers() : null;
   return <>
     <SettingsGroup title="How One writes to you">
       <SettingsRow title="Writing style" icon={ToneRowIcon} iconTone="capability" chevron onClick={() => setOpen(true)}
         disabled={!model.ready} trailing={model.suggested ? "Suggested in Chat" : model.dirty ? "Unsaved" : undefined} />
     </SettingsGroup>
-    {open && supported(nativeDrawers) ? <NativeStyleSheet model={model} plugin={nativeDrawers}
+    {plugin && supported(plugin) ? <NativeStyleSheet model={model} plugin={plugin}
       onClose={() => setOpen(false)} onFallback={() => { setOpen(false); setRenderer("web"); }} /> : null}
   </>;
 }
@@ -72,7 +75,7 @@ export function NativeStyleSheet({ model, plugin, onClose, onFallback, destinati
   }), []);
   const publish = useCallback(() => {
     const current = replica.current, next = live.current;
-    if (!current || !next.model.ready || next.model.userId !== current.owner || !next.appearance || !next.privacy || next.privacy.shielded || !next.privacy.appIsActive) return;
+    if (!current || !next.model.ready || next.model.userId !== current.owner || !next.appearance || !next.privacy || !nativeProfileSceneCanPrepare(next.privacy, current.identity.scene, current.identity.destinationId)) return;
     const edit = next.edit.identity === current.identity ? next.edit : { revision: 0, composing: false };
     const state = { ...current.identity, ...next.appearance, privacyGeneration: next.privacy.generation,
       draftRevision: next.model.draftRevision, acknowledgedEditRevision: edit.revision, draft: { ...next.model.draft }, choices: STYLE_CHOICE_OPTIONS,
@@ -84,9 +87,9 @@ export function NativeStyleSheet({ model, plugin, onClose, onFallback, destinati
   }, [actions]);
   useEffect(() => { if (!nativePrivacyObservation().state) void nativeDrawerAcknowledged(getNativeSessionPrivacyState()).catch(() => setPhase("blocked")); }, []);
   const epoch = snapshotVaultSessionEpoch();
-  const generation = privacy?.generation, shielded = privacy?.shielded, active = privacy?.appIsActive;
+  const generation = privacy?.generation, presentationBlocked = !nativeProfileSceneCanPrepare(privacy, "writing-style", destinationId), active = privacy?.appIsActive;
   useEffect(() => {
-    if (!model.ready || !model.userId || generation === undefined || shielded || !active) return;
+    if (!model.ready || !model.userId || generation === undefined || presentationBlocked || !active) return;
     const base = createNativeDrawerIdentity("profile");
     if (!base) return;
     const identity: NativeProfileStyleIdentity = { ...base, family: "profile", scene: "writing-style", ...(destinationId ? { destinationId } : {}) };
@@ -94,7 +97,7 @@ export function NativeStyleSheet({ model, plugin, onClose, onFallback, destinati
     let current = true;
     const isCurrent = () => current && live.current.model.ready && live.current.model.userId === owner &&
       snapshotValidatedAuthSessionOwner()?.userId === owner && snapshotVaultSessionEpoch() === epoch && nativeDrawerOwnerIsCurrent(identity) &&
-      live.current.privacy?.generation === generation && !live.current.privacy.shielded && live.current.privacy.appIsActive;
+      live.current.privacy?.generation === generation && nativeProfileSceneCanPrepare(live.current.privacy, identity.scene, identity.destinationId);
     const presentation = new NativeProfileScenePresentation<NativeProfileStyleProjection, NativeProfileStyleEdit, NativeProfileStyleAction, undefined>(identity, {
       source: plugin, apply: state => plugin.applyProfileStyleScene(state), confirm: event => plugin.confirmProfileStyleAction(event),
       settle: (event, saved) => plugin.settleProfileStyleAction({ ...event, saved }), retire: () => plugin.retireProfileStyleScene(identity),
@@ -103,13 +106,13 @@ export function NativeStyleSheet({ model, plugin, onClose, onFallback, destinati
       if (!current) return;
       setPhase(phase);
       if (phase === "fallback") live.current.onFallback();
-    }, false, state => ({ ...state, draft: { ...state.draft } }));
+    }, false, state => ({ ...state, draft: { ...state.draft } }), () => isCurrent() && nativeProfileActionsAllowed());
     const instance = { identity, presentation, owner, sequence: 0, fingerprint: null as string | null };
     replica.current = instance;
     setEdit({ identity, revision: 0, composing: false });
     void presentation.listen().then(ready => { if (ready && isCurrent()) publish(); });
     return () => { current = false; if (replica.current === instance) replica.current = null; void presentation.retire(); };
-  }, [model.ready, model.userId, epoch, generation, shielded, active, plugin, publish, destinationId]);
+  }, [model.ready, model.userId, epoch, generation, presentationBlocked, active, plugin, publish, destinationId]);
   useLayoutEffect(() => { publish(); });
   useBackLayer(pathname, 100, () => {
     const current = replica.current;

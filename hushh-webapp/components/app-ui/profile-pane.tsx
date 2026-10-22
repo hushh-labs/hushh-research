@@ -14,10 +14,7 @@ import { customNativePresentationEnabled } from "@/lib/capacitor/native-presenta
 import { nativeDrawersPlatformEligible } from "@/lib/capacitor/native-drawers";
 import { VoiceSurfaceActivityBoundary } from "@/lib/kai/actions/voice-surface-activity";
 
-import {
-  ArrowLeftIcon as ArrowLeft,
-  XIcon as X,
-} from "@/components/icons";
+import { ArrowLeftIcon as ArrowLeft, XIcon as X } from "@/components/icons";
 import { usePathname, useSearchParams } from "next/navigation";
 
 import { ProfilePage } from "@/components/profile/profile-workspace-page";
@@ -299,32 +296,36 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
   }, [panePresentationKey, open, isVaultUnlocked]);
   const canGoBack = canGoBackProfilePane(location);
   const panelTitle = location.panel
-      ? location.panel === "my-data"
-        ? "Memory"
-        : location.panel === "world-model"
-          ? "Personal World Model"
-        : location.panel === "payouts"
-          ? "Payouts"
-          : location.panel === "request-pricing"
-            ? "Request pricing"
-        : location.panel === "connected-systems"
-          ? "Connected Systems"
-          : location.panel === "connectors"
-            ? "Connectors"
-          : location.panel === "gmail"
-            ? "Mail receipts"
-            : location.panel === "account"
-              ? "Your account"
-              : location.panel === "preferences"
-                ? "Preferences"
-                : location.panel === "security"
-                  ? "Security & privacy"
-                  : location.panel === "referrals"
-                    ? "Invite friends"
-                    : location.panel === "legal"
-                      ? "Legal"
-                      : "Help & feedback"
-      : "Profile";
+    ? location.panel === "my-data"
+      ? "Memory"
+      : location.panel === "world-model"
+        ? "Personal World Model"
+      : location.panel === "payouts"
+        ? "Payouts"
+        : location.panel === "request-pricing"
+          ? "Request pricing"
+      : location.panel === "connected-systems"
+        ? "Connected Systems"
+        : location.panel === "connectors"
+          ? "Connectors"
+        : location.panel === "gmail"
+          ? "Mail receipts"
+          : location.panel === "account"
+            ? "Your account"
+            : location.panel === "hosting"
+              ? "Hosting"
+              : location.panel === "software-updates"
+                ? "Software updates"
+                : location.panel === "preferences"
+                  ? "Appearance & preferences"
+                  : location.panel === "security"
+                    ? "Security & privacy"
+                    : location.panel === "referrals"
+                      ? "Invite friends"
+                      : location.panel === "legal"
+                        ? "Legal"
+                        : "Help & feedback"
+    : "Profile";
   // A detail is named for what it is ("Trusted devices"), matching its entry
   // in the Profile stack; it used to read "Profile detail" for all of them.
   // Details without a fixed name (a domain, a connection) keep the panel's.

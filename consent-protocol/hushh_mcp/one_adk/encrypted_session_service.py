@@ -16,13 +16,17 @@ import threading
 import time
 import uuid
 from collections import OrderedDict
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager, nullcontext
 from datetime import datetime, timezone
 from typing import Any
 
 from google.adk.events import Event
 from google.adk.sessions import BaseSessionService, Session
-from google.adk.sessions.base_session_service import GetSessionConfig, ListSessionsResponse
+from google.adk.sessions.base_session_service import (
+    GetSessionConfig,
+    ListSessionsResponse,
+)
 from google.adk.sessions.state import State
 from pydantic import BaseModel
 from pydantic_core import PydanticSerializationError
@@ -30,11 +34,18 @@ from pydantic_core import PydanticSerializationError
 from db.connection import _is_connection_unavailable_error, get_pool
 from db.db_client import get_db
 from db.query_telemetry import record_query
+from hushh_mcp.one_adk.adk_session_repository import (
+    AdkSessionRepository,
+    CompletedReplyUsage,
+    PostgresAdkSessionRepository,
+    SessionRecordResult,
+)
 from hushh_mcp.one_adk.drive_result_privacy import redact_drive_session_json
 from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
 from hushh_mcp.one_adk.message_reactions import without_message_reactions
 from hushh_mcp.one_adk.queued_input import current_run, registry
 from hushh_mcp.one_adk.turn_completion import successful_answer_completion
+from hushh_mcp.runtime_settings import pod_mode
 from hushh_mcp.services.chat_key import (
     CHAT_CIPHERTEXT_LIKE,
     ChatCipher,
@@ -299,80 +310,54 @@ class EncryptedAdkSessionService(BaseSessionService):
     """Persist one encrypted Session document with optimistic concurrency."""
 
     def __init__(
-        self, cipher: ChatCipher | None = None, *, referral_usage_app_name: str | None = None
+        self,
+        cipher: ChatCipher | None = None,
+        *,
+        repository: AdkSessionRepository | None = None,
+        referral_usage_app_name: str | None = None,
     ) -> None:
+        if repository is None and pod_mode():
+            raise RuntimeError("Private sessions require the injected owner repository.")
         self._cipher = cipher or ChatCipher()
+        # An explicit runtime may supply its repository. Shared defaults retain the
+        # existing SQL adapter and value-free database error boundary.
+        self._shared_reply_replace: Callable[..., Awaitable[SessionRecordResult]] | None = None
         self._referral_usage_app_name = referral_usage_app_name
+        if repository is None:
+            shared = PostgresAdkSessionRepository(lambda sql, params: self._execute(sql, params))
+            self._repository: AdkSessionRepository = shared
+            if referral_usage_app_name:
+                self._shared_reply_replace = shared.replace
+        else:
+            self._repository = repository
 
-    async def _execute_event(
-        self, session: Session, event: Event, sql: str, params: dict[str, Any]
-    ):
-        """Commit a content-free usage outbox with the successful session CAS."""
-        qualifies = (
-            self._referral_usage_app_name is not None
-            and session.app_name == self._referral_usage_app_name
-            and bool(event.id and event.invocation_id)
-            and successful_answer_completion(event, session.events)
-            and any(
+    def _completed_reply_usage(self, session: Session, event: Event) -> CompletedReplyUsage | None:
+        if (
+            self._shared_reply_replace is None
+            or session.app_name != self._referral_usage_app_name
+            or not (event.id and event.invocation_id)
+            or not successful_answer_completion(event, session.events)
+            or not any(
                 prior.author == "user"
                 and prior.invocation_id == event.invocation_id
                 and prior.timestamp <= event.timestamp
                 for prior in reversed(session.events)
             )
+        ):
+            return None
+        run = current_run()
+        if (
+            run is not None
+            and run.owner_id == session.user_id
+            and run.conversation_id == session.id
+            and registry.stop_requested(run.owner_id, run.conversation_id, run.run_id)
+        ):
+            return None
+        return CompletedReplyUsage(
+            event_id=event.id,
+            invocation_id=event.invocation_id,
+            occurred_at=datetime.fromtimestamp(event.timestamp, timezone.utc),
         )
-        if qualifies:
-            run = current_run()
-            if (
-                run is not None
-                and run.owner_id == session.user_id
-                and run.conversation_id == session.id
-                and registry.stop_requested(run.owner_id, run.conversation_id, run.run_id)
-            ):
-                qualifies = False
-        if qualifies:
-            # Never decrypt in SQL or copy a prompt, answer, key or session state.
-            sql = """WITH persisted AS (
-                UPDATE one_adk_sessions SET payload_ciphertext = :ciphertext,
-                       payload_iv = :iv, payload_tag = :tag,
-                       payload_algorithm = :algorithm, revision = revision + 1,
-                       updated_at = NOW()
-                 WHERE app_name = :app AND user_id = :user AND session_id = :session
-                   AND revision = :revision AND payload_ciphertext LIKE :chat_marker
-                RETURNING revision
-            ), usage AS (
-                INSERT INTO one_referral_events(user_id,event_type,idempotency_key,server_timestamp,metadata)
-                SELECT :user,'product_usage',:usage_key,:usage_at,CAST(:usage_metadata AS JSONB)
-                  FROM persisted
-                ON CONFLICT(idempotency_key) DO NOTHING
-            ) SELECT revision FROM persisted"""
-            params.update(
-                {
-                    "usage_key": f"adk_reply:{session.app_name}:{session.id}:{event.invocation_id}",
-                    "usage_at": datetime.fromtimestamp(event.timestamp, timezone.utc),
-                    "usage_metadata": json.dumps(
-                        {
-                            "source": "adk_chat",
-                            "session_id": session.id,
-                            "event_id": event.id,
-                            "message_id": event.id,
-                        }
-                    ),
-                }
-            )
-        result = await self._execute(sql, params)
-        if qualifies and result.data:
-            try:
-                from hushh_mcp.services.one_referral_activity_service import (
-                    reconcile_product_activity,
-                )
-
-                await asyncio.to_thread(reconcile_product_activity, session.user_id, event.id)
-            except Exception as exc:
-                # The committed outbox is recovered by the bounded scheduler.
-                logger.warning(
-                    "one_adk_session.referral_reconcile_deferred type=%s", type(exc).__name__
-                )
-        return result
 
     @staticmethod
     def _set_revision(session: Session, revision: int) -> None:
@@ -466,13 +451,6 @@ class EncryptedAdkSessionService(BaseSessionService):
 
         record_session_phase(phase, (time.perf_counter() - started_at) * 1000)
 
-    async def _read(self, sql: str, params: dict[str, Any]):
-        started_at = time.perf_counter()
-        try:
-            return await self._execute(sql, params)
-        finally:
-            self._record_phase("read", started_at)
-
     def _decode_timed(
         self, row: dict[str, Any], *, app_name: str, user_id: str, session_id: str
     ) -> Session:
@@ -518,7 +496,11 @@ class EncryptedAdkSessionService(BaseSessionService):
             aad=session_payload_aad(app_name, session_id),
         )
         session = Session.model_validate_json(plain)
-        if (session.app_name, session.user_id, session.id) != (app_name, user_id, session_id):
+        if (session.app_name, session.user_id, session.id) != (
+            app_name,
+            user_id,
+            session_id,
+        ):
             raise ChatKeyMismatchError("Chat history did not open with this vault.")
         # A row sealed before the fix may still hold an earlier turn's ``temp:``
         # values; a new invocation must never start with them.
@@ -553,14 +535,8 @@ class EncryptedAdkSessionService(BaseSessionService):
         persistence_started_at = time.perf_counter()
         try:
             encoded = self._encode(session)
-            result = await self._execute(
-                """INSERT INTO one_adk_sessions
-               (app_name, user_id, session_id, payload_ciphertext, payload_iv,
-                payload_tag, payload_algorithm)
-               VALUES (:app, :user, :session, :ciphertext, :iv, :tag, :algorithm)
-               ON CONFLICT (app_name, user_id, session_id) DO NOTHING
-               RETURNING revision""",
-                {"app": app_name, "user": user_id, "session": session.id, **encoded},
+            result = await self._repository.create(
+                **{"app": app_name, "user": user_id, "session": session.id, **encoded}
             )
         finally:
             self._record_phase("persistence", persistence_started_at)
@@ -586,18 +562,18 @@ class EncryptedAdkSessionService(BaseSessionService):
         session_id: str,
         config: GetSessionConfig | None = None,
     ) -> Session | None:
-        result = await self._read(
-            """SELECT payload_ciphertext, payload_iv, payload_tag, payload_algorithm, revision
-               FROM one_adk_sessions
-               WHERE app_name = :app AND user_id = :user AND session_id = :session
-                 AND payload_ciphertext LIKE :chat_marker LIMIT 1""",
-            {
-                "app": app_name,
-                "user": user_id,
-                "session": session_id,
-                "chat_marker": CHAT_CIPHERTEXT_LIKE,
-            },
-        )
+        read_started_at = time.perf_counter()
+        try:
+            result = await self._repository.get(
+                **{
+                    "app": app_name,
+                    "user": user_id,
+                    "session": session_id,
+                    "chat_marker": CHAT_CIPHERTEXT_LIKE,
+                }
+            )
+        finally:
+            self._record_phase("read", read_started_at)
         if not result.data:
             return None
         row = dict(result.data[0])
@@ -630,14 +606,13 @@ class EncryptedAdkSessionService(BaseSessionService):
     ) -> ListSessionsResponse:
         if not user_id:
             return ListSessionsResponse(sessions=[])
-        result = await self._read(
-            """SELECT session_id, payload_ciphertext, payload_iv, payload_tag,
-                      payload_algorithm, revision
-               FROM one_adk_sessions WHERE app_name = :app AND user_id = :user
-                 AND payload_ciphertext LIKE :chat_marker
-               ORDER BY updated_at DESC LIMIT 100""",
-            {"app": app_name, "user": user_id, "chat_marker": CHAT_CIPHERTEXT_LIKE},
-        )
+        read_started_at = time.perf_counter()
+        try:
+            result = await self._repository.list(
+                **{"app": app_name, "user": user_id, "chat_marker": CHAT_CIPHERTEXT_LIKE}
+            )
+        finally:
+            self._record_phase("read", read_started_at)
         sessions = []
         unreadable = 0
         for result_row in result.data or []:
@@ -667,32 +642,25 @@ class EncryptedAdkSessionService(BaseSessionService):
 
     async def delete_owned_session(self, *, app_name: str, user_id: str, session_id: str) -> bool:
         """Delete one current conversation without opening it; no chat key needed."""
-        result = await self._execute(
-            """DELETE FROM one_adk_sessions
-               WHERE app_name = :app AND user_id = :user AND session_id = :session
-                 AND payload_ciphertext LIKE :chat_marker
-               RETURNING session_id""",
-            {
+        result = await self._repository.delete(
+            **{
                 "app": app_name,
                 "user": user_id,
                 "session": session_id,
                 "chat_marker": CHAT_CIPHERTEXT_LIKE,
-            },
+            }
         )
         return bool(result.data)
 
     async def is_legacy_session(self, *, app_name: str, user_id: str, session_id: str) -> bool:
         """True when the id is held by a conversation sealed with the platform key."""
-        result = await self._execute(
-            """SELECT 1 AS legacy FROM one_adk_sessions
-               WHERE app_name = :app AND user_id = :user AND session_id = :session
-                 AND payload_ciphertext NOT LIKE :chat_marker LIMIT 1""",
-            {
+        result = await self._repository.legacy(
+            **{
                 "app": app_name,
                 "user": user_id,
                 "session": session_id,
                 "chat_marker": CHAT_CIPHERTEXT_LIKE,
-            },
+            }
         )
         return bool(result.data)
 
@@ -718,25 +686,22 @@ class EncryptedAdkSessionService(BaseSessionService):
         session.state[key] = title.strip()[:160]
         if not generated:
             session.last_update_time = time.time()
-        encoded = self._encode(session)
-        result = await self._execute(
-            """UPDATE one_adk_sessions SET payload_ciphertext = :ciphertext,
-                      payload_iv = :iv, payload_tag = :tag,
-                      payload_algorithm = :algorithm, revision = revision + 1,
-                      updated_at = CASE WHEN :generated THEN updated_at ELSE NOW() END
-               WHERE app_name = :app AND user_id = :user AND session_id = :session
-                 AND revision = :revision AND payload_ciphertext LIKE :chat_marker
-               RETURNING revision""",
-            {
-                "app": app_name,
-                "user": user_id,
-                "session": session_id,
-                "revision": revision,
-                "generated": generated,
-                "chat_marker": CHAT_CIPHERTEXT_LIKE,
-                **encoded,
-            },
-        )
+        persistence_started_at = time.perf_counter()
+        try:
+            encoded = self._encode(session)
+            result = await self._repository.replace(
+                **{
+                    "app": app_name,
+                    "user": user_id,
+                    "session": session_id,
+                    "revision": revision,
+                    "generated": generated,
+                    "chat_marker": CHAT_CIPHERTEXT_LIKE,
+                    **encoded,
+                }
+            )
+        finally:
+            self._record_phase("persistence", persistence_started_at)
         if not result.data and generated:
             # Never overwrite a concurrent rename or a new conversation event.
             return await self.get_session(app_name=app_name, user_id=user_id, session_id=session_id)
@@ -752,7 +717,9 @@ class EncryptedAdkSessionService(BaseSessionService):
             return event
         if getattr(session, "_hushh_partial_history", False):
             latest = await self.get_session(
-                app_name=session.app_name, user_id=session.user_id, session_id=session.id
+                app_name=session.app_name,
+                user_id=session.user_id,
+                session_id=session.id,
             )
             if latest is None:
                 raise RuntimeError("Encrypted ADK session disappeared.")
@@ -781,32 +748,28 @@ class EncryptedAdkSessionService(BaseSessionService):
             persistence_started_at = time.perf_counter()
             try:
                 encoded = self._encode(session)
-                result = await self._execute_event(
-                    session,
-                    event,
-                    """UPDATE one_adk_sessions SET payload_ciphertext = :ciphertext,
-                          payload_iv = :iv, payload_tag = :tag,
-                          payload_algorithm = :algorithm, revision = revision + 1,
-                          updated_at = NOW()
-                   WHERE app_name = :app AND user_id = :user AND session_id = :session
-                     AND revision = :revision AND payload_ciphertext LIKE :chat_marker
-               RETURNING revision""",
-                    {
-                        "app": session.app_name,
-                        "user": session.user_id,
-                        "session": session.id,
-                        "revision": revision,
-                        "chat_marker": CHAT_CIPHERTEXT_LIKE,
-                        **encoded,
-                    },
-                )
+                params = {
+                    "app": session.app_name,
+                    "user": session.user_id,
+                    "session": session.id,
+                    "revision": revision,
+                    "chat_marker": CHAT_CIPHERTEXT_LIKE,
+                    **encoded,
+                }
+                usage = self._completed_reply_usage(session, event)
+                if usage is not None and self._shared_reply_replace is not None:
+                    result = await self._shared_reply_replace(reply_usage=usage, **params)
+                else:
+                    result = await self._repository.replace(**params)
             finally:
                 self._record_phase("persistence", persistence_started_at)
             if result.data:
                 self._set_revision(session, int(result.data[0]["revision"]))
                 return persisted_event
             latest = await self.get_session(
-                app_name=session.app_name, user_id=session.user_id, session_id=session.id
+                app_name=session.app_name,
+                user_id=session.user_id,
+                session_id=session.id,
             )
             if latest is None:
                 raise RuntimeError("Encrypted ADK session disappeared.")
@@ -845,22 +808,15 @@ class EncryptedAdkSessionService(BaseSessionService):
             session.last_update_time = time.time()
             revision = self._revision(session)
             encoded = self._encode(session)
-            result = await self._execute(
-                """UPDATE one_adk_sessions SET payload_ciphertext = :ciphertext,
-                          payload_iv = :iv, payload_tag = :tag,
-                          payload_algorithm = :algorithm, revision = revision + 1,
-                          updated_at = NOW()
-                   WHERE app_name = :app AND user_id = :user AND session_id = :session
-                     AND revision = :revision AND payload_ciphertext LIKE :chat_marker
-               RETURNING revision""",
-                {
+            result = await self._repository.replace(
+                **{
                     "app": app_name,
                     "user": user_id,
                     "session": session_id,
                     "revision": revision,
                     "chat_marker": CHAT_CIPHERTEXT_LIKE,
                     **encoded,
-                },
+                }
             )
             if result.data:
                 return event

@@ -1,0 +1,52 @@
+{
+  "id": "comms-community",
+  "role": "owner",
+  "owner_family": "comms-community",
+  "primary_scope": "comms-community-intake",
+  "description": "Use when drafting short community-facing replies for Discord, WhatsApp, or public chat about hushh-research, Kai, PKM, consent architecture, mobile/native tradeoffs, privacy boundaries, roadmap questions, or repo-based technical Q&A, including per-channel message formatting and length budgets.",
+  "owned_paths": [
+    ".agents/skills/comms-community"
+  ],
+  "non_owned_paths": [
+    "docs-governance",
+    "repo-context"
+  ],
+  "task_types": [
+    "community-response"
+  ],
+  "required_reads": [
+    ".agents/skills/comms-community/references/reply-rules.md",
+    ".agents/skills/comms-community/references/whatsapp-formatting.md",
+    ".agents/skills/codex-skill-authoring/references/truth-first-operating-kernel.md",
+    "docs/reference/iam/README.md",
+    "consent-protocol/docs/reference/developer-api.md"
+  ],
+  "required_commands": [
+    "./bin/hushh docs verify",
+    "python3 .agents/skills/comms-community/scripts/discord_chunk.py --self-test"
+  ],
+  "verification_bundles": [
+    {
+      "id": "comms-community",
+      "commands": [
+        "./bin/hushh docs verify",
+        "python3 .agents/skills/comms-community/scripts/discord_chunk.py --self-test"
+      ],
+      "tests": [
+        "./bin/hushh docs verify",
+        "python3 .agents/skills/comms-community/scripts/discord_chunk.py --self-test"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "docs-governance",
+    "repo-context"
+  ],
+  "adjacent_skills": [
+    "repo-context",
+    "docs-governance"
+  ],
+  "risk_tags": [
+    "public-messaging-drift"
+  ]
+}

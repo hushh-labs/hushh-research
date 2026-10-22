@@ -10,13 +10,11 @@ follow-up turn in the same conversation. This module is the server's half:
   exception is the end of access: a request that was answered with shared
   information may be continued once more when that access is revoked or runs
   out, so One can say so.
-* Sensitive information never reaches the model (CONTRACT-2 C7, founder
-  decision 2026-09-28). The device sends a sensitive item's field-name outline
-  instead of its values; admission enforces that again here, before the text
-  is stored for the prompt: every line of a sensitive item (by
-  ``scope_sensitivity``, carried on the bundle's items) is replaced with an
-  outline of names only, and a line it cannot attribute to a standard item is
-  dropped. The values stay in the secure card on the person's device.
+* Sensitive values remain device-only unless the information owner explicitly
+  permits model processing for that current grant. Admission verifies that
+  permission against the live ledger, independently of payment. Without it,
+  sensitive items become field-name outlines. Credentials and security codes
+  remain withheld even when identifier processing is approved.
 * For an approval, the requester's own device decrypted the export with its own
   key and sends the resulting text for this one turn. The server never stores
   it: it is a short-lived in-memory reference, like the owner's own memory
@@ -43,6 +41,8 @@ from typing import Any
 
 from hushh_mcp.consent.field_labels import known_field_label
 from hushh_mcp.consent.field_sensitivity import field_sensitivity
+from hushh_mcp.consent.internal_path_keys import is_secret_shaped_key
+from hushh_mcp.consent.secret_patterns import find_secret_spans
 from hushh_mcp.one_adk.follow_up_suggestions import model_step_has_answer_text
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret, store_request_secret
 
@@ -190,11 +190,19 @@ async def admit_consent_continuation(
         raise ConsentContinuationError(
             "That request has not been answered that way.", status_code=409
         )
+    if outcome in SHARED_OUTCOMES and any(
+        item.get("status") == "granted" and item.get("accessReady") is False
+        for item in bundle.get("items") or []
+        if isinstance(item, Mapping)
+    ):
+        raise ConsentContinuationError("That access is not currently available.", status_code=409)
     shared_labels, declined_labels = _field_labels(bundle)
+    model_labels = _model_processing_labels(bundle)
     sensitive_labels = [
         label
         for label in shared_labels
         if _item_sensitivities(bundle).get(label, "sensitive") == "sensitive"
+        and label not in model_labels
     ]
     person = person_name(str(bundle.get("personRef") or "")) or "they"
     shared_ref = ""
@@ -207,7 +215,9 @@ async def admit_consent_continuation(
                 "The shared information could not be opened on this device.", status_code=400
             )
         # C7 defense in depth: sensitive values are stripped before any prompt use.
-        text, stripped = strip_sensitive_shared_information(text, _item_sensitivities(bundle))
+        text, stripped = strip_sensitive_shared_information(
+            text, _item_sensitivities(bundle), model_processing_labels=model_labels
+        )
         if stripped:
             logger.info("one.consent_sensitive_stripped count=%d", stripped)
         hidden = hidden_outline(text)
@@ -259,6 +269,25 @@ def _field_labels(bundle: Mapping[str, Any]) -> tuple[list[str], list[str]]:
         if label not in bucket:
             bucket.append(label)
     return shared[:20], declined[:20]
+
+
+def _model_processing_labels(bundle: Mapping[str, Any]) -> frozenset[str]:
+    """Current requester-bound grant projection only; ambiguous labels deny."""
+    permissions: dict[str, bool] = {}
+    for item in bundle.get("items") or []:
+        if not isinstance(item, Mapping):
+            continue
+        label = " ".join(str(item.get("label") or "").split())
+        allowed = item.get("status") == "granted" and item.get("modelProcessingAllowed") is True
+        permissions[label] = permissions.get(label, True) and allowed
+    return frozenset(label for label, allowed in permissions.items() if label and allowed)
+
+
+def _credential_field(keys: list[str], value: str) -> bool:
+    return any(is_secret_shaped_key(key) for key in keys) or any(
+        span.kind in {"credential", "card_security_code"}
+        for span in find_secret_spans(f"{' '.join(keys)}: {value}")
+    )
 
 
 def _item_sensitivities(bundle: Mapping[str, Any]) -> dict[str, str]:
@@ -363,12 +392,15 @@ def _field_name(keys: list[str]) -> str:
 
 
 def strip_sensitive_shared_information(
-    text: str, sensitivities: Mapping[str, str]
+    text: str,
+    sensitivities: Mapping[str, str],
+    *,
+    model_processing_labels: frozenset[str] = frozenset(),
 ) -> tuple[str, int]:
-    """Replace every sensitive value with a names-only outline (C7, item and field level).
+    """Apply C7 withholding unless the current grant authorizes model processing.
 
-    ``text`` is the device's "- Label > path: value" lines. A line belongs to
-    the longest label it starts with.
+    ``text`` is the device's "- Label > path: value" lines; the longest label wins.
+    Only current-grant labels allow identifiers; credentials remain withheld.
 
     * Lines of a sensitive item become one outline line built from their key
       path names (never the part after the colon), or from the device's own
@@ -397,10 +429,15 @@ def strip_sensitive_shared_information(
             ),
             None,
         )
+        if owner is not None and owner in model_processing_labels:
+            keys, value = _line_keys_and_value(line, owner)
+            if not _credential_field(keys, value):
+                kept.append(line)
+                continue
         standard_owner = owner is not None and sensitivities.get(owner) == "standard"
         if standard_owner or (owner is None and not any_sensitive_item):
             keys, value = _line_keys_and_value(line, owner)
-            if field_sensitivity(keys, value) == "standard":
+            if not _credential_field(keys, value) and field_sensitivity(keys, value) == "standard":
                 kept.append(line)
                 continue
             stripped += 1

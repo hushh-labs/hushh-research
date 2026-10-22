@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import { ThemeProvider } from "next-themes";
 
 import { ProfilePane } from "../../components/app-ui/profile-pane";
+import { ReleaseNoticeDialog } from "../../components/app-ui/release-notice-dialog";
+import type { ReleaseNotice } from "../../lib/agent/managed-app-release";
 import { ProfileConnectorsLink } from "../../components/profile/profile-connectors-link";
 import { ConnectorReadReceipt } from "../../components/agent/connector-read-receipt";
 import { useAuth } from "@/hooks/use-auth";
@@ -32,6 +34,17 @@ function Host() {
   const returnFocus = useRef<{ owner: string | null; target: HTMLElement } | null>(null);
   const search = useSyncExternalStore(subscribe, () => window.location.search, () => "");
   const open = resolveProfilePaneUrlState(search).open;
+  const [notice, setNotice] = useState<ReleaseNotice | null>(null);
+  useEffect(() => {
+    const showNotice = () => setNotice({ id: "synthetic-release", title: "Synthetic release notice", description: "Public fixture", changes: [] });
+    const showPayouts = () => openProfilePane(window.location.pathname, window.location.search, { panel: "payouts", detail: null });
+    window.addEventListener("fixture-release-notice", showNotice);
+    window.addEventListener("fixture-open-payouts", showPayouts);
+    return () => {
+      window.removeEventListener("fixture-release-notice", showNotice);
+      window.removeEventListener("fixture-open-payouts", showPayouts);
+    };
+  }, []);
   // The fixture stands in for the existing shell event owner, including its
   // explicit owner-bound return target and selected destination.
   useEffect(() => {
@@ -81,6 +94,7 @@ function Host() {
           Profile
         </button>
       </div>
+      <ReleaseNoticeDialog notice={notice} onPresented={() => undefined} onClose={() => setNotice(null)} />
       <ProfilePane
         owner={owner}
         returnFocusRef={returnFocus}

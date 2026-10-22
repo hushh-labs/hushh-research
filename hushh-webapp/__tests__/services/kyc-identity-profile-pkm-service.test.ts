@@ -1,11 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  load: vi.fn(), stage: vi.fn(), prepare: vi.fn(), legacy: vi.fn(), structuredWrite: vi.fn(),
+  load: vi.fn(), stage: vi.fn(), prepare: vi.fn(), legacy: vi.fn(), structuredWrite: vi.fn(), recover: vi.fn(),
 }));
 vi.mock("@/lib/pkm/markdown-memory", () => ({
   loadMarkdownMemory: mocks.load, stageMarkdownMemoryFacts: mocks.stage, MARKDOWN_MEMORY_DOMAIN: "one_memory",
-  peekMarkdownMemory: () => null, recoverMarkdownMemorySync: async () => {},
+  peekMarkdownMemory: () => null, recoverMarkdownMemorySync: mocks.recover,
   markdownFactsFromCards: (cards: Array<{ source_text: string; write_mode?: string; preview_degraded?: boolean }>) =>
     cards.filter(card => card.write_mode !== "do_not_save" && !card.preview_degraded)
       .map(card => ({ text: card.source_text, section: "Facts" })),
@@ -23,6 +23,7 @@ import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 const session = { userId: "user_1", vaultKey: "vault-key", vaultOwnerToken: "owner-token" };
 
 describe("KYC intake uses only Soul.md personal memory", () => {
+  afterEach(() => { delete window.__HUSHH_NATIVE_TEST__; });
   beforeEach(() => {
     vi.clearAllMocks();
     publishValidatedAuthSessionOwner("user_1");
@@ -105,6 +106,7 @@ describe("KYC intake uses only Soul.md personal memory", () => {
   it("reads new intake completion from Soul and uses legacy records only for their old completion signal", async () => {
     mocks.load.mockResolvedValueOnce({ markdown: "# Soul.md\n", kycIntakeCompletedAt: "2026-10-12T00:00:00Z" });
     expect(await KycIdentityProfilePkmService.hasCompletedIntake(session)).toBe(true);
+    expect(mocks.recover).toHaveBeenCalledWith(expect.objectContaining({ ...session, beforeEffect: expect.any(Function) }));
     expect(mocks.legacy).not.toHaveBeenCalled();
     mocks.legacy.mockResolvedValueOnce({ data: { identity_profile: { about_me: "Legacy information" } } });
     expect(await KycIdentityProfilePkmService.hasCompletedIntake(session)).toBe(true);
@@ -112,5 +114,13 @@ describe("KYC intake uses only Soul.md personal memory", () => {
     mocks.load.mockRejectedValueOnce(new Error("Unavailable"));
     await expect(KycIdentityProfilePkmService.hasCompletedIntake(session)).rejects.toThrow("Unavailable");
     expect(mocks.legacy).toHaveBeenCalledOnce();
+  });
+
+  it.each(["read_only", "preparation_only", "bounded_mutation"] as const)("reads intake without replaying historical writes during %s review", async reviewerMutationPolicy => {
+    window.__HUSHH_NATIVE_TEST__ = { enabled: true, autoReviewerLogin: true, reviewerMutationPolicy };
+    mocks.load.mockResolvedValueOnce({ markdown: "# Soul.md\n", kycIntakeCompletedAt: "2026-10-12T00:00:00Z" });
+    expect(await KycIdentityProfilePkmService.hasCompletedIntake(session)).toBe(true);
+    expect(mocks.load).toHaveBeenCalledWith(session);
+    expect(mocks.recover).not.toHaveBeenCalled();
   });
 });

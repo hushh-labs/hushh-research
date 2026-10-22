@@ -1,6 +1,10 @@
+import { documentPayoutLinkUrl } from "./document-payout-links";
+export { documentPayoutLinkUrl } from "./document-payout-links";
+
 import { DOCUMENT_REQUEST_UUID } from "@/lib/consent/document-share-consent";
 import { parseHoldNextStep, parseHoldReason, type HoldNextStep, type HoldReason } from "@/lib/payouts/review-copy";
 import { apiJson } from "@/lib/services/api-client";
+import { parseCommerceHostedSession, type CommerceHostedSession } from "@/lib/services/scope-commerce-return";
 
 export const PAYOUT_VERIFICATION_STATES = ["none", "upcoming", "due", "past_due", "in_review", "disabled"] as const;
 const VERIFICATION_ITEMS = ["identity", "tax_id", "address", "bank_account", "business", "terms", "other"] as const;
@@ -223,19 +227,6 @@ function authHeaders(vaultOwnerToken: string) {
   if (!vaultOwnerToken) throw new Error("Unlock your vault to view payouts");
   return { Authorization: `Bearer ${vaultOwnerToken}` };
 }
-/** Stripe owns onboarding and bank edits; validate again at the navigation boundary. */
-export function documentPayoutLinkUrl(value: unknown, purpose: "onboarding" | "management"): string {
-  if (typeof value !== "string") throw new Error("Invalid payout link");
-  let url: URL;
-  try { url = new URL(value); } catch { throw new Error("Invalid payout link"); }
-  const allowed = purpose === "management"
-    ? ["stripe.com", "connect.stripe.com"].includes(url.hostname) && /^\/express\/.+/.test(url.pathname)
-    : url.hostname === "connect.stripe.com";
-  if (url.protocol !== "https:" || !allowed || url.username || url.password || url.port) {
-    throw new Error("Invalid payout link");
-  }
-  return url.href;
-}
 function connectLink(value: unknown, purpose: "onboarding" | "management"): { url: string } {
   return { url: documentPayoutLinkUrl(object(value).url, purpose) };
 }
@@ -375,14 +366,20 @@ export class DocumentPayoutService {
   }
 
   /** "verify" also collects what Stripe will need later, in the same visit. */
-  static async onboard(vaultOwnerToken: string, purpose?: "verify"): Promise<{ url: string }> {
+  static async onboard(vaultOwnerToken: string, purpose?: "verify", attemptId?: string): Promise<{ url: string; returnUrl?: string; attemptId?: string; source?: "documents" }> {
     if (purpose !== undefined && purpose !== "verify") throw new Error("Invalid payout setup purpose");
-    return connectLink(await apiJson<unknown>("/api/one/payouts/account/onboard", purpose ? {
+    const value = await apiJson<unknown>("/api/one/payouts/account/onboard", purpose || attemptId ? {
       method: "POST", headers: { ...authHeaders(vaultOwnerToken), "Content-Type": "application/json" },
-      body: JSON.stringify({ purpose }), cache: "no-store",
+      body: JSON.stringify({ ...(purpose ? { purpose } : {}), ...(attemptId ? { attempt_id: attemptId } : {}) }), cache: "no-store",
     } : {
       method: "POST", headers: authHeaders(vaultOwnerToken), cache: "no-store",
-    }), "onboarding");
+    });
+    if (!attemptId) return connectLink(value, "onboarding");
+    const body = object(value);
+    const session: CommerceHostedSession = parseCommerceHostedSession(body, attemptId, "documents");
+    if (body.attempt_id !== attemptId || session.source !== "documents") throw new Error("Invalid payout return binding");
+    documentPayoutLinkUrl(session.url, "onboarding");
+    return { ...session, source: "documents" };
   }
 
   static async balance(vaultOwnerToken: string): Promise<DocumentPayoutBalance> {

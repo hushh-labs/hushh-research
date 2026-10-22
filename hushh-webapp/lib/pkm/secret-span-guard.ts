@@ -24,6 +24,7 @@
 
 import {
   findSecretSpans,
+  OWNER_PREPARATION_IDENTIFIER_KINDS,
   SECRET_PLACEHOLDER,
   type SecretFileTo,
   type SecretKind,
@@ -195,8 +196,13 @@ export function planSecretCaptures(
 }
 
 /** Throw before a request is built when any text still holds a raw secret. */
-export function assertNoUnguardedSecrets(texts: ReadonlyArray<string | null | undefined>): void {
-  const kinds = texts.flatMap((text) => findSecretSpans(text).map((span) => span.pattern.kind));
+export function assertNoUnguardedSecrets(
+  texts: ReadonlyArray<string | null | undefined>,
+  options: { allowIdentifierProcessing?: boolean } = {},
+): void {
+  const kinds = texts.flatMap((text) => findSecretSpans(text)
+    .filter((span) => !(options.allowIdentifierProcessing === true && OWNER_PREPARATION_IDENTIFIER_KINDS.has(span.pattern.kind)))
+    .map((span) => span.pattern.kind));
   if (kinds.length) throw new UnguardedSecretError([...new Set(kinds)]);
 }
 

@@ -644,6 +644,15 @@ subagents:
       normalized key only when no supplied compatible group is established.
       Retain sample/synthetic, draft and requested status in both canonical keys
       and titles so they cannot masquerade as genuine/final record groups.
+      For canonical_packet and packet_verification, owner_identity.names is
+      server-supplied name-on-file comparison context, never permission to share.
+      Independently assess whether selected source records concern that owner.
+      Another person's record, or insufficient owner evidence for a named account,
+      requires a nonready assessment with the uncertainty or mismatch explained.
+      The verification stage must set correct_subject_and_account=false for that
+      case. Assess aliases, initials, joint holders and business records from the
+      evidence; do not assume a matching surname establishes identity.
+
       For package_mode="canonical_packet", use the supplied canonical key and
       document facts to propose a useful packet. First inspect ALL cited facts
       for source authenticity and record status, including facts outside the

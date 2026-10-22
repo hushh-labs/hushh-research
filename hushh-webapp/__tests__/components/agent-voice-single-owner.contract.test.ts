@@ -39,7 +39,7 @@ describe("One interactive audio ownership", () => {
     const bar = read("components/agent/agent-bar.tsx");
     const live = read("components/one-voice/voice-session-provider.tsx");
 
-    expect(gate).toContain("<LocationCommandProvider enabled={!live}>");
+    expect(gate).toContain("<LocationCommandProvider enabled={commands}>");
     expect(gate).toContain("<VoiceSessionProvider enabled={live}>");
     expect(gate).toContain("useOneVoiceLiveEnabled()");
     // The Live-only app bridges (the publish loop, the device Location step
@@ -49,7 +49,7 @@ describe("One interactive audio ownership", () => {
     expect(gate).toMatch(
       /live \? \(\s*<>\s*<LocationPublisherBridge \/>\s*<LocationUpdatesStepBridge \/>\s*<RequestReviewStepBridge \/>\s*<\/>\s*\)\s*:\s*null/,
     );
-    expect(gate).toContain("{!live ? <LocationCommandDeviceBridge /> : null}");
+    expect(gate).toContain("{commands ? <LocationCommandDeviceBridge /> : null}");
     expect(gate.match(/<LocationUpdatesStepBridge \/>/g)).toHaveLength(1);
     expect(gate.match(/<RequestReviewStepBridge \/>/g)).toHaveLength(1);
     expect(providers).toContain("<AgentOwnerGate>");

@@ -36,10 +36,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # Canonical SOP docs that describe how code reaches `main`. Each must teach the
 # two-lane-by-author rule and must not contradict the enforced gate.
 BRANCH_GOVERNANCE_DOC = REPO_ROOT / "docs/reference/operations/branch-governance.md"
-PR_GOVERNANCE_SKILL = REPO_ROOT / ".codex/skills/pr-governance-review/SKILL.md"
-REPO_OPS_SKILL = REPO_ROOT / ".codex/skills/repo-operations/SKILL.md"
+PR_GOVERNANCE_SKILL = REPO_ROOT / ".agents/skills/pr-governance-review/SKILL.md"
+REPO_OPS_SKILL = REPO_ROOT / ".agents/skills/repo-operations/SKILL.md"
 REPO_OPS_BRANCH_RUNTIME = (
-    REPO_ROOT / ".codex/skills/repo-operations/references/branch-runtime-ops.md"
+    REPO_ROOT / ".agents/skills/repo-operations/references/branch-runtime-ops.md"
 )
 
 # Phrase families: each doc must contain AT LEAST ONE phrase from each tuple.

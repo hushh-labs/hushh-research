@@ -1,9 +1,11 @@
 import type { PluginListenerHandle } from "@capacitor/core";
 import { nativeLegalActionIds } from "./native-profile-legal";
+import { acknowledgeNativeProfilePreparation } from "./native-profile-preparation";
 import {
   NativeDrawerChoiceFence, sameNativeDrawer, validNativeDrawerProjection,
   subscribeNativeDrawerIsolation, reconcileNativeDrawerIsolation, retainNativeDrawerIsolation,
   nativeDrawerAcknowledged as acknowledged,
+  nativeWorkspaceRetirementBarrier,
   type HushhNativeDrawersPlugin, type NativeDrawerChoice, type NativeDrawerIdentity,
   type NativeDrawerProjection, type NativeDrawerReceipt,
   type NativeDrawerReadmission, type NativeDrawerPresentationState,
@@ -65,6 +67,7 @@ export class NativeDrawerPresentation {
     private readonly onPhase: (phase: NativeDrawerPresentationPhase) => void,
     private readonly onApplied?: (state: NativeDrawerProjection) => void,
     private readonly onReadmission?: () => boolean,
+    private readonly interactionIsCurrent: () => boolean = ownerIsCurrent,
   ) { this.fence = new NativeDrawerChoiceFence(identity); }
 
   async listen(): Promise<boolean> {
@@ -131,12 +134,15 @@ export class NativeDrawerPresentation {
     // Callers own their product state. Retain a bounded, immutable snapshot so
     // a later render cannot mutate a pending private projection in place.
     const snapshot: NativeDrawerProjection = { ...state,
+      ...(state.profilePreparation ? { profilePreparation: { ...state.profilePreparation } } : {}),
       sections: state.sections.map(section => ({ ...section, rows: section.rows.map(row => ({ ...row,
+        ...(row.progress ? { progress: { ...row.progress } } : {}),
         ...(row.options ? { options: row.options.map(option => ({ ...option })) } : {}) })) })),
       ...(state.profileStack ? { profileStack: state.profileStack.map(page => ({ ...page,
         ...(page.legalDocument ? { legalDocument: structuredClone(page.legalDocument) } : {}),
         ...(page.memorySearch ? { memorySearch: { ...page.memorySearch } } : {}),
         sections: page.sections.map(section => ({ ...section, rows: section.rows.map(row => ({ ...row,
+          ...(row.progress ? { progress: { ...row.progress } } : {}),
           ...(row.options ? { options: row.options.map(option => ({ ...option })) } : {}) })) })) })) } : {}) };
     if (!this.fence.update(snapshot)) return false;
     this.current = { state: snapshot, actions: { ...actions, rows: new Map(actions.rows) } };
@@ -204,11 +210,21 @@ export class NativeDrawerPresentation {
       const state = this.pending;
       this.pending = null;
       try {
+        const withdrawal = nativeWorkspaceRetirementBarrier();
+        if (withdrawal) {
+          if (!await acknowledged(withdrawal)) throw new Error("NATIVE_WORKSPACE_RETIRE_UNCONFIRMED");
+          if (this.disposed) return;
+          if (!this.ownerIsCurrent()) { this.quarantine(); return; }
+          // A newer binding can arrive while UIKit finishes dismissal. Do not
+          // install the superseded projection or replay an operation.
+          if (this.current?.state.updateSequence !== state.updateSequence) continue;
+        }
         const receipt = await acknowledged(this.plugin.apply(state));
         if (this.disposed) return;
         if (!receiptMatches(receipt, state, "active") || !this.ownerIsCurrent()) { this.quarantine(); return; }
         this.latestReceipt = receipt;
         if (this.current?.state.updateSequence === state.updateSequence) {
+          acknowledgeNativeProfilePreparation(state);
           this.applied = state.updateSequence;
           this.setPhase("active");
           // Register completion before apply; a zero-duration transition may
@@ -226,6 +242,7 @@ export class NativeDrawerPresentation {
   }
 
   private async choose(event: NativeDrawerChoice): Promise<void> {
+    if (!this.interactionIsCurrent()) return;
     if (!this.disposed && !this.ownerIsCurrent()) { this.quarantine(); return; }
     if (this.disposed || !this.current || event.sequence <= this.seenChoice) return;
     const terminal = event.action === "close" || event.action === "open";
@@ -265,7 +282,7 @@ export class NativeDrawerPresentation {
     let operationAccepted = true;
     try {
       const accepted = await this.fence.consume(event, () => acknowledged(this.plugin.confirmChoice(event)),
-        () => !this.disposed && this.phase === "active" && (followsCurrentBinding || this.current === current) && this.ownerIsCurrent(),
+        () => !this.disposed && this.phase === "active" && (followsCurrentBinding || this.current === current) && this.ownerIsCurrent() && this.interactionIsCurrent(),
         async () => {
           const owner = followsCurrentBinding ? this.current : current;
           const latest = event.action === "row" ? owner?.actions.rows.get(event.rowId ?? "") : owner?.actions[event.action];

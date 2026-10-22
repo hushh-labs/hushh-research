@@ -37,8 +37,7 @@ import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge
  * scope is `attr.<domain>.<topLevelScopePath>.*` (see
  * `consentScopeForPermission`). The request row carries `domain` +
  * `scope_handle` but not the top-level path, so the seller resolves it from
- * their own DomainManifest scope_registry. Falls back to the domain-wide
- * `attr.<domain>` scope when the handle can't be resolved.
+ * their own DomainManifest scope_registry. An unresolved handle fails closed.
  */
 export async function resolveExportScope(params: {
   userId: string;
@@ -48,12 +47,7 @@ export async function resolveExportScope(params: {
 }): Promise<string | null> {
   const domain = params.domain.trim();
   const scopeHandle = params.scopeHandle.trim();
-  // A scope_handle that is already a full attr scope can be used as-is.
-  if (scopeHandle.startsWith("attr.")) return scopeHandle;
-  if (!domain) return scopeHandle || null;
-
-  const fallback = `attr.${domain}`;
-  if (!scopeHandle) return fallback;
+  if (!domain || !scopeHandle) return null;
 
   try {
     const manifest = await PersonalKnowledgeModelService.getDomainManifest(
@@ -73,7 +67,7 @@ export async function resolveExportScope(params: {
   } catch (error) {
     console.warn("[MarketplaceSeal] scope resolution failed:", error);
   }
-  return fallback;
+  return null;
 }
 
 /**
@@ -112,10 +106,11 @@ export interface SealSliceForRequestParams {
 export async function sealSliceForRequest(
   params: SealSliceForRequestParams,
 ): Promise<MarketplaceEncryptedEnvelope> {
-  const { recipientKey } = await OneMarketplaceService.getRequestRecipientKey({
+  const { recipientKey, request } = await OneMarketplaceService.getRequestRecipientKey({
     vaultOwnerToken: params.vaultOwnerToken,
     requestId: params.requestId,
   });
+  if (request.metadata?.commercial_required === true) throw new Error("Paid information requires verified encrypted preparation.");
   if (!recipientKey?.keyId || !recipientKey.publicKeyJwk) {
     throw new RecipientKeyUnavailableError();
   }

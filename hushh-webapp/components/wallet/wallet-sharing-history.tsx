@@ -9,7 +9,7 @@ import { ProfilePaneAccountIcon } from "@/components/profile/profile-pane-icons"
 import { SettingsGroup, SettingsRow, SettingsPresentationProvider, SettingsDetailPanel } from "@/components/profile/settings-ui";
 import { CardAccessUnavailableError, WalletCardAccessService, type CardSharingHistory, type CardSharingHistoryItem } from "@/lib/services/wallet-card-access-service";
 import type { CardShareContext } from "@/lib/services/wallet-card-share-service";
-
+import { WalletSavedCardSharing } from "./wallet-saved-card-sharing";
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { useBackLayer } from "@/lib/navigation/back-layers";
@@ -25,6 +25,7 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
   ownerId: string; active: boolean; getContext: (cardId: string) => CardShareContext | null;
 }) {
   const [state, setState] = useState<State | null>(null);
+  const [profile, setProfile] = useState<{ context: CardShareContext; cardId: string } | null>(null);
   const [failed, setFailed] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
   // A readiness result belongs to this owner, direction and in-memory session.
@@ -61,14 +62,14 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
   useEffect(() => WalletCardAccessService.subscribe(ownerId, retry), [ownerId, retry]);
   useEffect(() => subscribeVaultSessionEpoch(() => {
     suspended.current = null; setUnavailable(false);
-    pending.current?.abort(); setState(null); setOpened(null); setSelection(null); setRevision(value => value + 1);
+    pending.current?.abort(); setState(null); setProfile(null); setOpened(null); setSelection(null); setRevision(value => value + 1);
   }), []);
   useEffect(() => {
     const refresh = () => {
       if (isSuspended(getContext(""))) return;
       if (document.visibilityState === "visible") setRevision(value => value + 1);
     };
-    const hide = () => { if (document.visibilityState === "hidden") { pending.current?.abort(); setState(null); setOpened(null); setSelection(null); } else refresh(); };
+    const hide = () => { if (document.visibilityState === "hidden") { pending.current?.abort(); setState(null); setProfile(null); setOpened(null); setSelection(null); } else refresh(); };
     window.addEventListener("focus", refresh); document.addEventListener("visibilitychange", hide);
     const timer = window.setInterval(refresh, 30_000);
     return () => { window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", hide); window.clearInterval(timer); };
@@ -77,7 +78,7 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
     pending.current?.abort(); pending.current = null;
     setBusy(null); setLoading(false); setMoreFailed(false);
     const context = getContext("");
-    if (!context || context.userId !== ownerId) { setState(null); return; }
+    if (!context || context.userId !== ownerId) { setState(null); setProfile(null); return; }
     if (isSuspended(context)) return;
     suspended.current = null; setUnavailable(false);
     const controller = new AbortController();
@@ -104,6 +105,9 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
       setFailed(true);
     })
       .finally(() => { if (!controller.signal.aborted && context.isCurrent()) setLoading(false); });
+    void WalletCardAccessService.profile(context, controller.signal).then(result => {
+      if (!controller.signal.aborted && context.isCurrent()) setProfile(result.eligible && result.cardId ? { context, cardId: result.cardId } : null);
+    }).catch(() => { if (!controller.signal.aborted && context.isCurrent()) setProfile(null); });
     return () => { controller.abort(); pending.current?.abort(); pending.current = null; };
   }, [ownerId, direction, revision, getContext, isSuspended]);
 
@@ -120,9 +124,16 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
         const ids = new Set(previous.page.items.map(item => `${item.cardType}:${item.id}`));
         return { ...previous, page: { ...page, items: [...previous.page.items, ...page.items.filter(item => !ids.has(`${item.cardType}:${item.id}`))] } };
       });
-    } catch { if (!controller.signal.aborted && current.context.isCurrent()) setMoreFailed(true); }
+    } catch (error: unknown) {
+      if (controller.signal.aborted || !current.context.isCurrent()) return;
+      if (error instanceof CardAccessUnavailableError && error.readinessUnavailable) {
+        suspended.current = { ownerId, direction, token: current.context.vaultOwnerToken, epoch: snapshotVaultSessionEpoch() };
+        setUnavailable(true); setFailed(true);
+      }
+      setMoreFailed(true);
+    }
     finally { if (pending.current === controller) { pending.current = null; setLoading(false); } }
-  }, [current, direction, loading, isSuspended]);
+  }, [current, ownerId, direction, loading, isSuspended]);
   useEffect(() => {
     if (!current?.page.nextCursor || moreFailed || typeof IntersectionObserver === "undefined" || !end.current) return;
     const observer = new IntersectionObserver(entries => { if (entries.some(entry => entry.isIntersecting)) void loadMore(); });
@@ -152,6 +163,7 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
     target.focus({ preventScroll: true });
   };
   return <SettingsPresentationProvider density="compact"><section aria-label={direction === "outgoing" ? "Card sharing history" : "Received card history"} className={`space-y-3.5 ${styles.history}`}>
+    {direction === "outgoing" && active && profile?.context.isCurrent() && profile.context.userId === ownerId ? <WalletSavedCardSharing card={{ cardId: profile.cardId }} getContext={getContext} disabled={Boolean(busy)} showHistory={false} /> : null}
     <SettingsGroup title={direction === "outgoing" ? `Shared cards${current?.page.recipientCount != null ? ` | ${current.page.recipientCount}` : ""}` : "Cards shared with you"}>
       {current?.page.items.map(item => <SettingsRow key={`${item.cardType}:${item.id}`} asChild icon={ProfilePaneAccountIcon} iconTone="transparent"
         title={direction === "outgoing" ? item.recipientName : item.senderName}

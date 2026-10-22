@@ -1,7 +1,4 @@
-"""Kai market insights route for /kai home revamp.
-
-Provides cached, provider-backed market overview data with graceful degradation.
-"""
+"""Kai market insights routes: cached, provider-backed market overview, degrading gracefully."""
 
 from __future__ import annotations
 
@@ -23,7 +20,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from fastapi.encoders import jsonable_encoder
 
-from api.middleware import require_firebase_auth, require_vault_owner_token, verify_user_id_match
+from api.middleware import require_firebase_auth, verify_user_id_match
 from hushh_mcp.operons.kai.fetchers import (
     fetch_market_company_facts,
     fetch_market_data,
@@ -35,6 +32,7 @@ from hushh_mcp.services.fmp_call_budget import is_budget_critical, record_fmp_ca
 from hushh_mcp.services.market_cache_store import get_market_cache_store_service
 from hushh_mcp.services.market_insights_cache import market_insights_cache
 from hushh_mcp.services.market_news_images import article_image_url, enrich_market_news_images
+from hushh_mcp.services.owner_placement_guard import hub_content_owner
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.renaissance_service import TIER_WEIGHTS, get_renaissance_service
 from hushh_mcp.services.ria_iam_service import RIAIAMService
@@ -3384,7 +3382,7 @@ async def get_market_insights(
         max_length=8,
         description="Explicit Finnhub exchange code override (e.g. US, L, T). Falls back to tz/US.",
     ),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ) -> dict[str, Any]:
     if token_data["user_id"] != user_id:
         raise HTTPException(
@@ -3481,7 +3479,7 @@ async def get_market_news(
         ge=1,
         le=NEWS_FEED_PAGE_MAX,
     ),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ) -> dict[str, Any]:
     """Read one cursor page from a vault-owner's bounded market-news snapshot."""
     if token_data["user_id"] != user_id:
@@ -3510,7 +3508,7 @@ async def get_stock_preview(
     user_id: _UserId,
     symbol: str = Query(..., min_length=1, max_length=20, description="Ticker symbol"),
     pick_source: str | None = Query(default=None, max_length=256),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ) -> dict[str, Any]:
     if token_data["user_id"] != user_id:
         raise HTTPException(

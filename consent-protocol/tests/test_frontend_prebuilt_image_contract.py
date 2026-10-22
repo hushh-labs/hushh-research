@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -120,7 +121,7 @@ def test_image_build_steps_stay_identical_to_the_combined_build() -> None:
 @pytest.mark.parametrize("domain", ["hushh.ai", "hussh.ai", "hussh.si"])
 def test_image_build_accepts_only_registered_environment_origins(environment, prefix, domain):
     step = _body(_steps(FRONTEND_IMAGE_BUILD)["resolve-google-contacts-client-config"])
-    # Execute the actual catalog guard without invoking cloud services or writing /workspace.
+    # Run the actual catalog guard without cloud calls or writes to /workspace.
     guard = step[step.index('python3 - "${_DEPLOY_ENV}"') : step.index("\nPY_RP") + len("\nPY_RP")]
     guard = guard.replace("${_DEPLOY_ENV}", environment).replace("$$", "$")
     hostname = f"{prefix}.{domain}"
@@ -158,10 +159,12 @@ def test_runtime_domain_guard_checks_the_catalog_not_removed_shell_branches(tmp_
     assert (result.returncode == 0) == (mutation is None), result.stderr
 
 
-def test_prebuilt_config_resolution_does_not_require_uploaded_source(tmp_path):
+@pytest.mark.parametrize("environment", ["dev", "uat"])
+def test_prebuilt_config_resolution_does_not_require_uploaded_source(tmp_path, environment):
     config = yaml.safe_load(FRONTEND_BUILD.read_text())
     values = {name: str(value) for name, value in config["substitutions"].items()}
     values["_SKIP_IMAGE_BUILD"] = "true"
+    values["_DEPLOY_ENV"] = environment
     script = _substitute(
         _body(_steps(FRONTEND_BUILD)["resolve-google-contacts-client-config"]), values
     )
@@ -170,7 +173,7 @@ def test_prebuilt_config_resolution_does_not_require_uploaded_source(tmp_path):
     result = _run(
         guards + script,
         env={
-            "APP_FRONTEND_ORIGIN_VAL": "https://uat.one.hussh.si",
+            "APP_FRONTEND_ORIGIN_VAL": f"https://{environment}.one.hussh.si",
             "PROJECT_ID": "synthetic-project",
         },
         cwd=tmp_path,
@@ -198,6 +201,8 @@ def test_optional_google_sign_in_client_build_boundary(tmp_path, status, expecte
     )
     guards = """gcloud() {
       case "$*" in
+        *--secret=NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID*|*--secret=NEXT_PUBLIC_GTM_ID*)
+          printf '%s' 'synthetic' ;;
         *--secret=NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID*)
           printf '%s' 'synthetic.apps.googleusercontent.com' ;;
         *--secret=NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID*)
@@ -294,8 +299,14 @@ def test_receipt_logo_build_boundary(
     )
     guards = """gcloud() {
       case "$*" in
+        *--secret=NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID*|*--secret=NEXT_PUBLIC_GTM_ID*)
+          printf '%s' 'synthetic' ;;
         *--secret=NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID*)
           printf '%s' 'synthetic.apps.googleusercontent.com' ;;
+        *--secret=NEXT_PUBLIC_GOOGLE_IOS_CONNECTOR_CLIENT_ID*|\
+        *--secret=NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_CLIENT_ID*|\
+        *--secret=NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI*|\
+        *--secret=NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED*|\
         *--secret=NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID*)
           echo 'NOT_FOUND: synthetic absence' >&2; return 1 ;;
         *--secret=NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE*)
@@ -334,6 +345,11 @@ def test_receipt_logo_build_boundary(
     assert artifact.read_text() == expected
     assert artifact.stat().st_mode & 0o777 == 0o600
 
+    _verify_receipt_logo_image_build(tmp_path, values, template, expected, artifact)
+    _verify_receipt_logo_run(expected)
+
+
+def _verify_receipt_logo_image_build(tmp_path, values, template, expected, artifact) -> None:
     # Execute the real Docker step, capture arguments without running Docker,
     # and prove query separators/braces survive as one build argument.
     build = _substitute(_body(_steps(FRONTEND_IMAGE_BUILD)["build-frontend-image"]), values)
@@ -356,8 +372,9 @@ def test_receipt_logo_build_boundary(
     assert template not in built.stdout + built.stderr
     assert not artifact.exists()
 
-    # Docker exposes ARG in RUN's environment. Exercise the actual build RUN
-    # with a guarded npm command, proving the empty value is truly unset.
+
+def _verify_receipt_logo_run(expected: str) -> None:
+    """Execute Docker's build shell while keeping a blank logo truly unset."""
     dockerfile = (ROOT / "hushh-webapp" / "Dockerfile").read_text()
     assert "ARG NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE\n" in dockerfile
     run = re.search(r"^RUN if .*?npm run build$", dockerfile, re.MULTILINE | re.DOTALL)
@@ -383,6 +400,206 @@ def test_image_build_config_never_deploys() -> None:
     assert not any("${_SKIP_IMAGE_BUILD}" in body for body in bodies)
     assert "_SKIP_IMAGE_BUILD" not in config["substitutions"]
     assert "--push" in bodies[-1]
+
+
+def _native_secret_guard(trace: Path, client: str, cases: list[str]) -> str:
+    return (
+        "gcloud() { local secret=''; for arg in \"$@\"; do "
+        'case "$arg" in --secret=*) secret="${arg#--secret=}" ;; esac; done; '
+        f'printf "%s\\n" "$secret" >> {shlex.quote(str(trace))}; '
+        'case "$secret" in '
+        f"NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID) printf '%s' {shlex.quote(client)} ;; "
+        + "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID|NEXT_PUBLIC_GTM_ID) printf synthetic ;; "
+        + "NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID|NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE) echo 'NOT_FOUND: synthetic absence' >&2; return 1 ;; "
+        + " ".join(cases)
+        + " *) echo UNEXPECTED_CLOUD_COMMAND >&2; return 95 ;; esac; };\nexport -f gcloud;\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("lane", "native_result", "expected_code", "enabled"),
+    [
+        ("dev", "configured", 0, "true"),
+        ("dev", "missing", 0, "false"),
+        ("dev", "denied", 1, None),
+        ("uat", "configured", 0, "false"),
+        ("production", "configured", 0, "false"),
+    ],
+)
+def test_native_public_clients_resolve_only_in_dev_and_fail_closed(
+    tmp_path: Path, lane: str, native_result: str, expected_code: int, enabled: str | None
+) -> None:
+    """Run the real resolver/build bodies; absence must differ from denied access."""
+    config = yaml.safe_load(FRONTEND_IMAGE_BUILD.read_text(encoding="utf-8"))
+    values = {name: str(value) for name, value in config["substitutions"].items()}
+    values.update({"_DEPLOY_ENV": lane, "_APP_ENV": lane})
+    client = "123456789012-synthetic.apps.googleusercontent.com"
+    trace = tmp_path / "secret-names"
+    pins = {
+        "NEXT_PUBLIC_GOOGLE_IOS_CONNECTOR_CLIENT_ID": client,
+        "NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_CLIENT_ID": client,
+        "NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI": "com.hussh.app:/oauth2redirect",
+        "NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED": "true",
+    }
+    cases = []
+    for name, value in pins.items():
+        if native_result == "configured":
+            command = f"printf '%s' {shlex.quote(value)}"
+        else:
+            error = "NOT_FOUND" if native_result == "missing" else "PERMISSION_DENIED"
+            command = f"echo '{error}: synthetic refusal' >&2; return 1"
+        cases.append(f"{name}) {command} ;;")
+    guard = _native_secret_guard(trace, client, cases)
+    resolver = _substitute(
+        _body(_steps(FRONTEND_IMAGE_BUILD)["resolve-google-contacts-client-config"]), values
+    )
+    resolver = resolver.replace("$$", "$").replace("/workspace", str(tmp_path))
+    dev_workflow = yaml.safe_load((ROOT / LANES["dev"][0]).read_text(encoding="utf-8"))
+    origin = {
+        "dev": dev_workflow["env"]["APP_FRONTEND_ORIGIN"],
+        "uat": "https://uat.one.hushh.ai",
+        "production": "https://one.hushh.ai",
+    }[lane]
+    result = _run(
+        guard + resolver,
+        env={"APP_FRONTEND_ORIGIN_VAL": origin, "PROJECT_ID": "synthetic-project"},
+    )
+    assert result.returncode == expected_code, result.stderr
+    assert client not in result.stdout + result.stderr
+    assert "UNEXPECTED_CLOUD_COMMAND" not in result.stdout + result.stderr
+    requested = [
+        name
+        for name in trace.read_text().splitlines()
+        if name not in {"NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID", "NEXT_PUBLIC_GTM_ID"}
+    ]
+    if lane != "dev":
+        expected_requests = [
+            "NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID",
+            "NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID",
+        ]
+        if lane == "uat":
+            expected_requests.append("NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE")
+        assert requested == expected_requests
+    if expected_code:
+        assert "Unable to access native Google" in result.stderr
+        return
+    directory = tmp_path / ".google-native-connectors"
+    assert (directory / "NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED").read_text() == enabled
+    if native_result == "missing" or lane != "dev":
+        assert (directory / "NEXT_PUBLIC_GOOGLE_IOS_CONNECTOR_CLIENT_ID").read_text() == ""
+
+    # The actual Docker command consumes these resolved pins, without echoing them.
+    capture = tmp_path / "docker-args"
+    build_guard = (
+        "gcloud() { return 0; };\n"
+        "docker() { if [ \"$1 $2\" = 'buildx build' ]; then "
+        f"printf '%s\\n' \"$@\" > {shlex.quote(str(capture))}; fi; }};\n"
+    )
+    build = _substitute(_body(_steps(FRONTEND_IMAGE_BUILD)["build-frontend-image"]), values)
+    build = build.replace("$$", "$").replace("/workspace", str(tmp_path))
+    environment = {
+        name: "synthetic"
+        for name in _steps(FRONTEND_IMAGE_BUILD)["build-frontend-image"]["secretEnv"]
+    }
+    environment.update({"APP_FRONTEND_ORIGIN_VAL": origin, "PROJECT_ID": "synthetic-project"})
+    built = _run(build_guard + build, env=environment)
+    assert built.returncode == 0, built.stderr
+    args = capture.read_text().splitlines()
+    assert f"NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED={enabled}" in args
+    expected_client = client if lane == "dev" and native_result == "configured" else ""
+    for name in (
+        "NEXT_PUBLIC_GOOGLE_IOS_CONNECTOR_CLIENT_ID",
+        "NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_CLIENT_ID",
+    ):
+        assert f"{name}={expected_client}" in args
+    assert client not in built.stdout + built.stderr
+
+
+def test_frontend_resolver_rejects_wrong_environment_origin_before_secret_reads(
+    tmp_path: Path,
+) -> None:
+    config = yaml.safe_load(FRONTEND_IMAGE_BUILD.read_text(encoding="utf-8"))
+    values = {name: str(value) for name, value in config["substitutions"].items()}
+    values.update({"_DEPLOY_ENV": "dev", "_APP_ENV": "dev"})
+    resolver = (
+        _substitute(
+            _body(_steps(FRONTEND_IMAGE_BUILD)["resolve-google-contacts-client-config"]), values
+        )
+        .replace("$$", "$")
+        .replace("/workspace", str(tmp_path))
+    )
+    result = _run(
+        "gcloud() { echo UNEXPECTED_CLOUD_COMMAND >&2; return 1; };\n" + resolver,
+        env={
+            "APP_FRONTEND_ORIGIN_VAL": "https://uat.one.hussh.si",
+            "PROJECT_ID": "synthetic-project",
+        },
+    )
+    assert result.returncode == 1
+    assert "APP_FRONTEND_ORIGIN host does not match the deployment environment" in result.stderr
+    assert "UNEXPECTED_CLOUD_COMMAND" not in result.stdout + result.stderr
+
+
+def _native_runtime_profile_fixture(tmp_path: Path, pins: dict[str, str]) -> Path:
+    """Copy the real shape verifier and templates; configure only synthetic pins."""
+    verifier = tmp_path / "scripts" / "ops" / "verify-runtime-profile-env-shape.py"
+    verifier.parent.mkdir(parents=True)
+    shutil.copyfile(ROOT / "scripts" / "ops" / verifier.name, verifier)
+    backend = tmp_path / "consent-protocol"
+    backend.mkdir()
+    for filename in (".env.example", ".env"):
+        shutil.copyfile(ROOT / "consent-protocol" / ".env.example", backend / filename)
+    frontend = tmp_path / "hushh-webapp"
+    frontend.mkdir()
+    for profile in ("local", "uat", "dev", "prod"):
+        filename = f".env.{profile}.local"
+        template = ROOT / "hushh-webapp" / f"{filename}.example"
+        shutil.copyfile(template, frontend / template.name)
+        lines = [
+            line
+            for line in template.read_text(encoding="utf-8").splitlines()
+            if line.partition("=")[0] not in pins
+        ]
+        lines.extend(f"{name}={value}" for name, value in pins.items())
+        (frontend / filename).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return verifier
+
+
+@pytest.mark.parametrize("unexpected_key", [False, True])
+def test_native_configured_runtime_profiles_preserve_strict_env_shape(
+    tmp_path: Path, unexpected_key: bool
+) -> None:
+    client = "123456789012-synthetic.apps.googleusercontent.com"
+    pins = {
+        "NEXT_PUBLIC_GOOGLE_IOS_CONNECTOR_CLIENT_ID": client,
+        "NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_CLIENT_ID": client,
+        "NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI": "com.hussh.app:/oauth2redirect",
+        "NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED": "true",
+    }
+    verifier = _native_runtime_profile_fixture(tmp_path, pins)
+    if unexpected_key:
+        runtime = tmp_path / "hushh-webapp" / ".env.dev.local"
+        runtime.write_text(
+            runtime.read_text(encoding="utf-8")
+            + "NEXT_PUBLIC_UNRECOGNIZED_CONNECTOR_PIN=synthetic\n",
+            encoding="utf-8",
+        )
+    result = subprocess.run(  # noqa: S603 - real repo verifier, synthetic fixtures only
+        [sys.executable, str(verifier), "--include-runtime"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == int(unexpected_key), result.stderr
+    assert client not in result.stdout + result.stderr
+    if unexpected_key:
+        assert result.stderr.splitlines() == [
+            "Runtime profile env shape check failed:",
+            "- hushh-webapp/.env.dev.local: unexpected extra keys NEXT_PUBLIC_UNRECOGNIZED_CONNECTOR_PIN",
+        ]
+    else:
+        assert result.stdout.strip() == "Runtime profile env shape check passed."
 
 
 @pytest.mark.parametrize(

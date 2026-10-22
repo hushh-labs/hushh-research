@@ -17,6 +17,7 @@ vi.mock("@/lib/capacitor/platform", () => ({ isNative: () => false }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: state.token }) }));
 vi.mock("@/lib/vault/session-epoch", () => ({
   snapshotVaultSessionEpoch: () => state.epoch,
+  subscribeVaultSessionEpoch: () => () => {},
   isVaultSessionEpochCurrent: (epoch: number) => epoch === state.epoch,
 }));
 // Stream "live" by default: refreshes come only from payout events, so every read here is deliberate.

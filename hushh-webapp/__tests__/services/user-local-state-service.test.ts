@@ -11,6 +11,11 @@ const mocks = vi.hoisted(() => ({
   forgetLocationMemory: vi.fn(),
   forgetLocationRecipientKey: vi.fn(),
   clearDeviceVaultSecrets: vi.fn(),
+  clearReleaseNotices: vi.fn(),
+}));
+
+vi.mock("@/lib/services/onboarding-local-service", () => ({
+  OnboardingLocalService: { clearReleaseNotices: mocks.clearReleaseNotices },
 }));
 
 vi.mock("@/lib/services/secure-durable-resource-service", () => ({
@@ -141,6 +146,7 @@ describe("UserLocalStateService", () => {
 
     expect(mocks.forgetLocationRecipientKey).not.toHaveBeenCalled();
     expect(mocks.clearDeviceVaultSecrets).not.toHaveBeenCalled();
+    expect(mocks.clearReleaseNotices).not.toHaveBeenCalled();
     expect(SecureDurableResourceService.purgeUser).not.toHaveBeenCalled();
   });
 
@@ -182,5 +188,6 @@ describe("UserLocalStateService", () => {
 
     expect(mocks.forgetLocationRecipientKey).toHaveBeenCalledWith("uid-1");
     expect(mocks.clearDeviceVaultSecrets).toHaveBeenCalledWith("uid-1");
+    expect(mocks.clearReleaseNotices).toHaveBeenCalledWith("uid-1");
   });
 });

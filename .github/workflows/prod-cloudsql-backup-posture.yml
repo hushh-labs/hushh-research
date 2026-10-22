@@ -1,4 +1,4 @@
-name: Prod Cloud SQL Backup Posture
+name: "Verify Production Backups"
 
 on:
   schedule:

@@ -203,11 +203,17 @@ def _encrypted_local_fixture(*, key_id: str = "local-key", plaintext_size: int =
 
 
 @pytest.mark.asyncio
-async def test_local_stdio_fetches_validates_decrypts_and_narrows_outside_model(monkeypatch):
+@pytest.mark.parametrize("paid", [False, True])
+async def test_local_stdio_fetches_validates_decrypts_and_narrows_outside_model(monkeypatch, paid):
     metadata, ciphertext, keypair = _encrypted_local_fixture()
+    metadata["commercial_required"] = paid
     _install_common(monkeypatch, payload=metadata, local=True)
 
-    monkeypatch.setattr(data_tools, "get_or_create_local_connector_keypair", lambda: keypair)
+    def _get_keypair():
+        assert not paid, "Paid information must remain encrypted in legacy MCP results"
+        return keypair
+
+    monkeypatch.setattr(data_tools, "get_or_create_local_connector_keypair", _get_keypair)
 
     content = await data_tools.handle_get_encrypted_scoped_export(
         {"user_id": "user_123", "consent_token": "consent_token_demo"}
@@ -215,9 +221,14 @@ async def test_local_stdio_fetches_validates_decrypts_and_narrows_outside_model(
 
     payload = json.loads(content[0].text)
     assert payload["status"] == "success"
-    assert payload["delivery"] == "decrypted_local"
-    assert payload["data"] == {"portfolio": {"note": "x" * 8}}
-    assert "encrypted_data" not in payload
+    assert payload["delivery"] == ("encrypted_inline" if paid else "decrypted_local")
+    if paid:
+        assert payload["encrypted_data"] == _b64(ciphertext)
+        assert "data" not in payload
+        assert "user_id" not in payload
+    else:
+        assert payload["data"] == {"portfolio": {"note": "x" * 8}}
+        assert "encrypted_data" not in payload
 
 
 @pytest.mark.asyncio

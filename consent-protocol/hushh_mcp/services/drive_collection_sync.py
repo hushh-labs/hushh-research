@@ -17,6 +17,7 @@ from hushh_mcp.services.google_drive_adapter import (
     GoogleDriveAdapter,
     valid_metadata_name,
 )
+from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
 
 def _token(value, previous=None):
@@ -71,6 +72,10 @@ class DriveCollectionSync:
         self.store = store or DriveCollectionStore(db=self.oauth.lifecycle.db)
         self.adapter = adapter or GoogleDriveAdapter()
 
+    async def _require_current(self, job):
+        await self.store.require_current(job)
+        await admit_hub_content(job["user_id"], "drive_collection_sync")
+
     async def enqueue_candidates(self, *, user_id, file_ids):
         """Resolve a bounded search result through normal collection authority.
 
@@ -88,6 +93,7 @@ class DriveCollectionSync:
             or len(set(file_ids)) != len(file_ids)
         ):
             raise DriveReadError("invalid_argument")
+        await admit_hub_content(user_id, "drive_collection_candidates")
         authority = await self.store.candidate_authority(user_id=user_id)
         async with asyncio.timeout(100):
             row, credential = await self.oauth.current_credential(
@@ -98,6 +104,7 @@ class DriveCollectionSync:
             files = []
             for identity in file_ids:
                 await self.store.require_candidates_current(authority)
+                await admit_hub_content(user_id, "drive_collection_candidates")
                 files.append(
                     await self.adapter.get_metadata(
                         file_id=identity,
@@ -106,9 +113,12 @@ class DriveCollectionSync:
                     )
                 )
                 await self.store.require_candidates_current(authority)
+                await admit_hub_content(user_id, "drive_collection_candidates")
+            await admit_hub_content(user_id, "drive_collection_candidates")
             return await self.store.enqueue_candidates(authority, files=files)
 
     async def run_one(self, *, user_id):
+        await admit_hub_content(user_id, "drive_collection_claim")
         job = None
         started = time.monotonic()
         try:
@@ -116,13 +126,13 @@ class DriveCollectionSync:
             if not job:
                 return {"status": "idle"}
             async with asyncio.timeout(100):
-                await self.store.require_current(job)
+                await self._require_current(job)
                 row, credential = await self.oauth.current_credential(
                     user_id=user_id, required_profile="live"
                 )
                 if row["connection_generation"] != job["connection_generation"]:
                     raise DriveReadError("connection_changed")
-                await self.store.require_current(job)
+                await self._require_current(job)
                 checkpoint = self.store.checkpoint(job)
                 token = credential["accessToken"]
                 files = []
@@ -244,7 +254,7 @@ class DriveCollectionSync:
                         # file changes never restart the complete collection.
                         phase = "start"
                         caught = False
-                await self.store.require_current(job)
+                await self._require_current(job)
                 await self.store.commit_page(
                     job,
                     checkpoint=checkpoint,

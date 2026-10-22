@@ -233,6 +233,8 @@ def test_instruction_budget_is_calendar_stable_but_rejects_payload_growth(monkey
     monkeypatch.setattr(sys, "argv", [str(script), "--check"])
     assert benchmark["main"]() == 0
     capsys.readouterr()
+    caps = json.loads(benchmark["BUDGET_PATH"].read_text(encoding="utf-8"))
+    growth = caps["instruction_chars"] - samples[0]["instruction_chars"] + 1
     config = instruction.voice_head_config()
     caps = json.loads(Path(benchmark["BUDGET_PATH"]).read_text(encoding="utf-8"))
     growth = max(0, caps["instruction_chars"] - samples[0]["instruction_chars"]) + 1
@@ -241,9 +243,10 @@ def test_instruction_budget_is_calendar_stable_but_rejects_payload_growth(monkey
         "voice_head_config",
         lambda: {
             **config,
-            "instruction": str(config["instruction"]) + "x" * growth,
+            "instruction": str(config["instruction"]) + "X" * growth,
         },
     )
+    assert benchmark["measure"]()["instruction_chars"] > caps["instruction_chars"]
     assert benchmark["main"]() == 1
     assert "One Voice performance budget exceeded" in capsys.readouterr().err
 

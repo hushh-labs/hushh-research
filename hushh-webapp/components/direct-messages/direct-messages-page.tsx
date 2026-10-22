@@ -1,5 +1,6 @@
 "use client";
 
+import { formatMessageTime, formatMessageFeedMarker, formatConversationTime } from "@/lib/direct-messages/message-timestamps";
 import { replaceMessageHistory } from "@/lib/direct-messages/message-history";
 import { writeLastMessagesSelection, type LastMessagesSelection } from "@/lib/direct-messages/last-selection";
 
@@ -22,7 +23,7 @@ import {
 
 import { AgentDockPortal, useAgentDockFrame } from "@/components/agent/agent-dock";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
-import { navigateDirectMessage } from "@/lib/direct-messages/navigate-direct-message";
+import { navigateDirectMessage, resolveDirectMessageHref } from "@/lib/direct-messages/navigate-direct-message";
 import { OneChatBubble } from "@/components/agent/chat-message-styles";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { ConnectionsService, type ConnectionSummaryEntry } from "@/lib/services/connections-service";
@@ -176,12 +177,11 @@ async function decodePhoto(url: string) {
   return { url, width: image.naturalWidth, height: image.naturalHeight };
 }
 
-function MessageAttachment({ message, getIdToken, onPhotoLoad, isCurrentVisit, visitRevision, admitted }: {
+function MessageAttachment({ message, getIdToken, onPhotoLoad, isCurrentVisit, admitted }: {
   message: DirectMessage;
   getIdToken: () => Promise<string>;
   onPhotoLoad: () => void;
   isCurrentVisit: () => boolean;
-  visitRevision: number;
   admitted: boolean;
 }) {
   const [photo, setPhoto] = useState<Awaited<ReturnType<typeof decodePhoto>> | null>(null);
@@ -194,9 +194,8 @@ function MessageAttachment({ message, getIdToken, onPhotoLoad, isCurrentVisit, v
     return true;
   });
   const active = useRef(true);
-  const visitGuard = useRef(isCurrentVisit);
-  visitGuard.current = isCurrentVisit;
-  const isCurrent = () => active.current && isCurrentVisit();
+  const originalAccess = useRef({ isCurrentVisit, getIdToken });
+  const isCurrent = useCallback(() => active.current && originalAccess.current.isCurrentVisit(), []);
   useLayoutEffect(() => {
     active.current = true;
     return () => {
@@ -210,34 +209,31 @@ function MessageAttachment({ message, getIdToken, onPhotoLoad, isCurrentVisit, v
   photoLoadHandler.current = onPhotoLoad;
   useLayoutEffect(() => {
     // Reserve the decoded dimensions and restore the pinned transcript before paint.
-    if (mediaUrl && active.current && visitGuard.current()) photoLoadHandler.current();
-  }, [mediaUrl]);
+    if (mediaUrl && isCurrent()) photoLoadHandler.current();
+  }, [mediaUrl, isCurrent]);
   const attachment = message.attachment;
   const photoRef = useRef<HTMLDivElement>(null);
   const [photoVisible, setPhotoVisible] = useState(false);
-  const tokenGetter = useRef(getIdToken);
-  tokenGetter.current = getIdToken;
   useEffect(() => {
     const node = photoRef.current;
-    if (attachment?.kind !== "photo" || !node || typeof IntersectionObserver === "undefined") return;
+    if (!admitted || attachment?.kind !== "photo" || !node || typeof IntersectionObserver === "undefined") return;
     const observer = new IntersectionObserver(([entry]) => {
-      if (!entry?.isIntersecting) return;
+      if (!isCurrent() || !entry?.isIntersecting) return;
       setPhotoVisible(true);
       observer.disconnect();
     }, { rootMargin: "80px" });
     observer.observe(node);
     return () => observer.disconnect();
-  }, [attachment?.kind, message.conversationId, message.id]);
+  }, [attachment?.kind, message.conversationId, message.id, isCurrent, admitted]);
   useEffect(() => {
-    if (attachment?.kind !== "photo" || !photoVisible || !admitted) return;
+    if (!admitted || !isCurrent() || attachment?.kind !== "photo" || !photoVisible) return;
     let current = true;
-    const visit = visitGuard.current;
-    const effectIsCurrent = () => current && active.current && visit();
+    const effectIsCurrent = () => current && isCurrent();
     let url: string | null = null;
     setOpening(true);
     void (async () => {
       if (!effectIsCurrent()) return;
-      const idToken = await tokenGetter.current();
+      const idToken = await originalAccess.current.getIdToken();
       if (!effectIsCurrent()) return;
       const blob = await DirectMessagesService.getAttachment({ idToken,
         conversationId: message.conversationId, messageId: message.id,
@@ -252,24 +248,23 @@ function MessageAttachment({ message, getIdToken, onPhotoLoad, isCurrentVisit, v
       // Keep the Open control available for an explicit retry.
     }).finally(() => { if (effectIsCurrent()) setOpening(false); });
     return () => { current = false; if (url) URL.revokeObjectURL(url); };
-  }, [attachment?.kind, message.conversationId, message.id, photoVisible, visitRevision, admitted]);
+  }, [attachment?.kind, message.conversationId, message.id, photoVisible, isCurrent, admitted]);
   if (!attachment) return null;
   const typeLabel = ({ "application/pdf": "PDF", "text/plain": "Text file",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "Word document",
     "image/jpeg": "JPEG", "image/png": "PNG", "image/webp": "WebP",
     "video/mp4": "MP4 file", "video/webm": "WebM file" } as Record<string, string>)[attachment.mimeType] || "File";
   const loadAttachment = async () => {
-    const requireCurrent = () => { if (!isCurrent()) throw new DOMException("Attachment request expired.", "AbortError"); };
-    requireCurrent();
-    const idToken = await getIdToken();
-    requireCurrent();
+    if (!isCurrent()) throw new DOMException("Attachment request expired.", "AbortError");
+    const idToken = await originalAccess.current.getIdToken();
+    if (!isCurrent()) throw new DOMException("Attachment request expired.", "AbortError");
     const blob = await DirectMessagesService.getAttachment({ idToken, conversationId: message.conversationId, messageId: message.id, isEffectCurrent: isCurrent });
-    requireCurrent();
+    if (!isCurrent()) throw new DOMException("Attachment request expired.", "AbortError");
     return blob;
   };
   if (attachment.kind === "audio") return <DirectMessageVoicePlayer durationMs={attachment.durationMs ?? 0} loadAudio={loadAttachment} />;
   const open = async () => {
-    if (opening || !isCurrent()) return;
+    if (!isCurrent() || opening) return;
     setOpening(true);
     try {
       const blob = await loadAttachment();
@@ -324,45 +319,6 @@ function MessageAttachment({ message, getIdToken, onPhotoLoad, isCurrentVisit, v
       </button>
     </div>}
   </div>;
-}
-
-/** Per-message metadata always uses a clock time. Repeating a calendar date
- * below every historical bubble makes a thread much harder to scan. */
-function formatMessageTime(value: string | null | undefined): string {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
-
-function formatMessageFeedMarker(value: string | null | undefined): string {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const now = new Date();
-  if (date.toDateString() === now.toDateString()) return "Today";
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
-  return date.toLocaleDateString([], {
-    month: "short",
-    day: "numeric",
-    year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
-  });
-}
-
-function formatConversationTime(value: string | null | undefined): string {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const now = new Date();
-  if (date.toDateString() === now.toDateString()) {
-    return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  }
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
-  return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
 function conversationLabel(conversation: DirectMessageConversation): string {
@@ -544,6 +500,16 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     replyFocus.current = null;
     editFocus.current = null;
   }, []);
+  const pageRef = useRef<HTMLElement | null>(null);
+  const dockFrame = useAgentDockFrame();
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
+  const documentInputRef = useRef<HTMLInputElement | null>(null);
+  const editingInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const editDraftGeneration = useRef(0);
+  const [messageSearchOpen, setMessageSearchOpen] = useState(false);
+  const [messageSearchQuery, setMessageSearchQuery] = useState("");
+  const messageSearchRef = useRef(messageSearchQuery); messageSearchRef.current = messageSearchQuery;
 
   const hasRouteSelection = Boolean(resolvingSelection || requestedPersonRef || requestedConversationId);
   const selectedRouteKey = requestedPersonRef
@@ -574,6 +540,21 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   }, []);
 
   useLayoutEffect(() => {
+    invalidateOperations();
+    setSending(false);
+    setLoadingOlder(false);
+    setOpenMessageMenu(null);
+    setActiveMessageActions(null);
+    setReplyingTo(null);
+    setEditingMessage(null);
+    setEditingContent("");
+    setDeleteRequest(null);
+    setComposerError(null);
+    setMessageActionError(null);
+    return invalidateOperations;
+  }, [invalidateOperations, readScope]);
+
+  useLayoutEffect(() => {
     invalidateInboxRead();
     successfulInboxOwner.current = null;
     setInboxSearch("");
@@ -581,17 +562,6 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     setLoadingInbox(Boolean(user?.uid));
     return invalidateInboxRead;
   }, [invalidateInboxRead, user?.uid]);
-  const pageRef = useRef<HTMLElement | null>(null);
-  const dockFrame = useAgentDockFrame();
-  const composerRef = useRef<HTMLTextAreaElement | null>(null);
-  const photoInputRef = useRef<HTMLInputElement | null>(null);
-  const documentInputRef = useRef<HTMLInputElement | null>(null);
-  const editingInputRef = useRef<HTMLTextAreaElement | null>(null);
-  const editDraftGeneration = useRef(0);
-  const [messageSearchOpen, setMessageSearchOpen] = useState(false);
-  const [messageSearchQuery, setMessageSearchQuery] = useState("");
-  const messageSearchRef = useRef(messageSearchQuery); messageSearchRef.current = messageSearchQuery;
-
   useEffect(() => {
     if (!newChatOpen || !user) return;
     let active = true;
@@ -620,8 +590,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     return () => { active = false; window.clearTimeout(timer); };
   }, [newChatOpen, newChatPage, newChatQuery, user]);
 
-  const routeSelection = `${requestedPersonRef ? "person" : "conversation"}:${requestedPersonRef || requestedConversationId}`;
-  const draftScope = JSON.stringify([user?.uid ?? null, routeSelection]);
+  const routeSelection = JSON.stringify([user?.uid ?? null, requestedPersonRef ? "person" : "conversation", requestedPersonRef || requestedConversationId]);
+  const draftScope = routeSelection;
   useEffect(() => {
     if (requestedPersonRef || requestedConversationId) setLane("people");
     else if (restoredLane) setLane(restoredLane);
@@ -630,6 +600,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const readAdmission = useRef({ ownerId: user?.uid, scope: readScope, admitted: isCurrentRead, resolvingSelection, lane });
   readAdmission.current = { ownerId: user?.uid, scope: readScope, admitted: isCurrentRead, resolvingSelection, lane };
   const ownerRef = useRef(user?.uid);
+  const cleanedOwnerRef = useRef(user?.uid);
+  ownerRef.current = user?.uid;
+  selectionRef.current = routeSelection;
   const selectionGeneration = operationGeneration;
   const replyDrafts = useRef(new Map<string, DirectMessage | null>());
   const drafts = useRef(new Map<string, string>());
@@ -675,7 +648,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const [atBottom, setAtBottom] = useState(true);
   const [readRevision, setReadRevision] = useState(0);
   const blockingLayer = Boolean(useVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions);
-  const messageLongPress = useLongPress(lane !== "people" || !hasRouteSelection || pendingSelection || blockingLayer);
+  const messageLongPress = useLongPress(lane !== "people" || !hasRouteSelection || !isCurrentRead || pendingSelection || blockingLayer);
   const cancelMessageLongPress = messageLongPress.cancel;
   const foreground = () => document.visibilityState === "visible" && appInteractionCoordinator.getLifecycleSnapshot().state === "active";
   const bottomIsUncovered = useCallback(() => {
@@ -707,6 +680,10 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     invalidateThreadRead();
   }, [invalidateOperations, invalidateThreadRead]);
 
+  // Read the current render only when selection changes; later history
+  // settlement must not reset the selected conversation or its draft.
+  const selectionRead = useRef({ requestedConversationId, readScope, conversationId: storedThread.conversation?.id });
+  selectionRead.current = { requestedConversationId, readScope, conversationId: storedThread.conversation?.id };
   useEffect(() => {
     chatDeleteLifetime.current = true;
     const handles = chatDeleteToasts.current;
@@ -727,9 +704,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     CacheSyncService.onFeedHistoryMutated(ownerId);
     dispatchFeedStateChanged("action");
     const peer = peerPersonRef ?? inboxItems.find(item => item.id === conversationId)?.peerPersonRef;
-    const selections = [`conversation:${conversationId}`, ...(peer ? [`person:${peer}`] : [])];
-    for (const selection of selections) {
-      const scope = JSON.stringify([ownerId, selection]);
+    const selections = [JSON.stringify([ownerId, "conversation", conversationId]),
+      ...(peer ? [JSON.stringify([ownerId, "person", peer])] : [])];
+    for (const scope of selections) {
       drafts.current.delete(scope); replyDrafts.current.delete(scope);
       attachmentDrafts.current.delete(scope); sendAttempts.current.delete(scope);
     }
@@ -746,7 +723,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   }, [inboxItems, invalidateInboxRead, invalidateSelection, router, user?.uid]);
 
   useLayoutEffect(() => {
-    if (ownerRef.current !== user?.uid) {
+    if (cleanedOwnerRef.current !== user?.uid) {
+      cleanedOwnerRef.current = user?.uid;
       // Replicas belong to an account, not merely a matching route.
       drafts.current.clear(); replyDrafts.current.clear();
       attachmentDrafts.current.clear(); sendAttempts.current.clear();
@@ -765,15 +743,23 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     setReplyingTo(replyDrafts.current.get(draftScope) ?? null); setEditingMessage(null); setEditingContent(""); setDeleteRequest(null); setChatDeleteRequest(null);
     setMessageActionError(null); setComposerError(null); setOpenMessageMenu(null); reactionPickerTarget.current = null; setOpenReactionPicker(null); setActiveMessageActions(null);
     cacheSession.current = ownerId ? DirectMessagesResourceService.beginRequest(ownerId) : null;
-    const cached = ownerId ? DirectMessagesResourceService.readThread(ownerId, routeSelection) : null;
+    const cached = ownerId && selectedRouteKey ? DirectMessagesResourceService.readThread(ownerId, selectedRouteKey) : null;
     const known = inboxRef.current.find((item) => requestedConversationId ? item.id === requestedConversationId : requestedPersonRef && item.peerPersonRef === requestedPersonRef);
-    messagesRef.current = cached?.messages ?? [];
-    setLoadingOlder(false); setMessages(cached?.messages ?? []);
-    setThread(cached?.thread ?? (known ? threadFromConversation(known) : EMPTY_THREAD));
-    setPresentedScope(readScope); setThreadError(null);
-    settleReadScope(null);
+    setLoadingOlder(false); setPresentedScope(readScope); setThreadError(null);
+    // An accepted send admits only this owner's exact destination before
+    // encrypted navigation. Preserve it until the destination history settles.
+    const observed = selectionRead.current;
+    const acceptedHandoff = Boolean(observed.requestedConversationId && observed.readScope
+      && loadedReadScopes.current.includes(observed.readScope)
+      && observed.conversationId === observed.requestedConversationId);
+    if (!acceptedHandoff) {
+      messagesRef.current = cached?.messages ?? [];
+      setMessages(cached?.messages ?? []);
+      setThread(cached?.thread ?? (known ? threadFromConversation(known) : EMPTY_THREAD));
+      settleReadScope(null);
+    }
     return invalidateSelection;
-  }, [invalidateSelection, routeSelection, draftScope, user?.uid, ownerId, readScope, requestedConversationId, requestedPersonRef, resolvingSelection, settleReadScope, cancelMessageLongPress]);
+  }, [invalidateSelection, routeSelection, draftScope, user?.uid, ownerId, readScope, requestedConversationId, requestedPersonRef, selectedRouteKey, resolvingSelection, settleReadScope, cancelMessageLongPress]);
 
   useLayoutEffect(() => {
     const input = composerRef.current;
@@ -792,9 +778,23 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     setMessageSearchQuery("");
   }, [activeConversationId]);
 
-  useChatAlertVisibility(lane === "people" && hasRouteSelection && activeConversationId && !loadingThread && !blockingLayer && !messageSearchOpen
+  const editingMessageId = editingMessage?.id;
+
+  useEffect(() => {
+    if (!editingMessageId) return;
+    const frame = requestAnimationFrame(() => {
+      const input = editingInputRef.current;
+      if (!input) return;
+      input.focus();
+      const caret = input.value.length;
+      input.setSelectionRange(caret, caret);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [editingMessageId]);
+
+  useChatAlertVisibility(lane === "people" && isCurrentRead && hasRouteSelection && activeConversationId && !pendingSelection && !blockingLayer && !messageSearchOpen
     ? `direct-chat:${activeConversationId}` : null, messageListRef);
-  const canCompose = hasRouteSelection && !resolvingSelection && isCurrentRead && thread.canSend;
+  const canCompose = hasRouteSelection && !pendingSelection && isCurrentRead && thread.canSend;
   useLayoutEffect(() => {
     if (!ownerId || !cacheSession.current || !selectedRouteKey || !isCurrentRead || loadingThread || threadError || reactionPending.current.size) return;
     DirectMessagesResourceService.writeThread(ownerId, cacheSession.current, selectedRouteKey, thread, messages);
@@ -1047,6 +1047,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     let cancelled = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let abortController: AbortController | null = null;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
     let reconnectAttempt = 0;
 
     const connect = async () => {
@@ -1058,16 +1059,18 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
           idToken,
           signal: abortController.signal,
         });
-        if (!response.ok || !response.body) {
+        if (cancelled || !response.ok || !response.body) {
+          await response.body?.cancel().catch(() => undefined);
+          if (cancelled) return;
           throw new Error(`Message updates unavailable (${response.status})`);
         }
         reconnectAttempt = 0;
-        const reader = response.body.getReader();
+        reader = response.body.getReader();
         const decoder = new TextDecoder();
         let remainder = "";
         while (!cancelled) {
           const { done, value } = await reader.read();
-          if (done) break;
+          if (done || cancelled) break;
           remainder += decoder.decode(value, { stream: true });
           const splitAt = Math.max(
             remainder.lastIndexOf("\n\n"),
@@ -1092,6 +1095,11 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
         // Push, focus refresh and the short reconnect below keep the inbox live
         // when a proxy or network briefly interrupts the stream.
       } finally {
+        if (reader) {
+          await reader.cancel().catch(() => undefined);
+          reader.releaseLock();
+          reader = null;
+        }
         if (!cancelled) {
           reconnectAttempt += 1;
           const delay = Math.min(30_000, 1_000 * 2 ** Math.min(reconnectAttempt, 5));
@@ -1104,6 +1112,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     return () => {
       cancelled = true;
       abortController?.abort();
+      // The transport stops forwarding this signal after headers arrive.
+      void reader?.cancel().catch(() => undefined);
       if (reconnectTimer) clearTimeout(reconnectTimer);
     };
   }, [user]);
@@ -1142,29 +1152,26 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     const markRead = async () => {
       const last = messages.at(-1);
       const node = messageListRef.current;
-      const admission = readAdmission.current;
-      if (!admission.admitted || admission.resolvingSelection || admission.lane !== "people" || messageSearchQuery.trim() || !user || !activeConversationId || !last || loadingThread || reading.current || readThrough.current === last.id
+      if (!isCurrentRead || messageSearchQuery.trim() || !user || !activeConversationId || !last || loadingThread || reading.current || readThrough.current === last.id
         || !foreground() || !document.hasFocus() || !atBottomRef.current || !visibleBottom.current || !bottomIsUncovered() || !node || chatReadIsBlocked(node) || node.scrollHeight - node.scrollTop - node.clientHeight > 8) return;
       const generation = selectionGeneration.current;
       reading.current = true;
       try {
         const idToken = await user.getIdToken();
-        if (generation !== selectionGeneration.current || readAdmission.current.ownerId !== user.uid || readAdmission.current.scope !== admission.scope || !readAdmission.current.admitted || readAdmission.current.resolvingSelection || readAdmission.current.lane !== "people" || messageSearchRef.current.trim() || !foreground() || !document.hasFocus()
+        if ((generation !== selectionGeneration.current || ownerRef.current !== user?.uid || selectionRef.current !== routeSelection) || messageSearchRef.current.trim() || !foreground() || !document.hasFocus()
             || !atBottomRef.current || !visibleBottom.current || !bottomIsUncovered() || !messageListRef.current
             || chatReadIsBlocked(messageListRef.current)
             || messageListRef.current.scrollHeight - messageListRef.current.scrollTop - messageListRef.current.clientHeight > 8) return;
         await DirectMessagesService.markConversationRead({ idToken, ownerUserId: user.uid, conversationId: activeConversationId, throughMessageId: last.id, throughCreatedAt: last.createdAt });
-        if (generation !== selectionGeneration.current) return;
+        if ((generation !== selectionGeneration.current || ownerRef.current !== user?.uid || selectionRef.current !== routeSelection)) return;
         readThrough.current = last.id;
-        setInbox((current) => current?.ownerId === user.uid
-          ? { ...current, items: current.items.map((conversation) => conversation.id === activeConversationId && messagesRef.current.at(-1)?.id === last.id ? { ...conversation, unreadCount: 0 } : conversation) }
-          : current);
+        setInbox((current) => current?.ownerId === user.uid ? { ...current, items: current.items.map((conversation) => conversation.id === activeConversationId && messagesRef.current.at(-1)?.id === last.id ? { ...conversation, unreadCount: 0 } : conversation) } : current);
         setThread((current) => current.conversation?.id === activeConversationId && messagesRef.current.at(-1)?.id === last.id
           ? { ...current, conversation: { ...current.conversation, unreadCount: 0 } } : current);
         dispatchDirectMessagesUpdated({ userId: user.uid, conversationId: activeConversationId, messageId: null, source: "read" });
       } catch { /* Retain unread state so the next foreground/read event can retry. */ }
       finally {
-        if (generation === selectionGeneration.current) {
+        if ((generation === selectionGeneration.current && ownerRef.current === user?.uid && selectionRef.current === routeSelection)) {
           reading.current = false;
           if (readThrough.current === last.id && messagesRef.current.at(-1)?.id !== last.id) setReadRevision((value) => value + 1);
         }
@@ -1176,7 +1183,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     const onFocus = () => void markRead();
     window.addEventListener("focus", onFocus); document.addEventListener("visibilitychange", onFocus);
     return () => { removeLifecycle(); removeLayers(); window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onFocus); };
-  }, [activeConversationId, loadingThread, messages, readRevision, thread.conversation?.unreadCount, user, blockingLayer, messageSearchQuery, bottomIsUncovered, lane, isCurrentRead, resolvingSelection, selectionGeneration]);
+  }, [isCurrentRead, routeSelection, activeConversationId, loadingThread, messages, readRevision, thread.conversation?.unreadCount, user, blockingLayer, messageSearchQuery, bottomIsUncovered, selectionGeneration]);
 
   useEffect(() => {
     if (!user) return;
@@ -1219,8 +1226,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const peerProfileHref = thread.peerPersonRef
     ? buildPersonProfileRoute(thread.peerPersonRef, { from: ROUTES.ONE_MESSAGES })
     : null;
-  const normalizedMessageSearch = messageSearchQuery.trim().toLocaleLowerCase();
   const admittedMessages = isCurrentRead ? messages : [];
+  const normalizedMessageSearch = messageSearchQuery.trim().toLocaleLowerCase();
   const displayMessages = isCurrentRead || hasPresentation ? messages : [];
   const visibleMessages = normalizedMessageSearch
     ? displayMessages.filter((message) =>
@@ -1314,7 +1321,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
       setAttachment(recordedAttachment);
     }
     const generation = selectionGeneration.current;
-    const isCurrent = () => generation === selectionGeneration.current && ownerRef.current === user.uid && selectionRef.current === routeSelection && loadedReadScopes.current.includes(readScope!);
+    const isCurrent = () => (generation === selectionGeneration.current && ownerRef.current === user?.uid && selectionRef.current === routeSelection);
     const reply = replyingTo;
     const replyId = hasUnconfirmedSend ? sendAttempts.current.get(draftScope)?.replyId : reply?.id;
     let attempt = sendAttempts.current.get(draftScope);
@@ -1373,6 +1380,16 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
         messageId: result.message.id,
         source: "send",
       });
+      // Keep only this owner's accepted source and destination visible while
+      // the encrypted route resolves; unrelated selections stay fenced.
+      const href = await resolveDirectMessageHref({ conversationId: result.conversation.id }).catch(() => null);
+      if (!href || !isCurrent()) return;
+      const destinationScope = JSON.stringify([user.uid, `conversation:${result.conversation.id}`]);
+      const handoffScopes = readScope ? [readScope, destinationScope] : [destinationScope];
+      ++loadGeneration.current;
+      loadedReadScopes.current = handoffScopes;
+      setSettledReadScopes(handoffScopes);
+      router.replace(href, { scroll: false });
     } catch (error) {
       const definiteRefusal = error instanceof DirectMessagesServiceRequestError && [400, 401, 403, 404, 409, 413, 422, 429].includes(error.status);
       if (!isCurrent()) return;
@@ -1390,7 +1407,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     } finally {
       if (sendingSelections.current.get(draftScope) === sendLease) {
         sendingSelections.current.delete(draftScope);
-        if (selectionRef.current === routeSelection && ownerRef.current === user.uid && !sendingSelections.current.has(draftScope)) setSending(false);
+        if (selectionRef.current === routeSelection && ownerRef.current === user.uid) setSending(false);
       }
     }
   };
@@ -1398,9 +1415,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const loadOlderMessages = async () => {
     const conversationId = thread.conversation?.id;
     const before = thread.nextBefore;
-    if (!user || !isCurrentRead || !conversationId || !before || loadingOlder) return;
+    if (!user || !conversationId || !before || loadingOlder) return;
     const generation = selectionGeneration.current;
-    const isCurrentOperation = () => generation === operationGeneration.current && ownerRef.current === user.uid;
+    const isCurrentOperation = () => (generation === selectionGeneration.current && ownerRef.current === user?.uid && selectionRef.current === routeSelection) && ownerRef.current === user?.uid && selectionRef.current === routeSelection;
     setLoadingOlder(true);
     try {
       const idToken = await user.getIdToken();
@@ -1411,7 +1428,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
         before,
         limit: 60,
       });
-      if (generation !== selectionGeneration.current) return;
+      if ((generation !== selectionGeneration.current || ownerRef.current !== user?.uid || selectionRef.current !== routeSelection)) return;
       const node = messageListRef.current;
       if (node) prependPosition.current = { top: node.scrollTop, height: node.scrollHeight };
       setMessages((current) => mergeMessages(history.items, current));
@@ -1423,10 +1440,10 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
         }),
       );
     } catch {
-      if (!isCurrentOperation()) return;
+      if ((generation !== selectionGeneration.current || ownerRef.current !== user?.uid || selectionRef.current !== routeSelection)) return;
       morphyToast.error("Older messages could not be loaded. Try again.");
     } finally {
-      if (isCurrentOperation()) setLoadingOlder(false);
+      if ((generation === selectionGeneration.current && ownerRef.current === user?.uid && selectionRef.current === routeSelection)) setLoadingOlder(false);
     }
   };
 
@@ -1498,6 +1515,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   };
 
   const openMessageActions = (message: DirectMessage) => {
+    if (!isCurrentRead || message.conversationId !== activeConversationId || pendingSelection || blockingLayer) return;
     replyFocus.current = null;
     editFocus.current = null;
     messageMenuOpening.current = {
@@ -1514,20 +1532,20 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const saveEdit = () => {
     if (!user || !isCurrentRead || !editingMessage || editingMessage.conversationId !== activeConversationId || !editingContent.trim()) return;
     const message = editingMessage;
+    const content = editingContent;
     const draftGeneration = editDraftGeneration.current;
-    const generation = operationGeneration.current;
-    const isCurrentOperation = () => generation === operationGeneration.current;
+    const generation = selectionGeneration.current;
     void (async () => {
       try {
         const idToken = await user.getIdToken();
-        if (generation !== selectionGeneration.current) return;
+        if ((generation !== selectionGeneration.current || ownerRef.current !== user?.uid || selectionRef.current !== routeSelection)) return;
         const updated = await DirectMessagesService.editMessage({
           idToken,
           conversationId: message.conversationId,
           messageId: message.id,
-          content: editingContent,
+          content,
         });
-        if (generation !== selectionGeneration.current) return;
+        if ((generation !== selectionGeneration.current || ownerRef.current !== user?.uid || selectionRef.current !== routeSelection)) return;
         loadGeneration.current += 1;
         replaceMessage(updated);
         if (draftGeneration !== editDraftGeneration.current) return;
@@ -1535,7 +1553,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
         setEditingMessage(null);
         setEditingContent("");
       } catch {
-        if (!isCurrentOperation() || draftGeneration !== editDraftGeneration.current) return;
+        if ((generation !== selectionGeneration.current || ownerRef.current !== user?.uid || selectionRef.current !== routeSelection) || draftGeneration !== editDraftGeneration.current) return;
         setMessageActionError({
           messageId: message.id,
           message: "Couldn’t update this message. Try again.",
@@ -1547,30 +1565,29 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
 
   const saveReaction = (message: DirectMessage, emoji: string) => {
     if (!user || !isCurrentRead || message.conversationId !== activeConversationId) return;
-    const reactionKey = `${user.uid}:${message.conversationId}:${message.id}:${emoji}:${operationGeneration.current}`;
+    const reactionKey = `${message.id}:${emoji}`;
     if (reactionPending.current.has(reactionKey)) return;
     reactionPending.current.add(reactionKey);
     const removing = Boolean(message.reactions?.find((reaction) => reaction.emoji === emoji)?.reactedByViewer);
     const generation = operationGeneration.current;
-    const isCurrentOperation = () => generation === operationGeneration.current;
     setMessages((current) => current.map((item) => item.id === message.id ? toggleReaction(item, emoji) : item));
     reactionPickerTarget.current = null; setOpenReactionPicker(null);
     void (async () => {
       try {
         const idToken = await user.getIdToken();
-        if (!isCurrentOperation()) return;
+        if ((generation !== selectionGeneration.current || ownerRef.current !== user?.uid || selectionRef.current !== routeSelection)) return;
         const updated = await DirectMessagesService[removing ? "removeReaction" : "reactToMessage"]({
           idToken,
           conversationId: message.conversationId,
           messageId: message.id,
           emoji,
         });
-        if (!isCurrentOperation()) return;
+        if ((generation !== selectionGeneration.current || ownerRef.current !== user?.uid || selectionRef.current !== routeSelection)) return;
         loadGeneration.current += 1;
         replaceMessage(updated);
         setMessageActionError(null);
       } catch {
-        if (!isCurrentOperation()) return;
+        if ((generation !== selectionGeneration.current || ownerRef.current !== user?.uid || selectionRef.current !== routeSelection)) return;
         replaceMessage(message);
         setMessageActionError({
           messageId: message.id,
@@ -1585,19 +1602,18 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const confirmDelete = () => {
     if (!user || !isCurrentRead || !deleteRequest || deleteRequest.message.conversationId !== activeConversationId) return;
     const { message, scope } = deleteRequest;
-    const generation = operationGeneration.current;
-    const isCurrentOperation = () => generation === operationGeneration.current;
+    const generation = selectionGeneration.current;
     void (async () => {
       try {
         const idToken = await user.getIdToken();
-        if (!isCurrentOperation()) return;
+        if ((generation !== selectionGeneration.current || ownerRef.current !== user?.uid || selectionRef.current !== routeSelection)) return;
         const result = await DirectMessagesService.deleteMessage({
           idToken,
           conversationId: message.conversationId,
           messageId: message.id,
           scope,
         });
-        if (generation !== selectionGeneration.current) return;
+        if ((generation !== selectionGeneration.current || ownerRef.current !== user?.uid || selectionRef.current !== routeSelection)) return;
         loadGeneration.current += 1;
         if (result.message) replaceMessage(result.message);
         else {
@@ -1608,7 +1624,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
         setDeleteRequest(null);
         setActiveMessageActions(null);
       } catch {
-        if (!isCurrentOperation()) return;
+        if ((generation !== selectionGeneration.current || ownerRef.current !== user?.uid || selectionRef.current !== routeSelection)) return;
         setDeleteRequest(null);
         setMessageActionError({
           messageId: message.id,
@@ -1682,7 +1698,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   );
 
   return (
-    <AppPageShell className={styles.shell} nativeTest={nativeTest}>
+    <AppPageShell width="expanded" fitContent={false} nativeTest={nativeTest} className={styles.shell}>
       <section
         ref={pageRef}
         className={styles.page}
@@ -1772,8 +1788,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                   onOpen={() => openConversation(conversation)}
                   onDelete={() => {
                     if (!user) return;
-                    const scopes = [`conversation:${conversation.id}`, ...(conversation.peerPersonRef ? [`person:${conversation.peerPersonRef}`] : [])];
-                    if (scopes.some(selection => sendingSelections.current.has(JSON.stringify([user.uid, selection])))) {
+                    const scopes = [JSON.stringify([user.uid, "conversation", conversation.id]),
+                      ...(conversation.peerPersonRef ? [JSON.stringify([user.uid, "person", conversation.peerPersonRef])] : [])];
+                    if (scopes.some(scope => sendingSelections.current.has(scope))) {
                       morphyToast.info("Wait for this message to finish sending."); return;
                     }
                     setChatDeleteRequest({ ownerId: user.uid, conversation });
@@ -2068,7 +2085,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                       </button>
                                     ) : null}
                                     {cardRequestReference(message.content) ? <Link className="underline underline-offset-4" href={walletCardRequestHref(cardRequestReference(message.content)!)}>View card request</Link> : cardAccessReference(message.content) ? <WalletCardAccessMessage key={`${message.id}:${activeConversationId}`} grantId={cardAccessReference(message.content)!} senderIsViewer={message.senderIsViewer} /> : isWalletCardShare(message.content) ? <WalletSharedCardMessage key={`${message.id}:${activeConversationId}`} content={message.content} peerPersonRef={thread.peerPersonRef} senderIsViewer={message.senderIsViewer} /> : message.content ? <p className={cn(styles.messageText, "whitespace-pre-wrap break-words")}>{message.content}</p> : null}
-                                    <MessageAttachment message={message} admitted={isCurrentRead} visitRevision={presentationEpoch} isCurrentVisit={() => operationGeneration.current === presentationEpoch && readAdmission.current.admitted && readAdmission.current.ownerId === user?.uid} getIdToken={() => {
+                                    <MessageAttachment key={`${presentationEpoch}:${message.id}`} message={message} admitted={isCurrentRead} isCurrentVisit={() => operationGeneration.current === presentationEpoch && readAdmission.current.admitted && readAdmission.current.ownerId === user?.uid} getIdToken={() => {
                                       if (!user) throw new Error("Sign in to open this attachment.");
                                       return user.getIdToken();
                                     }} onPhotoLoad={() => {
