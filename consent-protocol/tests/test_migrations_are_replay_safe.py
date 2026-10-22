@@ -170,6 +170,56 @@ def replay_pg(monkeypatch):
 
 
 @pytest.mark.skipif(find_pg_bin() is None, reason="local PostgreSQL unavailable")
+def test_oauth_registration_replay_preserves_records_and_enforces_policy(replay_pg):
+    from psycopg2.errors import CheckViolation
+
+    pg = replay_pg
+    # Only the predecessor columns consumed by 409; no owner information or keys.
+    pg.execute("""
+      CREATE TABLE developer_apps (
+        app_id TEXT PRIMARY KEY, kind TEXT NOT NULL DEFAULT 'self_serve',
+        owner_firebase_uid TEXT, crm_id TEXT,
+        oauth_client_credentials_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+        schema_profile TEXT NOT NULL DEFAULT 'standard',
+        allowed_tool_groups JSONB NOT NULL DEFAULT '["core_consent"]',
+        allowed_capabilities JSONB NOT NULL DEFAULT '[]',
+        CONSTRAINT developer_apps_kind_check CHECK (kind IN ('self_serve','partner_crm')));
+      CREATE TABLE developer_oauth_clients (
+        app_id TEXT PRIMARY KEY, client_secret_hash TEXT NOT NULL,
+        client_secret_prefix TEXT NOT NULL,
+        allowed_grant_types JSONB NOT NULL DEFAULT '["authorization_code","refresh_token"]',
+        mcp_execution_mode TEXT NOT NULL DEFAULT 'execute');
+      CREATE TABLE developer_oauth_authorizations (id INT PRIMARY KEY);
+      CREATE TABLE developer_oauth_tokens (
+        app_id TEXT, authorization_id INT, revoked_at BIGINT);
+    """)
+    migration = MIGRATIONS_DIR / "409_mcp_oauth_client_registration.sql"
+    pg.apply_file(migration)
+    pg.execute("""
+      INSERT INTO developer_apps(app_id,kind) VALUES ('synthetic-client','oauth_dynamic');
+      INSERT INTO developer_oauth_clients
+        (app_id,client_secret_hash,client_secret_prefix,registration_method,token_endpoint_auth_method)
+        VALUES ('synthetic-client','','','cimd','none');
+      INSERT INTO developer_oauth_authorizations(id,resource) VALUES (1,'https://mcp.example.test/mcp/');
+      INSERT INTO developer_oauth_tokens(app_id,authorization_id,resource)
+        VALUES ('synthetic-client',1,'https://mcp.example.test/mcp/');
+    """)
+    tables = (
+        "developer_apps",
+        "developer_oauth_clients",
+        "developer_oauth_authorizations",
+        "developer_oauth_tokens",
+    )
+    before = {table: pg.execute(f"SELECT to_jsonb(t) FROM {table} t") for table in tables}
+    pg.apply_file(migration)
+    assert {table: pg.execute(f"SELECT to_jsonb(t) FROM {table} t") for table in tables} == before
+    with pytest.raises(CheckViolation):
+        pg.execute("UPDATE developer_apps SET oauth_client_credentials_enabled=TRUE")
+    with pytest.raises(CheckViolation):
+        pg.execute("UPDATE developer_oauth_clients SET client_secret_hash='synthetic-invalid'")
+
+
+@pytest.mark.skipif(find_pg_bin() is None, reason="local PostgreSQL unavailable")
 def test_identity_and_persona_seeds_preserve_current_authority_on_replay(replay_pg):
     pg = replay_pg
     pg.execute("INSERT INTO vault_keys(user_id) VALUES ('synthetic-owner')")

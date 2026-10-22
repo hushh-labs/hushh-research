@@ -2318,7 +2318,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.oauth.authorize",
-          "purpose": "Help the person approve or cancel a verified MCP connector authorization request.",
+          "purpose": "Help the person review the MCP client identifier and return host before authorizing or cancelling the connection.",
           "screen": "app",
           "entry_cue": "Review the connector request, then authorize it or cancel.",
           "proactivity": "ambient",
@@ -10894,5 +10894,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "23d533734bee68bd11920719b1b2ab285ced2703fe38a932878ee3e9e4c65a78"
+  "content_sha256": "06fbcd7173702721674deec893a6659749a8abdc68c2d660ac25aae5d3145e0e"
 }
