@@ -71,6 +71,12 @@ describe("agentic To-do review", () => {
     expect(screen.queryByText(item.title)).not.toBeInTheDocument();
     expect(createTodo).not.toHaveBeenCalled();
   });
+  it("explains when there is no source evidence instead of claiming that One found no new work", async () => {
+    render(<TodoAgentSuggestions {...props()} evidence={[]} />);
+    expect(await screen.findByText("No task summaries are available to assess yet.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Suggest tasks" })).toBeDisabled();
+    expect(suggestTodoTasks).not.toHaveBeenCalled();
+  });
   it("keeps the suggestion action unavailable when the runtime feature is off", async () => {
     vi.mocked(todoSuggestionsAvailable).mockResolvedValue(false);
     render(<TodoAgentSuggestions {...props()} />);

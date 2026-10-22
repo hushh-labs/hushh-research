@@ -2269,7 +2269,9 @@ remain independent, never becoming a disconnected status or an empty success.
 returns private/no-store `{available}` from `ONE_TODO_SUGGESTIONS_ENABLED`.
 `POST /api/one/todos/suggestions` additionally requires current self-owner
 authority and Shared placement, checked before processing and before release.
-It is rate limited to three requests per minute and accepts only
+The bounded input rotates across represented capabilities so one large queue
+cannot crowd out every other source. It is rate limited to three requests per
+minute and accepts only
 `{allow_model_processing: true, sources}`: 1-100 strict records containing
 `ref` (`s` followed by 1-4 digits), one of the nine capability IDs, a 1-240
 character summary, and `already_pending`. The client requires explicit processing

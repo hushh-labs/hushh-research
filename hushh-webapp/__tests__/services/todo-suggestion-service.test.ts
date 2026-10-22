@@ -21,6 +21,18 @@ describe("One task suggestion boundary", () => {
     expect(JSON.stringify(body)).not.toContain("fixture-owner-token");
     expect(JSON.stringify(body)).not.toContain("/one/calendar");
   });
+  it("keeps all represented capabilities inside the bounded model input even with a large Wallet queue", async () => {
+    const capabilities = ["messages", "finance", "wallet", "location", "ria", "gmail", "calendar", "pkm", "consent"] as const;
+    const largeQueue = Array.from({ length: 150 }, (_, index) => ({ ...sources[0], key: `wallet:${index}`, capability: "wallet" as const }));
+    await suggestTodoTasks({ ...input(), sources: [...largeQueue, ...capabilities.map(capability => ({ ...sources[0], key: capability, capability }))] });
+    const body = JSON.parse(vi.mocked(apiJson).mock.calls[0][1]!.body as string);
+    expect(body.sources).toHaveLength(100);
+    expect(new Set(body.sources.map((source: { capability: string }) => source.capability))).toEqual(new Set(capabilities));
+  });
+  it("refuses empty input instead of presenting an unexecuted model stage as an empty answer", async () => {
+    await expect(suggestTodoTasks({ ...input(), sources: [] })).rejects.toThrow("No task summaries");
+    expect(apiJson).not.toHaveBeenCalled();
+  });
   it("never forwards private placement summaries to the hub", async () => {
     vi.mocked(ownerContentIsPrivate).mockResolvedValue(true);
     await expect(suggestTodoTasks(input())).rejects.toThrow(/private agent/);

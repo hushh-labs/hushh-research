@@ -52,7 +52,7 @@ export function TodoAgentSuggestions({ userId, vaultKey, vaultOwnerToken, eviden
   const approved = visible && state.approved;
   const busy = visible && (state.busy || Boolean(state.saving));
   const find = async () => {
-    if (!available || !approved || busy || loading || operation.current === identity) return;
+    if (!available || !approved || busy || loading || !evidence.length || operation.current === identity) return;
     operation.current = identity;
     abort.current?.abort();
     const controller = new AbortController();
@@ -92,7 +92,8 @@ export function TodoAgentSuggestions({ userId, vaultKey, vaultOwnerToken, eviden
     <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={approved} disabled={!available || busy} onChange={event => setState({ identity, approved: event.target.checked, busy: false, saving: null, error: "", items: [], checked: false })} />Use my task summaries with One to suggest next steps.</label>
     {!available ? <HelperText as="p">Task suggestions are not available on this agent yet.</HelperText> : null}
     <HelperText as="p">One reviews up to 100 loaded summaries. Message contents, card details and Memory contents are excluded. Review suggestions before adding them.</HelperText>
-    <div className="flex flex-wrap gap-2"><Button variant="none" effect="fade" size="compact" disabled={!available || !approved || busy || loading} onClick={() => void find()}>{busy ? "Working…" : "Suggest tasks"}</Button><Button variant="none" size="compact" disabled={busy || loading} onClick={onRefresh}>Refresh sources</Button></div>
+    <div className="flex flex-wrap gap-2"><Button variant="none" effect="fade" size="compact" disabled={!available || !approved || busy || loading || !evidence.length} onClick={() => void find()}>{busy ? "Working…" : "Suggest tasks"}</Button><Button variant="none" size="compact" disabled={busy || loading} onClick={onRefresh}>Refresh sources</Button></div>
+    {available && !loading && !evidence.length ? <HelperText as="p" role="status">No task summaries are available to assess yet.</HelperText> : null}
     {visible && state.error ? <HelperText as="p" role="status">{state.error}</HelperText> : null}
     {visible && state.checked && !state.items.length ? <HelperText as="p" role="status">No new suggestions from the available summaries.</HelperText> : null}
     {visible ? state.items.map(item => <div key={item.key} className="space-y-1 border-b py-3"><MediumRowLabel as="h4">{item.title}</MediumRowLabel><HelperText as="p">{item.reason}</HelperText><Button variant="none" effect="fade" size="compact" disabled={busy} onClick={() => void save(item)}>Add task</Button></div>) : null}
