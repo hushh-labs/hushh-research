@@ -72,17 +72,17 @@ cat >&2 <<'BANNER'
 
   ARCHITECTURAL REGRESSION IN THIS MERGE. The commit is refused.
 
-  This branch carries the modular per-person pod deployment and `main` does
-  not. Something in this merge took `main`'s side of a file that holds it.
-  Git resolved the text correctly and deleted the architecture doing it.
+  This merge removed required private-pod architecture. A textually clean
+  resolution does not establish behavioral preservation.
 
   Resolve by architectural intent, not by recency:
 
-    1. Keep THIS branch's side on every pod-deployment surface.
-    2. Port genuinely new `main` content on top of that side.
+    1. Compare both authored behaviors and preserve required pod contracts.
+    2. Integrate incoming changes without whole-file ours/theirs replacement.
     3. Re-run the guard until it passes, then finish the merge.
 
-  The named losses follow. Full procedure: CLAUDE.md, "Branch synchronization".
+  The named losses follow. See the canonical agent contract and
+  .agents/skills/repo-operations/references/maintainer-branch-freshness.md.
 
 BANNER
 NAMED=$(printf '%s\n' "$OUTPUT" | grep -E "ARCHITECTURAL REGRESSION|FAILED|is missing entirely")

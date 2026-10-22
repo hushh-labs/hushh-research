@@ -201,14 +201,7 @@ assert_google_drive_uat_registry_target(environment={
     result = subprocess.run(  # noqa: S603 - fixed interpreter and repository-owned probe
         [sys.executable, "-B", "-c", program],
         cwd=REPO_ROOT / "consent-protocol",
-        env={
-            **{
-                name: os.environ[name]
-                for name in ("PATH", "SystemRoot", "WINDIR", "SystemDrive", "TEMP", "TMP")
-                if name in os.environ
-            },
-            "PYTHON_DOTENV_DISABLED": "1",
-        },
+        env={"PATH": os.environ.get("PATH", ""), "PYTHON_DOTENV_DISABLED": "1"},
         capture_output=True,
         text=True,
         timeout=30,

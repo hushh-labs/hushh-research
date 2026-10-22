@@ -364,7 +364,7 @@ describe("DirectMessagesPage", () => {
     fireEvent.keyDown(within(group).getByRole("button", { name: "Chat options" }), { key: "Enter" });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Delete chat" }));
     const dialog = screen.getByRole("alertdialog");
-    expect(dialog).toHaveTextContent("Deletes this chat for you only.");
+    expect(within(dialog).getByRole("heading", { name: /for you only/ })).toBeVisible();
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete chat", exact: true }));
     await waitFor(() => expect(mocks.deleteConversation).toHaveBeenCalledTimes(1));
     expect(group).toBeInTheDocument();
@@ -417,10 +417,10 @@ describe("DirectMessagesPage", () => {
     const otherGroup = await screen.findByRole("group", { name: "Divya chat" });
     fireEvent.keyDown(within(otherGroup).getByRole("button", { name: "Chat options" }), { key: "Enter" });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Delete chat" }));
-    expect(screen.getByRole("alertdialog")).toHaveTextContent("Delete chat with Divya?");
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("Delete chat with Divya for you only?");
     mocks.router.replace.mockClear();
     await act(async () => finish());
-    expect(screen.getByRole("alertdialog")).toHaveTextContent("Delete chat with Divya?");
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("Delete chat with Divya for you only?");
     expect(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete chat", exact: true })).toBeEnabled();
     fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
     expect(screen.getByRole("textbox", { name: "Message Divya" })).toBeEnabled();

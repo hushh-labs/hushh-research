@@ -6,7 +6,7 @@
 # so standalone output nests under hushh-webapp/ in .next/standalone/.
 
 # Stage 1: Build Next.js application
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 
 WORKDIR /app
 
@@ -93,7 +93,7 @@ RUN if [ -z "$NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE" ]; then \
     npm run build
 
 # Stage 2: Production runner
-FROM node:20-alpine AS runner
+FROM node:24-alpine AS runner
 
 WORKDIR /app
 
