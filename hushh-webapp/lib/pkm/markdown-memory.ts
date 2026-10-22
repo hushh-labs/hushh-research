@@ -77,7 +77,7 @@ type MemoryCheckpoint = { version: number; userId: string; facts: SoulFact[]; co
 type ReplaceSource = { key: string; observedAt: string };
 function isReceiptSnapshotFence(value: unknown): value is ReceiptSnapshotFence {
   const v = record(value);
-  return Object.keys(v).length === 2 && typeof v.resourceKey === "string" && /^mail_receipts\.v1:[a-f0-9]{64}$/.test(v.resourceKey) && Number.isSafeInteger(v.revision) && Number(v.revision) > 0;
+  return Object.keys(v).length === 2 && typeof v.resourceKey === "string" && /^mail_receipts\.v[12]:[a-f0-9]{64}$/.test(v.resourceKey) && Number.isSafeInteger(v.revision) && Number(v.revision) > 0;
 }
 async function assertReceiptWriteFence(params: { userId: string; receiptGeneration?: number; receiptSnapshotFence?: ReceiptSnapshotFence }) {
   if (params.receiptGeneration === undefined) return;

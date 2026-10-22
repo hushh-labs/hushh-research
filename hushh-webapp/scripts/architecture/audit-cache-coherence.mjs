@@ -83,6 +83,9 @@ function sourceForRoute(route, contractEntry) {
     files.add("components/agent/agent-chat-workspace.tsx");
   }
 
+  if (route === "/one/gmail") {
+    for (const file of ["components/gmail/gmail-receipts-page.tsx", "lib/services/mail-receipt-resource-service.ts", "lib/mail/receipt-store.ts"]) files.add(file);
+  }
   const sources = [];
   for (const relative of files) {
     const absolute = path.join(appRoot, relative);
@@ -120,7 +123,7 @@ function flagsForSource(source) {
     cache_service: source.includes("CacheService"),
     use_stale_resource: source.includes("useStaleResource"),
     device_cache: source.includes("DeviceResourceCacheService"),
-    secure_cache: source.includes("SecureResourceCacheService"),
+    secure_cache: source.includes("SecureResourceCacheService") || source.includes("SecureDurableResourceService"),
     cache_sync: source.includes("CacheSyncService"),
     resource_wrapper:
       source.includes("ResourceService") ||
@@ -238,6 +241,9 @@ function cachePolicyFor(route, screenClass, flags) {
 
 function routeCacheKeys(route) {
   if (route === "/one/messages") return ["DIRECT_MESSAGE_THREADS", "DIRECT_MESSAGE_ROUTES", "DIRECT_MESSAGE_SESSION"];
+
+
+  if (route === "/one/gmail") return ["MailReceiptResourceService owner/account session", "mail_receipts.v2:<account-binding> ciphertext (retained V1 fallback)"];
   if (route === "/one/referrals") return ["referral_dashboard_{user}_{resource}"];
   if (isFeedRoute(route)) {
     return [
@@ -298,6 +304,7 @@ function routeCacheKeys(route) {
 }
 
 function resourceClassesFor(route, screenClass) {
+  if (route === "/one/gmail") return ["financial_resource"];
   if (route === "/one/referrals") return ["user_metadata", "realtime_stream"];
   if (screenClass === "public/static") return ["public_static"];
   if (screenClass === "public/auth-split") {
@@ -495,6 +502,9 @@ function isPkmEpochRoute(route) {
 
 function invalidatorFor(route, screenClass) {
   if (route === "/one/messages") return "CacheSyncService message-change, connection and user/session invalidation";
+
+
+  if (route === "/one/gmail") return "MailReceiptResourceService verified write-through; synchronous vault/sign-out purge; durable owner Reset";
   if (screenClass === "redirect/alias" || screenClass === "public/static")
     return "none";
   if (screenClass === "public/auth-split")

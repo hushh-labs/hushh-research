@@ -1,5 +1,7 @@
 "use client";
 
+import { MailReceiptResourceService } from "@/lib/services/mail-receipt-resource-service";
+
 import type {
   GmailLiveReceiptScanCoverage,
   ReceiptListItem,
@@ -222,6 +224,7 @@ export function clearCachedGmailReceipts(
 ): void {
   const normalizedUserId = normalizeUserId(userId);
   if (!normalizedUserId) return;
+  MailReceiptResourceService.clear(normalizedUserId);
   receiptCacheRevisions.set(
     normalizedUserId,
     getGmailReceiptCacheRevision(normalizedUserId) + 1,

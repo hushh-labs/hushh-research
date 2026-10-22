@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { primeCachedGmailReceipts, getCachedGmailReceipts, clearCachedGmailReceipts } from "@/lib/profile/gmail-receipts-cache";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 
 const mocks = vi.hoisted(() => ({
@@ -654,6 +655,9 @@ describe("VaultProvider app-resume expiry recovery", () => {
   });
 
   it("relocks and clears credentials when API validation requests a vault lock", async () => {
+    const item = { id: 1, source_id: "synthetic-source", source_kind: "gmail_live" as const, gmail_message_id: "synthetic-message" };
+    for (const userId of ["vault-owner", "other-owner"]) primeCachedGmailReceipts({ userId, accountKey: "synthetic-account",
+      response: { items: [item], page: 1, per_page: 6, total: 1, has_more: false } });
     renderVault();
     fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
 
@@ -671,6 +675,9 @@ describe("VaultProvider app-resume expiry recovery", () => {
     expect(screen.getByTestId("vault-token").textContent).toBe("none");
     expect(screen.getByTestId("vault-key").textContent).toBe("none");
     expect(mocks.invalidateVaultState).toHaveBeenCalled();
+    expect(getCachedGmailReceipts("vault-owner", "synthetic-account")).toBeNull();
+    expect(getCachedGmailReceipts("other-owner", "synthetic-account")?.items).toHaveLength(1);
+    clearCachedGmailReceipts("other-owner");
   });
 
   it("immediately clears the matching Vault on uncertain account deletion", async () => {

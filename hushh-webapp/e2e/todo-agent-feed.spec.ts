@@ -27,6 +27,8 @@ test.beforeAll(async () => {
     "lib/calendar/use-calendar-connection-status.ts":
       "useCalendarConnectionStatus",
     "lib/profile/gmail-connector-store.ts": "useGmailConnectorStatus",
+    "lib/profile/gmail-receipts-cache.ts":
+      "getCachedGmailReceipts,cachedGmailReceiptDisplayItems",
     "lib/calendar/use-calendar-upcoming-events.ts": "useCalendarUpcomingEvents",
     "lib/services/personal-knowledge-model-service.ts":
       "PersonalKnowledgeModelService",
