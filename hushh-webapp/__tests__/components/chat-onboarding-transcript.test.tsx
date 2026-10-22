@@ -335,7 +335,7 @@ describe("semantic name assessment and encrypted write boundary", () => {
 
   it.each(["Roopmann", "Love", "Zoë 🦋", "نور", "李 小龍", "A".repeat(64)])("saves %s only after a successful turn, then advances", async name => {
     const turn = pending();
-    turn.stage(JSON.stringify(answer(turn, { preferred_name: name })), "call");
+    turn.stage(JSON.stringify({ data: answer(turn, { preferred_name: name }) }), "call");
     expect(PkmWriteCoordinator.saveMergedDomain).not.toHaveBeenCalled();
     turn.finish(true);
     turn.finish(true);

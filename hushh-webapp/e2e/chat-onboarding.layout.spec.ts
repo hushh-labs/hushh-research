@@ -77,7 +77,7 @@ test("an ordinary chat name saves encrypted memory, updates the label and surviv
     await route.fulfill({ json: { encrypted, revision } });
   });
   await page.route("**/__fixture/one", route => route.fulfill({ json: {
-    status: "preferred_name_update_ready", preferred_name: "Ruby",
+    content: { status: "preferred_name_update_ready", preferred_name: "Ruby", proposed: { tone: "warm", length: "short" } },
   } }));
   const errors = await mount(page, "light", "ordinary");
   const submit = async () => {
@@ -90,6 +90,7 @@ test("an ordinary chat name saves encrypted memory, updates the label and surviv
   await submit();
   await expect(page.getByRole("status")).toHaveText("Preferred name saved.");
   await expect(page.getByLabel("Chat profile name")).toHaveText("Ruby");
+  await page.screenshot({ path: test.info().outputPath("preferred-name-saved.png") });
   expect(writes).toHaveLength(2);
   for (const write of writes) {
     expect(write).not.toContain("Ruby");
