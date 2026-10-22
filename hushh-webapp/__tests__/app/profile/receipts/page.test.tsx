@@ -1021,7 +1021,7 @@ describe("ProfileReceiptsPage", () => {
       hero.compareDocumentPosition(recent) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
-      within(recent).getByRole("heading", { name: "Recent receipts" }),
+      await within(recent).findByRole("heading", { name: "Recent receipts" }),
     ).toBeVisible();
     expect(await within(recent).findAllByText("Myntra")).toHaveLength(3);
     expect(within(recent).getByText("—")).toBeVisible();
