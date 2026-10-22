@@ -235,7 +235,9 @@ async def test_nearby_places_all_sweeps_every_category_bucket(monkeypatch):
     place_ids = [place["placeId"] for place in result]
 
     assert None in seen_included_types
-    assert len(seen_included_types) == len(gms._NEARBY_SWEEP_TYPES) + 1
+    swept = {t for types in seen_included_types if types for t in types}
+    assert swept == {t for types in gms._NEARBY_SWEEP_TYPES.values() for t in types}
+    assert all(len(types) <= 50 for types in seen_included_types if types)
     # Both hotels survive the cafe flood, and the one with no primaryType does
     # not get silently dropped.
     assert "hotel-1" in place_ids
@@ -244,7 +246,7 @@ async def test_nearby_places_all_sweeps_every_category_bucket(monkeypatch):
     distances = [place["distanceMeters"] for place in result]
     assert distances == sorted(distances)
     hotel_two = next(place for place in result if place["placeId"] == "hotel-2")
-    assert hotel_two["categories"] == ["hotels_stays"]
+    assert hotel_two["categories"] == ["other_stays"]
     assert hotel_two["latitude"] == 37.4278
 
 
@@ -380,13 +382,7 @@ async def test_nearby_places_filters_category_closed_duplicate_and_outside_resul
 ):
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content.decode())
-        assert body["includedTypes"] == [
-            "hospital",
-            "medical_clinic",
-            "doctor",
-            "dentist",
-            "pharmacy",
-        ]
+        assert set(body["includedTypes"]) == set(gms._taxonomy.CHIP_TYPES["health"])
         return httpx.Response(
             200,
             json={
@@ -980,7 +976,7 @@ async def test_a_cell_another_instance_already_cached_in_redis_is_not_rebilled(m
 
     fake = _FakeRedis()
     monkeypatch.setattr(gms, "_get_redis_client", lambda: fake)
-    cache_key = gms._cache_key_string("nearby", ("education", *gms._geo_cell(37.4275, -122.1697)))
+    cache_key = gms._cache_key_string("nearby", ("education", 37.4275, -122.1697))
     fake.store[cache_key] = json.dumps([{"placeId": "seeded", "name": "Seeded Spot"}])
 
     result = await gms.GoogleMapsService().nearby_places(
@@ -1005,7 +1001,7 @@ async def test_nearby_places_writes_through_to_redis_on_a_fresh_fetch(monkeypatc
 
     await gms.GoogleMapsService().nearby_places(lat=37.4275, lng=-122.1697, category="education")
 
-    cache_key = gms._cache_key_string("nearby", ("education", *gms._geo_cell(37.4275, -122.1697)))
+    cache_key = gms._cache_key_string("nearby", ("education", 37.4275, -122.1697))
     assert cache_key in fake.store
     assert json.loads(fake.store[cache_key]) == []
     assert fake.set_calls == 1
@@ -1022,7 +1018,7 @@ async def test_a_redis_hit_backfills_the_local_cache_so_the_second_call_stays_lo
 
     fake = _FakeRedis()
     monkeypatch.setattr(gms, "_get_redis_client", lambda: fake)
-    cache_key = gms._cache_key_string("nearby", ("education", *gms._geo_cell(37.4275, -122.1697)))
+    cache_key = gms._cache_key_string("nearby", ("education", 37.4275, -122.1697))
     fake.store[cache_key] = json.dumps([{"placeId": "seeded", "name": "Seeded"}])
 
     svc = gms.GoogleMapsService()
@@ -1204,5 +1200,5 @@ async def test_nearby_places_never_shows_the_word_lodging(monkeypatch):
     result = await gms.GoogleMapsService().nearby_places(lat=37.4275, lng=-122.1697)
 
     # Still a place to stay -- the chip was never the problem here.
-    assert result[0]["categories"] == ["hotels_stays"]
+    assert result[0]["categories"] == ["other_stays"]
     assert result[0]["category"] == "Place to stay"
