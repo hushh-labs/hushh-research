@@ -2167,6 +2167,22 @@
       "trust_boundary": "No authorization, reward, content or task settlement authority. Owner-bound admitted callbacks or authenticated Firebase reports, production lane and explicit pilot UID allowlist or default-off expanded registered-contact admission. Anonymous UID presence alone never admits expanded collection. The independently keyed audience read joins current canonical identity under lifecycle/phone/row barriers without enrollment, identity mutation, messaging consent or delivery. Missing terminals mean possible incomplete observations, not confirmed abandonment. No prompts, arguments, responses, private tool names, provider IDs, routes, coordinates or financial details. RLS denies browser roles. Value receipts are metadata projections after provider acknowledgement or a verified explicit owner decision, never new action authority. They retain no provider IDs, private content, or tokens. Other adapters read domain-owned canonical records; internal stages are not activation journeys.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "bounded_500_observations_and_500_value_receipts_per_owner_per_day_seven_day_ttl"
+    },
+    {
+      "id": "one_marketing_permission",
+      "owner": "backend-runtime-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_marketing_preferences",
+        "one_marketing_changes"
+      ],
+      "primary_access_path": "Firebase-owner-bound optional setup/account email preference. A separately signed production-only integration reads at most 25 coalesced pending revisions and acknowledges exact revisions. Generation-fenced revocation cannot subscribe; fresh permission/address checks precede sending. One settings write and its pending projection commit atomically.",
+      "retention_policy": "One current preference and one coalesced change row per account. Preferences persist until full account deletion, independently of product reset. Acknowledged active rows may be reconciled hourly; hash-only erasure rows retain suppression without raw identity. No append-only recipient or content history is introduced.",
+      "deletion_behavior": "Migration-201 account lifecycle barriers guard reads/writes. Full deletion removes the preference and records an atomic hash-only pending erasure; the tombstone trigger also covers rolling older application deletions. Product reset preserves explicit permission and opt-out. Delayed acknowledgements cannot clear newer revisions.",
+      "trust_boundary": "Identity, Terms, research notices, writing style, usage and vault authorization do not establish marketing permission. Initial positive choice requires the current Firebase verified email and binds its hash. No default enrollment, phone/SMS permission, alias substitution, task-completion claim or action authority. Browser roles cannot read operational tables. UI mutations are manual-only and excluded from agent execution. These settings remain outside Live Memory and shareable attr scopes.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "one_current_preference_plus_one_hash_only_projection_per_account"
     }
   ]
 }

@@ -29,7 +29,9 @@ from hushh_mcp.services.product_activity import enabled_for
 
 class PilotAccount(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    accountId: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9:_-]+$")
+    # Firebase UIDs are opaque strings. Match the permission producer's bound;
+    # allow-list/permission checks below still authorize every requested owner.
+    accountId: str = Field(min_length=1, max_length=128)
     journey: str = Field(min_length=1, max_length=128)
     since: str = Field(min_length=20, max_length=40)
 

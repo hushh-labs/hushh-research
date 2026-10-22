@@ -96,6 +96,8 @@
     "mirror_drive_request_payment_obligation",
     "mark_drive_bulk_share_v1_removal_source",
     "queue_system_push",
+    "record_one_marketing_change",
+    "erase_one_marketing_preference",
     "scope_commerce_immutable",
     "scope_commerce_balanced",
     "scope_commerce_posting_admission",
@@ -2468,6 +2470,26 @@
       "default_action",
       "updated_at",
       "user_id"
+    ],
+    "one_marketing_changes": [
+      "user_hash",
+      "revision",
+      "erased",
+      "pending",
+      "updated_at"
+    ],
+    "one_marketing_preferences": [
+      "user_id",
+      "user_hash",
+      "enabled",
+      "frequency",
+      "revision",
+      "generation",
+      "disclosure_version",
+      "email_hash",
+      "consent_at",
+      "chosen_at",
+      "surface"
     ],
     "one_mcp_pending_calls": [
       "created_at",

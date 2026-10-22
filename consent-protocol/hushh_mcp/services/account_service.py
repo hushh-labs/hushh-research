@@ -140,6 +140,9 @@ class AccountService:
             "google_service_grants": text(
                 "DELETE FROM google_service_grants WHERE user_id = :user_id"
             ),
+            "one_marketing_preferences": text(
+                "DELETE FROM one_marketing_preferences WHERE user_id = :user_id"
+            ),
             "pwm_research_preferences": text(
                 "DELETE FROM pwm_research_preferences WHERE user_id = :user_id"
             ),
@@ -2049,6 +2052,7 @@ class AccountService:
             "one_product_activity_observations": False,
             "one_product_value_receipts": False,
             "one_product_activity_epochs": False,
+            "one_marketing_preferences": False,
             "one_referral_relationships": False,
             "one_referral_attributions": False,
             "one_referral_codes": False,
@@ -2171,6 +2175,7 @@ class AccountService:
                         "one_product_activity_observations",
                         "one_product_value_receipts",
                         "one_product_activity_epochs",
+                        "one_marketing_preferences",
                         # Remove challenge bindings before their enrollment lookup.
                         "email_auth_challenges",
                         "email_auth_enrollments",

@@ -85,6 +85,7 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "one_plg_activity_enabled": "ONE_PLG_ACTIVITY_ENABLED",
     "one_plg_activity_all_registered": "ONE_PLG_ACTIVITY_ALL_REGISTERED",
     "one_plg_audience_enabled": "ONE_PLG_AUDIENCE_ENABLED",
+    "one_plg_subscription_enabled": "ONE_PLG_SUBSCRIPTION_ENABLED",
     "email_auth_enabled": "EMAIL_AUTH_ENABLED",
     "email_auth_risk_manifest": "EMAIL_AUTH_RISK_MANIFEST",
     "email_auth_mail_api_endpoint": "EMAIL_AUTH_MAIL_API_ENDPOINT",

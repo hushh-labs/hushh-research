@@ -20,7 +20,14 @@ const state = vi.hoisted(() => ({
   queueEntryWelcome: vi.fn(),
   updatePreferences: vi.fn(),
   acknowledgeSetupExit: vi.fn(),
+  emailStatus: "loading" as "loading" | "saving" | "failed",
 }));
+vi.mock("@/components/account/use-marketing-preference", () => ({ useMarketingPreference: () => ({
+  value: state.emailStatus === "saving" ? { enabled: false, frequency: "weekly" } : null,
+  enabledDraft: false, frequencyDraft: "weekly", loading: state.emailStatus === "loading",
+  busy: state.emailStatus === "saving", error: state.emailStatus === "failed" ? "Unavailable" : null,
+  saved: false, save: vi.fn(), edit: vi.fn(), refresh: vi.fn(),
+}) }));
 vi.mock("@/lib/services/initial-contacts-onboarding-service", () => {
   const snapshot = { ownerId: null, status: "idle", source: "none" };
   return {
@@ -88,6 +95,7 @@ vi.mock("@/lib/agent/local-onboarding-actions", () => ({ useLocalOnboardingActio
 
 beforeEach(() => {
   state.saved = false;
+  state.emailStatus = "loading";
   state.choice = "hushh_managed_vertex";
   state.stagedGeminiKey = false;
   state.savedGeminiKey = false;
@@ -109,6 +117,15 @@ beforeEach(() => {
   });
 });
 describe("Setup saved AI choice", () => {
+  it.each(["loading", "saving", "failed"] as const)("finishes independently of optional email state: %s", async (status) => {
+    state.saved = true; state.unlocked = true; state.emailStatus = status;
+    render(<OneSetupHub />);
+    const finish = await screen.findByRole("button", { name: "Finish setup" });
+    await waitFor(() => expect(finish).toBeEnabled());
+    fireEvent.click(finish);
+    await waitFor(() => expect(state.acknowledgeSetupExit).toHaveBeenCalledOnce());
+    expect(state.replace).toHaveBeenCalledWith("/");
+  });
   it("requires a BYOK key again after a reload loses its process-memory draft", async () => {
     state.saved = true;
     state.choice = "byok_pending_vault";

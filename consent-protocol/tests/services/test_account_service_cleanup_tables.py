@@ -1373,6 +1373,7 @@ async def test_full_account_deletion_demotes_system_circle_before_deleting_it(mo
     assert result["account_deleted"] is True
 
     executed_sql = [str(call.args[0]) for call in conn.execute.call_args_list]
+    assert any("DELETE FROM one_marketing_preferences" in sql for sql in executed_sql)
     demote_index = next(
         index
         for index, sql in enumerate(executed_sql)
@@ -1420,6 +1421,7 @@ async def test_reset_account_demotes_system_circle_before_deleting_it(monkeypatc
         "DELETE FROM actor_profiles",
         "DELETE FROM vault_keys",
         "DELETE FROM vault_key_wrappers",
+        "DELETE FROM one_marketing_preferences",
     ]
     for fragment in spine_fragments:
         assert fragment not in "\n".join(executed_sql)

@@ -285,6 +285,7 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "one_plg_activity_enabled": False,
         "one_plg_activity_all_registered": False,
         "one_plg_audience_enabled": False,
+        "one_plg_subscription_enabled": False,
         "email_auth_enabled": getattr(args, "email_auth_enabled", "false"),
         "email_auth_risk_manifest": "/app/config/email-auth/risk-manifest.json",
         "email_auth_mail_api_endpoint": "https://hushh-mail-api-646258530541.us-central1.run.app",

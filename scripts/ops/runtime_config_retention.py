@@ -58,6 +58,7 @@ def _retained_plg_config(
         "one_plg_activity_enabled",
         "one_plg_activity_all_registered",
         "one_plg_audience_enabled",
+        "one_plg_subscription_enabled",
     ):
         if key not in existing:
             continue
@@ -110,5 +111,7 @@ def retained_settings(
     return {
         **_retained_referral_config(existing, project=project, environment=environment),
         **_retained_plg_config(existing, project=project, environment=environment),
-        **_retained_dev_inference_bridge(existing, project=project, environment=environment),
+        **_retained_dev_inference_bridge(
+            existing, project=project, environment=environment
+        ),
     }

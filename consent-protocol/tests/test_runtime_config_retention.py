@@ -97,9 +97,9 @@ def plg_runtime_sync():
 @pytest.mark.parametrize(
     ("environment", "candidate", "stored", "expected"),
     [
-        ("uat", False, {}, (False, False, False, False)),
-        ("production", False, {}, (False, False, False, False)),
-        ("dev", False, {}, (False, False, False, False)),
+        ("uat", False, {}, (False, False, False, False, False)),
+        ("production", False, {}, (False, False, False, False, False)),
+        ("dev", False, {}, (False, False, False, False, False)),
         (
             "dev",
             False,
@@ -107,7 +107,7 @@ def plg_runtime_sync():
                 "pod_dev_inference_bridge_json": ' {"project":"hushh-vertex-personal54",'
                 '"serviceAccount":"one-pod-fixture@synthetic-project.iam.gserviceaccount.com"} '
             },
-            (False, False, False, False),
+            (False, False, False, False, False),
         ),
         (
             "production",
@@ -117,14 +117,15 @@ def plg_runtime_sync():
                 "one_plg_activity_enabled": "false",
                 "one_plg_activity_all_registered": True,
                 "one_plg_audience_enabled": "true",
+                "one_plg_subscription_enabled": True,
             },
-            (True, False, True, True),
+            (True, False, True, True, True),
         ),
         (
             "production",
             False,
             {"one_plg_export_enabled": "false", "one_plg_activity_enabled": True},
-            (False, True, False, False),
+            (False, True, False, False, False),
         ),
     ],
 )
@@ -140,6 +141,7 @@ def test_retained_settings_survive_actual_config_writer_and_hydration(
         "one_plg_activity_enabled",
         "one_plg_activity_all_registered",
         "one_plg_audience_enabled",
+        "one_plg_subscription_enabled",
     )
     assert tuple(actual[key] for key in keys) == expected
     assert all(isinstance(actual[key], bool) for key in keys)
@@ -209,6 +211,7 @@ def test_dev_bridge_retention_refuses_invalid_envelopes(plg_runtime_sync, value)
         "one_plg_activity_enabled",
         "one_plg_activity_all_registered",
         "one_plg_audience_enabled",
+        "one_plg_subscription_enabled",
     ],
 )
 @pytest.mark.parametrize("value", [None, 0, 1, [], {}, "yes", "True"])
@@ -230,7 +233,12 @@ def test_plg_activation_rejects_ambiguous_values(plg_runtime_sync, key, value):
 )
 @pytest.mark.parametrize(
     "key",
-    ["one_plg_activity_enabled", "one_plg_activity_all_registered", "one_plg_audience_enabled"],
+    [
+        "one_plg_activity_enabled",
+        "one_plg_activity_all_registered",
+        "one_plg_audience_enabled",
+        "one_plg_subscription_enabled",
+    ],
 )
 def test_plg_activation_cannot_cross_environment_or_project(
     plg_runtime_sync, project, environment, stored_environment, stored_project, key

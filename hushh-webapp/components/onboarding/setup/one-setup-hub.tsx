@@ -11,6 +11,8 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { MarketingPreferencePanel } from "@/components/account/marketing-preference-panel";
+import { useMarketingPreference } from "@/components/account/use-marketing-preference";
 import { PwmResearchDisclosure } from "@/components/onboarding/setup/pwm-research-disclosure";
 import {
   CapabilitySetupTile,
@@ -93,6 +95,7 @@ export function OneSetupHub() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuth();
+  const emailPreference = useMarketingPreference(user?.uid ?? null, "setup");
   const initialContacts = useInitialContacts();
   const queueEntryWelcome = useOneConversationSession((state) => state.queueEntryWelcome);
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
@@ -965,6 +968,7 @@ export function OneSetupHub() {
             </div>
             <div className={`mx-auto w-full sm:w-80 ${styles.hubFooter}`}>
               <PwmResearchDisclosure className="mb-4" />
+              <MarketingPreferencePanel model={emailPreference} />
               <Button
                 type="button"
                 variant="blue"
