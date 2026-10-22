@@ -3018,7 +3018,8 @@
         "target": "location.nearby_check_in"
       },
       "control_ids": [
-        "one-location-check-in-nearby-places"
+        "one-location-check-in-nearby-places",
+        "one-location-check-in-retry-places"
       ],
       "state_exposure": [
         "nearby place candidates"

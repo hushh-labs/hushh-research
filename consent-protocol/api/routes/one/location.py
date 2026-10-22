@@ -1954,7 +1954,10 @@ async def maps_nearby_places(
             lng=payload.lng,
             category=payload.category,
         )
-        return {"suggestions": suggestions}
+        return {
+            "suggestions": suggestions,
+            "discoveryIncomplete": getattr(suggestions, "discovery_incomplete", False),
+        }
     except GoogleMapsError as exc:
         raise HTTPException(
             status_code=exc.status_code,

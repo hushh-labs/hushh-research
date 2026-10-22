@@ -353,6 +353,8 @@ tests/services/test_one_referral_weekly_award_service.py
 # bandit were the only things reading this code.
 tests/test_place_taxonomy.py
 tests/services/test_google_maps_service.py
+tests/services/test_nearby_place_discovery.py
+tests/test_one_location_maps_routes.py
 tests/test_places_directory.py
 tests/services/test_one_location_extra_time_requests.py
 tests/services/test_one_location_circle_service.py
