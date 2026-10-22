@@ -22,7 +22,10 @@ export async function proveMessagesBackLayers(page: Page, mount: MountMessages, 
   await page.getByRole("button", { name: "Search messages", exact: true }).click();
   await expect(page.getByRole("searchbox", { name: "Search messages" })).toBeVisible();
   const back = width < 768
-    ? () => page.evaluate(() => (window as unknown as { directChatUnwindBack: () => boolean }).directChatUnwindBack())
+    // Native Back arrives as a separate event after the prior UI commit paints.
+    ? () => page.evaluate(() => new Promise<boolean>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
+      resolve((window as unknown as { directChatUnwindBack: () => boolean }).directChatUnwindBack());
+    }))))
     : async () => { await page.getByRole("button", { name: "Go back", exact: true }).click(); return true; };
   expect(await back()).toBe(true);
   await expect(page.getByRole("searchbox", { name: "Search messages" })).toHaveCount(0);

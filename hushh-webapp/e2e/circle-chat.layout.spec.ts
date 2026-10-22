@@ -595,7 +595,7 @@ test("the native keyboard reveal keeps an image caption and send control above t
   await page.screenshot({ path: test.info().outputPath("circle-caption-keyboard.png"), animations: "disabled" });
 });
 
-for (const width of [320, 393, 1440]) {
+for (const width of [320, 393, 1100, 1440]) {
   test(`Circle Messages list heading matches People sizing at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
     await page.route("http://localhost/circle-list-fixture*", route => route.fulfill({
@@ -611,7 +611,7 @@ for (const width of [320, 393, 1440]) {
     expect(geometry.fontSize).toBe("20px");
     expect(geometry.lineHeight).toBe("24px");
     expect(geometry.weight).toBe("600");
-    expect(geometry.headerHeight).toBe(width < 380 ? 120 : 68);
+    expect(geometry.headerHeight).toBe(width < 380 ? 120 : width >= 768 && width < 1280 ? 96 : 68);
     if (width >= 768) {
       // Both split panes reserve the centered dock; phone lists fill their pane.
       expect(Math.abs(geometry.listHeight - geometry.threadHeight)).toBeLessThanOrEqual(1);
@@ -621,7 +621,7 @@ for (const width of [320, 393, 1440]) {
       expect(Math.abs(geometry.listHeight - geometry.paneHeight)).toBeLessThanOrEqual(1);
     }
     expect(geometry.titleLeft).toBeGreaterThanOrEqual(18 + 44);
-    if (width < 380) expect(geometry.actionTop).toBeGreaterThanOrEqual(geometry.titleBottom);
+    if (width < 380 || width >= 768 && width < 1280) expect(geometry.actionTop).toBeGreaterThanOrEqual(geometry.titleBottom);
     else expect(geometry.titleRight).toBeLessThanOrEqual(geometry.actionLeft);
     expect(geometry.actionRight).toBeLessThanOrEqual(width);
     expect(geometry.pageWidth).toBeLessThanOrEqual(width + 1);

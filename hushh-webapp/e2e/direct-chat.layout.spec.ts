@@ -421,6 +421,7 @@ test("system Back closes the New chat picker before leaving the inbox", async ({
   await page.setViewportSize({ width: 393, height: 844 });
   await mount(page, false, false, true);
   for (const action of ["New chat", "Compose message"]) {
+    await page.setViewportSize({ width: action === "New chat" ? 393 : 1440, height: 844 });
     await page.getByRole("button", { name: action, exact: true }).first().click();
     await expect(page.getByRole("dialog", { name: "New chat" })).toBeVisible();
     expect(await page.evaluate(() => (window as any).directChatUnwindBack())).toBe(true);
@@ -511,7 +512,7 @@ for (const [width, height] of [[320, 568], [393, 844], [430, 932], [767, 852], [
       expect(Math.abs(inboxHeaderBox.y + inboxHeaderBox.height - layout.threadHeader.y - layout.threadHeader.height)).toBeLessThanOrEqual(1);
       const heading = (await inboxHeader.getByRole("heading", { name: "Messages" }).boundingBox())!;
       const actions = (await inboxHeader.locator('[class*="inboxHeaderActions"]').boundingBox())!;
-      if (width! < 1100) expect(heading.y + heading.height + 4).toBeLessThanOrEqual(actions.y);
+      if (width! < 1280) expect(heading.y + heading.height + 4).toBeLessThanOrEqual(actions.y);
       else expect(heading.x + heading.width + 4).toBeLessThanOrEqual(actions.x);
       expect(layout.aside!.y + layout.aside!.height).toBeLessThanOrEqual((await page.locator('[data-bottom-shell-motion-stack]').boundingBox())!.y + 1);
       const overflow = await page.locator('[data-app-scroll-root]').evaluate(node => node.scrollHeight - node.clientHeight);
@@ -779,7 +780,7 @@ test.describe("compact message layout", () => {
         expect(rect.x).toBeGreaterThanOrEqual(0);
         expect(rect.x + rect.width).toBeLessThanOrEqual(width);
         if (!(await touchMessageActions(page))) await button.hover();
-        await expect(button).toHaveCSS("background-image", /14px.*15px/);
+        await expect(button).toHaveCSS("background-image", label === "Message options" ? /12px.*12\.5px/ : /14px.*15px/);
         await page.keyboard.press("Tab");
         await button.focus();
         await expect(button).toHaveCSS("outline-style", "solid");
