@@ -30,6 +30,7 @@ from defusedxml import ElementTree as DefusedET
 from hushh_mcp.consent.token import validate_token
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.fmp_call_budget import is_budget_critical, record_fmp_call
+from hushh_mcp.services.market_provider_telemetry import record_provider_request
 from hushh_mcp.services.market_refresh_policy import (
     US_MARKET_OPEN_CACHE_TTL_SECONDS,
     provider_quote_cache_ttl_seconds,
@@ -262,7 +263,9 @@ async def _fetch_yahoo_quote_fast(ticker: str) -> Dict[str, Any]:
     headers = {"User-Agent": "Hushh-Research/1.0 (eng@hush1one.com)"}
 
     timeout = httpx.Timeout(connect=3.0, read=4.0, write=4.0, pool=3.0)
-    async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
+    async with httpx.AsyncClient(
+        event_hooks={"request": [record_provider_request]}, timeout=timeout, headers=headers
+    ) as client:
         try:
             res = await asyncio.wait_for(
                 client.get(url, params=params),
@@ -288,13 +291,14 @@ async def _fetch_yahoo_quote_fast(ticker: str) -> Dict[str, Any]:
         return {
             "ticker": ticker.upper(),
             "price": q.get("regularMarketPrice") or 0,
-            "change_percent": q.get("regularMarketChangePercent") or 0,
-            "volume": q.get("regularMarketVolume") or 0,
+            "change_percent": q.get("regularMarketChangePercent"),
+            "volume": q.get("regularMarketVolume"),
             "market_cap": q.get("marketCap") or 0,
             "pe_ratio": q.get("trailingPE") or 0,
             "pb_ratio": q.get("priceToBook") or 0,
             "dividend_yield": q.get("trailingAnnualDividendYield") or 0,
             "company_name": q.get("longName") or q.get("shortName") or ticker.upper(),
+            "instrument_type": q.get("quoteType"),
             # Sector/industry often not present in quote endpoint; keep best-effort.
             "sector": q.get("sector") or "Unknown",
             "industry": q.get("industry") or "Unknown",
@@ -331,9 +335,9 @@ def _parse_google_news_rss(xml_text: str, ticker: str) -> List[Dict[str, Any]]:
         items.append(
             {
                 "title": title,
-                "description": f"Realtime market coverage for {ticker}",
+                "description": None,
                 "url": link,
-                "publishedAt": published_at or datetime.utcnow().isoformat(),
+                "publishedAt": published_at or None,
                 "source": {"name": source_name},
                 "provider": "google_news_rss",
             }
@@ -369,7 +373,9 @@ async def _fetch_newsapi_articles(ticker: str, days_back: int) -> List[Dict[str,
         "apiKey": api_key,
     }
     timeout = httpx.Timeout(connect=4.0, read=8.0, write=8.0, pool=4.0)
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with httpx.AsyncClient(
+        event_hooks={"request": [record_provider_request]}, timeout=timeout
+    ) as client:
         res = await client.get("https://newsapi.org/v2/everything", params=params)
         res.raise_for_status()
         payload = res.json() or {}
@@ -399,7 +405,9 @@ async def _fetch_google_news_rss(ticker: str, days_back: int) -> List[Dict[str, 
     url = f"https://news.google.com/rss/search?q={query}&hl=en-US&gl=US&ceid=US:en"
     timeout = httpx.Timeout(connect=4.0, read=8.0, write=8.0, pool=4.0)
     headers = {"User-Agent": "Hushh-Research/1.0 (eng@hush1one.com)"}
-    async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
+    async with httpx.AsyncClient(
+        event_hooks={"request": [record_provider_request]}, timeout=timeout, headers=headers
+    ) as client:
         res = await client.get(url)
         res.raise_for_status()
         return _parse_google_news_rss(res.text or "", ticker)
@@ -407,18 +415,8 @@ async def _fetch_google_news_rss(ticker: str, days_back: int) -> List[Dict[str, 
 
 def _provider_error(provider: str, exc: Exception) -> str:
     if isinstance(exc, httpx.HTTPStatusError):
-        status_code = exc.response.status_code if exc.response is not None else "unknown"
-        detail = ""
-        if exc.response is not None:
-            try:
-                detail = str(exc.response.text or "").strip()
-            except Exception:
-                detail = ""
-        if detail:
-            detail = detail.replace("\n", " ")[:180]
-            return f"{provider}:{status_code}:{detail}"
-        return f"{provider}:{status_code}:{exc}"
-    return f"{provider}:{exc}"
+        return f"{provider}:http_{exc.response.status_code}"
+    return f"{provider}:{type(exc).__name__}"
 
 
 def _emit_realtime_telemetry(event: str, **fields: Any) -> None:
@@ -440,7 +438,9 @@ async def _fetch_finnhub_quote(ticker: str) -> Dict[str, Any]:
     symbol = ticker.upper().strip()
     timeout = httpx.Timeout(connect=4.0, read=8.0, write=8.0, pool=4.0)
     headers = {"User-Agent": "Hushh-Research/1.0 (eng@hush1one.com)"}
-    async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
+    async with httpx.AsyncClient(
+        event_hooks={"request": [record_provider_request]}, timeout=timeout, headers=headers
+    ) as client:
         quote_res = await client.get(
             "https://finnhub.io/api/v1/quote", params={"symbol": symbol, "token": api_key}
         )
@@ -465,8 +465,8 @@ async def _fetch_finnhub_quote(ticker: str) -> Dict[str, Any]:
         return {
             "ticker": symbol,
             "price": price,
-            "change_percent": float(quote.get("dp") or 0),
-            "volume": 0,
+            "change_percent": float(quote["dp"]) if quote.get("dp") is not None else None,
+            "volume": None,
             "market_cap": market_cap,
             "pe_ratio": 0,
             "pb_ratio": 0,
@@ -491,7 +491,9 @@ async def _fetch_pmp_quote(ticker: str) -> Dict[str, Any]:
     symbol = ticker.upper().strip()
     timeout = httpx.Timeout(connect=4.0, read=8.0, write=8.0, pool=4.0)
     headers = {"User-Agent": "Hushh-Research/1.0 (eng@hush1one.com)"}
-    async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
+    async with httpx.AsyncClient(
+        event_hooks={"request": [record_provider_request]}, timeout=timeout, headers=headers
+    ) as client:
         quote_res = await client.get(
             "https://financialmodelingprep.com/stable/quote",
             params={"symbol": symbol, "apikey": api_key},
@@ -520,8 +522,10 @@ async def _fetch_pmp_quote(ticker: str) -> Dict[str, Any]:
         return {
             "ticker": symbol,
             "price": price,
-            "change_percent": float(row.get("changePercentage") or 0),
-            "volume": int(row.get("volume") or 0),
+            "change_percent": float(row["changePercentage"])
+            if row.get("changePercentage") is not None
+            else None,
+            "volume": int(row["volume"]) if row.get("volume") is not None else None,
             "market_cap": float(row.get("marketCap") or details.get("marketCap") or 0),
             "pe_ratio": 0,
             "pb_ratio": 0,
@@ -545,7 +549,9 @@ async def _fetch_finnhub_company_news(ticker: str, days_back: int) -> List[Dict[
     start_date = (datetime.utcnow() - timedelta(days=max(1, days_back))).date().isoformat()
     timeout = httpx.Timeout(connect=4.0, read=8.0, write=8.0, pool=4.0)
     headers = {"User-Agent": "Hushh-Research/1.0 (eng@hush1one.com)"}
-    async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
+    async with httpx.AsyncClient(
+        event_hooks={"request": [record_provider_request]}, timeout=timeout, headers=headers
+    ) as client:
         res = await client.get(
             "https://finnhub.io/api/v1/company-news",
             params={
@@ -592,7 +598,9 @@ async def _fetch_pmp_news(ticker: str) -> List[Dict[str, Any]]:
 
     timeout = httpx.Timeout(connect=4.0, read=8.0, write=8.0, pool=4.0)
     headers = {"User-Agent": "Hushh-Research/1.0 (eng@hush1one.com)"}
-    async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
+    async with httpx.AsyncClient(
+        event_hooks={"request": [record_provider_request]}, timeout=timeout, headers=headers
+    ) as client:
         res = await client.get(
             "https://financialmodelingprep.com/stable/news/stock",
             params={
@@ -637,7 +645,9 @@ async def _fetch_finnhub_peers(ticker: str) -> List[str]:
 
     timeout = httpx.Timeout(connect=4.0, read=6.0, write=6.0, pool=4.0)
     headers = {"User-Agent": "Hushh-Research/1.0 (eng@hush1one.com)"}
-    async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
+    async with httpx.AsyncClient(
+        event_hooks={"request": [record_provider_request]}, timeout=timeout, headers=headers
+    ) as client:
         res = await client.get(
             "https://finnhub.io/api/v1/stock/peers",
             params={"symbol": ticker.upper(), "token": api_key},
@@ -660,7 +670,9 @@ async def _fetch_yfinance_quote(ticker: str, *, timeout_seconds: float = 3.5) ->
 
     async def _get_info() -> Dict[str, Any]:
         def _blocking_fetch() -> Dict[str, Any]:
-            stock = yf.Ticker(ticker)
+            from hushh_mcp.services.market_provider_telemetry import yahoo_counted_session
+
+            stock = yf.Ticker(ticker, session=yahoo_counted_session())
             return stock.info or {}
 
         return await asyncio.to_thread(_blocking_fetch)
@@ -676,8 +688,8 @@ async def _fetch_yfinance_quote(ticker: str, *, timeout_seconds: float = 3.5) ->
     payload = {
         "ticker": ticker.upper(),
         "price": info.get("currentPrice") or info.get("regularMarketPrice", 0),
-        "change_percent": info.get("regularMarketChangePercent", 0),
-        "volume": info.get("volume", 0),
+        "change_percent": info.get("regularMarketChangePercent"),
+        "volume": info.get("volume"),
         "market_cap": info.get("marketCap"),
         "pe_ratio": info.get("trailingPE"),
         "pb_ratio": info.get("priceToBook"),
@@ -689,6 +701,14 @@ async def _fetch_yfinance_quote(ticker: str, *, timeout_seconds: float = 3.5) ->
         "52w_high": info.get("fiftyTwoWeekHigh"),
         "dividend_yield": info.get("trailingAnnualDividendYield"),
         "company_name": info.get("longName", ticker.upper()),
+        "currency": info.get("currency"),
+        "instrument_type": info.get("quoteType"),
+        "quoted_at": (
+            datetime.fromtimestamp(info["regularMarketTime"], tz=timezone.utc).isoformat()
+            if isinstance(info.get("regularMarketTime"), (int, float))
+            and info["regularMarketTime"] > 0
+            else None
+        ),
         "sector": info.get("sector", "Unknown"),
         "industry": info.get("industry", "Unknown"),
         "business_summary": info.get("longBusinessSummary"),
@@ -719,7 +739,9 @@ async def _fetch_yahoo_recommendation_peers(ticker: str) -> List[str]:
     url = f"https://query1.finance.yahoo.com/v6/finance/recommendationsbysymbol/{ticker.upper()}"
     timeout = httpx.Timeout(connect=4.0, read=6.0, write=6.0, pool=4.0)
     headers = {"User-Agent": "Hushh-Research/1.0 (eng@hush1one.com)"}
-    async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
+    async with httpx.AsyncClient(
+        event_hooks={"request": [record_provider_request]}, timeout=timeout, headers=headers
+    ) as client:
         res = await client.get(url)
         res.raise_for_status()
         payload = res.json() or {}
@@ -740,7 +762,9 @@ async def _fetch_yahoo_search_peers(ticker: str) -> List[str]:
     timeout = httpx.Timeout(connect=4.0, read=6.0, write=6.0, pool=4.0)
     headers = {"User-Agent": "Hushh-Research/1.0 (eng@hush1one.com)"}
     params = {"q": ticker.upper(), "quotesCount": 8, "newsCount": 0}
-    async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
+    async with httpx.AsyncClient(
+        event_hooks={"request": [record_provider_request]}, timeout=timeout, headers=headers
+    ) as client:
         res = await client.get(url, params=params)
         res.raise_for_status()
         payload = res.json() or {}
@@ -809,6 +833,7 @@ def _parse_yahoo_chart_meta(meta: Dict[str, Any]) -> Dict[str, Any] | None:
 
     return {
         "ticker": symbol,
+        "instrument_type": meta.get("instrumentType"),
         "price": float(price),
         "change_percent": change_percent,
         "volume": meta.get("regularMarketVolume"),
@@ -851,7 +876,9 @@ async def _fetch_yahoo_quotes(
     headers = {"User-Agent": "Hushh-Research/1.0 (eng@hush1one.com)"}
     semaphore = asyncio.Semaphore(_YAHOO_CHART_CONCURRENCY)
 
-    async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
+    async with httpx.AsyncClient(
+        event_hooks={"request": [record_provider_request]}, timeout=timeout, headers=headers
+    ) as client:
 
         async def fetch_one(symbol: str) -> Dict[str, Any] | None:
             async with semaphore:
@@ -1039,7 +1066,7 @@ async def _legacy_fetch_market_data_batch(
         _emit_realtime_telemetry(
             "market_data_batch_failure",
             ticker_count=len(missing),
-            error=str(exc)[:200],
+            error=_provider_error("upstream", exc),
             duration_ms=int((time.perf_counter() - started_at) * 1000),
         )
         return cached
@@ -1091,7 +1118,9 @@ async def fetch_sec_filings(
     from hushh_mcp.services.sec_financial_facts import extract_annual_facts
 
     headers = {"User-Agent": "Hushh-Research/1.0 (eng@hush1one.com)", "Accept": "application/json"}
-    async with httpx.AsyncClient(headers=headers) as client:
+    async with httpx.AsyncClient(
+        event_hooks={"request": [record_provider_request]}, headers=headers
+    ) as client:
 
         async def read_json(url: str) -> dict[str, Any]:
             response = await client.get(url, timeout=25.0)
@@ -1290,7 +1319,7 @@ async def _legacy_fetch_market_news(
                 "news_provider_failure",
                 ticker=ticker.upper(),
                 provider=provider,
-                error=str(exc)[:200],
+                error=_provider_error("upstream", exc),
             )
 
     if not errors:
@@ -1497,7 +1526,7 @@ async def _legacy_fetch_market_data(
                     "market_data_provider_failure",
                     ticker=symbol,
                     provider=provider_name,
-                    error=str(exc)[:200],
+                    error=_provider_error("upstream", exc),
                     duration_ms=int((time.perf_counter() - started_at) * 1000),
                 )
 
@@ -1608,7 +1637,10 @@ async def fetch_peer_data(
     for peer_symbol in peer_universe:
         try:
             quote = await fetch_market_data(peer_symbol, user_id, consent_token)
-            if quote:
+            if quote and str(quote.get("instrument_type") or "").upper() in {
+                "EQUITY",
+                "COMMON_STOCK",
+            }:
                 quotes.append(quote)
         except Exception as exc:
             errors.append(_provider_error(f"peer_quote:{peer_symbol}", exc))
@@ -1720,12 +1752,6 @@ async def fetch_market_company_facts(symbol: str) -> Dict[str, Any]:
     return await _fetch_through_market_port(MarketDataRequest("ratios", (symbol.upper().strip(),)))
 
 
-async def fetch_market_session_history(symbols: List[str]) -> Dict[str, List[Dict[str, float]]]:
-    from hushh_mcp.services.market_data_provider import MarketDataRequest
-
-    return await _fetch_through_market_port(MarketDataRequest("session_history", tuple(symbols)))
-
-
 async def fetch_price_target_consensus(
     ticker: str, user_id: UserID, consent_token: str
 ) -> Dict[str, Any]:
@@ -1736,3 +1762,9 @@ async def fetch_price_target_consensus(
         MarketDataRequest("price_targets", (ticker.upper().strip(),)),
         cached=True,
     )
+
+
+async def fetch_market_session_history(symbols: List[str]) -> Dict[str, List[Dict[str, float]]]:
+    from hushh_mcp.services.market_data_provider import MarketDataRequest
+
+    return await _fetch_through_market_port(MarketDataRequest("session_history", tuple(symbols)))

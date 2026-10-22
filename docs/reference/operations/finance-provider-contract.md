@@ -41,3 +41,51 @@ The adapter must supply these measurements, or explicit unavailable reasons:
 Provider failures must expose a bounded reason without keys, query credentials or
 raw request headers. Unknown measurements remain null, not zero. The fixture
 adapter is an offline contract tool, not a production fallback.
+
+## Verification evidence (2026-10-21)
+
+SEC companyfacts captures (three sequential requests, retained as trimmed offline
+fixtures) confirm Amazon FY2025 FCF **$7,695,000,000**, Apple FY2025 revenue
+**$416,161,000,000**, and Alphabet revenue for FY2022–2025 of
+**$282,836,000,000**, **$307,394,000,000**, **$350,018,000,000** and
+**$402,836,000,000**. These are annual reported USD amounts, not current quotes.
+The runtime and offline extraction script share the same period-aligned extractor.
+Stock prices, market capitalization and monetary targets display USD; index
+levels remain points, ratios remain multiples and returns remain percentages.
+Current spot quotes have not been independently accepted against a licensed feed.
+
+An offline HTTP MockTransport cold-cache probe of the three analysts' provider
+phase measured 11 requests before the migration and 6 afterward (SEC 3 in both;
+Finnhub 8 versus 3). This excludes model/debate calls and is not a production
+quota measurement. The fixture quote intentionally lacks valuation multiples,
+so the new path avoids unsupported peer-quote fan-out. Runtime counters count
+HTTP attempts by host only, including yfinance's HTTP session, without query
+strings, credentials or owner identifiers.
+
+## Curated reference maintenance
+
+The seed replaces MMC with MRSH (January 14, 2026) and FI with FISV
+(November 11, 2025), removes retired K and overlapping avoid-list symbols.
+Sources: [Marsh announcement](https://www.marsh.com/en/corp/about/news/marsh-mclennan-to-change-nyse-symbol-to-mrsh.html),
+[Fiserv 2025 filing](https://investors.fiserv.com/static-files/9e20ef73-0abc-4550-a6b3-95c26b30719f),
+[K delisting notice](https://www.sec.gov/Archives/edgar/data/55067/000087666125000958/ruleprovisionnotice.htm).
+The curated FCF reference is explicitly FY2024 USD billions. No database importer
+was run: its wipe-and-repopulate behavior requires a separately reviewed runtime
+operation. Existing database rows therefore remain unverified.
+
+## Report-only findings
+
+Company Strength and Market Trend retain their existing blended formulas and
+labels. Company Strength still includes a neutral fair-value contribution when
+that measurement is unavailable; the UI now exposes limited-analysis status.
+Their meaning requires a separate product/semantic review, not a silent formula
+change in this provider migration. The decision generator's legal entity is still
+TBD; the real legal name must be supplied by the owner.
+
+## SEC persistence retirement
+
+`kai_market_cache_entries` is the sole active extracted-facts cache. The old
+`ticker_facts_snapshot` bootstrap name remains a compatibility no-op and no
+longer creates a second table. No current caller reads or writes the old table.
+Existing database tables were not dropped: contents must be inspected before an
+operator-approved retirement. No shared database mutation is part of this change.
