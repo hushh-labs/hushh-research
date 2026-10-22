@@ -46,3 +46,13 @@ export function openTodoItems(tasks: TodoItem[]): TodoItem[] {
 export function completedTodoItems(tasks: TodoItem[]): TodoItem[] {
   return tasks.filter((task) => task.status === "done");
 }
+
+export function taskSort(left: TodoItem, right: TodoItem): number {
+  const date = (left.date ?? "9999-12-31").localeCompare(
+    right.date ?? "9999-12-31",
+  );
+  if (date !== 0) return date;
+  const time = (left.time ?? "99:99").localeCompare(right.time ?? "99:99");
+  if (time !== 0) return time;
+  return left.title.localeCompare(right.title);
+}

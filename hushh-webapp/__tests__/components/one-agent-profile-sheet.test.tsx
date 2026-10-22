@@ -81,6 +81,10 @@ vi.mock("@/lib/services/todo-list-pkm-service", async original => {
   return { ...actual, TodoListPkmService: { ...actual.TodoListPkmService, load: mocks.loadTasks,
     setStatus: vi.fn().mockResolvedValue({ success: true }), remove: vi.fn().mockResolvedValue({ success: true }) } };
 });
+vi.mock("@/lib/feed/use-feed-actionables", () => ({ useFeedActionables: () => ({ actionables: [], loading: false, retry: vi.fn() }) }));
+vi.mock("@/lib/feed/use-feed-briefing", () => ({ useFeedBriefing: () => ({ pendingKyc: null, kycLoading: false, retryKyc: vi.fn() }) }));
+vi.mock("@/lib/calendar/use-calendar-connection-status", () => ({ useCalendarConnectionStatus: () => ({ connected: false, loaded: true, refresh: vi.fn() }) }));
+vi.mock("@/lib/calendar/use-calendar-upcoming-events", () => ({ useCalendarUpcomingEvents: () => ({ events: [], loaded: true, refresh: vi.fn() }) }));
 vi.mock("@/lib/profile/gmail-connector-store", () => ({
   useGmailConnectorStatus: () => ({
     status: { connected: true, google_email: "test@example.com" },
@@ -593,18 +597,4 @@ describe("One agent profile feed preview", () => {
     expect(mocks.close).not.toHaveBeenCalled();
     expect(mocks.push).not.toHaveBeenCalled();
   });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 });
