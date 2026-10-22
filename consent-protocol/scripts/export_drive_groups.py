@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 from collections import Counter
+from contextlib import AsyncExitStack
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -35,6 +36,13 @@ def _arguments():
     parser.add_argument("--format", choices=("csv", "json"), default="csv")
     parser.add_argument("--time-zone", default="Asia/Kolkata")
     parser.add_argument("--deadline-seconds", type=int, default=1800)
+    parser.add_argument(
+        "--read-concurrency",
+        type=int,
+        choices=range(1, 9),
+        default=6,
+        help="Concurrent fenced reads (default: 6); parser children remain capped at two.",
+    )
     parser.add_argument(
         "--resume", action="store_true", help="Resume this owner's matching local checkpoint."
     )
@@ -119,6 +127,7 @@ async def export(args):
     )
     from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransport
     from scripts.drive_group_local_adapters import (
+        LocalCredentialReader,
         LocalHeadEmbedder,
         retry_read,
         windows_parser_process,
@@ -132,6 +141,7 @@ async def export(args):
         raise RuntimeError("owner_identity_mismatch")
     oauth = get_external_connector_oauth_service().drive()
     database = oauth.lifecycle.db
+    sessions = AsyncExitStack()
     try:
         # Read paths must not opportunistically purge unrelated owners' rows.
         lifecycle_read = oauth.lifecycle.read
@@ -142,14 +152,7 @@ async def export(args):
         oauth.lifecycle.read = read_current
         # Credential refresh is single-flight within this local run. Another
         # reader must not cancel the refresh by racing the same lease.
-        credential_current = oauth.current_credential
-        credential_lock = asyncio.Lock()
-
-        async def current_credential(**kwargs):
-            async with credential_lock:
-                return await retry_read(lambda: credential_current(**kwargs))
-
-        oauth.current_credential = current_credential
+        oauth.current_credential = LocalCredentialReader(oauth.current_credential)
         row, credential = await oauth.current_credential(
             user_id=user.uid, required_profile="live", refresh=False
         )
@@ -205,6 +208,7 @@ async def export(args):
 
         parser = IsolatedDocumentParser(process=windows_parser_process) if os.name == "nt" else None
         transport = GoogleDriveRestTransport(oauth=oauth, parser=parser)
+        await sessions.enter_async_context(transport.owner_search_session())
 
         class Reads:
             async def read_tool(self, *, user_id, tool_name, arguments):
@@ -302,7 +306,12 @@ async def export(args):
         skipped = 0
         for batch in batches:
             indexed = await index_files(
-                batch, heads=heads, embedder=embedder, owner_email=args.email, bundle=bundle
+                batch,
+                heads=heads,
+                embedder=embedder,
+                owner_email=args.email,
+                bundle=bundle,
+                read_concurrency=getattr(args, "read_concurrency", 6),
             )
             projected = placement_rows(batch, indexed.files, zone=zone)
             versions = {row["id"]: row["version"] for row in batch}
@@ -333,7 +342,10 @@ async def export(args):
             "groups": dict(Counter(item["shelf"] for item in cached.values())),
         }
     finally:
-        database.engine.dispose()
+        try:
+            await sessions.aclose()
+        finally:
+            database.engine.dispose()
 
 
 def main():

@@ -1,6 +1,6 @@
 # Drive four-group index: design, evidence and implementation
 
-Status: slices 1 and 2, and slice 3's period helper, sealed store, worker and owner API are in source on `feat/drive-four-group-index`, dark behind `DRIVE_FOUR_GROUP_INDEX_ENABLED`. On 2026-10-21 the owner approved local release/schema, table-family, runtime/admission, deploy-config and CI registration; those registrations are implemented with the feature disabled in every hosted lane. Nothing is pushed, deployed or measured on a real Drive. The worker is callable but is not registered in `DriveWorkDrain`. The PKM writer and page remain future work. Checked in the worktree based on `origin/main` at `5a894a2adf`.
+Status: slices 1 and 2, and slice 3's period helper, sealed store, worker and owner API are in source on `feat/drive-four-group-index`, dark behind `DRIVE_FOUR_GROUP_INDEX_ENABLED`. On 2026-10-21 the owner approved local release/schema, table-family, runtime/admission, deploy-config and CI registration; those registrations are implemented with the feature disabled in every hosted lane. The backend branch is published, and an authorized local Drive run produced a CSV. Hosted deployment and acceptance remain unverified. The worker is callable but is not registered in `DriveWorkDrain`. The PKM writer and page remain future work. Checked in the worktree based on `origin/main` at `5a894a2adf`.
 
 The aim: sort a person's Google Drive files into four groups, keep the index in the person's memory (PKM), and show the four folders with their indexed files on the Google Drive page under Connectors. The groups are virtual: nothing is written to the person's Google Drive. The grouping uses no model that writes text; the declaration is in [Backend Semantic Boundary](../../../consent-protocol/docs/reference/backend-semantic-boundary.md#declared-drive-four-group-organizing-aid-owner-decision).
 
@@ -31,7 +31,7 @@ flowchart LR
 | Signal B, embedding | `drive_groups/embedding_model.py`, `embedding_model.json` | Cosine of the pinned `multilingual-e5-small` vector to five class centroids and to the four written group definitions, then a small learned layer. |
 | Signal C, metadata | `drive_groups/features.py`, `metadata_model.json` | Name words and grams, extension, MIME type, shared-with-me and owner flags. Folder path and size are not in the fenced listing mask (`LIST_FIELDS`), so they are not used. |
 | Fusion | `drive_groups/fusion.py`, `fusion.json` | Log-domain pooling with one learned weight per signal, a Platt map to a confidence, then a policy: confidence, margin over the runner-up, and agreement of the voting signals. A signal with weight 0 neither pools nor votes. |
-| Operon | `drive_groups/indexer.py`, `adapters.py` | `index_files(rows, heads=, embedder=)`: reads heads (2 at a time), embeds in batches of 100, places each file. A kept file keeps its text start and vector; a placed file keeps neither. Systemic failures end the run; only a few per-file outcomes read as "no text". |
+| Operon | `drive_groups/indexer.py`, `adapters.py` | `index_files(rows, heads=, embedder=)`: reads heads (2 at a time by default; an explicit caller may select 1–8), embeds in batches of 100, places each file. Parser children are separately capped at two per retained parser. A kept file keeps its text start and vector; a placed file keeps neither. Systemic failures end the run; only a few per-file outcomes read as "no text". |
 | Fit and measure | `consent-protocol/scripts/train_drive_groups.py`, `consent-protocol/scripts/eval_drive_groups.py`, `consent-protocol/scripts/build_drive_group_fixtures.py`, `tests/fixtures/drive_groups/synthetic.jsonl` | Offline. scikit-learn and scipy are used for fitting only; both already ship as dependencies of sentence-transformers and neither is imported at runtime. No new dependency was added. |
 
 The working group definitions, kept in `groups.json` and taken from the Drive lab, are: financial statements (bank, credit card, brokerage, loan, tax); non-financial statements (utilities, telecom, medical, education transcripts); insurance statements (policies, premium notices, claims); personal documents (passports, ID cards, certificates, resumes, letters, forms). Non-financial is the vaguest and needs the owner's confirmation.
@@ -82,7 +82,7 @@ Needs the pinned E5 snapshot in the local Hugging Face cache (`local_files_only`
 Implemented under `consent-protocol/`:
 
 - `db/migrations/368_drive_group_index.sql` and `hushh_mcp/services/drive_group_index_store.py`: explicit opt-in with disclosure `drive-four-group-v1`, owner time zone, renewable leases, sealed entries, folder counts, file pages and erase. Connection changes delete the opt-in and entries. Disabling processing pauses it; erase withdraws the opt-in and invalidates in-flight work. The store rejects pruning from an incomplete or capped listing and preserves owner placements, discarding retained text/vector when the final shelf is placed.
-- `hushh_mcp/services/drive_group_index_job.py`: `DriveGroupIndexJob.run()` runs owners sequentially (one by default, at most four), with a 900-second default overall deadline (at most 1,800). Each owner run lists at most 100 pages of 100 files in creation-time order, processes at most 100 changed files through `index_files`, and commits one bounded batch. Later runs skip only matching Drive revisions, modified times and model versions. Migration 368 replay-safely adds the source revision column; earlier local entries without it refresh once. A full listing alone permits removal of absent entries; capped, truncated or incomplete listings retain them and report incomplete status. No partial listing cursor is persisted, so each batch starts its inventory again.
+- `hushh_mcp/services/drive_group_index_job.py`: `DriveGroupIndexJob.run()` runs owners sequentially (one by default, at most four), with a 900-second default overall deadline (at most 1,800). Each owner run lists up to 10,000 files in creation-time order, processes at most 100 changed files through `index_files`, and commits one bounded batch. Listing requests the existing 1,000-row owner metadata pages; a response over its byte budget retries the same cursor at 100 and then 25. At most 400 successful pages are accepted, including empty pages. Later runs skip only matching Drive revisions, modified times and model versions. Migration 368 replay-safely adds the source revision column; earlier local entries without it refresh once. A full listing alone permits removal of absent entries; capped, truncated or incomplete listings retain them and report incomplete status. No partial listing cursor is persisted, so each batch starts its inventory again.
 - Internal `GoogleDriveRestTransport.read_group_index_tool`: the same live-grant fence, additionally bound to the job's connection generation before provider I/O. The worker rechecks processing authority around reads and embedding, renews its five-minute lease while working, and cancels on lease loss. Systemic parser errors propagate instead of becoming files with no text. Existing chat reads keep their response contract. No Drive mutation or PKM write runs here.
 - `api/routes/drive_groups.py`, registered in `server.py`: current Vault Owner only, private/no-store including authored errors, with a 404 before storage construction while the flag is off. The existing connector catch-all proxy forwards the API; no browser/native caller is added in this slice. See [API Contracts](../architecture/api-contracts.md#owner-drive-four-group-folders).
 
@@ -188,6 +188,31 @@ background revision, model, time zone and format. A fresh fenced listing limits
 reuse to current file IDs with unchanged provider versions. A different existing
 output is refused. Neither file contains text starts or vectors. Every retry checks
 background authority again; credential refresh is single-flight in this process.
+
+The exporter defaults to six concurrent fenced reads (`--read-concurrency 1` to
+`8`); its parser still starts at most two children concurrently. Every read gets
+fresh canonical credential, connection and registry checks. Only an expiring
+credential queues behind the local refresh lock, where canonical authority is
+read again. No token, policy or consent cache was added. The exporter and worker
+reuse the existing task-scoped HTTP session across listing and reads; child reads
+finish or cancel before the session closes. The worker retains two concurrent
+reads.
+
+On 2026-10-22 a matched local comparison read the same 12 authorized Drive files
+with the pinned offline model in separate processes, without checkpoint reuse.
+Nine files yielded text starts. The indexing batch fell from 80.575 seconds on
+`d51be7e596` to 34.646 seconds (2.33 times the throughput); total command time fell
+from 99.169 to 53.536 seconds. Both runs issued 121 SQL statements and their 15
+export fields matched exactly. This sample reused the same inventory to isolate
+reading, parsing and embedding; it does not measure full-Drive duration or
+classification accuracy. The earlier full run took about 67 minutes. A complete
+optimized indexing run has not yet been timed. Samples and private results stay
+in ignored local files.
+
+The optimized full inventory was measured separately: all 4,941 files were
+listed completely, without a cap or fallback, in five requests and 46.762 seconds.
+The previous full run spent about six minutes listing. Each inventory request
+still passed its credential, generation and background-revision fences.
 
 The developer adapter loads the same pinned E5 model offline, in process, in
 batches of 32 with one computation thread. On Windows only, a credential-free

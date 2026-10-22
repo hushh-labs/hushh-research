@@ -263,16 +263,19 @@ class ClamAvScanner:
 class IsolatedDocumentParser:
     def __init__(self, *, process=None):
         self._process = process or _private_process
+        # Downloads may overlap more widely than memory-heavy parser children.
+        self._parse_slots = asyncio.Semaphore(2)
 
     async def parse(self, *, content: bytes, mime_type: str, live: bool = False) -> ParsedText:
         try:
-            result = await self._process(
-                "parser",
-                ("live:" if live else "") + mime_type,
-                content,
-                timeout=25,
-                limit=MAX_TEXT_BYTES * 6 + 4096,
-            )
+            async with self._parse_slots:
+                result = await self._process(
+                    "parser",
+                    ("live:" if live else "") + mime_type,
+                    content,
+                    timeout=25,
+                    limit=MAX_TEXT_BYTES * 6 + 4096,
+                )
             if "error" in result:
                 code = result["error"]
                 if code == "processor_unavailable":

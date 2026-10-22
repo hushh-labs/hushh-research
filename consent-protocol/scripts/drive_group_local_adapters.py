@@ -6,7 +6,27 @@ import asyncio
 import json
 import os
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+
+class LocalCredentialReader:
+    """Fresh authority on every read; serialize only refresh, never cache grants."""
+
+    def __init__(self, current):
+        self._current = current
+        self._refresh_lock = asyncio.Lock()
+
+    async def __call__(self, **kwargs):
+        current = await retry_read(lambda: self._current(**{**kwargs, "refresh": False}))
+        if not kwargs.get("refresh", True) or current[0]["credential_expires_at"] > datetime.now(
+            UTC
+        ) + timedelta(seconds=90):
+            return current
+        async with self._refresh_lock:
+            # Re-read inside the lock: another reader may already have rotated
+            # the token, or the owner may have revoked/replaced the connection.
+            return await retry_read(lambda: self._current(**kwargs))
 
 
 async def retry_read(operation):

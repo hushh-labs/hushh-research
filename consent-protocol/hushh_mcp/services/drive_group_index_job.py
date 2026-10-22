@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import re
 from collections import Counter
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
@@ -25,12 +25,13 @@ from hushh_mcp.services.drive_groups.contract import four_group_index_enabled
 from hushh_mcp.services.drive_groups.indexer import EMBED_BATCH, evidence_from_row, index_files
 from hushh_mcp.services.drive_groups.models import load_bundle
 from hushh_mcp.services.drive_groups.period import deciding_day, title_day
+from hushh_mcp.services.drive_search_paging_config import OWNER_SEARCH_PAGE_SIZE_MAX
 from hushh_mcp.services.drive_telemetry import drive_logger
 from hushh_mcp.services.google_drive_adapter import FILE_ID, DriveReadError, valid_metadata_name
 from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransport
 
 logger = drive_logger(__name__)
-PAGE_SIZE = 100
+PAGE_SIZE = OWNER_SEARCH_PAGE_SIZE_MAX
 _QUERY = (
     "mimeType != 'application/vnd.google-apps.folder' and "
     "mimeType != 'application/vnd.google-apps.shortcut'"
@@ -118,31 +119,44 @@ class DriveGroupIndexJob:
     async def list_files(reads, user):
         rows, tokens = {}, set()
         token = None
+        page_size = PAGE_SIZE
         complete, limited = True, False
         # Bound even a provider returning endless empty pages with fresh tokens.
-        for _ in range(MAX_INDEXED_FILES // PAGE_SIZE):
-            result = await reads.read_tool(
-                user_id=user,
-                tool_name="search_files",
-                arguments={
-                    "query": _QUERY,
-                    "pageSize": PAGE_SIZE,
-                    # Edits reorder modifiedTime walks and can hide a file
-                    # between pages. Reuse the metadata index's stable walk.
-                    "orderBy": "createdTime desc",
-                    **({"pageToken": token} if token is not None else {}),
-                },
-            )
+        for _ in range((MAX_INDEXED_FILES + 24) // 25):
+            while True:
+                try:
+                    result = await reads.read_tool(
+                        user_id=user,
+                        tool_name="search_files",
+                        arguments={
+                            "query": _QUERY,
+                            "pageSize": page_size,
+                            # Edits reorder modifiedTime walks and can hide a file
+                            # between pages. Reuse the metadata index's stable walk.
+                            "orderBy": "createdTime desc",
+                            **({"pageToken": token} if token is not None else {}),
+                        },
+                    )
+                    break
+                except DriveReadError as error:
+                    if str(error) != "file_too_large" or page_size <= 25:
+                        raise
+                    # Same response budget and fallback as the owner scanner:
+                    # retry this cursor at 100, then 25; never lose a page.
+                    page_size = 100 if page_size > 100 else 25
             page = result.payload
             if result.is_error or not isinstance(page, dict):
                 raise DriveReadError("provider_response_invalid")
             files = page.get("files")
-            if not isinstance(files, list) or len(files) > PAGE_SIZE:
+            if not isinstance(files, list) or len(files) > page_size:
                 raise DriveReadError("provider_response_invalid")
             for row in files:
                 _validate_row(row)
                 if row["id"] in rows and rows[row["id"]] != row:
                     raise DriveReadError("provider_response_invalid")
+                if row["id"] not in rows and len(rows) >= MAX_INDEXED_FILES:
+                    limited, complete = True, False
+                    break
                 rows[row["id"]] = row
             complete &= not (
                 result.truncated or page.get("incompleteSearch") or page.get("overLimit")
@@ -169,7 +183,12 @@ class DriveGroupIndexJob:
         return await self.list_files(reads, user)
 
     async def _prepare(self, job):
-        reads = _JobReads(self.store, self.transport or GoogleDriveRestTransport(), job)
+        transport = self.transport or GoogleDriveRestTransport()
+        async with getattr(transport, "owner_search_session", nullcontext)():
+            return await self._prepare_in_session(job, transport)
+
+    async def _prepare_in_session(self, job, transport):
+        reads = _JobReads(self.store, transport, job)
         rows, complete, limited = await self._listing(reads, job["user_id"])
         known = await self.store.known(job)
         bundle = self.bundle or load_bundle()

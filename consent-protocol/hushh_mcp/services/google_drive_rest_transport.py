@@ -243,7 +243,7 @@ class GoogleDriveRestTransport:
         self._oauth = oauth or get_external_connector_oauth_service().drive()
         self.adapter = adapter or GoogleDriveAdapter()
         self.writer = writer or GoogleDriveWriteAdapter()
-        self._parser = parser
+        self._parser = parser if parser is not None else IsolatedDocumentParser()
 
     async def probe(self, *, access_token: str) -> None:
         """Prove the granted owner can search Drive before the grant is verified."""
@@ -458,9 +458,7 @@ class GoogleDriveRestTransport:
         )
         parse_started = time.perf_counter()
         try:
-            parsed = await (self._parser or IsolatedDocumentParser()).parse(
-                content=content, mime_type=mime_type, live=True
-            )
+            parsed = await self._parser.parse(content=content, mime_type=mime_type, live=True)
             text = "\n\n".join(parsed.pages)
         except DriveReadError as error:
             code = str(error)

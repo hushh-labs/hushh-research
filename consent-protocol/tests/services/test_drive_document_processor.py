@@ -430,6 +430,35 @@ async def test_real_isolated_parser_and_redacted_failure():
 
 
 @pytest.mark.asyncio
+async def test_transport_retains_parser_and_bounds_children_when_downloads_overlap():
+    import asyncio
+
+    from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransport
+
+    transport = GoogleDriveRestTransport(oauth=object())
+    active = peak = 0
+
+    async def child(*args, **kwargs):
+        nonlocal active, peak
+        active += 1
+        peak = max(active, peak)
+        try:
+            await asyncio.sleep(0.01)
+            return {"pages": ["synthetic text"], "truncated": False}
+        finally:
+            active -= 1
+
+    transport._parser._process = child
+    result = await asyncio.gather(
+        *(
+            transport._parser.parse(content=b"synthetic", mime_type="text/plain", live=True)
+            for _ in range(6)
+        )
+    )
+    assert peak == 2 and active == 0 and len(result) == 6
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("slots", [1, 2])
 async def test_page_extraction_children_are_bounded_per_process(monkeypatch, slots):
     import asyncio

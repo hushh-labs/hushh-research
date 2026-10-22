@@ -14,7 +14,7 @@ import json
 import logging
 import math
 from dataclasses import replace
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -225,6 +225,137 @@ async def test_one_file_may_lack_text_but_a_systemic_failure_ends_the_run(on, fa
     # The error leaves as itself, not as an ExceptionGroup, and no head is guessed.
     with pytest.raises(reads_as):
         await index_files(rows, heads=source, embedder=Vectors({}), bundle=tiny_bundle())
+
+
+@pytest.mark.parametrize("fail", [False, True])
+async def test_parallel_heads_preserve_order_and_cancel_siblings_on_failure(on, fail):
+    import asyncio
+
+    started, release = asyncio.Event(), asyncio.Event()
+    active = peak = cancelled = 0
+
+    class Source:
+        async def head(self, item):
+            nonlocal active, peak, cancelled
+            active += 1
+            peak = max(peak, active)
+            if active == 6:
+                started.set()
+            try:
+                await release.wait()
+                if fail:
+                    if item["id"] == "0":
+                        raise DriveReadError("connection_changed")
+                    await asyncio.Event().wait()
+                return "statement" if int(item["id"]) % 2 else "homework"
+            except asyncio.CancelledError:
+                cancelled += 1
+                raise
+            finally:
+                active -= 1
+
+    rows = [row(str(index), "statement.pdf") for index in range(12)]
+    vectors = Vectors({"statement": basis(0), "homework": basis(4)})
+    task = asyncio.create_task(
+        index_files(
+            rows, heads=Source(), embedder=vectors, bundle=tiny_bundle(), read_concurrency=6
+        )
+    )
+    try:
+        await asyncio.wait_for(started.wait(), 2)
+        assert peak == active == 6
+        release.set()
+        if fail:
+            with pytest.raises(DriveReadError, match="connection_changed"):
+                await asyncio.wait_for(task, 2)
+            assert active == 0 and cancelled >= 5
+        else:
+            parallel = await asyncio.wait_for(task, 2)
+            serial = await index_files(
+                rows,
+                heads=Heads(
+                    {
+                        item["id"]: "statement" if int(item["id"]) % 2 else "homework"
+                        for item in rows
+                    }
+                ),
+                embedder=vectors,
+                bundle=tiny_bundle(),
+                read_concurrency=1,
+            )
+            assert parallel == serial and peak == 6 and active == 0
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.parametrize("concurrency", [0, 9, True, 1.5])
+async def test_invalid_read_concurrency_never_reads(on, concurrency):
+    heads = Heads({})
+    with pytest.raises(ValueError, match="invalid read concurrency"):
+        await index_files(
+            [row("f", "statement.pdf")],
+            heads=heads,
+            embedder=Vectors({}),
+            read_concurrency=concurrency,
+        )
+    assert heads.asked == []
+
+
+@pytest.mark.parametrize("oversize", [0, 1, 2])
+async def test_group_inventory_uses_large_pages_and_retries_oversize_at_the_same_cursor(oversize):
+    from hushh_mcp.services.drive_group_index_job import DriveGroupIndexJob
+
+    def page(identity, **extra):
+        return SimpleNamespace(
+            is_error=False,
+            truncated=False,
+            payload={
+                "files": [
+                    row(identity, "statement.pdf", version="1", modifiedTime="2026-04-01T00:00:00Z")
+                ],
+                **extra,
+            },
+        )
+
+    read = AsyncMock(
+        side_effect=[
+            *[DriveReadError("file_too_large") for _ in range(oversize)],
+            page("a", nextPageToken="next"),
+            page("b"),
+        ]
+    )
+    files, complete, limited = await DriveGroupIndexJob.list_files(
+        SimpleNamespace(read_tool=read), "owner"
+    )
+    calls = [call.kwargs["arguments"] for call in read.await_args_list]
+    sizes = (1000, 100, 25)
+    assert [call["pageSize"] for call in calls] == [*sizes[: oversize + 1], sizes[oversize]]
+    assert all("pageToken" not in call for call in calls[:-1])
+    assert calls[-1]["pageToken"] == "next"
+    assert [file["id"] for file in files] == ["a", "b"] and complete and not limited
+
+
+async def test_group_inventory_does_not_overrun_its_file_budget_inside_a_large_page(monkeypatch):
+    from hushh_mcp.services import drive_group_index_job as job
+
+    monkeypatch.setattr(job, "MAX_INDEXED_FILES", 2)
+    read = AsyncMock(
+        return_value=SimpleNamespace(
+            is_error=False,
+            truncated=False,
+            payload={
+                "files": [
+                    row(str(index), "a.pdf", version="1", modifiedTime="2026-04-01T00:00:00Z")
+                    for index in range(3)
+                ]
+            },
+        )
+    )
+    files, complete, limited = await job.DriveGroupIndexJob.list_files(
+        SimpleNamespace(read_tool=read), "owner"
+    )
+    assert len(files) == 2 and not complete and limited and read.await_count == 1
 
 
 async def test_the_embedder_maps_each_head_to_its_own_vector_even_when_one_is_split():
@@ -505,7 +636,7 @@ async def test_local_export_refuses_a_different_connected_drive_owner(monkeypatc
 
 @pytest.fixture
 def local_export_setup(monkeypatch):
-    from contextlib import nullcontext
+    from contextlib import asynccontextmanager, nullcontext
 
     from firebase_admin import auth
 
@@ -555,8 +686,21 @@ def local_export_setup(monkeypatch):
         "get_external_connector_oauth_service",
         lambda: SimpleNamespace(drive=lambda: oauth),
     )
+    state = {"changed": False, "change": None, "session_active": False, "session_closed": False}
+
+    @asynccontextmanager
+    async def session():
+        state["session_active"] = True
+        try:
+            yield
+        finally:
+            state["session_active"] = False
+            state["session_closed"] = True
+
     monkeypatch.setattr(
-        google_drive_rest_transport, "GoogleDriveRestTransport", lambda **kwargs: object()
+        google_drive_rest_transport,
+        "GoogleDriveRestTransport",
+        lambda **kwargs: SimpleNamespace(owner_search_session=session),
     )
     listing = AsyncMock(
         return_value=(
@@ -581,9 +725,9 @@ def local_export_setup(monkeypatch):
     monkeypatch.setattr(
         drive_group_local_adapters, "LocalHeadEmbedder", lambda: SimpleNamespace(embed=AsyncMock())
     )
-    state = {"changed": False, "change": None}
 
     async def embed(*args, **kwargs):
+        assert state["session_active"]
         state["changed"] = True
         placement = place(FileEvidence("statement.pdf", PDF), tiny_bundle())
         return SimpleNamespace(files=(IndexedFile("file-one", placement),), skipped=0)
@@ -617,6 +761,8 @@ async def test_local_export_rechecks_canonical_authority_after_embedding(
     saved = list(csv.DictReader(io.StringIO(output.read_text(encoding="utf-8-sig"))))
     assert saved[0]["index_status"] == "pending"
     assert saved[0]["confidence"] == ""
+    assert local_export_setup.state["session_closed"]
+    assert not local_export_setup.state["session_active"]
 
 
 @pytest.mark.asyncio
@@ -704,7 +850,9 @@ async def test_local_export_revocation_during_backoff_prevents_another_provider_
     monkeypatch.setattr(
         google_drive_rest_transport,
         "GoogleDriveRestTransport",
-        lambda **kwargs: SimpleNamespace(read_group_index_tool=read),
+        lambda **kwargs: SimpleNamespace(
+            read_group_index_tool=read, owner_search_session=nullcontext
+        ),
     )
 
     def preference(*args, **kwargs):
@@ -763,3 +911,71 @@ async def test_local_export_retries_only_safe_transient_reads(monkeypatch, failu
         with pytest.raises(type(failure)):
             await retry_read(operation)
         assert operation.await_count == 1 and sleep.await_count == 0
+
+
+@pytest.mark.parametrize("expired_initially", [False, True])
+async def test_local_fresh_credentials_overlap_but_expired_credentials_refresh_once(
+    expired_initially,
+):
+    import asyncio
+
+    from scripts.drive_group_local_adapters import LocalCredentialReader
+
+    ready = asyncio.Event()
+    reads = refreshes = 0
+    expired = expired_initially
+
+    async def current(*, refresh=True, **kwargs):
+        nonlocal reads, refreshes, expired
+        if not refresh:
+            reads += 1
+            snapshot = expired
+            if reads == 6:
+                ready.set()
+            await ready.wait()
+            return {
+                "credential_expires_at": datetime.now(UTC)
+                + timedelta(seconds=-1 if snapshot else 3600)
+            }, {"generation": 1}
+        if expired:
+            refreshes += 1
+            await asyncio.sleep(0)
+            expired = False
+        return {"credential_expires_at": datetime.now(UTC) + timedelta(hours=1)}, {"generation": 1}
+
+    reader = LocalCredentialReader(current)
+    results = await asyncio.wait_for(
+        asyncio.gather(*(reader(user_id="owner") for _ in range(6))), 2
+    )
+    assert reads == 6 and refreshes == int(expired_initially)
+    assert all(result[1] == {"generation": 1} for result in results)
+
+
+async def test_local_refresh_waiter_rechecks_revoked_authority():
+    import asyncio
+
+    from scripts.drive_group_local_adapters import LocalCredentialReader
+
+    refreshing, release = asyncio.Event(), asyncio.Event()
+    revoked = False
+
+    async def current(*, refresh=True, **kwargs):
+        if refresh:
+            refreshing.set()
+            await release.wait()
+        if revoked:
+            raise DriveOAuthError("reconnect_required")
+        return {"credential_expires_at": datetime.now(UTC) - timedelta(seconds=1)}, {}
+
+    reader = LocalCredentialReader(current)
+    first = asyncio.create_task(reader(user_id="owner"))
+    await asyncio.wait_for(refreshing.wait(), 2)
+    second = asyncio.create_task(reader(user_id="owner"))
+    await asyncio.sleep(0)
+    revoked = True
+    release.set()
+    results = await asyncio.wait_for(asyncio.gather(first, second, return_exceptions=True), 2)
+    assert all(
+        isinstance(result, DriveOAuthError) and str(result) == "reconnect_required"
+        for result in results
+    )

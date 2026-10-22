@@ -32,8 +32,9 @@ logger = drive_logger(__name__)
 
 # The embedding child takes at most 100 pages per call.
 EMBED_BATCH = 100
-# The live reader reads at most two files at once.
+# Default for callers that do not opt into a wider, bounded network pipeline.
 READ_CONCURRENCY = 2
+MAX_READ_CONCURRENCY = 8
 _NOT_FILES = frozenset(
     {"application/vnd.google-apps.folder", "application/vnd.google-apps.shortcut"}
 )
@@ -85,8 +86,10 @@ def evidence_from_row(
     )
 
 
-async def _read_heads(rows: Sequence[Mapping[str, Any]], source: HeadSource) -> list[str | None]:
-    gate = asyncio.Semaphore(READ_CONCURRENCY)
+async def _read_heads(
+    rows: Sequence[Mapping[str, Any]], source: HeadSource, concurrency: int
+) -> list[str | None]:
+    gate = asyncio.Semaphore(concurrency)
     heads: list[str | None] = [None] * len(rows)
 
     async def read(index: int) -> None:
@@ -124,9 +127,12 @@ async def index_files(
     embedder: HeadEmbedder,
     owner_email: str | None = None,
     bundle: ModelBundle | None = None,
+    read_concurrency: int = READ_CONCURRENCY,
 ) -> IndexRun:
     if not four_group_index_enabled():
         raise GroupIndexDisabled("the Drive four-group index is off")
+    if type(read_concurrency) is not int or not 1 <= read_concurrency <= MAX_READ_CONCURRENCY:
+        raise ValueError("invalid read concurrency")
     started = time.perf_counter()
     bundle = bundle or load_bundle()
     listed = [
@@ -134,7 +140,7 @@ async def index_files(
         for row in rows
         if (evidence := evidence_from_row(row, owner_email)) is not None
     ]
-    texts = await _read_heads([row for row, _ in listed], heads)
+    texts = await _read_heads([row for row, _ in listed], heads, read_concurrency)
     vectors = await _embed(texts, embedder)
     files = []
     for index, (row, evidence) in enumerate(listed):
