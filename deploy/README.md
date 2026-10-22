@@ -50,6 +50,18 @@ creates no deployment record, builds, traffic changes, or release tag updates.
 Unknown deployment state and unavailable or failed gates still block selection.
 An explicit SHA continues through the existing exact-SHA deployment validator.
 
+UAT keeps the backend's maximum concurrency at 20 and sets
+`_CLOUD_RUN_SCALING_CONCURRENCY_TARGET=0.20`. The default 60% target seeks about
+12 concurrent requests per instance, while one Feed worker admits only six
+streams. A 20% target requests earlier scaling at about four average concurrent
+requests, preserving shared ingress headroom for Profile, auth and Voice.
+The six-stream worker cap, three-stream owner cap, five-instance limit and DB
+pool budgets remain enforced. This utilization target cannot eliminate burst
+or maximum-capacity refusals; genuine saturation still returns 503 with its
+retry delay. The optional Cloud Build substitution defaults empty for other
+lanes, preserving their existing scaling target. See the
+[Cloud Run scaling controls contract](https://docs.cloud.google.com/run/docs/configuring/scaling-controls).
+
 For the One chat external Vertex cutover, including its pre-vault intro head,
 the reviewed deploy-uat-one-chat.yml workflow updates the existing consent-protocol service
 without touching the frontend, Drive worker, schedulers, secrets, or database.
