@@ -457,11 +457,12 @@ class TestAgentTreeShape:
         assert "call list_my_connections first" in ONE_IDENTITY_INSTRUCTION
 
     def test_calendar_instruction_requires_asking_missing_scheduling_details(self):
+        assert "Ask missing date, zone, times, duration, guests" in ONE_IDENTITY_INSTRUCTION
+        assert "keep supplied title" in ONE_IDENTITY_INSTRUCTION
         assert (
-            "Proposing, ask missing title, date, zone, start/end/duration, guests"
+            "'Meeting with <verified owner name>' or 'Meeting invitation'; never guest name"
             in ONE_IDENTITY_INSTRUCTION
         )
-        assert "reuse supplied details" in ONE_IDENTITY_INSTRUCTION
         assert "Never invent; 'at 8pm' is not today" in ONE_IDENTITY_INSTRUCTION
         assert "Resolve relative dates with get_current_time" in ONE_IDENTITY_INSTRUCTION
         assert "preserve title/attendees" in ONE_IDENTITY_INSTRUCTION

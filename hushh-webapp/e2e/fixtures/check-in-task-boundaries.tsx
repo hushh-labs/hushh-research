@@ -9,9 +9,12 @@ const presence = () => ({
   }, attendees: [],
 });
 export const OneLocationService = {
-  getNearbyPresence: async () => presence(),
+  getNearbyPresence: async () => document.body.dataset.scene === "setup" ? { presence: null, attendees: [] } : presence(),
   getPermissionState: async () => ({ state: "granted", precise: true, locationServicesEnabled: true }),
-  nearbyPlaces: async () => [],
+  nearbyPlaces: async () => [{
+    placeId: "fixture-cafe", name: "Riverside Cafe", text: "Riverside Cafe", category: "Cafe",
+    distanceMeters: 24, latitude: 37.4276, longitude: -122.1697,
+  }],
   listPlaceRatingSummaries: async () => [],
   extendNearbyPresence: async () => { document.body.dataset.extended = "true"; return presence(); },
   checkoutNearby: async () => ({ presence: null, attendees: [], checkedOut: true }),

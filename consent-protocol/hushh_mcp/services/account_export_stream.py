@@ -32,6 +32,29 @@ EXPORT_SECTIONS = (
 EXPORT_DEADLINE_SECONDS = 240
 _EXPORT_SLOTS = BoundedSemaphore(2)
 _CHUNK_CHARS = 16 * 1024
+_TRANSPORT_BYTES = 256 * 1024
+_JSON_SCALAR_TYPES = (str, int, float, bool, type(None))
+
+
+def _export_json_value(value: Any) -> Any:
+    """Normalize native JSON containers without FastAPI's generic per-value dispatch.
+
+    PostgreSQL JSONB has exact native containers and string keys. Preserve the
+    canonical recursive SQLAlchemy-key filtering; all other types, subclasses
+    and key shapes retain FastAPI's existing normalization behavior.
+    """
+    kind = type(value)
+    if kind in _JSON_SCALAR_TYPES:
+        return value
+    if kind is list:
+        return [_export_json_value(item) for item in value]
+    if kind is dict and all(type(key) is str for key in value):
+        return {
+            key: _export_json_value(item)
+            for key, item in value.items()
+            if not key.startswith("_sa")
+        }
+    return jsonable_encoder(value)
 
 
 class AccountExportBusy(RuntimeError):
@@ -66,6 +89,13 @@ class AccountExportStream:
         self._chunks = 0
         self._max_chunk_bytes = 0
         self._completed = False
+        self._fetch_seconds = 0.0
+        self._produce_seconds = 0.0
+        self._yield_wait_seconds = 0.0
+        self._normalize_seconds = 0.0
+        self._encode_seconds = 0.0
+        self._suspended_at: float | None = None
+        self._exhausted = False
 
     def prepare(self) -> AccountExportStream:
         if self._iterator is not None:
@@ -90,14 +120,55 @@ class AccountExportStream:
         self._bytes += len(first)
         self._chunks += 1
         self._max_chunk_bytes = max(self._max_chunk_bytes, len(first))
+        self._suspended_at = time.monotonic()
         yield first
-        for chunk in self._iterator:
-            self._bytes += len(chunk)
+        self._resume()
+        # Fill across rows and punctuation, not just within one JSON value. The
+        # first prepared prefix still reaches the client before filling a buffer.
+        pending = bytearray()
+        while True:
+            started = time.monotonic()
+            try:
+                chunk = next(self._iterator)
+            except StopIteration:
+                break
+            finally:
+                self._produce_seconds += time.monotonic() - started
+            self._check_deadline()
+            pending.extend(chunk)
+            while len(pending) >= _TRANSPORT_BYTES:
+                output = bytes(pending[:_TRANSPORT_BYTES])
+                del pending[:_TRANSPORT_BYTES]
+                self._bytes += len(output)
+                self._chunks += 1
+                self._max_chunk_bytes = max(self._max_chunk_bytes, len(output))
+                self._suspended_at = time.monotonic()
+                yield output
+                self._resume()
+        if pending:
+            self._check_deadline()
+            output = bytes(pending)
+            self._bytes += len(output)
             self._chunks += 1
-            self._max_chunk_bytes = max(self._max_chunk_bytes, len(chunk))
-            yield chunk
+            self._max_chunk_bytes = max(self._max_chunk_bytes, len(output))
+            self._suspended_at = time.monotonic()
+            yield output
+            self._resume()
+        # Exhaustion is acknowledged only after the last buffer's send resumes.
+        # A buffered footer or a failed final send must never log success.
+        self._exhausted = True
+
+    def _resume(self) -> None:
+        if self._suspended_at is not None:
+            self._yield_wait_seconds += time.monotonic() - self._suspended_at
+            self._suspended_at = None
+
+    def confirm_produced(self) -> None:
+        # Route-local ASGI boundary; outer middleware/network delivery is separate.
+        self._completed = self._exhausted
 
     def close(self) -> None:
+        self._resume()
         try:
             if self._iterator is not None:
                 self._iterator.close()
@@ -109,13 +180,19 @@ class AccountExportStream:
                 _EXPORT_SLOTS.release()
                 logger.info(
                     "account_export outcome=%s rows=%d bytes=%d elapsed_ms=%d "
-                    "chunks=%d max_chunk_bytes=%d",
-                    "complete" if self._completed else "incomplete",
+                    "chunks=%d max_chunk_bytes=%d fetch_ms=%d produce_ms=%d yield_wait_ms=%d "
+                    "normalize_ms=%d encode_ms=%d",
+                    "producer_complete" if self._completed else "incomplete",
                     self._rows,
                     self._bytes,
                     int((time.monotonic() - self._started) * 1000),
                     self._chunks,
                     self._max_chunk_bytes,
+                    int(self._fetch_seconds * 1000),
+                    int(self._produce_seconds * 1000),
+                    int(self._yield_wait_seconds * 1000),
+                    int(self._normalize_seconds * 1000),
+                    int(self._encode_seconds * 1000),
                 )
 
     @property
@@ -127,34 +204,46 @@ class AccountExportStream:
             raise TimeoutError("Account export deadline exceeded")
 
     def _encode(self, value: Any) -> Iterator[bytes]:
+        self._check_deadline()
+        started = time.monotonic()
+        try:
+            normalized = _export_json_value(value)
+        finally:
+            self._normalize_seconds += time.monotonic() - started
+        self._check_deadline()
         encoder = json.JSONEncoder(ensure_ascii=True, separators=(",", ":"))
+        started = time.monotonic()
+        try:
+            # Public encode() uses CPython's C traversal. Materialize at most one
+            # encoded row, never an accumulated section or account history.
+            encoded = encoder.encode(normalized)
+        finally:
+            self._encode_seconds += time.monotonic() - started
+        del normalized
+        self._check_deadline()
         # Escaped JSON is ASCII, so the character and byte budgets are equal.
-        pending = bytearray()
-        for fragment in encoder.iterencode(jsonable_encoder(value)):
-            offset = 0
-            while offset < len(fragment):
-                self._check_deadline()
-                end = min(len(fragment), offset + _CHUNK_CHARS - len(pending))
-                pending.extend(fragment[offset:end].encode("ascii"))
-                offset = end
-                if len(pending) == _CHUNK_CHARS:
-                    # One threadpool/ASGI hop per buffer, not per JSON token.
-                    yield bytes(pending)
-                    pending.clear()
-        if pending:
+        for offset in range(0, len(encoded), _CHUNK_CHARS):
             self._check_deadline()
-            yield bytes(pending)
+            yield encoded[offset : offset + _CHUNK_CHARS].encode("ascii")
 
     def _rows_for(self, conn: Any, key: str) -> Generator[dict[str, Any], None, None]:
         # Options belong to SELECT only: psycopg2 must not wrap SET in a named cursor.
         self._check_deadline()
+        started = time.monotonic()
         result = conn.execute(
             self._queries[key],
             {"user_id": self._user_id},
             execution_options={"stream_results": True, "yield_per": 1, "max_row_buffer": 1},
         ).mappings()
+        self._fetch_seconds += time.monotonic() - started
         try:
-            for row in result:
+            iterator = iter(result)
+            while True:
+                started = time.monotonic()
+                row = next(iterator, None)
+                self._fetch_seconds += time.monotonic() - started
+                if row is None:
+                    break
                 self._check_deadline()
                 self._rows += 1
                 yield dict(row)
@@ -210,4 +299,3 @@ class AccountExportStream:
             yield b"}"
         # Transaction/cursor cleanup must succeed before declaring a complete export.
         yield b',"success":true}'
-        self._completed = True

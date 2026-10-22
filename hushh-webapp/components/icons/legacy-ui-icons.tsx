@@ -3,6 +3,8 @@
 import * as Phosphor from "@phosphor-icons/react";
 import { forwardRef } from "react";
 import { AccentedKeyIcon } from "./ui/accented-key-icon";
+import { AppleTrashIcon } from "./ui/trash-icon";
+import { PeoplePairIcon } from "./ui/people-action-icons";
 import type { Icon, IconProps, IconWeight } from "@phosphor-icons/react";
 
 /**
@@ -246,7 +248,7 @@ export const Target = createCanonicalIcon(Phosphor.Target);
 export const Timer = createCanonicalIcon(Phosphor.Timer);
 export const ThumbsDown = createCanonicalIcon(Phosphor.ThumbsDown);
 export const ThumbsUp = createCanonicalIcon(Phosphor.ThumbsUp);
-export const Trash2 = createCanonicalIcon(Phosphor.Trash);
+export const Trash2 = AppleTrashIcon;
 export const TrendingDown = createCanonicalIcon(Phosphor.TrendDown);
 export const TrendingUp = createCanonicalIcon(Phosphor.TrendUp);
 export const TrendingUpDown = createCanonicalIcon(Phosphor.TrendUp);
@@ -262,7 +264,11 @@ export const UserPlus = createCanonicalIcon(Phosphor.UserPlus);
 export const UserRound = createCanonicalIcon(Phosphor.UserCircle);
 export const UserRoundCheck = createCanonicalIcon(Phosphor.UserCircleCheck);
 export const UserRoundPlus = createCanonicalIcon(Phosphor.UserCirclePlus);
-export const Users = createCanonicalIcon(Phosphor.Users);
+export const Users = forwardRef<SVGSVGElement, CanonicalIconProps>(
+  function Users({ size = 16, ...props }, ref) {
+    return <PeoplePairIcon ref={ref} size={size} {...props} />;
+  },
+);
 export const UsersRound = createCanonicalIcon(Phosphor.UsersThree);
 export const Volume2 = createCanonicalIcon(Phosphor.SpeakerHigh);
 export const VolumeX = createCanonicalIcon(Phosphor.SpeakerSlash);

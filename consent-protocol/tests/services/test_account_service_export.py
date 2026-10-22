@@ -204,6 +204,109 @@ async def test_export_route_hides_raw_export_failure(monkeypatch):
     assert exc_info.value.detail == "Account export failed"
 
 
+def test_export_row_encoding_preserves_canonical_wire_values():
+    import json
+    import time
+    from datetime import date, timedelta
+    from decimal import Decimal
+    from enum import Enum
+    from uuid import UUID
+
+    from fastapi.encoders import jsonable_encoder
+
+    from hushh_mcp.services.account_export_stream import AccountExportStream
+
+    class Label(str, Enum):
+        SAMPLE = "sample"
+
+    class Metadata(dict):
+        pass
+
+    row = {
+        "revision_id": UUID("26000000-0000-0000-0000-000000000042"),
+        "created_at": NOW,
+        "offset_at": NOW.astimezone(timezone(timedelta(hours=5, minutes=30))),
+        "date": date(2026, 1, 2),
+        "decimal": [Decimal("2"), Decimal("2.75")],
+        "metadata": {"nested": [None, True, False, 10**80, 0.25, 'résumé 信息 \\"\n']},
+        "_sa_private": "omitted",
+        "nested": [{"_sa_hidden": "omitted", "visible": "_sa_retained_value"}],
+        "unusual_keys": {7: "number", Label.SAMPLE: {"_sa_secret": "omitted"}},
+        "subclass": Metadata(visible="retained", _sa_state="omitted"),
+        "tuple": ("a", "b"),
+        "bytes": b"sample",
+    }
+    stream = AccountExportStream(
+        user_id=USER_ID, connection_factory=None, table_exists=None, queries={}
+    )
+    stream._started = time.monotonic()
+    expected = json.dumps(jsonable_encoder(row), ensure_ascii=True, separators=(",", ":")).encode(
+        "ascii"
+    )
+    assert b"".join(stream._encode(row)) == expected
+    assert b'"_sa_private"' not in expected
+    assert b'"_sa_hidden"' not in expected
+    assert b'"visible":"_sa_retained_value"' in expected
+
+
+def test_export_native_rows_avoid_generic_walk_and_python_json_traversal(monkeypatch):
+    import json
+    import time
+
+    from hushh_mcp.services import account_export_stream as module
+
+    canonical = module.jsonable_encoder
+    original_iterencode = json.JSONEncoder.iterencode
+
+    def leaves_only(value):
+        assert type(value) not in (dict, list), "generic normalization walks the entire row"
+        return canonical(value)
+
+    def require_c_path(self, value, _one_shot=False):
+        assert _one_shot, "row encoding reverted to Python structural traversal"
+        return original_iterencode(self, value, _one_shot=_one_shot)
+
+    monkeypatch.setattr(module, "jsonable_encoder", leaves_only)
+    monkeypatch.setattr(json.JSONEncoder, "iterencode", require_c_path)
+    stream = module.AccountExportStream(
+        user_id=USER_ID, connection_factory=None, table_exists=None, queries={}
+    )
+    stream._started = time.monotonic()
+    row = {"created_at": NOW, "entries": [{"value": n} for n in range(4096)]}
+    encoded = b"".join(stream._encode(row))
+    assert len(json.loads(encoded)["entries"]) == 4096
+
+
+def test_export_row_deadline_checked_after_encoding_and_during_slicing(monkeypatch):
+    import json
+
+    from hushh_mcp.services import account_export_stream as module
+
+    clock = [1.0]
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
+    original_encode = json.JSONEncoder.encode
+
+    def late_encode(self, value):
+        encoded = original_encode(self, value)
+        clock[0] += module.EXPORT_DEADLINE_SECONDS + 1
+        return encoded
+
+    stream = module.AccountExportStream(
+        user_id=USER_ID, connection_factory=None, table_exists=None, queries={}
+    )
+    stream._started = clock[0]
+    with monkeypatch.context() as scoped:
+        scoped.setattr(json.JSONEncoder, "encode", late_encode)
+        with pytest.raises(TimeoutError, match="deadline"):
+            next(stream._encode({"value": "late"}))
+    stream._started = clock[0]
+    iterator = stream._encode({"ciphertext": "x" * (2 * 1024 * 1024)})
+    assert len(next(iterator)) == 16 * 1024
+    clock[0] += module.EXPORT_DEADLINE_SECONDS + 1
+    with pytest.raises(TimeoutError, match="deadline"):
+        next(iterator)
+
+
 @pytest.mark.asyncio
 async def test_large_history_stream_uses_named_cursors_snapshot_and_bounded_memory(
     connector_postgres_url,  # noqa: F811
@@ -229,6 +332,32 @@ async def test_large_history_stream_uses_named_cursors_snapshot_and_bounded_memo
     }
 
     engine = create_engine(connector_postgres_url)
+    # Exercise actual driver UUID/timestamp/JSONB/array values, not text stand-ins.
+    from fastapi.encoders import jsonable_encoder
+
+    from hushh_mcp.services.account_export_stream import AccountExportStream
+
+    with engine.connect() as conn:
+        row = dict(
+            conn.execute(
+                text("""SELECT
+                  '26000000-0000-0000-0000-000000000042'::uuid AS revision_id,
+                  '2026-01-02 03:04:05+05:30'::timestamptz AS created_at,
+                  '{"entries":[{"_sa_private":"omit","label":"résumé"}]}'::jsonb AS metadata,
+                  ARRAY['scope.a','scope.b']::text[] AS scope_paths""")
+            )
+            .mappings()
+            .one()
+        )
+    wire = AccountExportStream(
+        user_id="owner-a", connection_factory=None, table_exists=None, queries={}
+    )
+    import time
+
+    wire._started = time.monotonic()
+    assert b"".join(wire._encode(row)) == json.dumps(
+        jsonable_encoder(row), ensure_ascii=True, separators=(",", ":")
+    ).encode("ascii")
     with engine.begin() as conn:
         conn.execute(
             text("""
@@ -350,10 +479,11 @@ async def test_large_history_stream_uses_named_cursors_snapshot_and_bounded_memo
     assert history_rows == 257  # All 256 retained revisions plus the current segment.
     assert metadata_entries == 2000
     assert byte_count > 64 * 1024 * 1024
-    assert max_chunk_bytes <= 16 * 1024
-    assert body_sends < byte_count // (16 * 1024) + 4 * 514 + 100
+    assert max_chunk_bytes <= 256 * 1024
+    assert body_sends <= byte_count // (256 * 1024) + 3
     assert peak < 8 * 1024 * 1024
     assert tail.endswith(b',"success":true}')
+    assert export._completed
     assert all(cursor.closed for cursor in cursors)
     assert engine.pool.checkedout() == 0
     record_property("stream_bytes", byte_count)
@@ -437,3 +567,70 @@ async def test_export_response_deadline_closes_snapshot_even_when_send_is_stalle
             {"type": "http", "asgi": {"spec_version": "2.4"}}, receive, send
         )
     export.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_export_final_send_failure_never_records_complete_even_after_footer(caplog):
+    """A buffered footer is not proof that the final ASGI handoff succeeded."""
+    from api.routes.account import _AccountExportResponse
+    from hushh_mcp.services.account_export_stream import AccountExportStream
+
+    export = AccountExportStream(
+        user_id="synthetic-owner",
+        connection_factory=lambda: _db(MagicMock()),
+        table_exists=lambda *_: False,
+        queries={},
+    ).prepare()
+    sent_footer = False
+
+    async def send(message):
+        nonlocal sent_footer
+        if message["type"] == "http.response.body":
+            sent_footer |= message.get("body", b"").endswith(b',"success":true}')
+            if not message.get("more_body", False):
+                raise RuntimeError("synthetic final handoff failed")
+
+    async def receive():
+        return {"type": "http.disconnect"}
+
+    with caplog.at_level("INFO"), pytest.raises(RuntimeError, match="Account export interrupted"):
+        await _AccountExportResponse(export)(
+            {"type": "http", "asgi": {"spec_version": "2.4"}}, receive, send
+        )
+    assert sent_footer
+    assert not export._completed
+    assert not export._reserved
+    assert "account_export outcome=incomplete" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_export_asgi23_disconnect_during_terminal_send_is_incomplete():
+    import anyio
+
+    from api.routes.account import _AccountExportResponse
+    from hushh_mcp.services.account_export_stream import AccountExportStream
+
+    export = AccountExportStream(
+        user_id="synthetic-owner",
+        connection_factory=lambda: _db(MagicMock()),
+        table_exists=lambda *_: False,
+        queries={},
+    ).prepare()
+    terminal_started = anyio.Event()
+
+    async def send(message):
+        if message["type"] == "http.response.body" and not message.get("more_body", False):
+            terminal_started.set()
+            await anyio.sleep_forever()
+
+    async def receive():
+        await terminal_started.wait()
+        return {"type": "http.disconnect"}
+
+    with anyio.fail_after(2):
+        await _AccountExportResponse(export)(
+            {"type": "http", "asgi": {"spec_version": "2.3"}}, receive, send
+        )
+    assert export._exhausted
+    assert not export._completed
+    assert not export._reserved

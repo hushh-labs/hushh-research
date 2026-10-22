@@ -2,7 +2,7 @@ import { Code2 } from "./legacy-ui-icons";
 import {
   ProfilePaneAccountIcon, ProfilePaneAppearanceIcon, ProfilePaneSecurityIcon,
   ProfilePaneDevicesIcon, ProfilePaneConnectorsIcon, ProfilePaneInviteIcon,
-  ProfilePaneHelpIcon, ProfilePanePrivacyIcon, ProfilePaneTermsIcon,
+  ProfilePaneHelpIcon, ProfilePrivacyPolicyIcon, ProfilePaneTermsIcon,
   ProfilePaneSignOutIcon, ProfilePaneWalletIcon, ProfilePaneWorldModelIcon,
   ProfilePreferenceAppearanceIcon, ProfilePreferenceAccentIcon, ProfilePreferenceVoiceIcon,
 } from "../profile/profile-pane-icons";
@@ -28,7 +28,7 @@ export const PROFILE_ICONS = {
   account: ProfilePaneAccountIcon, preferences: ProfilePaneAppearanceIcon,
   security: ProfilePaneSecurityIcon, devices: ProfilePaneDevicesIcon,
   connectors: ProfilePaneConnectorsIcon, invite: ProfilePaneInviteIcon,
-  support: ProfilePaneHelpIcon, privacy: ProfilePanePrivacyIcon,
+  support: ProfilePaneHelpIcon, privacy: ProfilePrivacyPolicyIcon,
   terms: ProfilePaneTermsIcon, signOut: ProfilePaneSignOutIcon,
   memory: ProfilePaneWalletIcon, worldModel: ProfilePaneWorldModelIcon,
   payouts: ProfileAccountBankIcon, pricing: ProfileAccountPriceIcon,

@@ -2906,9 +2906,16 @@ this is the existing account bundle scope, not every table in the system.
 
 The backend uses actual server-side cursors fetching one row at a time. Memory
 scales with the largest row and its JSON encoding, rather than total history.
-The encoder coalesces small JSON tokens into bounded 16 KiB buffers before the
-threadpool/ASGI boundary; rich metadata must not incur a transport send for every
-punctuation mark or scalar. The transport regression includes nested metadata
+Native JSON containers use an export-only normalization path preserving the
+existing recursive `_sa*` key filtering. Unusual types, container subclasses and
+non-string-keyed mappings retain canonical FastAPI normalization. The standard
+JSON C encoder then materializes one encoded row and yields 16 KiB ASCII slices;
+this adds a row-sized allocation, never a complete-history allocation. Deadline
+checks bracket normalization and encoding and guard every slice. The transport
+coalesces across rows and punctuation into buffers no larger than 256 KiB before
+the threadpool/ASGI boundary. The prepared first prefix is sent immediately.
+Rich metadata must not incur a transport send for every punctuation mark or scalar.
+The transport regression includes nested metadata
 and the two HTTP middleware hops, in addition to retained ciphertext history.
 Each process admits two exports, with a 240-second streaming budget, 30-second
 statement timeout, and 60-second idle-transaction timeout. Blocking database work
@@ -2916,7 +2923,14 @@ can finish its bounded statement before cancellation cleanup. Saturation returns
 503 with `Retry-After: 30`; preparation failures return a sanitized 500.
 Disconnect, stalled sends, and header failures close the cursor and connection.
 No data rows or prompts enter export telemetry: only outcome, row/byte counts,
-chunk counts, maximum chunk size, and elapsed time are recorded.
+chunk counts, maximum chunk size, elapsed time, database fetch/decoding time,
+document-production time, row normalization/encoding time and yield-to-resume
+wait time are recorded. Production time includes the fetch and encoding phases;
+those counters must not be added as independent costs. The yield wait
+includes middleware, scheduling and backpressure; it is not pure network time.
+`producer_complete` requires source exhaustion and the final route-local ASGI send.
+That send may hand bytes to outer middleware; it does not attest network delivery
+or a saved file. Client completion independently requires valid JSON and actual EOF.
 
 The Next proxy forwards JSON bytes with backpressure and cancellation, using
 `private, no-store`; it never buffers/parses/reserializes the encrypted bundle.
@@ -2925,10 +2939,15 @@ account service accepts bulk JSON beyond the generic small-API 10 MiB cap, but
 requires the complete successful envelope and cancels stalled reads after 240
 seconds. Partial JSON never becomes an apparently complete encrypted backup.
 The Memory download preserves its existing readable-only fallback with explicit
-`meta.restorable_error` when the encrypted half fails. Browser assembly still
-uses memory proportional to the bundle, and the native HTTP bridge still buffers
-the response; this server-memory fix does not establish constant-memory client
-downloads or a downloaded-file restore implementation.
+`meta.restorable_error` when the encrypted half fails and tells the person that
+the encrypted backup was not included. The browser download validates JSON grammar,
+UTF-8, all ten sections, the successful envelope and actual EOF incrementally.
+It composes the existing `meta/readable/restorable` file from Blob parts, excluding
+the top-level consent audit without parsing or reserializing encrypted history.
+The object-returning API remains available for compatibility. Browser Blob storage
+is proportional to file size and its backing store is implementation-dependent;
+this does not establish constant-memory downloads. Native HTTP and share-sheet
+base64 handling remain buffered. Downloaded-file restoration is not implemented.
 
 Phone metadata refreshes cannot transfer a verified phone to another actor,
 regardless of their descriptive source. Only a server-validated Firebase phone

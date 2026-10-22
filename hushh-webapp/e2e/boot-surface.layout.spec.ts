@@ -11,8 +11,8 @@ import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixture
  * One surface for the whole cold-start chain: it is the same element for
  * every stage, nothing on it moves when the stage changes (zero layout
  * shift), the mark sits on the viewport centre to half a pixel, the copy
- * hangs at equal insets on the 8 pt grid, every line fits whole (again with
- * the text widened, as CI's Linux faces set it), the live line is announced
+ * hangs at equal insets on the 8 pt grid, the title fits whole (again with
+ * the text widened, as CI's Linux faces set it), the steady title is announced
  * politely under an accessible name with AA contrast, reduced motion leaves a
  * still surface, and the iOS launch geometry matches the splash it continues.
  *
@@ -29,15 +29,6 @@ let css: string;
 const HALF_PX = 0.5;
 const STAGES = ["session", "vault", "phone", "setup", "workspace"] as const;
 const ALL_STAGES = ["session", "redirect", "reconnect", "vault", "phone", "setup", "workspace"] as const;
-const LINES: Record<(typeof ALL_STAGES)[number], string> = {
-  session: "Checking it's you",
-  redirect: "Taking you to sign in",
-  reconnect: "Reconnecting securely",
-  vault: "Opening your vault",
-  phone: "Checking your number",
-  setup: "Checking your setup",
-  workspace: "Getting One ready",
-};
 const TITLE = "One is getting ready";
 // The labels the old per-guard loaders painted (fixture LEGACY table).
 const LEGACY_LABELS: Record<(typeof STAGES)[number], string> = {
@@ -132,20 +123,15 @@ async function settleIdle(page: Page) {
 /** Hold a stage and wait until it is on screen with its entrance finished. */
 async function showStage(page: Page, stage: string) {
   await page.evaluate((next) => window.bootFixture.set(next as never), stage);
-  await expect(page.locator("[data-boot-line='current']")).toContainText(LINES[stage as keyof typeof LINES]);
+  await expect(page.locator("[data-boot-surface] .boot-scene")).toHaveAttribute("data-boot-stage", stage);
   await expect.poll(() => page.evaluate(() => window.bootFixture.state().phase)).toMatch(/^(visible|launch)$/);
-  // Measure at rest: the line's 6 pt entrance is motion, not layout, and a
-  // loaded runner can otherwise read it mid-flight.
-  await page.waitForFunction(() =>
-    document.querySelector("[data-boot-line='current']")?.getAnimations().every((animation) => animation.playState === "finished") ?? false,
-  );
   await expect(async () => {
     const a = await measure(page);
     await page.waitForTimeout(80);
     const b = await measure(page);
     expect(a.mark).toEqual(b.mark);
     expect(b.surfaceOpacity).toBe(1);
-    expect(b.lineCount).toBe(1);
+    expect(b.lineCount).toBe(0);
   }).toPass();
 }
 
@@ -159,11 +145,9 @@ type Geometry = {
   mark: Box;
   copy: Box;
   title: Box & { clipped: boolean };
-  lines: Box;
-  line: (Box & { clipped: boolean }) | null;
   lineCount: number;
   live: { text: string; politeness: string | null };
-  contrast: { title: number; line: number };
+  contrast: { title: number };
 };
 
 async function measure(page: Page): Promise<Geometry> {
@@ -174,7 +158,6 @@ async function measure(page: Page): Promise<Geometry> {
     };
     const surface = document.querySelector("[data-boot-surface]") as HTMLElement;
     const title = surface.querySelector("[data-boot-title]") as HTMLElement;
-    const line = surface.querySelector("[data-boot-line='current']") as HTMLElement | null;
     const live = surface.querySelector("[role='status']") as HTMLElement;
 
     // Resolve any CSS colour (oklch, rgba, hex) to the sRGB pixel it paints
@@ -217,13 +200,10 @@ async function measure(page: Page): Promise<Geometry> {
       mark: box(surface.querySelector("[data-boot-mark]")!),
       copy: box(surface.querySelector("[data-boot-copy]")!),
       title: { ...box(title), clipped: title.scrollWidth > title.clientWidth + 0.5 },
-      lines: box(surface.querySelector("[data-boot-lines]")!),
-      line: line ? { ...box(line), clipped: line.scrollWidth > line.clientWidth + 0.5 } : null,
       lineCount: surface.querySelectorAll("[data-boot-line]").length,
       live: { text: live.textContent ?? "", politeness: live.getAttribute("aria-live") },
       contrast: {
         title: ratio(getComputedStyle(title).color),
-        line: line ? ratio(getComputedStyle(line).color) : 0,
       },
     };
   });
@@ -249,22 +229,15 @@ function assertGrid(g: Geometry, label: string, native = false) {
   expect.soft(Math.abs(g.copy.left - (g.viewport.width - g.copy.right)), `${label}: equal insets`).toBeLessThanOrEqual(HALF_PX);
   expect.soft(g.copy.left, `${label}: 16 pt gutter`).toBeCloseTo(16, 0);
 
-  // Title and line: 24 pt rows, 8 pt apart, centred, whole.
+  // One steady title, centred and whole.
   expect.soft(g.title.height, `${label}: title row`).toBeCloseTo(24, 0);
-  expect.soft(g.lines.height, `${label}: line row`).toBeCloseTo(24, 0);
-  expect.soft(g.lines.top - g.title.bottom, `${label}: title to line`).toBeCloseTo(8, 0);
   expect.soft(Math.abs(centreX(g.title) - g.viewport.width / 2), `${label}: title centred`).toBeLessThanOrEqual(HALF_PX);
   expect.soft(g.title.clipped, `${label}: title clipped`).toBe(false);
-  expect.soft(g.line, `${label}: a line`).not.toBeNull();
-  if (g.line) {
-    expect.soft(Math.abs(centreX(g.line) - g.viewport.width / 2), `${label}: line centred`).toBeLessThanOrEqual(HALF_PX);
-    expect.soft(g.line.clipped, `${label}: line clipped`).toBe(false);
-  }
+  expect.soft(g.lineCount, `${label}: stage sublines removed`).toBe(0);
 
   // Accessibility: announced politely, AA contrast for both rows.
   expect.soft(g.live.politeness, `${label}: polite live region`).toBe("polite");
   expect.soft(g.contrast.title, `${label}: title contrast`).toBeGreaterThanOrEqual(4.5);
-  expect.soft(g.contrast.line, `${label}: line contrast`).toBeGreaterThanOrEqual(4.5);
 }
 
 /**
@@ -289,7 +262,7 @@ async function walkChain(page: Page, mode: "new" | "legacy"): Promise<string[]> 
     }
     const probe = await page.evaluate(() => {
       const anchor =
-        document.querySelector("[data-boot-line='current']") ??
+        document.querySelector("[data-boot-title]") ??
         document.querySelector("[data-legacy-loader] p");
       const root = anchor?.closest("[data-boot-surface],[data-legacy-loader]") as (HTMLElement & { __probeId?: string }) | null;
       if (!anchor || !root) return null;
@@ -345,14 +318,14 @@ for (const dark of [false, true])
         const label = `${viewport.width} ${dark ? "dark" : "light"} ${stage}`;
         const g = await measure(page);
         assertGrid(g, label);
-        expect.soft(g.live.text, `${label}: announced line`).toBe(LINES[stage]);
+        expect.soft(g.live.text, `${label}: announced line`).toBe(TITLE);
         if (viewport.width === 393) await shot(page, `stage-${stage}-393-${dark ? "dark" : "light"}`);
       }
       // The surface has an accessible name.
       await expect(page.getByRole("region", { name: TITLE })).toHaveCount(1);
 
-      // Widened text (CI's Linux faces set wider): every line still fits whole.
-      await page.addStyleTag({ content: "[data-boot-surface] [data-boot-title],[data-boot-surface] [data-boot-line]{letter-spacing:0.3px}" });
+      // Widened text (CI's Linux faces set wider): the title still fits whole.
+      await page.addStyleTag({ content: "[data-boot-surface] [data-boot-title]{letter-spacing:0.3px}" });
       for (const stage of ALL_STAGES) {
         await showStage(page, stage);
         assertGrid(await measure(page), `${viewport.width} ${dark ? "dark" : "light"} ${stage} widened`);
@@ -580,15 +553,12 @@ test("reduced motion leaves a still surface that only fades", async ({ page }) =
       markTransition: style("[data-boot-mark]").transitionDuration,
       ring: style(".boot-mark-ring").animationName,
       glyph: style(".boot-mark-glyph").animationName,
-      line: style("[data-boot-line='current']").animationName,
     };
   });
   expect(motion.mark).toBe("none");
   expect(motion.markTransition.split(",").every((value) => parseFloat(value) === 0)).toBe(true);
   expect(motion.ring).toBe("none");
   expect(motion.glyph).toBe("none");
-  // The line still arrives, as an opacity fade with no movement.
-  expect(motion.line).toBe("boot-surface-reveal");
   assertGrid(await measure(page), "393 reduced motion");
   await shot(page, "reduced-motion-vault-393-light");
 });
@@ -600,14 +570,17 @@ test("offline and a hung stage hand the person a way forward", async ({ page, co
   await settleIdle(page);
   await page.evaluate(() => window.bootFixture.set("phone"));
   await page.clock.runFor(400);
-  await expect(page.locator("[data-boot-line='current']")).toContainText("Checking your number");
+  await expect(page.locator("[data-boot-title]")).toHaveText(TITLE);
+  await expect(page.locator("[data-boot-line]")).toHaveCount(0);
 
   await context.setOffline(true);
-  await expect(page.locator("[data-boot-line='current']")).toContainText("Waiting for a connection");
+  await expect(page.locator("[data-boot-title]")).toHaveText(TITLE);
+  await expect(page.locator("[data-boot-line]")).toHaveCount(0);
   await page.clock.runFor(200);
   await shot(page, "offline-phone-393-light");
   await context.setOffline(false);
-  await expect(page.locator("[data-boot-line='current']")).toContainText("Checking your number");
+  await expect(page.locator("[data-boot-title]")).toHaveText(TITLE);
+  await expect(page.locator("[data-boot-line]")).toHaveCount(0);
 
   await page.clock.runFor(10_500);
   await expect(page.getByText("This is taking longer than usual.")).toBeVisible();
@@ -623,7 +596,8 @@ for (const dark of [false, true])
   test(`iOS launch surface continues the splash (${dark ? "dark" : "light"})`, async ({ page, browserName }) => {
     await open(page, { width: 393, height: 852, dark, native: true, stage: "session" });
     await expect(page.locator("[data-boot-surface]")).toHaveAttribute("data-boot-phase", "launch");
-    await expect(page.locator("[data-boot-line='current']")).toContainText(LINES.session);
+    await expect(page.locator("[data-boot-title]")).toHaveText(TITLE);
+  await expect(page.locator("[data-boot-line]")).toHaveCount(0);
     // Visible from the first frame on a phone: no show-after for the launch surface.
     await expect(page.locator("[data-boot-surface]")).toHaveCSS("opacity", "1");
     await expect(page.locator("[data-boot-surface]")).toHaveCSS(

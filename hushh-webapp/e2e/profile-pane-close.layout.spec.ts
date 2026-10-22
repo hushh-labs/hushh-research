@@ -21,6 +21,68 @@ const HEADER_CLASSNAME =
 const SURFACE_CLASSNAME =
   "fixed inset-y-0 right-0 flex w-full max-w-none flex-col sm:w-[min(92vw,430px)] sm:max-w-[430px]";
 
+test.describe("Profile deletion artwork", () => {
+  let markup: string;
+  let css: string;
+  test.beforeAll(async () => {
+    const { transform, Features } = await import("lightningcss");
+    const account = transform({
+      filename: "profile-your-account.module.css",
+      code: Buffer.from(fs.readFileSync(path.join(WEBAPP_ROOT, "components/profile/profile-your-account.module.css"), "utf8")),
+      cssModules: true,
+      // Next lowers nesting into :is selectors. That changes specificity;
+      // a minify-only fixture missed the black icon in the real pane.
+      include: Features.Nesting,
+    });
+    const { createServer } = await import("vite");
+    const server = await createServer({ configFile: false, root: WEBAPP_ROOT,
+      logLevel: "error", appType: "custom", resolve: { alias: { "@": WEBAPP_ROOT } },
+      server: { middlewareMode: true, watch: null, hmr: false, ws: false }, oxc: { jsx: { runtime: "automatic" } } });
+    try {
+      const { createElement } = await import("react");
+      const { renderToStaticMarkup } = await import("react-dom/server");
+      const { SettingsGroup, SettingsRow } = await server.ssrLoadModule("/components/app-ui/settings-ui.tsx");
+      const { PROFILE_ICONS } = await server.ssrLoadModule("/components/icons/profile-icons.ts");
+      const { Trash2, TrashIcon } = await server.ssrLoadModule("/components/icons/index.ts");
+      const { ProfilePaneDeleteIcon } = await server.ssrLoadModule("/components/profile/profile-pane-icons.tsx");
+      const rows = renderToStaticMarkup(createElement(SettingsGroup, { title: "Account actions" },
+        createElement(SettingsRow, { icon: PROFILE_ICONS.delete, iconTone: "capability", className: "profile-account-delete-row", title: "Delete account", tone: "destructive" }),
+        ...[Trash2, TrashIcon, ProfilePaneDeleteIcon].map((icon, index) => createElement(SettingsRow, { key: index, icon, iconTone: "capability", title: `Delete example ${index}` })),
+      ));
+      markup = `<main class="profile-pane-scroll-root"><div class="app-page-shell"><div data-profile-stack-screen="panel:account"><div data-profile-stack-content="true"><div class="profile-account-content ${account.exports!.paneAccountContent.name}">${rows}</div></div></div></div></main>`;
+    } finally { await server.close(); }
+    const { compile } = await import("tailwindcss");
+    const compiler = await compile(fs.readFileSync(GLOBAL_CSS_SOURCE, "utf8").replace(/^@source\s+[^;]+;\s*$/gm, ""), {
+      base: path.join(WEBAPP_ROOT, "app"),
+      loadStylesheet: async (id, base) => {
+        const file = id === "tailwindcss" ? path.join(WEBAPP_ROOT, "node_modules/tailwindcss/index.css")
+          : id === "tw-animate-css" ? path.join(WEBAPP_ROOT, "node_modules/tw-animate-css/dist/tw-animate.css") : path.resolve(base, id);
+        return { path: file, base: path.dirname(file), content: fs.readFileSync(file, "utf8") };
+      },
+    });
+    css = stripAppFontFaces(compiler.build([])) + account.code.toString();
+  });
+  for (const dark of [false, true]) for (const width of [393, 1440]) {
+    test(`keeps every trash red after Next nesting lowering at ${width}px ${dark ? "dark" : "light"}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 852 });
+      await page.setContent(`<html class="${dark ? "dark" : ""}"><head><style>${css}</style></head><body>${markup}</body></html>`);
+      const expected = dark ? "rgb(255, 69, 58)" : "rgb(255, 59, 48)";
+      const glyphs = page.locator("svg[data-trash-icon]");
+      await expect(glyphs).toHaveCount(4);
+      for (const glyph of await glyphs.all()) await expect(glyph).toHaveCSS("color", expected);
+      const row = page.locator(".profile-account-delete-row");
+      const icon = row.locator("svg[data-trash-icon]");
+      await expect(icon.locator("path").first()).toHaveCSS("stroke", expected);
+      await expect(row.locator('[data-slot="settings-row-title"]')).toHaveCSS("color", expected);
+      // Reproduce the prior winning neutral token, with the red marker still
+      // present: this guard must detect the actual production cascade defect.
+      await row.evaluate(node => (node as HTMLElement).style.setProperty("--account-icon", "var(--ios-account-label)"));
+      await expect(icon).not.toHaveCSS("color", expected);
+      await expect(row.locator('[data-slot="settings-row-title"]')).toHaveCSS("color", expected);
+    });
+  }
+});
+
 async function buildFixtureStylesheet(): Promise<string> {
   const { compile } = (await import(
     path.join(WEBAPP_ROOT, "node_modules/tailwindcss/dist/lib.mjs"),

@@ -5,18 +5,12 @@ import {
   LogOut,
   KeyRound,
   Plus,
-  MoreHorizontal,
   Trash2,
 } from "@/components/icons";
 import { Button } from "@/lib/morphy-ux/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import styles from "../connect-workspace.module.css";
 
-/** Gesture presentation only: swiping reveals the same confirmed action as Options. */
+/** Gesture presentation only: swiping reveals the confirmed delete/leave action. */
 export function ConnectCircleRow({
   title,
   description,
@@ -110,6 +104,7 @@ export function ConnectCircleRow({
         <button
           type="button"
           className={styles.swipeAction}
+          data-action={action}
           aria-label={`${label} ${title}`}
           aria-hidden={!revealed}
           tabIndex={revealed ? 0 : -1}
@@ -136,43 +131,6 @@ export function ConnectCircleRow({
             <small>{description}</small>
           </span>
         </button>
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              type="button"
-              variant="none"
-              effect="fade"
-              size="icon-touch"
-              aria-label={`Options for ${title}`}
-            >
-              <MoreHorizontal aria-hidden="true" className="size-5" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="flex w-52 flex-col gap-1 p-1">
-            <Button
-              type="button"
-              variant="none"
-              effect="fade"
-              size="compact"
-              className="min-h-11 w-full justify-start"
-              onClick={onOpen}
-            >
-              Open circle
-            </Button>
-            {action ? (
-              <Button
-                type="button"
-                variant="none"
-                effect="fade"
-                size="compact"
-                className="min-h-11 w-full justify-start text-destructive"
-                onClick={onDestructive}
-              >
-                {label} circle
-              </Button>
-            ) : null}
-          </PopoverContent>
-        </Popover>
         <Button
           type="button"
           variant="none"
@@ -217,16 +175,17 @@ export function ConnectCircleHeading({
         variant={create ? "blue" : "none"}
         effect={create ? "fill" : "fade"}
         size="compact"
-        className={create ? "min-h-11 rounded-full" : styles.utilityAction}
+        className={create ? "min-h-11 rounded-full" : `${styles.utilityAction} ${styles.joinAction}`}
+        showRipple={create}
         onClick={onAction}
         data-testid={`connect-circle-${action}`}
       >
         {create ? (
           <Plus aria-hidden="true" className="mr-1.5 size-4" />
         ) : (
-          <KeyRound aria-hidden="true" className="size-4" />
+          <KeyRound aria-hidden="true" className="mr-1.5 size-4" />
         )}
-        {create ? "Create circle" : "Join with code"}
+        <span>{create ? "Create circle" : "Join with code"}</span>
       </Button>
     </div>
   );

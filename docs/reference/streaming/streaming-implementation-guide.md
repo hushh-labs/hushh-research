@@ -183,7 +183,9 @@ visibility, or every 5 minutes. A 503 waits for `Retry-After`. A 401 gets one
 token refresh, then the stream waits for a recovery signal (session verified
 again, a new ID token, network back, or visible 60 s after the last attempt), at
 most 3 times per 15 minutes. Once the validated session owner changes, the old
-stream connects and dispatches nothing.
+stream connects and dispatches nothing. The manager rechecks that owner after
+token acquisition and response headers; a retired attempt stops without retry
+and cancels any late response body, even when the transport ignores abort.
 
 `payout_changed` rings only the payout bus (`hushh-webapp/lib/payouts/payout-events.ts`).
 Feed frames reread the Feed on a burst's first frame and once more after the

@@ -392,15 +392,15 @@ describe("Top app bar responsive contract", () => {
     expect(deleteItemSource).toContain("cursor-pointer");
     expect(deleteItemSource).toContain("rounded-[10px]");
     expect(deleteItemSource).toContain(
-      "hover:!bg-[color:var(--app-destructive)]",
+      "hover:!bg-[color:var(--app-destructive-tint)]",
     );
     expect(deleteItemSource).toContain(
-      "hover:!text-[color:var(--app-destructive-fg)]",
+      "hover:!text-destructive",
     );
-    expect(deleteItemSource).toContain(
+    expect(deleteItemSource).not.toContain(
       "hover:[&_svg]:!stroke-[color:var(--app-destructive-fg)]",
     );
-    expect(deleteItemSource).toContain(
+    expect(deleteItemSource).not.toContain(
       "hover:[&_svg]:!text-[color:var(--app-destructive-fg)]",
     );
     expect(deleteItemSource).not.toContain(

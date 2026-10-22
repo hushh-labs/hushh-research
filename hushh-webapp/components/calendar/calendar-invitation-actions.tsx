@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { notifyCalendarChanged } from "@/lib/calendar/calendar-refresh";
+import { MAX_CALENDAR_DECLINE_REASON_LENGTH, calendarDeclineMessage, sameCalendarInvitationOccurrence } from "@/lib/calendar/calendar-recipient-copy";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { GoogleCalendarService, GoogleCalendarError, type CalendarAttendanceResult, type CalendarAttendanceReview, type CalendarInvitation } from "@/lib/services/google-calendar-service";
 import { calendarDate, eventTime, shiftCalendarDate, timeRangeLabel } from "./calendar-schedule-presentation";
@@ -70,21 +71,25 @@ export function CalendarInvitationActions({ event, userId, token, zone, getIdTok
     if (!current()) return;
     const clockMinutes = (value: string) => Number(value.slice(0, 2)) * 60 + Number(value.slice(3));
     const proposedEndTime = endTime === "00:00" ? "24:00" : endTime;
+    const outgoingMessage = next === "declined" && send && !onSend ? calendarDeclineMessage(event, zone, message) : message;
     const prepared = await GoogleCalendarService.reviewAttendance({
       firebaseIdToken, vaultOwnerToken: token, eventId: event.id, calendarId: event.calendar_id, accountId,
       expectedAccountEmail: expectedAccountEmail || undefined,
       responseStatus: next === "accepted" ? "accepted" : "declined",
       offerTimes: next === "offer_times", exactTime: next === "offer_times",
       sendMessage: next === "declined" || next === "offer_times",
-      message, date, timeZone: zone, startTime, endTime: proposedEndTime,
+      message: outgoingMessage, date, timeZone: zone, startTime, endTime: proposedEndTime,
       // The service derives elapsed duration in the selected zone, including DST.
       durationMinutes: next === "offer_times" ? Math.max(1, clockMinutes(proposedEndTime) - clockMinutes(startTime)) : Math.max(1, Math.min(1440, duration)),
       isEffectCurrent: current,
     });
     if (!current()) return;
     if (send && !prepared.recipient) throw new GoogleCalendarError("The organizer email could not be prepared. Nothing was sent. Try again after updating Calendar.", "calendar_mail_review_required", 409);
+    if (next === "declined" && send && !onSend && !sameCalendarInvitationOccurrence(event, prepared)) {
+      throw new GoogleCalendarError("This invitation changed while the email was prepared. Refresh Calendar and review it again; nothing was sent.", "calendar_event_changed", 409);
+    }
     setReview(prepared);
-    if (send && prepared.recipient?.toLowerCase() === event.organizer?.email?.toLowerCase() && !reviewRequired && !prepared.conflicts?.length && !prepared.unchecked_calendars?.length) await execute(prepared, current);
+    if (send && (next !== "declined" || onSend) && prepared.recipient?.toLowerCase() === event.organizer?.email?.toLowerCase() && !reviewRequired && !prepared.conflicts?.length && !prepared.unchecked_calendars?.length) await execute(prepared, current);
   });
   const execute = async (review: CalendarAttendanceReview, current: () => boolean) => {
     if (!token) return;
@@ -130,9 +135,9 @@ export function CalendarInvitationActions({ event, userId, token, zone, getIdTok
       <div className="flex flex-wrap gap-2"><Button disabled={busy || !token || !date || (endTime !== "00:00" && startTime >= endTime) || !message.trim()} onClick={() => void prepare("offer_times", true)}>{busy ? "Checking availability…" : reviewRequired ? "Review again" : "Check time & send email"}</Button><Button disabled={busy} variant="outline" onClick={() => setDecision("view")}>Back</Button></div>
     </div> : decision === "declined" ? <div className={styles.review}>
       <h3>Why can’t you attend?</h3>
-      <p className={styles.muted}>Your reason will be emailed to {event.organizer?.email || "the organizer"} when you choose Decline & send email.</p>
-      <label className="block space-y-1"><span>Reason for declining</span><Textarea disabled={busy} aria-label="Reason for declining" value={message} maxLength={8000} onChange={e => { setMessage(e.target.value); edit(); }} /></label>
-      <div className="flex flex-wrap gap-2"><Button disabled={busy || !token || !message.trim()} onClick={() => void prepare("declined", true)}>{busy ? "Preparing…" : reviewRequired ? "Review again" : "Decline & send email"}</Button><Button disabled={busy} variant="outline" onClick={() => setDecision("view")}>Back</Button></div>
+      <p className={styles.muted}>{onSend ? `Your reason will be emailed to ${event.organizer?.email || "the organizer"} when you choose Decline & send email.` : `Review the email to ${event.organizer?.email || "the organizer"} before sending.`}</p>
+      <label className="block space-y-1"><span>Reason for declining</span><Textarea disabled={busy} aria-label="Reason for declining" value={message} maxLength={onSend ? 8000 : MAX_CALENDAR_DECLINE_REASON_LENGTH} onChange={e => { setMessage(e.target.value); edit(); }} /></label>
+      <div className="flex flex-wrap gap-2"><Button disabled={busy || !token || !message.trim() || (!onSend && message.length > MAX_CALENDAR_DECLINE_REASON_LENGTH)} onClick={() => void prepare("declined", true)}>{busy ? "Preparing…" : reviewRequired ? "Review again" : onSend ? "Decline & send email" : "Review decline email"}</Button><Button disabled={busy} variant="outline" onClick={() => setDecision("view")}>Back</Button></div>
     </div> : <>
       {initialDecision !== "view" ? <p className={styles.muted}>Review your {initialDecision === "accepted" ? "accept" : "decline"} response before confirming.</p> : null}
       <div className={styles.actionPair}><Button data-voice-control-id="calendar_invitation_accept" disabled={busy || !token || !event.can_respond || event.response_status === "accepted"} onClick={() => void prepare("accepted")}><CheckCircle aria-hidden className="size-4" />Accept</Button><Button data-voice-control-id="calendar_invitation_decline" disabled={busy || !token || !event.can_respond || event.response_status === "declined"} variant="outline" onClick={() => { setDecision("declined"); edit(); }}><X aria-hidden className="size-4" />Decline</Button></div>
