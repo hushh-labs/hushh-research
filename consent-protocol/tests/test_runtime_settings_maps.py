@@ -10,6 +10,21 @@ import pytest
 from hushh_mcp import runtime_settings
 
 
+@pytest.fixture(autouse=True)
+def preserve_deploy_environment():
+    # Hydration writes these directly. Restore them with the test's policy so
+    # a Dev profile cannot leak into later fleet-resolution tests.
+    original = {key: os.environ.get(key) for key in ("ENVIRONMENT", "HUSHH_DEPLOY_ENV")}
+    try:
+        yield
+    finally:
+        for key, value in original.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
 def test_google_maps_api_key_is_read_from_env(monkeypatch):
     monkeypatch.setenv("APP_SIGNING_KEY", "x" * 64)
     monkeypatch.setenv("VAULT_DATA_KEY", "a" * 64)
