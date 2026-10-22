@@ -69,8 +69,8 @@ Production owners include the Location page, map/public route clients, onboardin
 - `hushh-webapp/components/one-location/redesign/sos-panel.tsx`
 - `hushh-webapp/components/one-location/saved-locations-section.tsx`
 - `hushh-webapp/components/one-location/saved-places-banner.tsx`
-- `hushh-webapp/contracts/ui-review/back/595252c86a3ded8e41db3af3641073d850e38d43fedde41b8283d8ed4ad9abfa.json`
-- `hushh-webapp/contracts/ui-review/search/78fe229e7973daa42d9164aa0b8172367f1268f380eb889de666b0c56d3056ee.json`
+- `hushh-webapp/contracts/ui-review/back/b519dedb09bf76b4fcb675249880a52e035243ea54ebeab762e9822442dddd0c.json`
+- `hushh-webapp/contracts/ui-review/search/fab4cafd897a062613bb094a1cc82c48f00c7845c629f2b81fa10d8a6113dd64.json`
 - `hushh-webapp/docs/one-location-now-and-map.md`
 - `hushh-webapp/docs/ui-contracts/README.md`
 - `hushh-webapp/docs/ui-contracts/location-action-coverage.md`
@@ -196,3 +196,5 @@ Focused WebKit verification passed nine cases: feature-card layout at 320/375/39
 Supplemental mounted onboarding feature captures: 12 passed at widths 360/393/430/768/1024/1440 in light and dark, using the final production build stylesheet. All 72 visible heading-leaf observations resolve to Plus Jakarta Sans 14px / 22px / 600, normal tracking; zero page/interaction errors or horizontal overflow at 100% zoom. All 48 image observations decode successfully, including the SVG pin after correcting the offline capture server’s MIME type. Task artifact name: location-onboarding-feature-title-fix, including heading-role-proof.json and source metadata. The earlier 260-state evidence remains historical proof; these observations supersede its onboarding feature-heading classification.
 
 The release build uses global CSS chunk30v_qq8ofiwa6.css, SHA-256 `9ea92a27da54c41ad3a91c1a946e6a64d23e370c65856cee5a5f39b5dc21b982`; globals source SHA-256 `0a31272431447c194595773fe9964fc7d7f9ba0f4cbb7140f336b7fd368dc50b`. The upstream Memory addition is isolated beneath its own workspace hook. The prior mounted bundle is archived with the release evidence.
+
+Combined-source review was refreshed after integrating main `275c203421f1cc466c68d4c47c9ab6b6b5227218`. The Back/Search receipts bind that combined source rather than the previous branch-only fingerprint. Location production files and the captured typography remain unchanged by this freshness merge; upstream private-chat, stream and deploy changes are inherited from main and are outside this PR’s diff.
