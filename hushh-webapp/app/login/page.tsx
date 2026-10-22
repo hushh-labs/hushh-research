@@ -17,7 +17,7 @@ function LoginContent() {
   const searchParams = useSearchParams();
   const [deletionNotice] = useState(() => {
     const notice = readAuthSessionLandingNotice(searchParams);
-    return notice?.code === "account_deleted_ready_to_start_fresh" ||
+    return notice?.code === "account_deleted" || notice?.code === "account_deleted_ready_to_start_fresh" ||
       notice?.code === "account_deletion_finishing"
       ? notice
       : null;

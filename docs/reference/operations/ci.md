@@ -855,13 +855,20 @@ The secret gate is intentionally stricter than raw regex scanning:
 - open Dependabot alerts are currently advisory in CI; they are still reported in logs and should be managed as backlog, but they do not block unrelated merges
 - explicitly strict checks refuse missing CLI/authentication, unavailable required reads and malformed responses; unavailable authority is never a successful clearance
 
-Credential isolation is a two-step cutover. First land
-[the main-owned alert worker](../../../.github/workflows/ci-security.yml), then
-qualify its protected credential and switch the existing Secret Scan job to an
-exact-source receipt consumer. Until that switch is verified and the old
-repository-level token is removed, credential isolation remains incomplete.
-Removing a YAML reference alone cannot protect a repository-level secret from
-other PR-controlled workflows. Existing alert checks remain required.
+[The main-owned alert worker](../../../.github/workflows/ci-security.yml) reads
+alerts with the protected environment credential. PR-controlled Secret Scan
+receives only the read-only Actions token and verifies a bounded, immutable
+receipt for its exact source run, attempt and SHA. The worker serializes
+repeated start notifications and reuses a verified receipt for the same tuple;
+another attempt requires a fresh inventory. Missing, expired, mismatched or
+incomplete receipts fail closed. Local checks use the same bounded cursor
+reader without writing raw alerts to disk.
+
+The replacement credential was qualified on 22 October 2026 using worker
+39861716513. Complete the consumer cutover on main and verify its exact-SHA CI
+before deleting the old repository-level secret. Until that deletion is
+read back, credential isolation remains incomplete. Removing a YAML reference
+alone cannot protect a repository-level secret from PR-controlled workflows.
 
 The worker starts when PR Validation enters `in_progress`, including reruns; it
 does not wait for the validation it must unblock. Only immutable main code reads

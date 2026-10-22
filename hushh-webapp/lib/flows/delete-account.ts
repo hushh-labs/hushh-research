@@ -211,10 +211,8 @@ async function probeDeletionStatus(
       }
     }
     if (response.status !== 401) return "unavailable";
-    return authSessionInvalidationCodeFromBackendPayload(payload) ===
-      "account_not_found"
-      ? "deleted"
-      : "unavailable";
+    const code = authSessionInvalidationCodeFromBackendPayload(payload);
+    return code === "account_not_found" || code === "account_deleted" ? "deleted" : "unavailable";
   } catch {
     return "unavailable";
   }

@@ -1,4 +1,16 @@
 {
+  "onboarding_security_review_20261022": {
+    "base_revision": "6fa2ace8f38527b988834725c0a2defd6498f174",
+    "entries": [
+      {
+        "key": "module_size|hushh-webapp/__tests__/lib/firebase/auth-context-session-invalidation.test.tsx||module exceeds the advisory operon budget",
+        "before": 1672,
+        "after": 1687,
+        "source_sha256": "d306dda71aff82e4ae055818dd961c5a4fe00ca1a7a5daedaf6a61c1775f6493",
+        "review": "Independent CI/security reviewer approves only this test-module growth for real apiFetch-to-AuthProvider terminal-event ordering. Valid-subject JWT positive passes; broken helper negative fails. Mocked-status/direct-event cases do not cover this path. Duplicate AI settings server-call test removed; its ceiling is unchanged. Production budgets and all other findings unchanged."
+      }
+    ]
+  },
   "ai_shared_files_concurrent_payments_review_20261013": {
     "entries": [
       {
@@ -22894,7 +22906,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/firebase/auth-context-session-invalidation.test.tsx",
       "symbol": null,
-      "value": 1672
+      "value": 1687
     },
     {
       "detail": "module exceeds the advisory operon budget",

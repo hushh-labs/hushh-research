@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Guard secret-scan ranges against dropping pre-merge feature commits."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -31,7 +32,9 @@ def commit_file(repo: Path, name: str, content: str, message: str) -> str:
 def verify_ranges_exclude_ancestry_path() -> None:
     for path in RANGE_OWNERS:
         if "--ancestry-path" in path.read_text(encoding="utf-8"):
-            raise AssertionError(f"{path.relative_to(ROOT)} filters merged feature commits")
+            raise AssertionError(
+                f"{path.relative_to(ROOT)} filters merged feature commits"
+            )
 
 
 def verify_merged_feature_commits_stay_in_range() -> None:
@@ -61,7 +64,9 @@ def verify_merged_feature_commits_stay_in_range() -> None:
             raise AssertionError("plain base..head range dropped feature commits")
 
         ancestor_only = set(
-            git(repo, "rev-list", "--ancestry-path", f"{main_only}..{head}").splitlines()
+            git(
+                repo, "rev-list", "--ancestry-path", f"{main_only}..{head}"
+            ).splitlines()
         )
         if feature_one in ancestor_only or feature_two in ancestor_only:
             raise AssertionError("synthetic graph no longer demonstrates the range bug")
@@ -88,10 +93,17 @@ def verify_public_schema_bound_keeps_secret_detection() -> None:
     for index, (fixture, expected) in enumerate(cases):
         result = subprocess.run(
             [
-                "gitleaks", "stdin", "--no-banner", "--redact",
-                "--config", str(ROOT / ".gitleaks.toml"),
+                "gitleaks",
+                "stdin",
+                "--no-banner",
+                "--redact",
+                "--config",
+                str(ROOT / ".gitleaks.toml"),
             ],
-            input=fixture, text=True, capture_output=True, check=False,
+            input=fixture,
+            text=True,
+            capture_output=True,
+            check=False,
         )
         if result.returncode != expected:
             raise AssertionError(
@@ -100,70 +112,120 @@ def verify_public_schema_bound_keeps_secret_detection() -> None:
             )
 
 
-
-def verify_alert_authentication_fails_closed() -> None:
-    """Unavailable or malformed authority must not pass an explicitly strict gate."""
-    with tempfile.TemporaryDirectory(prefix="security-alert-auth-") as temporary:
+def verify_alert_reader_is_required() -> None:
+    """A packaging/mode regression must not omit the required security authority."""
+    with tempfile.TemporaryDirectory(prefix="required-alert-reader-") as temporary:
         root = Path(temporary)
-        gh = root / "gh"
-        gh.write_text("""#!/bin/sh
-if [ "$1" = auth ]; then
-  [ "$ALERT_CASE" != unauthenticated ]
-  exit $?
-fi
-case "$*" in
-  *secret-scanning*)
-    case "$ALERT_CASE" in
-      denied|optional_secret_denied) exit 1 ;;
-      malformed) printf '%s' '{"message":"unexpected"}' ;;
-      open|optional_dependency_denied) printf '%s' '[{"number":1,"secret_type":"synthetic"}]' ;;
-      *) printf '%s' '[]' ;;
-    esac ;;
-  *dependabot*)
-    case "$ALERT_CASE" in
-      optional_dependency_denied) exit 1 ;;
-      optional_secret_denied) printf '%s' '[{"number":1,"security_advisory":{"severity":"critical"}}]' ;;
-      *) printf '%s' '[]' ;;
-    esac ;;
-  *) exit 1 ;;
-esac
-""")
-        gh.chmod(0o700)
-        base = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
-                "GITHUB_REPOSITORY": "example/security-fixture", "GITHUB_EVENT_NAME": "workflow_dispatch",
-                "REQUIRE_GITHUB_ALERTS_CLEAN": "1", "REQUIRE_GITHUB_SECRET_ALERTS_CLEAN": "1",
-                "REQUIRE_GITHUB_DEPENDABOT_ALERTS_CLEAN": "0"}
-        for scenario, expected in (("healthy", 0), ("unauthenticated", 1),
-                                   ("denied", 1), ("malformed", 1), ("open", 1), ("missing", 1)):
-            environment = {**base, "ALERT_CASE": scenario}
-            if scenario == "missing":
-                environment["PATH"] = str(root / "absent")
-            result = subprocess.run(["/bin/bash", str(ROOT / "scripts/ci/github-security-alerts.sh")],
-                                    env=environment, capture_output=True, text=True, timeout=10)
-            if bool(result.returncode) != bool(expected):
-                raise AssertionError(f"security alert authority {scenario}: expected exit {expected}, got {result.returncode}")
-        environment = {**base, "ALERT_CASE": "unauthenticated", "REQUIRE_GITHUB_ALERTS_CLEAN": "0"}
-        result = subprocess.run(["/bin/bash", str(ROOT / "scripts/ci/github-security-alerts.sh")],
-                                env=environment, capture_output=True, text=True, timeout=10)
-        if not result.returncode:
-            raise AssertionError("explicit strict secret policy must refuse unauthenticated CLI even without global strict mode")
-        for scenario, secret, dependency in (("optional_dependency_denied", "1", "0"),
-                                              ("optional_secret_denied", "0", "1")):
-            environment = {**base, "ALERT_CASE": scenario, "REQUIRE_GITHUB_ALERTS_CLEAN": "0",
-                           "REQUIRE_GITHUB_SECRET_ALERTS_CLEAN": secret,
-                           "REQUIRE_GITHUB_DEPENDABOT_ALERTS_CLEAN": dependency}
-            result = subprocess.run(["/bin/bash", str(ROOT / "scripts/ci/github-security-alerts.sh")],
-                                    env=environment, capture_output=True, text=True, timeout=10)
-            if not result.returncode:
-                raise AssertionError("an optional read failure skipped required open-alert clearance")
+        git(root, "init", "-q", "-b", "main")
+        git(root, "config", "user.name", "Secret Scan Test")
+        git(root, "config", "user.email", "secret-scan-test@example.invalid")
+        git(root, "config", "commit.gpgsign", "false")
+        commit_file(root, "fixture", "synthetic", "fixture")
+        (root / ".gitleaks.toml").write_bytes((ROOT / ".gitleaks.toml").read_bytes())
+        ci = root / "scripts/ci"
+        ci.mkdir(parents=True)
+        (ci / "secret-scan.sh").write_bytes(
+            (ROOT / "scripts/ci/secret-scan.sh").read_bytes()
+        )
+        # Other scanner contracts have their own real regression cases above.
+        (ci / "test_secret_scan_ranges.py").write_text(
+            "# range checks are outside this packaging fixture\n"
+        )
+        commands = root / "fixture-bin"
+        commands.mkdir()
+        stub = commands / "gitleaks"
+        stub.write_text("#!/bin/sh\nexit 0\n")
+        stub.chmod(0o700)
+        reader = ci / "github-security-alerts.sh"
+        for state in ("present", "missing", "not_executable"):
+            if state != "missing":
+                reader.write_text("#!/bin/sh\nexit 0\n")
+                reader.chmod(0o700 if state == "present" else 0o600)
+            elif reader.exists():
+                reader.unlink()
+            environment = {
+                **os.environ,
+                "PATH": str(commands) + os.pathsep + os.environ["PATH"],
+                "SKIP_SECRET_SCAN": "0",
+                "GITLEAKS_LOG_OPTS": "HEAD",
+                "GITLEAKS_DEFAULT_BRANCH": "main",
+                "GITHUB_EVENT_NAME": "local",
+                "SECRET_SCAN_PR_NUMBER": "",
+            }
+            result = subprocess.run(
+                ["/bin/bash", str(ci / "secret-scan.sh")],
+                cwd=root,
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if (result.returncode == 0) != (state == "present"):
+                raise AssertionError(
+                    f"required alert reader {state}: unexpected scanner clearance"
+                )
+
+
+def verify_local_alert_policy() -> None:
+    import github_security_authority as authority
+    from unittest.mock import patch
+
+    repository = "example/repository"
+    from contextlib import redirect_stdout
+    from io import StringIO
+
+    cases = (
+        ("healthy", "1", "0", 0),
+        ("malformed", "1", "0", 1),
+        ("optional_secret_denied", "0", "1", 1),
+        ("optional_dependency_denied", "1", "0", 1),
+        ("denied", "1", "0", 1),
+        ("denied", "0", "0", 0),
+    )
+    for scenario, secret, dependency, expected in cases:
+
+        def read(path):
+            if scenario == "malformed":
+                return ({"message": "not an inventory"}, "")
+            if (
+                scenario == "denied"
+                or (
+                    scenario == "optional_secret_denied" and "/secret-scanning/" in path
+                )
+                or (scenario == "optional_dependency_denied" and "/dependabot/" in path)
+            ):
+                raise authority.Refused("unavailable")
+            if scenario != "healthy":
+                return (
+                    [{"state": "open", "security_advisory": {"severity": "critical"}}],
+                    "",
+                )
+            return ([], "")
+
+        env = {
+            "REQUIRE_GITHUB_ALERTS_CLEAN": "0",
+            "REQUIRE_GITHUB_SECRET_ALERTS_CLEAN": secret,
+            "REQUIRE_GITHUB_DEPENDABOT_ALERTS_CLEAN": dependency,
+        }
+        with redirect_stdout(StringIO()):
+            assert authority.local_alerts(env, repository, read) == expected
+    with (
+        patch.object(authority.subprocess, "run", side_effect=FileNotFoundError),
+        redirect_stdout(StringIO()),
+    ):
+        assert authority.local_main({"REQUIRE_GITHUB_SECRET_ALERTS_CLEAN": "1"}) == 1
+        assert authority.local_main({}) == 0
 
 
 def main() -> None:
     verify_ranges_exclude_ancestry_path()
     verify_merged_feature_commits_stay_in_range()
     verify_public_schema_bound_keeps_secret_detection()
-    verify_alert_authentication_fails_closed()
-    print("Secret scan range regression passed (merged feature commits remain included).")
+    verify_alert_reader_is_required()
+    verify_local_alert_policy()
+    print(
+        "Secret scan range regression passed (merged feature commits remain included)."
+    )
 
 
 if __name__ == "__main__":

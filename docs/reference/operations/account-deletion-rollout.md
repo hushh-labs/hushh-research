@@ -356,6 +356,23 @@ The in-process 60-second cleanup loop is a latency optimization only. Cloud Run
 may freeze an instance after a response, so the external scheduler is the
 durability path for pending Firebase deletion/quarantine work.
 
+### Shared identity and repeat sign-in
+
+A non-production environment cannot delete a shared production Firebase
+principal. Backend erasure still fences its UID permanently; signing in again
+with that UID cannot restore the erased account. Normal and lost-vault deletion
+report `ready_to_start_fresh` only after Firebase removal is confirmed. A
+terminal tombstone preserves the installed-client `AUTH_ACCOUNT_NOT_FOUND` code
+with additive `account_lifecycle: deleted`; current clients show a persistent
+neutral deletion notice instead of a generic login loop. This discriminator
+does not establish provider cleanup or authorize re-enrollment.
+
+For repeat onboarding before terminal erasure, use the authorized account-reset
+flow. A genuinely new Firebase UID is independent of the previous tombstone.
+Already erased shared identities require an isolated identity authority or a
+separately reviewed account-generation contract; never clear the tombstone or
+mutate a production identity as an incident workaround.
+
 ## Maintainer UAT backend-only erasure
 
 The test-account helper uses `AccountService.erase_uat_backend_account`, not

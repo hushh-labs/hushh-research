@@ -73,11 +73,9 @@
   }
 }
 
-/* The terminal setup action follows the viewport edge on phones and tablets,
-   including landscape, with room to scroll the checklist above it. The extra
-   6rem is the research disclosure that rides above the action. */
+/* Only the terminal action is fixed; consent and preferences stay in flow. */
 .hubPage.hubPage {
-  padding-bottom: calc(82px + 6rem + var(--app-safe-area-bottom-effective, 0px));
+  padding-bottom: calc(82px + var(--app-safe-area-bottom-effective, 0px));
 }
 
 .hubFooter.hubFooter {
