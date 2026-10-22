@@ -105,8 +105,12 @@ required for generation and behavioral tests; the tiny parser install is only
 for fast validation. Review and commit authored changes and generated mirrors
 together. Verification and the pre-push hook never stamp or repair files.
 
-CI has one mandatory **UI Contracts** job for Back/Search structure, source
-freshness, Surface Map, Gateway, Siri and Route Orchestration mirrors, plus validator mutation regressions. Required
+CI has one mandatory **UI Contracts** job running
+`npm run verify:ui-back-contracts` for Back hierarchy, route coverage,
+source freshness and Back validator mutation regressions. The check name stays
+stable for required-check consumers. The default local command retains the
+broader Search and generated-mirror checks; Web Core still runs that command.
+These checks are outside the dedicated UI Contracts job. Required
 Web Core runs validator mutation regressions. The required full Vitest suite
 retains the Back and Search interaction tests. Both aggregate gates reject a
 non-success UI job; frontend changes also require core and full-suite success.

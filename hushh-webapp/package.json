@@ -126,6 +126,7 @@
     "docs:back-navigation-graph": "node ./scripts/architecture/generate-back-navigation-graph.mjs",
     "ui:doctor": "node ./scripts/architecture/verify-ui-contracts.mjs",
     "verify:ui-contracts": "node ./scripts/architecture/verify-ui-contracts.mjs",
+    "verify:ui-back-contracts": "node ./scripts/architecture/verify-ui-contracts.mjs --back-only",
     "build:ui-contracts": "npm run build:back-contracts && npm run build:search-contracts",
     "test:ui-contract-validators": "node --test ./scripts/architecture/back-navigation.test.mjs ./scripts/voice/search-contracts.test.mjs",
     "test:ui-contracts": "npm run test:ui-contract-validators && npm run test:back-hierarchy",

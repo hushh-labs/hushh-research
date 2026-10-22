@@ -1,4 +1,4 @@
-"""Protect the combined UI authority gate and its required regression owners."""
+"""Protect the Back UI authority gate and its required regression owners."""
 from pathlib import Path
 import json
 import re
@@ -22,8 +22,8 @@ def validate(workflow):
         raise ValueError("Web Core must retain the target base for the same UI check")
     if re.search(r"^\s+(if|needs|continue-on-error):", ui, re.M):
         raise ValueError("UI contracts must run independently with failures enforced")
-    if not re.search(r"^\s+- run: npm run verify:ui-contracts\s*$", ui, re.M):
-        raise ValueError("Combined read-only verifier missing or failure suppressed")
+    if not re.search(r"^\s+- run: npm run verify:ui-back-contracts\s*$", ui, re.M):
+        raise ValueError("Back read-only verifier missing or failure suppressed")
     if not re.search(r"^\s+- run: npm ci --ignore-scripts --no-audit --progress=false\s*\n\s+working-directory: hushh-webapp/scripts/architecture/ui-contract-tools\s*$", ui, re.M):
         raise ValueError("Fast UI gate must use the isolated locked parser install")
     for name in ("preflight-gate", "ci-status"):
@@ -52,7 +52,7 @@ class UiGateTests(unittest.TestCase):
     def setUp(self):
         self.workflow = (ROOT / ".github/workflows/ci.yml").read_text()
 
-    def test_combined_gate_is_mandatory(self):
+    def test_back_gate_is_mandatory(self):
         validate(self.workflow)
         self.assertNotIn("  back-navigation-contracts:", self.workflow)
         self.assertNotIn("  search-web-contracts:", self.workflow)
@@ -65,7 +65,7 @@ class UiGateTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate(self.workflow.replace("  ui-contracts:\n", f"  ui-contracts:\n    {rule}\n"))
         with self.assertRaises(ValueError):
-            validate(self.workflow.replace("npm run verify:ui-contracts", "npm run verify:ui-contracts || true"))
+            validate(self.workflow.replace("npm run verify:ui-back-contracts", "npm run verify:ui-back-contracts || true"))
 
     def test_each_aggregate_rejects_removed_dependency_and_skip_check(self):
         for name in ("preflight-gate", "ci-status"):
@@ -82,6 +82,7 @@ class UiGateTests(unittest.TestCase):
         self.assertIn("npm run verify:ui-contracts", core)
         self.assertIn("npm run test:ui-contract-validators", core)
         scripts = json.loads((ROOT / "hushh-webapp/package.json").read_text())["scripts"]
+        self.assertEqual(scripts["verify:ui-back-contracts"], "node ./scripts/architecture/verify-ui-contracts.mjs --back-only")
         self.assertEqual(scripts["verify:ui-contracts"], "node ./scripts/architecture/verify-ui-contracts.mjs")
         self.assertEqual(scripts["build:ui-contracts"], "npm run build:back-contracts && npm run build:search-contracts")
         self.assertIn("back-navigation.test.mjs", scripts["test:ui-contract-validators"])
