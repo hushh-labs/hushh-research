@@ -2,7 +2,7 @@
 
 ## Decision — 2026-10-22 UTC
 
-**Dev repair and Azure installation verified; hold main promotion.**
+**Prepare the MVP for main and UAT; keep unqualified execution disabled.**
 Azure Dev 28 completed its normal owner-approved update with the expected digest
 and unchanged economy configuration. Its first Browser task reached the pod but
 failed before review: the then-live action-ledger CHECKs excluded `pod_chat` despite matching
@@ -11,8 +11,10 @@ them through canonical replay. Exact-SHA CI, dev rollout and live semantic readb
 pass. A fresh Azure task reached owner review and acknowledged active takeover,
 then Phone resize exposed `BROWSER_NOT_INITIALIZED`. Startup and pending-resize
 repairs pass locally; the installed Browser journey remains unverified. GCP inventory and the old-domain
-configuration are repaired without an image or identity change. Capacity, remaining
-core lifecycle and retained Shared erasure are still acceptance gates.
+configuration are repaired without an image or identity change. The founder
+narrowed this pass to safe scaffolding and the Browser MVP. Advanced information
+sharing, remembered logins, broad capacity studies and retained synthetic erasure
+qualification are follow-ups. Required security, migration and CI gates remain.
 
 The [public-research MVP](../../future/personal-agent/browser-completion-plan.md#immediate-mvp--critical-path-first)
 is P0: ask One, review, browse, take control, resume, reconnect and stop. Login,
@@ -126,11 +128,11 @@ The original failed task is preserved separately from the fresh owner rehearsal.
 
 The qualified public policy permits Python documentation only. Login, submissions,
 selected PKM production and Files downloads need their own policy/owner acceptance.
-The exact pod-recipient PKM consumer exists. Its local owner-request producer now
-uses normal Consent Center V2 approval and a fresh exact export. Atomic export/grant
-publication and cancellation/denial share existing request locks; nine real PostgreSQL
-checks cover rollback, concurrent approval, terminal-decision races and admitted
-metadata refusal. The owner UI handoff and installed acceptance remain unfinished. Never substitute a broad replica or handcrafted grant.
+The exact pod-recipient PKM consumer exists. Additional owner-request producer and
+transaction-race work is preserved outside the candidate with byte hashes and its
+test evidence; it is not deployed or wired to an owner UI. Existing committed
+scaffolding remains subject to its refusal gates. Never substitute a broad replica
+or handcrafted grant.
 
 The completed C3 local core used documented environment-only resumes on unchanged
 source; original fixture failures remain retained and the test role is restored.
@@ -164,25 +166,24 @@ paid work; spending thresholds warn without stopping service.
 
 ## Next gate and owners
 
-1. **Engineering — Browser P0:** finish installed Azure resume/reconnect/Stop,
-   then the GCP Files offer correction, normal owner installation and Browser
-   acceptance. Interactive policy and selected-context production remain explicit
-   follow-ups; current Python-only qualification does not authorize other sites.
-2. **Engineering + Operations:** finish current-image Files organization, supported
-   connector/voice continuity, capacity and retained erasure. Reuse unchanged
-   Puppy evidence and historical latency; no model sweep or artificial keepalive.
-3. **Release owner:** record each installed journey separately, then conditional
-   Admin SOP main merge and landed-SHA smoke/dev receipt. A green ledger, health
-   response or qualified component cannot substitute for the owner journey.
+1. **Engineering:** freeze the current control repairs and safe unavailable states.
+   Run one core mirror and exact-head hosted validation; no new feature expansion.
+2. **Release owner:** land the reviewed MVP through Admin SOP, validate the landed
+   SHA, obtain its governed dev receipt and deploy through the normal UAT path.
+3. **Browser enablement:** public research, review, preview, takeover, resume,
+   reconnect and Stop must pass per exact installed cloud image before it is
+   offered. Until then keep that cloud unavailable; source completion is not a
+   live Browser claim. Advanced journeys stay separate follow-ups.
 
 Reuse unchanged Puppy evidence: 320 Chromium/WebKit responsive cases, shared
 760 px ribbon/composer, 0 px edge discrepancy, 44 px controls and no overflow.
 Do not rerun it for backend/doc-only changes.
 
 [Application PR #7555](https://github.com/hushh-labs/hushh-research/pull/7555) remains
-draft. Main merge is authorized only after installed Browser/core acceptance and
-Admin SOP gates; the landed SHA needs its own smoke and dev receipt. UAT/production
-rollout, stable publication and automatic owner upgrades remain unauthorized. Managed Hussh provisioning and unqualified hosting
+draft. Main merge is authorized for the narrowed MVP after exact-head validation
+and Admin SOP gates; the landed SHA needs its own smoke and dev receipt. UAT is
+the authorized next environment. Production rollout, stable publication and
+automatic owner upgrades remain unauthorized. Managed Hussh provisioning and unqualified hosting
 moves remain unavailable. Production additionally needs migration/channel
 qualification, IAM, erasure/recovery, hub capacity and independent UAT acceptance.
 

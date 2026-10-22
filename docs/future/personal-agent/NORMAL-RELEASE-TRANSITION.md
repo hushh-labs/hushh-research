@@ -1,6 +1,6 @@
 # Private agent: normal release transition
 
-**Status:** authorized execution, refreshed 2026-10-22 UTC. Continue on the
+**Status:** founder-approved MVP scope, refreshed 2026-10-22 UTC. Continue on the
 infrastructure branch; preserve nine peer edits and the active ADK tree.
 Local merge `0464d0235c` integrates main `e4a7f78935` without replacing its
 Calendar, Profile, check-in or account behavior. ADK `914e7c044c` remains preserved.
@@ -13,6 +13,12 @@ Container Apps with it explicitly disabled. The whole owner pod is the compromis
 boundary. No VM migration, separate Browser service or artificial keepalive.
 
 ## Current gate and execution order
+
+**Ship the safe foundation to main, then qualify it in UAT.** Main does not wait
+for advanced Browser information sharing, remembered logins, every cloud lifecycle
+rehearsal or a new capacity study. Preserve those designs and keep unqualified
+execution unavailable. This supersedes the broader acceptance gate below wherever
+it would delay the MVP. Production remains outside this authorization.
 
 - Dev application `91b987b017` passed exact-SHA CI and governed rollout. Both
   services serve that source at 100%; 69 migration checksums and the actual
@@ -28,23 +34,34 @@ boundary. No VM migration, separate Browser service or artificial keepalive.
 - The scoped UAT backend workflow now has a locally verified exact-SHA
   dev/backend acceptance guard, including interrupted recovery. Its 78 nearest
   checks pass; it has not been dispatched or merged to main.
-- Selected Browser information has a local owner-request/export foundation.
-  Normal encrypted approval, atomic publication and cancellation serialization
-  use existing consent owners. UI handoff and installed acceptance remain open.
+- Additional selected-information producer work is preserved outside this
+  candidate. Existing committed ports remain disabled unless their authority and
+  qualification prerequisites pass; no incomplete information-sharing UI ships.
 - Retained Shared erasure remains fenced: exact-session cancellation returns
   412. The final isolated DELETE-only normalization hypothesis also failed.
   Neither failed preconditions nor process exit establish provider termination.
 
-Finish Browser's owner information and website-policy handoff, qualify the new
-image, then freeze one combined candidate. Run the core mirror once, exact-SHA
-hosted CI and one governed dev deployment. Perform normal exact-release owner
-installations, installed Browser/core acceptance and measured capacity before
-**Admin SOP main merge and landed-SHA validation/dev receipt**.
+Freeze the existing Browser control repairs, Shared-continuity safeguards and
+normal CI integration. Run one core mirror and exact-SHA hosted validation, then
+land the reviewed MVP through Admin SOP. Validate the landed SHA, establish its
+governed dev receipt and use the normal UAT path. Do not build or install a new pod
+image merely to merge disabled scaffolding.
 
-Qualification alone never enables a pod. Main integration is authorized only
-after those gates. UAT/production rollout, stable publication and automatic owner
-upgrades remain unauthorized. General scheduled-task expansion and coding
-activation are outside this Browser-plus-core gate; preserve supported schedules.
+### MVP acceptance
+
+| Gate | Required before main | Required before Browser is offered |
+| --- | --- | --- |
+| Browser | Existing ADK/runtime composition; startup, takeover, resize, reconnect and Stop regressions; unavailable behavior when unqualified | Real model-directed public browsing and the same control journey on each exact installed cloud image |
+| Authority | Owner/incarnation, exact consent, destination policy and no replay regressions | Exact owner approval and image/policy qualification |
+| Existing users | Preserve Shared, BYOC and pending choices; unchanged flags remain safe | UAT smoke of the affected cohorts |
+| Release | Generated contracts, core mirror and exact-head required CI; reviewed main integration | Landed-SHA smoke, dev receipt and governed UAT deployment |
+
+Advanced logins, remembered sessions, selected-PKM production, broader website
+coverage, general schedules, capacity comparisons and retained synthetic erasure
+qualification are follow-ups. Their incomplete paths remain fenced. Existing
+repairable deletion failures must never be reported as completed cleanup.
+Publishing a release does not install it; every owner installation still needs
+exact approval. Stable publication and production deployment remain unauthorized.
 
 ## Visual Context
 
@@ -75,8 +92,8 @@ resources, product agents and release authority are unchanged.
 
 ## 1. Finish and freeze the source
 
-- Main through `c241cfe554` is integrated locally at `cd7556e9a7`; dev remains
-  `f055c05948`. Account exports retain bounded server
+- Main through `e4a7f78935` is integrated locally at `0464d0235c`; dev remains
+  `91b987b017`. Account exports retain bounded server
   cursors and browser Blob assembly; retired owners cannot keep Feed streams
   alive. These are hub/frontend changes, not new pod image provenance. The
   earlier capacity-recovery changes
@@ -134,7 +151,7 @@ bind successful main-owned workflow attempts, immutable artifact digests, final
 serving revisions, schema checks and existing health classifications. Advisory
 findings retain their existing policy. A landed merge SHA needs its own dev
 acceptance; a branch receipt cannot substitute. This operations change is prepared
-locally and is not active until separately authorized on main.
+locally and takes effect only after its reviewed main landing.
 Receipt discovery retains successful earlier attempts when a later rerun fails;
 every selected artifact still requires its own successful attempt and exact
 application SHA, services, digest and serving evidence.
@@ -256,16 +273,15 @@ owner boundary. Historical protected-process and VM evidence remains historical;
 no owner hosting migration follows from it.
 
 The [runtime reference](../../../consent-protocol/docs/reference/private-browser-runtime.md)
-owns exact mode, image, model, authority and lifecycle contracts. Before release:
+owns exact mode, image, model, authority and lifecycle contracts. The foundation
+can land disabled. Before enabling a cloud's Browser after the MVP landing:
 
-1. Compose the actual native model, exact reviews, selected-information/session
-   ports, Browser work delivery and bounded Files transfer. Prove research,
-   takeover, login observation suppression, handback, reconnect and Stop on each
-   cloud without goal replay or uncertain-effect replay.
-2. Compare the same candidate at 1 vCPU / 2 GiB and 2 vCPU / 4 GiB. Choose the
-   smallest common passing configuration with measured headroom. Keep existing
-   owner resources until an exact configuration/update approval. Capacity does
-   not change minimum-zero sleeping policy; scratch is separately budgeted.
+1. Prove public research, exact screen-processing review, preview, takeover,
+   handback, reconnect and Stop without goal replay. Keep selected-information,
+   remembered-session and transfer extensions unavailable until their own proof.
+2. Preserve existing owner capacity and minimum-zero policy. Compare larger
+   sizes only after an observed resource failure; no new capacity study blocks
+   the disabled MVP landing. Scratch remains separately budgeted.
 3. Use two runs of the existing main-owned `deploy-dev.yml`, not another workflow:
    **A:** remove the old image-reuse pin, validate the complete
    source SHA, then dispatch `build_pod_image=true` (`scope=all` for frontend changes).
@@ -287,18 +303,18 @@ shell or coding workload is enabled by this release.
 
 ## Promotion and stop conditions
 
-1. **Local review:** resolve integration seams and verify source, generated contracts,
-   cohort predicates, announcements, lifecycle cleanup and workflow responsibilities.
-2. **Dev:** exact-SHA image build, exact-image qualification and validated metadata
-   publication as above; serving readback, separately approved pod updates and the
-   affected owner journeys.
-3. **Main:** reviewed PR and ordinary merge queue under Admin SOP after dev acceptance.
+1. **Local review:** freeze the MVP repairs; verify source, generated contracts,
+   cohort predicates, unavailable states and required core gates once.
+2. **Main:** reviewed PR and ordinary merge queue under Admin SOP after exact-head CI.
    Use an Admin bypass only under explicit authorization and the same verified gates.
    Require the exact landed SHA's Main Post-Merge Smoke and its distinct dev receipt,
    then synchronize the preserved infrastructure branch.
-4. **UAT:** separate authorization; rehearse legacy/new/BYOC/pending cohorts, billing
-   return, Files integrity, update interruption, connector revocation and account
-   erasure. Prove retained information recovery and cloud-resource reconciliation.
+3. **Dev:** deploy the landed SHA through the governed workflow. Read back serving
+   revisions, schema and traffic. Image qualification and owner installation are
+   separate from deploying disabled scaffolding.
+4. **UAT:** authorized next environment, using the exact landed SHA's dev receipt.
+   Smoke Shared continuity, Hosting/AI and affected Files/chat paths. Browser
+   remains unavailable on any cloud without exact-image and owner acceptance.
 5. **Production:** separate approval after UAT, capacity, migration/release-channel
    graduation, provenance, recovery, erasure and rollback-boundary evidence pass.
 
