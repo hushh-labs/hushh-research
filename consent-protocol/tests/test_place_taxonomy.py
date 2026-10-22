@@ -72,12 +72,19 @@ def test_a_precise_type_always_beats_a_vague_one() -> None:
 
 
 def test_a_place_google_knows_only_as_lodging_is_still_somewhere_to_stay() -> None:
-    # Deliberate, and the reason `lodging` is not simply dropped: in India a
-    # "Residency" or a "lodge" IS a place you pay to sleep in, and Google often
-    # has no more precise type for one. Two of the five reported rows were
-    # correct; only their subtitle was confusing.
-    assert taxonomy.place_categories(["lodging"]) == ["hotels_stays"]
+    # Generic lodging includes apartment rentals; preserve it without claiming
+    # a hotel. Explicit guest houses retain commercial hotel eligibility.
+    assert taxonomy.place_categories(["lodging"]) == ["other_stays"]
     assert taxonomy.place_categories(["guest_house", "lodging"]) == ["hotels_stays"]
+    for residential in ("apartment_building", "cottage", "private_guest_room"):
+        assert taxonomy.place_categories([residential, "lodging"]) == ["other_stays"]
+
+
+def test_cafes_and_food_courts_have_precise_categories() -> None:
+    for cafe in ("cafe", "coffee_shop", "coffee_stand", "tea_house", "cat_cafe", "dog_cafe"):
+        assert taxonomy.place_categories([cafe, "food", "store"]) == ["cafes"]
+    for food in ("food_court", "restaurant", "indian_restaurant", "cafeteria"):
+        assert taxonomy.place_categories([food, "food", "store"]) == ["food_drink"]
 
 
 def test_hotels_means_somewhere_you_can_sleep() -> None:
