@@ -25,6 +25,12 @@
 .accountName { font-size: 14px; font-weight: 550; line-height: 21px; overflow-wrap: anywhere; }
 .accountIdentity p { font-size: 12px; font-weight: 400; color: var(--app-secondary-label); line-height: 18px; }
 .accountHeader button { flex: none; min-width: 44px; min-height: 44px; }
+@media (min-width: 901px) {
+  .accounts[data-count="3"] .accountHeader { display: grid; grid-template-columns: 2.35rem minmax(0, 1fr) 44px; row-gap: .35rem; }
+  .accounts[data-count="3"] .accountMark { grid-column: 1; grid-row: 1; }
+  .accounts[data-count="3"] .accountIdentity { grid-column: 1 / -1; grid-row: 2; }
+  .accounts[data-count="3"] .accountHeader button { grid-column: 3; grid-row: 1; }
+}
 .accountTabs { margin: .85rem 0 .7rem; }
 .accountStream { overflow-y: auto; overscroll-behavior: contain; max-height: min(35rem, 55vh); min-height: 9rem; scrollbar-gutter: stable; outline-offset: 2px; }
 .eventList, .freeList { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }

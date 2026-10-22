@@ -3,12 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
+import { assertCalendarAccountLabel, assertCalendarBoardGeometry } from "./helpers/calendar-board-geometry";
 
 // Real component + actual typed Calendar transport; only authentication/router
 // and HTTP provider boundaries are synthetic. This is rendered UI evidence,
 // not proof that an external Google account was available in the test session.
 test.use({ timezoneId: "Asia/Kolkata" });
-
 let script: string;
 let css: string;
 let fixtureDirectory: string;
@@ -268,11 +268,11 @@ async function assertActionsClearChrome(page: Page, width: number, suffix: strin
 for (const width of [390, 1440]) {
   test(`three-account board and inline conflict review at ${width}px`, async ({ page }) => {
     const { errors, unexpectedRequests, calls } = await openFixture(page, width, false, "standard", false, true);
-    await expect(page.locator("[data-calendar-account-board]")).toBeVisible();
+    await assertCalendarBoardGeometry(page, width);
     for (const email of ["qa-owner@example.com", "qa-work@example.com", "qa-projects@example.com"]) {
       const label = page.getByRole("group", { name: `Calendar account ${email}` }).getByText(email, { exact: true });
       await expect(label).toBeVisible();
-      await expect(label).toHaveCSS("font-size", "14px");
+      await assertCalendarAccountLabel(label, width);
     }
     for (const event of ["QA Design Review", "QA Client Call", "QA Project Focus"]) await expect(page.getByRole("button", { name: new RegExp(`^Open ${event}`) })).toBeVisible();
     await expect(page.getByText("1 cross-account overlap")).toBeVisible();
@@ -358,7 +358,7 @@ for (const width of [320, 390, 1440]) {
     await expect(page.getByRole("dialog")).toContainText("Synthetic event details for rendered QA.");
     for (let index = 0; index < 5; index++) { await page.keyboard.press("Tab"); expect(await page.getByRole("dialog").evaluate(element => element.contains(document.activeElement))).toBe(true); }
     await page.getByTestId("calendar-fixture-lock").dispatchEvent("click");
-    expect(await page.evaluate(() => document.body.textContent?.includes("Synthetic event details for rendered QA."))).toBe(false);
+    await expect.poll(() => page.evaluate(() => document.body.textContent?.includes("Synthetic event details for rendered QA."))).toBe(false);
     await expect(page.getByText("Calendar session unavailable.", { exact: false })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /unlock/i })).toHaveCount(0);
     await page.getByTestId("calendar-fixture-authorize").dispatchEvent("click");
@@ -448,7 +448,7 @@ for (const width of [320, 390, 1440]) {
     await expect(page.getByRole("dialog")).toContainText(privateLongTitle);
     await expect(page.getByRole("dialog")).toContainText(privateLongLocation);
     await page.getByTestId("calendar-fixture-lock").dispatchEvent("click");
-    expect(await page.evaluate(({ title, location }) => document.body.textContent?.includes(title) || document.body.textContent?.includes(location), { title: privateLongTitle, location: privateLongLocation })).toBe(false);
+    await expect.poll(() => page.evaluate(({ title, location }) => document.body.textContent?.includes(title) || document.body.textContent?.includes(location), { title: privateLongTitle, location: privateLongLocation })).toBe(false);
     expect(long.errors).toEqual([]);
     expect(long.unexpectedRequests).toEqual([]);
 
