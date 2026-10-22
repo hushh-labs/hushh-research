@@ -10,8 +10,8 @@ after any route's authored Back case changes; do not hand-edit this file.
 
 ## Visual Map
 
-151 authored routes, 12 of them section/app
-roots. 9 routes additionally branch on query (an action sheet,
+160 authored routes, 11 of them section/app
+roots. 12 routes additionally branch on query (an action sheet,
 a tab, a detail view) -- those sub-flows are counted on their edge label, not
 drawn individually, so the diagram reads as the hierarchy rather than every
 authored test fixture. See the JSON contract directly for the full
@@ -34,6 +34,7 @@ flowchart TD
   r_root(["/"])
   r_one(["/one"])
   r_agent{{"/agent"}}
+  r_one_welcome["/one/welcome"]
   r_one_setup(["/one/setup"])
   r_welcome(["/welcome"])
   r_r_slug{{"/r/[slug]"}}
@@ -68,13 +69,14 @@ flowchart TD
   r_one_marketplace["/one/marketplace"]
   r_one_wallet_card["/one/wallet-card"]
   r_one_wallet["/one/wallet"]
+  r_one_files["/one/files"]
   r_one_puppy(["/one/puppy"])
   r_connected_systems{{"/connected-systems"}}
   r_connected_systems_systemId{{"/connected-systems/[systemId]"}}
   r_one_connected_systems["/one/connected-systems"]
   r_one_connected_systems_systemId["/one/connected-systems/[systemId]"]
   r_one_connect["/one/connect"]
-  r_one_messages(["/one/messages"])
+  r_one_messages["/one/messages"]
   r_one_connect_settings["/one/connect/settings"]
   r_register_phone["/register-phone"]
   r_logout["/logout"]
@@ -106,6 +108,8 @@ flowchart TD
   r_one_setup_finance_import["/one/setup/finance/import"]
   r_one_setup_ria["/one/setup/ria"]
   r_one_setup_connected_systems["/one/setup/connected-systems"]
+  r_one_setup_cloud["/one/setup/cloud"]
+  r_one_setup_cloud_azure_return["/one/setup/cloud/azure/return"]
   r_one_setup_connections["/one/setup/connections"]
   r_one_setup_capability["/one/setup/[capability]"]
   r_kai_optimize{{"/kai/optimize"}}
@@ -124,6 +128,7 @@ flowchart TD
   r_marketplace_connections_portfolio["/marketplace/connections/portfolio"]
   r_portfolio_shared["/portfolio/shared"]
   r_one_profile["/one/profile"]
+  r_one_profile_discovery["/one/profile/discovery"]
   r_one_profile_regulatory{{"/one/profile/regulatory"}}
   r_one_profile_account["/one/profile/account"]
   r_one_profile_account_phone["/one/profile/account/phone"]
@@ -181,7 +186,11 @@ flowchart TD
   r_ria_profile["/ria/profile"]
   r_people_personRef(["/people/[personRef]"])
   r_products_hushh_tech_launch["/products/hushh-tech/launch"]
+  r_one_profile_hosting["/one/profile/hosting"]
+  r_one_profile_software_updates["/one/profile/software-updates"]
   r_one_profile_world_model["/one/profile/world-model"]
+  r_world_model_invite["/world-model/invite"]
+  r_calendar_reschedule["/calendar/reschedule"]
 
   r_ria_clients_sample["/ria/clients/sample"]
 
@@ -201,10 +210,12 @@ flowchart TD
   r_one_pkm_location_detail -->|push| r_one_pkm_location
   r_one_marketplace -->|push| r_one
   r_one_wallet_card -->|push| r_one_profile_account
-  r_one_wallet -->|push| r_one
+  r_one_wallet -->|push, +1 case| r_one
+  r_one_files -->|push| r_one
   r_one_connected_systems -->|push| r_one
   r_one_connected_systems_systemId -->|push| r_one_connected_systems
-  r_one_connect -->|push, +3 cases| r_one
+  r_one_connect -->|push, +4 cases| r_one
+  r_one_messages -->|push| r_one
   r_one_connect_settings -->|push| r_one_connect
   r_one_consent -->|push| r_one
   r_one_feed -->|push| r_one
@@ -221,7 +232,9 @@ flowchart TD
   r_one_setup_finance_import -->|push| r_one_setup
   r_one_setup_ria -->|push| r_one_setup
   r_one_setup_connected_systems -->|push| r_one_setup
-  r_one_setup_connections -->|push| r_one_setup
+  r_one_setup_cloud -->|push, +1 case| r_one_setup
+  r_one_setup_cloud_azure_return -->|push| r_one_setup
+  r_one_setup_connections -->|replace, +1 case| r_one_setup
   r_one_setup_capability -->|push| r_one_setup
   r_one_kai_portfolio_holdings -->|push| r_one_kai
   r_one_kai_portfolio_allocation -->|push| r_one_kai
@@ -236,14 +249,14 @@ flowchart TD
   r_one_profile_preferences -->|push| r_one_profile
   r_one_profile_preferences_kai -->|push| r_one_profile_preferences
   r_one_profile_preferences_gemini -->|push| r_one_profile_preferences
-  r_one_profile_preferences_device -->|push| r_one_profile_preferences
+  r_one_profile_preferences_device -->|push| r_one_profile
   r_one_profile_preferences_voice -->|push| r_one_profile
   r_one_profile_preferences_voice_changelog -->|push| r_one_profile_preferences
   r_one_profile_preferences_voice_examples -->|push| r_one_profile_preferences
   r_one_profile_security -->|push, +1 case| r_one_profile
   r_one_profile_security_vault -->|push, +1 case| r_one_profile_security
   r_one_profile_security_session -->|push| r_one_profile_security
-  r_one_profile_payouts -->|push, +2 cases| r_one_profile
+  r_one_profile_payouts -->|push, +4 cases| r_one_profile
   r_one_profile_request_pricing -->|push| r_one_profile
   r_one_profile_my_data -->|push, +2 cases| r_one_profile
   r_one_profile_my_data_domain -->|push| r_one_profile
@@ -278,5 +291,7 @@ flowchart TD
   r_research -->|push| r_root
   r_research_protocol -->|push| r_root
   r_ria_profile -->|push| r_one
+  r_one_profile_hosting -->|push| r_one_profile
+  r_one_profile_software_updates -->|push| r_one_profile
   r_one_profile_world_model -->|push, +1 case| r_one_profile
 ```

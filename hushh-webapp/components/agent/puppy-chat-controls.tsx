@@ -1,9 +1,12 @@
 "use client";
 
-import { forwardRef, useLayoutEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { forwardRef, useId, useLayoutEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { Cpu, Send, StopSquare } from "@/components/icons";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { BOTTOM_CHROME_COLUMN_CLASSNAME } from "@/components/app-ui/bottom-chrome-column";
+import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
+import { useAgentDockHost } from "@/components/agent/agent-dock";
+import { useNativeDockPort } from "@/components/agent/native-dock-port";
 
 /** Stays above the transcript, directly below the shared app bar. */
 export function PuppyControlRibbon({ children, accessory }: {
@@ -34,36 +37,54 @@ export const PuppyMachineTrigger = forwardRef<HTMLButtonElement, ComponentProps<
 );
 
 /** Uses One's composer geometry; the existing relay hook retains send authority. */
-export function PuppyComposer({ busy, stopping, disabled, onSend, onStop }: {
+export function PuppyComposer({ busy, stopping, disabled, onSend, onStop, embedded = false, active = true }: {
   busy: boolean;
   stopping: boolean;
   disabled: boolean;
   onSend: (message: string) => void;
   onStop: () => void;
+  embedded?: boolean;
+  active?: boolean;
 }) {
-  const [draft, setDraft] = useState("");
+  const [editorState, setEditorState] = useState({ text: "", revision: 0 });
+  const draft = editorState.text;
+  const setDraft = (text: string) => setEditorState(previous => ({ text, revision: previous.revision + 1 }));
   const editor = useRef<HTMLTextAreaElement>(null);
+  const dockHost = useAgentDockHost();
   useLayoutEffect(() => {
     const field = editor.current;
     if (!field) return;
     field.style.height = "0px";
     const ceiling = Number.parseFloat(getComputedStyle(field).maxHeight);
     field.style.height = `${Math.max(44, Math.min(field.scrollHeight, Number.isFinite(ceiling) ? ceiling : 160))}px`;
-  }, [draft]);
-  const submit = () => {
-    if (disabled || busy || !draft.trim()) return;
-    onSend(draft);
+  }, [draft, dockHost]);
+  const submit = (text = draft) => {
+    if (!active || disabled || busy || !text.trim()) return;
+    onSend(text);
     setDraft("");
   };
+  const context = useId();
+  useNativeDockPort("text", embedded && active ? {
+    projection: { context: `puppy-relay-${context}`, mode: "text", text: draft,
+      placeholder: "Message Puppy One", editorLabel: "Message Puppy",
+      expanded: false, editable: !disabled, sendEnabled: !disabled && !busy && !!draft.trim(),
+      micEnabled: false, cancelEnabled: busy && !stopping, recording: false, recordingReady: false,
+      supportsHold: false, muted: false, attachmentRevision: 0, editorRevision: editorState.revision, attachments: [] },
+    // Native edits retain their revision; app/web changes replace the editor.
+    onEdit: text => { if (!disabled) setEditorState(previous => ({ ...previous, text })); },
+    onAction: event => {
+      if (event.action === "cancel" && busy && !stopping) onStop();
+      else if (event.action === "send") submit(event.text);
+    },
+  } : null);
   return (
-    <div className="shrink-0 pt-3">
-      <div data-testid="puppy-chat-composer"
-        className="bottom-chrome-surface agent-chat-composer-surface agent-chat-composer-compact flex min-w-0 items-end gap-2">
+      <AgentBarSurface embedded={embedded} data-testid="puppy-chat-composer"
+        className={`agent-chat-composer-surface agent-chat-composer-compact flex min-w-0 shrink-0 items-end gap-2${embedded ? "" : " mt-3"}`}>
         <textarea ref={editor} value={draft} disabled={disabled}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-              event.preventDefault(); submit();
+              event.preventDefault(); submit(event.currentTarget.value);
             }
           }}
           rows={1} placeholder="Message Puppy One" aria-label="Message Puppy One"
@@ -77,14 +98,13 @@ export function PuppyComposer({ busy, stopping, disabled, onSend, onStop }: {
               <StopSquare className="size-3.5" aria-hidden />
             </ShellActionSurface>
           ) : (
-            <ShellActionSurface type="button" data-agent-composer-action="send" onClick={submit}
+            <ShellActionSurface type="button" data-agent-composer-action="send" onClick={() => submit(editor.current?.value ?? draft)}
               disabled={disabled || !draft.trim()} aria-label="Send to Puppy One" title="Send"
               className="text-[color:var(--app-accent-fg)] disabled:text-muted-foreground">
               <Send className="size-4" aria-hidden />
             </ShellActionSurface>
           )}
         </div>
-      </div>
-    </div>
+      </AgentBarSurface>
   );
 }

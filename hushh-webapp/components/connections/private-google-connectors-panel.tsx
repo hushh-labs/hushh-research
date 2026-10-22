@@ -12,12 +12,14 @@ import { connectGoogleConnector, connectRefusalMessage, type PhoneHandoff } from
 import { GoogleConnectorPhoneHandoff } from './google-connector-phone-handoff';
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from '@/lib/vault/session-epoch';
 import { useGoogleConnectorTransitionReview } from './google-connector-transition-review';
+import { connectorAccessPurpose } from '@/lib/agent/connector-access-copy';
 
 const LABELS: Record<GoogleConnector, string> = { gmail: 'Gmail', calendar: 'Google Calendar', drive: 'Google Drive', contacts: 'Google Contacts' };
 type Status = 'connected' | 'needs_reauth' | 'absent' | 'unavailable';
 
-export function PrivateGoogleConnectorsPanel({ open, onBack, onClose, surface }: {
+export function PrivateGoogleConnectorsPanel({ open, onBack, onClose, surface, showAccessDetails = false }: {
   open: boolean; onBack: () => void; onClose?: () => void; surface?: 'drawer' | 'profile';
+  showAccessDetails?: boolean;
 }) {
   const { user } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
@@ -86,15 +88,17 @@ export function PrivateGoogleConnectorsPanel({ open, onBack, onClose, surface }:
     <p className="text-sm text-muted-foreground">Connect Google directly to your private agent. Gmail includes reading, drafts, sending and mailbox changes; your agent asks you to confirm changes.</p>
     {!enabled && <p role="status" className="text-sm">Sign in and unlock your vault to connect Google.</p>}
     <SettingsGroup>
-      {GOOGLE_CONNECTORS.map((connector) => <SettingsRow key={connector} title={LABELS[connector]}
-        description={statuses[connector] === 'connected' ? ((connector === 'gmail' || connector === 'calendar') ? managed[connector] ? 'Connected · changes allowed after your confirmation' : readable[connector] ? 'Connected · reading only' : 'Connected · permissions need verification' : 'Connected to your private agent') :
-          statuses[connector] === 'needs_reauth' ? 'Sign in again' : statuses[connector] === 'unavailable' ? 'Your agent could not verify this connection' : 'Not connected'}
+      {GOOGLE_CONNECTORS.map((connector) => {
+        const status = statuses[connector] === 'connected' ? ((connector === 'gmail' || connector === 'calendar') ? managed[connector] ? 'Connected · changes allowed after your confirmation' : readable[connector] ? 'Connected · reading only' : 'Connected · permissions need verification' : 'Connected to your private agent') :
+          statuses[connector] === 'needs_reauth' ? 'Sign in again' : statuses[connector] === 'unavailable' ? 'Your agent could not verify this connection' : 'Not connected';
+        return <SettingsRow key={connector} title={LABELS[connector]}
+        description={showAccessDetails ? <><span>{status}</span><span className="block pt-1">{connectorAccessPurpose(connector)}</span></> : status}
         trailing={<div className="flex gap-2">
           {statuses[connector] === 'connected' && (connector === 'gmail' || connector === 'calendar') && !managed[connector] && <Button variant="outline" disabled={!enabled || busy !== null} onClick={() => void run(connector, false)}>Allow changes</Button>}
           <Button variant="outline" disabled={!enabled || busy !== null}
           onClick={() => void run(connector, statuses[connector] === 'connected')}>
           {busy === connector ? 'Working…' : statuses[connector] === 'connected' ? 'Disconnect' : 'Connect'}
-        </Button></div>} />)}
+        </Button></div>} />; })}
     </SettingsGroup>
     {handoff && <GoogleConnectorPhoneHandoff handoff={handoff} />}
     {message && <p role="status" className="text-sm">{message}</p>}

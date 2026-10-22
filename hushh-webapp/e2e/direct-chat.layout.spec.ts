@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
+import { proveMessagesInboxBack, proveMessagesBackLayers } from "./fixtures/messages-navigation-proof";
 
 // Production components/styles with synthetic auth/navigation/service ports.
 // Device keyboards, signed-in routes and push delivery have separate proofs.
@@ -338,21 +339,12 @@ for (const [inset, width, height] of [[0, 393, 844], [59, 393, 844], [72, 393, 8
   });
 }
 
-test("system Back closes message search before returning from a People thread", async ({ page }) => {
-  await page.setViewportSize({ width: 393, height: 844 });
-  await mount(page);
-  const chat = page.locator("[data-direct-message-page]");
-  await page.getByRole("button", { name: "Search messages", exact: true }).click();
-  await expect(page.getByRole("searchbox", { name: "Search messages" })).toBeVisible();
-  const systemBack = () => page.evaluate(() => (window as any).directChatUnwindBack());
-
-  expect(await systemBack()).toBe(true);
-  await expect(page.getByRole("searchbox", { name: "Search messages" })).toHaveCount(0);
-  await expect(chat).toHaveAttribute("data-chat-open", "true");
-  expect(await systemBack()).toBe(true);
-  await expect(chat).toHaveAttribute("data-chat-open", "false");
-  expect(await systemBack()).toBe(false);
-});
+for (const width of [320, 1440]) {
+  test(`Messages inbox Back returns to One at ${width}px`, ({ page }) => proveMessagesInboxBack(page, mount, width));
+}
+for (const width of [393, 1440]) {
+  test(`Back closes message search before returning from a People thread at ${width}px`, ({ page }) => proveMessagesBackLayers(page, mount, width));
+}
 
 test.describe("touch emoji sending", () => {
   test.use({ hasTouch: true, isMobile: true });
@@ -429,6 +421,7 @@ test("system Back closes the New chat picker before leaving the inbox", async ({
   await page.setViewportSize({ width: 393, height: 844 });
   await mount(page, false, false, true);
   for (const action of ["New chat", "Compose message"]) {
+    await page.setViewportSize({ width: action === "New chat" ? 393 : 1440, height: 844 });
     await page.getByRole("button", { name: action, exact: true }).first().click();
     await expect(page.getByRole("dialog", { name: "New chat" })).toBeVisible();
     expect(await page.evaluate(() => (window as any).directChatUnwindBack())).toBe(true);
@@ -519,7 +512,7 @@ for (const [width, height] of [[320, 568], [393, 844], [430, 932], [767, 852], [
       expect(Math.abs(inboxHeaderBox.y + inboxHeaderBox.height - layout.threadHeader.y - layout.threadHeader.height)).toBeLessThanOrEqual(1);
       const heading = (await inboxHeader.getByRole("heading", { name: "Messages" }).boundingBox())!;
       const actions = (await inboxHeader.locator('[class*="inboxHeaderActions"]').boundingBox())!;
-      if (width! < 1100) expect(heading.y + heading.height + 4).toBeLessThanOrEqual(actions.y);
+      if (width! < 1280) expect(heading.y + heading.height + 4).toBeLessThanOrEqual(actions.y);
       else expect(heading.x + heading.width + 4).toBeLessThanOrEqual(actions.x);
       expect(layout.aside!.y + layout.aside!.height).toBeLessThanOrEqual((await page.locator('[data-bottom-shell-motion-stack]').boundingBox())!.y + 1);
       const overflow = await page.locator('[data-app-scroll-root]').evaluate(node => node.scrollHeight - node.clientHeight);
@@ -702,6 +695,9 @@ test("hover actions do not shift messages or the centered composer", async ({ pa
     const emoji = row.getByRole("button", { name: "React to message" });
     const iconBox = (await emoji.boundingBox())!;
     const menuBox = (await row.getByRole("button", { name: "Message options" }).boundingBox())!;
+    await expect(row.getByRole("button", { name: "Message options" })).toHaveCSS("background-image", /12px,.*12\.5px/);
+    expect(menuBox.width).toBeGreaterThanOrEqual(44);
+    expect(menuBox.height).toBeGreaterThanOrEqual(44);
     expect(Math.abs(iconBox.y - menuBox.y)).toBeLessThanOrEqual(1);
     const bubbleBox = (await row.locator('[data-chat-bubble]').boundingBox())!;
     if (touchActions) {
@@ -784,7 +780,7 @@ test.describe("compact message layout", () => {
         expect(rect.x).toBeGreaterThanOrEqual(0);
         expect(rect.x + rect.width).toBeLessThanOrEqual(width);
         if (!(await touchMessageActions(page))) await button.hover();
-        await expect(button).toHaveCSS("background-image", /14px.*15px/);
+        await expect(button).toHaveCSS("background-image", label === "Message options" ? /12px.*12\.5px/ : /14px.*15px/);
         await page.keyboard.press("Tab");
         await button.focus();
         await expect(button).toHaveCSS("outline-style", "solid");
@@ -836,7 +832,11 @@ for (const width of [320, 1440]) {
       await options.click();
     }
     await page.getByRole("menuitem", { name: "Delete chat" }).click();
-    await expect(page.getByRole("alertdialog")).toContainText("Deletes this chat for you only.");
+    const dialog = page.getByRole("alertdialog");
+    await expect(dialog).toHaveAccessibleDescription("Deletes this chat for you only.");
+    const descriptionBox = (await dialog.locator('[data-slot="alert-dialog-description"]').boundingBox())!;
+    expect(descriptionBox.width).toBeLessThanOrEqual(1);
+    expect(descriptionBox.height).toBeLessThanOrEqual(1);
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(chat).toBeVisible();
     if (width < 768) {

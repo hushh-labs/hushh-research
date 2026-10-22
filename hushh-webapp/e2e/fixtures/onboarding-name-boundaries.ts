@@ -8,6 +8,7 @@ const userId = "synthetic-owner";
 const vaultKey = "ab".repeat(32);
 export const useAuth = () => ({ user: { uid: userId } });
 export const useVault = () => ({ isVaultUnlocked: true, vaultKey, vaultOwnerToken: "synthetic-owner-token" });
+export const useLiveMirrorView = () => ({ status: "locked" as const });
 export const PreVaultUserStateService = {
   bootstrapState: async () => ({ oneChatOnboarding: null }),
   syncOneChatOnboarding: async () => ({}),

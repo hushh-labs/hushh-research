@@ -140,7 +140,7 @@ describe("HermesChatPanel empty state", () => {
     fireEvent.change(cloud, { target: { value: "Cloud-only draft" } });
     cloud.setSelectionRange(3, 8);
     view.rerender(<Shell puppy />);
-    const puppy = await screen.findByRole("textbox", { name: "Message Puppy One" });
+    const puppy = await screen.findByPlaceholderText("Ask Puppy One…");
     fireEvent.change(puppy, { target: { value: "Puppy-only draft" } });
     (puppy as HTMLTextAreaElement).setSelectionRange(2, 7);
     expect(puppy.closest("[data-agent-dock-composer]")).toBe(seat);

@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useLayoutEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -24,7 +25,11 @@ vi.mock("@/lib/hermes/local-host", () => ({
 }));
 
 vi.mock("@/components/agent/private-puppy-inference-panel", () => ({
-  PrivatePuppyInferencePanel: () => <div data-testid="private-puppy-panel" />,
+  PrivatePuppyInferencePanel: ({ sharedDock = false, active = true }) => <div data-testid="private-puppy-panel">
+    <AgentDockPortal enabled={sharedDock} active={active} visible><AgentBarSurface embedded={sharedDock}>
+      <textarea aria-label="Message Puppy One" />
+    </AgentBarSurface></AgentDockPortal>
+  </div>,
 }));
 
 vi.mock("@/lib/services/puppy-one-service", async (importOriginal) => {
@@ -48,10 +53,12 @@ vi.mock("@/components/agent/puppy-model-picker", () => ({
 }));
 
 import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
-import { AgentDockProvider, AgentDockVoiceBoundary } from "@/components/agent/agent-dock";
+import { AgentDockPortal, AgentDockProvider, AgentDockVoiceBoundary } from "@/components/agent/agent-dock";
 import { AgentBarSurface, RetainedAgentBar } from "@/components/agent/agent-bar-surface";
 import type { PuppyLink } from "@/lib/services/puppy-one-service";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { usePuppyConversations } from "@/lib/agent/puppy-conversations";
+import { useNativeDockPorts } from "@/components/agent/native-dock-port";
 
 /**
  * The Puppy One mode, as the workspace mounts it.
@@ -115,13 +122,41 @@ afterEach(() => {
 });
 
 describe("PuppyOneSurface identity", () => {
+  it("opens the Puppy composer on first activation without a second Start step", async () => {
+    mocks.fetchPuppyStatus.mockResolvedValue({ connected: true, model: "local-model" });
+    function Workspace() {
+      const history = usePuppyConversations(mocks.owner, true);
+      return <AgentDockProvider>
+        <PuppyOneSurface sharedDock conversations={history.conversations} activeConversationId={history.activeId} onCreateConversation={history.create} />
+        <AgentDockVoiceBoundary><RetainedAgentBar><AgentBarSurface><button>Cloud voice</button></AgentBarSurface></RetainedAgentBar></AgentDockVoiceBoundary>
+      </AgentDockProvider>;
+    }
+    render(<Workspace />);
+    const input = await screen.findByPlaceholderText("Ask Puppy One…");
+    expect(input).toBeEnabled();
+    expect(input.closest("[data-agent-dock-composer]")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Start a Puppy chat" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cloud voice" })).not.toBeInTheDocument();
+  });
+
   it.each([true, false])("keeps Shared off the local bridge and relay (localhost=%s)", async (localHost) => {
     mocks.localHost = localHost;
     mocks.hosting.mockResolvedValue({ hostingMode: "shared" });
-    render(<PuppyOneSurface />);
+    let native: ReturnType<typeof useNativeDockPorts> = null;
+    function DockObserver() {
+      const ports = useNativeDockPorts();
+      useLayoutEffect(() => { native = ports; });
+      return null;
+    }
+    render(<AgentDockProvider><DockObserver /><PuppyOneSurface sharedDock />
+      <AgentDockVoiceBoundary><RetainedAgentBar><AgentBarSurface><button>Cloud voice</button></AgentBarSurface></RetainedAgentBar></AgentDockVoiceBoundary>
+    </AgentDockProvider>);
     expect(await screen.findByText("Puppy needs your own cloud.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Hosting" })).toHaveAttribute("href", "/one/profile/hosting");
     expect(screen.queryByTestId("private-puppy-panel")).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Message Puppy One" })).toBeDisabled();
+    expect(native!.get("text")?.projection).toMatchObject({ editable: false, sendEnabled: false, micEnabled: false });
+    expect(screen.queryByRole("button", { name: "Cloud voice" })).not.toBeInTheDocument();
     expect(mocks.fetchPuppyStatus).not.toHaveBeenCalled();
     expect(mocks.fetchPuppyResources).not.toHaveBeenCalled();
   });

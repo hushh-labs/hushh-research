@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type { AgentChatConversation } from "@/lib/services/agent-chat-client";
 
 /** Private conversation metadata lives only in the authenticated workspace. */
-export function usePuppyConversations(ownerId: string | null) {
+export function usePuppyConversations(ownerId: string | null, active = false) {
   useEffect(() => {
     // Discard only the obsolete, unowned title index. It contained no transcript
     // or recoverable Hermes session and must never be adopted by another owner.
@@ -29,27 +29,27 @@ export function usePuppyConversations(ownerId: string | null) {
           conversations: [],
           activeId: null,
         };
+  // Opening Puppy starts its own empty chat, just as opening One does. Retain
+  // the keyed panel across agent switches, and recover after the last deletion.
+  useEffect(() => {
+    if (!active || !ownerId || current.conversations.length) return;
+    const conversation = newConversation();
+    setState(previous => previous.ownerId === ownerId && !previous.conversations.length
+      ? { ...previous, conversations: [conversation], activeId: conversation.id }
+      : previous);
+  }, [active, ownerId, current.conversations.length]);
   return {
     conversations: current.conversations,
     activeId: current.activeId,
     create: () => {
       if (!ownerId) return;
-      const id = crypto.randomUUID();
-      const now = new Date().toISOString();
-      const conversation: AgentChatConversation = {
-        id,
-        title: "New chat",
-        status: "active",
-        message_count: 0,
-        created_at: now,
-        updated_at: now,
-      };
+      const conversation = newConversation();
       setState((previous) =>
         previous.ownerId === ownerId
           ? {
               ...previous,
               conversations: [conversation, ...previous.conversations],
-              activeId: id,
+              activeId: conversation.id,
             }
           : previous,
       );
@@ -86,4 +86,10 @@ export function usePuppyConversations(ownerId: string | null) {
         };
       }),
   };
+}
+
+function newConversation(): AgentChatConversation {
+  const now = new Date().toISOString();
+  return { id: crypto.randomUUID(), title: "New chat", status: "active",
+    message_count: 0, created_at: now, updated_at: now };
 }

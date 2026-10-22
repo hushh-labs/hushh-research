@@ -61,9 +61,10 @@ describe("agent chat header layout", () => {
   it("keeps the toggle in flow, anchored beside the profile button", () => {
     const header = headerBlock();
     const picker = header.indexOf('data-testid="agent-chat-model-picker"');
-    const toggle = header.indexOf('ariaLabel="Agent"');
+    const toggle = header.indexOf('ariaLabel="Where your agent runs"');
     const profile = header.indexOf('data-testid="profile-open-button"');
     expect(picker).toBeGreaterThan(0);
+    expect(toggle).toBeGreaterThan(0);
     // Order is the anti-jump guarantee: the One-only picker comes and goes on
     // the far side of the toggle, so the toggle never moves under a thumb.
     expect(picker).toBeLessThan(toggle);
@@ -83,15 +84,19 @@ describe("agent chat header layout", () => {
     expect(toggleTag).toContain('size="sm"');
   });
 
-  it("uses an icon-only toggle on phones without losing either spoken name", () => {
+  it("shows the One and Puppy names on phones and explains where each runs", () => {
     const header = headerBlock();
-    const toggle = header.indexOf('ariaLabel="Agent"');
+    const toggle = header.indexOf('ariaLabel="Where your agent runs"');
     const toggleTag = header.slice(
       header.lastIndexOf("<SegmentedControl", toggle),
       header.indexOf("/>", toggle),
     );
-    expect(toggleTag).toContain('iconClassName="sm:hidden"');
-    expect(toggleTag).toContain('labelClassName="max-sm:hidden"');
+    expect(toggleTag).toContain('iconClassName="hidden"');
+    expect(toggleTag).toContain('labelClassName=""');
+    expect(toggleTag).toContain('label: "One"');
+    expect(toggleTag).toContain('label: "Puppy"');
+    expect(workspace).toContain("One: cloud");
+    expect(workspace).toContain("Puppy: your linked computer");
     expect(toggleTag).toContain("icon: Cloud");
     expect(toggleTag).toContain("icon: Laptop");
     expect(toggleTag.match(/accessibleLabel:/g)).toHaveLength(2);
@@ -105,7 +110,7 @@ describe("agent chat header layout", () => {
     );
   });
 
-  it("keeps portrait sizing behind the ordinary One gate and preserves native compact sizing", () => {
+  it("shares portrait sizing between agents and preserves native compact sizing", () => {
     const header = headerBlock();
     expect(header).toContain("<OnePresenceAvatar");
     expect(header).toContain(
@@ -119,7 +124,7 @@ describe("agent chat header layout", () => {
     expect(trigger).toContain('variant="icon"');
     expect(trigger).toContain("ripple={false}");
     expect(trigger?.match(/className="([^"]*)"/)?.[1].split(/\s+/)).toContain("!size-[var(--one-header-artwork-size,44px)]");
-    expect(workspace).toContain('data-one-centered-header={!isPuppySurface && !customNativePresentationEnabled() ? "true" : undefined}');
+    expect(workspace).toContain('data-one-centered-header={!customNativePresentationEnabled() ? "true" : undefined}');
     expect(header).not.toContain("🤫");
   });
 
