@@ -280,6 +280,17 @@ events cannot request full replay or checkpoint recovery. Unresolved recorded
 child failures are rechecked for governed retries without replaying settled
 release artifacts. More than 20 unresolved failures stops reconciliation for
 operator recovery rather than silently dropping history or growing polling work.
+TestFlight completion requires successful processing and distribution steps plus
+active internal distribution evidence. Its optional skipped hardware gate must
+not skip the distribution job. A green upload with missing delivery proof remains
+a recoverable failure with the certified count available, and defers new bundles.
+`resume-ios-testflight.yml` reuses the exact uploaded build without archiving or
+uploading again. Its receipt binds the original run and attempt, source, bundle,
+version and build to the governed recovery run and attempt. The observer reads at
+most 20 recovery candidates; missing, mismatched or truncated proof never clears
+the failure. Recovery completion wakes the existing observer, and verification
+failures remain pending until proven or explicitly retired. UAT has no dependency
+on this recovery or observer.
 The monitor uses only standard-library code and the existing
 repository token, with `issues: write` added for one bot-owned `UAT release monitor`
 issue assigned to `monitor_issue_assignee` in the policy. Notification delivery

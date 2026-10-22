@@ -137,6 +137,7 @@ class Ledger:
 
 def artifact_json(repository: str, run_id: int, name: str, filename: str, *, optional: bool = False) -> dict | None:
     result = api(f"repos/{repository}/actions/runs/{run_id}/artifacts?per_page=100")
+    require(isinstance(result, dict) and isinstance(result.get("artifacts"), list), "Release artifact inventory is unavailable")
     candidates = [a for a in result["artifacts"] if a["name"] == name and not a["expired"]]
     if optional and not candidates:
         return None
@@ -378,7 +379,8 @@ def reconcile_children(ledger: Ledger, trigger_run_id: int | None = None) -> Non
             if child.get("run_id"):
                 # A governed retry keeps the same recorded ID. Poll unresolved
                 # failures too, so recovery does not depend on a completion hook.
-                if child["state"] not in {"running"} | failures and child["run_id"] != trigger_run_id:
+                unverified = lane == "testflight" and child["state"] == "success" and not child.get("completion_verified")
+                if not unverified and child["state"] not in {"running"} | failures and child["run_id"] != trigger_run_id:
                     continue
                 run = run_info(ledger.repository, child["run_id"])
                 verify_child(ledger.state, run, ledger.repository, ordinal, str(request["origin_run_id"]))
@@ -389,20 +391,8 @@ def reconcile_children(ledger: Ledger, trigger_run_id: int | None = None) -> Non
                             "Release retry actor is not governed")
                 child["run_attempt"] = run.get("run_attempt", 1)
                 child["state"] = run.get("conclusion") if run["status"] == "completed" else "running"
-                if lane == "appstore" and child["state"] == "success":
-                    deferred = artifact_json(ledger.repository, run["id"], "ios-appstore-deferred", "ios-appstore-deferred.json", optional=True)
-                    if deferred:
-                        from datetime import datetime, timedelta, timezone
-                        require(deferred.get("sha") == request["sha"] and deferred.get("reason") == "apple_review_pending",
-                                "Deferred App Store receipt mismatch")
-                        child.update(state="deferred", retry_after=(datetime.now(timezone.utc) + timedelta(hours=1)).isoformat())
-                    else:
-                        jobs = api(f"{ledger.base}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")
-                        require(jobs["total_count"] == len(jobs["jobs"]) and any(
-                            job.get("name") == "Process and prepare uploaded App Store build" and job.get("conclusion") == "success"
-                            and any(step.get("name") == "Prepare App Store version (set What's New, attach build; one-click submit)"
-                                    and step.get("conclusion") == "success" for step in job.get("steps", []))
-                            for job in jobs["jobs"]), "No positive App Store completion proof; a deferred receipt may have expired")
+                from release_cadence_native import settle_child
+                settle_child(ledger.repository, request, lane, child, run)
             elif child["state"] == "dispatching":
                 matches = [r for r in runs(ledger.repository, WORKFLOWS[lane], child["intent_at"])
                            if r.get("display_title") == marker(ordinal, request, lane)]
@@ -477,8 +467,6 @@ def dispatch_pending(ledger: Ledger) -> None:
     active = {(ordinal, "production" if lane in {"deploy", "appstore"} else lane)
               for ordinal, request in requests.items() for lane, child in request["lanes"].items()
               if child["state"] in {"running", "dispatching"}}
-
-
     # Recover the second half even if the controller stopped immediately after
     # recording the production deployment. It yields to UAT and other active
     # bundles without losing the exact production run or redeploying it.
@@ -500,6 +488,9 @@ def dispatch_pending(ledger: Ledger) -> None:
     if active:
         if any(child["state"] == "pending" for request in requests.values() for child in request["lanes"].values()):
             defer_release("another release bundle is active")
+        return
+    if any(child.get("completion_error") for request in requests.values() for child in request["lanes"].values()):
+        defer_release("an uploaded TestFlight build requires verified distribution recovery")
         return
     # A production deployment plus its archive is one bundle and remains
     # parallel. TestFlight waits for that bundle to finish, outside Actions.

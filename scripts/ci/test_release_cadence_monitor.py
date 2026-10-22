@@ -14,7 +14,7 @@ import subprocess
 from pathlib import Path
 from copy import deepcopy
 from unittest.mock import patch
-from test_release_cadence import REPOSITORY, NEW_POLICY, GOVERNANCE, FakeLedger, counted, run, core, github, monitor
+from test_release_cadence import REPOSITORY, NEW_POLICY, GOVERNANCE, FakeLedger, counted, run, core, github, monitor, testflight
 
 
 class MonitorTest(unittest.TestCase):
@@ -102,8 +102,8 @@ class MonitorTest(unittest.TestCase):
         request["lanes"]["testflight"] = child
         observed = run(201, "ship-ios-testflight.yml", "github-actions[bot]")
         observed["display_title"] = core.marker("8", request, "testflight")
-        with patch.object(monitor, "artifact_json", return_value={"source_sha": "b" * 40, "build_number": "1"}), \
-                self.assertRaisesRegex(core.UnsafeRelease, "source mismatch"):
+        with patch.object(github, "artifact_json", return_value={"source_sha": "b" * 40, "build_number": "1"}), \
+                self.assertRaisesRegex(core.UnsafeRelease, "identity mismatch"):
             monitor.evidence(REPOSITORY, state, "8", "testflight", child, observed)
         child = {"state": "success", "run_id": 202}
         request["lanes"]["appstore"] = child
@@ -112,6 +112,29 @@ class MonitorTest(unittest.TestCase):
         observed["display_title"] = core.marker("8", request, "appstore")
         with patch.object(monitor, "artifact_json", return_value={"sha": request["sha"], "reason": "apple_review_pending"}):
             self.assertIn("no publication claimed", monitor.evidence(REPOSITORY, state, "8", "appstore", child, observed))
+
+    def test_unverified_green_upload_stays_pending_and_reports_recovery_once(self):
+        state = counted(4)
+        request = state["requests"]["4"]
+        child = request["lanes"]["testflight"]
+        child.update(state="success", run_id=201)
+        original = run(201, "ship-ios-testflight.yml", "github-actions[bot]")
+        original["display_title"] = core.marker("4", request, "testflight")
+        with patch.object(monitor, "runs", return_value=[]), patch.object(monitor, "run_info", return_value=original), \
+                patch.object(monitor, "git", return_value=original["created_at"]), \
+                patch.object(monitor, "evidence", side_effect=core.UnsafeRelease("distribution missing")):
+            pending, notices = monitor.observations(REPOSITORY, state, {}, {}, True)
+            self.assertTrue(any("Verification failed" in item for item in notices))
+            self.assertIn("release:4:testflight", pending["pending_releases"])
+            pending, repeated = monitor.observations(REPOSITORY, state, {}, pending, True)
+            self.assertEqual(repeated, [])
+        with patch.object(monitor, "runs", return_value=[]), patch.object(monitor, "run_info", return_value=original), \
+                patch.object(monitor, "evidence", return_value="Recovered existing upload"):
+            recovered, notices = monitor.observations(REPOSITORY, state, {}, pending, True)
+            self.assertTrue(any("Recovered existing upload" in item for item in notices))
+            self.assertNotIn("release:4:testflight", recovered["pending_releases"])
+            _, repeated = monitor.observations(REPOSITORY, state, {}, recovered, True)
+            self.assertEqual(repeated, [])
 
     def test_lost_comment_response_is_recovered_without_duplicate_or_ledger_write(self):
         state = counted(2)
@@ -193,6 +216,127 @@ class MonitorTest(unittest.TestCase):
         release.pop("run_started_at")
         monitor.record_release_interval(gap["release_intervals"], release)
         self.assertNotIn("20", gap["release_intervals"])
+
+
+class TestFlightCompletionTest(unittest.TestCase):
+    def fixture(self):
+        original = run(201, "ship-ios-testflight.yml", "github-actions[bot]")
+        upload = {"source_sha": "a" * 40, "bundle_id": "com.hushh.app", "marketing_version": "2.0.0", "build_number": "159"}
+        recovery = run(301, testflight.RESUME)
+        value = testflight.bind_recovery(original, upload, 301, 1, {"internal": "active", "build_id": "apple-build-159"})
+        steps = {"Validate dispatch and original upload provenance", "Reconcile the existing uploaded build",
+                 "Resume idempotent group distribution", "Bind recovery evidence to the original upload"}
+        jobs = {"total_count": 1, "jobs": [{"name": "resume", "conclusion": "success",
+                "steps": [{"name": name, "conclusion": "success"} for name in steps]}]}
+        return original, upload, recovery, value, jobs
+
+    def test_skipped_distribution_is_not_success_and_bound_recovery_preserves_authority(self):
+        original, upload, recovery, value, jobs = self.fixture()
+        ledger = FakeLedger(counted(4))
+        request = ledger.state["requests"]["4"]
+        upload["source_sha"] = value["source_sha"] = request["sha"]
+        child = request["lanes"]["testflight"]
+        child.update(state="running", run_id=201)
+        original["display_title"] = core.marker("4", request, "testflight")
+        inventory = {"total_count": 0, "workflow_runs": []}
+        def transport(path):
+            return inventory if "/workflows/" in path else jobs
+        def artifact(repo, identity, name, filename, **kwargs):
+            return upload if identity == 201 else value
+        with patch.object(github, "api", side_effect=transport), patch.object(github, "artifact_json", side_effect=artifact), \
+                patch.object(github, "configuration", return_value=(NEW_POLICY, GOVERNANCE)), \
+                patch.object(github, "run_info", return_value=original), patch.object(github, "dispatch_child") as dispatch:
+            github.reconcile_children(ledger)
+            self.assertEqual(child["state"], "failure")
+            self.assertFalse(child["completion_verified"])
+            self.assertIn("completion_error", child)
+            original["conclusion"] = "failure"  # An upload followed by failed distribution also blocks admission.
+            github.reconcile_children(ledger)
+            self.assertIn("completion_error", child)
+            github.dispatch_pending(ledger)
+            dispatch.assert_not_called()
+
+            inventory.update(total_count=1, workflow_runs=[recovery])
+            github.reconcile_children(ledger)
+            self.assertEqual(child["state"], "success")
+            self.assertTrue(child["completion_verified"])
+            self.assertNotIn("completion_error", child)
+            self.assertEqual(child["recovery"], {"recovery_run_id": 301, "recovery_run_attempt": 1})
+            self.assertIn("Recovered by", monitor.evidence(REPOSITORY, ledger.state, "4", "testflight", child, original))
+            self.assertEqual((ledger.state["count"], child["run_id"], request["sha"]), (4, 201, upload["source_sha"]))
+            dispatch.assert_not_called()
+
+    def test_stale_recovery_does_not_hide_valid_rerun_of_an_older_recovery(self):
+        original, upload, recovery, value, jobs = self.fixture()
+        original["run_attempt"] = 2
+        stale = run(302, testflight.RESUME)
+        stale_value = testflight.bind_recovery(run(201), upload, 302, 1, value)
+        recovery.update(run_attempt=2, triggering_actor={"login": "maintainer"})
+        value = testflight.bind_recovery(original, upload, 301, 2, value)
+        inventory = {"total_count": 2, "workflow_runs": [stale, recovery]}
+        def artifact(repo, identity, *args, **kwargs):
+            return {201: upload, 301: value, 302: stale_value}[identity]
+        with patch.object(github, "configuration", return_value=(NEW_POLICY, GOVERNANCE)), \
+                patch.object(github, "api", side_effect=lambda path: inventory if "/workflows/" in path else jobs), \
+                patch.object(github, "artifact_json", side_effect=artifact):
+            self.assertEqual(testflight.completion(REPOSITORY, original, upload["source_sha"]),
+                             {"recovery_run_id": 301, "recovery_run_attempt": 2})
+
+    def test_recovery_rejects_wrong_identity_authority_steps_and_truncated_inventory(self):
+        fields = {"source_sha": "b" * 40, "build_number": "160", "marketing_version": "2.0.1", "bundle_id": "wrong",
+                  "upload_run_id": 200, "upload_run_attempt": 2, "recovery_run_id": 302,
+                  "recovery_run_attempt": 2, "schema_version": 2, "internal": "inactive"}
+        for invalid in [*fields, "actor", "triggering_actor", "path", "head_branch", "repository", "event", "step", "truncated", "old-original-attempt"]:
+            with self.subTest(invalid=invalid):
+                original, upload, recovery, value, jobs = self.fixture()
+                inventory = {"total_count": 1, "workflow_runs": [recovery]}
+                if invalid in fields: value[invalid] = fields[invalid]
+                elif invalid in {"actor", "triggering_actor"}: recovery[invalid] = {"login": "outsider"}
+                elif invalid == "path": recovery[invalid] = ".github/workflows/other.yml"
+                elif invalid == "head_branch": recovery[invalid] = "feature"
+                elif invalid == "repository": recovery[invalid] = {"full_name": "attacker/repo"}
+                elif invalid == "event": recovery[invalid] = "push"
+                elif invalid == "step": jobs["jobs"][0]["steps"][0]["conclusion"] = "skipped"
+                elif invalid == "truncated": inventory["total_count"] = 21
+                else: original["run_attempt"] = 2
+                with patch.object(github, "configuration", return_value=(NEW_POLICY, GOVERNANCE)), \
+                        patch.object(github, "api", side_effect=lambda path: inventory if "/workflows/" in path else jobs), \
+                        patch.object(github, "artifact_json", side_effect=lambda repo, identity, *args, **kwargs: upload if identity == 201 else value), \
+                        self.assertRaises(core.UnsafeRelease):
+                    testflight.completion(REPOSITORY, original, upload["source_sha"])
+
+    def test_original_requires_both_positive_steps_and_active_distribution(self):
+        original, upload, _, _, _ = self.fixture()
+        for invalid in (None, "skipped-job", "skipped-step", "inactive"):
+            jobs = {"total_count": 1, "jobs": [{"name": "Process and distribute uploaded TestFlight build", "conclusion": "success",
+                    "steps": [{"name": name, "conclusion": "success"} for name in (
+                        "Wait for valid TestFlight processing", "Attach the same valid build to both TestFlight groups")]}]}
+            distribution = {"internal": "active", "build_id": "apple-build-159"}
+            if invalid == "skipped-job": jobs["jobs"][0]["conclusion"] = "skipped"
+            if invalid == "skipped-step": jobs["jobs"][0]["steps"][0]["conclusion"] = "skipped"
+            if invalid == "inactive": distribution["internal"] = "inactive"
+            inventory = {"total_count": 0, "workflow_runs": []}
+            with patch.object(github, "configuration", return_value=(NEW_POLICY, GOVERNANCE)), \
+                    patch.object(github, "api", side_effect=lambda path: inventory if "/workflows/" in path else jobs), \
+                    patch.object(github, "artifact_json", side_effect=lambda repo, identity, name, *args, **kwargs: upload if name == "testflight-upload-receipt" else distribution):
+                if invalid:
+                    with self.assertRaises(core.UnsafeRelease): testflight.completion(REPOSITORY, original, upload["source_sha"])
+                else:
+                    self.assertEqual(testflight.completion(REPOSITORY, original, upload["source_sha"]), {})
+
+    def test_optional_hardware_skip_does_not_skip_distribution_or_bypass_cancel_and_upload_gates(self):
+        workflow = (Path(__file__).resolve().parents[2] / ".github/workflows/ship-ios-testflight.yml").read_text()
+        job = workflow.split("\n  distribute:\n", 1)[1]
+        expression = re.search(r"    if: \$\{\{ (.+) \}\}", job)[1]
+        self.assertIn("!cancelled()", expression)  # Overrides GitHub's implicit success() on skipped ancestors.
+        for cancelled, preflight, ship, dry_run, expected in (
+            (False, "success", "success", False, True), (True, "success", "success", False, False),
+            (False, "failure", "success", False, False), (False, "success", "failure", False, False),
+            (False, "success", "success", True, False)):
+            predicate = expression.replace("!cancelled()", str(not cancelled)).replace("&&", "and")
+            predicate = predicate.replace("needs.preflight.result", repr(preflight)).replace("needs.ship.result", repr(ship))
+            predicate = predicate.replace("inputs.dry_run", str(dry_run)).replace("true", "True")
+            self.assertEqual(eval(predicate, {"__builtins__": {}}), expected)
 
 
 class HistoricalReleaseBundleTest(unittest.TestCase):
