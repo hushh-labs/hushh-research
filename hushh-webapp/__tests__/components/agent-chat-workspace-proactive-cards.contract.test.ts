@@ -63,11 +63,9 @@ describe("Agent One chat workspace wiring contract", () => {
   it("uses one accessible quick-prompt rail for both empty and post-setup states", () => {
     // The starter grid renders through the shared suggestion list; the rail's
     // accessibility and touch-target guarantees live there.
-    expect(source).toContain("function AgentPromptSuggestions(");
-    const suggestions = source.slice(
-      source.indexOf("function AgentPromptSuggestions("),
-      source.indexOf("function AgentPromptSuggestions(") + 1800,
-    );
+    expect(source).toContain("<AgentPromptSuggestions");
+    expect(source).toContain("<AgentWelcomePanel");
+    const suggestions = readFileSync(join(process.cwd(), "components/agent/agent-welcome-panel.tsx"), "utf8");
     expect(suggestions).toContain('label="Suggestions" testId="agent-chat-suggestions"');
     expect(suggestions).toContain("disabled={disabled}");
     const list = readFileSync(join(process.cwd(), "components/agent/agent-follow-up-suggestions.tsx"), "utf8");
