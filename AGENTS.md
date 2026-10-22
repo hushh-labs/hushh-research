@@ -17,6 +17,8 @@ All development sources belong in **`.agents/`**:
 Create or evolve these through the existing governance workflow. Do not create
 another host-specific skill or subagent fleet. Native `.claude` and `.codex`
 entrypoints are checked compatibility links; they contain no authored policy.
+Claude startup loads this entrypoint through a small checked hook; there is no
+separate `CLAUDE.md` policy. Other AI tools inherit this same contract.
 
 Run independent work in bounded parallel lanes under the canonical
 [delegation contract](.agents/skills/agent-orchestration-governance/references/delegation-contract.md).

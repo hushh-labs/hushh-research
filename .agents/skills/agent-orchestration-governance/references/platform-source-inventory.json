@@ -9,7 +9,7 @@
     },
     ".agents/adapters/claude/codex-bridge/SKILL.md": {
       "classification": "host_adapter",
-      "sha256": "b0fb6f35d6921b8fdc3cfe34727389e3c2aaa718cadf25532869f18522d7b355"
+      "sha256": "8795d5acf6eb22f69d198e82dd889a18d88fe50f107d4988b4915a408f34e1ab"
     },
     ".agents/adapters/claude/deploy-uat/SKILL.md": {
       "classification": "owner_alias",

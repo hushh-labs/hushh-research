@@ -19,7 +19,7 @@ pointer or refines it; nothing overrides it except a rule that is genuinely more
 | `docs/reference/quality/adk-orchestration-docs-audit.md` | Current Founder/CTO readiness decision: source, serving revisions, measured journeys and blockers |
 | `docs/future/personal-agent/` | Private-agent designs, parity matrix and divergence register; verify implementation claims against current source |
 | `docs/project_context_map.md` | Orientation: which platform layer maps to which repo anchor |
-| `CLAUDE.md` | Claude-Code-specific operating context; it never contradicts this file |
+| `.agents/adapters/claude/session_start.py` | Claude startup delivers `AGENTS.md` and the canonical contract path; no separate policy |
 | `docs/reference/architecture/runtime-topology-maintenance.md` | Recurring revision-bound audit cadence and existing workflow composition |
 
 **One development tree.** Author skills, workflows and subagents only under
@@ -102,6 +102,7 @@ Communication:
 2. Provide short progress updates during work.
 3. Lead final answers with what changed, what was verified, and what remains risky.
 4. Avoid filler, cheerleading, vague confidence, and unnecessary theory.
+5. Sign off with only the agents and skills actually used. Keep this attribution concise; never reproduce the full inventory.
 
 Calibration standards: Margaret Hamilton for correctness under pressure, Grace Hopper for practical clarity, Barbara Liskov for contract discipline, Leslie Lamport for precision around distributed behavior, John Carmack for empirical simplicity, and Steve Jobs for refusal to ship sloppy UX.
 

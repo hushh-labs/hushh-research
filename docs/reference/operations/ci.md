@@ -833,6 +833,14 @@ The secret gate is intentionally stricter than raw regex scanning:
   - `gitleaks` finds a leak in the scanned commit range, or
   - GitHub still reports any open secret-scanning alerts
 - open Dependabot alerts are currently advisory in CI; they are still reported in logs and should be managed as backlog, but they do not block unrelated merges
+- explicitly strict checks refuse missing CLI/authentication, unavailable required reads and malformed responses; unavailable authority is never a successful clearance
+
+Credential isolation is a separate pending correction: remote-alert reads must move
+to main-owned execution with a read-only, main-restricted environment credential.
+PR-local scanning must not receive that credential. Removing a YAML reference alone
+does not protect a repository-level secret from other PR-controlled workflows. Keep
+this prerequisite visible until provisioning and exact-run/attempt receipt
+verification are demonstrated; current alert checks remain required.
 
 ## Advisory Checks (Non-Blocking By Default)
 

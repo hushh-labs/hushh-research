@@ -1,9 +1,20 @@
 # Host adapters
 
-The [shared operating contract](../instructions.md) owns repository behavior.
-[Claude invocation context](claude/instructions.md) and classified templates live
-here once. The existing platform-source inventory records their authority and
-pending import review; moving a source does not approve its execution.
+The [shared operating contract](../instructions.md) owns repository behavior for
+every AI tool. Adapters translate native startup, discovery and invocation formats;
+they must not introduce independent persona or operating policy. Classified
+legacy templates remain pending review in the source inventory; relocation does
+not establish that their behavior is approved.
+
+Claude's [startup loader](claude/session_start.py) delivers the root `AGENTS.md`
+and the absolute canonical instructions path through its documented SessionStart
+hook. It validates the pointer; the agent must read the complete contract before
+acting. Hook failure reports an error but cannot itself block Claude execution.
+There is no root `CLAUDE.md` or Qwen policy copy. A new host needs an adapter only
+where its supported native discovery differs from the canonical structure.
+
+The existing platform-source inventory records classified templates and pending
+import review; moving a source does not approve its execution.
 
 Native settings live here in [codex/config.toml](codex/config.toml) and
 [claude/settings.json](claude/settings.json). Host-required `.codex/config.toml`
