@@ -7,7 +7,6 @@ the encrypted export boundary continue to govern that separately.
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import hmac
 import json
@@ -149,117 +148,9 @@ class DeveloperOAuthService:
     def ensure_tables(self) -> None:
         if self.__class__._tables_ensured:
             return
-        # Migration 099 is authoritative.  These statements are a narrowly
-        # scoped boot safety-net, matching the developer registry convention.
-        if str(os.getenv("DB_OFFLINE", "0")).strip().lower() in {"1", "true", "yes", "on"}:
-            statements = [
-                """CREATE TABLE IF NOT EXISTS developer_oauth_clients (
-                    app_id TEXT PRIMARY KEY, client_id TEXT NOT NULL UNIQUE,
-                    client_secret_hash TEXT NOT NULL, client_secret_prefix TEXT NOT NULL,
-                    redirect_uris TEXT NOT NULL, created_at INTEGER NOT NULL,
-                    secret_rotated_at INTEGER NOT NULL, revoked_at INTEGER,
-                    allowed_grant_types TEXT NOT NULL DEFAULT '[\"authorization_code\",\"refresh_token\"]',
-                    mcp_execution_mode TEXT NOT NULL DEFAULT 'execute')""",
-                """CREATE TABLE IF NOT EXISTS developer_oauth_authorizations (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT, transaction_ref TEXT NOT NULL UNIQUE,
-                    code_hash TEXT UNIQUE, app_id TEXT NOT NULL, client_id TEXT NOT NULL,
-                    redirect_uri TEXT NOT NULL, code_challenge TEXT NOT NULL,
-                    subject_firebase_uid TEXT, requested_scope TEXT NOT NULL,
-                    state TEXT, status TEXT NOT NULL, expires_at INTEGER NOT NULL,
-                    created_at INTEGER NOT NULL, consumed_at INTEGER)""",
-                """CREATE TABLE IF NOT EXISTS developer_oauth_tokens (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT, token_hash TEXT NOT NULL UNIQUE,
-                    token_prefix TEXT NOT NULL, token_kind TEXT NOT NULL, app_id TEXT NOT NULL,
-                    subject_firebase_uid TEXT, authorization_id INTEGER,
-                    scopes TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
-                    revoked_at INTEGER, last_used_at INTEGER,
-                    grant_type TEXT NOT NULL DEFAULT 'authorization_code',
-                    mcp_execution_mode TEXT NOT NULL DEFAULT 'execute')""",
-                """CREATE TABLE IF NOT EXISTS developer_oauth_audit_events (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT, app_id TEXT NOT NULL,
-                    client_id TEXT, subject_firebase_uid TEXT, event_type TEXT NOT NULL,
-                    created_at INTEGER NOT NULL)""",
-            ]
-        else:
-            statements = [
-                """CREATE TABLE IF NOT EXISTS developer_oauth_clients (
-                    app_id TEXT PRIMARY KEY REFERENCES developer_apps(app_id) ON DELETE CASCADE,
-                    client_id TEXT NOT NULL UNIQUE, client_secret_hash TEXT NOT NULL,
-                    client_secret_prefix TEXT NOT NULL, redirect_uris JSONB NOT NULL DEFAULT '[]'::jsonb,
-                    created_at BIGINT NOT NULL, secret_rotated_at BIGINT NOT NULL, revoked_at BIGINT,
-                    allowed_grant_types JSONB NOT NULL DEFAULT '[\"authorization_code\",\"refresh_token\"]'::jsonb,
-                    mcp_execution_mode TEXT NOT NULL DEFAULT 'execute')""",
-                """CREATE TABLE IF NOT EXISTS developer_oauth_authorizations (
-                    id BIGSERIAL PRIMARY KEY, transaction_ref TEXT NOT NULL UNIQUE,
-                    code_hash TEXT UNIQUE, app_id TEXT NOT NULL REFERENCES developer_apps(app_id) ON DELETE CASCADE,
-                    client_id TEXT NOT NULL REFERENCES developer_oauth_clients(client_id) ON DELETE CASCADE,
-                    redirect_uri TEXT NOT NULL, code_challenge TEXT NOT NULL,
-                    subject_firebase_uid TEXT, requested_scope TEXT NOT NULL,
-                    state TEXT, status TEXT NOT NULL, expires_at BIGINT NOT NULL,
-                    created_at BIGINT NOT NULL, consumed_at BIGINT)""",
-                """CREATE TABLE IF NOT EXISTS developer_oauth_tokens (
-                    id BIGSERIAL PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE,
-                    token_prefix TEXT NOT NULL, token_kind TEXT NOT NULL,
-                    app_id TEXT NOT NULL REFERENCES developer_apps(app_id) ON DELETE CASCADE,
-                    subject_firebase_uid TEXT,
-                    authorization_id BIGINT REFERENCES developer_oauth_authorizations(id) ON DELETE SET NULL,
-                    scopes JSONB NOT NULL DEFAULT '["mcp:tools"]'::jsonb,
-                    created_at BIGINT NOT NULL, expires_at BIGINT NOT NULL,
-                    revoked_at BIGINT, last_used_at BIGINT,
-                    grant_type TEXT NOT NULL DEFAULT 'authorization_code',
-                    mcp_execution_mode TEXT NOT NULL DEFAULT 'execute',
-                    CONSTRAINT developer_oauth_token_kind_check CHECK (token_kind IN ('access', 'refresh')))""",
-                """CREATE TABLE IF NOT EXISTS developer_oauth_audit_events (
-                    id BIGSERIAL PRIMARY KEY, app_id TEXT NOT NULL,
-                    client_id TEXT, subject_firebase_uid TEXT,
-                    event_type TEXT NOT NULL, created_at BIGINT NOT NULL)""",
-            ]
-        for statement in statements:
-            self._db.execute_raw(statement, {})
-        if str(os.getenv("DB_OFFLINE", "0")).strip().lower() not in {"1", "true", "yes", "on"}:
-            # Migration 105 is authoritative. These additive statements keep a
-            # newly booted service safe against a narrowly lagging database.
-            self._db.execute_raw(
-                "ALTER TABLE developer_oauth_tokens ALTER COLUMN subject_firebase_uid DROP NOT NULL",
-                {},
-            )
-            self._db.execute_raw(
-                "ALTER TABLE developer_oauth_tokens ADD COLUMN IF NOT EXISTS grant_type TEXT NOT NULL DEFAULT 'authorization_code'",
-                {},
-            )
-            self._db.execute_raw(
-                'ALTER TABLE developer_oauth_clients ADD COLUMN IF NOT EXISTS allowed_grant_types JSONB NOT NULL DEFAULT \'["authorization_code","refresh_token"]\'::jsonb',
-                {},
-            )
-            self._db.execute_raw(
-                "ALTER TABLE developer_oauth_clients ADD COLUMN IF NOT EXISTS mcp_execution_mode TEXT NOT NULL DEFAULT 'execute'",
-                {},
-            )
-            self._db.execute_raw(
-                "ALTER TABLE developer_oauth_tokens ADD COLUMN IF NOT EXISTS mcp_execution_mode TEXT NOT NULL DEFAULT 'execute'",
-                {},
-            )
-        if str(os.getenv("DB_OFFLINE", "0")).lower() in {"1", "true", "yes", "on"}:
-            for table, column, definition in (
-                (
-                    "developer_oauth_clients",
-                    "registration_method",
-                    "TEXT NOT NULL DEFAULT 'portal'",
-                ),
-                (
-                    "developer_oauth_clients",
-                    "token_endpoint_auth_method",
-                    "TEXT NOT NULL DEFAULT 'client_secret_basic'",
-                ),
-                ("developer_oauth_authorizations", "resource", "TEXT"),
-                ("developer_oauth_tokens", "resource", "TEXT"),
-            ):
-                columns = self._db.execute_raw(f"PRAGMA table_info({table})", {}).data
-                if column not in {row["name"] for row in columns}:
-                    self._db.execute_raw(
-                        f"ALTER TABLE {table} ADD COLUMN {column} {definition}", {}
-                    )
-        # Production schema changes are applied through migration 407 before rollout.
+        from hushh_mcp.services.developer_oauth_schema import apply_developer_oauth_schema
+
+        apply_developer_oauth_schema(self._db)
         self.__class__._tables_ensured = True
 
     def _audit(
@@ -765,133 +656,23 @@ class DeveloperOAuthService:
         code_verifier: str,
         resource: str | None = None,
     ) -> dict[str, Any]:
-        if "authorization_code" not in client.allowed_grant_types:
-            raise OAuthValidationError(
-                "unauthorized_client", "This OAuth client cannot use authorization code."
-            )
-        verifier = str(code_verifier or "").strip()
-        if not _PKCE_VALUE_RE.fullmatch(verifier):
-            raise OAuthValidationError("invalid_grant", "Authorization code validation failed.")
-        result = self._db.execute_raw(
-            """SELECT id, app_id, client_id, redirect_uri, code_challenge, subject_firebase_uid, requested_scope, resource
-               FROM developer_oauth_authorizations
-               WHERE code_hash = :code_hash AND client_id = :client_id AND status = 'issued' AND expires_at > :now LIMIT 1""",
-            {"code_hash": _hash_secret(code), "client_id": client.client_id, "now": _now_ms()},
+        from hushh_mcp.services.developer_oauth_token_grants import exchange_authorization_code
+
+        return exchange_authorization_code(
+            self,
+            client=client,
+            code=code,
+            redirect_uri=redirect_uri,
+            code_verifier=code_verifier,
+            resource=resource,
         )
-        if not result.data:
-            raise OAuthValidationError("invalid_grant", "Authorization code validation failed.")
-        row = result.data[0]
-        callback = (
-            normalize_redirect_uri(redirect_uri)
-            if client.registration_method == "portal"
-            else redirect_uri
-        )
-        if callback != str(row["redirect_uri"]) or resource != row.get("resource"):
-            raise OAuthValidationError("invalid_grant", "Authorization code validation failed.")
-        challenge = (
-            base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("utf-8")).digest())
-            .decode("ascii")
-            .rstrip("=")
-        )
-        if not hmac.compare_digest(challenge, str(row["code_challenge"])):
-            raise OAuthValidationError("invalid_grant", "Authorization code validation failed.")
-        consumed = self._db.execute_raw(
-            """UPDATE developer_oauth_authorizations SET status = 'consumed', consumed_at = :now
-               WHERE id = :id AND status = 'issued' RETURNING id""",
-            {"id": row["id"], "now": _now_ms()},
-        )
-        if not consumed.data:
-            raise OAuthValidationError("invalid_grant", "Authorization code validation failed.")
-        tokens = self._issue_tokens(
-            app_id=str(row["app_id"]),
-            subject=str(row["subject_firebase_uid"]),
-            authorization_id=int(row["id"]),
-            scopes=(str(row["requested_scope"]),),
-            resource=row.get("resource"),
-            include_refresh_token="refresh_token" in client.allowed_grant_types,
-            # PKCE is always the executable, user-authorized path.
-            mcp_execution_mode="execute",
-        )
-        self._audit(
-            app_id=str(row["app_id"]),
-            client_id=client.client_id,
-            subject=str(row["subject_firebase_uid"]),
-            event="authorization_code_exchanged",
-        )
-        return tokens
 
     def refresh(
         self, *, client: OAuthClient, refresh_token: str, resource: str | None = None
     ) -> dict[str, Any]:
-        if "refresh_token" not in client.allowed_grant_types:
-            raise OAuthValidationError(
-                "unauthorized_client", "This OAuth client cannot refresh tokens."
-            )
-        query = text("""SELECT id, app_id, subject_firebase_uid, authorization_id, scopes,
-                        resource, revoked_at, expires_at
-            FROM developer_oauth_tokens WHERE token_hash = :token_hash
-            AND token_kind = 'refresh' AND app_id = :app_id LIMIT 1""")
-        params = {"token_hash": _hash_secret(refresh_token), "app_id": client.app_id}
-        replay = False
-        with self._db.engine.begin() as connection:
-            sqlite = self._db.engine.dialect.name == "sqlite"
-            if sqlite:
-                connection.exec_driver_sql("BEGIN IMMEDIATE")
-            row = connection.execute(query, params).mappings().first()
-            if not row or row["authorization_id"] is None:
-                raise OAuthValidationError("invalid_grant", "Refresh token validation failed.")
-            # Every rotation and replay for a family serializes on its authorization.
-            lock_query = (
-                "SELECT id FROM developer_oauth_authorizations WHERE id = :id"
-                if sqlite
-                else "SELECT id FROM developer_oauth_authorizations WHERE id = :id FOR UPDATE"
-            )
-            family = connection.execute(
-                text(lock_query),
-                {"id": row["authorization_id"]},
-            ).first()
-            if not family:
-                raise OAuthValidationError("invalid_grant", "Refresh token validation failed.")
-            row = connection.execute(query, params).mappings().one()
-            if resource is not None and resource != row["resource"]:
-                raise OAuthValidationError("invalid_target", "The MCP resource does not match.")
-            if row["revoked_at"] is not None:
-                connection.execute(
-                    text("""UPDATE developer_oauth_tokens SET revoked_at = :now
-                    WHERE app_id = :app_id AND authorization_id = :authorization_id AND revoked_at IS NULL"""),
-                    {
-                        "app_id": client.app_id,
-                        "authorization_id": row["authorization_id"],
-                        "now": _now_ms(),
-                    },
-                )
-                replay = True
-            else:
-                if int(row["expires_at"]) <= _now_ms():
-                    raise OAuthValidationError("invalid_grant", "Refresh token validation failed.")
-                connection.execute(
-                    text("UPDATE developer_oauth_tokens SET revoked_at = :now WHERE id = :id"),
-                    {"now": _now_ms(), "id": row["id"]},
-                )
-                tokens = self._issue_tokens(
-                    app_id=client.app_id,
-                    subject=str(row["subject_firebase_uid"]),
-                    authorization_id=row["authorization_id"],
-                    scopes=_json_list(row["scopes"]) or (_MCP_SCOPE,),
-                    resource=row["resource"],
-                    mcp_execution_mode="execute",
-                    connection=connection,
-                )
-        # Commit family revocation before returning the invalid_grant response.
-        self._audit(
-            app_id=client.app_id,
-            client_id=client.client_id,
-            subject=None if replay else str(row["subject_firebase_uid"]),
-            event="refresh_token_replay_revoked" if replay else "refresh_token_rotated",
-        )
-        if replay:
-            raise OAuthValidationError("invalid_grant", "Refresh token validation failed.")
-        return tokens
+        from hushh_mcp.services.developer_oauth_token_grants import refresh
+
+        return refresh(self, client=client, refresh_token=refresh_token, resource=resource)
 
     def revoke(self, *, client: OAuthClient, token: str) -> None:
         self.ensure_tables()
