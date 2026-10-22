@@ -231,6 +231,47 @@ async def test_market_data_falls_back_from_finnhub_to_pmp(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [None, "quote", "profile", "transport"])
+async def test_fmp_quote_budget_counts_every_attempt_once(monkeypatch, failure):
+    monkeypatch.setenv("PMP_API_KEY", "fixture-key")
+    monkeypatch.setattr(fetchers, "_provider_in_cooldown", lambda _key: False)
+    monkeypatch.setattr(fetchers, "_mark_provider_cooldown", lambda *_args: None)
+    recorded = []
+    monkeypatch.setattr(fetchers, "record_fmp_call", lambda **kwargs: recorded.append(kwargs))
+
+    def respond(request):
+        endpoint = request.url.path.rsplit("/", 1)[-1]
+        if failure == "transport":
+            raise httpx.ConnectError("offline", request=request)
+        if failure == endpoint:
+            return httpx.Response(503, json={})
+        return httpx.Response(
+            200, json=[{"price": 100}] if endpoint == "quote" else [{"companyName": "Fixture"}]
+        )
+
+    original = httpx.AsyncClient
+    monkeypatch.setattr(
+        fetchers.httpx,
+        "AsyncClient",
+        lambda **kwargs: original(transport=httpx.MockTransport(respond), **kwargs),
+    )
+    if failure:
+        with pytest.raises(httpx.HTTPError):
+            await fetchers._fetch_pmp_quote("AAPL")
+    else:
+        await fetchers._fetch_pmp_quote("AAPL")
+    paths = (
+        ["/stable/quote"]
+        if failure in {"quote", "transport"}
+        else ["/stable/quote", "/stable/profile"]
+    )
+    assert [row["endpoint"] for row in recorded] == paths
+    assert recorded[-1]["status_code"] == (
+        None if failure == "transport" else 503 if failure else 200
+    )
+
+
+@pytest.mark.asyncio
 async def test_market_data_uses_yahoo_when_yfinance_fails(monkeypatch):
     monkeypatch.setattr(fetchers, "validate_token", _valid_token)
     monkeypatch.delenv("FINNHUB_API_KEY", raising=False)

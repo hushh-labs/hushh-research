@@ -154,6 +154,53 @@ async def test_open_session_revalidates_old_snapshots_across_cache_tiers(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("tier", ["memory", "postgres"])
+@pytest.mark.parametrize("failure", [False, True])
+async def test_fresh_degraded_quotes_retry_without_losing_fallback(monkeypatch, tier, failure):
+    now = datetime.fromisoformat("2026-07-14T23:00:00+00:00").timestamp()
+    monkeypatch.setattr(market_insights, "time", lambda: now)
+    monkeypatch.setattr(cache_module.time, "time", lambda: now)
+    store, cache = _FakeStore(), MarketInsightsCache()
+    key = "quotes:AAPL"
+    degraded = {"rows": [], "provider_status": {"quote:AAPL": "failed"}}
+    if tier == "memory":
+        cache.seed_entry(key, degraded, now - 1)
+    else:
+        store.entries[key] = _FakeEntry(degraded, now - 1, now + 1800, now + 3600)
+    monkeypatch.setattr(market_insights, "market_insights_cache", cache)
+    monkeypatch.setattr(market_insights, "get_market_cache_store_service", lambda: store)
+    calls = []
+
+    async def fetch():
+        calls.append(True)
+        if failure:
+            raise RuntimeError("provider unavailable")
+        return {"rows": [{"symbol": "AAPL", "price": 100}], "provider_status": {"quote:AAPL": "ok"}}
+
+    result = await market_insights._get_or_refresh_public_module(
+        key=key,
+        fresh_ttl_seconds=600,
+        stale_ttl_seconds=1800,
+        fetcher=fetch,
+        serve_stale_while_revalidate=False,
+    )
+    assert calls == [True]
+    assert result[1] is failure
+    if failure:
+        assert result[0] == degraded
+    else:
+        assert result[0]["rows"][0]["price"] == 100
+        await market_insights._get_or_refresh_public_module(
+            key=key,
+            fresh_ttl_seconds=600,
+            stale_ttl_seconds=1800,
+            fetcher=fetch,
+            serve_stale_while_revalidate=False,
+        )
+        assert calls == [True]
+
+
+@pytest.mark.asyncio
 async def test_warmer_recalculates_cadence_and_does_not_sleep_past_open(monkeypatch):
     intervals = iter([1800, 120])
     openings = iter([30, 10000])
