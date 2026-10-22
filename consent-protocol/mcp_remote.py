@@ -71,6 +71,15 @@ def _client_ip(scope: dict[str, Any]) -> str | None:
 async def _send_json(send, status_code: int, payload: dict[str, Any]) -> None:
     body = json.dumps(payload).encode("utf-8")
     headers = [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())]
+    if status_code == 401:
+        origin = str(os.getenv("CONSENT_API_PUBLIC_ORIGIN") or "").strip().rstrip("/")
+        challenge = (
+            f'Bearer resource_metadata="{origin}/.well-known/oauth-protected-resource", scope="mcp:tools"'
+            if origin
+            else 'Bearer scope="mcp:tools"'
+        )
+        headers.append((b"www-authenticate", challenge.encode("ascii")))
+        headers.append((b"cache-control", b"no-store"))
     await send({"type": "http.response.start", "status": status_code, "headers": headers})
     await send({"type": "http.response.body", "body": body, "more_body": False})
 
