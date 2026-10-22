@@ -5,12 +5,15 @@ import { Loader2, ShieldCheck } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
-  DialogContent,
+  DialogContent as UnscopedDialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { ContactDiscoverabilityConsentDialogProps } from "@/lib/contacts/use-contact-discoverability-consent";
+import { withLocationTypography } from "@/components/one-location/redesign/location-typography";
+
+const DialogContent = withLocationTypography(UnscopedDialogContent);
 
 export function ContactDiscoverabilityConsentDialog({
   open,
@@ -37,7 +40,7 @@ export function ContactDiscoverabilityConsentDialog({
             <ShieldCheck className="h-5 w-5" aria-hidden="true" />
           </span>
           <DialogTitle>Choose your contact privacy</DialogTitle>
-          <p className="text-muted-foreground text-sm leading-5">
+          <p data-location-type-role="body" className="text-muted-foreground text-sm leading-5">
             Allow verified people who already have your verified phone number to
             find and automatically connect with you, or keep your profile
             private from contact matching.
@@ -46,6 +49,7 @@ export function ContactDiscoverabilityConsentDialog({
 
         {loading ? (
           <div
+            data-location-type-role="status"
             className="flex min-h-20 items-center justify-center gap-2 text-sm text-muted-foreground"
             role="status"
           >
@@ -55,6 +59,7 @@ export function ContactDiscoverabilityConsentDialog({
         ) : error && !ready ? (
           <div className="space-y-3">
             <p
+              data-location-type-role="body"
               className="rounded-[var(--app-radius-lg)] bg-[color:var(--app-neutral-fill)] px-4 py-3 text-sm text-foreground"
               role="alert"
             >
@@ -68,6 +73,7 @@ export function ContactDiscoverabilityConsentDialog({
           <>
             {error ? (
               <p
+                data-location-type-role="body"
                 className="rounded-[var(--app-radius-lg)] bg-[color:var(--app-neutral-fill)] px-4 py-3 text-sm text-foreground"
                 role="alert"
               >
@@ -93,7 +99,7 @@ export function ContactDiscoverabilityConsentDialog({
                 Allow contact matching
               </Button>
             </DialogFooter>
-            <p className="text-center text-xs leading-5 text-muted-foreground">
+            <p data-location-type-role="helper" className="text-center text-xs leading-5 text-muted-foreground">
               After saving, tap {actionLabel} again to choose which contacts to
               check.
             </p>

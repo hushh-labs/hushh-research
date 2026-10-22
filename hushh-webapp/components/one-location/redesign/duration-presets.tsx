@@ -233,6 +233,7 @@ export function DurationPresetPicker({
           const active = !wheelOpen && value === rung.value;
           return (
             <button
+              data-location-type-role="form-label"
               key={rung.value}
               type="button"
               aria-pressed={active}
@@ -249,6 +250,7 @@ export function DurationPresetPicker({
         })}
         {allowCustom ? (
           <button
+            data-location-type-role="form-label"
             type="button"
             aria-pressed={customPressed}
             aria-expanded={wheelOpen}
@@ -276,6 +278,7 @@ export function DurationPresetPicker({
             a lone chip in the left cell. */}
         {allowUntilStop ? (
           <button
+            data-location-type-role="form-label"
             type="button"
             aria-pressed={isUntilStop}
             onClick={() => pickRung(untilStopValue)}

@@ -78,12 +78,13 @@ export function LocationPermissionRecoveryCard({
           <MapPinOff className="h-4 w-4" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold">{guide.title}</p>
-          <p className="mt-0.5 text-sm leading-5 text-muted-foreground">
+          <p data-location-type-role="section-heading" className="text-sm font-semibold">{guide.title}</p>
+          <p data-location-type-role="row-description" className="mt-0.5 text-sm leading-5 text-muted-foreground">
             We can&rsquo;t turn this on for you — only you can, and it takes a
             few seconds.
           </p>
           <ol
+            data-location-type-role="body"
             className="mt-2.5 list-decimal space-y-1 pl-4 text-sm leading-5 text-muted-foreground"
             data-testid="location-permission-recovery-steps"
           >

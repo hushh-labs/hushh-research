@@ -165,7 +165,7 @@ export function OnboardingLiveMap({
           data-testid="onboarding-live-map-empty"
         >
           <MapPinOff className="h-6 w-6" strokeWidth={1.8} aria-hidden="true" />
-          <p className="text-[14px] font-medium leading-5">{emptyLabel}</p>
+          <p data-location-type-role="row-title" className="text-[14px] font-medium leading-5">{emptyLabel}</p>
         </div>
       ) : null}
 

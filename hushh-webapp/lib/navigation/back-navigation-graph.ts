@@ -844,7 +844,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
         backHref: resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
         width: "profile",
         align: "center",
-        items: [{ label: fromProfile ? "Profile" : "One" }],
+        items: [{ label: "Location" }],
       };
     },
   },
