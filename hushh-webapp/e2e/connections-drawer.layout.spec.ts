@@ -1785,6 +1785,7 @@ async function presencePixels(artwork: Locator, original?: ElementHandle | null)
       resize: original && style ? {
         width: style.width, height: style.height, transform: style.transform,
         visible: getComputedStyle(canvas).visibility === "visible",
+        playbackStatus: canvas.dataset.onePresencePlayback,
         playback: /waiting-for-paint|playing|paint-timeout|asset-error|runtime-error/.test(canvas.dataset.onePresencePlayback ?? ""),
         canvasCount: surface.querySelectorAll("canvas").length,
         sameCanvas: canvas === original, bufferWidth: width, bufferHeight: height,
@@ -2039,10 +2040,10 @@ test.describe("One profile artwork and animated presence", () => {
         await expectPresencePlayback(panel.locator('[data-one-presence-state="connected"]'));
         expect(errors).toEqual([]);
       });
-      // Pointer interactions mount and dispose several native scenes. Keep
-      // that separate from the same-canvas resize contract: both retain the
-      // normal 30-second deadline on software-rendered Linux WebKit.
+      // Keep pointer scene disposal separate from cumulative same-canvas resizing.
+      // Each resize retains its own five-second paint deadline.
       test("resizes the same native canvas across phone and desktop widths", async ({ page }) => {
+        test.setTimeout(45_000); // Eight resizes and two motion checks share this budget.
         const started = Date.now();
         const checkpoint = (phase: string, width?: number, size?: number) => {
           console.log("One native resize", JSON.stringify({ density, phase, width, size, elapsedMs: Date.now() - started }));
@@ -2073,6 +2074,7 @@ test.describe("One profile artwork and animated presence", () => {
           await expectPresencePlayback(trigger);
           // Header identity is inline; the compact-header regression below verifies nonoverlap.
           for (const size of [128, 192, 256, 192]) {
+            checkpoint("resize started", width, size);
             await artwork.evaluate((node, size) => {
               (node.parentElement as HTMLElement).style.setProperty("--one-presence-size", `${size}px`);
             }, size);
@@ -2081,15 +2083,20 @@ test.describe("One profile artwork and animated presence", () => {
             // Sample geometry, the native bitmap and painted-foot spacing on
             // the same frame. Separate browser reads repeatedly flush Linux
             // WebKit's software compositor at Retina density.
+            let lastSample: Awaited<ReturnType<typeof presencePixels>> | undefined;
             await expect.poll(async () => {
               const pixels = await presencePixels(canvas, original);
+              lastSample = pixels;
               return { ...pixels.resize, painted: pixels.opaque > 0, cornerAlpha: pixels.cornerAlpha };
-            }).toMatchObject({
+            }, { timeout: 5_000 }).toMatchObject({
               width: `${size}px`, height: `${size}px`, transform: "none",
               visible: true, playback: true, canvasCount: 1, sameCanvas: true,
               bufferWidth: expectedBuffer, bufferHeight: expectedBuffer,
               feetPainted: true, nameClearOfFeet: true, nameCloseToFeet: true,
               painted: true, cornerAlpha: [0, 0, 0, 0],
+            }).catch(error => {
+              console.log("One native resize failure", JSON.stringify({ density, width, size, elapsedMs: Date.now() - started, sample: lastSample }));
+              throw error;
             });
             checkpoint("resized", width, size);
           }
