@@ -61,8 +61,10 @@ import {
   type TodoItem,
 } from "@/lib/services/todo-list-pkm-service";
 import { useTodoLiveTasks } from "@/lib/todos/use-todo-live-tasks";
+import { TodoAgentSuggestions } from "./todo-agent-suggestions";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
+import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import {
   getCachedGmailReceipts,
@@ -267,6 +269,16 @@ function AddItemButton({
 
 export function TodoListPage() {
   const { user } = useAuth();
+  const { isVaultUnlocked } = useVault();
+  const epoch = snapshotVaultSessionEpoch();
+  return <OwnerTodoListPage key={`${user?.uid ?? "anonymous"}:${epoch}:${isVaultUnlocked}`} epoch={epoch} />;
+}
+
+function OwnerTodoListPage({ epoch }: { epoch: number }) {
+  const active = useRef(true);
+  useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
+  const isCurrent = () => active.current && isVaultSessionEpochCurrent(epoch);
+  const { user } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const [editorOpen, setEditorOpen] = useState(false);
   const [tasks, setTasks] = useState<TodoItem[]>([]);
@@ -294,9 +306,10 @@ export function TodoListPage() {
     () => user?.getIdToken() ?? Promise.resolve(""),
     [user],
   );
-  const { pending, agentFeed, retryKyc, calendar, upcoming, agentLoadError, agentLoading, calendarReadLoading, calendarReadError } = useTodoLiveTasks({
+  const liveTasks = useTodoLiveTasks({
     userId, vaultOwnerToken, idTokenProvider: user ? idTokenProvider : null, enabled: writeReady, tasks,
   });
+  const { pending, agentFeed, retryKyc, calendar, upcoming, agentLoadError, agentLoading, calendarReadLoading, calendarReadError } = liveTasks;
   const gmail = useGmailConnectorStatus({
     userId,
     idTokenProvider: user ? idTokenProvider : null,
@@ -377,12 +390,13 @@ export function TodoListPage() {
     });
     try {
       const { task } = await operation;
+      if (!isCurrent()) return;
       setTasks((currentTasks) => [task, ...currentTasks]);
       setEditorOpen(false);
     } catch {
       // The shared promise toast owns the failure state.
     } finally {
-      setSavingTaskId(null);
+      if (isCurrent()) setSavingTaskId(null);
     }
   };
 
@@ -417,13 +431,14 @@ export function TodoListPage() {
     try {
       await operation;
     } catch {
+      if (!isCurrent()) return;
       setTasks((current) =>
         current.some((item) => item.id === task.id)
           ? current.map((item) => (item.id === task.id ? task : item))
           : current,
       );
     } finally {
-      setSavingTaskId(null);
+      if (isCurrent()) setSavingTaskId(null);
     }
   };
 
@@ -458,13 +473,14 @@ export function TodoListPage() {
     try {
       await operation;
     } catch {
+      if (!isCurrent()) return;
       setTasks((current) =>
         current.some((item) => item.id === task.id)
           ? current.map((item) => (item.id === task.id ? task : item))
           : [task, ...current],
       );
     } finally {
-      setSavingTaskId(null);
+      if (isCurrent()) setSavingTaskId(null);
     }
   };
 
@@ -585,6 +601,11 @@ export function TodoListPage() {
       </AppPageHeaderRegion>
 
       <AppPageContentRegion className="space-y-6 pb-6">
+        {writeReady && userId && vaultKey && vaultOwnerToken ? <TodoAgentSuggestions
+          userId={userId} vaultKey={vaultKey} vaultOwnerToken={vaultOwnerToken}
+          evidence={liveTasks.evidence} coverage={liveTasks.coverage} loading={Boolean(itemsLoading || liveTasks.sourceLoading)}
+          onSaved={() => void loadItems()} onRefresh={() => { void loadItems(); void liveTasks.refreshSources(); void agentFeed.retry(); void retryKyc(); calendar.refresh(); upcoming.refresh(); }}
+        /> : null}
         {!writeReady ? (
           <SurfaceCard>
             <div className="flex items-center gap-3 px-4 py-5">
@@ -598,7 +619,7 @@ export function TodoListPage() {
             </div>
           </SurfaceCard>
         ) : !itemsLoaded || itemsLoading ||
-          ((agentLoading || calendarReadLoading) && pending.length === 0) ? (
+          ((agentLoading || calendarReadLoading || liveTasks.sourceLoading) && pending.length === 0) ? (
           <div role="status" className="flex items-center gap-2 px-1">
             <RefreshCw
               className="size-4 animate-spin text-muted-foreground motion-reduce:animate-none"
@@ -614,7 +635,7 @@ export function TodoListPage() {
             onToggle={toggleTask}
             onDelete={requestDelete}
           />
-        ) : itemsLoadError || agentLoadError || calendarReadError ? null : (
+        ) : itemsLoadError || agentLoadError || calendarReadError || liveTasks.sourceError ? null : (
           <div data-todo-empty-state="true" className="flex max-w-sm items-start gap-3 px-1 py-4 text-left">
             <ProfilePaneTaskAddIcon size={26} className="mt-0.5 shrink-0" />
             <div className="min-w-0">

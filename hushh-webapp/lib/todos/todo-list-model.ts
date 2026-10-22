@@ -13,6 +13,10 @@ export const TODO_SOURCE_LABELS = {
   connections: "Connections",
   consent: "Consent",
   agent: "Private agent",
+  messages: "Messages",
+  wallet: "Wallet",
+  ria: "Advisor",
+  pkm: "Memory",
 } as const;
 export type TodoSourceAgent = keyof typeof TODO_SOURCE_LABELS | null;
 

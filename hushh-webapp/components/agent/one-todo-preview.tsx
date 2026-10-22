@@ -10,6 +10,7 @@ import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import { getCachedGmailReceipts, cachedGmailReceiptDisplayItems } from "@/lib/profile/gmail-receipts-cache";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import styles from "./one-agent-profile-sheet.module.css";
+import { TodoAgentSuggestions } from "@/components/todos/todo-agent-suggestions";
 
 export function OneTodoPreview({
   user,
@@ -75,12 +76,13 @@ export function OneTodoPreview({
 
   const live = useTodoLiveTasks({ userId: user.uid, vaultOwnerToken, idTokenProvider, enabled: ready, tasks });
   const openTasks = live.pending;
-  const sourceLoading = live.agentLoading || live.calendarReadLoading;
-  const sourceError = Boolean(live.agentLoadError || live.calendarReadError);
+  const sourceLoading = live.agentLoading || live.calendarReadLoading || live.sourceLoading;
+  const sourceError = Boolean(live.agentLoadError || live.calendarReadError || live.sourceError);
   const retry = () => {
     void loadTasks();
     live.calendar.refresh();
     live.upcoming.refresh();
+    void live.refreshSources();
     void Promise.all([live.agentFeed.retry(), live.retryKyc()]).catch(() => undefined);
   };
   const groups = useMemo(() => groupByDate(openTasks), [openTasks]);
@@ -121,6 +123,12 @@ export function OneTodoPreview({
       <div className={styles.sectionHeading}>
         <h3>To-do list</h3>
       </div>
+
+      {ready && vaultKey && vaultOwnerToken ? <TodoAgentSuggestions
+        userId={user.uid} vaultKey={vaultKey} vaultOwnerToken={vaultOwnerToken}
+        evidence={live.evidence} coverage={live.coverage} loading={Boolean(sourceLoading || loading)}
+        onRefresh={retry} onSaved={() => void loadTasks()}
+      /> : null}
 
       {ready && (error || sourceError) ? (
         <div className={styles.notice} role="status">

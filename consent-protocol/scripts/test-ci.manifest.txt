@@ -1410,3 +1410,7 @@ tests/services/test_drive_request_payment_v1_lane.py
 tests/services/test_email_auth_postgres.py
 
 tests/test_client_connector_routes.py
+tests/test_one_todo_feature_settings.py
+tests/services/test_one_todo_suggestions.py
+tests/routes/test_one_todo_suggestions_route.py
+tests/test_todo_wallet_inventory_postgres.py

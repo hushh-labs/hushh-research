@@ -58,6 +58,7 @@ RouteKey = tuple[str, str]
 # One line per path: "<METHODS> <path> [@pending:<lane>]", grouped under its class.
 _INVENTORY = """
 [CONTENT]
+POST /api/one/todos/suggestions
 POST /api/one/calendar/board/day
 POST /api/one/calendar/conflicts/review
 POST /api/one/calendar/conflicts/confirm
@@ -298,6 +299,7 @@ POST /api/one/google/connect/transition/complete
 GET,POST /api/one/kyc/client-connector
 POST /api/one/runtime/gemini/validate
 [SUPPORT]
+GET /api/one/todos/suggestions/status
 GET /api/kai/market/company-facts/{user_id}
 GET /api/one/wallet/card-access/artwork/assets/{digest}
 POST /api/one/wallet/card-access/artwork/resolve

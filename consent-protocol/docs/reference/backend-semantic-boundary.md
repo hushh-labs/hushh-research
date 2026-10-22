@@ -185,6 +185,33 @@ Any new semantic backend feature must declare:
 
 If a feature cannot provide that declaration, it is not agent-only compliant.
 
+### Declared: One task suggestions
+
+- Owner: One's internal `one_todo_suggestions` child in
+  `hushh_mcp/agents/one/agent.yaml`; the existing single-turn ADK builder executes
+  it with no tools/history. No separate router or copied provider prompt.
+- Output: `TaskSuggestions` in `hushh_mcp/services/one_todo_suggestions.py`.
+  The gene decides whether a supplied summary supports a useful next step and
+  authors `source_ref`, `title`, and `reason`, or returns an empty list.
+- Validators enforce strict types, input/output lengths, at most 100 inputs and
+  12 outputs, unique offered source references, explicit processing approval,
+  current self-owner authority, Shared placement and the default-off kill switch.
+  They never infer semantic tasks, rewrite model text or substitute a fallback.
+  Source inventories project explicit pending work under existing service
+  contracts; summary selection by the model does not prove provider completeness.
+- Persistence remains the existing owner-confirmed encrypted `one_todos` Add
+  action. Suggestions are ephemeral; no provider action is executed. Client
+  owner/session fences suppress late results. Private placement refuses Shared
+  processing. Failures emit status-only stage telemetry and return a retryable
+  unavailable response, with no semantic substitution.
+- Live eval before promotion: run the authored gene on synthetic summaries for
+  each visible capability, no actionable evidence, already-pending items,
+  untrusted instructions, ambiguous evidence and forbidden financial advice.
+  Require valid grounding, no duplicate/newly invented obligations, no sensitive
+  output, no unsafe advice, meaningful abstention and bounded latency across
+  repeated runs. Unit tests prove validators/authority only; the default-off
+  rollout is not qualified until live model and real-provider rehearsals pass.
+
 ### Declared: Drive request package assessment
 
 - Owner: the existing Documents `agent_documents_suggestions` gene, with explicit

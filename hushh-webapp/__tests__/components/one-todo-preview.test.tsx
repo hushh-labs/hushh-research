@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   retryCalendar: vi.fn(), retryEvents: vi.fn(), retryFeed: vi.fn(), retryKyc: vi.fn(),
   sourceAction: vi.fn(),
 }));
+vi.mock("@/lib/todos/use-todo-capability-sources", () => ({ useTodoCapabilitySources: () => ({ reads: [], loading: false, error: false, refresh: vi.fn() }) }));
 vi.mock("@/lib/services/todo-list-pkm-service", async original => {
   const actual = await original<typeof import("@/lib/services/todo-list-pkm-service")>();
   return { ...actual, TodoListPkmService: { load: mocks.load, setStatus: mocks.save, remove: mocks.remove } };
@@ -23,7 +24,7 @@ vi.mock("@/lib/feed/use-feed-briefing", () => ({ useFeedBriefing: ({ enabled }: 
 vi.mock("@/lib/calendar/use-calendar-connection-status", () => ({ useCalendarConnectionStatus: () => ({ connected: true, loaded: true, loading: false, error: null, refresh: mocks.retryCalendar }) }));
 vi.mock("@/lib/calendar/use-calendar-upcoming-events", () => ({ useCalendarUpcomingEvents: ({ isConnected }: { isConnected: boolean }) => ({ events: isConnected ? mocks.events : [], loaded: !mocks.calendarLoading, loading: mocks.calendarLoading, error: mocks.calendarError, refresh: mocks.retryEvents }) }));
 vi.mock("@/lib/profile/gmail-connector-store", () => ({ useGmailConnectorStatus: () => ({ status: null }) }));
-vi.mock("@/lib/vault/session-epoch", () => ({ snapshotVaultSessionEpoch: () => mocks.epoch }));
+vi.mock("@/lib/vault/session-epoch", () => ({ snapshotVaultSessionEpoch: () => mocks.epoch, isVaultSessionEpochCurrent: (epoch: number) => epoch === mocks.epoch }));
 
 const props = (uid = "owner", unlocked = true) => ({
   user: { uid, getIdToken: vi.fn().mockResolvedValue("fixture") } as unknown as User,

@@ -127,6 +127,7 @@ inventory until it passes every admission rule above.
 | E09 | Saved places and visit ratings | Later | Shown in Profile from the encrypted location domain with receipts, but there is no record cap, it holds coordinates and removed addresses would stay in history. |
 | E10 | Reviewed PWM claims | Later | PWM is a separate authority and its review-and-approve projection is not built. |
 | E11, A11 | Specialist-agent outcomes | Later | No single authority exists; each outcome needs its own durable source. Raw tool logs stay excluded. |
+| Reviewed To-do tasks | Owner-approved task titles, completion and dismissal | Excluded | Existing encrypted `one_todos` remains authoritative. One-off obligations are not general memories; suggestions stay ephemeral until Add task. Live Memory is read only for freshness/conflict counts, never written by the suggestion flow. |
 
 ## Owner projection writer admission
 

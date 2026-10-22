@@ -42,6 +42,7 @@ const mocks = vi.hoisted(() => ({
   getIdToken: vi.fn().mockResolvedValue("viewer-token"),
   loadTasks: vi.fn(),
 }));
+vi.mock("@/lib/todos/use-todo-capability-sources", () => ({ useTodoCapabilitySources: () => ({ reads: [], loading: false, error: false, refresh: vi.fn() }) }));
 vi.mock("@/lib/capacitor/native-drawers", () => ({ nativeDrawersPlatformEligible: () => mocks.native }));
 vi.mock("@/components/app-ui/native-feature-page", () => ({
   NativeFeaturePage: ({ open, context, children, onBack, onClose }: { open: boolean; context: string; children: React.ReactNode; onBack: () => void; onClose: () => void }) =>

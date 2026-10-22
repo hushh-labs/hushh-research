@@ -135,7 +135,7 @@ POST /api/one/payouts/hashcoins/redeem
 POST /api/one/wallet/card-access/cards/{card_id}/grants
 POST /api/one/wallet/card-access/grants/{grant_id}/verify
 POST /api/one/wallet/card-access/registrations
-POST /api/one/wallet/card-access/requests
+GET,POST /api/one/wallet/card-access/requests
 POST /api/one/wallet/card-access/requests/{request_id}/cancel
 POST /api/one/wallet/card-access/requests/{request_id}/decline
 DELETE /api/one/messages/conversations/{conversation_id}/messages/{message_id}/reaction

@@ -9,8 +9,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   TodoListPage,
-  TodoRows,
-  type DueReceiptItem,
 } from "@/components/todos/todo-list-page";
 import {
   TodoListPkmService,
@@ -18,6 +16,7 @@ import {
   agentTodoInput,
   type TodoItem,
 } from "@/lib/services/todo-list-pkm-service";
+import * as todoService from "@/lib/services/todo-list-pkm-service";
 import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
 
 const mocks = vi.hoisted(() => ({
@@ -37,6 +36,7 @@ const mocks = vi.hoisted(() => ({
   ],
 }));
 
+vi.mock("@/lib/todos/use-todo-capability-sources", () => ({ useTodoCapabilitySources: () => ({ reads: [], loading: false, error: false, refresh: vi.fn() }) }));
 vi.mock("@/lib/feed/use-feed-actionables", () => ({
   useFeedActionables: ({ enabled }: { enabled: boolean }) => ({
     actionables: enabled ? mocks.actionables : [],
@@ -101,6 +101,7 @@ describe("TodoListPage row actions", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     mocks.unlocked = true;
+    mocks.user.uid = "todo-owner";
     mocks.actionables = [];
     mocks.feedError = null;
     mocks.feedLoading = false;
@@ -146,6 +147,24 @@ describe("TodoListPage row actions", () => {
     vi.mocked(TodoListPkmService.load).mockResolvedValue({ tasks: [] });
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByRole("heading", { name: "No tasks yet" })).toBeVisible();
+  });
+
+  it("never inserts a late create into another owner's list or suggestions", async () => {
+    mocks.events = [];
+    let finishCreate!: (value: { task: TodoItem; result: { success: boolean } }) => void;
+    vi.spyOn(todoService, "createTodo").mockImplementation(() => new Promise(resolve => { finishCreate = resolve; }) as ReturnType<typeof todoService.createTodo>);
+    const view = render(<TodoListPage />);
+    await screen.findByRole("heading", { name: "No tasks yet" });
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }));
+    fireEvent.change(screen.getByPlaceholderText("What do you want to do?"), { target: { value: "Owner A private task" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(finishCreate).toBeDefined());
+    mocks.user.uid = "another-owner";
+    view.rerender(<TodoListPage />);
+    await screen.findByRole("heading", { name: "No tasks yet" });
+    await act(async () => finishCreate({ task: buildTodo({ title: "Owner A private task", type: "manual" }), result: { success: true } }));
+    expect(screen.queryByText("Owner A private task")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "No tasks yet" })).toBeVisible();
   });
 
   it("does not reveal a late saved read after the vault locks", async () => {
@@ -421,61 +440,5 @@ describe("TodoListPage row actions", () => {
     ).toHaveValue("");
   });
 
-  it("orders Any time tasks first, due receipts in the middle, and dated tasks below", () => {
-    const tasks: TodoItem[] = [
-      {
-        id: "dated-1",
-        title: "Tomorrow task",
-        date: "2099-01-01",
-        status: "pending",
-        type: "manual",
-        createdAt: "2026-01-01T00:00:00Z",
-        updatedAt: "2026-01-01T00:00:00Z",
-      },
-      {
-        id: "anytime-1",
-        title: "Anytime task",
-        date: null,
-        status: "pending",
-        type: "manual",
-        createdAt: "2026-01-01T00:00:00Z",
-        updatedAt: "2026-01-01T00:00:00Z",
-      },
-    ];
 
-    const dueReceipts: DueReceiptItem[] = [
-      {
-        id: "rec-1",
-        merchantName: "Acme Cloud",
-        title: "Monthly hosting",
-        amount: "$49.00",
-        date: "Oct 18",
-        status: "overdue",
-        statusLabel: "Payment overdue",
-        href: "/one/gmail?workspace=receipts",
-      },
-    ];
-
-    const { container } = render(
-      <TodoRows
-        tasks={tasks}
-        dueReceipts={dueReceipts}
-        savingTaskId={null}
-        onToggle={vi.fn()}
-        onDelete={vi.fn()}
-      />,
-    );
-
-    const sections = container.querySelectorAll("section");
-    expect(sections).toHaveLength(3);
-
-    expect(sections[0]).toHaveTextContent("Any time");
-    expect(sections[0]).toHaveTextContent("Anytime task");
-
-    expect(sections[1]).toHaveTextContent("Receipts & Due Payments");
-    expect(sections[1]).toHaveTextContent("Acme Cloud");
-    expect(sections[1]).toHaveTextContent("$49.00");
-
-    expect(sections[2]).toHaveTextContent("Tomorrow task");
-  });
 });
