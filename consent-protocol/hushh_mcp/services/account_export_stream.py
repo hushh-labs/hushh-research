@@ -33,6 +33,28 @@ EXPORT_DEADLINE_SECONDS = 240
 _EXPORT_SLOTS = BoundedSemaphore(2)
 _CHUNK_CHARS = 16 * 1024
 _TRANSPORT_BYTES = 256 * 1024
+_JSON_SCALAR_TYPES = (str, int, float, bool, type(None))
+
+
+def _export_json_value(value: Any) -> Any:
+    """Normalize native JSON containers without FastAPI's generic per-value dispatch.
+
+    PostgreSQL JSONB has exact native containers and string keys. Preserve the
+    canonical recursive SQLAlchemy-key filtering; all other types, subclasses
+    and key shapes retain FastAPI's existing normalization behavior.
+    """
+    kind = type(value)
+    if kind in _JSON_SCALAR_TYPES:
+        return value
+    if kind is list:
+        return [_export_json_value(item) for item in value]
+    if kind is dict and all(type(key) is str for key in value):
+        return {
+            key: _export_json_value(item)
+            for key, item in value.items()
+            if not key.startswith("_sa")
+        }
+    return jsonable_encoder(value)
 
 
 class AccountExportBusy(RuntimeError):
@@ -70,6 +92,8 @@ class AccountExportStream:
         self._fetch_seconds = 0.0
         self._produce_seconds = 0.0
         self._yield_wait_seconds = 0.0
+        self._normalize_seconds = 0.0
+        self._encode_seconds = 0.0
         self._suspended_at: float | None = None
         self._exhausted = False
 
@@ -156,7 +180,8 @@ class AccountExportStream:
                 _EXPORT_SLOTS.release()
                 logger.info(
                     "account_export outcome=%s rows=%d bytes=%d elapsed_ms=%d "
-                    "chunks=%d max_chunk_bytes=%d fetch_ms=%d produce_ms=%d yield_wait_ms=%d",
+                    "chunks=%d max_chunk_bytes=%d fetch_ms=%d produce_ms=%d yield_wait_ms=%d "
+                    "normalize_ms=%d encode_ms=%d",
                     "producer_complete" if self._completed else "incomplete",
                     self._rows,
                     self._bytes,
@@ -166,6 +191,8 @@ class AccountExportStream:
                     int(self._fetch_seconds * 1000),
                     int(self._produce_seconds * 1000),
                     int(self._yield_wait_seconds * 1000),
+                    int(self._normalize_seconds * 1000),
+                    int(self._encode_seconds * 1000),
                 )
 
     @property
@@ -177,23 +204,27 @@ class AccountExportStream:
             raise TimeoutError("Account export deadline exceeded")
 
     def _encode(self, value: Any) -> Iterator[bytes]:
+        self._check_deadline()
+        started = time.monotonic()
+        try:
+            normalized = _export_json_value(value)
+        finally:
+            self._normalize_seconds += time.monotonic() - started
+        self._check_deadline()
         encoder = json.JSONEncoder(ensure_ascii=True, separators=(",", ":"))
+        started = time.monotonic()
+        try:
+            # Public encode() uses CPython's C traversal. Materialize at most one
+            # encoded row, never an accumulated section or account history.
+            encoded = encoder.encode(normalized)
+        finally:
+            self._encode_seconds += time.monotonic() - started
+        del normalized
+        self._check_deadline()
         # Escaped JSON is ASCII, so the character and byte budgets are equal.
-        pending = bytearray()
-        for fragment in encoder.iterencode(jsonable_encoder(value)):
-            offset = 0
-            while offset < len(fragment):
-                self._check_deadline()
-                end = min(len(fragment), offset + _CHUNK_CHARS - len(pending))
-                pending.extend(fragment[offset:end].encode("ascii"))
-                offset = end
-                if len(pending) == _CHUNK_CHARS:
-                    # One threadpool/ASGI hop per buffer, not per JSON token.
-                    yield bytes(pending)
-                    pending.clear()
-        if pending:
+        for offset in range(0, len(encoded), _CHUNK_CHARS):
             self._check_deadline()
-            yield bytes(pending)
+            yield encoded[offset : offset + _CHUNK_CHARS].encode("ascii")
 
     def _rows_for(self, conn: Any, key: str) -> Generator[dict[str, Any], None, None]:
         # Options belong to SELECT only: psycopg2 must not wrap SET in a named cursor.
