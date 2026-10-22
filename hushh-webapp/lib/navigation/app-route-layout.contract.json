@@ -2570,11 +2570,14 @@
       "cases": [
         {
           "href": "/one/messages",
-          "expected": null
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
         }
       ],
-      "kind": "root",
-      "reason": "Messages owns thread-level navigation inside its workspace through route-scoped Back layers."
+      "kind": "parent"
     }
   },
   {

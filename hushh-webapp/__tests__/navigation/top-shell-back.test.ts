@@ -10,6 +10,20 @@ import { registerBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
 
 describe("top shell back action", () => {
+  it("returns from the Messages inbox to One after local Back layers unwind", () => {
+    const navigate = vi.fn();
+    const closeThread = vi.fn(() => true);
+    const unregister = registerBackLayer({ pathname: ROUTES.ONE_MESSAGES, depth: 1, back: closeThread });
+    try {
+      expect(navigateTopShellBack({ pathname: ROUTES.ONE_MESSAGES, navigate })).toBe(true);
+      expect(closeThread).toHaveBeenCalledOnce();
+      expect(navigate).not.toHaveBeenCalled();
+    } finally {
+      unregister();
+    }
+    expect(navigateTopShellBack({ pathname: ROUTES.ONE_MESSAGES, navigate })).toBe(true);
+    expect(navigate).toHaveBeenCalledWith({ href: ROUTES.ONE_HOME, mode: "push", transitionMode: "full" });
+  });
   it("returns a person profile opened from Messages to Messages", () => {
     expect(resolveTopShellBackAction({
       pathname: "/people/person-maya",

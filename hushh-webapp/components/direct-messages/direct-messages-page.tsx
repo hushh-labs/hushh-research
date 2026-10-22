@@ -24,6 +24,7 @@ import {
 import { AgentDockPortal, useAgentDockFrame } from "@/components/agent/agent-dock";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { navigateDirectMessage, resolveDirectMessageHref } from "@/lib/direct-messages/navigate-direct-message";
+import { MessagesBackButton } from "./messages-back-button";
 import { OneChatBubble } from "@/components/agent/chat-message-styles";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { ConnectionsService, type ConnectionSummaryEntry } from "@/lib/services/connections-service";
@@ -1713,11 +1714,12 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
         <aside className={styles.inbox} aria-label="Conversations">
           <header className={styles.inboxHeader}>
             <div className={styles.inboxHeading}>
+              <MessagesBackButton owner={user?.uid ?? null} active={lane === "people"} />
               <h1>Messages</h1>
             </div>
             <div className={styles.inboxHeaderActions}>
               {themeToggle}
-              <button type="button" className={styles.refreshButton} aria-label="Compose message" onClick={() => {
+              <button type="button" className={cn(styles.refreshButton, styles.inboxComposeButton)} aria-label="Compose message" onClick={() => {
                 setNewChatQuery(""); setNewChatPage(1); setNewChatPeople([]); setNewChatHasMore(false); setNewChatOpen(true);
               }}><Pencil className="h-5 w-5" aria-hidden="true" /></button>
               <button type="button" className={styles.refreshButton} aria-label="New chat" onClick={() => {
@@ -2476,7 +2478,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
         <AlertDialogContent size="sm">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete chat with {chatDeleteRequest ? conversationLabel(chatDeleteRequest.conversation) : "this person"}?</AlertDialogTitle>
-            <AlertDialogDescription>Deletes this chat for you only.</AlertDialogDescription>
+            <AlertDialogDescription className="sr-only">Deletes this chat for you only.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={Boolean(deletingChat)}>Cancel</AlertDialogCancel>
