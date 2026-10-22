@@ -114,6 +114,8 @@ describe("Release notices", () => {
     state.status.mockResolvedValue({ ...receipt, updateAvailable: true, updateVerified: false });
     render(<AgentReleaseNotifier />);
     await screen.findByRole("button", { name: "Your private agent is updated" });
+    const notice = completedPodNotice(receipt)!;
+    await waitFor(() => expect(state.seen.has(`owner-a:${notice.id}`)).toBe(true));
     fireEvent.click(screen.getByRole("button"));
     await act(async () => publishPodUpdateObservation("owner-a", receipt));
     expect(screen.queryByRole("button")).toBeNull();
