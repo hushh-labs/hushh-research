@@ -7,7 +7,8 @@ import { toast } from "sonner";
 import { AppPageContentRegion, AppPageHeaderRegion, AppPageShell } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { useAuth } from "@/hooks/use-auth";
-import { isEmptyResume, normalizeResume, resumeToText, splitName, type Resume } from "@/lib/career/resume";
+import { applyWithSavedResume } from "@/lib/career/apply";
+import { isEmptyResume, normalizeResume, resumeToText, type Resume } from "@/lib/career/resume";
 import { Button } from "@/lib/morphy-ux/morphy";
 import { ROUTES } from "@/lib/navigation/routes";
 import { CareerPkmService, type CareerApplicationReceipt } from "@/lib/services/career-pkm-service";
@@ -87,33 +88,10 @@ export default function CareerPage() {
   const apply = async () => {
     if (!applying || !saved || !write) return;
     setBusy("apply");
-    const receiptId = crypto.randomUUID();
-    const { first, last } = splitName(saved.name);
-    const link = (needle: string) => saved.links.find((l) => l.url.toLowerCase().includes(needle))?.url;
-    const resumeText = resumeToText(saved);
     try {
-      const result = await CareerService.applyToRole({
-        role: applying,
-        firstName: first,
-        lastName: last,
-        location: saved.location,
-        resumeText,
-        links: { linkedin: link("linkedin.com"), github: link("github.com") },
-        consentReceiptId: receiptId,
-      });
-      const receipt: CareerApplicationReceipt = {
-        receipt_id: receiptId,
-        role_slug: applying.slug,
-        role_title: applying.title,
-        sent_at: new Date().toISOString(),
-        reference: result.reference,
-        status_link: result.statusLink,
-        shared: { name: saved.name, location: saved.location, resume_chars: resumeText.length },
-      };
+      const { result, receipt, receiptSaved } = await applyWithSavedResume({ role: applying, resume: saved, write });
       setApplications((current) => [receipt, ...current]);
-      await CareerPkmService.recordApplication({ ...write, receipt }).catch(() =>
-        toast.message("Applied. We couldn't save the receipt to your knowledge model."),
-      );
+      if (!receiptSaved) toast.message("Applied. We couldn't save the receipt to your knowledge model.");
       toast.success(`Applied to ${applying.title}${result.reference ? ` · ${result.reference}` : ""}`);
       setApplying(null);
     } catch (error) {
