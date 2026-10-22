@@ -358,7 +358,7 @@ for (const width of [320, 390, 1440]) {
     await expect(page.getByRole("dialog")).toContainText("Synthetic event details for rendered QA.");
     for (let index = 0; index < 5; index++) { await page.keyboard.press("Tab"); expect(await page.getByRole("dialog").evaluate(element => element.contains(document.activeElement))).toBe(true); }
     await page.getByTestId("calendar-fixture-lock").dispatchEvent("click");
-    expect(await page.evaluate(() => document.body.textContent?.includes("Synthetic event details for rendered QA."))).toBe(false);
+    await expect.poll(() => page.evaluate(() => document.body.textContent?.includes("Synthetic event details for rendered QA."))).toBe(false);
     await expect(page.getByText("Calendar session unavailable.", { exact: false })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /unlock/i })).toHaveCount(0);
     await page.getByTestId("calendar-fixture-authorize").dispatchEvent("click");
@@ -448,7 +448,7 @@ for (const width of [320, 390, 1440]) {
     await expect(page.getByRole("dialog")).toContainText(privateLongTitle);
     await expect(page.getByRole("dialog")).toContainText(privateLongLocation);
     await page.getByTestId("calendar-fixture-lock").dispatchEvent("click");
-    expect(await page.evaluate(({ title, location }) => document.body.textContent?.includes(title) || document.body.textContent?.includes(location), { title: privateLongTitle, location: privateLongLocation })).toBe(false);
+    await expect.poll(() => page.evaluate(({ title, location }) => document.body.textContent?.includes(title) || document.body.textContent?.includes(location), { title: privateLongTitle, location: privateLongLocation })).toBe(false);
     expect(long.errors).toEqual([]);
     expect(long.unexpectedRequests).toEqual([]);
 
