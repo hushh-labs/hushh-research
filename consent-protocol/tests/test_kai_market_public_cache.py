@@ -372,3 +372,57 @@ async def test_sector_periods_use_distinct_observed_session_closes(monkeypatch):
     assert rows[0]["change_1w_pct"] == pytest.approx(10)
     assert rows[0]["period_start_1d"] != rows[0]["period_start_1w"]
     assert rows[0]["basis"] == "Sector ETF price return"
+
+
+@pytest.mark.asyncio
+async def test_stock_history_auth_currency_and_closed_session_boundary(monkeypatch):
+    from types import SimpleNamespace
+
+    from fastapi import HTTPException
+
+    from api.routes.kai import price_history
+
+    called = []
+    supported = {"exchange": "Nasdaq"}
+    monkeypatch.setattr(
+        price_history,
+        "get_symbol_master_service",
+        lambda: SimpleNamespace(get_ticker_metadata=lambda _: supported),
+    )
+
+    async def public_module(**kwargs):
+        called.append(kwargs["key"])
+        return await kwargs["fetcher"](), False, 0, "live", False
+
+    async def observed(symbols):
+        called.append("provider")
+        return {
+            symbols[0]: [
+                {"t": 1792000000, "p": 230.0},
+                {"t": 1792086400, "p": 232.0},
+                {"t": 1792086401, "p": float("nan")},
+            ]
+        }
+
+    monkeypatch.setattr(market_insights, "_get_or_refresh_public_module", public_module)
+    monkeypatch.setattr(price_history, "fetch_market_session_history", observed)
+    monkeypatch.setattr(price_history, "us_market_is_open", lambda: False)
+    with pytest.raises(HTTPException) as error:
+        await price_history.get_stock_price_history("owner", "AAPL", "another-owner")
+    assert error.value.status_code == 403
+    assert called == []
+    supported["exchange"] = "NSE"
+    with pytest.raises(HTTPException) as error:
+        await price_history.get_stock_price_history("owner", "AAPL", "owner")
+    assert error.value.status_code == 422
+    assert called == []
+    supported["exchange"] = "Nasdaq"
+    closed = await price_history.get_stock_price_history("owner", "AAPL", "owner")
+    assert closed["unavailable"] is True and closed["points"] == []
+    assert "provider" not in called
+    monkeypatch.setattr(price_history, "us_market_is_open", lambda: True)
+    opened = await price_history.get_stock_price_history("owner", "AAPL", "owner")
+    assert opened["currency"] == "USD" and opened["interval"] == "1d"
+    assert opened["points"] == [{"t": 1792000000.0, "p": 230.0}, {"t": 1792086400.0, "p": 232.0}]
+    assert opened["stale"] is False and opened["unavailable"] is False
+    assert called.count("provider") == 1

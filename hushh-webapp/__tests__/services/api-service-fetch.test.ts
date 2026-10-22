@@ -1,3 +1,4 @@
+import { deferred, jsonResponse, makeUnsignedToken } from "@/__tests__/fixtures/api-service-responses";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const googlePlacement = vi.hoisted(() => vi.fn(async () => false));
 vi.mock('@/lib/services/private-agent-specialist-chat', () => ({ ownerContentIsPrivate: googlePlacement }));
@@ -92,36 +93,18 @@ import { trackRequestStart } from "@/lib/motion/api-progress-tracker";
 
 const mockFetch = global.fetch as ReturnType<typeof vi.fn>;
 
-function jsonResponse(
-  body: unknown,
-  status = 200,
-  headers?: Record<string, string>,
-): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json", ...headers },
-  });
-}
-
-function makeUnsignedToken(payload: Record<string, unknown>): string {
-  const payloadBase64 = btoa(JSON.stringify(payload))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-  return `header.${payloadBase64}.sig`;
-}
-
-function deferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise;
-    reject = rejectPromise;
-  });
-  return { promise, resolve, reject };
-}
-
 describe("ApiService.apiFetch", () => {
+  it("preserves dated prices and cached-history metadata through the authenticated transport", async () => {
+    vi.mocked(AuthService.getIdToken).mockResolvedValueOnce("firebase-id-token");
+    mockFetch.mockResolvedValueOnce(jsonResponse({ points: [{ t: 1792000000, p: 230 }], stale: true, retrieved_at: "2026-10-20T20:00:00Z" }));
+    const history = await ApiService.getKaiStockPriceHistory("owner", "BRK-B");
+    expect(history).toEqual({ points: [{ date: new Date(1792000000 * 1000).toISOString(), value: 230 }], stale: true, retrievedAt: "2026-10-20T20:00:00Z" });
+    expect(String(mockFetch.mock.calls[0][0])).toContain("/api/kai/market/history/owner?symbol=BRK-B");
+    expect(new Headers(mockFetch.mock.calls[0][1].headers).get("Authorization")).toBe("Bearer firebase-id-token");
+    vi.mocked(AuthService.getIdToken).mockResolvedValueOnce(null);
+    await expect(ApiService.getKaiStockPriceHistory("owner", "AAPL")).rejects.toThrow("Missing authentication");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
   it.each([false, true])("preserves cookie-free pod requests (stream=%s) and hub cookies", async (streaming) => {
     const url = "https://owner-pod.example/api/one/pod/status";
     mockFetch.mockResolvedValue(jsonResponse({ ok: true }));
