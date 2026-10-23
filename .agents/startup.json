@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.agents/adapters/claude/session_start.py\"",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.agents/scripts/startup.py\"",
             "timeout": 5
           }
         ]

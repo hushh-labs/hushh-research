@@ -26,7 +26,7 @@ and domain ownership, with deeper folders only for distinct responsibilities.
 
 The canonical operating contract now lives in `.agents/instructions.md`, loaded
 explicitly by root `AGENTS.md`. Skill, workflow, and lane consumers move together;
-host settings and projections live under `.agents/adapters`, exposed through checked relative native links. Codex reads canonical skills directly; copied discovery is removed.
+settings live in `.agents/config.toml` and `.agents/startup.json`; projections live under `.agents/generated/subagents`, exposed through checked relative native links. Codex reads canonical skills directly; copied discovery is removed.
 
 ## Inspected baseline
 
@@ -36,7 +36,7 @@ host settings and projections live under `.agents/adapters`, exposed through che
 | Governed owner/spoke skills | 45 under `.agents/skills/` | Preserve `skill.json`, ownership, routing and verification contracts |
 | Development subagents | 19 authored TOML files under `.agents/subagents/` | Preserve lane IDs, read-only authority and generated host mirrors |
 | Recurring workflows | 40 under `.agents/workflows/` | Preserve workflow IDs and existing CLI commands |
-| Host discovery | Exact relative links; 19 Claude projections under `.agents/adapters` | No copied skill discovery. Preserve native settings, current MCP entries and classified imports |
+| Host discovery | Exact relative links; 19 Claude projections under `.agents/generated` | No copied skill discovery. Preserve native settings, current MCP entries and classified imports |
 | Routing cases / pinned imports | 45 cases under `.agents/evals`; 156 unchanged imported files under `.agents/imports/impeccable` | Preserve case bytes, original licenses/hashes and pending-review restrictions |
 | Maintained documentation | 321 pages in the existing inventory | Classify every page; 37 flagged review candidates are not deletion decisions |
 | Concurrent work | Ten dirty/untracked peer paths; active ADK worktree | Preserve hashes, coordinate ownership and reconcile before relocation |

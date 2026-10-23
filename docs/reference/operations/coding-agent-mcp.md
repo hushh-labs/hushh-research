@@ -144,7 +144,7 @@ Rules:
 
 Repo-scoped exception:
 
-1. Project-scoped settings live in `.agents/adapters/codex/config.toml`; `.codex/config.toml` is its compatibility link. Authored agents live in `.agents/subagents/`.
+1. Project-scoped settings live in `.agents/config.toml`; `.codex/config.toml` is its compatibility link. Authored agents live in `.agents/subagents/`.
 2. Keep that repo config non-secret. MCP credentials and user-local server config still belong in the machine-local Codex config, not the repo.
 
 ## Repo-scoped custom agents
@@ -183,7 +183,7 @@ python3 .agents/skills/agent-orchestration-governance/scripts/subagent_budget.py
 
 ### Subagent close freeze RCA
 
-Observed failure: the host-level `close_agent` operation can block the parent Codex turn while trying to close an old child thread. This is a host lifecycle-management issue, not a repo config issue: `.agents/adapters/codex/config.toml` correctly caps threads at six with depth one, and local validation passes.
+Observed failure: the host-level `close_agent` operation can block the parent Codex turn while trying to close an old child thread. This is a host lifecycle-management issue, not a repo config issue: `.agents/config.toml` correctly caps threads at six with depth one, and local validation passes.
 
 Operational conclusion:
 

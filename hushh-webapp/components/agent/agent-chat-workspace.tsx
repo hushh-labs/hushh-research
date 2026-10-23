@@ -9895,19 +9895,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             </div>
           </div>
 
-          <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 px-[var(--agent-chat-header-inline-gutter)] py-1 text-xs leading-5 text-muted-foreground">
-            <p>One: cloud · Puppy: your linked computer</p>
-            {!isPuppySurface && hasChatAccess ? (
-              <button type="button" aria-label="What One can access" onClick={event => {
-                historyDrawerTriggerRef.current = event.currentTarget;
-                openHistoryConnectors();
-              }}
-                className="min-h-11 text-left font-medium text-foreground underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                Access
-              </button>
-            ) : null}
-          </div>
-
           <OneAgentProfileSheet presenceState={onePresenceState} open={isOneProfileOpen} onOpenChange={setIsOneProfileOpen} triggerRef={oneProfileTriggerRef}
             nativeReady={isCanonicalChatRoute && hasChatAccess && isVaultUnlocked}
             modelControl={canPickOneModel && modelPreference && !isPuppySurface && !hasInlineModelPicker ? (

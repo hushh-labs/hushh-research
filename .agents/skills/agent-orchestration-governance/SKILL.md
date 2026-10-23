@@ -19,16 +19,19 @@ description: Use when changing repo-scoped Codex custom agents, subagent concurr
 Owned repo surfaces:
 
 1. `.agents/subagents`
-2. `.agents/adapters/claude/agents`
-3. `.agents/adapters/codex/config.toml`
+2. `.agents/generated/subagents`
+3. `.agents/config.toml`
 4. `.agents/skills/agent-orchestration-governance`
 5. `.agents/workflows/agent-orchestration-governance`
 6. `AGENTS.md`
 7. `docs/reference/operations/README.md`
 8. `docs/reference/operations/coding-agent-mcp.md`
-9. `.agents/adapters`
-10. `.agents/instructions.md`
-11. `.agents/README.md`
+9. `.agents/generated`
+10. `.agents/startup.json`
+11. `.agents/scripts`
+12. `.agents/routing`
+13. `.agents/instructions.md`
+14. `.agents/README.md`
 
 Non-owned surfaces:
 
@@ -66,7 +69,7 @@ Non-owned surfaces:
 2. Keep the fleet at the curated sweet spot: broad read-only evidence lanes, not one agent per skill.
 3. Preserve the repo-wide delegation checkpoint and truth-first handoff shape in `AGENTS.md` and `delegation-contract.md`.
 4. Keep custom-agent TOML files thin: role, sandbox, nicknames, root craft/bacterial-architecture inheritance hook, concise instructions, and skill routing.
-5. Treat the TOML files under `.agents/subagents` as the only authored fleet. Files under `.agents/adapters/claude/agents` are generated from them by `sync_claude_agents.py --write`; never hand-edit a mirror.
+5. Treat the TOML files under `.agents/subagents` as the only authored fleet. Files under `.agents/generated/subagents` are generated from them by `sync_claude_agents.py --write`; never hand-edit a mirror.
 6. Keep wave-1 agents read-only and leave branch switching, writes, approval, merge, deploy, secrets, and final decisions to the parent/governor.
 7. Keep native host paths as checked relative links to `.agents`; never copy skills or create a second authored fleet. Release finished child sessions through supported host controls and verify closure.
 8. Keep global limits bounded at `max_threads = 6` and `max_depth = 1` unless a later review proves otherwise.

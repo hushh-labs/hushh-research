@@ -42,8 +42,10 @@ never installs a pod image.
 
 Same-login re-registration is staged separately. Non-production currently shares
 production Firebase identity authority, whose destructive mutation guard must
-remain enforced. Qualify isolated non-production authentication and a reviewed
-UID-preserving migration before advertising re-registration. Never reattach owners
+remain enforced. Shared Firebase identifiers may remain; same-UID re-registration
+requires environment-scoped account generations across sessions, grants, jobs
+and database writes. Isolated identity projects remain an alternative. Qualify
+that lifecycle before advertising re-registration. Never reattach owners
 by email, clear full-account tombstones or use account reset to revive deletion.
 
 Azure installed Dev28; its startup/resize repair still needs a new qualified image

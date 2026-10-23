@@ -16,7 +16,7 @@ relative links; do not copy procedures or frontmatter into another tool's folder
 
 Author changes here, then use the existing adapter generator to check native links.
 `skill_lint.py` verifies canonical sources and discovery without a second skill copy.
-Host invocation adapters belong in [adapters](../adapters/README.md); they do not
+Native invocation belongs in [the unified framework](../README.md); it does not
 create another policy or subagent fleet.
 
 Additional shared practices:
