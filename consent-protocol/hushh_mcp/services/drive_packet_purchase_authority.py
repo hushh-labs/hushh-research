@@ -18,6 +18,18 @@ def packet_purchase(
 ):
     if reusable_packet is None:
         return None, None
+    period_enabled = os.getenv("DRIVE_PERIOD_PACKETS_ENABLED", "").strip().lower() == "true"
+    if legacy_flow and not period_enabled:
+        raise DriveSharingError("packet_unavailable")
+    if not isinstance(reusable_packet, dict) or not {
+        "packetId",
+        "version",
+        "manifestDigest",
+        "listingRevision",
+        "priceCents",
+        "ownerUserId",
+    }.issubset(reusable_packet):
+        raise DriveSharingError("invalid_argument")
     from hushh_mcp.services.drive_packet_store import DrivePacketStore
     from hushh_mcp.services.drive_period_packet_reader import period_purchases_enabled
 
@@ -28,10 +40,7 @@ def packet_purchase(
         version=reusable_packet["version"],
         viewer_user_id=recipient.user_id,
     )
-    provider_packet = (
-        manifest.get("kind") == "provider_discovery"
-        and os.getenv("DRIVE_PERIOD_PACKETS_ENABLED", "").strip().lower() == "true"
-    )
+    provider_packet = manifest.get("kind") == "provider_discovery" and period_enabled
     if provider_packet and not period_purchases_enabled() or legacy_flow and not provider_packet:
         raise DriveSharingError("packet_unavailable")
     if (
