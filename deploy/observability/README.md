@@ -86,6 +86,13 @@ Agent stream failures use the existing redacted terminal-turn telemetry. HTTP-su
 
 Chat answer latency uses `first_answer_ms`, separately from first-visible tool or status activity. The dashboard compares answer samples with terminal-turn count and reports missing answers separately; missing timing marks never become zero-latency samples. Missing-answer count includes approval-only turns and is diagnostic, not an error alert. Azure model-call failures have a separate typed counter; content-free call logs include authentication, first output, total time and reasoning-token usage. Existing actionable terminal failure alerts retain their recipients.
 
+Explicit Azure content-filter stops remain terminal errors with `error_class=refusal`,
+`error_code=text.content.filtered` and model-call `error_kind=filtered`. They are
+visible in content-free logs and terminal counts without paging as outages.
+Token exhaustion, unknown incomplete reasons and provider failures remain actionable.
+`provider_code` projects a closed diagnostic vocabulary for structured SDK errors;
+provider messages and response bodies never enter the call log.
+
 ## One Voice provider and latency tracking
 
 The reconciler also owns two distribution log metrics in the **backend deployment

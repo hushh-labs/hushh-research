@@ -19,6 +19,7 @@ from hushh_mcp.one_adk.owner_ai_run_errors import (
     owner_ai_error_for_exception,
 )
 from hushh_mcp.one_adk.run_errors import (
+    content_filtered_error,
     is_authored_run_error,
     managed_authority_error,
     transient_model_error_for_exception,
@@ -52,7 +53,8 @@ def normalize_history_error(event: BaseEvent) -> BaseEvent:
             return CHAT_KEY_RUN_ERROR
     # The owner's own key refused first: a 429 there is their quota, not our capacity.
     return (
-        managed_authority_error(event)
+        content_filtered_error(event)
+        or managed_authority_error(event)
         or owner_ai_bridge_error(event)
         or transient_model_run_error(event)
         or event
@@ -66,7 +68,8 @@ def safe_exception_event(exc: Exception) -> RunErrorEvent:
     if isinstance(exc, CHAT_KEY_ERRORS):
         return CHAT_KEY_RUN_ERROR
     return (
-        managed_authority_error(exc)
+        content_filtered_error(exc)
+        or managed_authority_error(exc)
         or owner_ai_error_for_exception(exc)
         or transient_model_error_for_exception(exc)
         or RunErrorEvent(

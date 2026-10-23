@@ -22,6 +22,17 @@ from hushh_mcp.one_adk.run_errors import (
     transient_model_run_error,
 )
 
+
+def test_filter_bridge_mapping_requires_exact_authored_signal():
+    from hushh_mcp.one_adk.run_errors import content_filtered_error
+    from hushh_mcp.runtime_providers.azure_call_lifecycle import AzureContentFilteredError
+
+    message = str(AzureContentFilteredError())
+    assert content_filtered_error(run_error(message)).code == "TEXT_CONTENT_FILTERED"
+    assert content_filtered_error(RunErrorEvent(message=message, code="AGENT_ERROR")) is None
+    assert content_filtered_error(run_error(message + " untrusted suffix")) is None
+
+
 PROVIDER_429 = "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'status': 'RESOURCE_EXHAUSTED'}}"
 ADK_ADVICE = "\nOn how to mitigate this issue, please refer to:\n\nhttps://example.test/adk\n\n\n"
 

@@ -440,7 +440,9 @@ class ChatFailureObservabilityTest(unittest.TestCase):
         args = module.cli(["--project", "hushh-pda-uat", "--sql-instance", "hushh-uat-pg"])
         cases = (
             ("obs_agent_stream_failure_count", "one_agent_chat_turn_complete head=one events=2 outcome=error error_class=refusal error_code=text.authority.ended ", "error_class=refusal error_code=text.authority.ended", "error_class=other error_code=background.execution.error"),
+            ("obs_agent_stream_failure_count", "one_agent_chat_turn_complete head=one events=2 outcome=error error_class=refusal error_code=text.content.filtered ", "error_class=refusal error_code=text.content.filtered", "error_class=other error_code=background.execution.error"),
             ("obs_azure_model_error_count", "azure_model_call_complete provider=azure_openai model=gpt-5-mini outcome=failed error_kind=authority status=0 ", "error_kind=authority", "error_kind=server"),
+            ("obs_azure_model_error_count", "azure_model_call_complete provider=azure_openai model=gpt-5-mini outcome=failed error_kind=filtered status=0 ", "error_kind=filtered", "error_kind=protocol"),
         )
         for name, refusal, old, actionable in cases:
             metric = module.render(ROOT / f"log-metrics/{name}.json", args)

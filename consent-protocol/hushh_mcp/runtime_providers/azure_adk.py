@@ -20,7 +20,7 @@ from google.genai import types
 from pydantic import BaseModel, Field, field_validator
 
 from .azure_call_lifecycle import AzureAuthenticationError as AzureAuthenticationError
-from .azure_call_lifecycle import acquire_token, observe_call
+from .azure_call_lifecycle import AzureContentFilteredError, acquire_token, observe_call
 from .azure_response_history import (
     browser_message_part,
     reasoning_part,
@@ -345,6 +345,22 @@ def _request(
     return kwargs
 
 
+def _require_complete(response: Any) -> None:
+    if (
+        _value(response, "status") == "incomplete"
+        and _value(_value(response, "incomplete_details"), "reason") == "content_filter"
+    ):
+        raise AzureContentFilteredError()
+    if _value(response, "status") != "completed" or _value(response, "incomplete_details"):
+        raise ValueError("Azure model response did not complete")
+
+
+def _raise_stream_error(event: Any) -> None:
+    if _value(event, "type") == "response.incomplete":
+        _require_complete(_value(event, "response"))
+    raise ValueError("Azure streaming response did not complete")
+
+
 def _response(
     response: Any,
     *,
@@ -352,8 +368,7 @@ def _response(
     preserve_message_phase: bool = False,
     allow_web_search: bool = False,
 ) -> LlmResponse:
-    if _value(response, "status") != "completed" or _value(response, "incomplete_details"):
-        raise ValueError("Azure model response did not complete")
+    _require_complete(response)
     parts, ids = [], set()
     for item in _value(response, "output", []) or []:
         kind = _value(item, "type")
@@ -596,7 +611,7 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
                         yield final
                         return
                     elif kind in {"error", "response.failed", "response.incomplete"}:
-                        raise ValueError("Azure streaming response did not complete")
+                        _raise_stream_error(event)
                 if not completed:
                     raise ValueError("Azure streaming response ended before completion")
             finally:

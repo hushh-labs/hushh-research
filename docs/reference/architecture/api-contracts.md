@@ -1543,6 +1543,10 @@ choices remain visible as history. Selection writes return `MODEL_MANAGED_BY_POL
 Connected-stream revocation emits the fixed `TEXT_AUTHORITY_ENDED` refusal without
 automatic retry. Failure to validate current authority still fails closed and
 remains an actionable runtime error, including consent database outages.
+An explicit Azure `incomplete/content_filter` response or structured SDK
+`content_filter` error (HTTP 400 or statusless SSE) emits `TEXT_CONTENT_FILTERED`
+with a fixed rephrasing notice and `retryable:false`. It remains a terminal error
+classified as a refusal; partial output never becomes a completed answer.
 Managed UAT fleet aliases resolve through the selected Azure compatibility port;
 responses and telemetry retain the actual model/provider. BYOK remains explicit.
 
