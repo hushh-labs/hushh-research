@@ -2498,7 +2498,13 @@ def _provider_capture_fixture(monkeypatch, azure=True, vertex=False):
             "traffic_percent": 0,
         },
     }
-    label = 'Step #5 - "verify-managed-provider-readiness"'
+    steps = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))["steps"]
+    index, step = next(
+        (index, step)
+        for index, step in enumerate(steps)
+        if step.get("id") == "verify-managed-provider-readiness"
+    )
+    label = f'Step #{index} - "verify-managed-provider-readiness"'
 
     def entry(value, number):
         return {
@@ -2534,14 +2540,7 @@ def _provider_capture_fixture(monkeypatch, azure=True, vertex=False):
                 "_REGION": "region",
             }.items()
         },
-        "steps": [{}] * 5
-        + [
-            {
-                "id": "verify-managed-provider-readiness",
-                "status": "SUCCESS",
-                "waitFor": ["verify-azure-pwm-runtime", "verify-managed-vertex-runtime"],
-            }
-        ],
+        "steps": [{}] * index + [{**step, "status": "SUCCESS"}],
     }
     build["substitutions"].update(
         _BACKEND_SERVICE="consent-protocol",
@@ -2591,6 +2590,8 @@ def test_uploaded_provider_receipt_uses_exact_remote_build_without_stdout(
         "build",
         "failed_build",
         "failed_step",
+        "missing_deployment",
+        "extra_dependency",
         "run",
         "image",
         "log_build",
@@ -2610,6 +2611,10 @@ def test_uploaded_provider_receipt_refuses_unbound_or_ambiguous_evidence(monkeyp
         build["status"] = "FAILURE"
     elif defect == "failed_step":
         build["steps"][-1]["status"] = "FAILURE"
+    elif defect == "missing_deployment":
+        build["steps"][-1]["waitFor"].remove("deploy-backend")
+    elif defect == "extra_dependency":
+        build["steps"][-1]["waitFor"].append("unexpected-step")
     elif defect == "run":
         build["substitutions"]["_GITHUB_RUN_ID"] = "wrong-run"
     elif defect == "image":
