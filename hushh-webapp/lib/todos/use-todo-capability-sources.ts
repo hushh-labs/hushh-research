@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { readTodoCapabilities, type CapabilityRead } from "@/lib/services/todo-capability-sources";
+import { readTodoCapabilities, readTodoMemory, type CapabilityRead } from "@/lib/services/todo-capability-sources";
+import { subscribeLiveMirror } from "@/lib/pkm/memory-refresh";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 export function useTodoCapabilitySources(input: {
@@ -19,6 +20,16 @@ export function useTodoCapabilitySources(input: {
   const request = useRef(0);
   const abort = useRef<AbortController | null>(null);
   const [snapshot, setSnapshot] = useState({ identity, reads: [] as CapabilityRead[], loading: true, error: false });
+  useEffect(() => {
+    if (!enabled || !userId || !vaultOwnerToken) return;
+    return subscribeLiveMirror(userId, () => {
+      if (current.current !== identity || !isVaultSessionEpochCurrent(epoch)) return;
+      const memory = readTodoMemory({ userId });
+      setSnapshot(previous => previous.identity === identity
+        ? { ...previous, reads: [...previous.reads.filter(read => read.coverage.capability !== "pkm"), memory] }
+        : previous);
+    });
+  }, [enabled, userId, vaultOwnerToken, identity, epoch]);
   const load = useCallback(async () => {
     if (!enabled || !userId || !vaultOwnerToken || !provider.current || current.current !== identity) return;
     abort.current?.abort();
@@ -29,7 +40,7 @@ export function useTodoCapabilitySources(input: {
     setSnapshot(previous => ({ identity, reads: previous.identity === identity ? previous.reads : [], loading: true, error: false }));
     try {
       const reads = await readTodoCapabilities({ userId, vaultOwnerToken, getIdToken: provider.current, mailConnected, calendarConnected, mailStatusKnown, calendarStatusKnown, signal: controller.signal, isCurrent });
-      if (isCurrent()) setSnapshot({ identity, reads, loading: false, error: false });
+      if (isCurrent()) setSnapshot({ identity, reads: [...reads.filter(read => read.coverage.capability !== "pkm"), readTodoMemory({ userId })], loading: false, error: false });
     } catch {
       if (isCurrent()) setSnapshot(previous => ({ ...previous, loading: false, error: true }));
     }

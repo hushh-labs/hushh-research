@@ -62,6 +62,7 @@ import {
 } from "@/lib/services/todo-list-pkm-service";
 import { useTodoLiveTasks } from "@/lib/todos/use-todo-live-tasks";
 import { TodoAgentSuggestions } from "./todo-agent-suggestions";
+import { TodoSourceReviews } from "./todo-source-reviews";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
@@ -503,7 +504,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
         dataState: itemsLoading
           ? "loading"
           : writeReady
-            ? pending.length > 0 ||
+            ? pending.length > 0 || liveTasks.reviews.length > 0 ||
               completed.length > 0 ||
               dueReceipts.length > 0
               ? "loaded"
@@ -603,6 +604,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
           evidence={liveTasks.evidence} coverage={liveTasks.coverage} loading={Boolean(itemsLoading || liveTasks.sourceLoading || receipts.loading)}
           onSaved={() => void loadItems()} onRefresh={() => { void loadItems(); void liveTasks.refreshSources(); void receipts.refresh(); void agentFeed.retry(); void retryKyc(); calendar.refresh(); upcoming.refresh(); }}
         /> : null}
+        {writeReady && itemsLoaded && !itemsLoading ? <TodoSourceReviews reviews={liveTasks.reviews} /> : null}
         {!writeReady ? (
           <SurfaceCard>
             <div className="flex items-center gap-3 px-4 py-5">
@@ -616,7 +618,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
             </div>
           </SurfaceCard>
         ) : !itemsLoaded || itemsLoading ||
-          ((agentLoading || calendarReadLoading || liveTasks.sourceLoading || receipts.loading) && pending.length === 0 && dueReceipts.length === 0) ? (
+          ((agentLoading || calendarReadLoading || liveTasks.sourceLoading || receipts.loading) && pending.length === 0 && dueReceipts.length === 0 && liveTasks.reviews.length === 0) ? (
           <div role="status" className="flex items-center gap-2 px-1">
             <RefreshCw
               className="size-4 animate-spin text-muted-foreground motion-reduce:animate-none"
@@ -632,12 +634,12 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
             onToggle={toggleTask}
             onDelete={requestDelete}
           />
-        ) : itemsLoadError || agentLoadError || calendarReadError || liveTasks.sourceError || receipts.error ? null : (
+        ) : liveTasks.reviews.length || itemsLoadError || agentLoadError || calendarReadError || liveTasks.sourceError || receipts.error ? null : (
           <div data-todo-empty-state="true" className="flex max-w-sm items-start gap-3 px-1 py-4 text-left">
             <ProfilePaneTaskAddIcon size={26} className="mt-0.5 shrink-0" />
             <div className="min-w-0">
               <MediumRowLabel as="h2" data-profile-role="name">
-                {tasks.length === 0 && completed.length === 0 ? "No tasks yet" : "No pending tasks"}
+                {liveTasks.coverage.some(source => source.status === "incomplete") ? "No tasks in the checked sources" : tasks.length === 0 && completed.length === 0 ? "No tasks yet" : "No pending tasks"}
               </MediumRowLabel>
               <HelperText as="p" data-profile-role="description" className="mt-1">
                 {tasks.length === 0 && completed.length === 0

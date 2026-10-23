@@ -23,7 +23,7 @@ function Coverage({ coverage, loading }: Pick<Props, "coverage" | "loading">) {
       {taskCapabilities().map(capability => {
         const source = sources.get(capability.id as TaskCoverage["capability"]);
         const status = loading ? "Checking…" : !source ? "Not checked yet" : source.status === "not_connected" ? "Not connected" : source.status === "unavailable" ? "Could not check" : source.status === "incomplete" ? `${source.count} found · Limited coverage` : source.count ? `${source.count} awaiting attention` : "No pending work";
-        return <li key={capability.id} className="flex items-start justify-between gap-3 text-sm"><span>{capability.title}</span><span className="text-muted-foreground">{status}</span></li>;
+        return <li key={capability.id} className="flex items-start justify-between gap-3 text-sm"><span>{capability.title}{source?.scope ? <HelperText as="span" className="block">{source.scope}</HelperText> : null}</span><span className="shrink-0 text-muted-foreground">{status}</span></li>;
       })}
     </ul>
   </details>;

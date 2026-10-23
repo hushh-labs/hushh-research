@@ -21,6 +21,9 @@ function Fixture() {
         <button onClick={() => change({ hideAgent: !state.hideAgent })}>
           Toggle agent task
         </button>
+        <button onClick={() => change({ sourceReviews: !state.sourceReviews })}>
+          Toggle source reviews
+        </button>
         <button onClick={() => setMount((value) => value + 1)}>
           Reopen list
         </button>

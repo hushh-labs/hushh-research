@@ -2281,14 +2281,24 @@ One profile To-do and `/one/todos` share live pending-work projection and encryp
 completion/dismissal state. Coverage follows Messages, Finance, Wallet, Location,
 Advisor, Mail, Calendar, Memory and Consent, using their existing authorized
 services. This is a bounded foreground inventory, not a background sweep of all
-connected information. Calendar agenda covers the next 168 hours plus bounded
-invitations; Mail inspects at most 50 recent nudges and reports limited coverage;
-Advisor reads existing advisor-persona attention items (other personas report
-unavailable coverage, not disconnected relationships); Memory inspects only the
+connected information. Calendar agenda covers the next 168 hours from the default
+account's primary calendar, retaining provider truncation, plus bounded invitations.
+Mail inspects at most 50 recent nudges and reports limited coverage. Finance covers
+analyses available in the session; Advisor reads an attention preview. Both report
+limited coverage. Other Advisor personas report
+unavailable coverage, not disconnected relationships; Memory inspects only the
 current session's verified Live Memory mirror metadata, never its contents.
 A cold or stale mirror is unavailable/incomplete. Consent and Wallet page at
 most 5,000 rows each and preserve incomplete coverage when capped. Source failures
 remain independent, never becoming a disconnected status or an empty success.
+
+Unread Messages and explicit Memory disagreements appear as source review links.
+Their owning screens resolve the work; these links have no completion checkbox
+and create no task tombstones that could hide future unread batches or conflicts.
+Memory observes its existing owner-scoped RAM publisher, including late builds and
+invalidation, without starting another refresh or writer. Background verification
+hints are not owner tasks and are excluded from suggestion evidence. Empty states
+describe only checked sources when coverage is limited; failed reads retain retry.
 
 `GET /api/one/todos/suggestions/status` requires vault-owner authentication and
 returns private/no-store `{available}` from `ONE_TODO_SUGGESTIONS_ENABLED`.

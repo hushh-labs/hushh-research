@@ -31,7 +31,8 @@ test.beforeAll(async () => {
       "getCachedGmailReceipts,cachedGmailReceiptDisplayItems,clearCachedGmailReceipts",
     "lib/mail/receipt-store.ts": "loadReceiptSnapshot",
     "lib/services/mail-receipt-resource-service.ts": "MailReceiptResourceService",
-    "lib/services/todo-capability-sources.ts": "readTodoCapabilities",
+    "lib/services/todo-capability-sources.ts": "readTodoCapabilities,readTodoMemory",
+    "lib/pkm/memory-refresh.ts": "subscribeLiveMirror",
     "lib/services/todo-suggestion-service.ts":
       "todoSuggestionsAvailable,suggestTodoTasks",
     "lib/calendar/use-calendar-upcoming-events.ts": "useCalendarUpcomingEvents",
@@ -218,6 +219,24 @@ for (const [width, dark] of [
   });
 }
 
+test("source reviews stay readable on a phone and open their owning workspace", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 850 });
+  await page.route("http://localhost/todo-fixture", route => route.fulfill({ contentType: "text/html", body: `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>` }));
+  await page.goto("http://localhost/todo-fixture");
+  await page.addScriptTag({ content: script });
+  await page.getByRole("button", { name: "Toggle source reviews" }).click();
+  await page.getByRole("button", { name: "Refresh sources" }).click();
+  const reviews = page.getByRole("region", { name: "Source reviews" });
+  await expect(reviews.getByRole("link", { name: /Review 2 unread messages/ })).toHaveAttribute("href", "/chat");
+  await expect(reviews.getByRole("link", { name: /Review memory disagreements/ })).toBeVisible();
+  await expect(reviews.getByRole("checkbox")).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  await page.screenshot({ path: test.info().outputPath("source-reviews.png"), animations: "disabled" });
+  await reviews.getByRole("link", { name: /Review memory disagreements/ }).click();
+  await expect(page).toHaveURL("http://localhost/one/memory");
+  await expect(page.getByRole("region", { name: "Agent workspace" })).toBeVisible();
+});
+
 test("empty To-do stays truthful and readable through phone widths and enlargement", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -232,7 +251,7 @@ test("empty To-do stays truthful and readable through phone widths and enlargeme
   await page.addScriptTag({ content: script });
   await page.getByRole("button", { name: "Toggle agent task" }).click();
   const empty = page.locator('[data-todo-empty-state="true"]');
-  await expect(empty.getByRole("heading", { name: "No tasks yet" })).toBeVisible();
+  await expect(empty.getByRole("heading", { name: "No tasks in the checked sources" })).toBeVisible();
   await expect(empty).toContainText("Add an item to get started.");
   expect(await empty.locator('[data-profile-role="name"]').evaluate((node) => getComputedStyle(node).fontSize)).toBe("13px");
   expect(await empty.locator('[data-profile-role="description"]').evaluate((node) => getComputedStyle(node).fontSize)).toBe("12px");

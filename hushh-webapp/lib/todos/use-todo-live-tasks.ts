@@ -158,8 +158,8 @@ export function useTodoLiveTasks({ userId, vaultOwnerToken, idTokenProvider, ena
     () => projectTodoTasks(tasks, upcoming.events, agentFeed.actionables, pendingKyc, evidence),
     [tasks, upcoming.events, agentFeed.actionables, pendingKyc, evidence],
   );
-  const coverage: TaskCoverage[] = ["finance", "location", "consent"].map(capability => ({ capability: capability as TaskCapability, count: pending.filter(task => task.sourceAgent && sourceCapabilities[task.sourceAgent] === capability).length, status: agentLoadError ? "unavailable" : capability === "consent" && agentFeed.inventoryIncomplete ? "incomplete" : "ready" }));
-  const allCoverage = [...coverage, ...extra.reads.map(read => read.coverage.capability === "calendar" ? { ...read.coverage, count: pending.filter(task => task.sourceAgent === "calendar").length, status: calendarReadError ? "unavailable" as const : read.coverage.status } : read.coverage)];
+  const coverage: TaskCoverage[] = ["finance", "location", "consent"].map(capability => ({ capability: capability as TaskCapability, count: pending.filter(task => task.sourceAgent && sourceCapabilities[task.sourceAgent] === capability).length, ...(capability === "finance" ? { scope: "Analyses available in this session" } : {}), status: agentLoadError ? "unavailable" : capability === "finance" || (capability === "consent" && agentFeed.inventoryIncomplete) ? "incomplete" : "ready" }));
+  const allCoverage = [...coverage, ...extra.reads.map(read => read.coverage.capability === "calendar" ? { ...read.coverage, scope: "Events: next 7 days, primary calendar; pending invitations", count: pending.filter(task => task.sourceAgent === "calendar").length, status: calendarReadError || read.coverage.status === "unavailable" ? "unavailable" as const : upcoming.incomplete ? "incomplete" as const : read.coverage.status } : read.coverage)];
   const suggestionEvidence: TaskEvidence[] = evidence.map(item => ({ ...item }));
   for (const task of pending) {
     const capability = task.sourceAgent && sourceCapabilities[task.sourceAgent];
@@ -173,9 +173,9 @@ export function useTodoLiveTasks({ userId, vaultOwnerToken, idTokenProvider, ena
     });
   }
   return {
-    pending: enabled ? pending : [], agentFeed, retryKyc, calendar, upcoming,
+    pending: enabled ? pending : [], reviews: enabled ? evidence.filter(item => item.reviewTitle && !item.pendingTitle) : [], agentFeed, retryKyc, calendar, upcoming,
     agentLoadError, agentLoading: enabled && agentLoading, calendarReadLoading, calendarReadError,
     evidence: suggestionEvidence, coverage: allCoverage, sourceLoading: extra.loading || agentLoading || calendarReadLoading,
-    sourceError: extra.error || allCoverage.some(source => source.status === "unavailable" || source.status === "incomplete"), refreshSources: extra.refresh,
+    sourceError: extra.error || allCoverage.some(source => source.status === "unavailable"), refreshSources: extra.refresh,
   };
 }

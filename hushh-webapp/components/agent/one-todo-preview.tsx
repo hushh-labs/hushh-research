@@ -11,6 +11,7 @@ import { useTodoReceiptSnapshot } from "@/lib/todos/use-todo-receipt-snapshot";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import styles from "./one-agent-profile-sheet.module.css";
 import { TodoAgentSuggestions } from "@/components/todos/todo-agent-suggestions";
+import { TodoSourceReviews } from "@/components/todos/todo-source-reviews";
 
 export function OneTodoPreview({
   user,
@@ -69,6 +70,7 @@ export function OneTodoPreview({
 
   const live = useTodoLiveTasks({ userId: user.uid, vaultOwnerToken, idTokenProvider, enabled: ready, tasks });
   const openTasks = live.pending;
+  const limited = live.coverage.some(source => source.status === "incomplete");
   const sourceLoading = live.agentLoading || live.calendarReadLoading || live.sourceLoading || receipts.loading;
   const sourceError = Boolean(live.agentLoadError || live.calendarReadError || live.sourceError || receipts.error);
   const retry = () => {
@@ -134,18 +136,19 @@ export function OneTodoPreview({
         <p role="status" className={styles.notice}>
           Unlock your vault to view your to-do list.
         </p>
-      ) : loading || (sourceLoading && !openTasks.length && !dueReceipts.length) ? (
+      ) : loading || (sourceLoading && !openTasks.length && !dueReceipts.length && !live.reviews.length) ? (
         <p role="status" className={styles.notice}>
           Loading your to-do list…
         </p>
-      ) : !openTasks.length && !dueReceipts.length ? error || sourceError ? null : (
+      ) : !openTasks.length && !dueReceipts.length && !live.reviews.length ? error || sourceError ? null : (
         <div className={styles.empty}>
           <ClipboardList className="size-7" aria-hidden />
-          <p>All clear.</p>
-          <span>Tasks and due payments will appear here.</span>
+          <p>{limited ? "No tasks in the checked sources." : "All clear."}</p>
+          <span>{limited ? "Some sources have limited coverage. See Task sources above." : "Tasks and due payments will appear here."}</span>
         </div>
       ) : (
         <div className="space-y-4">
+          <TodoSourceReviews reviews={live.reviews} />
           {/* 1. Any time section comes FIRST */}
           {anytimeGroup ? (
             <section key={anytimeGroup.id} className="space-y-2">

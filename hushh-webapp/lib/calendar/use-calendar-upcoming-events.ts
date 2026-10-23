@@ -38,6 +38,7 @@ export type UseCalendarUpcomingEventsResult = {
   error: string | null;
   recovery: CalendarReadRecovery | null;
   loaded: boolean;
+  incomplete: boolean;
   refresh: () => void;
 };
 
@@ -73,9 +74,9 @@ function redactEvent(raw: CalendarEventSummary): RedactedCalendarEvent {
 }
 
 /**
- * Fetches and redacts the caller's own upcoming Calendar events. No cap
- * here -- capping/sorting for display is the rendering card's job, mirroring
- * AgentGmailNudgeCard's own responsibility for its data. Needs no
+ * Fetches and redacts one bounded page of the caller's upcoming Calendar events.
+ * Provider truncation remains visible; rendering cards may further limit display.
+ * Needs no
  * idTokenProvider: unlike Gmail's sealed-header auth, listEvents() only
  * needs vaultOwnerToken (see GoogleCalendarService.listEvents's doc
  * comment) -- a real simplification, not an oversight.
@@ -105,7 +106,8 @@ export function useCalendarUpcomingEvents({
     error: string | null;
     recovery: CalendarReadRecovery | null;
     loaded: boolean;
-  }>({ identity, events: [], loading: false, error: null, recovery: null, loaded: false });
+    incomplete: boolean;
+  }>({ identity, events: [], loading: false, error: null, recovery: null, loaded: false, incomplete: false });
   const canLoad = Boolean(isConnected && userId && vaultOwnerToken);
   const current = canLoad && snapshot.identity === identity;
 
@@ -124,7 +126,7 @@ export function useCalendarUpcomingEvents({
     ) return;
     const request = ++requestRef.current;
     setSnapshot({
-      identity, events: [], loading: true, error: null, recovery: null, loaded: false,
+      identity, events: [], loading: true, error: null, recovery: null, loaded: false, incomplete: false,
     });
     try {
       const now = new Date();
@@ -144,6 +146,7 @@ export function useCalendarUpcomingEvents({
         error: null,
         recovery: null,
         loaded: true,
+        incomplete: response.has_more === true || response.truncated === true,
       });
     } catch (error) {
       if (request !== requestRef.current || identityRef.current !== identity) {
@@ -157,6 +160,7 @@ export function useCalendarUpcomingEvents({
           ? error.message : "Calendar details couldn’t load. Refresh to try again.",
         recovery: error instanceof GoogleCalendarError ? error.recovery : "retry",
         loaded: true,
+        incomplete: false,
       });
     }
   }, [identity, isConnected, userId, vaultOwnerToken, windowHours]);
@@ -171,6 +175,7 @@ export function useCalendarUpcomingEvents({
     error: current ? snapshot.error : null,
     recovery: current ? snapshot.recovery : null,
     loaded: current && snapshot.loaded,
+    incomplete: current && snapshot.incomplete,
     refresh: () => void load(),
   };
 }
