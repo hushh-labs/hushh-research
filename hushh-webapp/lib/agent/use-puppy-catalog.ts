@@ -10,8 +10,10 @@ import { getAuthSessionGeneration, snapshotValidatedAuthSessionOwner, isValidate
 
 export type PuppyCatalog = Awaited<ReturnType<typeof ApiService.getPuppyDirectModels>>;
 
-/** A model list read never spins forever: past this, show the last list and say so. */
+/** Stop the short checking animation while connection readiness continues. */
 export const PUPPY_CATALOG_TIMEOUT_MS = 12_000;
+/** Existing 120s pod wake + 35s device activation + 20s catalog, with transport margin. */
+export const PUPPY_READINESS_TIMEOUT_MS = 180_000;
 
 // Memory only (never browser storage): the last list each machine shared this
 // session, so a slow or sleeping machine still shows something useful.
@@ -71,7 +73,7 @@ function globalMessage(outcome: "changed" | "refused" | "waiting", machine: stri
 }
 
 /** The trusted machine's reported local models, with a bounded read and a memory fallback. */
-export function usePuppyCatalog({ hushhId, deviceId, vaultOwnerToken, machine = "your computer", prefetch = false }: Owner & { machine?: string; prefetch?: boolean }) {
+export function usePuppyCatalog({ hushhId, deviceId, vaultOwnerToken, machine = "your computer", prefetch = false, enabled = true }: Owner & { machine?: string; prefetch?: boolean; enabled?: boolean }) {
   // Stable across renders, so a dependent effect never re-reads on every paint.
   const owner = useMemo(() => ({ hushhId, deviceId, vaultOwnerToken }), [hushhId, deviceId, vaultOwnerToken]);
   const key = keyOf(owner);
@@ -80,13 +82,17 @@ export function usePuppyCatalog({ hushhId, deviceId, vaultOwnerToken, machine = 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const [waitingFor, setWaitingFor] = useState<"agent" | "machine" | null>(null);
   const generation = useRef(0);
   const attempts = useRef(0);
   const reading = useRef<(() => boolean) | null>(null);
   const changing = useRef<(() => boolean) | null>(null);
+  const cancelRead = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     generation.current += 1;
+    cancelRead.current?.();
+    cancelRead.current = null;
     reading.current = null;
     changing.current = null;
     setCatalogKey(key);
@@ -95,8 +101,24 @@ export function usePuppyCatalog({ hushhId, deviceId, vaultOwnerToken, machine = 
     // A read for the previous owner can no longer clear its own spinner.
     setLoading(false);
     setError("");
-    return () => { generation.current += 1; };
-  }, [key, owner.vaultOwnerToken]);
+    setWaitingFor(null);
+    return () => { generation.current += 1; cancelRead.current?.(); };
+  }, [key, owner.vaultOwnerToken, enabled]);
+
+  useEffect(() => {
+    const stopWhenHidden = () => {
+      if (document.visibilityState !== "hidden") return;
+      attempts.current += 1;
+      cancelRead.current?.();
+      cancelRead.current = null;
+      reading.current = null;
+      setLoading(false);
+      setWaitingFor(null);
+      setError("");
+    };
+    document.addEventListener("visibilitychange", stopWhenHidden);
+    return () => document.removeEventListener("visibilitychange", stopWhenHidden);
+  }, []);
 
   /** Whether a model change is still waiting on the machine. Bounded on its own, after the list. */
   const readPending = useCallback(async (mine: number) => {
@@ -119,21 +141,32 @@ export function usePuppyCatalog({ hushhId, deviceId, vaultOwnerToken, machine = 
   const load = useCallback(async () => {
     const { hushhId, deviceId, vaultOwnerToken } = owner;
     const session = snapshotValidatedAuthSessionOwner();
-    if (!hushhId || !deviceId || !vaultOwnerToken || !session || reading.current?.() || document.visibilityState === "hidden") return;
+    if (!enabled || !hushhId || !deviceId || !vaultOwnerToken || !session || reading.current?.() || document.visibilityState === "hidden") return;
     const mine = generation.current;
     const attempt = ++attempts.current;
     // Only the newest read for the current owner may change what is shown.
     const latest = () => generation.current === mine && attempts.current === attempt && isValidatedAuthSessionOwnerCurrent(session);
     reading.current = latest;
-    const deadline = deadlineSignal(PUPPY_CATALOG_TIMEOUT_MS);
+    const deadline = deadlineSignal(PUPPY_READINESS_TIMEOUT_MS);
     let agentAnswered = false;
+    const displayTimer = setTimeout(() => {
+      if (!latest()) return;
+      setLoading(false);
+      setWaitingFor(agentAnswered ? "machine" : "agent");
+    }, PUPPY_CATALOG_TIMEOUT_MS);
+    const cancel = () => { clearTimeout(displayTimer); deadline.cancel(); };
+    cancelRead.current = cancel;
     setLoading(true);
     setError("");
+    setWaitingFor(null);
     try {
       // Raced as well as signalled: waking the agent does not listen for the
       // signal yet, and the list must never wait on it past the deadline.
       const next = await whileNotAborted(
-        ApiService.getPuppyDirectModels(hushhId, deviceId, vaultOwnerToken, deadline.signal, () => { agentAnswered = true; }),
+        ApiService.getPuppyDirectModels(hushhId, deviceId, vaultOwnerToken, deadline.signal, () => {
+          agentAnswered = true;
+          if (latest() && !deadline.signal.aborted) setWaitingFor(prior => prior ? "machine" : null);
+        }),
         deadline.signal,
       );
       if (!latest()) return;
@@ -149,10 +182,12 @@ export function usePuppyCatalog({ hushhId, deviceId, vaultOwnerToken, machine = 
       setError(puppyCatalogMessage(problem, machine, lastKnown.has(keyOf(owner))));
     } finally {
       deadline.clear();
-      if (latest()) { reading.current = null; setLoading(false); }
+      clearTimeout(displayTimer);
+      if (cancelRead.current === cancel) cancelRead.current = null;
+      if (latest()) { reading.current = null; setLoading(false); setWaitingFor(null); }
     }
     if (latest()) void readPending(mine);
-  }, [owner, machine, readPending]);
+  }, [owner, machine, readPending, enabled]);
 
   // One bounded readiness read on entering/returning to an unlocked Puppy view.
   // This uses the existing approved-device relay activation, never inference.
@@ -198,5 +233,8 @@ export function usePuppyCatalog({ hushhId, deviceId, vaultOwnerToken, machine = 
     }
   }, [catalog, owner, machine, pending]);
 
-  return { catalog: catalogKey === key ? catalog : null, loading, error, pending, load, applyGlobal };
+  const connectionMessage = waitingFor === "agent"
+    ? "Waking your private agent. The model list will update here."
+    : waitingFor === "machine" ? `Connecting to ${machine}. The model list will update here.` : "";
+  return { catalog: catalogKey === key ? catalog : null, loading, error, connectionMessage, pending, load, applyGlobal };
 }

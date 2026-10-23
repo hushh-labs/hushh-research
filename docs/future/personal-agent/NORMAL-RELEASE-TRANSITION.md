@@ -3,23 +3,32 @@
 **Current delivery — 23 October 2026:**
 [PR #8386](https://github.com/hushh-labs/hushh-research/pull/8386) and
 [PR #8391](https://github.com/hushh-labs/hushh-research/pull/8391) landed.
-Dev accepted `ee77ebdb43` in run `39987252665`. UAT accepted `a68bddc8a8` in
-run `39990262675`; that run's workflow head differs from its resolved application
+The newer [PR #8395](https://github.com/hushh-labs/hushh-research/pull/8395)
+landed as `7b558f4881` after all 26 exact-head CI jobs passed. Both dev services
+now serve accepted `713981942c`, verified through separate backend and frontend
+acceptance receipts. UAT accepted older `4868571487` in run `40027712049`
+(38m08s); run `40029322798` selected corrected `713981942c` and safely rolled
+back. Its email readiness returned HTTP 200 in 19.2 seconds after the operator’s
+15-second deadline. The bounded read-only verifier repair is local; strict
+capability admission remains.
+Each run's workflow head is separate from its resolved application
 SHA. Serving revisions, receipt provenance and 100% traffic were read back with
 corporate ADC. The expired snapshot blocker is resolved. The
 [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md) owns the
 exact revision matrix and remaining journey boundaries.
 
-[PR #8395](https://github.com/hushh-labs/hushh-research/pull/8395) now also carries
-the local provider-correct Chat picker and owner-safe Puppy foreground-readiness
-repair. Its previous hosted attempt stopped in governance because its PR body
-omitted the required Live Memory source-impact section; the body is corrected.
-A finished, locally verified candidate needs fresh exact-head hosted validation
-before any merge or deployment. Existing successful application receipts cannot
-certify this new source.
+PR #8395 supplies the provider-correct Chat picker, owner-safe foreground wake,
+bounded Puppy model-list refresh and timeout correction. Owner dev acceptance
+proved preserved AI selection through Back/re-entry, Finish returning to Hosting,
+the cloud-removal review and a synthetic One answer. It did not install a new pod
+image or qualify fresh hidden-tab Puppy inference.
 
-Peer main changes through `d0ff6decfb`, including Profile/calendar polish and UAT
-parallelism, are integrated normally without whole-file replacement. Nine peer
+Peer main changes through `9af321d2a9`, including Profile/calendar polish and UAT
+parallelism, are integrated normally without whole-file replacement. PR #8398
+corrects the strict managed-provider receipt consumer to match the actual build
+graph; live UAT capture passed. Duplicate PR #8399 was closed and its CI cancelled.
+Checkpoint `050687dac1` exactly preserved main's committed tree; subsequent
+local source fixes remain separate until exact validation. Nine peer
 paths and the active ADK tree remain preserved. No production deployment, stable
 publication, owner installation or destructive cloud cleanup is implied.
 
@@ -42,9 +51,12 @@ rehearsal or a new capacity study. Preserve those designs and keep unqualified
 execution unavailable. This supersedes the broader acceptance gate below wherever
 it would delay the MVP. Production remains outside this authorization.
 
-The next application correction follows that normal path: finish local verification,
-validate its exact head, land through the Admin SOP, then read back the actual
-resolved application SHA in dev and UAT. A workflow head alone is insufficient.
+The current correction has completed local verification, exact-head validation,
+Admin landing and dev acceptance. Finish the bounded UAT-readiness correction
+and promote the accepted candidate, then read back actual application SHA and
+traffic. The retained accepted `4868571487` cannot certify PR #8395; failed
+`713981942c` promotion is not acceptance.
+A workflow head alone is insufficient.
 The source recovery controller observes one exact execution; provider cancellation
 cannot qualify from a later worker receipt, and uncertain work is never replayed.
 

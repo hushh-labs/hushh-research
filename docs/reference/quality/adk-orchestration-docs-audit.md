@@ -2,29 +2,66 @@
 
 ## Current decision — 23 October 2026
 
-**The Hosting/AI/cleanup correction is on main. Dev serves `ee77ebdb43`;
-UAT has accepted `a68bddc8a8`. The newer model-picker and Puppy warmup repair
-is local in [PR #8395](https://github.com/hushh-labs/hushh-research/pull/8395).
-Broader installed-pod acceptance remains separate.**
+**The Hosting/AI/cleanup, private model-picker and Puppy foreground-readiness
+repairs are on main. Both dev services serve accepted `713981942c`.
+UAT rolled back safely after a measured readiness-timeout mismatch; the repair
+is local. Installed-pod acceptance remains separate.**
 
 | Surface | Verified state |
 | --- | --- |
-| Main | PR #8386 correction and PR #8391 typed AI refusals landed; peer Profile/calendar and UAT timing changes through `d0ff6decfb` are preserved locally |
-| Dev | [Run 39987252665](https://github.com/hushh-labs/hushh-research/actions/runs/39987252665) accepted `ee77ebdb43` in 24m09s |
-| UAT | [Run 39990262675](https://github.com/hushh-labs/hushh-research/actions/runs/39990262675) accepted `a68bddc8a8` in 57m06s; its workflow head `ee77ebdb43` is not its resolved application SHA |
-| Serving readback | Corporate ADC: dev backend `00209-h58` / frontend `00176-6p5`; UAT backend `02484-maf` / frontend `02042-6vp`; all 100% traffic and exact receipt provenance |
+| Main | [PR #8395](https://github.com/hushh-labs/hushh-research/pull/8395) landed as `7b558f4881`; peer fixes through `9af321d2a9`, including [PR #8398](https://github.com/hushh-labs/hushh-research/pull/8398), were preserved at checkpoint `050687dac1` with an identical committed tree; later local fixes remain separate |
+| Dev | `713981942c` accepted through [backend run 40024012459](https://github.com/hushh-labs/hushh-research/actions/runs/40024012459) and [frontend run 40028269471](https://github.com/hushh-labs/hushh-research/actions/runs/40028269471); the canonical predecessor check verifies both scoped receipts |
+| UAT | [Run 40027712049](https://github.com/hushh-labs/hushh-research/actions/runs/40027712049) accepted older `4868571487` in 38m08s; [following run 40029322798](https://github.com/hushh-labs/hushh-research/actions/runs/40029322798) selected corrected `713981942c` but rolled back after the email readiness timeout |
+| Serving readback | Corporate ADC at 22:43 UTC: dev backend `00213-hv8` / frontend `00180-t54`; UAT backend `02489-xoc` / frontend `02046-g4w`; all 100% traffic and exact receipt provenance |
 | Owner pods | No image installation or cloud configuration change in this application release |
 
 The expired risk-snapshot refusal from run `39972103223` is resolved by the
-published refresh. PR #8391's management breadcrumb, return route and typed AI
-refusals are verified on dev, but are not yet included in UAT's older accepted
-revision. The next finished correction must retain the exact-SHA dev → UAT chain.
+published refresh. Dev's correction is accepted. UAT's accepted older application
+does not contain PR #8395. The following promotion selected `713981942c`, but
+its read-only email probe stopped after 15 seconds. Corporate-ADC Cloud Logging
+proves that exact request returned HTTP 200 in 19.2 seconds. Health and all 11
+provenance checks passed; rollback restored the accepted older serving revisions.
+The local operator repair uses two bounded 30-second reads and sanitized failure
+stages. Disabled or malformed capabilities still refuse promotion. A workflow
+head cannot establish application selection or acceptance.
+The collector's build-graph mismatch is fixed by PR #8398; its real UAT capture
+passed at 21:55 UTC. Duplicate PR #8399 was closed, its redundant CI cancelled,
+and the preserved branch reconciled normally to main without replacing peer work.
+Dev29 preparation begins at local `06fcec595c`: a genuine rebuild is requested,
+Browser pins are withheld and existing-owner upgrades are disabled pending exact-
+image recovery. Its 50 release checks and synthetic descriptor assembly passed. The local
+`162d997d74` picker correction passed 16 focused cases, typecheck, 500 canonical
+Back cases, generated UI verification and the 784-second core mirror. The final
+combined runtime source through `bfc1856c8f` includes the UAT verifier repair and
+passed its core mirror in 783 seconds: 25,018 backend passes and 143 skips, plus
+frontend/security/governance/MCP/integration. Twelve focused email-release cases
+passed; exact-head hosted validation remains separate. One early governance refusal
+correctly prevented growing an oversized database test module; candidate checks
+now extend the existing UAT verifier suite. No new image has been built,
+published or installed.
 Production, stable publication and automatic owner upgrades remain held.
+
+## Visual Context
+
+Start with the [Founder/CTO diagram guide](../architecture/README.md#founder-and-cto-diagram-guide)
+and [private-agent north star](../architecture/private-agent-north-star.md).
+The [Browser reference](../../../consent-protocol/docs/reference/private-browser-runtime.md)
+owns exact execution mode, qualification and lifecycle evidence. Operating procedures
+stay in the [pod runbook](../operations/dev-pod-first-light-runbook.md),
+[Files runbook](../operations/private-files-library.md),
+[deletion runbook](../operations/account-deletion-rollout.md) and
+[normal-release transition plan](../../future/personal-agent/NORMAL-RELEASE-TRANSITION.md).
+
+Private work stays in the selected owner cloud. The hub coordinates identity,
+consent, placement and updates. Puppy runs inference on the granted machine
+through its bound pod, with no cloud-model fallback. Model-provider processing
+retains its disclosed boundary.
+
 
 ### Current account-specific findings
 
 - Both named Azure placements must use their pod's actual connection; the Chat
-  picker incorrectly reads Shared's Gemini catalog. The local repair uses admitted
+  picker previously read Shared's Gemini catalog. The merged, dev-serving repair uses admitted
   pod selection metadata, refuses Shared writes/fallback for private placement,
   and does not invent a default-model catalog when an older image omits it.
 - Account 54's Azure resource, incarnation, user-assigned identity, image and
@@ -39,15 +76,33 @@ Production, stable publication and automatic owner upgrades remain held.
 - A synthetic owner turn subsequently reached the local Gemma 12B service
   (HTTP 200 headers in 34 ms), but timed out before an answer. An isolated
   eight-token local probe returned model data in 454 ms. Installed source permits
-  95-second broker prefill but cancels the outer ADK wait at 70 seconds. The local
-  correction gives ADK 100-second event waits while retaining the 150-second total
+  95-second broker prefill but cancels the outer ADK wait at 70 seconds. The
+  merged correction gives ADK 100-second event waits while retaining the 150-second total
   turn and existing inner deadlines. The timeout-ladder negative control catches
   the old inversion. It still requires a new, owner-approved pod image and live
   answer acceptance; a healthy socket alone does not prove inference.
-- The local frontend repair adds a coalesced foreground Chat wake and a bounded
+- The merged, dev-serving frontend repair adds a coalesced foreground Chat wake and a bounded
   readiness read on entering/returning to Puppy. Hidden tabs do not wake compute;
   readiness never requests inference or enables a new grant. Owner-generation
   fences retire cached device/model responses and prevent late model writes.
+- A second Puppy regression is reproduced: a 12-second model-list UI deadline
+  could expire before the desktop's 15-second activation poll. Local source keeps
+  one bounded foreground connection attempt running after the presentation timer,
+  retains cached choices and updates the same menu when readiness arrives.
+  Hiding the view or changing owner cancels observation, not a previously
+  persisted activation. This does not start inference or preserve cloud uptime.
+- [Hermes PR #23](https://github.com/hushh-labs/hussh-one-hermes/pull/23) adds
+  profile-owned, opt-in relay startup through its existing gateway supervisor.
+  Focused tests cover separate-process contention and cancellation during a
+  blocked admission request, including repeated cancellation and delayed cleanup.
+  The existing dev profile and relay remain running; no live startup handoff is
+  claimed from source tests or a heartbeat.
+- Normal owner acceptance on dev proved Hosting → unsaved AI edit → Back →
+  re-entry preserves the verified cloud selection, and Finish returns to Hosting
+  with the vault unlocked. The cloud-removal review fits the viewport; no removal
+  was started. One returned the exact synthetic `private-ready` answer. Puppy's
+  last-known Gemma label is visible, but fresh model-list and inference acceptance
+  are unclaimed: the background tab correctly suppresses foreground-only reads.
 - Real provider removal, broader orphan discovery, account re-registration and
   installed Browser journeys remain the explicit boundaries below.
 
@@ -74,13 +129,15 @@ Production, stable publication and automatic owner upgrades remain held.
 
 ## Verification and remaining boundaries
 
-One local core passed in 13m01s: 24,489 backend cases passed and 636 skips were
-recorded, alongside frontend build/type/lint, security, governance, MCP and
-integration. Changed contracts subsequently passed 154 deployment cases and 21
-security authority/receipt tests. Original-code negative controls fail; the
-architecture ratchet has zero new/worsened findings. The final exact-head hosted
-run passed all required lanes, including full web suites, browser packs, backend
-and iOS. These layers do not substitute for deployed owner acceptance.
+The combined PR #8395 candidate passed its local core in 12m58s: 25,003 backend
+cases passed with 143 skips, alongside frontend build/type/lint, security,
+governance, MCP and integration. Its [exact-head hosted run 40017478921](https://github.com/hushh-labs/hushh-research/actions/runs/40017478921)
+passed all 26 jobs, followed by landed-SHA smoke. The collector correction passed
+152 focused cases, an original-refused/corrected-verified check against the real
+immutable Cloud Build, and a local core in 12m56s with 25,005 backend passes and
+143 skips. Peer PR #8398 landed the equivalent correction with stronger missing-
+dependency negatives; 185 combined cases passed after reconciliation. These layers
+do not substitute for deployed owner acceptance.
 
 Dev migration 972 passed the pre/post-deploy schema gates with no violations.
 Each provider's real standalone removal journey still requires separate evidence. UAT graduation remains separate; missing schema must
@@ -101,14 +158,20 @@ explicit lifecycle before promising a fresh start.
 
 ## Security
 
-GitHub's refreshed inventory has **two open OpenTelemetry alerts**; seven patched
-alerts are closed, with none manually dismissed. The pinned ADK cap excludes the
+GitHub's refreshed inventory has **three open dependency alerts**: two
+OpenTelemetry records and Zod alert #507. Seven patched alerts are closed, with
+none manually dismissed. The pinned ADK cap excludes the
 fixed version. Incoming vendor `tracestate` is ignored at the public propagator
 boundary while preserving traceparent/outbound context. This is mitigation, not
 upstream remediation. The protected worker accepts verified pending concurrency
 states without weakening exact repository/workflow/run/attempt/SHA binding. Its
 receipt cannot replace successful PR validation. Repository-secret removal is
 verified; original-token revocation remains separately unverified.
+
+AG-UI's nested Zod 3 remains affected even though root Zod 4 is patched. A forced
+major override is incompatible with the current SDK contracts. No compatible
+published dependency-only fix was found; pre-parser frame bounding remains a
+mitigation follow-up, not an implemented patch or a reason to dismiss the alert.
 
 Earlier accepted application receipts remain historical evidence:
 [PR #8365](https://github.com/hushh-labs/hushh-research/pull/8365) and
@@ -117,21 +180,6 @@ Earlier accepted application receipts remain historical evidence:
 and [deletion runbook](../operations/account-deletion-rollout.md#remove-cloud-while-keeping-the-account)
 own the operating procedures and retained acceptance gates.
 
-## Visual Context
-
-Start with the [Founder/CTO diagram guide](../architecture/README.md#founder-and-cto-diagram-guide)
-and [private-agent north star](../architecture/private-agent-north-star.md).
-The [Browser reference](../../../consent-protocol/docs/reference/private-browser-runtime.md)
-owns exact execution mode, qualification and lifecycle evidence. Operating procedures
-stay in the [pod runbook](../operations/dev-pod-first-light-runbook.md),
-[Files runbook](../operations/private-files-library.md),
-[deletion runbook](../operations/account-deletion-rollout.md) and
-[normal-release transition plan](../../future/personal-agent/NORMAL-RELEASE-TRANSITION.md).
-
-Private work stays in the selected owner cloud. The hub coordinates identity,
-consent, placement and updates. Puppy runs inference on the granted machine
-through its bound pod, with no cloud-model fallback. Model-provider processing
-retains its disclosed boundary.
 
 ## What works / what must change
 
@@ -293,12 +341,11 @@ paid work; spending thresholds warn without stopping service.
 1. **CI/security owner:** preserve one initial worker and fresh exact-attempt retry
    clearance through the governed command. Keep current receipts on the canonical
    task; successful application suites remain retained during a gate-only retry.
-   PR #8386 is on main and dev deployment `39968480755` passed.
-   Owner Back/Finish and removal explanation passed in background Chrome.
-   UAT `39972103223` refused an expired risk snapshot before deployment.
-   Validate a refreshed pinned snapshot and repeat the exact-SHA release chain.
-2. **Security owner:** retain the two ADK-constrained OTEL records and verify
-   GitHub's closure of the seven patched records. Original-token revocation
+   PR #8395 is on main and dev acceptance includes owner Back/Finish, removal
+   review and an actual One answer. Complete the corrected exact-application UAT
+   promotion, read back serving state, then reconcile board and Wiki evidence.
+2. **Security owner:** retain the two ADK-constrained OTEL records and Zod #507;
+   seven patched records are closed. Original-token revocation
    remains separately unverified; the exposed repository secret is retired.
 3. **Browser owner:** exact installed-image public research, review, preview,
    takeover, resume, reconnect and Stop remain separate acceptance on each cloud.
@@ -308,11 +355,11 @@ Reuse unchanged Puppy evidence: 320 Chromium/WebKit responsive cases, shared
 760 px ribbon/composer, 0 px edge discrepancy, 44 px controls and no overflow.
 Do not rerun it for backend/doc-only changes.
 
-Main integration and landed-SHA smoke are verified for `7671c6ca6d`.
+Main integration and landed-SHA smoke are verified through `9af321d2a9`.
 The current application correction has healthy dev provenance/schema/semantic
-receipts and real owner Back/Finish acceptance. Exact-SHA UAT promotion
-was stopped by expired risk evidence; earlier receipts do not replace
-its terminal result. Production, stable publication,
+receipts and real owner Back/Finish acceptance. Exact-SHA UAT acceptance
+requires the corrected candidate after rollback; earlier receipts do not replace
+its successful terminal result. Production, stable publication,
 automatic owner upgrades, managed Hussh provisioning and unqualified hosting moves
 remain unavailable. Broader Files/connector/voice/update/erasure lifecycle evidence,
 general schedules and economic qualification stay tracked in the
