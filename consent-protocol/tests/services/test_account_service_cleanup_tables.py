@@ -1,8 +1,10 @@
 import argparse
+import asyncio
 import importlib.util
 import json
 from contextlib import contextmanager
 from pathlib import Path
+from threading import Event
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -260,9 +262,11 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     pre_insert_sql = "\n".join(
         str(call.args[0]) for call in conn.execute.call_args_list[:first_insert_offset]
     )
-    assert first_insert_offset == 3
+    assert first_insert_offset == 4
     assert pre_insert_sql.count("pg_advisory_xact_lock") == 3
-    assert conn.execute.call_args_list[0].args[1] == {"lock_key": "fabric_receipts:user_delete_123"}
+    assert "set_config('lock_timeout', '3000ms', TRUE)" in pre_insert_sql
+    assert "set_config('statement_timeout', '20000ms', TRUE)" in pre_insert_sql
+    assert conn.execute.call_args_list[1].args[1] == {"lock_key": "fabric_receipts:user_delete_123"}
     first_delete_offset = executed_sql.index("DELETE FROM")
     assert executed_sql.index("INSERT INTO account_deletion_tombstones") < first_delete_offset
     expected_fragments = [
@@ -775,6 +779,86 @@ async def test_full_delete_does_not_report_rollback_or_notification_failure_as_r
     assert result["success"] is not rollback
     assert result["account_deleted"] is not rollback
     assert notifications == ([] if rollback else [{"peer"}])
+
+
+@pytest.mark.asyncio
+async def test_blocked_erasure_keeps_event_loop_responsive_and_rolls_back(monkeypatch):
+    entered = Event()
+    release = Event()
+    provider_release = AsyncMock()
+
+    @contextmanager
+    def blocked_transaction():
+        entered.set()
+        # A bounded wait makes the broken, event-loop-blocking implementation
+        # fail this test instead of hanging the suite.
+        if not release.wait(2):
+            raise RuntimeError("event loop could not release the DB worker")
+        raise RuntimeError("simulated database rollback")
+        yield  # pragma: no cover - this transaction always rolls back
+
+    monkeypatch.setattr("hushh_mcp.services.account_service.get_db_connection", blocked_transaction)
+    monkeypatch.setattr(
+        "hushh_mcp.services.account_service.release_provider_grants_after_erasure",
+        provider_release,
+    )
+    task = asyncio.create_task(
+        AccountService()._delete_full_account_transaction("departing", requested_target="both")
+    )
+    try:
+        for _ in range(100):
+            if entered.is_set():
+                break
+            await asyncio.sleep(0.005)
+        assert entered.is_set()
+        assert not task.done(), "blocked SQL must not block the server heartbeat"
+    finally:
+        release.set()
+        result = await task
+
+    assert result["success"] is False
+    assert result["account_deleted"] is False
+    provider_release.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_delete_settles_transaction_and_releases_provider_grants(monkeypatch):
+    from hushh_mcp.services.account_deletion_provider_cleanup import ProviderCredentialSnapshot
+
+    service = AccountService()
+    entered = Event()
+    release = Event()
+    snapshot = ProviderCredentialSnapshot(user_id="departing")
+    provider_release = AsyncMock(return_value={"status": "released"})
+
+    def committed_rows(*_args, **_kwargs):
+        entered.set()
+        assert release.wait(2)
+        return {"success": True, "account_deleted": True, "details": {}}, snapshot
+
+    monkeypatch.setattr(service, "_delete_full_account_rows", committed_rows)
+    monkeypatch.setattr(
+        "hushh_mcp.services.account_service.release_provider_grants_after_erasure",
+        provider_release,
+    )
+    task = asyncio.create_task(
+        service._delete_full_account_transaction("departing", requested_target="both")
+    )
+    try:
+        for _ in range(100):
+            if entered.is_set():
+                break
+            await asyncio.sleep(0.005)
+        assert entered.is_set()
+        for _ in range(2):
+            task.cancel()
+            await asyncio.sleep(0)
+        assert not task.done(), "cancellation must not abandon the transaction"
+    finally:
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    provider_release.assert_awaited_once_with(snapshot)
 
 
 def test_live_erasure_catalog_is_documented_and_has_explicit_predicates():
@@ -1696,7 +1780,7 @@ async def test_uat_backend_erasure_preserves_external_authorities(monkeypatch):
     with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
         wrong_database = await service.erase_uat_backend_account("user_delete_123")
     assert wrong_database["success"] is False
-    assert conn.execute.call_count == 1
+    assert conn.execute.call_count == 2
     pending.assert_not_called()
     snapshot.assert_not_called()
     release.assert_not_awaited()
