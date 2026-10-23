@@ -174,6 +174,16 @@ export class AccountServiceImpl {
     });
   }
 
+  /** Read-only comparison; neither claims a phone nor authorizes erasure. */
+  async validateLostVaultDeletionPhone(firebaseIdToken: string, phoneNumber: string): Promise<{ valid: true }> {
+    return apiJson<{ valid: true }>("/api/account/delete-lost-vault/phone", {
+      method: "POST",
+      cache: "no-store",
+      headers: { Authorization: `Bearer ${firebaseIdToken}` },
+      body: JSON.stringify({ phone_number: phoneNumber }),
+    });
+  }
+
   /**
    * Delete the user's account and user-owned information.
    * Required security or regulated evidence follows its separately approved
