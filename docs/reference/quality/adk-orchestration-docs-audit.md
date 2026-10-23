@@ -49,6 +49,19 @@ closure. The dev-only unpatched `braces` tooling advisory remains tracked.
 
 ## Hosting management follow-up — 23 October, 05:05 PDT
 
+Local core passed on `683639975a` in **13m01s**: 23,204 parallel backend cases
+and 1,285 serial cases passed, with 636 recorded skips. Frontend typecheck, lint,
+production build, security, governance, MCP and integration passed. Main then
+advanced with frontend-only SMS changes; those changes are integrated normally
+through `6a5960c7e1`. Combined UI contracts, 75 affected UI cases and the changed
+frontend core stage pass on `67b5b640b7`; unchanged backend proof is retained.
+[PR #8386](https://github.com/hushh-labs/hushh-research/pull/8386) remains in
+validation. Initial hosted preflight refused combined-source UI drift and a
+missing required PR impact declaration; neither result is deployment acceptance.
+The declaration is now validated with its actual parser. No new deployment,
+personal-cloud deletion or owner installation has occurred for this follow-up.
+
+
 The current local correction preserves Hosting return intent for shell, native
 Back and Finish. Direct completed-owner entries are canonicalized using the
 existing owner-scoped setup completion predicate; first-run setup remains intact.
