@@ -47,10 +47,13 @@ def source_fixture():
 
 class SecurityAuthorityTest(unittest.TestCase):
     def test_exact_current_attempt_including_fork_without_executing_fork(self):
-        expected, _, responses = source_fixture()
-        result = authority.verify_source(responses.__getitem__, REPOSITORY, expected)
-        self.assertEqual(result["head_sha"], HEAD)
-        self.assertEqual(result["attempt"], 2)
+        for status in ("pending", "queued", "in_progress", "completed"):
+            with self.subTest(status=status):
+                expected, run, responses = source_fixture()
+                run["status"] = status
+                result = authority.verify_source(responses.__getitem__, REPOSITORY, expected)
+                self.assertEqual(result["head_sha"], HEAD)
+                self.assertEqual(result["attempt"], 2)
 
     def test_wrong_repository_workflow_attempt_sha_or_event_refuses(self):
         for field, value in (
@@ -61,6 +64,7 @@ class SecurityAuthorityTest(unittest.TestCase):
             ("workflow_id", 31),
             ("path", "untrusted.yml"),
             ("event", "push"),
+            ("status", "unrecognized"),
             ("repository", {"id": 99, "full_name": REPOSITORY}),
         ):
             with self.subTest(field=field, value=value):

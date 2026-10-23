@@ -902,6 +902,8 @@ Use the governed operator command below to request one retry and its exact
 security worker together. Only immutable main code reads
 the protected token. It validates the repository, canonical workflow, source run,
 current attempt and exact SHA before and after bounded, complete API pagination.
+GitHub's verified `pending` concurrency state is accepted alongside queued,
+running and completed sources; this does not replace successful PR validation.
 Its two-day artifact contains counts and provenance only. Repository-wide secret
 clearance intentionally replaces the old PR-created-date filter; dependency
 backlog remains advisory. No PR code, dependencies, caches or artifacts execute
