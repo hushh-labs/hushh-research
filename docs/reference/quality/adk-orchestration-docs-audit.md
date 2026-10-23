@@ -4,29 +4,31 @@
 
 **The Hosting/AI/cleanup correction is on main and accepted on dev.
 UAT promotion stopped safely before deployment on an expired email-domain
-risk snapshot; its refresh is local. Broader pod acceptance remains separate.**
+risk snapshot. The refresh is now on main; combined promotion remains pending.
+Broader pod acceptance remains separate.**
 [PR #8386](https://github.com/hushh-labs/hushh-research/pull/8386) landed as
 `7671c6ca6d` through the authorized Admin SOP. All required checks passed on
 `1ccf750ddc`; [landed-SHA smoke](https://github.com/hushh-labs/hushh-research/actions/runs/39967729093)
 also passed. Main's Profile, identity, consent, erasure, Drive, SMS and One presence
-changes were retained through normal merges. The infrastructure branch is
-fast-forwarded to the landed commit; the active ADK tree and peer edits remain
+changes were retained through normal merges. The infrastructure branch preserves that landing and later main through
+normal integration; the active ADK tree and peer edits remain
 preserved.
 
 | Surface | Verified state |
 | --- | --- |
-| Main | `7671c6ca6d`; exact-head CI and landed smoke passed |
-| Dev | [Run 39968480755](https://github.com/hushh-labs/hushh-research/actions/runs/39968480755) passed; both services serve the landed SHA at 100% |
+| Main | Original correction `7671c6ca6d`; subsequent Azure repair `ec86118695` and published risk refresh `a68bddc8a8` are inherited |
+| Dev acceptance | [Run 39968480755](https://github.com/hushh-labs/hushh-research/actions/runs/39968480755) accepted the original correction; subsequent backend repair serves alongside that frontend, as read back below |
 | UAT | [Run 39972103223](https://github.com/hushh-labs/hushh-research/actions/runs/39972103223) refused before deployment: email-auth risk snapshot expired; serving remains `79a03e84c2` |
-| Serving readback | Corporate ADC: dev backend `00206-6dl`, frontend `00174-648`, both `7671c6ca6d` at 100%; UAT remains `79a03e84c2` pending promotion |
+| Serving readback | Corporate ADC: dev backend `00207-9fk` at `ec86118695`, frontend `00174-648` at `7671c6ca6d`, both 100%; UAT remains `79a03e84c2` |
 | Owner pods | No new image installation or configuration change in this application release |
 
-The follow-up refresh re-fetched the pinned upstream domain list: 33 additions,
-no removals, unchanged CC0 license and seven-day validity. It also preserves typed
-cloud-AI refusals instead of a generic save error. The management breadcrumb
+The risk refresh subsequently landed through PR #8390 on main `a68bddc8a8`: 33
+additions, no removals, unchanged CC0 license and seven-day validity. Its published
+snapshot is inherited unchanged. PR #8391 preserves typed cloud-AI refusals
+instead of a generic save error. The management breadcrumb
 says Hosting; the verified action result remains the return-route authority.
-These corrections are local;
-they must receive their own exact-SHA validation and dev/UAT receipts. Main's
+These UI/documentation corrections require their own exact-SHA validation and
+combined dev/UAT receipts. Main's
 subsequent Azure deadline repair `ec86118695` is preserved in the working branch.
 
 This table describes application delivery, not complete private-agent acceptance.

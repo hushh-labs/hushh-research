@@ -6,8 +6,10 @@
 `39968480755` passed, including provenance, schema and semantics. Live Azure
 owner Back/Finish and removal-explanation checks passed in background Chrome.
 UAT promotion `39972103223` refused before deployment because the pinned
-email-domain risk snapshot expired. Its renewed source requires a new validated
-candidate; the security check and enabled email sign-in remain unchanged. The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)
+email-domain risk snapshot expired. The refresh then landed in PR #8390 as
+`a68bddc8a8`; its published snapshot is inherited unchanged by PR #8391. The
+combined candidate still needs accepted dev/UAT receipts. The security check and
+enabled email sign-in remain unchanged. The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)
 owns the serving revisions and dated outcomes.
 
 Main through `6a84c73e18` was integrated normally, preserving Profile/mobile,
