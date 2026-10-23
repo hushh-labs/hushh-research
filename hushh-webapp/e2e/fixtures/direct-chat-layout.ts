@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./product-font";
-let script: string;
+export let script: string;
 let css: string;
 export function installDirectChatFixture() {
 test.beforeAll(async () => {

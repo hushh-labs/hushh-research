@@ -1,6 +1,7 @@
-import { installDirectChatFixture, mount, fixture, transcript } from "./fixtures/direct-chat-layout";
+import { installDirectChatFixture, mount, fixture, transcript, script } from "./fixtures/direct-chat-layout";
 import { expect, test, type Page, type Locator } from "@playwright/test";
 import fs from "node:fs";
+import path from "node:path";
 import { proveMessagesInboxBack, proveMessagesBackLayers } from "./fixtures/messages-navigation-proof";
 
 // Production components/styles with synthetic auth/navigation/service ports.
