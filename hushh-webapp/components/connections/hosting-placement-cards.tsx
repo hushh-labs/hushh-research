@@ -195,3 +195,13 @@ export function HusshPodsPausedCard() {
     </div>
   );
 }
+
+/** The revisit state for an agent whose home is the person's Azure subscription. */
+export function azureConnected(location: string | null | undefined) {
+  return {
+    projectId: "Microsoft Azure",
+    rationale: location
+      ? `Your private agent runs in ${location}, in your own Azure subscription.`
+      : "Your private agent runs in your own Azure subscription.",
+  };
+}

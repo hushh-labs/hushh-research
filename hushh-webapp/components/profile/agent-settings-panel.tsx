@@ -13,7 +13,7 @@ import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { canInstallUpdate, updateCheckMessage, releaseLabel, updateActivityLabel } from "@/lib/feed/agent-update-status";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
-import { ROUTES } from "@/lib/navigation/routes";
+import { profileHostingSetupHref } from "@/lib/navigation/profile-routes";
 import { agentUpdateApprovalToast } from "@/lib/one/agent-update-approval";
 import { AZURE_UPDATE_AWAITING_LABEL, useAzureUpdateAwaitingSignIn } from "@/lib/one/azure-update-sign-in";
 import { useAzureUpdateProgress } from "@/lib/one/use-azure-update-progress";
@@ -269,9 +269,9 @@ export function AgentSettingsPanel({
         >
           <SettingsRow
             title="Hussh Shared"
-            description="Hussh runs and updates the shared service automatically."
+            description={mode === "byoc" ? "To switch, review and remove your current cloud below. Your Hussh account stays." : "Hussh runs and updates the shared service automatically."}
             trailing={mode === "shared" ? "Current" : mode === "unplaced" ? "Choose" : undefined}
-            onClick={mode === "unplaced" ? () => router.push(ROUTES.ONE_SETUP_CLOUD) : undefined}
+            onClick={mode === "unplaced" ? () => router.push(profileHostingSetupHref()) : undefined}
             chevron={mode === "unplaced"}
           />
           <SettingsRow
@@ -286,7 +286,7 @@ export function AgentSettingsPanel({
             }
             onClick={
               canManageCloud
-                ? () => router.push(ROUTES.ONE_SETUP_CLOUD)
+                ? () => router.push(profileHostingSetupHref())
                 : undefined
             }
             chevron={canManageCloud}
@@ -347,7 +347,7 @@ export function AgentSettingsPanel({
               : update.available === true && canInstallUpdate(status)
                 ? "Update ready for your approval"
                 : update.available === true
-                  ? "New release not ready for this pod"
+                  ? updateCheckMessage(status)
                   : status.installedReleaseVerified === true &&
                       update.available === false
                     ? "Up to date"

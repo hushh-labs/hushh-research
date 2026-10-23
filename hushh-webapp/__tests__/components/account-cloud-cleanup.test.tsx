@@ -146,6 +146,8 @@ it("keeps refresh available without offering another execution while cleanup is 
   mocks.read.mockResolvedValue({ ...plan, approvalRequired: false, inProgress: true });
   render(<AccountCloudCleanup userId="synthetic-owner" token="synthetic-memory-only" onUnlock={vi.fn()} onFinish={vi.fn()} />);
   expect(await screen.findByRole("button", { name: "Cleanup in progress" })).toBeDisabled();
+  expect(screen.getByText("Removing approved resources")).toBeVisible();
+  expect(screen.getByText(/completed removals cannot be undone/)).toBeVisible();
   expect(screen.getByRole("button", { name: "Refresh status" })).toBeEnabled();
   fireEvent.click(screen.getByRole("button", { name: "Cleanup in progress" }));
   expect(mocks.begin).not.toHaveBeenCalled();

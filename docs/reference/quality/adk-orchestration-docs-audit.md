@@ -47,6 +47,32 @@ supported OTEL cap excludes the patched release: ignore incoming vendor
 and outbound context. This is an application mitigation, not an upstream alert
 closure. The dev-only unpatched `braces` tooling advisory remains tracked.
 
+## Hosting management follow-up — 23 October, 05:05 PDT
+
+The current local correction preserves Hosting return intent for shell, native
+Back and Finish. Direct completed-owner entries are canonicalized using the
+existing owner-scoped setup completion predicate; first-run setup remains intact.
+Finish is visible only after hosting and AI readiness. Cleanup shows the current
+stage, verified counts and recoverable attention without an invented deadline.
+Azure's verified model/deployment is retained in the AI card.
+
+Live read-only evidence at 04:56 PDT: dev backend serves `79a03e84c2` at revision
+`00205-svf`, 100%; UAT remains `989afe4336` at `02478-fed`, 100%. The named Azure
+pod runs the same Dev28 digest currently offered by dev; there is no newer offer
+or active upgrade lease. Its heartbeat capability observation is empty despite
+Dev28 source supporting default verification. The local client now asks the
+admitted pod on the explicit cloud-default action rather than treating a missing
+advertisement as proof of incompatibility. Typed refusals and current owner,
+known placement, provider, incarnation and configuration authority remain required.
+Standalone cloud removal still lacks live migration972 and owner acceptance.
+The account deletion incident has no captured typed error yet; empty bounded
+error-log searches do not prove deletion succeeded or that no attempt occurred.
+
+Focused evidence: 114 UI cases and 121 backend cases pass; the cloud-default
+regression suite passes 50 cases and fails against the original advertisement
+guard. Architecture reports no new/worsened findings. These are local results;
+final core, exact hosted CI, deployment and installed acceptance remain required.
+
 ## Latest stabilization and cloud removal — 23 October, 11:10 UTC
 
 [PR8377](https://github.com/hushh-labs/hushh-research/pull/8377) landed as

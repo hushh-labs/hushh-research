@@ -220,7 +220,7 @@ describe("owner hosting and software settings", () => {
     fireEvent.click(
       screen.getByRole("button", { name: /Bring your own cloud/ }),
     );
-    expect(mocks.push).toHaveBeenCalledWith("/one/setup/cloud");
+    expect(mocks.push).toHaveBeenCalledWith("/one/setup/cloud?return_to=%2Fone%2Fprofile%2Fhosting&from=%2Fone%2Fprofile%2Fhosting");
   });
 
   it("shows automatic Shared updates without pod install controls or duplicate build fields", () => {

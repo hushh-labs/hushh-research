@@ -149,6 +149,16 @@ def _update_offer(
     out["updateInstallable"] = metadata.get("upgradeLease") is None and upgrade_is_supported(
         release_metadata, installed_digest
     )
+    if not out["updateInstallable"]:
+        out["updateBlockedReason"] = (
+            "UPDATE_IN_PROGRESS"
+            if metadata.get("upgradeLease") is not None
+            else "RELEASE_UNVERIFIED"
+            if not release_metadata
+            else "INSTALLED_RELEASE_UNVERIFIED"
+            if not installed_digest
+            else "PREDECESSOR_NOT_QUALIFIED"
+        )
     out["updateOfferable"] = out["updateInstallable"] and (
         not isinstance(metadata.get("upgradeDeferral"), dict)
         or metadata["upgradeDeferral"].get("releaseId") != release
