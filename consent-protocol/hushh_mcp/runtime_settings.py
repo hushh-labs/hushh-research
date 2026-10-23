@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
-from hushh_mcp import runtime_environment
+from hushh_mcp import one_feature_settings, runtime_environment
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
 # Local-only maintainer overlay. Developers keep the reviewer fixture
@@ -199,6 +199,7 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "one_places_directory_enabled": "ONE_PLACES_DIRECTORY_ENABLED",
     "one_business_directory_enabled": "ONE_BUSINESS_DIRECTORY_ENABLED",
     "one_profile_research_enabled": "ONE_PROFILE_RESEARCH_ENABLED",
+    "one_todo_suggestions_enabled": "ONE_TODO_SUGGESTIONS_ENABLED",
     "one_magic_intelligence_phase": "ONE_MAGIC_INTELLIGENCE_PHASE",
     "one_magic_intelligence_inner_team_emails": "ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS",
     "one_magic_intelligence_senior_team_emails": "ONE_MAGIC_INTELLIGENCE_SENIOR_TEAM_EMAILS",
@@ -1075,16 +1076,6 @@ def one_career_enabled() -> bool:
     return _bool_from_value(_clean_env("ONE_CAREER_ENABLED"), default=False)
 
 
-def one_business_directory_enabled() -> bool:
-    """Real read-only suggestions have an independent default-off rollout gate."""
-    return _clean_env("ONE_BUSINESS_DIRECTORY_ENABLED").lower() == "true"
-
-
-def one_profile_research_enabled() -> bool:
-    """Default-off rollout for One's reviewed public-profile card."""
-    return _clean_env("ONE_PROFILE_RESEARCH_ENABLED").lower() == "true"
-
-
 def one_magic_intelligence_phase() -> int:
     """Explicit revision rollout: 0/off, 1–4/cohorts, 5/all verified-email UAT owners."""
     raw = _clean_env("ONE_MAGIC_INTELLIGENCE_PHASE", "0")
@@ -1432,3 +1423,9 @@ def managed_ai_settings() -> ManagedAISettings:
     return ManagedAISettings(
         **{**value, "text_locations": tuple(value["text_locations"])}, config_hash=digest
     )
+
+
+# Compatibility exports retain the public runtime settings API.
+one_business_directory_enabled = one_feature_settings.one_business_directory_enabled
+one_profile_research_enabled = one_feature_settings.one_profile_research_enabled
+one_todo_suggestions_enabled = one_feature_settings.one_todo_suggestions_enabled

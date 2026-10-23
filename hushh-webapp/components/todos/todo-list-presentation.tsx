@@ -21,7 +21,7 @@ import {
   SectionLabel,
 } from "@/components/app-ui/typography";
 import { Button } from "@/lib/morphy-ux/button";
-import { TODO_SOURCE_LABELS, type TodoItem } from "@/lib/todos/todo-list-model";
+import { taskSort, TODO_SOURCE_LABELS, type TodoItem } from "@/lib/todos/todo-list-model";
 import { cn } from "@/lib/utils";
 import type { ReceiptListItem } from "@/lib/services/gmail-receipts-service";
 import { buildGmailWorkspaceRoute } from "@/lib/navigation/routes";
@@ -76,15 +76,7 @@ function isOverdue(task: TodoItem): boolean {
   return date < startOfToday;
 }
 
-export function taskSort(left: TodoItem, right: TodoItem): number {
-  const date = (left.date ?? "9999-12-31").localeCompare(
-    right.date ?? "9999-12-31",
-  );
-  if (date !== 0) return date;
-  const time = (left.time ?? "99:99").localeCompare(right.time ?? "99:99");
-  if (time !== 0) return time;
-  return left.title.localeCompare(right.title);
-}
+export { taskSort } from "@/lib/todos/todo-list-model";
 
 export function groupByDate(tasks: TodoItem[]): DateGroup[] {
   const groups = new Map<string, DateGroup>();

@@ -2,6 +2,12 @@ import { ApiService } from "@/lib/services/api-service";
 import type { CardShareContext } from "./wallet-card-share-service";
 import type { WalletCardPublicProfile } from "./wallet-card-service";
 import { readCardRequest } from "@/lib/wallet/card-request";
+import { z } from "zod";
+
+const pendingCardRequestsSchema = z.object({
+  items: z.array(z.object({ id: z.string().uuid(), createdAt: z.string(), expiresAt: z.string() }).strict()).max(100),
+  hasMore: z.boolean(), nextCursor: z.string().uuid().nullable(),
+}).strict();
 
 export type WalletAccessContext = Omit<CardShareContext, "vaultKey"> & { canDispatch?: () => boolean };
 export class CardRequestStateError extends Error {
@@ -75,6 +81,8 @@ async function ownerRequest<T>(context: WalletAccessContext, path: string, metho
   return result;
 }
 export const WalletCardAccessService = {
+  listRequests: async (context: WalletAccessContext, cursor?: string) =>
+    pendingCardRequestsSchema.parse(await ownerRequest(context, `/requests${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`)),
   createRequest: async (context: WalletAccessContext, personRef: string, requestId: string) =>
     readCardRequest(await ownerRequest(context, "/requests", "POST", { personRef, requestId })),
   getRequest: async (context: WalletAccessContext, requestId: string, signal?: AbortSignal) =>
