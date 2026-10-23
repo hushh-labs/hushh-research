@@ -16,7 +16,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover
 
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[4]
-CONFIG_RELATIVE_PATH = Path(".agents/adapters/codex/config.toml")
+CONFIG_RELATIVE_PATH = Path(".agents/config.toml")
 AGENTS_RELATIVE_PATH = Path(".agents/subagents")
 SKILLS_RELATIVE_PATH = Path(".agents/skills")
 WORKFLOWS_RELATIVE_PATH = Path(".agents/workflows")

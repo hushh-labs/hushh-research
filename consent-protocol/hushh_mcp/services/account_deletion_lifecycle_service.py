@@ -9,7 +9,7 @@ import logging
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Literal, cast
+from typing import cast
 
 from sqlalchemy import text
 
@@ -20,18 +20,21 @@ from api.utils.firebase_admin import (
 )
 from db.db_client import get_db_connection
 from hushh_mcp.config import APP_SIGNING_KEY
+from hushh_mcp.services.account_deletion_cleanup_policy import (
+    CleanupIntentKind as CleanupIntentKind,
+)
+from hushh_mcp.services.account_deletion_cleanup_policy import (
+    FirebaseCleanupAttempt as FirebaseCleanupAttempt,
+)
+from hushh_mcp.services.account_deletion_cleanup_policy import (
+    FirebaseCleanupOutcome as FirebaseCleanupOutcome,
+)
+from hushh_mcp.services.account_deletion_cleanup_policy import (
+    authority_refusal,
+    cleanup_parameters,
+)
 
 logger = logging.getLogger(__name__)
-
-FirebaseCleanupOutcome = Literal[
-    "deleted",
-    "not_found",
-    "protected",
-    "retry_pending",
-    "quarantined",
-    "quarantine_incomplete",
-]
-CleanupIntentKind = Literal["full_account", "phone_orphan"]
 
 
 class AccountDeletionInProgressError(RuntimeError):
@@ -82,13 +85,6 @@ def _postgres_sqlstate(exc: BaseException) -> str | None:
             if isinstance(related, BaseException):
                 pending.append(related)
     return None
-
-
-@dataclass(frozen=True, slots=True)
-class FirebaseCleanupAttempt:
-    outcome: FirebaseCleanupOutcome
-    failure_class: str | None = None
-    classification: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -728,20 +724,9 @@ class AccountDeletionLifecycleService:
         intent_kind: CleanupIntentKind = "full_account",
         expected_phone_digest: str | None = None,
     ) -> bool:
-        if intent_kind not in {"full_account", "phone_orphan"}:
-            raise ValueError("unsupported cleanup intent kind")
-        if attempt.outcome == "protected" and intent_kind != "phone_orphan":
-            raise ValueError("only a provisional phone-orphan intent may be protected")
+        cleanup = cleanup_parameters(attempt, intent_kind)
         expected_phone_digest = str(expected_phone_digest or "").strip() or None
         user_hash = account_deletion_user_hash(user_id)
-        completed = attempt.outcome in {"deleted", "not_found"}
-        cleanup_status = (
-            "completed"
-            if completed
-            else "quarantined"
-            if attempt.outcome == "quarantined"
-            else "retry_pending"
-        )
         with get_db_connection() as conn:
             if attempt.outcome == "protected":
                 # This UID was never an authorized full-account deletion. Its
@@ -782,15 +767,15 @@ class AccountDeletionLifecycleService:
                     """
                     UPDATE account_deletion_tombstones
                     SET
-                      firebase_uid = CASE WHEN :completed THEN NULL ELSE firebase_uid END,
+                      firebase_uid = CASE WHEN :completed OR :identity_retained THEN NULL ELSE firebase_uid END,
                       expected_phone_digest = CASE
-                        WHEN :completed THEN NULL
+                        WHEN :completed OR :identity_retained THEN NULL
                         ELSE expected_phone_digest
                       END,
                       cleanup_status = :cleanup_status,
                       cleanup_attempt_count = cleanup_attempt_count + 1,
                       cleanup_next_attempt_at = CASE
-                        WHEN :completed THEN NULL
+                        WHEN :completed OR :identity_retained THEN NULL
                         ELSE NOW() + make_interval(
                           secs => LEAST(
                             3600,
@@ -807,6 +792,7 @@ class AccountDeletionLifecycleService:
                       updated_at = NOW()
                     WHERE user_id_hash = :user_id_hash
                       AND cleanup_status <> 'completed'
+                      AND firebase_uid IS NOT NULL
                       AND cleanup_intent_kind = :cleanup_intent_kind
                       AND expected_phone_digest IS NOT DISTINCT FROM :expected_phone_digest
                       AND (
@@ -826,8 +812,7 @@ class AccountDeletionLifecycleService:
                     """
                 ),
                 {
-                    "completed": completed,
-                    "cleanup_status": cleanup_status,
+                    **cleanup,
                     "cleanup_last_outcome": attempt.outcome,
                     "cleanup_last_failure_class": attempt.failure_class,
                     "cleanup_last_classification": attempt.classification,
@@ -1037,10 +1022,8 @@ class AccountDeletionLifecycleService:
                         _PHONE_CLASSIFICATION_REVALIDATED if intent_kind == "phone_orphan" else None
                     ),
                 )
-            except FirebaseAuthorityError:
-                return FirebaseCleanupAttempt(
-                    "retry_pending", classification="firebase_authority_mismatch"
-                )
+            except FirebaseAuthorityError as exc:
+                return authority_refusal(exc, intent_kind)
             except Exception as exc:
                 if exc.__class__.__name__ == "UserNotFoundError":
                     return FirebaseCleanupAttempt(

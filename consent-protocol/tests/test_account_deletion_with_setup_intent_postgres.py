@@ -59,6 +59,45 @@ def _erase(pg: TempPostgres) -> dict[str, bool]:
     return results
 
 
+def test_retained_shared_identity_keeps_tombstone_and_refuses_stale_settlement(pg, monkeypatch):
+    from hushh_mcp.services import account_deletion_lifecycle_service as lifecycle
+
+    uid = "synthetic-retained-identity"
+    service = lifecycle.AccountDeletionLifecycleService
+    database = Db(pg)
+    monkeypatch.setattr(lifecycle, "get_db_connection", database.engine.begin)
+    try:
+        service.record_pending(user_ids=(uid,))
+        assert service.record_cleanup_outcome(
+            user_id=uid,
+            attempt=lifecycle.FirebaseCleanupAttempt(
+                "identity_retained", classification="firebase_shared_identity_retained"
+            ),
+        )
+        for outcome in ("retry_pending", "deleted"):
+            assert not service.record_cleanup_outcome(
+                user_id=uid, attempt=lifecycle.FirebaseCleanupAttempt(outcome)
+            )
+        retained = pg.execute(
+            "SELECT firebase_uid,cleanup_status,cleanup_next_attempt_at,cleanup_last_outcome "
+            "FROM account_deletion_tombstones WHERE user_id_hash=%s",
+            (lifecycle.account_deletion_user_hash(uid),),
+        )
+        assert retained == [(None, "quarantined", None, "identity_retained")]
+        assert all(intent.firebase_uid != uid for intent in service.claim_due_cleanup_intents())
+        assert service.is_tombstoned(uid)
+        with pytest.raises(psycopg2.errors.CheckViolation):
+            pg.execute("INSERT INTO actor_profiles(user_id) VALUES(%s)", (uid,))
+        with pytest.raises(ValueError, match="only full-account"):
+            service.record_cleanup_outcome(
+                user_id=uid,
+                attempt=lifecycle.FirebaseCleanupAttempt("identity_retained"),
+                intent_kind="phone_orphan",
+            )
+    finally:
+        database.engine.dispose()
+
+
 @pytest.mark.parametrize("provider", ["gcp", "azure"])
 def test_an_untouched_intent_does_not_block_deletion_and_is_erased(pg, provider):
     _begin(pg, provider)

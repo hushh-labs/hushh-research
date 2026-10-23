@@ -10,7 +10,7 @@ from pathlib import Path
 import runpy
 import sys
 
-SOURCE_ROOT = Path(__file__).resolve().parents[3]
+SOURCE_ROOT = Path(__file__).resolve().parents[2]
 load_operating_contract = runpy.run_path(
     str(SOURCE_ROOT / "scripts/ops/audit_agents_md_alignment.py")
 )["load_operating_contract"]

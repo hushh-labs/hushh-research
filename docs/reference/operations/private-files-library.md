@@ -103,7 +103,17 @@ incarnation. An erasing library may settle the exact cancelled/invalidated recei
 after verifying bucket identity, even if different ciphertext remains; the normal
 owner/library-prefix erasure inventory must then reconcile every retained version.
 Settling the write does not establish object absence or completed account deletion.
-Generic HTTP 404, HTTP 412 and lost cancellation replies remain fenced. A validated
+Generic HTTP 404, HTTP 412 and lost cancellation replies remain fenced. Recovery
+qualifies an exact-session 404 as expiry only after a trusted post-initiation
+`sessionObservedBy` timestamp plus eight days: Google's documented one-week
+lifetime and one conservative day of clock margin. New uploads record that bound
+after initiation; legacy receipts start the bound on their first exact-CAS recovery
+observation. Reservation time cannot establish session age. Persist the terminal
+`expired` proof before bucket verification; never restart the bound on retry or
+treat an old 412 as cancellation. This supplies a bounded recovery path, not
+immediate erasure of a still-valid or unverified session. See the
+[GCS session lifecycle](https://docs.cloud.google.com/storage/docs/resumable-uploads#session-uris).
+A validated
 successful upload settles its exact permit before the final access check; that check
 still controls whether information may be returned. The terminal-proof correction
 is source-qualified, not deployed acceptance.

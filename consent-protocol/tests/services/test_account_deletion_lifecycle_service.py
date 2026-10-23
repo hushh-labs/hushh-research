@@ -428,7 +428,7 @@ def test_completed_cleanup_scrubs_raw_firebase_uid(monkeypatch):
 
     sql = str(conn.execute.call_args.args[0])
     params = conn.execute.call_args.args[1]
-    assert "firebase_uid = CASE WHEN :completed THEN NULL" in sql
+    assert "firebase_uid = CASE WHEN :completed OR :identity_retained THEN NULL" in sql
     assert "expected_phone_digest = CASE" in sql
     assert params["completed"] is True
     assert params["cleanup_status"] == "completed"

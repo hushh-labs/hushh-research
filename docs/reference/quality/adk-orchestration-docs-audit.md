@@ -171,9 +171,12 @@ Duplicate release monitor #8353 is archived with its journal preserved and activ
 marker removed; canonical #8304 reconciliation passed in run `39871154431`.
 Automatic production/native releases remain disabled.
 
-A deleted UID cannot safely re-enrol under the shared Firebase authority.
-This release distinguishes deletion, missing records and transient failures;
-isolated dev/UAT authentication and preserved-user migration are staged separately.
+A deleted application account cannot currently re-enrol under the same Firebase UID.
+Shared Firebase remains supported; environment-scoped account generations must
+fence retired sessions, grants, jobs and writes before same-UID re-enrollment.
+The bounded follow-up preserves shared identity, stops prohibited automatic cleanup
+retries and keeps the hashed tombstone; it does not yet implement re-registration.
+Isolated dev/UAT identity projects remain an alternative, not a mandatory provider prerequisite.
 Never clear terminal tombstones, claim cleanup from key destruction, or delete a
 production Firebase identity from non-production.
 
