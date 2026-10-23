@@ -2475,36 +2475,31 @@ def test_complete_azure_bundle_does_not_require_a_working_alternate(classificati
 
 def _provider_capture_fixture(monkeypatch, azure=True, vertex=False):
     monkeypatch.syspath_prepend(str(REPO_ROOT / "scripts/ci"))
-    spec = importlib.util.spec_from_file_location(
-        "provider_receipt_capture", REPO_ROOT / "scripts/ci/capture_managed_provider_receipt.py"
-    )
-    collector = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(collector)
+    collector = importlib.import_module("capture_managed_provider_receipt")
     gate = _managed_provider_gate()
     expected, a = _provider_fixture(gate, "azure_openai")
     _, v = _provider_fixture(gate, "vertex")
     aggregate = gate.evaluate(
         {"azure_openai": a if azure else None, "vertex": v if vertex else None}, expected
     )
-    chosen = aggregate["selected_provider"]
     document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
     selection = {
         "context": expected,
         "managed_provider_selection": {
-            "provider": chosen,
+            "provider": aggregate["selected_provider"],
             "status": "verified",
             "revision": "consent-protocol-test-rev",
             "image": expected["image"],
             "traffic_percent": 0,
         },
     }
-    steps = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))["steps"]
-    index, step = next(
+    build_steps = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))["steps"]
+    aggregate_index, aggregate_step = next(
         (index, step)
-        for index, step in enumerate(steps)
+        for index, step in enumerate(build_steps)
         if step.get("id") == "verify-managed-provider-readiness"
     )
-    label = f'Step #{index} - "verify-managed-provider-readiness"'
+    label = f'Step #{aggregate_index} - "verify-managed-provider-readiness"'
 
     def entry(value, number):
         return {
@@ -2529,24 +2524,19 @@ def _provider_capture_fixture(monkeypatch, azure=True, vertex=False):
         "status": "SUCCESS",
         "startTime": "2026-10-21T12:00:00Z",
         "finishTime": "2026-10-21T12:01:00Z",
-        "substitutions": {
-            key: expected[value]
-            for key, value in {
-                "_DEPLOY_SHA": "source_sha",
-                "_GITHUB_RUN_ID": "github_run",
-                "_IMAGE_REFERENCE": "image",
-                "_RUNTIME_SERVICE_ACCOUNT": "runtime_account",
-                "_DEPLOY_ENV": "environment",
-                "_REGION": "region",
-            }.items()
-        },
-        "steps": [{}] * index + [{**step, "status": "SUCCESS"}],
+        "substitutions": dict(
+            _DEPLOY_SHA=expected["source_sha"],
+            _GITHUB_RUN_ID=expected["github_run"],
+            _IMAGE_REFERENCE=expected["image"],
+            _RUNTIME_SERVICE_ACCOUNT=expected["runtime_account"],
+            _DEPLOY_ENV=expected["environment"],
+            _REGION=expected["region"],
+            _BACKEND_SERVICE="consent-protocol",
+            _CLOUD_RUN_TAG="account-deletion-" + expected["github_run"],
+            _SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE="false",
+        ),
+        "steps": [{}] * aggregate_index + [{**aggregate_step, "status": "SUCCESS"}],
     }
-    build["substitutions"].update(
-        _BACKEND_SERVICE="consent-protocol",
-        _CLOUD_RUN_TAG="account-deletion-" + expected["github_run"],
-        _SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE="false",
-    )
     return collector, expected, document, label, entries, build
 
 
@@ -2590,8 +2580,10 @@ def test_uploaded_provider_receipt_uses_exact_remote_build_without_stdout(
         "build",
         "failed_build",
         "failed_step",
-        "missing_deployment",
-        "extra_dependency",
+        "dependency_deploy-backend",
+        "dependency_verify-azure-pwm-runtime",
+        "dependency_verify-managed-vertex-runtime",
+        "dependency_unexpected",
         "run",
         "image",
         "log_build",
@@ -2611,10 +2603,13 @@ def test_uploaded_provider_receipt_refuses_unbound_or_ambiguous_evidence(monkeyp
         build["status"] = "FAILURE"
     elif defect == "failed_step":
         build["steps"][-1]["status"] = "FAILURE"
-    elif defect == "missing_deployment":
-        build["steps"][-1]["waitFor"].remove("deploy-backend")
-    elif defect == "extra_dependency":
-        build["steps"][-1]["waitFor"].append("unexpected-step")
+    elif defect.startswith("dependency_"):
+        dependency = defect.removeprefix("dependency_")
+        parents = build["steps"][-1]["waitFor"]
+        if dependency == "unexpected":
+            parents.append(dependency)
+        else:
+            parents.remove(dependency)
     elif defect == "run":
         build["substitutions"]["_GITHUB_RUN_ID"] = "wrong-run"
     elif defect == "image":
