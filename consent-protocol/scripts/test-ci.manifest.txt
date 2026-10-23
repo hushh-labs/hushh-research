@@ -96,7 +96,7 @@ tests/services/test_drive_request_search_unit.py
 tests/services/test_drive_request_candidate_assessment.py
 tests/services/test_drive_request_review_policy.py
 tests/services/test_drive_request_package_store_postgres.py
-tests/services/test_drive_provider_request_package.py
+tests/services/test_drive_provider_request_package_postgres.py
 tests/services/test_drive_agent_package_flow_postgres.py
 tests/services/test_drive_v1_manual_review_postgres.py
 tests/services/test_drive_request_package_service.py
