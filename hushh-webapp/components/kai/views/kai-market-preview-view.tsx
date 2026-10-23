@@ -351,7 +351,7 @@ export function OneMarketIndexStrip({
               </time> : sharedStatus ? "Time unavailable" : null}
             </span>
           </span>
-          <span className="sm:order-last sm:mt-2"><IndexSparkline tone={metric.degraded ? "neutral" : metric.tone} series={metric.sparkline} height={28} /></span>
+          <span className="sm:order-last sm:mt-2"><IndexSparkline tone={metric.tone} series={metric.sparkline} /></span>
           <span className="flex min-w-0 flex-col gap-1 text-right sm:mt-3 sm:text-left">
             <span className={cn("block text-foreground", marketBriefingStyles.indexValue)}>{metric.value}</span>
             <span className={cn("text-xs font-medium tabular-nums",
@@ -504,8 +504,8 @@ function toOverviewTone(
   if (typeof deltaPct !== "number" || !Number.isFinite(deltaPct)) {
     return degraded ? "warning" : "neutral";
   }
-  if (deltaPct > 0.25) return "positive";
-  if (deltaPct < -0.25) return "negative";
+  if (deltaPct > 0) return "positive";
+  if (deltaPct < 0) return "negative";
   return "neutral";
 }
 

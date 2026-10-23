@@ -37,6 +37,9 @@ export interface HoldingMobileCardViewModel {
   gainLossPct: number | null;
   averagePrice: number | null;
   currentPrice: number | null;
+  costBasis?: number | null;
+  source?: string | null;
+  quoteAsOf?: string | null;
   portfolioWeightPct: number;
   sector: string | null;
   isCash: boolean;
