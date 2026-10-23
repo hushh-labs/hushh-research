@@ -26,6 +26,7 @@ permissions:
 
 concurrency:
   group: security-alerts-${{ github.event.workflow_run.id || inputs.source_run_id }}-${{ github.event.workflow_run.run_attempt || inputs.source_attempt }}-${{ github.event.workflow_run.head_sha || inputs.source_sha }}
+  queue: max
   cancel-in-progress: false
 
 jobs:

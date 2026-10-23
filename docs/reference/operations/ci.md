@@ -872,7 +872,13 @@ alerts with the protected environment credential. PR-controlled Secret Scan
 receives only the read-only Actions token and verifies a bounded, immutable
 receipt for its exact source run, attempt and SHA. The worker serializes
 repeated start notifications and reuses a verified receipt for the same tuple;
-another attempt requires a fresh inventory. Missing, expired, mismatched or
+another attempt requires a fresh inventory. Its bounded pending queue uses
+`queue: max` with cancellation disabled: GitHub's default single pending slot
+would cancel an earlier duplicate during a burst, correctly causing our
+fail-closed consumer to refuse clearance. See the [GitHub concurrency contract](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#concurrency).
+The 23 October sample contains 80 successful worker records across 25 source
+attempts. Reuse avoids redundant protected alert reads; platform-created workflow
+records and completion notifications can still appear. Missing, expired, mismatched or
 incomplete receipts fail closed. Local checks use the same bounded cursor
 reader without writing raw alerts to disk.
 
