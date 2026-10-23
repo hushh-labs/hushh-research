@@ -14,6 +14,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Calendar, Save } from "@/components/icons";
+import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 import { cn } from "@/lib/utils";
 import { Button } from "@/lib/morphy-ux/button";
 import {
@@ -389,7 +390,7 @@ export function EditHoldingModal({
       onOpenChange={(open) => !open && onClose()}
       repositionInputs={false}
     >
-      <DrawerContent>
+      <DrawerContent className={financeStyles.detail}>
         <DrawerHeader>
           <DrawerTitle>
             {isNewHolding ? "Add Holding" : "Edit Holding"}

@@ -228,17 +228,7 @@ export function buildPortfolioSharePayloadFromDashboardModel(
           pct: Number(row.pct || 0),
         }));
 
-  const performanceHistory = model.history.slice(-24);
-  const performance =
-    performanceHistory.length > 0
-      ? performanceHistory.map((point) => ({
-          label: point.date,
-          value: Number(point.value || 0),
-        }))
-      : [
-          { label: "Start", value: Number(model.hero.beginningValue || 0) },
-          { label: "Current", value: Number(model.hero.endingValue || model.hero.totalValue || 0) },
-        ].filter((point) => point.value > 0);
+  const performance = model.history.slice(-24).map(point => ({ label: point.date, value: point.value }));
 
   return sanitizePortfolioSharePayload({
     schemaVersion: 1,
@@ -363,7 +353,14 @@ export async function generatePortfolioSnapshotPng(payloadInput: unknown): Promi
   });
 }
 
-export async function generatePortfolioReportPdf(payloadInput: unknown): Promise<Blob> {
+export interface PortfolioReportContext {
+  source: string;
+  period: string;
+  change: number | null;
+  changePct: number | null;
+}
+
+export async function generatePortfolioReportPdf(payloadInput: unknown, context?: PortfolioReportContext): Promise<Blob> {
   const payload = sanitizePortfolioSharePayload(payloadInput);
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "pt", format: "a4" });
@@ -388,16 +385,23 @@ export async function generatePortfolioReportPdf(payloadInput: unknown): Promise
   doc.setFont("helvetica", "bold");
   doc.setTextColor(15, 23, 42);
   doc.setFontSize(13);
-  doc.text("Portfolio Value", left, 108);
+  if (context) {
+    doc.setFontSize(9);
+    doc.text(doc.splitTextToSize(`${context.source} · ${context.period}`, right - left), left, 90);
+    doc.setFontSize(13);
+  }
+  doc.text("Portfolio Value", left, 118);
   doc.setFontSize(28);
-  doc.text(formatCurrency(payload.portfolioValue), left, 138);
+  doc.text(formatCurrency(payload.portfolioValue), left, 148);
   doc.setFontSize(12);
-  doc.setTextColor(payload.dailyChangeValue >= 0 ? "#059669" : "#dc2626");
-  doc.text(
-    `${formatSignedCurrency(payload.dailyChangeValue)} (${formatSignedPercent(payload.dailyChangePct)})`,
-    left,
-    160
-  );
+  const change = context ? context.change : payload.dailyChangeValue;
+  const changePct = context ? context.changePct : payload.dailyChangePct;
+  doc.setTextColor(change === null ? "#64748b" : change >= 0 ? "#059669" : "#dc2626");
+  doc.text(change === null ? "Period balance change unavailable" : `${formatSignedCurrency(change)}${changePct === null ? "" : ` (${formatSignedPercent(changePct)})`}`, left, 168);
+  if (context && change !== null) {
+    doc.setFontSize(9);
+    doc.text("Period balance change includes cash flows.", left, 182);
+  }
 
   let y = 198;
   doc.setTextColor(15, 23, 42);
@@ -524,9 +528,9 @@ export async function sharePortfolioSnapshot(payloadInput: unknown): Promise<Sha
   );
 }
 
-export async function exportPortfolioPdf(payloadInput: unknown): Promise<ShareDelivery> {
+export async function exportPortfolioPdf(payloadInput: unknown, context?: PortfolioReportContext): Promise<ShareDelivery> {
   const payload = sanitizePortfolioSharePayload(payloadInput);
-  const blob = await generatePortfolioReportPdf(payload);
+  const blob = await generatePortfolioReportPdf(payload, context);
   return deliverBlob(
     blob,
     `portfolio-report-${Date.now()}.pdf`,
