@@ -82,7 +82,9 @@ the email arrives. Cloud Monitoring does not provide an email-channel test
 button. Keep that delivery proof separate from reconciliation so routine runs
 cannot create test incidents.
 
-Agent stream failures use the existing redacted terminal-turn telemetry. HTTP-success streams with sustained model, connector, database or execution failures trigger one actionable ERROR policy (0.01 turns/s for five minutes). Refusals, client disconnects and planned restarts do not count. No owner, thread or run identifier becomes a metric label. Both reconcilers preserve existing opening/recovery recipients.
+Agent stream failures use the existing redacted terminal-turn telemetry. HTTP-success streams with model, connector, database or execution failures trigger one actionable ERROR policy on any failure in a five-minute window (aligned count above zero, no additional duration). Refusals, client disconnects and planned restarts do not count. No owner, thread or run identifier becomes a metric label. Both reconcilers preserve existing opening/recovery recipients.
+
+Chat answer latency uses `first_answer_ms`, separately from first-visible tool or status activity. The dashboard compares answer samples with terminal-turn count and reports missing answers separately; missing timing marks never become zero-latency samples. Missing-answer count includes approval-only turns and is diagnostic, not an error alert. Azure model-call failures have a separate typed counter; content-free call logs include authentication, first output, total time and reasoning-token usage. Existing actionable terminal failure alerts retain their recipients.
 
 ## One Voice provider and latency tracking
 

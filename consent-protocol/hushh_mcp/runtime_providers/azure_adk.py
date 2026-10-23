@@ -6,11 +6,10 @@ select tools, retry requests, or grant invocation/data/action authority.
 
 from __future__ import annotations
 
-import asyncio
-import base64
 import json
 from collections.abc import AsyncGenerator, Awaitable, Callable
-from typing import Any
+from contextlib import aclosing
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from google.adk.labs.openai import OpenAIResponsesLlm
@@ -20,20 +19,19 @@ from google.adk.models.llm_response import LlmResponse
 from google.genai import types
 from pydantic import BaseModel, Field, field_validator
 
+from .azure_call_lifecycle import AzureAuthenticationError as AzureAuthenticationError
+from .azure_call_lifecycle import acquire_token, observe_call
 from .azure_response_history import (
     browser_message_part,
     reasoning_part,
     restore_browser_message,
     restore_reasoning,
 )
-
-
-class AzureAuthenticationError(RuntimeError):
-    """Workload authentication failed before model I/O; not a model outage."""
-
+from .azure_response_history import (
+    inline_media as _inline_media,
+)
 
 _MAX_ARGUMENT_BYTES = 256 * 1024
-_MAX_MEDIA_BYTES = 25 * 1024 * 1024
 _MAX_REQUEST_MEDIA_BYTES = 50 * 1024 * 1024
 
 
@@ -118,40 +116,6 @@ def _instruction(value: Any) -> str:
         else:
             raise ValueError("Unsupported Azure system instruction part")
     return "\n\n".join(output)
-
-
-def _inline_media(part: types.Part) -> dict:
-    """Translate already-admitted bytes; never fetch URLs or persist provider files."""
-    blob = part.inline_data
-    if (
-        blob is None
-        or not isinstance(blob.data, bytes)
-        or not 0 < len(blob.data) <= _MAX_MEDIA_BYTES
-    ):
-        raise ValueError("Azure inline media exceeds supported bounds")
-    data, mime = blob.data, blob.mime_type
-    if mime == "text/csv":
-        return {"type": "input_text", "text": data.decode("utf-8-sig", errors="strict")}
-    if mime == "application/pdf":
-        if not data.startswith(b"%PDF-") or b"%%EOF" not in data[-1024:]:
-            raise ValueError("Invalid Azure inline PDF")
-        return {
-            "type": "input_file",
-            "filename": "document.pdf",
-            "file_data": "data:application/pdf;base64," + base64.b64encode(data).decode("ascii"),
-        }
-    signatures = {
-        "image/png": data.startswith(b"\x89PNG\r\n\x1a\n"),
-        "image/jpeg": data.startswith(b"\xff\xd8\xff"),
-        "image/gif": data.startswith((b"GIF87a", b"GIF89a")),
-        "image/webp": data.startswith(b"RIFF") and data[8:12] == b"WEBP",
-    }
-    if not signatures.get(mime or "", False):
-        raise ValueError("Unsupported or invalid Azure inline media")
-    return {
-        "type": "input_image",
-        "image_url": f"data:{mime};base64," + base64.b64encode(data).decode("ascii"),
-    }
 
 
 def _history(contents: list[types.Content], *, preserve_message_phase: bool = False) -> list[dict]:
@@ -498,6 +462,9 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
     timeout_seconds: float = Field(default=60, gt=0, le=120)
     client_factory: Callable[..., Any] | None = Field(default=None, exclude=True, repr=False)
     allow_web_search: bool = False
+    # Managed conversational heads may reduce LOW/default effort. Explicit
+    # MEDIUM/HIGH specialist requests retain their authored reasoning budget.
+    default_reasoning_effort: Literal["minimal", "low"] | None = None
 
     @field_validator("endpoint")
     @classmethod
@@ -549,19 +516,29 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
     async def generate_content_async(
         self, llm_request: LlmRequest, stream: bool = False
     ) -> AsyncGenerator[LlmResponse, None]:
+        counters: dict[str, Any] = {"auth_ms": 0, "first_output_ms": None}
+        source = self._generate_azure_content(llm_request, stream, counters)
+        async with aclosing(observe_call(source, self.model, counters)) as results:
+            async for result in results:
+                yield result
+
+    async def _generate_azure_content(
+        self, llm_request: LlmRequest, stream: bool, counters: dict[str, Any]
+    ) -> AsyncGenerator[LlmResponse, None]:
         kwargs = _request(llm_request, self.model, allow_web_search=self.allow_web_search)
+        if self.default_reasoning_effort and kwargs.get("reasoning", {}).get("effort") in {
+            None,
+            "low",
+        }:
+            kwargs.setdefault("reasoning", {})["effort"] = self.default_reasoning_effort
+            kwargs["parallel_tool_calls"] = False
+        counters["reasoning_effort"] = kwargs.get("reasoning", {}).get("effort", "provider_default")
         allowed = (
             {tool["name"] for tool in kwargs.get("tools", []) if tool["type"] == "function"}
             if kwargs.get("tool_choice") != "none"
             else set()
         )
-        try:
-            async with asyncio.timeout(5):
-                token = await asyncio.to_thread(self.token_supplier)
-        except Exception:
-            raise AzureAuthenticationError("Azure workload authentication failed") from None
-        if not isinstance(token, str) or not token:
-            raise AzureAuthenticationError("Azure managed model token is unavailable")
+        token = await acquire_token(self.token_supplier, counters)
         from openai import AsyncOpenAI
 
         factory = self.client_factory or AsyncOpenAI
@@ -580,7 +557,6 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
                 return
             events = await client.responses.create(**kwargs, stream=True)
             completed = False
-            observed_text = False
             try:
                 async for event in events:
                     kind = _value(event, "type")
@@ -592,9 +568,8 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
                         if not isinstance(delta, str):
                             raise ValueError("Invalid Azure streaming text")
                         if delta:
-                            if not observed_text and self.require_current is not None:
+                            if self.require_current is not None:
                                 await self.require_current()
-                            observed_text = True
                             yield LlmResponse(
                                 content=types.Content(
                                     role="model",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -222,6 +223,44 @@ async def test_bridge_error_message_and_code_never_reach_chat_wire(monkeypatch, 
     assert projected[0].code == "AGENT_ERROR"
     assert secret not in projected[0].model_dump_json()
     assert original.message == secret
+
+
+@pytest.mark.parametrize("bridged", [False, True])
+@pytest.mark.parametrize("revoked", [False, True])
+async def test_connected_revocation_is_a_refusal_but_missing_authority_still_alerts(
+    monkeypatch, caplog, bridged, revoked
+):
+    from hushh_mcp.one_adk import agui_turn_timing
+    from hushh_mcp.runtime_providers.managed_text import ManagedTextAuthorityError
+
+    message = (
+        "Current owner invocation authority ended"
+        if revoked
+        else "Managed text model requires invocation authority"
+    )
+
+    async def run(self, input):
+        yield TextMessageContentEvent(message_id="a", delta="Partial answer")
+        if bridged:
+            yield RunErrorEvent(message=message, code="BACKGROUND_EXECUTION_ERROR")
+        else:
+            raise ManagedTextAuthorityError(message)
+
+    monkeypatch.setattr(ADKAgent, "run", run)
+    caplog.set_level(logging.INFO, logger=agui_turn_timing.logger.name)
+    events = [event async for event in _agent().run(_input())]
+    terminal = events[-1]
+    assert terminal.code == ("TEXT_AUTHORITY_ENDED" if revoked else "AGENT_ERROR")
+    assert message not in terminal.model_dump_json()
+    timing = next(
+        record.getMessage()
+        for record in caplog.records
+        if record.getMessage().startswith("one_agent_chat_turn_complete ")
+    )
+    assert "outcome=error" in timing
+    assert ("error_class=refusal" in timing) is revoked
+    if revoked:
+        assert "error_code=text.authority.ended" in timing
 
 
 def test_one_builders_keep_reasoning_internal():

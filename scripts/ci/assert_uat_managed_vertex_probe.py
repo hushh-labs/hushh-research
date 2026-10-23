@@ -46,7 +46,7 @@ def evaluate(environ: dict[str, str]) -> str:
         and verdict.get("ok") is True
         and verdict.get("classification") == "dependency_ok"
         and verdict.get("candidate_models_exercised") is True
-        and verdict.get("one_chat_probe_ok") is True
+        and verdict.get("drive_document_requests_probe_ok") is True
         and (not voice_enabled or verdict.get("one_voice_probe_ok") is True)
         and all(probe.get("ok") is True and probe.get("classification") == "dependency_ok"
                 for probe in probes)
@@ -55,7 +55,7 @@ def evaluate(environ: dict[str, str]) -> str:
         return "healthy"
 
     failed = [probe for probe in probes if probe.get("ok") is False]
-    chat = [probe for probe in probes if str(probe.get("probe", "")).startswith("one_chat:")]
+    chat = [probe for probe in probes if str(probe.get("probe", "")).startswith("drive_document_requests:")]
     voice = [probe for probe in probes if str(probe.get("probe", "")).startswith("one_voice_live:")]
     exhausted = (
         environ["AZURE_UAT_RESOURCE_EXHAUSTION"] == "true"
@@ -64,7 +64,7 @@ def evaluate(environ: dict[str, str]) -> str:
         and verdict.get("classification") == "provider_unavailable"
         and verdict.get("candidate_models_exercised") is False
         and len(chat) == 1
-        and verdict.get("one_chat_probe_ok") is chat[0].get("ok")
+        and verdict.get("drive_document_requests_probe_ok") is chat[0].get("ok")
         and (not voice_enabled or (
             len(voice) == 1 and verdict.get("one_voice_probe_ok") is voice[0].get("ok")
         ))

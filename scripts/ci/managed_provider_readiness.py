@@ -20,6 +20,7 @@ from uuid import UUID, uuid5
 ROOT = Path(__file__).resolve().parents[2]
 SCOPES = {"one_text_chat", "drive_document_requests"}
 PROVIDERS = {"azure_openai", "vertex"}
+PROVIDER_SCOPES = {"azure_openai": SCOPES, "vertex": {"drive_document_requests"}}
 
 
 def fingerprint(value):
@@ -114,7 +115,7 @@ def valid_core(core, provider, expected, document):
         or core.get("policy_generation") != generation
         or core.get("config_fingerprint") != expected["config_fingerprint"]
         or not isinstance(scopes, dict)
-        or set(scopes) != SCOPES
+        or set(scopes) != PROVIDER_SCOPES[provider]
     ):
         return False
     model = (
@@ -516,8 +517,11 @@ def evaluate(envelopes, expected):
             )
             and value.get("execution_terminal") in {"True", "False"}
             and valid_core(value.get("core"), provider, expected, document)
-            and valid_capabilities(
-                value.get("capability_proof"), provider, expected, document
+            and (
+                provider == "vertex"
+                or valid_capabilities(
+                    value.get("capability_proof"), provider, expected, document
+                )
             )
             and (
                 provider != "azure_openai"
@@ -537,13 +541,7 @@ def evaluate(envelopes, expected):
             if valid
             else {},
         }
-    selected = (
-        "azure_openai"
-        if accepted["azure_openai"]
-        else "vertex"
-        if accepted["vertex"]
-        else None
-    )
+    selected = "azure_openai" if accepted["azure_openai"] else None
     return {
         "schema": "managed_provider_readiness.v1",
         "ready": selected is not None and not trust_failed,
@@ -649,6 +647,8 @@ def candidate(service, expected, tag):
 
 
 def select(result, expected, folder):
+    if result.get("ready") is not True or result.get("selected_provider") != "azure_openai":
+        raise ValueError("One UAT requires qualified Azure processing")
     service = os.environ["READINESS_SERVICE"]
     tag = os.environ["READINESS_TAG"]
     if (

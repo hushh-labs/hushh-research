@@ -26,6 +26,7 @@ from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.google_search_tool import GoogleSearchTool
 
 from hushh_mcp.runtime_providers.adk_model import ProviderAdkModel
+from hushh_mcp.runtime_providers.azure_adk import AzureOpenAIAdkModel
 from hushh_mcp.runtime_providers.registry import is_known_provider, normalize_provider
 
 #: The only provider whose head grounds on Google Search.
@@ -56,6 +57,8 @@ def head_provider(model: Any) -> str:
 
 def head_supports_web_search(model: Any) -> bool:
     """Whether One's head on ``model`` may be given the Google Search tool."""
+    if isinstance(model, AzureOpenAIAdkModel):
+        return model.allow_web_search
     return provider_supports_web_search(head_provider(model))
 
 
@@ -73,6 +76,27 @@ def instruction_for_head(model: Any, instruction: Callable[[Any], str]) -> Calla
     return instruction_without_web_search
 
 
+def build_web_search_agent(model: Any, *, manifest: Any) -> LlmAgent:
+    """Construct the manifest search child through its declared provider transport."""
+    from hushh_mcp.runtime_providers.managed_text import managed_text_agent
+
+    if not head_supports_web_search(model):
+        raise ValueError("Web search is unavailable for this model")
+    tool = GoogleSearchTool()
+    if isinstance(model, AzureOpenAIAdkModel):
+        from hushh_mcp.runtime_providers.managed_azure_text import AzurePublicSearchTool
+
+        tool = AzurePublicSearchTool()
+    child = next(item for item in manifest.subagents if item.id == "google_search")
+    return managed_text_agent(
+        name=child.name,
+        model=model,
+        description=child.description,
+        instruction=child.system_instruction,
+        tools=[tool],
+    )
+
+
 def web_search_tools(model: Any, *, manifest: Any) -> list[Any]:
     """One's search tool for a head on ``model``, or nothing when that head cannot search.
 
@@ -83,14 +107,7 @@ def web_search_tools(model: Any, *, manifest: Any) -> list[Any]:
     """
     if not head_supports_web_search(model):
         return []
-    child = next(item for item in manifest.subagents if item.id == "google_search")
-    agent = LlmAgent(
-        name=child.name,
-        model=model,
-        description=child.description,
-        instruction=child.system_instruction,
-        tools=[GoogleSearchTool()],
-    )
+    agent = build_web_search_agent(model, manifest=manifest)
     return [AgentTool(agent=agent, propagate_grounding_metadata=True)]
 
 

@@ -241,6 +241,26 @@ async def test_first_party_owner_has_no_database_outage_grace(owner_grant_db):
 
 
 @pytest.mark.asyncio
+async def test_report_unavailable_distinguishes_revocation_from_failed_validation(owner_grant_db):
+    from hushh_mcp.adk_bridge.delegation import (
+        OwnerTokenValidationUnavailable,
+        validate_first_party_owner_token,
+    )
+
+    token = issue_token("owner", "self", ConsentScope.VAULT_OWNER)
+    owner_grant_db.return_value = False
+    assert (
+        await validate_first_party_owner_token("owner", token.token, report_unavailable=True)
+        is None
+    )
+    owner_grant_db.side_effect = RuntimeError("private database detail")
+    with pytest.raises(
+        OwnerTokenValidationUnavailable, match="^Owner authority validation unavailable$"
+    ):
+        await validate_first_party_owner_token("owner", token.token, report_unavailable=True)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "owner, agent, scope, commercial, expires_in_ms",
     [
