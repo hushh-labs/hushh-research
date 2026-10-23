@@ -2978,7 +2978,6 @@ body:has([data-profile-stack="true"]:not(.profile-pane-sheet *)) .foundation-pub
 }
 
 body:has(.profile-account-content:not(.profile-pane-sheet *)) [data-app-top-bar],
-body:has(.profile-account-content:not(.profile-pane-sheet *)) .bottom-chrome-surface,
 body:has(.profile-account-content:not(.profile-pane-sheet *)) .kai-bottom-nav-pill {
   background: var(--ios-account-nav-material-background) !important;
   border-color: var(--ios-account-nav-material-border) !important;
@@ -6476,16 +6475,49 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
     0 2px 6px rgba(0, 0, 0, 0.5) !important;
 }
 
-/* Connect's voice launcher sits over a scrolling people list. Let that list
-   read through its glass while keeping the shared dock geometry and blur. */
-body:has([data-connect-page]) .bottom-chrome-surface[data-agent-dock-surface="voice"] {
-  background: color-mix(in oklab, white 76%, transparent) !important;
-  border-color: color-mix(in oklab, white 62%, transparent) !important;
+/* One glass material for the message/voice bar on every route. The low tint
+   lets nearby content diffuse through the capsule; its white rim catches the
+   light without turning the whole bar into an opaque card. */
+.bottom-chrome-surface,
+.dark .bottom-chrome-surface {
+  --agent-composer-material: rgba(255, 255, 255, 0.48);
+  --agent-composer-rim: rgba(255, 255, 255, 0.9);
+  --agent-composer-sheen: rgba(255, 255, 255, 0.3);
+  --agent-composer-highlight: rgba(255, 255, 255, 0.8);
+  --agent-composer-shadow: rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--agent-composer-rim) !important;
+  background:
+    linear-gradient(165deg, var(--agent-composer-sheen), transparent 48%),
+    var(--agent-composer-material) !important;
+  box-shadow:
+    inset 0 1px 0 var(--agent-composer-highlight),
+    inset 0 -1px 0 var(--agent-composer-sheen),
+    0 4px 16px -8px var(--agent-composer-shadow),
+    0 1px 2px rgba(0, 0, 0, 0.04) !important;
+  -webkit-backdrop-filter: blur(6px) saturate(150%);
+  backdrop-filter: blur(6px) saturate(150%);
 }
 
-.dark body:has([data-connect-page]) .bottom-chrome-surface[data-agent-dock-surface="voice"] {
-  background: color-mix(in oklab, var(--background) 76%, transparent) !important;
-  border-color: color-mix(in oklab, var(--foreground) 16%, transparent) !important;
+.dark .bottom-chrome-surface {
+  --agent-composer-material: color-mix(in oklab, var(--background) 58%, transparent);
+  --agent-composer-rim: rgba(255, 255, 255, 0.24);
+  --agent-composer-sheen: rgba(255, 255, 255, 0.07);
+  --agent-composer-highlight: rgba(255, 255, 255, 0.16);
+  --agent-composer-shadow: rgba(0, 0, 0, 0.4);
+}
+
+.bottom-chrome-surface:has(:focus-visible) {
+  outline: 2px solid var(--app-focus-ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .bottom-chrome-surface,
+  .dark .bottom-chrome-surface {
+    background: var(--background) !important;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
 /* The One composer is a direct-entry surface, not another navigation pill.
@@ -6520,53 +6552,12 @@ body:has([data-connect-page]) .bottom-chrome-surface[data-agent-dock-surface="vo
 /* The retained Agent Bar owns the material in both modes. Chat projects its
  * existing form into that bar, not another glass pill or another text box. */
 [data-agent-dock-surface="text"] {
-  /* The fixed composer can overlap the last message while the keyboard is
-   * present. Give that overlap an iOS material so the transcript recedes
-   * behind the writing surface instead of reading through it. */
-  --agent-composer-material: color-mix(
-    in oklab,
-    var(--background) 72%,
-    transparent
-  );
-  --agent-composer-rim: color-mix(
-    in oklab,
-    var(--foreground) 10%,
-    transparent
-  );
   display: block;
   min-width: 0;
   overflow: visible;
   border-radius: 1.5rem;
-  border-color: var(--agent-composer-rim) !important;
-  background: var(--agent-composer-material) !important;
-  box-shadow:
-    inset 0 1px 0 color-mix(in oklab, var(--background) 72%, white),
-    0 10px 30px -8px color-mix(in oklab, var(--foreground) 15%, transparent),
-    0 1px 3px color-mix(in oklab, var(--foreground) 8%, transparent) !important;
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
-  backdrop-filter: blur(28px) saturate(180%);
 }
 
-.dark [data-agent-dock-surface="text"] {
-  --agent-composer-material: color-mix(
-    in oklab,
-    var(--background) 76%,
-    transparent
-  );
-  --agent-composer-rim: color-mix(
-    in oklab,
-    var(--foreground) 16%,
-    transparent
-  );
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  [data-agent-dock-surface="text"] {
-    background: var(--background) !important;
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-}
 [data-agent-dock-surface="voice"] {
   /* Same resting frame as the one-line composer: only content changes on
    * route navigation. Taller drafts still grow inside the bounded editor. */
@@ -6636,7 +6627,9 @@ body:has([data-connect-page]) .bottom-chrome-surface[data-agent-dock-surface="vo
 .dark [data-agent-dock-embedded].agent-chat-composer-surface {
   border: 0;
   background: transparent !important;
-  box-shadow: none;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 /* The retained dock is available immediately. A route-owned entrance fade
    made the same bar appear to disappear/reinstall on Talk -> Message. */
@@ -6842,39 +6835,6 @@ html.kb-open.kb-resizes :is([data-agent-dock-chat], [data-messages-dock]) [data-
   box-shadow:
     0 10px 30px -18px rgba(0, 0, 0, 0.28),
     0 0 0 3px color-mix(in oklab, var(--app-accent) 18%, transparent) !important;
-}
-
-/* The canonical chat composer is embedded in the shared dock rather than the
-   route tree. The embedded reset above keeps voice chrome plain, but must not
-   cancel the text composer's material while it overlaps the transcript. */
-[data-agent-dock-embedded][data-agent-dock-surface="text"].agent-chat-composer-surface {
-  border-color: var(--agent-composer-rim) !important;
-  background: var(--agent-composer-material) !important;
-  box-shadow:
-    inset 0 1px 0 color-mix(in oklab, var(--background) 72%, white),
-    0 10px 30px -8px color-mix(in oklab, var(--foreground) 15%, transparent),
-    0 1px 3px color-mix(in oklab, var(--foreground) 8%, transparent) !important;
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
-  backdrop-filter: blur(28px) saturate(180%);
-}
-
-[data-agent-dock-embedded][data-agent-dock-surface="text"].agent-chat-composer-surface:focus-within {
-  border-color: color-mix(in oklab, var(--app-accent) 55%, transparent) !important;
-  background: var(--agent-composer-material) !important;
-  box-shadow:
-    inset 0 1px 0 color-mix(in oklab, var(--background) 72%, white),
-    0 10px 30px -8px color-mix(in oklab, var(--foreground) 15%, transparent),
-    0 1px 3px color-mix(in oklab, var(--foreground) 8%, transparent),
-    0 0 0 3px color-mix(in oklab, var(--app-accent) 18%, transparent) !important;
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  [data-agent-dock-embedded][data-agent-dock-surface="text"].agent-chat-composer-surface,
-  [data-agent-dock-embedded][data-agent-dock-surface="text"].agent-chat-composer-surface:focus-within {
-    background: var(--background) !important;
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
 }
 
 /* Copy / like / dislike on a settled answer. With a fine pointer on a wide
