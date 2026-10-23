@@ -305,6 +305,8 @@ jobs:
             "${RUNNER_TEMP}/release-tools/verify_uat_release.py"
           cp scripts/ci/capture_managed_provider_receipt.py \
             "${RUNNER_TEMP}/release-tools/capture_managed_provider_receipt.py"
+          cp scripts/ops/run_uat_text_recovery_job.py \
+            "${RUNNER_TEMP}/release-tools/run_uat_text_recovery_job.py"
           if [[ "${{ inputs.skip_managed_vertex_probe_once }}" == "true" ]]; then
             cp scripts/ci/managed_provider_readiness.py \
               "${RUNNER_TEMP}/release-tools/managed_provider_readiness.py"
@@ -337,6 +339,10 @@ jobs:
             scripts/ops/verify_uat_release.py
           cp "${RUNNER_TEMP}/release-tools/capture_managed_provider_receipt.py" \
             scripts/ci/capture_managed_provider_receipt.py
+          # The launcher is current release tooling; the approved target image
+          # and its processing policy remain bound by the launcher itself.
+          cp "${RUNNER_TEMP}/release-tools/run_uat_text_recovery_job.py" \
+            scripts/ops/run_uat_text_recovery_job.py
           cp "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py" \
             scripts/ci/runtime-capacity-budget.py
           cp "${RUNNER_TEMP}/release-tools/account-deletion-fence-decision.py" \

@@ -30,7 +30,7 @@ def _cloud_response(command, *, calls, execution_name, name, outcome, elapsed, *
         # Reproduce the observed207s provider wall time without sleeping.
         status = "Unknown"
         if elapsed[0] >= 207 and outcome != "unconfirmed":
-            status = "True" if outcome == "success" else "False"
+            status = "True" if outcome in {"success", "wrong_generation"} else "False"
         return SimpleNamespace(
             stdout=json.dumps(
                 {
@@ -49,7 +49,9 @@ def _cloud_response(command, *, calls, execution_name, name, outcome, elapsed, *
                             "mode": "apply",
                             "limit": 20,
                             "scan_limit": 200,
-                            "policy_generation": "qualified-generation",
+                            "policy_generation": "other-generation"
+                            if outcome == "wrong_generation"
+                            else "qualified-generation",
                             "counts": {
                                 key: 0
                                 for key in (
@@ -119,7 +121,9 @@ def controller(monkeypatch, tmp_path, outcome):
     return module, calls
 
 
-@pytest.mark.parametrize("outcome", ["success", "cancelled", "unconfirmed", "retained"])
+@pytest.mark.parametrize(
+    "outcome", ["success", "cancelled", "unconfirmed", "retained", "wrong_generation"]
+)
 def test_text_recovery_waits_for_provider_settlement_before_removing_job(
     controller, tmp_path, outcome
 ):
@@ -128,6 +132,14 @@ def test_text_recovery_waits_for_provider_settlement_before_removing_job(
         with pytest.raises(ValueError, match="reconcile before retry"):
             module.main()
         assert not any(verb in call for call in calls for verb in ("replace", "execute", "delete"))
+        return
+    if outcome == "wrong_generation":
+        with pytest.raises(ValueError, match="receipt is not yet available"):
+            module.main()
+        assert not (tmp_path / "proof.json").exists()
+        assert sum("execute" in call for call in calls) == 1
+        assert any("logging" in call for call in calls)
+        assert "delete" in calls[-1]
         return
     if outcome == "success":
         module.main()
