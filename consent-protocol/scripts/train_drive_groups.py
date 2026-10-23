@@ -329,6 +329,26 @@ def write(out: Path, name: str, payload: dict, *, compact: bool) -> None:
     (out / name).write_bytes((text + "\n").encode("utf-8"))
 
 
+def training_provenance(fixtures: Path, row_count: int, folds: int) -> dict:
+    synthetic = fixtures.resolve() == DEFAULT_FIXTURES.resolve()
+    return {
+        "fitted_on": "train split of the synthetic fixtures"
+        if synthetic
+        else "train split of a private labelled file",
+        "fixtures_sha256": hashlib.sha256(
+            fixtures.read_bytes().replace(b"\r\n", b"\n")
+        ).hexdigest()[:16],
+        "rows": row_count,
+        "folds": f"{folds} folds that hold out whole template families",
+        "target_precision": TARGET_PRECISION,
+        "embedding_model": f"{MODEL_ID}@{MODEL_REVISION}",
+        "fitted_at": datetime.now(UTC).strftime("%Y-%m-%d"),
+        "note": "Synthetic data: a regression gate, not accuracy on a real Drive."
+        if synthetic
+        else "Fitted on private labels; keep these files out of the repository.",
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--fixtures", type=Path, default=DEFAULT_FIXTURES)
@@ -383,23 +403,7 @@ def main() -> None:
         {"kind": "groups_v1", "head_chars": HEAD_CHARS, "groups": DEFINITIONS},
         compact=False,
     )
-    synthetic = args.fixtures.resolve() == DEFAULT_FIXTURES.resolve()
-    provenance = {
-        "fitted_on": "train split of the synthetic fixtures"
-        if synthetic
-        else "train split of a private labelled file",
-        "fixtures_sha256": hashlib.sha256(
-            args.fixtures.read_bytes().replace(b"\r\n", b"\n")
-        ).hexdigest()[:16],
-        "rows": len(rows),
-        "folds": f"{folds} folds that hold out whole template families",
-        "target_precision": TARGET_PRECISION,
-        "embedding_model": f"{MODEL_ID}@{MODEL_REVISION}",
-        "fitted_at": datetime.now(UTC).strftime("%Y-%m-%d"),
-        "note": "Synthetic data: a regression gate, not accuracy on a real Drive."
-        if synthetic
-        else "Fitted on private labels; keep these files out of the repository.",
-    }
+    provenance = training_provenance(args.fixtures, len(rows), folds)
     write(
         out,
         "fusion.json",

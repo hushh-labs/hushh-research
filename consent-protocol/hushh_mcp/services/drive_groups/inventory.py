@@ -1,8 +1,8 @@
 """Shared organizing-index inventory: reuse a complete snapshot and replay fenced Drive changes.
 
-The snapshot and cursor contain metadata only. Placements remain version-bound in
-the export checkpoint. A cursor advances past changes only with their completed
-placements; interrupted batches replay from the previous cursor.
+The snapshot and cursor contain metadata only. Export checkpoints advance only
+with completed placements. Worker snapshots keep complete rows with their cursor;
+each batch independently recomputes pending versions from the sealed store.
 """
 
 from __future__ import annotations
@@ -187,6 +187,73 @@ async def load_inventory(
         if changed is not None:
             return LocalInventory(changed[0], True, False, before, changed[1])
     raise DriveReadError("provider_response_invalid")
+
+
+_QUERY = (
+    "mimeType != 'application/vnd.google-apps.folder' and "
+    "mimeType != 'application/vnd.google-apps.shortcut'"
+)
+
+
+async def list_inventory_files(reads, user, *, maximum, page_size):
+    rows, tokens = {}, set()
+    token = None
+    complete, limited = True, False
+    # Bound even a provider returning endless empty pages with fresh tokens.
+    for _ in range((maximum + 24) // 25):
+        while True:
+            try:
+                result = await reads.read_tool(
+                    user_id=user,
+                    tool_name="search_files",
+                    arguments={
+                        "query": _QUERY,
+                        "pageSize": page_size,
+                        # Edits reorder modifiedTime walks and can hide a file
+                        # between pages. Reuse the metadata index's stable walk.
+                        "orderBy": "createdTime desc",
+                        **({"pageToken": token} if token is not None else {}),
+                    },
+                )
+                break
+            except DriveReadError as error:
+                if str(error) != "file_too_large" or page_size <= 25:
+                    raise
+                # Same response budget and fallback as the owner scanner:
+                # retry this cursor at 100, then 25; never lose a page.
+                page_size = 100 if page_size > 100 else 25
+        page = result.payload
+        if result.is_error or not isinstance(page, dict):
+            raise DriveReadError("provider_response_invalid")
+        files = page.get("files")
+        if not isinstance(files, list) or len(files) > page_size:
+            raise DriveReadError("provider_response_invalid")
+        for row in files:
+            _validate_row(row)
+            if row["id"] in rows and rows[row["id"]] != row:
+                raise DriveReadError("provider_response_invalid")
+            if row["id"] not in rows and len(rows) >= maximum:
+                limited, complete = True, False
+                break
+            rows[row["id"]] = row
+        complete &= not (result.truncated or page.get("incompleteSearch") or page.get("overLimit"))
+        token = page.get("nextPageToken")
+        if token is None:
+            break
+        if (
+            not isinstance(token, str)
+            or not 1 <= len(token) <= 1024
+            or token in tokens
+            or any(ord(c) < 32 for c in token)
+        ):
+            raise DriveReadError("provider_response_invalid")
+        tokens.add(token)
+        if len(rows) >= maximum:
+            limited = True
+            break
+    else:
+        limited = True
+    return list(rows.values()), complete and not limited, limited
 
 
 class InventoryCache:

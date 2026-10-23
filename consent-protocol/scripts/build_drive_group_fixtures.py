@@ -24,13 +24,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from hushh_mcp.services.drive_groups.text_head import HEAD_CHARS, capture_head  # noqa: E402
+from drive_group_fixture_rows import (  # noqa: E402
+    MONTHS,
+    PEOPLE,
+    append_training_records,
+    build_row,
+)
 
 OUT = (
     Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "drive_groups" / "synthetic.jsonl"
 )
 SEED = 20261021
-MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 BANKS = [
     "Northwind Bank",
     "Contoso Bank",
@@ -41,23 +45,7 @@ BANKS = [
 CARDS = ["Northwind Platinum Card", "Contoso Rewards Card", "Fabrikam Everyday Card"]
 BROKERS = ["Woodgrove Securities", "Proseware Capital", "Lucerne Wealth"]
 INSURERS = ["Wingtip Insurance", "Alpine General Insurance", "Proseware Life", "Coho Health Cover"]
-PEOPLE = [
-    "Alex Morgan",
-    "Priya Rao",
-    "Jordan Ellis",
-    "Sana Khan",
-    "Marco Ruiz",
-    "Mei Tan",
-    "Omar Haddad",
-]
 UNIVERSITIES = ["Woodgrove University", "Tailwind Institute of Technology", "Blue Yonder College"]
-PDF, DOC, DOCX, SHEET, TXT = (
-    "application/pdf",
-    "application/vnd.google-apps.document",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.google-apps.spreadsheet",
-    "text/plain",
-)
 
 
 class Maker:
@@ -542,53 +530,6 @@ EVAL: dict[str, list[Family]] = {
 }
 PER_FAMILY = {"train": 12, "eval": 6}
 PER_NONE_FAMILY = {"train": 14, "eval": 10}
-UNINFORMATIVE = [
-    "scan_{n:04d}",
-    "IMG_{n:04d}",
-    "Document ({n})",
-    "Untitled document",
-    "file{n}",
-    "New doc {n}",
-]
-
-
-def tag(m: Maker) -> str:
-    return m.rng.choice(
-        [
-            f"{m.rng.choice(MONTHS)}{m.rng.randint(2024, 2026)}",
-            f"{m.rng.randint(2024, 2026)}-{m.rng.randint(1, 12):02d}",
-            f"{m.rng.choice(MONTHS)} {m.rng.randint(2024, 2026)}",
-            f"Q{m.rng.randint(1, 4)} FY{m.rng.randint(24, 27)}",
-            f"({m.rng.randint(1, 9)})",
-        ]
-    )
-
-
-def build_row(m: Maker, split: str, label: str, family: Family, serial: int) -> dict:
-    head_text, stems = family(m)
-    mime = m.rng.choices([PDF, DOC, DOCX, SHEET, TXT], weights=[60, 14, 12, 9, 5])[0]
-    scanned = m.rng.random() < 0.12
-    informative = m.rng.random() > 0.25
-    stem = (
-        m.pick(stems).replace("{tag}", tag(m))
-        if informative
-        else m.pick(UNINFORMATIVE).format(n=serial)
-    )
-    extension = {PDF: ".pdf", DOCX: ".docx", TXT: ".txt"}.get(mime, "")
-    if scanned:
-        mime, extension = PDF, ".pdf"
-    head = None if scanned else capture_head((m.noisy(head_text),), HEAD_CHARS)
-    return {
-        "id": f"{split[0]}{serial:04d}",
-        "split": split,
-        "family": family.__name__,
-        "label": label,
-        "name": f"{stem}{extension}",
-        "mime": mime,
-        "shared_with_me": m.rng.random() < (0.08 if label != "none" else 0.3),
-        "owned_by_me": m.rng.random() < (0.92 if label != "none" else 0.7),
-        "head": head,
-    }
 
 
 def build() -> list[dict]:
@@ -602,21 +543,7 @@ def build() -> list[dict]:
                 for _ in range(count):
                     serial += 1
                     rows.append(build_row(maker, split, label, family, serial))
-    # Append independent training layouts after generating the original corpus.
-    # Its held-out rows stay byte-for-byte unchanged as coverage is expanded.
-    extra = json.loads(OUT.with_name("training_records.json").read_text())
-    additional = Maker(random.Random(SEED + 1))
-    for record in extra["families"]:
-
-        def family(m, record=record):
-            return record["head"].format(
-                person=m.pick(PEOPLE), date=m.date(), number=m.digits(8), amount=m.amount()
-            ), [record["name"]]
-
-        family.__name__ = record["family"]
-        for _ in range(PER_FAMILY["train"]):
-            serial += 1
-            rows.append(build_row(additional, "train", record["group"], family, serial))
+    append_training_records(rows, Maker(random.Random(SEED + 1)), OUT, PER_FAMILY["train"])
     return rows
 
 

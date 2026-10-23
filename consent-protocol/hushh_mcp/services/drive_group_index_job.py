@@ -25,7 +25,11 @@ from hushh_mcp.services.drive_group_index_store import (
 from hushh_mcp.services.drive_groups.adapters import IsolatedHeadEmbedder, TransportHeadSource
 from hushh_mcp.services.drive_groups.contract import four_group_index_enabled
 from hushh_mcp.services.drive_groups.indexer import index_files
-from hushh_mcp.services.drive_groups.inventory import WORKER_INVENTORY_CACHE, _moment, _validate_row
+from hushh_mcp.services.drive_groups.inventory import (
+    WORKER_INVENTORY_CACHE,
+    _moment,
+    list_inventory_files,
+)
 from hushh_mcp.services.drive_groups.models import load_bundle
 from hushh_mcp.services.drive_groups.period import deciding_day, title_day
 from hushh_mcp.services.drive_search_paging_config import OWNER_SEARCH_PAGE_SIZE_MAX
@@ -44,10 +48,6 @@ CONTENT_BATCH = 100
 READ_CONCURRENCY = 6
 # Leave the existing isolated embedding timeout (100s) and commit/cleanup room.
 EMBED_COMMIT_RESERVE = 115
-_QUERY = (
-    "mimeType != 'application/vnd.google-apps.folder' and "
-    "mimeType != 'application/vnd.google-apps.shortcut'"
-)
 
 
 class _JobReads:
@@ -79,6 +79,59 @@ class _JobEmbedding:
         return result
 
 
+def _pending_rows(rows, known, *, sealer, user, model_version, complete, limited):
+    refs = {sealer.ref(user, row["id"]) for row in rows}
+    capacity = max(0, MAX_INDEXED_FILES - len(set(known) & refs if complete else known))
+    pending = []
+    for row in rows:
+        ref = sealer.ref(user, row["id"])
+        previous = known.get(ref)
+        if (
+            previous
+            and previous[0] == _moment(row["modifiedTime"])
+            and previous[2] == model_version
+            and previous[3] == row["version"]
+        ):
+            continue
+        if previous is None:
+            if capacity == 0:
+                limited, complete = True, False
+                continue
+            capacity -= 1
+        pending.append(row)
+
+    return refs, pending, complete, limited
+
+
+async def _capture_heads(reads, user, content, deadline):
+    captured = {}
+    attempted = 0
+    source = TransportHeadSource(reads, user)
+    gate = asyncio.Semaphore(READ_CONCURRENCY)
+
+    async def capture(row):
+        nonlocal attempted
+        async with gate:
+            attempted += 1
+            captured[row["id"]] = await source.head(row)
+
+    budget = max(0, min(40, deadline - asyncio.get_running_loop().time() - EMBED_COMMIT_RESERVE))
+    if content and budget > 0:
+        tasks = [asyncio.create_task(capture(row)) for row in content]
+        try:
+            done, waiting = await asyncio.wait(
+                tasks, timeout=budget, return_when=asyncio.FIRST_EXCEPTION
+            )
+            for task in done:
+                task.result()
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+    return captured, attempted
+
+
 class DriveGroupIndexJob:
     def __init__(
         self, *, store=None, transport=None, embedder=None, bundle=None, inventory_cache=None
@@ -107,67 +160,9 @@ class DriveGroupIndexJob:
 
     @staticmethod
     async def list_files(reads, user):
-        rows, tokens = {}, set()
-        token = None
-        page_size = PAGE_SIZE
-        complete, limited = True, False
-        # Bound even a provider returning endless empty pages with fresh tokens.
-        for _ in range((MAX_INDEXED_FILES + 24) // 25):
-            while True:
-                try:
-                    result = await reads.read_tool(
-                        user_id=user,
-                        tool_name="search_files",
-                        arguments={
-                            "query": _QUERY,
-                            "pageSize": page_size,
-                            # Edits reorder modifiedTime walks and can hide a file
-                            # between pages. Reuse the metadata index's stable walk.
-                            "orderBy": "createdTime desc",
-                            **({"pageToken": token} if token is not None else {}),
-                        },
-                    )
-                    break
-                except DriveReadError as error:
-                    if str(error) != "file_too_large" or page_size <= 25:
-                        raise
-                    # Same response budget and fallback as the owner scanner:
-                    # retry this cursor at 100, then 25; never lose a page.
-                    page_size = 100 if page_size > 100 else 25
-            page = result.payload
-            if result.is_error or not isinstance(page, dict):
-                raise DriveReadError("provider_response_invalid")
-            files = page.get("files")
-            if not isinstance(files, list) or len(files) > page_size:
-                raise DriveReadError("provider_response_invalid")
-            for row in files:
-                _validate_row(row)
-                if row["id"] in rows and rows[row["id"]] != row:
-                    raise DriveReadError("provider_response_invalid")
-                if row["id"] not in rows and len(rows) >= MAX_INDEXED_FILES:
-                    limited, complete = True, False
-                    break
-                rows[row["id"]] = row
-            complete &= not (
-                result.truncated or page.get("incompleteSearch") or page.get("overLimit")
-            )
-            token = page.get("nextPageToken")
-            if token is None:
-                break
-            if (
-                not isinstance(token, str)
-                or not 1 <= len(token) <= 1024
-                or token in tokens
-                or any(ord(c) < 32 for c in token)
-            ):
-                raise DriveReadError("provider_response_invalid")
-            tokens.add(token)
-            if len(rows) >= MAX_INDEXED_FILES:
-                limited = True
-                break
-        else:
-            limited = True
-        return list(rows.values()), complete and not limited, limited
+        return await list_inventory_files(
+            reads, user, maximum=MAX_INDEXED_FILES, page_size=PAGE_SIZE
+        )
 
     async def _listing(self, reads, user):
         job = reads.job
@@ -196,25 +191,15 @@ class DriveGroupIndexJob:
         # Source-version equality alone cannot reuse old full-download evidence.
         policy = f"{original.version}:{PREFIX_POLICY}:{RAW_PREFIX_LIMIT}:{original.head_chars}:require-head"
         bundle = replace(original, version=hashlib.sha256(policy.encode()).hexdigest()[:12])
-        refs = {self.store.sealer.ref(job["user_id"], row["id"]) for row in rows}
-        capacity = max(0, MAX_INDEXED_FILES - len(set(known) & refs if complete else known))
-        pending = []
-        for row in rows:
-            ref = self.store.sealer.ref(job["user_id"], row["id"])
-            previous = known.get(ref)
-            if (
-                previous
-                and previous[0] == _moment(row["modifiedTime"])
-                and previous[2] == bundle.version
-                and previous[3] == row["version"]
-            ):
-                continue
-            if previous is None:
-                if capacity == 0:
-                    limited, complete = True, False
-                    continue
-                capacity -= 1
-            pending.append(row)
+        refs, pending, complete, limited = _pending_rows(
+            rows,
+            known,
+            sealer=self.store.sealer,
+            user=job["user_id"],
+            model_version=bundle.version,
+            complete=complete,
+            limited=limited,
+        )
 
         def uploaded_content(row):
             mime = row.get("mimeType", "")
@@ -225,35 +210,9 @@ class DriveGroupIndexJob:
         # Reserve content slots first: media must not starve readable documents.
         content = [row for row in pending if uploaded_content(row)][:CONTENT_BATCH]
         batch = [row for row in pending if not uploaded_content(row)][: MAX_BATCH - len(content)]
-        captured = {}
-        attempted = 0
-        source = TransportHeadSource(reads, job["user_id"])
-        gate = asyncio.Semaphore(READ_CONCURRENCY)
-
-        async def capture(row):
-            nonlocal attempted
-            async with gate:
-                attempted += 1
-                captured[row["id"]] = await source.head(row)
-
         reads_started_at = clock()
-        budget = max(
-            0, min(40, deadline - asyncio.get_running_loop().time() - EMBED_COMMIT_RESERVE)
-        )
-        if content and budget > 0:
-            tasks = [asyncio.create_task(capture(row)) for row in content]
-            try:
-                done, waiting = await asyncio.wait(
-                    tasks, timeout=budget, return_when=asyncio.FIRST_EXCEPTION
-                )
-                for task in done:
-                    task.result()
-            finally:
-                for task in tasks:
-                    if not task.done():
-                        task.cancel()
-                await asyncio.gather(*tasks, return_exceptions=True)
-            batch.extend(row for row in content if row["id"] in captured)
+        captured, attempted = await _capture_heads(reads, job["user_id"], content, deadline)
+        batch.extend(row for row in content if row["id"] in captured)
         if content and not batch:
             # A healthy-looking empty commit must not hide budget starvation.
             raise DriveReadError("processing_timeout")
@@ -365,7 +324,7 @@ class DriveGroupIndexJob:
             raise ValueError("invalid group index bounds")
         if not four_group_index_enabled():
             return {"schema_version": "drive.group_index.v1", "outcomes": {"disabled": 1}}
-        counts = Counter()
+        counts: Counter[str] = Counter()
         try:
             async with asyncio.timeout(deadline_seconds):
                 for user in await self.store.due_owners(max_jobs):
