@@ -12,6 +12,14 @@ import time
 from pathlib import Path
 
 
+# The client also waits for scheduling and cold startup. A 180-second client
+# deadline cancelled a run that emitted its completed receipt after 210 seconds.
+# Allow startup and observation headroom without increasing the separate
+# 120-second task / 90-second recovery limits or adding an execution attempt.
+# Provisioning is not a latency guarantee; a true client timeout stays unverified.
+EXECUTION_WAIT_SECONDS = 900
+
+
 def job_spec(service: dict, *, sha: str, run_id: str) -> dict:
     if not re.fullmatch(r"[0-9a-f]{40}", sha) or not re.fullmatch(r"[0-9]+", run_id):
         raise ValueError("Invalid release identity")
@@ -106,6 +114,27 @@ def expected_policy_generation(spec: dict) -> str:
     return str(uuid5(UUID(policy["policy_id"]), version))
 
 
+def execute_job(name: str, *, sha: str, common: list[str]):
+    try:
+        return subprocess.run(
+            ["gcloud", "run", "jobs", "execute", name, "--wait", "--format=json", *common],
+            check=True,
+            timeout=EXECUTION_WAIT_SECONDS,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.TimeoutExpired:
+        # Durable changes may precede the receipt. Record uncertainty before
+        # cleanup; never repeat apply or report completion here.
+        print(json.dumps({
+            "uat_processor_recovery_job": "wait_timed_out",
+            "job": name,
+            "sha": sha,
+            "outcome": "unverified",
+        }), flush=True)
+        raise
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--service-json", type=Path, required=True)
@@ -127,13 +156,7 @@ def main():
                 timeout=120,
                 capture_output=True,
             )
-            execution = subprocess.run(
-                ["gcloud", "run", "jobs", "execute", name, "--wait", "--format=json", *common],
-                check=True,
-                timeout=180,
-                capture_output=True,
-                text=True,
-            )
+            execution = execute_job(name, sha=args.sha, common=common)
             execution_name = json.loads(execution.stdout)["metadata"]["name"].rsplit("/", 1)[-1]
             if not re.fullmatch(r"[a-z0-9-]+", execution_name) or not execution_name.startswith(
                 name + "-"
