@@ -1038,7 +1038,7 @@ describe("ProfileReceiptsPage", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
     expect(await screen.findByText("Recovered purchase")).toBeVisible();
     expect(GmailReceiptsService.scanReceipts).not.toHaveBeenCalled();
-    expect(screen.queryByText("Opening saved receipts…")).toBeNull();
+    await waitFor(() => expect(screen.queryByText("Opening saved receipts…")).toBeNull());
   });
 
   it("shows compact recent receipts below the returning toolbar", async () => {
