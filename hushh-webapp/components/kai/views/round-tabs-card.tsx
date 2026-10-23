@@ -132,12 +132,12 @@ export function RoundTabsCard({
     <MorphyCard
       showRipple={false}
       className={cn(
-        "w-full rounded-[var(--app-card-radius-feature)] border-0 bg-[color:var(--app-card-surface-compact)] shadow-[var(--app-card-shadow-standard)] transition-[background-color,border-color,box-shadow,transform] duration-150",
+        "w-full rounded-[var(--app-card-radius-feature)] border-0 bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]",
         className
       )}
     >
       <MorphyCardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div
               className={cn(
@@ -159,11 +159,11 @@ export function RoundTabsCard({
 
           <div className="flex items-center gap-2">
             {isRoundComplete ? (
-              <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
+              <Badge variant="outline" className="border-transparent bg-transparent text-xs text-muted-foreground">
                 <Icon icon={CheckCircle2} size={12} className="mr-1" /> Complete
               </Badge>
             ) : hasAnyActivity ? (
-              <Badge variant="outline" className="text-xs bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30">
+              <Badge variant="outline" className="border-transparent bg-transparent text-xs text-muted-foreground">
                 <Icon icon={Clock} size={12} className="mr-1 animate-pulse" /> {completedCount}/3
               </Badge>
             ) : null}

@@ -23,4 +23,3 @@ export function overviewFacts(model: DashboardViewModel, portfolio?: PortfolioDa
 function finiteAmount(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
-

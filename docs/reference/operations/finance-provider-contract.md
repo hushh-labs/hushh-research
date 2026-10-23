@@ -222,3 +222,25 @@ unspecified; the real legal name must be supplied by the owner.
 longer creates a second table. No current caller reads or writes the old table.
 Existing database tables were not dropped: contents must be inspected before an
 operator-approved retirement. No shared database mutation is part of this change.
+
+
+## Portfolio and Stocks presentation
+
+Portfolio and its Holdings, Allocation, Performance, source and import views use
+Finance's scoped Connect typography and shared surfaces. The overview aligns its
+two desktop columns at the top and stacks them on phones without equal-height
+stretching. Stock browsing keeps History beside search; saved rows open the latest
+analysis directly and retain separate version and deletion actions.
+
+Balance change is a period balance movement including cash flows, not investment
+return. Missing cash, cost basis, balance change and price timestamps remain
+unavailable. Sync time does not substitute for quote time. Invested is the sum of
+known noncash positions; it does not imply account reconciliation. Allocation rows
+and the stacked chart use the same total-portfolio denominator.
+
+The report action previews the current source and period before the existing PDF
+export. Its transient export context preserves unavailable balance change; reports
+use only observed history. No public-link publication is introduced. Company news
+in stock details uses exact-symbol matches from the existing Market news resource
+and adds no provider requests. Provider selection and closed-session refresh rules
+remain under the existing Market resource owner.
