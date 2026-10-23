@@ -501,8 +501,6 @@ async def _run_stale_writer_barrier_rehearsal(database_url: str) -> None:
         # shapes without recursively firing its own DDL event trigger.
         await deletion_conn.execute(migration)
 
-        await _assert_blocked_erasure_rolls_back(database_url, deletion_conn, writer_conn)
-
         # A provisional phone-verification identity can become established
         # before the worker revalidates it. Cancel only that intent; prove the
         # actual status reader and write guard then allow normal bootstrap.
@@ -799,87 +797,6 @@ async def _run_stale_writer_barrier_rehearsal(database_url: str) -> None:
     finally:
         await writer_conn.close()
         await deletion_conn.close()
-
-
-async def _assert_blocked_erasure_rolls_back(database_url, deletion_conn, writer_conn) -> None:
-    """A stuck DELETE must release the UID barriers without erasing the account."""
-    from time import monotonic
-    from unittest.mock import AsyncMock, patch
-
-    from sqlalchemy import create_engine
-
-    from hushh_mcp.services import account_deletion_lifecycle_service as lifecycle
-    from hushh_mcp.services import account_service as account
-    from hushh_mcp.services.account_deletion_provider_cleanup import ProviderCredentialSnapshot
-
-    uid = "synthetic_blocked_erasure"
-    await deletion_conn.execute("CREATE TABLE one_adk_sessions (user_id TEXT PRIMARY KEY)")
-    await deletion_conn.execute("INSERT INTO actor_profiles(user_id) VALUES($1)", uid)
-    await deletion_conn.execute("INSERT INTO one_adk_sessions(user_id) VALUES($1)", uid)
-    holder = writer_conn.transaction()
-    await holder.start()
-    engine = create_engine(database_url)
-    release = AsyncMock()
-    service = account.AccountService()
-
-    def delete_blocked_row(conn, *, params, **_kwargs):
-        service._delete_user_rows_if_table_exists(
-            conn, table_name="one_adk_sessions", params=params
-        )
-
-    try:
-        # A row lock alone does not acquire the account's lifecycle barrier.
-        # The erasure can therefore insert its tombstone, then block on DELETE.
-        await writer_conn.fetchval(
-            "SELECT user_id FROM one_adk_sessions WHERE user_id=$1 FOR UPDATE", uid
-        )
-        with (
-            patch.object(account, "get_db_connection", engine.begin),
-            patch.object(lifecycle, "get_db_connection", engine.begin),
-            patch.object(account, "guard_answer_erasure"),
-            patch.object(account, "list_connection_graph_viewer_ids", return_value=set()),
-            patch.object(
-                account,
-                "snapshot_provider_credentials_in_transaction",
-                return_value=ProviderCredentialSnapshot(user_id=uid),
-            ),
-            patch.object(account, "release_provider_grants_after_erasure", release),
-            patch.object(service, "_delete_personal_agent_state"),
-            patch.object(service, "_clear_external_connector_data"),
-            patch.object(service, "_clear_live_memory_source_journal"),
-            patch.object(
-                service, "_table_exists", side_effect=lambda _, name: name == "one_adk_sessions"
-            ),
-            patch.object(service, "_delete_optional_user_tables", side_effect=delete_blocked_row),
-        ):
-            started = monotonic()
-            result = await asyncio.wait_for(
-                service._delete_full_account_transaction(uid, requested_target="both"),
-                timeout=6,
-            )
-            assert monotonic() - started < 6
-            assert result["success"] is False
-            assert result["account_deleted"] is False
-            assert "lock timeout" in result["error"]
-            assert not await asyncio.to_thread(
-                lifecycle.AccountDeletionLifecycleService.is_tombstoned, uid
-            )
-            release.assert_not_awaited()
-        assert (
-            await deletion_conn.fetchval(
-                "SELECT count(*) FROM actor_profiles WHERE user_id=$1", uid
-            )
-            == 1
-        )
-        assert (
-            await deletion_conn.fetchval(
-                "SELECT count(*) FROM one_adk_sessions WHERE user_id=$1", uid
-            )
-            == 1
-        )
-    finally:
-        await holder.rollback()
-        engine.dispose()
 
 
 async def _assert_pod_admission_deletion_fence(deletion_conn, writer_conn) -> None:

@@ -1948,7 +1948,7 @@ class AccountService:
         cleanup = await self._erase_shared_files_if_present(user_id, backend_only=backend_only)
         if cleanup is not None:
             return cleanup
-        result = await self._delete_full_account_transaction(
+        result = await self._settle_full_account_transaction(
             user_id, requested_target=requested_target, backend_only=backend_only
         )
         if result.get("error_code") != PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE:
@@ -1990,11 +1990,11 @@ class AccountService:
             return result
         # The first transaction has rolled back. The second independently checks
         # completion and archives evidence; a provider result cannot bypass it.
-        return await self._delete_full_account_transaction(
+        return await self._settle_full_account_transaction(
             user_id, requested_target=requested_target, backend_only=backend_only
         )
 
-    async def _delete_full_account_transaction(
+    async def _settle_full_account_transaction(
         self,
         user_id: str,
         *,
@@ -2006,7 +2006,7 @@ class AccountService:
         # for a missed Gunicorn heartbeat and left the HTTP outcome uncertain.
         async def erase_and_release() -> Dict[str, Any]:
             result, provider_credentials = await asyncio.to_thread(
-                self._delete_full_account_rows,
+                self._delete_full_account_transaction,
                 user_id,
                 requested_target=requested_target,
                 backend_only=backend_only,
@@ -2036,7 +2036,7 @@ class AccountService:
             raise cancellation
         return result
 
-    def _delete_full_account_rows(
+    def _delete_full_account_transaction(
         self,
         user_id: str,
         *,
