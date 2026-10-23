@@ -6,12 +6,12 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { mermaidBrowserBundle } from './mermaid-browser-bundle.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const web = path.join(root, 'hushh-webapp');
 const requireWeb = createRequire(path.join(web, 'package.json'));
 const { chromium } = requireWeb('playwright');
-const mermaidBundle = requireWeb.resolve('mermaid/dist/mermaid.min.js');
 const { runDiagramCheck } = createRequire(import.meta.url)('./verify-doc-diagrams.cjs');
 const roots = ['docs', 'consent-protocol/docs', 'hushh-webapp/docs',
   'README.md', 'consent-protocol/README.md', 'hushh-webapp/README.md'];
@@ -55,16 +55,16 @@ const page = await browser.newPage();
 const results = [];
 try {
   await page.setContent('<!doctype html><html><body></body></html>');
-  await page.addScriptTag({ path: mermaidBundle });
+  await page.addScriptTag({ content: await mermaidBrowserBundle() });
   await page.evaluate(() => {
-    const mermaid = window.__esbuild_esm_mermaid_nm?.mermaid?.default;
+    const mermaid = window.mermaid;
     if (!mermaid) throw new Error('Pinned Mermaid bundle did not initialize');
     mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'default' });
   });
   for (const [number, block] of blocks.entries()) {
     try {
       const svg = await page.evaluate(async ({ id, source }) => {
-        const mermaid = window.__esbuild_esm_mermaid_nm.mermaid.default;
+        const mermaid = window.mermaid;
         return (await mermaid.render(id, source)).svg;
       }, { id: `doc_diagram_${number}`, source: block.source });
       if (!svg.includes('<svg') || !svg.includes('</svg>')) throw new Error('No SVG produced');

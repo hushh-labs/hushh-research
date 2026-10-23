@@ -240,6 +240,7 @@ def test_account_session_status_returns_terminal_code_for_deleted_uid(monkeypatc
 
     assert response.status_code == 401
     assert response.json()["detail"]["code"] == "AUTH_ACCOUNT_NOT_FOUND"
+    assert response.json()["detail"]["account_lifecycle"] == "deleted"
     assert response.headers["cache-control"] == "private, no-store"
 
 
@@ -1757,23 +1758,20 @@ def test_delete_firebase_auth_user_quarantines_after_bounded_failures(monkeypatc
     assert revoked_users == ["user_123"]
 
 
-def test_delete_account_defaults_target_to_both(monkeypatch):
+@pytest.mark.parametrize("cleanup_status", ["deleted", "not_found", "retry_pending", "quarantined"])
+def test_delete_account_defaults_target_to_both(monkeypatch, cleanup_status):
     from firebase_admin import auth as firebase_auth
 
     deleted_auth_users = []
 
-    async def _mock_delete(
-        self,
-        user_id: str,
-        target: str = "both",
-    ):
+    async def _mock_delete(self, user_id: str, target: str = "both"):
         assert user_id == "user_123"
         assert target == "both"
         return {"success": True, "deleted_target": "both", "account_deleted": True}
 
     async def _mock_delete_firebase_user(user_id: str):
         deleted_auth_users.append(user_id)
-        return "deleted"
+        return cleanup_status
 
     app = _build_app()
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "user_123"}
@@ -1794,17 +1792,14 @@ def test_delete_account_defaults_target_to_both(monkeypatch):
     payload = response.json()
     assert payload["success"] is True
     assert payload["account_deleted"] is True
-    assert payload["details"]["firebase_auth_user"] == "deleted"
+    assert payload["details"]["firebase_auth_user"] == cleanup_status
+    assert payload["ready_to_start_fresh"] is (cleanup_status in {"deleted", "not_found"})
     assert "firebase_phone_orphan_user" not in payload["details"]
     assert deleted_auth_users == ["user_123"]
 
 
 def test_delete_account_surfaces_quarantined_firebase_identity(monkeypatch):
-    async def _mock_delete(
-        self,
-        user_id: str,
-        target: str = "both",
-    ):
+    async def _mock_delete(self, user_id: str, target: str = "both"):
         assert user_id == "user_123"
         assert target == "both"
         return {"success": True, "deleted_target": "both", "account_deleted": True}

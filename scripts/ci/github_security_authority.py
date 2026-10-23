@@ -9,6 +9,8 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
+import sys
 from typing import Any, Callable
 import urllib.error
 import urllib.request
@@ -317,5 +319,92 @@ def main() -> int:
         return 1
 
 
+def local_alerts(
+    environment: Document,
+    repository: str,
+    read: ReadPage,
+    repository_id: int | None = None,
+) -> int:
+    """Keep local parity complete and memory-only, with independent read policies."""
+    strict = environment.get("REQUIRE_GITHUB_ALERTS_CLEAN", "0") == "1"
+    secret_required = (
+        environment.get("REQUIRE_GITHUB_SECRET_ALERTS_CLEAN", "1" if strict else "0")
+        == "1"
+    )
+    dependency_required = (
+        environment.get("REQUIRE_GITHUB_DEPENDABOT_ALERTS_CLEAN", "0") == "1"
+    )
+    failed = False
+    for family, required in (
+        ("secret-scanning", secret_required),
+        ("dependabot", dependency_required),
+    ):
+        try:
+            result = inventory(read, repository, family, repository_id)
+        except Refused:
+            print(f"GitHub {family} alert inventory unavailable.")
+            failed = failed or strict or required
+            continue
+        print(f"GitHub {family} open alerts: {result['open']} (complete inventory).")
+        failed = failed or (required and result["open"] > 0)
+    return 1 if failed else 0
+
+
+def local_main(environment: Document) -> int:
+    strict = any(
+        environment.get(name) == "1"
+        for name in (
+            "REQUIRE_GITHUB_ALERTS_CLEAN",
+            "REQUIRE_GITHUB_SECRET_ALERTS_CLEAN",
+            "REQUIRE_GITHUB_DEPENDABOT_ALERTS_CLEAN",
+        )
+    )
+    try:
+        repository = (
+            environment.get("GITHUB_REPOSITORY")
+            or subprocess.run(
+                [
+                    "gh",
+                    "repo",
+                    "view",
+                    "--json",
+                    "nameWithOwner",
+                    "--jq",
+                    ".nameWithOwner",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=10,
+            ).stdout.strip()
+        )
+        token = (
+            environment.get("GH_TOKEN")
+            or subprocess.run(
+                ["gh", "auth", "token"],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=10,
+            ).stdout.strip()
+        )
+        api = GitHub(repository, token)
+    except (Refused, OSError, subprocess.SubprocessError):
+        print(
+            "GitHub security alert authority unavailable; local authentication is required."
+        )
+        return 1 if strict else 0
+    try:
+        repository_id = positive(
+            api.read(f"repos/{repository}").get("id"), "repository identity"
+        )
+        return local_alerts(environment, repository, api.read_page, repository_id)
+    except (Refused, AttributeError):
+        print("GitHub repository identity unavailable.")
+        return 1 if strict else 0
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(
+        local_main(dict(os.environ)) if sys.argv[1:] == ["--local"] else main()
+    )

@@ -2084,14 +2084,7 @@ async def delete_lost_vault_account(
         await _verify_lost_vault_phone_proof(payload.phone_id_token, phone)
     elif payload.method != "provider" or payload.phone_id_token:
         raise HTTPException(status_code=403, detail={"code": "ACCOUNT_DELETE_METHOD_UNAVAILABLE"})
-    result = await _perform_account_deletion(firebase_uid, target="both")
-    if isinstance(result, dict) and result.get("account_deleted") is True:
-        details = result.get("details") or {}
-        result["ready_to_start_fresh"] = details.get("firebase_auth_user") in {
-            "deleted",
-            "not_found",
-        }
-    return result
+    return await _perform_account_deletion(firebase_uid, target="both")
 
 
 @router.delete("/delete")
@@ -2209,6 +2202,7 @@ async def _perform_account_deletion(user_id: str, *, target: str):
                 user_id,
             )
         result["details"] = details
+        result["ready_to_start_fresh"] = firebase_auth_status in {"deleted", "not_found"}
 
     return result
 

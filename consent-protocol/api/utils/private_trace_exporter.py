@@ -7,6 +7,7 @@ correlation and status, never their potentially prompt-bearing descriptions.
 
 from collections.abc import Sequence
 
+from opentelemetry.propagators.textmap import Getter, TextMapPropagator
 from opentelemetry.sdk.trace import Event, ReadableSpan
 from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
 from opentelemetry.trace import Status
@@ -33,6 +34,53 @@ _PRIVATE_HTTP_URL_FIELDS = frozenset(
         "url.full",
     }
 )
+
+
+class _IncomingTraceGetter(Getter):
+    """Untrusted vendor state is not an authority or a required correlation field."""
+
+    def __init__(self, delegate):
+        self.delegate = delegate
+
+    def get(self, carrier, key):
+        return None if key.lower() == "tracestate" else self.delegate.get(carrier, key)
+
+    def keys(self, carrier):
+        return [key for key in self.delegate.keys(carrier) if key.lower() != "tracestate"]
+
+
+class _PrivateTracePropagator(TextMapPropagator):
+    def __init__(self, delegate):
+        self.delegate = delegate
+
+    def extract(self, carrier, context=None, getter=None):
+        from opentelemetry.propagators.textmap import default_getter
+
+        return self.delegate.extract(
+            carrier, context, _IncomingTraceGetter(getter or default_getter)
+        )
+
+    def inject(self, carrier, context=None, setter=None):
+        from opentelemetry.propagators.textmap import default_setter
+
+        return self.delegate.inject(carrier, context, setter or default_setter)
+
+    @property
+    def fields(self):
+        return self.delegate.fields
+
+
+def protect_incoming_trace_context() -> None:
+    """Mitigate GHSA-xcq7-p3pf-p88h while ADK pins the affected OTEL family.
+
+    Retain traceparent, baggage and outbound propagation. Install before any
+    instrumentation, which otherwise parses tracestate outside app middleware.
+    """
+    from opentelemetry.propagate import get_global_textmap, set_global_textmap
+
+    delegate = get_global_textmap()
+    if not isinstance(delegate, _PrivateTracePropagator):
+        set_global_textmap(_PrivateTracePropagator(delegate))
 
 
 def _safe_attributes(attributes):

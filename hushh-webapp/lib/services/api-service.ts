@@ -55,6 +55,7 @@ import { sanitizeErrorMessage } from "@/lib/services/error-sanitizer";
 import {
   AUTH_ACCOUNT_NOT_FOUND_BACKEND_CODE,
   authSessionInvalidationCodeFromBackendPayload,
+  authSessionLandingCodeFromBackendPayload,
   authSessionInvalidationCodeFromFirebaseError,
   dispatchAuthSessionInvalidated,
   isAccountDeletionInProgressBackendPayload,
@@ -675,7 +676,7 @@ async function apiFetch(
       .clone()
       .text()
       .catch(() => "");
-    return authSessionInvalidationCodeFromBackendPayload(body);
+    return authSessionLandingCodeFromBackendPayload(body);
   };
 
   const dispatchTerminalAuthCodeFromResponse = async (response: Response) => {

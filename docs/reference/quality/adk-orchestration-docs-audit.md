@@ -1,14 +1,13 @@
 # Private-pod readiness: CTO decision memo
 
-## Decision — 2026-10-22 UTC
+## Decision — 2026-10-23 UTC
 
-**MVP merged to main and verified on dev; finish security corrections before UAT.**
-PR [7555](https://github.com/hushh-labs/hushh-research/pull/7555) landed as
-`d69c23ce45` after all 26 exact-head checks passed. Landed-SHA smoke and the
-[governed dev rollout](https://github.com/hushh-labs/hushh-research/actions/runs/39762071957)
-passed; immutable acceptance covers backend and frontend. UAT remains on its prior
-release while the newly requested security/development-system candidate is verified.
-No production, stable-channel or automatic owner rollout is authorized.
+**Main integration is complete; [onboarding/security PR #8365](https://github.com/hushh-labs/hushh-research/pull/8365) awaits corrected exact-head CI and dev acceptance before UAT.**
+[PR8337](https://github.com/hushh-labs/hushh-research/pull/8337) landed as
+`0ea0f8fce3` after all 26 exact-head checks and landed smoke passed. The preserved
+infrastructure branch reconciles subsequent main through `4ac0a122be`, preserving its Drive, Finance, Mail and Azure chat/search changes. Earlier
+MVP receipts remain history; they do not verify the current correction candidate.
+Production, stable-channel publication and automatic owner upgrades remain held.
 
 Azure Dev 28 retains its approved image and economy configuration. Browser review
 and takeover reached the pod, but early takeover exposed `BROWSER_NOT_INITIALIZED`.
@@ -21,6 +20,22 @@ The [public-research MVP](../../future/personal-agent/browser-completion-plan.md
 is P0: ask One, review, browse, take control, resume, reconnect and stop. Login,
 remembered sessions, private-context disclosure and transfers follow that proof.
 The 30-second cold target is an optimization goal. Economy hosting stays selected.
+
+## Current dev incident — 22 October 2026
+
+**Decision: hold UAT promotion of this repair until dev onboarding passes.**
+Reported setup failures affect general cohorts, not a single owner: fixed-footer
+email preferences obscure controls; private AI setup cannot display its vault
+dialog; a one-shot hosting observation can leave every AI choice disabled.
+The correction also covers abandoned AI edits, locked saved-key recovery and deletion notices through the real API/authentication path. Local core stages passed; hosted validation found an import-time diagram-export defect, repaired through lazy initialization. Corrected exact-head CI and live acceptance remain pending. Known erased UIDs
+remain fenced; the shared Firebase deletion boundary cannot be bypassed.
+
+GitHub's pre-merge inventory reports nine dependency alerts and no secret alerts. Source patches cover
+Next.js, DOMPurify (including the actual Mermaid bundle) and Nodemailer. ADK's
+supported OTEL cap excludes the patched release: ignore incoming vendor
+`tracestate` through the public propagator boundary, preserving traceparent
+and outbound context. This is an application mitigation, not an upstream alert
+closure. The dev-only unpatched `braces` tooling advisory remains tracked.
 
 ## Visual Context
 
@@ -90,7 +105,8 @@ installation remain separate; Azure has completed its approval, while GCP has no
 
 | Surface | Exact receipt | Boundary |
 | --- | --- | --- |
-| Dev app | `d69c23ce45`; hub `consent-protocol-00191-49k` / `29654faa3669`; web `hushh-webapp-00159-jx8` / `8ca61f393c75`; both 100% | [Exact-head CI](https://github.com/hushh-labs/hushh-research/actions/runs/39757320775), landed smoke and [dev rollout](https://github.com/hushh-labs/hushh-research/actions/runs/39762071957) passed. Immutable exact-SHA acceptance read back 22 October |
+| Dev app | Read-only ADC, 22 October 22:56 UTC: backend `901838b512` / `00195-2lr`; web `f66b9f320f` / `00164-tfb`; both 100% | Governed runs `39844690705` and `39852036307`; local incident repairs are not deployed |
+| UAT app | ADC readback, 22 October 23:47 UTC: backend `901838b512` / `02457-ked`; web `f66b9f320f` / `02013-wg9`, both 100% | Web run `39870899482` succeeded. Later main rollout `39872703798` correctly refused missing exact-SHA dev acceptance; no promotion of the local correction |
 | Azure owner pod | Dev 28; digest `8b846022…68ac07`; revision `ca-hussh-one-pod--u31257e45d565` | Normal approval `op_13e165d0d1bf4a6788ae230cc7e2a93f`, verified 02:22:22 UTC. Same service identity, 1 vCPU / 2 GiB, min 0 / max 1. Active-work drain overlap is not established |
 | Schema / rollback | 69 dev checksums match; all three private-review CHECK definitions and both 971 lineage markers verified at 05:28 UTC | No historical SQL changed. Latest dev rollout records rollback targets hub `00190-b4p`, web `00158-tds`. History cleanup remains separate |
 | Integration | Main `d69c23ce45` includes the reconciled ADK `914e7c044c` and current main contracts | PR7555 merged after exact-head CI; the original infrastructure branch is synchronized without force-push. Nine unrelated peer edits remain uncommitted and excluded |
@@ -98,24 +114,42 @@ installation remain separate; Azure has completed its approval, while GCP has no
 | GCP configuration / inventory | Revision `00019-p6z`, unchanged predecessor `26bab163…61809`, 1 vCPU / 2 GiB / concurrency 8, min 0 / max 1 | Guarded inventory reconciliation committed locally as `02a7aec016` and applied. Storage protection enforced; all 39 objects preserved. Authenticated domain repair recovered identical keys, permits both exact dev domains and refuses unrelated origins; temporary job absence verified |
 | Browser component evidence | GCP Gemini 3.8: 20.366 s / three rounds; Azure actual `one-chat` GPT-5.6 Luna: 16.823 s / five rounds | Real frames, native continuations, 390 × 844 resize, login-observation fencing and joined Stop. Component takeover followed model completion. These are not installed-owner, cold or full-pod capacity results |
 
-### Current local implementation
+### Correction evidence
 
-The MVP landed as `d69c23ce45`. The local correction candidate also includes fresh
-main `5c4a79a64f`, including its Puppy, Messages, first-use, Memory, Drive and streaming work, and the reconciled ADK lineage without blanket file replacement. The completed MVP core recorded 24,519 backend/DB passes and 138 skips;
-frontend build, package and integration passed. Two hosted test-fixture corrections
-preserve runtime behavior and their original failure receipts. The final reviewed
-head `7e295ba408` passed all 26 checks before its main merge.
+The correction preserves nine unrelated peer edits and the active ADK worktree.
+Focused evidence: 278 UI cases; 154 backend cases; eight setup layouts at
+320/390/800/1440 px in light/dark. TypeScript and tracing mypy passed before the
+final candidate freeze. New tests cover real API → AuthProvider invalidation,
+verified AI readiness after Back and encrypted-key reads after unlock. Controlled
+broken implementations fail their regression checks. Core stages on `6dd4baacd6`
+passed with environment-only resumes: 23,113 backend cases passed, 142 skipped;
+three Bash 3.2 compatibility failures resolved on modern Bash, with all 33 affected
+cases passing. Web production build/types/lint, security/governance, MCP packaging
+and integration passed. The later diagram-import repair passes all 19 existing
+PDF cases and three real Node/Chromium diagram renders. Main's Mail refresh copy
+and browser preconditions are reconciled; all four Chromium/WebKit document/app
+scroll cases pass with the original one-pixel, focus and row-identity assertions. Corrected hosted CI and
+live owner acceptance remain required; fixtures alone do not establish either.
 
-The new local batch updates the four dependency owners, restores the approved
-README identity and makes `.agents` the sole authored home: 67 canonical skills,
-19 engineering lanes and one necessary host bridge. Its core recorded 24,519
-backend/DB passes and 138 skips; the web build passed with CI's synthetic
-configuration after rejecting a mismatched local credential. MCP and integration
-passed. The prior correction head `44716a4fb1` passed all 26 hosted checks. The protected-worker bootstrap core passed in 25m52s at `e3893e8b20`, including a clean web build. Later main integration and the import-only UAT repair have focused checks; exact-SHA hosted CI is still required.
-Dependency audits retain the
-unpatched development-tool family without suppression. The replacement protected `ci-security` credential is provisioned. Main-owned authority is staged; live worker qualification, receipt-consumer cutover and old repository-token retirement remain separate required steps.
+Next 16.4.2, DOMPurify 3.4.17 and Nodemailer 10.0.10 are patched in source.
+The actual Mermaid browser bundle uses the patched dependency; 223/223 diagrams
+rendered. ADK's supported OTEL constraint still prevents its upstream patch.
+The incoming-tracestate guard is a mitigation, not an advisory closure. Nodemailer's
+standalone production mail service is outside this application rollout; its source
+patch does not prove a deployed mail-service upgrade.
 
-The existing UAT failure was reproduced without keys or network: registry tooling imported runtime authentication through OAuth constants. The repair moves unchanged constants to one import-safe owner, preserving runtime placement checks and migration/database fences. Its 340 focused contracts pass; live UAT remains unverified.
+The protected worker was independently qualified as run `39861716513`.
+Read-only PR receipt consumption and exact-attempt reuse are locally verified;
+main cutover and old repository-secret retirement remain required.
+Duplicate release monitor #8353 is archived with its journal preserved and active
+marker removed; canonical #8304 reconciliation passed in run `39871154431`.
+Automatic production/native releases remain disabled.
+
+A deleted UID cannot safely re-enrol under the shared Firebase authority.
+This release distinguishes deletion, missing records and transient failures;
+isolated dev/UAT authentication and preserved-user migration are staged separately.
+Never clear terminal tombstones, claim cleanup from key destruction, or delete a
+production Firebase identity from non-production.
 
 The Browser repair joins initialization before takeover acknowledgement and
 publishes viewport epochs. Its negative controls and terminal cleanup are covered;
@@ -151,26 +185,24 @@ paid work; spending thresholds warn without stopping service.
 
 ## Next gate and owners
 
-1. **Engineering:** freeze the current control repairs and safe unavailable states.
-   Run one core mirror and exact-head hosted validation; no new feature expansion.
-2. **Release owner:** land the reviewed MVP through Admin SOP, validate the landed
-   SHA, obtain its governed dev receipt and deploy through the normal UAT path.
-3. **Browser enablement:** public research, review, preview, takeover, resume,
-   reconnect and Stop must pass per exact installed cloud image before it is
-   offered. Until then keep that cloud unavailable; source completion is not a
-   live Browser claim. Advanced journeys stay separate follow-ups.
+1. **Engineering:** finish corrected exact-SHA hosted validation. Reuse unchanged
+   completed core stages and the focused diagram-import regression evidence.
+2. **Release owner:** Admin SOP landing, landed smoke, governed dev acceptance,
+   then promote the same accepted revision to UAT. Read back actual serving state.
+3. **Browser owner:** exact installed-image public research, review, preview,
+   takeover, resume, reconnect and Stop remain separate acceptance on each cloud.
+   Keep unqualified capabilities unavailable; no expanded feature work blocks this correction.
 
 Reuse unchanged Puppy evidence: 320 Chromium/WebKit responsive cases, shared
 760 px ribbon/composer, 0 px edge discrepancy, 44 px controls and no overflow.
 Do not rerun it for backend/doc-only changes.
 
-[Application PR #7555](https://github.com/hushh-labs/hushh-research/pull/7555) is merged;
-its landed SHA passed smoke and dev acceptance. The corrected dependency and
-development-system candidate must pass exact-head CI, Admin SOP landing and its
-own dev receipt before the authorized UAT rollout. Production rollout, stable publication and
-automatic owner upgrades remain unauthorized. Managed Hussh provisioning and unqualified hosting
-moves remain unavailable. Production additionally needs migration/channel
-qualification, IAM, erasure/recovery, hub capacity and independent UAT acceptance.
+Main integration and the earlier security foundation are landed. This new correction
+needs its own dev receipt and UAT acceptance. Production, stable publication,
+automatic owner upgrades, managed Hussh provisioning and unqualified hosting moves
+remain unavailable. Broader Files/connector/voice/update/erasure lifecycle evidence,
+general schedules and economic qualification stay tracked in the
+[normal-release plan](../../future/personal-agent/NORMAL-RELEASE-TRANSITION.md).
 
 ## Reviewed integration debt
 

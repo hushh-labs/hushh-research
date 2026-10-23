@@ -271,7 +271,15 @@ def _assert_account_not_deleted(uid: str) -> None:
             headers={"Cache-Control": "private, no-store", "Retry-After": "3"},
         ) from None
     if deleted:
-        raise _account_not_found_error()
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "AUTH_ACCOUNT_NOT_FOUND",
+                "account_lifecycle": "deleted",
+                "message": "Account information has been deleted",
+            },
+            headers={"Cache-Control": "private, no-store"},
+        )
 
 
 def verify_firebase_bearer(

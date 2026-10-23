@@ -1,10 +1,4 @@
-/**
- * Canonical browser contract for terminal Firebase session invalidation.
- *
- * Keep this payload deliberately small and enumerated. A backend or Firebase
- * error message must never be forwarded into the login URL or shown directly
- * to the user.
- */
+/** Enumerated terminal-session notices; raw provider errors never enter login URLs or UI. */
 export const AUTH_SESSION_INVALIDATED_EVENT =
   "auth-session-invalidated" as const;
 
@@ -20,6 +14,8 @@ export const AUTH_SESSION_SIBLING_TAB_STORAGE_KEY =
 
 export const AUTH_ACCOUNT_NOT_FOUND_BACKEND_CODE =
   "AUTH_ACCOUNT_NOT_FOUND" as const;
+
+const TOMBSTONED_ACCOUNT = "TOMBSTONED_ACCOUNT" as const;
 
 export const AUTH_ACCOUNT_DELETION_IN_PROGRESS_BACKEND_CODE =
   "AUTH_ACCOUNT_DELETION_IN_PROGRESS" as const;
@@ -42,11 +38,12 @@ export type AuthSessionInvalidationCode =
 /** Codes that can be inferred from a credential/backend response alone. */
 export type AuthCredentialInvalidationCode = Exclude<
   AuthSessionInvalidationCode,
-  "account_deleted" | "account_deleted_ready_to_start_fresh" | "account_deletion_finishing" | "account_deletion_uncertain"
+  "account_deleted_ready_to_start_fresh" | "account_deletion_finishing" | "account_deletion_uncertain"
 >;
 
 type BackendAccountLifecycleCode =
   | typeof AUTH_ACCOUNT_NOT_FOUND_BACKEND_CODE
+  | typeof TOMBSTONED_ACCOUNT
   | typeof AUTH_ACCOUNT_DELETION_IN_PROGRESS_BACKEND_CODE;
 
 export type AuthSessionInvalidationDetail = Readonly<{
@@ -127,7 +124,7 @@ const LANDING_NOTICES: Record<
   },
   account_deleted: {
     code: "account_deleted",
-    message: "Account deleted. You have been securely signed out.",
+    message: "This account’s information was deleted. Contact support if you cannot start again.",
     toastId: "auth-session-account-deleted",
   },
   account_deleted_ready_to_start_fresh: {
@@ -137,7 +134,7 @@ const LANDING_NOTICES: Record<
   },
   account_deletion_finishing: {
     code: "account_deletion_finishing",
-    message: "Your information is deleted. We are finishing account removal. Contact support if you cannot start again soon.",
+    message: "Your information is deleted. Account removal still needs attention. Contact support before signing up again.",
     toastId: "auth-session-account-deletion-finishing",
   },
   account_deletion_uncertain: {
@@ -217,8 +214,14 @@ function accountLifecycleCodeFromBackendPayload(
     if (!value || typeof value !== "object" || seen.has(value)) return null;
     seen.add(value);
 
+    // Preserve the legacy wire code for installed native clients. Refine only
+    // the exact structured deletion receipt; a message is never authority.
     let children: unknown[];
     try {
+      const lifecycle = value as { code?: unknown; account_lifecycle?: unknown };
+      if (lifecycle.code === AUTH_ACCOUNT_NOT_FOUND_BACKEND_CODE && lifecycle.account_lifecycle === "deleted") {
+        return TOMBSTONED_ACCOUNT;
+      }
       children = Array.isArray(value)
         ? value.slice(0, MAX_BACKEND_PAYLOAD_ENTRIES)
         : Object.values(value).slice(0, MAX_BACKEND_PAYLOAD_ENTRIES);
@@ -239,10 +242,17 @@ function accountLifecycleCodeFromBackendPayload(
 export function authSessionInvalidationCodeFromBackendPayload(
   payload: unknown,
 ): AuthCredentialInvalidationCode | null {
-  return accountLifecycleCodeFromBackendPayload(payload) ===
-    AUTH_ACCOUNT_NOT_FOUND_BACKEND_CODE
-    ? "account_not_found"
-    : null;
+  const code = accountLifecycleCodeFromBackendPayload(payload);
+  return code === TOMBSTONED_ACCOUNT || code === AUTH_ACCOUNT_NOT_FOUND_BACKEND_CODE ? "account_not_found" : null;
+}
+
+/** Refine sign-in copy without changing the terminal wire/stream contract. */
+export function authSessionLandingCodeFromBackendPayload(
+  payload: unknown,
+): AuthCredentialInvalidationCode | null {
+  const code = accountLifecycleCodeFromBackendPayload(payload);
+  if (code === TOMBSTONED_ACCOUNT) return "account_deleted";
+  return code === AUTH_ACCOUNT_NOT_FOUND_BACKEND_CODE ? "account_not_found" : null;
 }
 
 /**
