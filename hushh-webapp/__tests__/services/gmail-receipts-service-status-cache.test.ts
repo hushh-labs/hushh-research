@@ -39,8 +39,22 @@ describe("GmailReceiptsService.getStatus caching", () => {
     expect(result.modify_permission_granted).toBe(false);
     await expect(GmailReceiptsService.completeNativeConnect({ idToken: 'token', userId: 'owner', serverAuthCode: 'must-not-reach-hub' })).rejects.toMatchObject({ code: 'PRIVATE_GOOGLE_OPERATION_UNAVAILABLE' });
     await expect(GmailReceiptsService.listReceipts({ idToken: 'token', vaultOwnerToken: 'owner-token', userId: 'owner' })).rejects.toMatchObject({ code: 'PRIVATE_GOOGLE_OPERATION_UNAVAILABLE' });
+    await expect(GmailReceiptsService.getSavedHistory({ idToken: 'token', vaultOwnerToken: 'owner-token', userId: 'owner', page: 1, perPage: 100, signal: new AbortController().signal })).rejects.toMatchObject({ code: 'PRIVATE_GOOGLE_OPERATION_UNAVAILABLE' });
     expect(ApiService.apiFetch).not.toHaveBeenCalled();
     expect(ApiService.ownerPodRequest).toHaveBeenCalledWith('connectors/gmail', { method: 'GET' });
+  });
+
+  it("reads owner history through the sealed route with explicit unknown account provenance", async () => {
+    const payload = { items: [], page: 1, per_page: 100, total: 0, has_more: false,
+      provenance: { source: "legacy_server_read_only", account_binding: "unknown" } };
+    vi.mocked(ApiService.apiFetch).mockResolvedValue(jsonResponse(payload));
+    const signal = new AbortController().signal;
+    await expect(GmailReceiptsService.getSavedHistory({ idToken: "synthetic", vaultOwnerToken: "synthetic-owner", userId: "owner", page: 1, perPage: 100, signal })).resolves.toEqual(payload);
+    expect(ApiService.apiFetch).toHaveBeenCalledWith(expect.stringContaining("page=1&per_page=100"), expect.objectContaining({ signal }));
+    for (const provenance of [null, { source: "gmail_live", account_binding: "current" }, { ...payload.provenance, account: "inferred" }]) {
+      vi.mocked(ApiService.apiFetch).mockResolvedValue(jsonResponse({ ...payload, provenance }));
+      await expect(GmailReceiptsService.getSavedHistory({ idToken: "synthetic", vaultOwnerToken: "synthetic-owner", userId: "owner", page: 1, perPage: 100, signal })).rejects.toThrow(/verified/);
+    }
   });
 
   it("serves a repeated call within the TTL from cache instead of hitting the network again", async () => {

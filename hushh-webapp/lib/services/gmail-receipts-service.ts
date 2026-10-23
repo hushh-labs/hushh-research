@@ -112,6 +112,8 @@ export interface GmailConnectionStatus {
   /** Legacy server receipt rows remain readable while new receipt writes are cut over. */
   receipt_storage_mode?: "legacy_read_only";
   receipt_sync_available?: boolean;
+  /** Owner history has unknown Google-account provenance; never merge into live receipts. */
+  receipt_history_available?: boolean;
   receipt_storage_message?: string;
   google_email?: string | null;
   google_sub?: string | null;
@@ -232,6 +234,7 @@ export interface ReceiptListResponse {
   per_page: number;
   total: number;
   has_more: boolean;
+  provenance?: { source: "legacy_server_read_only"; account_binding: "unknown" };
 }
 
 export interface GmailLiveReceiptItem extends ReceiptListItem {
@@ -793,7 +796,7 @@ export class GmailReceiptsService {
       const value = await privateGoogleStatus('gmail');
       const manage = value.capabilities.manage;
       const connected = value.status === 'connected' && value.capabilities.read;
-      return { configured: true, connected, status: connected ? 'connected' : 'disconnected', connection_state: value.status === 'needs_reauth' || value.status === 'connected' && !connected ? 'needs_reauth' : connected ? 'connected' : 'not_connected', needs_reauth: value.status === 'needs_reauth' || value.status === 'connected' && !connected, scope_csv: '', compose_permission_granted: manage, modify_permission_granted: manage, send_permission_granted: manage, last_sync_status: 'idle', auto_sync_enabled: false, revoked: false, receipt_sync_available: false, receipt_storage_message: 'Receipt sync is not available for your private agent yet.' };
+      return { configured: true, connected, status: connected ? 'connected' : 'disconnected', connection_state: value.status === 'needs_reauth' || value.status === 'connected' && !connected ? 'needs_reauth' : connected ? 'connected' : 'not_connected', needs_reauth: value.status === 'needs_reauth' || value.status === 'connected' && !connected, scope_csv: '', compose_permission_granted: manage, modify_permission_granted: manage, send_permission_granted: manage, last_sync_status: 'idle', auto_sync_enabled: false, revoked: false, receipt_sync_available: false, receipt_history_available: false, receipt_storage_message: 'Receipt sync is not available for your private agent yet.' };
     }
     const cache = CacheService.getInstance();
     const cacheKey = gmailStatusCacheKey(params.userId);
@@ -1298,6 +1301,7 @@ export class GmailReceiptsService {
     userId: string;
     page?: number;
     perPage?: number;
+    signal?: AbortSignal;
   }): Promise<ReceiptListResponse> {
     if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Mail receipt sync');
     const query = new URLSearchParams({
@@ -1309,6 +1313,7 @@ export class GmailReceiptsService {
       {
         method: "GET",
         headers: buildSealedHeaders(params.idToken, params.vaultOwnerToken),
+        signal: params.signal,
       },
     );
 
@@ -1325,6 +1330,18 @@ export class GmailReceiptsService {
       result: "success",
     });
     return (await response.json()) as ReceiptListResponse;
+  }
+
+  /** The existing owner-only archive endpoint; it grants no live account identity. */
+  static async getSavedHistory(params: {
+    idToken: string; vaultOwnerToken: string; userId: string; page: number; perPage: number; signal: AbortSignal;
+  }): Promise<ReceiptListResponse> {
+    const page = await this.listReceipts(params);
+    if (page.provenance?.source !== "legacy_server_read_only" || page.provenance.account_binding !== "unknown" || Object.keys(page.provenance).length !== 2 ||
+        page.page !== params.page || page.per_page !== params.perPage || !Array.isArray(page.items) || page.items.length > params.perPage ||
+        !Number.isSafeInteger(page.total) || page.total < page.items.length || typeof page.has_more !== "boolean")
+      throw new Error("Saved receipt history could not be verified.");
+    return page;
   }
 
   static async listNudges(params: {

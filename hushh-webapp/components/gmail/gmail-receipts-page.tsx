@@ -17,6 +17,7 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import GmailInformationRequestsSection from "@/components/gmail/gmail-information-requests-section";
+import { ReceiptHistory } from "@/components/gmail/receipt-history";
 import { ReceiptSyncToolbar } from "@/components/gmail/receipt-sync-toolbar";
 import { GmailRecentReceipts } from "@/components/gmail/gmail-recent-receipts";
 import { GmailReceiptMemorySave } from "@/components/gmail/gmail-receipt-memory-save";
@@ -206,6 +207,8 @@ export default function GmailReceiptsPage({
   const [loadingReceipts, setLoadingReceipts] = useState(false);
   const [receiptListReady, setReceiptListReady] = useState(false);
   const [receiptListError, setReceiptListError] = useState<string | null>(null);
+  const [receiptRestoreFailed, setReceiptRestoreFailed] = useState(false);
+  const [receiptRestorePending, setReceiptRestorePending] = useState(false);
   const receiptListRetryPage = 1;
   // Mail rejected the saved login (expired or revoked). Another read cannot
   // succeed, so the page asks for a reconnect instead of offering Try again.
@@ -269,6 +272,7 @@ export default function GmailReceiptsPage({
       if (gmailOwnerIdRef.current) MailReceiptResourceService.clear(gmailOwnerIdRef.current);
       receiptsRef.current = []; receiptEvidenceRef.current = []; savedReceiptSnapshotRef.current = null;
       setReceipts([]); setSavedReceiptSnapshot(null); setReceiptSourceAliases({});
+      setReceiptRestoreFailed(false); setReceiptRestorePending(false);
       setReceiptCompletion(null); setTotal(0); setReceiptListReady(false);
     }
     gmailOwnerIdRef.current = owner;
@@ -430,6 +434,14 @@ export default function GmailReceiptsPage({
     gmail.status?.google_sub || gmail.status?.google_email || null;
   receiptSyncAllowedRef.current = gmail.status?.receipt_sync_available !== false;
   receiptAccountKeyRef.current = receiptAccountKey;
+  useEffect(() => {
+    if (user?.uid) MailReceiptResourceService.retireObsolete(user.uid);
+  }, [user?.uid, gmail.status?.receipt_sync_available]);
+  const historySession = useMemo(() => user?.uid && vaultKey && vaultOwnerToken && isVaultUnlocked ? {
+    userId: user.uid, vaultKey, vaultOwnerToken,
+    isCurrent: () => gmailOwnerIdRef.current === user.uid && sealedReceiptAccessRef.current.isUnlocked &&
+      sealedReceiptAccessRef.current.key === vaultKey && sealedReceiptAccessRef.current.ownerToken === vaultOwnerToken,
+  } : null, [user?.uid, vaultKey, vaultOwnerToken, isVaultUnlocked]);
   const receiptDisplayScope = user?.uid
     ? `${user.uid}\u0000${String(receiptAccountKey || "")}`
     : null;
@@ -475,6 +487,7 @@ export default function GmailReceiptsPage({
   useEffect(() => {
     if (displayedReceiptScopeRef.current === receiptDisplayScope) return;
     displayedReceiptScopeRef.current = receiptDisplayScope;
+    setReceiptRestoreFailed(false); setReceiptRestorePending(false);
     receiptLoadSequenceRef.current += 1;
     receiptScanAbortRef.current?.abort();
     receiptScanAbortRef.current = null;
@@ -614,7 +627,7 @@ export default function GmailReceiptsPage({
       }
       const saved = await MailReceiptResourceService.hydrate({ userId: owner, vaultKey, vaultOwnerToken }, receiptAccountKey);
       if (!active) return;
-      setReceiptListReady(true);
+      setReceiptListReady(true); setReceiptRestoreFailed(false);
       if (saved) { setSavedReceiptSnapshot({ scope: receiptDisplayScope, value: saved }); setTotal(saved.coverage.source_count); }
       // A connected, unlocked Mail account updates automatically after a successful
       // local restore. Failed hydration stays unknown and never starts a scan.
@@ -622,7 +635,7 @@ export default function GmailReceiptsPage({
           MailReceiptResourceService.isStale(owner, receiptAccountKey))
         void loadReceipts(1);
     };
-    void restore().catch(() => { if (active) setReceiptListError("Saved receipts couldn’t be opened. Try again."); });
+    void restore().catch(() => { if (active) { setReceiptRestoreFailed(true); setReceiptListError("Saved receipts couldn’t be opened. Try again."); } });
     const wake = () => {
       if (document.visibilityState === "hidden" || navigator.onLine === false || !receiptAccountKey || !gmail.presentation.isConnected || gmail.status?.receipt_sync_available === false) return;
       if (MailReceiptResourceService.isStale(owner, receiptAccountKey)) void restore().catch(() => {});
@@ -632,6 +645,23 @@ export default function GmailReceiptsPage({
     return () => { active = false; unsubscribeLifecycle(); window.removeEventListener("online", wake); document.removeEventListener("visibilitychange", wake); };
   }, [loading, user?.uid, vaultKey, vaultOwnerToken, hasSealedReceiptAccess, receiptsWorkspaceActive,
     receiptAccountKey, receiptDisplayScope, gmail.loadingStatus, gmail.presentation.isConnected, gmail.status?.receipt_sync_available, journeyVariant, loadReceipts]);
+
+  const retryReceiptRestore = useCallback(async () => {
+    if (!historySession || !receiptAccountKey) return;
+    const sequence = receiptLoadSequenceRef.current;
+    const current = () => historySession.isCurrent() && receiptLoadSequenceRef.current === sequence;
+    setReceiptRestorePending(true);
+    let restored = false;
+    try {
+      const saved = await MailReceiptResourceService.hydrate({ ...historySession, isCurrent: current }, receiptAccountKey);
+      if (!current()) return;
+      setSavedReceiptSnapshot(saved ? { scope: receiptDisplayScope, value: saved } : null);
+      setReceiptListReady(true); setReceiptRestoreFailed(false); setReceiptListError(null); restored = true;
+    } catch {
+      if (current()) { setReceiptRestoreFailed(true); setReceiptListError("Saved receipts couldn’t be opened. Try again."); }
+    } finally { if (current()) setReceiptRestorePending(false); }
+    if (current() && restored && receiptSyncAllowedRef.current) void loadReceipts(1);
+  }, [historySession, receiptAccountKey, receiptDisplayScope, loadReceipts]);
 
   useEffect(() => subscribeDurableOwnerReset(owner => {
     if (owner !== user?.uid) return;
@@ -650,7 +680,7 @@ export default function GmailReceiptsPage({
   const loadingStatus = gmail.loadingStatus;
   const receiptStorageReadOnly =
     gmail.status?.receipt_storage_mode === "legacy_read_only";
-  const receiptSyncAvailable = Boolean(isConnected && hasSealedReceiptAccess && gmail.status?.receipt_sync_available !== false);
+  const receiptSyncAvailable = Boolean(isConnected && hasSealedReceiptAccess && receiptAccountKey && gmail.status?.receipt_sync_available !== false);
   const oauthCompletionPending = gmail.oauthCompletionPending;
   // Known rows are never covered: the skeleton appears only while a scan is
   // actually reading with nothing to show yet (or setup's first read).
@@ -1397,7 +1427,7 @@ export default function GmailReceiptsPage({
             gmail.syncRun?.status === "canceled"
           ? "Sync interrupted. Open receipts to retry."
           : receiptStorageReadOnly
-            ? "Existing receipts are available while private on-device sync is prepared."
+            ? receiptSyncAvailable ? "Receipts update automatically when you return." : "Open receipts to view saved history and update availability."
             : gmail.status?.last_sync_at ||
                 gmail.syncRun?.status === "completed"
               ? "Your latest receipts are ready."
@@ -1592,7 +1622,7 @@ export default function GmailReceiptsPage({
           id: "receipt_sync",
           title: "Receipt sync",
           purpose:
-            "Receipts update automatically after Mail connection and private vault unlock. This section shows current update status.",
+            "Shows saved receipts, current availability and any active Mail receipt check.",
         },
         {
           id: "stored_receipts",
@@ -1735,8 +1765,10 @@ export default function GmailReceiptsPage({
     <div className="space-y-4">
       {journeyVariant === "workspace" && !isConnected ? mailStatusPanel : null}
       {isConnected && hasSealedReceiptAccess ? (
-        <ReceiptSyncToolbar snapshot={currentSavedSnapshot} refreshing={loadingReceipts || receiptResource.refreshing}
-          error={receiptSyncAvailable ? receiptResource.error : gmail.status?.receipt_storage_message ?? "Receipt sync is unavailable."} disabled={!receiptSyncAvailable}
+        <ReceiptSyncToolbar key={`${user?.uid}:${snapshotVaultSessionEpoch()}`} snapshot={currentSavedSnapshot} refreshing={loadingReceipts || receiptResource.refreshing}
+          progress={receiptResource.progress} restoring={receiptRestorePending} migration={receiptStorageReadOnly} active={receiptsWorkspaceActive}
+          error={receiptResource.error ?? receiptListError} disabled={!receiptSyncAvailable}
+          onRestore={receiptRestoreFailed && receiptAccountKey ? () => void retryReceiptRestore() : undefined}
           onRefresh={receiptSyncAvailable && receiptResource.error && !receiptConnectionLost ? () => void handleSyncNow() : undefined} />
       ) : null}
 
@@ -1776,6 +1808,7 @@ export default function GmailReceiptsPage({
           {isConnected &&
           hasSealedReceiptAccess &&
           receiptListError &&
+          !receiptRestoreFailed &&
           !receiptConnectionLost &&
           !hasVerifiedReceiptSnapshot &&
           !hasStoredReceipts &&
@@ -1794,30 +1827,17 @@ export default function GmailReceiptsPage({
             </SurfaceInset>
           ) : null}
 
-          {isConnected &&
-          hasSealedReceiptAccess &&
-          !loadingReceipts &&
-          !showReceiptPlaceholders &&
-          !receiptListError &&
-          !hasStoredReceipts &&
-          !hasVerifiedReceiptSnapshot &&
-          receiptResource.hydrated &&
-          !visibleHasMore &&
-          !loadingStatus ? (
+          {isConnected && hasSealedReceiptAccess && !loadingReceipts && !showReceiptPlaceholders &&
+          !receiptListError && !hasStoredReceipts && receiptResource.hydrated && !loadingStatus ? (
             <SurfaceInset className="px-4 py-4 text-sm text-muted-foreground">
-              {!hasVerifiedReceiptSnapshot
-                ? "Receipts update automatically."
-                : receiptScanReachedLimit
-                ? `No receipts were found within the ${RECEIPT_SCAN_MAX_PAGES} Mail pages checked.`
-                : gmail.syncRun?.synced_count
-                  ? "Your receipts are still finishing up. Please try again in a moment."
-                  : "No receipts are available for this account yet."}
+              {hasVerifiedReceiptSnapshot ? "No receipts were found in the Mail checked." : "No current-account receipts are saved on this device yet."}
             </SurfaceInset>
           ) : null}
 
           {isConnected &&
           hasSealedReceiptAccess &&
           receiptListError &&
+          !receiptRestoreFailed &&
           !hasVerifiedReceiptSnapshot &&
           !receiptConnectionLost &&
           hasStoredReceipts &&
@@ -1874,6 +1894,8 @@ export default function GmailReceiptsPage({
           ) : null}
         </section>
       ) : null}
+      {historySession ? <ReceiptHistory session={historySession} getIdToken={idTokenProvider}
+        allowRead={gmail.status?.receipt_history_available === true} active={receiptsWorkspaceActive && !gmail.loadingStatus} /> : null}
     </div>
   );
 
