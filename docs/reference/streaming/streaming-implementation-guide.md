@@ -48,6 +48,12 @@ Use this pattern for any new Kai, One Voice, Agent Chat, or portfolio-import str
 - An explicit Azure SSE rate limit remains an actionable capacity failure even
   when the HTTP stream opened successfully. Show the existing retryable
   `RESOURCE_EXHAUSTED` notice; do not replay the turn or its tools automatically.
+- Managed UAT One keeps a 10-second initial model first-output budget. An actual
+  native search declaration or the latest user-role function response selects a
+  bounded 30-second first-output budget for that call. Older tool history or a
+  function merely named `google_search` does not extend a fresh question. Active
+  streaming retains its 60-second limit and the outer turn remains bounded at
+  200 seconds. Deadlines never authorize replay or a different provider.
 - A confirmed chat-key refusal may retain one unexecuted request in memory for
   its requested unlock. The shared composer still clears on lock. Recovery
   requires the same validated authentication generation and restored conversation;
