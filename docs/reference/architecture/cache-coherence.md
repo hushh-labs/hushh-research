@@ -89,6 +89,25 @@ request-session fences prevent late responses from restoring purged entries.
 
 ## Mail receipt snapshots
 
+Legacy read-only history is a separate owner archive, not a Google-account
+snapshot. `MailReceiptHistoryService` shares one recovery flight and restores the
+closed encrypted `mail_receipt_history.v1` resource before any authorized history
+request. Its unknown-account records retain individual identities and exact
+four-decimal amounts; the UI never folds them into current-account grouping or
+analytical totals. Only bounded merchant, order, date, currency and amount fields
+persist, with hashed internal receipt references. Email prose, provider identifiers,
+source locators and checkpoints are excluded. Private placement may restore this
+ciphertext locally but cannot request hub history. Reset/lock fences publication
+after hashing and clears session memory; owner-generation CAS protects writes.
+The whole recovery is bounded at 120 seconds and local restoration at 15 seconds.
+
+The Mail toolbar derives opening, checking and saving progress from the live
+resource rather than retired server-run metrics. Unavailable processing never
+promises automatic updates. View details explains availability, Manage Mail opens
+the existing connector pane with a persistent focus return target, and Got it
+closes only the explanation. Saved restoration has its own bounded retry action.
+
+
 Detailed canonical receipt rows belong to Mail's encrypted device snapshot.
 PKM receives only the existing bounded aggregate observations, without detailed
 transactions, email content, logo URLs or raw links. Branding is restored from

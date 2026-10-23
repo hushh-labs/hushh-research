@@ -1322,3 +1322,25 @@ must be tied to its exact revision/environment. Pre-push core and hosted CI
 outcomes belong to the publishing PR and its exact head. A redesign should
 reuse shared primitives and update this contract with actual behavior; it
 should not create a second route/action/schema/font registry.
+
+
+## Receipt continuity during processing migration
+
+Legacy cache write retirement does not disable the owner-authorized stateless
+live reader for eligible Shared accounts. The Receipts workspace restores its
+account snapshot first and quietly catches up on entry/return. Live progress uses
+actual resource stages and verified page counts; retired run metrics are not
+processing evidence. Limited coverage says some Mail remains unchecked.
+
+The separate Earlier saved receipts collection is owner history with unknown
+Google-account provenance. It has no current-account overview totals or provider
+source actions. Its closed encrypted device archive survives ordinary disconnect
+and sign-out; lock clears plaintext, while Reset/delete remove the owner archive
+and fence pending recovery. Private accounts only restore local history.
+
+View details opens the Receipt updates dialog; Back and Got it close it and
+restore the trigger. Manage Mail opens the existing connector pane and returns
+focus to that persistent trigger. No acknowledgment changes consent or hosting.
+A failed local restore has a distinct retry action, which cannot enable an
+unavailable provider scan. The migration-empty state has no automatic-update
+promise and no fabricated processing indicator.

@@ -38,7 +38,7 @@ const session = { userId: "synthetic-owner", vaultKey: "12".repeat(32), vaultOwn
 const account = "synthetic-account";
 const receipt: ReceiptListItem = { id: 1, source_id: "synthetic-source", receipt_key: "synthetic-source", source_kind: "gmail_live", gmail_message_id: "synthetic-message", merchant_name: "Plaid", merchant_domain: "plaid.com", category: "Software & Subscriptions", category_confidence: 1,
   transaction_date: "October 9, 2026", attention_date: "October 18", attention_state: "coming_up", attention_reason: "renewal_due", amount: 10, amount_decimal: "10.00", currency: "USD", status: "paid", document_kind: "receipt", event_type: "purchase" };
-const response = (items: ReceiptListItem[]) => ({ items: items.map(item => ({ ...item, event_id: Math.abs([...String(item.source_id)].reduce((n, char) => Math.imul(n, 31) + char.charCodeAt(0) | 0, 1)).toString(16).padStart(8, "0").repeat(8) })), page: 1, has_more: false, next_cursor: null, coverage: { max_pages: 50, reached_limit: false } });
+const response = (items: ReceiptListItem[]) => ({ items: items.map(item => ({ ...item, event_id: Math.abs([...String(item.source_id)].reduce((n, char) => Math.imul(n, 31) + char.charCodeAt(0) | 0, 1)).toString(16).padStart(8, "0").repeat(8) })), page: 1, has_more: false, next_cursor: null, coverage: { max_pages: 50, reached_limit: false, listed_count: items.length } });
 const open = () => render(<GmailReceiptsPage initialWorkspace="receipts" forceWorkspace="receipts" />);
 let syncEntries = 0;
 const sync = async () => {
@@ -100,6 +100,7 @@ describe("receipt sync durable completion", () => {
     expect(screen.queryByLabelText("Loading receipts")).toBeNull();
     expect(screen.getByTestId("receipt-sync-toolbar")).toHaveAttribute("aria-busy", "true");
     expect(fixture.completion).toBe(completion);
+    expect(screen.getByTestId("receipt-sync-toolbar")).toHaveTextContent(newSavedEvent ? "3 mail messages checked · 3 receipts found" : "2 mail messages checked · 2 receipts found");
     await waitFor(() => expect(fixture.scan).toHaveBeenCalledTimes(2));
     const progress = await loadReceiptSnapshot(session, account);
     expect(progress!.revision).toBeGreaterThan(baseline!.revision);

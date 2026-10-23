@@ -223,6 +223,51 @@ def test_exact_boundary_and_runtime_reads_agree(engine):
 
 
 @pytest.mark.asyncio
+async def test_read_only_receipt_history_pages_tied_rows_without_loss_or_account_claim(engine):
+    source = (ROOT / "consent-protocol/db/legacy/init_legacy_schema.sql").read_text()
+    start = source.index("CREATE TABLE IF NOT EXISTS kai_gmail_receipts (")
+    end = source.index("CREATE INDEX IF NOT EXISTS idx_kai_gmail_receipts_user_receipt_date", start)
+    with engine.begin() as conn:
+        conn.execute(text(source[start:end]))
+        conn.execute(
+            text("""
+            INSERT INTO kai_gmail_receipts
+                (user_id, gmail_message_id, merchant_name, amount, currency, receipt_date, created_at)
+            SELECT 'owner-a', 'synthetic-' || n, 'Saved merchant', 1.2345, 'USD',
+                   '2026-10-01'::timestamptz, '2026-10-01'::timestamptz
+            FROM generate_series(1, 120) AS n;
+            INSERT INTO kai_gmail_receipts (user_id, gmail_message_id)
+            VALUES ('owner-b', 'foreign-owner');
+        """)
+        )
+        conn.execute(
+            text(
+                (
+                    ROOT
+                    / "consent-protocol/db/migrations/267_gmail_receipt_cache_read_only_cutover.sql"
+                ).read_text()
+            )
+        )
+    service = GmailReceiptsService()
+    service._db = DatabaseClient(engine=engine)
+    first = await service.list_receipts(user_id="owner-a", page=1, per_page=100)
+    second = await service.list_receipts(user_id="owner-a", page=2, per_page=100)
+    third = await service.list_receipts(user_id="owner-a", page=3, per_page=100)
+    assert [len(result["items"]) for result in (first, second, third)] == [100, 20, 0]
+    assert [row["id"] for result in (first, second) for row in result["items"]] == list(
+        range(120, 0, -1)
+    )
+    assert [result["has_more"] for result in (first, second, third)] == [True, False, False]
+    assert all(result["total"] == 120 for result in (first, second, third))
+    assert first["provenance"] == {
+        "source": "legacy_server_read_only",
+        "account_binding": "unknown",
+    }
+    assert all(row["amount_decimal"] == "1.2345" for row in first["items"])
+    assert await service.list_receipts(user_id="owner-a", page=1, per_page=100) == first
+
+
+@pytest.mark.asyncio
 async def test_runtime_lookup_expires_terminal_and_keeps_active(engine, monkeypatch):
     with engine.begin() as conn:
         _run(conn, "expired")

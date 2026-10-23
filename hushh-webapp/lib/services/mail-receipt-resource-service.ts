@@ -7,11 +7,15 @@ import type { ReceiptSnapshot } from "@/lib/mail/receipt-snapshot";
 import { subscribeDurableOwnerReset } from "./secure-durable-resource-service";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import { GmailReceiptsService, type GmailLiveReceiptScanResponse, type ReceiptListItem } from "./gmail-receipts-service";
+import { MailReceiptHistoryService } from "./mail-receipt-history-service";
+
+import { withReceiptBudget } from "@/lib/mail/receipt-operation";
 
 const FRESH_MS = 5 * 60_000;
 const OPERATION_MS = 120_000;
 const RESTORE_MS = 15_000;
-type Resource = { snapshot: ReceiptSnapshot | null; hydrated: boolean; refreshing: boolean; error: string | null; attemptedAt: number };
+export type ReceiptProgress = { phase: "opening" | "reading" | "saving"; checked: number; found: number };
+type Resource = { snapshot: ReceiptSnapshot | null; hydrated: boolean; refreshing: boolean; error: string | null; attemptedAt: number; progress: ReceiptProgress | null };
 type RefreshResult = { snapshot: ReceiptSnapshot; generation: number; revision: number; response: GmailLiveReceiptScanResponse; complete: boolean };
 const resources = new Map<string, Resource>();
 const restores = new Map<string, Promise<ReceiptSnapshot | null>>();
@@ -29,26 +33,13 @@ function resolved(tier: "memory" | "secure_device", snapshot: ReceiptSnapshot | 
     blockingLoaderShown: false, staleRendered: stale });
 }
 const identity = (owner: string, account: string) => JSON.stringify([owner, account]);
-const empty: Resource = { snapshot: null, hydrated: false, refreshing: false, error: null, attemptedAt: 0 };
+const empty: Resource = { snapshot: null, hydrated: false, refreshing: false, error: null, attemptedAt: 0, progress: null };
 function publish(key: string, change: Partial<Resource>) {
   resetSubscription ??= subscribeDurableOwnerReset(owner => MailReceiptResourceService.clear(owner));
   resources.set(key, { ...(resources.get(key) ?? empty), ...change });
   listeners.forEach(listener => listener());
 }
 
-/** A deadline revokes publication as well as releasing the caller. Late crypto
- * and IndexedDB work still sees the expired signal through the store guard. */
-async function bounded<T>(work: (signal: AbortSignal) => Promise<T>, controller: AbortController, ms: number): Promise<T> {
-  let timer: ReturnType<typeof setTimeout>;
-  let abort: () => void = () => {};
-  const stopped = new Promise<never>((_, reject) => {
-    abort = () => reject(new DOMException("Mail update paused. Your saved receipts are safe.", "AbortError"));
-    controller.signal.addEventListener("abort", abort, { once: true });
-    timer = setTimeout(() => controller.abort(), ms);
-  });
-  try { return await Promise.race([Promise.resolve().then(() => work(controller.signal)), stopped]); }
-  finally { clearTimeout(timer!); controller.signal.removeEventListener("abort", abort); }
-}
 
 export class MailReceiptResourceService {
   static subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
@@ -59,6 +50,7 @@ export class MailReceiptResourceService {
     return !stamp || Date.now() - stamp >= FRESH_MS;
   }
   static clear(owner: string): void {
+    MailReceiptHistoryService.clear(owner);
     for (const key of new Set([...resources.keys(), ...restores.keys(), ...flights.keys()])) {
       if (JSON.parse(key)[0] !== owner) continue;
       flights.get(key)?.controller.abort(); restoreControllers.get(key)?.abort(); restoreControllers.delete(key); flights.delete(key); restores.delete(key); restoreEpochs.delete(key); resources.delete(key);
@@ -70,7 +62,7 @@ export class MailReceiptResourceService {
     for (const [key, flight] of flights) {
       if (JSON.parse(key)[0] === owner && (!isVaultSessionEpochCurrent(flight.epoch) || !flight.isCurrent())) {
         flight.controller.abort(); flights.delete(key);
-        publish(key, { refreshing: false, attemptedAt: 0 });
+        publish(key, { refreshing: false, attemptedAt: 0, progress: null });
       }
     }
   }
@@ -86,7 +78,7 @@ export class MailReceiptResourceService {
     const epoch = snapshotVaultSessionEpoch();
     const controller = new AbortController();
     let request: Promise<ReceiptSnapshot | null>;
-    request = bounded(async signal => {
+    request = withReceiptBudget(async signal => {
       const isCurrent = () => !signal.aborted && restores.get(key) === request && isVaultSessionEpochCurrent(epoch) && (session.isCurrent?.() ?? true);
       const saved = await loadReceiptSnapshot({ ...session, isCurrent }, account);
       if (!isCurrent()) throw new DOMException("Mail session changed.", "AbortError");
@@ -110,8 +102,8 @@ export class MailReceiptResourceService {
     const epoch = snapshotVaultSessionEpoch();
     const controller = new AbortController();
     const flight = { promise: null as unknown as Promise<RefreshResult>, controller, queued: false, trailing: false, epoch, isCurrent: () => session.isCurrent?.() ?? true };
-    publish(key, { refreshing: true, error: null, attemptedAt: Date.now() });
-    flight.promise = bounded(async signal => {
+    publish(key, { refreshing: true, error: null, attemptedAt: Date.now(), progress: { phase: "opening", checked: 0, found: 0 } });
+    flight.promise = withReceiptBudget(async signal => {
       const current = () => !signal.aborted && flights.get(key) === flight && isVaultSessionEpochCurrent(epoch) && (session.isCurrent?.() ?? true);
       const guarded = { ...session, signal, isCurrent: current };
       const execute = async (): Promise<RefreshResult> => {
@@ -135,6 +127,8 @@ export class MailReceiptResourceService {
         let page = resumable ? pending.page % 50 + 1 : 1;
         let committed: RefreshResult | null = null;
         let recovered = false;
+        let checked = 0;
+        publish(key, { progress: { phase: "reading", checked: 0, found: 0 } });
         for (;;) {
           let retries = 0;
           for (;;) {
@@ -158,6 +152,8 @@ export class MailReceiptResourceService {
           const bySource = new Map(items.map(item => [item.event_id ?? item.source_id, item]));
           response.items.forEach(item => bySource.set(item.event_id ?? item.source_id, item));
           items = [...bySource.values()]; response.unavailable_events?.forEach(ref => unavailable.add(ref));
+          checked += response.coverage.listed_count;
+          publish(key, { progress: { phase: "saving", checked, found: items.length } });
           const complete = !response.coverage.reached_limit && !response.has_more;
           const progress = response.has_more && response.next_cursor && page <= response.coverage.max_pages
             ? { cursor: response.next_cursor, page, started_at: startedAt, prior_partial: priorPartial } : null;
@@ -167,7 +163,7 @@ export class MailReceiptResourceService {
           if (!current()) throw new DOMException("Mail session changed.", "AbortError");
           // Every verified batch is recoverable, including after a deadline or
           // process exit. Only the final batch advances the completed checkpoint.
-          publish(key, { snapshot, hydrated: true });
+          publish(key, { snapshot, hydrated: true, progress: { phase: "reading", checked, found: items.length } });
           previous = snapshot; expected = version;
           committed = { snapshot, ...version, response, complete };
           if (!progress || response.coverage.reached_limit) break;
@@ -184,7 +180,7 @@ export class MailReceiptResourceService {
       if (flights.get(key) === flight) publish(key, { error: error instanceof DOMException && error.name === "AbortError" ? "Mail update paused. Your saved receipts are safe." : "Mail couldn’t update. Saved receipts were kept." });
       throw error;
     }).finally(() => {
-      if (flights.get(key) === flight) { flights.delete(key); publish(key, { refreshing: false }); }
+      if (flights.get(key) === flight) { flights.delete(key); publish(key, { refreshing: false, progress: null }); }
     });
     flights.set(key, flight); return flight.promise;
   }
