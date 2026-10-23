@@ -2,6 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+import { SosHoldProgress } from "@/components/one-location/redesign/sos-hold-progress";
+
+const SMS_RING_MARKUP = renderToStaticMarkup(<SosHoldProgress variant="sms" progress={0.5} />);
 
 const HUB_SOURCE = fs.readFileSync(
   path.resolve(
@@ -87,7 +91,7 @@ describe("One Location SMS emergency actions", () => {
       "--sos-label",
       "--sos-placeholder",
     ]) {
-      expect(SMS_PANEL_SOURCE).toContain(token);
+      expect(SMS_PANEL_SOURCE + SMS_RING_MARKUP).toContain(token);
       // Declared for BOTH themes: once on :root, once under .dark.
       expect(GLOBALS_SOURCE.split(token).length - 1).toBeGreaterThanOrEqual(2);
     }
@@ -95,10 +99,11 @@ describe("One Location SMS emergency actions", () => {
 
   it("scales the ring through one viewBox instead of per-breakpoint copies", () => {
     // A second hardcoded ring size is how the mobile and desktop rings drift.
-    expect(SMS_PANEL_SOURCE).toContain('viewBox="0 0 344 344"');
-    expect(SMS_PANEL_SOURCE).toContain("RING_CIRCUMFERENCE");
-    expect(SMS_PANEL_SOURCE).toContain('vectorEffect="non-scaling-stroke"');
-    expect(SMS_PANEL_SOURCE).not.toMatch(/viewBox="0 0 232 232"/);
+    expect(SMS_PANEL_SOURCE).toContain('<SosHoldProgress variant="sms"');
+    expect(SMS_RING_MARKUP).toContain('viewBox="0 0 344 344"');
+    expect(SMS_RING_MARKUP).toContain('pathLength="100"');
+    expect(SMS_RING_MARKUP).toContain('vector-effect="non-scaling-stroke"');
+    expect(SMS_RING_MARKUP).not.toMatch(/viewBox="0 0 232 232"/);
   });
 
   it("leaves the single back control to the top bar", () => {
