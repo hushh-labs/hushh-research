@@ -27,7 +27,8 @@ const portrait = {
   answering: "/one-presence/answering-hd.png",
 } satisfies Record<OnePresenceState, string>;
 
-// HD exports embed one 1254px texture each. Limit backing memory while covering
+// Portraits use one 1254px texture; typing uses sixteen 314px poses.
+// Limit backing memory while covering
 // the 224px panel and larger 256px presentations at three device pixels/CSS px.
 const maxDrawingSurfaceSize = 768;
 // One native loop is three seconds. Dwell begins after drawable artwork is
